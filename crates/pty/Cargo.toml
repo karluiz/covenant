@@ -1,0 +1,19 @@
+[package]
+name = "karl-pty"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "PTY abstraction over portable-pty for karl-terminal"
+
+[dependencies]
+portable-pty = { workspace = true }
+bytes = { workspace = true }
+strip-ansi-escapes = { workspace = true }
+thiserror = { workspace = true }
+# anyhow appears here only to interop with portable-pty's error type;
+# our public surface is PtyError (thiserror), per CLAUDE.md conventions.
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

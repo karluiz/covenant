@@ -1,0 +1,16 @@
+[package]
+name = "karl-blocks"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "OSC 133 block parser and Block types for karl-terminal"
+
+[dependencies]
+bytes = { workspace = true }
+strip-ansi-escapes = { workspace = true }
+thiserror = { workspace = true }
+ulid = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }

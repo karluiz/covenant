@@ -1,0 +1,19 @@
+[package]
+name = "karl-session"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Session lifecycle and event bus for karl-terminal"
+
+[dependencies]
+tokio = { workspace = true }
+bytes = { workspace = true }
+ulid = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+karl-pty = { path = "../pty" }
+karl-blocks = { path = "../blocks" }

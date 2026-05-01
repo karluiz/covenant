@@ -1,0 +1,19 @@
+[package]
+name = "karl-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Super-agent loop, world model and Anthropic client for karl-terminal"
+
+[dependencies]
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+
+karl-session = { path = "../session" }

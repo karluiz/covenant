@@ -1,0 +1,6 @@
+# Cargo build artifacts (workspace target lives at repo root, but keep this
+# file in case of detached builds inside the crate).
+/target/
+
+# Tauri-generated capability schemas
+/gen/schemas/
