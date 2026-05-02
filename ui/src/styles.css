@@ -279,6 +279,44 @@ body {
   margin-left: auto;
 }
 
+.block-fix {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(122, 162, 247, 0.07);
+  border: 1px solid rgba(122, 162, 247, 0.2);
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.block-fix-cmd {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-fix-cmd:hover {
+  text-decoration: underline;
+}
+
+.block-fix-why {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.35;
+  font-style: italic;
+}
+
 /* ─── Settings modal ───────────────────────────────── */
 
 .settings-overlay {

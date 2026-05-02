@@ -8,6 +8,7 @@
 //! consumer). The same chunks feed both; xterm.js still receives every
 //! byte verbatim, the parser is purely observational.
 
+mod fix_proposer;
 mod settings;
 mod summarizer;
 mod world;
@@ -18,9 +19,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use karl_blocks::BlockEvent;
 use karl_pty::SpawnOptions;
-use karl_session::{Session, SessionId, SessionStreams};
+use karl_session::{Session, SessionId, SessionStreams, SessionUiEvent};
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 use tempfile::TempDir;
@@ -141,7 +141,7 @@ fn shell_quote(p: &Path) -> String {
 async fn spawn_session(
     state: State<'_, AppState>,
     on_output: Channel<Vec<u8>>,
-    on_block_event: Channel<BlockEvent>,
+    on_session_event: Channel<SessionUiEvent>,
 ) -> Result<String, String> {
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::zsh_interactive();
@@ -152,16 +152,17 @@ async fn spawn_session(
     let (session, streams) = Session::spawn(opts).map_err(|e| e.to_string())?;
     let id = session.id;
     let id_str = id.to_string();
+    let bus_tx = session.event_sender();
 
     // World model: subscribed to the session bus before insertion so
     // we don't miss BlockSubmitted/BlockFinished events for the very
     // first command.
     let world = Arc::new(Mutex::new(SessionWorldModel::default()));
     let world_for_task = world.clone();
-    let mut bus = session.subscribe();
+    let mut world_bus = session.subscribe();
     tokio::spawn(async move {
         loop {
-            match bus.recv().await {
+            match world_bus.recv().await {
                 Ok(event) => world_for_task.lock().await.apply(event),
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
@@ -180,6 +181,15 @@ async fn spawn_session(
         session.subscribe(),
     );
 
+    // Fix-proposer: on every non-zero BlockFinished, asks Sonnet for a
+    // one-line shell fix and republishes it as SessionEvent::FixSuggested.
+    fix_proposer::spawn_loop(
+        id,
+        state.settings.clone(),
+        session.subscribe(),
+        bus_tx,
+    );
+
     state
         .sessions
         .lock()
@@ -190,16 +200,8 @@ async fn spawn_session(
             world,
         });
 
-    // Hand the two karl-session streams off to per-session Tauri
-    // Channels. The session itself owns the parser + broadcast bus; we
-    // just relay to the frontend here. The bus subscription used by the
-    // M3.2 agent is orthogonal — it taps off `Session::subscribe()`
-    // without going through these channels.
-    let SessionStreams {
-        mut raw_bytes,
-        mut block_events,
-    } = streams;
-
+    // Pump 1: raw PTY bytes to xterm.
+    let SessionStreams { mut raw_bytes } = streams;
     tauri::async_runtime::spawn(async move {
         while let Some(chunk) = raw_bytes.recv().await {
             if on_output.send(chunk.to_vec()).is_err() {
@@ -208,11 +210,32 @@ async fn spawn_session(
             }
         }
     });
+
+    // Pump 2: bus → UI relay. Drops Opened/Closed and the heavy
+    // BlockFinished.output_text via SessionEvent::to_ui().
+    let mut ui_bus = state
+        .sessions
+        .lock()
+        .await
+        .get(&id)
+        .ok_or("session vanished before relay setup")?
+        .session
+        .subscribe();
     tauri::async_runtime::spawn(async move {
-        while let Some(event) = block_events.recv().await {
-            if on_block_event.send(event).is_err() {
-                tracing::debug!("block event channel closed by frontend");
-                break;
+        loop {
+            match ui_bus.recv().await {
+                Ok(event) => {
+                    if let Some(ui) = event.to_ui() {
+                        if on_session_event.send(ui).is_err() {
+                            tracing::debug!("session-event channel closed");
+                            return;
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(skipped = n, "ui relay lagged");
+                }
             }
         }
     });
@@ -253,6 +276,24 @@ async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), Str
         let _ = managed.session.kill();
     }
     Ok(())
+}
+
+/// Type a command into the PTY *without* a trailing newline. The user
+/// reviews and presses Enter to execute. Used by the M4 fix-suggestion
+/// click path — SuggestOnly policy means we never auto-submit.
+#[tauri::command]
+async fn inject_command(
+    state: State<'_, AppState>,
+    id: String,
+    command: String,
+) -> Result<(), String> {
+    let id = parse_id(&id)?;
+    let mut sessions = state.sessions.lock().await;
+    let managed = sessions.get_mut(&id).ok_or("session not found")?;
+    managed
+        .session
+        .write(command.as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -377,6 +418,7 @@ pub fn run() {
             write_to_session,
             resize_session,
             close_session,
+            inject_command,
             get_settings,
             set_settings,
             ask_agent,

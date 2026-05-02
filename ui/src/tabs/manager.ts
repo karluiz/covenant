@@ -139,23 +139,25 @@ export class TabManager {
     }
     fit.fit();
 
-    const blocks = new BlockManager(blocksHost);
-
+    // BlockManager needs the backend SessionId to wire fix-suggestion
+    // injection — but the id only exists after spawn. Construct lazily
+    // once we have one.
+    let blocks: BlockManager | null = null;
     let sessionId: SessionId;
     try {
       sessionId = await spawnSession({
         onOutput: (chunk) => term.write(chunk),
-        onBlockEvent: (event) => blocks.handleEvent(event),
+        onSessionEvent: (event) => blocks?.handleEvent(event),
       });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("spawn_session failed", err);
       term.dispose();
       this.workspace.removeChild(pane);
-      // Restore previous active tab if any.
       if (this.activeId) this.activate(this.activeId, { skipIfSame: false });
       return;
     }
+    blocks = new BlockManager(blocksHost, sessionId);
 
     await resizeSession(sessionId, term.cols, term.rows).catch((e) =>
       // eslint-disable-next-line no-console

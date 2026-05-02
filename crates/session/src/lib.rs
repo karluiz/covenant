@@ -28,6 +28,7 @@ use ulid::Ulid;
 const EVENT_BUS_CAPACITY: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct SessionId(pub Ulid);
 
 impl SessionId {
@@ -95,15 +96,116 @@ pub enum SessionEvent {
         session: SessionId,
         cwd: PathBuf,
     },
+    /// Emitted by the M4 fix-proposer task on the same bus the session
+    /// pump publishes to. The shape mirrors `BlockFinished` enough that
+    /// any subscriber can correlate by `block` id.
+    FixSuggested {
+        session: SessionId,
+        block: BlockId,
+        /// The single shell command the agent suggests typing in.
+        /// SuggestOnly: never auto-executed.
+        command: String,
+        /// Short justification surfaced to the user inline.
+        rationale: String,
+    },
+}
+
+/// Lightweight UI-facing projection of [`SessionEvent`]. Strips fields
+/// the frontend doesn't render (notably `BlockFinished.output_text`,
+/// which can be many KB and lives in xterm anyway).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SessionUiEvent {
+    PromptStart {
+        session: SessionId,
+    },
+    BlockStarted {
+        session: SessionId,
+        block: BlockId,
+        command: String,
+        cwd: PathBuf,
+        started_at_unix_ms: u64,
+    },
+    BlockFinished {
+        session: SessionId,
+        block: BlockId,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+    },
+    CwdChanged {
+        session: SessionId,
+        cwd: PathBuf,
+    },
+    FixSuggested {
+        session: SessionId,
+        block: BlockId,
+        command: String,
+        rationale: String,
+    },
+}
+
+impl SessionEvent {
+    /// Map a bus event to its UI-facing projection. Returns `None` for
+    /// events the UI does not need (Opened/Closed today).
+    pub fn to_ui(&self) -> Option<SessionUiEvent> {
+        match self {
+            SessionEvent::Opened { .. } | SessionEvent::Closed { .. } => None,
+            SessionEvent::PromptStart { session } => {
+                Some(SessionUiEvent::PromptStart { session: *session })
+            }
+            SessionEvent::BlockSubmitted {
+                session,
+                block,
+                command,
+                cwd,
+                started_at_unix_ms,
+            } => Some(SessionUiEvent::BlockStarted {
+                session: *session,
+                block: *block,
+                command: command.clone(),
+                cwd: cwd.clone(),
+                started_at_unix_ms: *started_at_unix_ms,
+            }),
+            SessionEvent::BlockFinished {
+                session,
+                block,
+                exit_code,
+                duration_ms,
+                ..
+            } => Some(SessionUiEvent::BlockFinished {
+                session: *session,
+                block: *block,
+                exit_code: *exit_code,
+                duration_ms: *duration_ms,
+            }),
+            SessionEvent::CwdChanged { session, cwd } => {
+                Some(SessionUiEvent::CwdChanged {
+                    session: *session,
+                    cwd: cwd.clone(),
+                })
+            }
+            SessionEvent::FixSuggested {
+                session,
+                block,
+                command,
+                rationale,
+            } => Some(SessionUiEvent::FixSuggested {
+                session: *session,
+                block: *block,
+                command: command.clone(),
+                rationale: rationale.clone(),
+            }),
+        }
+    }
 }
 
 /// Streams the Tauri layer drains to feed per-session frontend channels.
-/// Distinct from the broadcast bus because xterm needs every byte in
-/// order — no `Lagged` semantics — and because the sidebar already has
-/// a structured `BlockEvent` API.
+/// xterm needs every byte in order, so the raw stream is its own mpsc
+/// (no `Lagged` semantics). Sidebar / agent UI events come from the
+/// broadcast bus directly — Tauri's relay task in karl-app converts
+/// `SessionEvent` → `SessionUiEvent` before forwarding.
 pub struct SessionStreams {
     pub raw_bytes: mpsc::UnboundedReceiver<Bytes>,
-    pub block_events: mpsc::UnboundedReceiver<BlockEvent>,
 }
 
 /// Owned session handle. `write` / `resize` / `kill` are mirrors over
@@ -124,15 +226,12 @@ impl Session {
         let id = SessionId::new();
         let (events_tx, _) = broadcast::channel(EVENT_BUS_CAPACITY);
         let (raw_tx, raw_rx) = mpsc::unbounded_channel::<Bytes>();
-        let (block_tx, block_rx) = mpsc::unbounded_channel::<BlockEvent>();
 
         let pump_events_tx = events_tx.clone();
-        tokio::spawn(pump(id, pty_rx, raw_tx, block_tx, pump_events_tx));
+        tokio::spawn(pump(id, pty_rx, raw_tx, pump_events_tx));
 
         // Best-effort opened announcement. Subscribers attached after
-        // spawn won't see this — that's the broadcast contract. M3.2's
-        // agent will subscribe before spawn via a different channel
-        // (or accept the miss; `Opened` is informational).
+        // spawn won't see this — that's the broadcast contract.
         let _ = events_tx.send(SessionEvent::Opened {
             session: id,
             started_at_unix_ms: now_ms(),
@@ -145,15 +244,19 @@ impl Session {
                 pty,
                 events_tx,
             },
-            SessionStreams {
-                raw_bytes: raw_rx,
-                block_events: block_rx,
-            },
+            SessionStreams { raw_bytes: raw_rx },
         ))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
         self.events_tx.subscribe()
+    }
+
+    /// Clone of the bus sender. Tasks that synthesize new events back
+    /// into the same session (e.g. the M4 fix-proposer publishing
+    /// `FixSuggested`) hold one of these.
+    pub fn event_sender(&self) -> broadcast::Sender<SessionEvent> {
+        self.events_tx.clone()
     }
 
     pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
@@ -173,7 +276,6 @@ async fn pump(
     id: SessionId,
     mut pty_rx: mpsc::UnboundedReceiver<Bytes>,
     raw_tx: mpsc::UnboundedSender<Bytes>,
-    block_tx: mpsc::UnboundedSender<BlockEvent>,
     events_tx: broadcast::Sender<SessionEvent>,
 ) {
     let mut parser = BlockParser::new();
@@ -194,11 +296,8 @@ async fn pump(
             buf.extend_from_slice(&chunk);
         }
 
-        // 3. Parse for block events; forward verbatim to UI; lift to
-        //    SessionEvents on the broadcast bus.
+        // 3. Parse for block events; lift to SessionEvents on the bus.
         for event in parser.feed(&chunk) {
-            let _ = block_tx.send(event.clone());
-
             match event {
                 BlockEvent::PromptStart => {
                     let _ = events_tx.send(SessionEvent::PromptStart { session: id });

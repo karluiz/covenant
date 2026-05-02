@@ -1,10 +1,14 @@
-// Sidebar block list. Consumes BlockEvents from the backend, assembles
-// them into Block records, and renders an append-only list inside a host
-// element. Rendering is intentionally crude (innerHTML rebuild on each
-// change) — at M1 traffic levels this is fine; we'll diff at M5+ if it
-// matters.
+// Sidebar block list + inline fix suggestions.
+//
+// Consumes SessionUiEvents from the backend, assembles them into Block
+// records keyed by the *backend* BlockId (so fix_suggested events can
+// be correlated to their block), and renders an append-only list.
+// Render is innerHTML rebuild on every change — fine at M2 traffic.
+// Fix suggestions appear inline under the failed block; clicking the
+// suggested command writes it into the PTY without a newline (the user
+// reviews and presses Enter — SuggestOnly policy, M4).
 
-import type { BlockEvent } from "../api";
+import { injectCommand, type SessionId, type SessionUiEvent } from "../api";
 
 interface Block {
   id: string;
@@ -13,53 +17,65 @@ interface Block {
   startedAtMs: number;
   finishedAtMs?: number;
   exitCode: number | null | undefined;
+  fix?: { command: string; rationale: string };
 }
 
 export class BlockManager {
-  private blocks: Block[] = [];
-  private inFlight?: Block;
+  private readonly blocksById = new Map<string, Block>();
+  private readonly order: string[] = [];
   private currentCwd = "";
 
-  constructor(private readonly host: HTMLElement) {
+  constructor(
+    private readonly host: HTMLElement,
+    private readonly sessionId: SessionId,
+  ) {
     this.host.classList.add("blocks-host");
     this.renderEmpty();
   }
 
-  handleEvent(event: BlockEvent): void {
+  handleEvent(event: SessionUiEvent): void {
     switch (event.kind) {
       case "prompt_start":
-        // No visible side effect today. Future: pulse a "shell idle"
-        // indicator.
+        // Future: pulse a "shell idle" indicator.
         break;
 
       case "cwd_changed":
-        this.currentCwd = event.path;
-        if (this.inFlight) this.inFlight.cwd = this.currentCwd;
+        this.currentCwd = event.cwd;
         break;
 
-      case "command_submitted": {
-        const trimmed = event.command.trim();
+      case "block_started": {
         const block: Block = {
-          id: crypto.randomUUID(),
-          command: trimmed.length === 0 ? "(empty command)" : trimmed,
-          cwd: this.currentCwd,
+          id: event.block,
+          command:
+            event.command.trim().length === 0
+              ? "(empty command)"
+              : event.command.trim(),
+          cwd: event.cwd || this.currentCwd,
           startedAtMs: performance.now(),
           exitCode: undefined,
         };
-        this.blocks.push(block);
-        this.inFlight = block;
+        this.blocksById.set(block.id, block);
+        this.order.push(block.id);
         this.render();
         break;
       }
 
-      case "command_finished":
-        if (this.inFlight) {
-          this.inFlight.exitCode = event.exit_code;
-          this.inFlight.finishedAtMs = performance.now();
-          this.inFlight = undefined;
-          this.render();
-        }
+      case "block_finished": {
+        const block = this.blocksById.get(event.block);
+        if (!block) return;
+        block.exitCode = event.exit_code;
+        block.finishedAtMs = block.startedAtMs + event.duration_ms;
+        this.render();
         break;
+      }
+
+      case "fix_suggested": {
+        const block = this.blocksById.get(event.block);
+        if (!block) return;
+        block.fix = { command: event.command, rationale: event.rationale };
+        this.render();
+        break;
+      }
     }
   }
 
@@ -71,20 +87,24 @@ export class BlockManager {
   }
 
   private render(): void {
-    if (this.blocks.length === 0) {
+    if (this.order.length === 0) {
       this.renderEmpty();
       return;
     }
 
-    const items = this.blocks
-      .map((b) => {
+    const items = this.order
+      .map((id) => {
+        const b = this.blocksById.get(id);
+        if (!b) return "";
         const status = renderStatus(b);
         const cwd = b.cwd ? escapeHtml(shortenCwd(b.cwd)) : "";
+        const fix = renderFix(b);
         return `
-          <li class="block-item">
+          <li class="block-item" data-block-id="${escapeHtml(b.id)}">
             ${cwd ? `<div class="block-cwd">${cwd}</div>` : ""}
             <div class="block-cmd">$ ${escapeHtml(b.command)}</div>
             <div class="block-meta">${status}</div>
+            ${fix}
           </li>
         `;
       })
@@ -93,10 +113,25 @@ export class BlockManager {
     this.host.innerHTML = `
       <header class="blocks-header">
         <span>blocks</span>
-        <span class="blocks-count">${this.blocks.length}</span>
+        <span class="blocks-count">${this.order.length}</span>
       </header>
       <ul class="blocks-list">${items}</ul>
     `;
+
+    // Wire fix-suggestion click handlers (rebuilt every render).
+    this.host
+      .querySelectorAll<HTMLElement>(".block-fix-cmd")
+      .forEach((el) => {
+        el.addEventListener("click", () => {
+          const cmd = el.dataset.cmd ?? "";
+          if (cmd) {
+            void injectCommand(this.sessionId, cmd).catch((err) => {
+              // eslint-disable-next-line no-console
+              console.error("inject_command failed", err);
+            });
+          }
+        });
+      });
 
     const list = this.host.querySelector<HTMLUListElement>(".blocks-list");
     if (list) list.scrollTop = list.scrollHeight;
@@ -117,6 +152,25 @@ function renderStatus(b: Block): string {
   `;
 }
 
+function renderFix(b: Block): string {
+  if (!b.fix) return "";
+  return `
+    <div class="block-fix">
+      <button
+        type="button"
+        class="block-fix-cmd"
+        data-cmd="${escapeHtml(b.fix.command)}"
+        title="Click to type into the terminal (won't auto-execute)"
+      >💡 ${escapeHtml(b.fix.command)}</button>
+      ${
+        b.fix.rationale
+          ? `<div class="block-fix-why">${escapeHtml(b.fix.rationale)}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;
@@ -127,8 +181,6 @@ function formatDuration(ms: number): string {
 }
 
 function shortenCwd(path: string): string {
-  // Replace the user's home with `~` for legibility. We don't have HOME
-  // on the renderer side, so detect the common /Users/<name> macOS shape.
   const m = /^\/Users\/[^/]+(\/.*)?$/.exec(path);
   if (m) return `~${m[1] ?? ""}`;
   return path;

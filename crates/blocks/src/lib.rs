@@ -32,6 +32,7 @@ use ulid::Ulid;
 use vte::Perform;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct BlockId(pub Ulid);
 
 impl BlockId {
