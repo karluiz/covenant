@@ -14,3 +14,9 @@ thiserror = { workspace = true }
 ulid = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
+vte = { workspace = true }
+
+[dev-dependencies]
+karl-pty = { path = "../pty" }
+tempfile = "3"
+tokio = { workspace = true }
