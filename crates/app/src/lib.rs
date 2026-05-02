@@ -11,6 +11,7 @@
 mod cross_session;
 mod fix_proposer;
 mod settings;
+mod storage;
 mod summarizer;
 mod world;
 
@@ -31,6 +32,7 @@ use ulid::Ulid;
 
 use cross_session::CrossSessionWatcher;
 use settings::Settings;
+use storage::Storage;
 use world::SessionWorldModel;
 
 /// Bundled into the binary so the app is self-contained — no need to
@@ -54,6 +56,7 @@ struct AppState {
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,
+    storage: Storage,
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -157,16 +160,59 @@ async fn spawn_session(
     let id_str = id.to_string();
     let bus_tx = session.event_sender();
 
+    // Persist the session row immediately so block FK references resolve.
+    let started_unix_ms = now_unix_ms();
+    if let Err(e) = state.storage.save_session(id, started_unix_ms).await {
+        tracing::warn!(session = %id, error = %e, "failed to persist session row");
+    }
+
     // World model: subscribed to the session bus before insertion so
     // we don't miss BlockSubmitted/BlockFinished events for the very
-    // first command.
+    // first command. Also persists every BlockFinished to SQLite so
+    // closing the app doesn't lose history.
     let world = Arc::new(Mutex::new(SessionWorldModel::default()));
     let world_for_task = world.clone();
+    let storage_for_world = state.storage.clone();
     let mut world_bus = session.subscribe();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         loop {
             match world_bus.recv().await {
-                Ok(event) => world_for_task.lock().await.apply(event),
+                Ok(event) => {
+                    // Persist BEFORE applying — keeps the in-memory and
+                    // on-disk views consistent if a panic happens mid-apply.
+                    if let karl_session::SessionEvent::BlockFinished {
+                        block,
+                        command,
+                        cwd,
+                        exit_code,
+                        duration_ms,
+                        output_text,
+                        ..
+                    } = &event
+                    {
+                        let cwd_str = if cwd.as_os_str().is_empty() {
+                            None
+                        } else {
+                            Some(cwd.display().to_string())
+                        };
+                        if let Err(e) = storage_for_world
+                            .save_block(
+                                *block,
+                                id,
+                                command.clone(),
+                                cwd_str,
+                                *exit_code,
+                                *duration_ms,
+                                now_unix_ms(),
+                                truncate_for_persist(output_text),
+                            )
+                            .await
+                        {
+                            tracing::warn!(error = %e, "save_block failed");
+                        }
+                    }
+                    world_for_task.lock().await.apply(event);
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!(skipped = n, "world model lagged on bus");
@@ -177,10 +223,12 @@ async fn spawn_session(
 
     // Summarizer: independently subscribed to the same bus, debounces
     // BlockFinished events and calls Sonnet to refresh world.summary.
+    // Also persists each new summary to disk via the shared Storage.
     summarizer::spawn_loop(
         id,
         world.clone(),
         state.settings.clone(),
+        state.storage.clone(),
         session.subscribe(),
     );
 
@@ -285,7 +333,33 @@ async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), Str
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();
     }
+    if let Err(e) = state.storage.close_session(id, now_unix_ms()).await {
+        tracing::warn!(session = %id, error = %e, "close_session persist failed");
+    }
     Ok(())
+}
+
+fn now_unix_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Cap persisted output_text so a runaway `cat /dev/urandom | head -c 1G`
+/// can't bloat the DB. The agent gets the truncated version too.
+fn truncate_for_persist(s: &str) -> String {
+    const MAX: usize = 64 * 1024;
+    if s.len() <= MAX {
+        s.to_string()
+    } else {
+        format!(
+            "{}\n[...truncated, original {} bytes]",
+            &s[..MAX],
+            s.len()
+        )
+    }
 }
 
 /// Type a command into the PTY *without* a trailing newline. The user
@@ -415,6 +489,9 @@ pub fn run() {
             let loaded = settings::load(&path);
             tracing::info!(path = %path.display(), "settings loaded");
 
+            let storage = Storage::open(&dir.join("history.db"))
+                .map_err(|e| format!("open storage: {e}"))?;
+
             let settings_arc = Arc::new(Mutex::new(loaded));
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
 
@@ -424,6 +501,7 @@ pub fn run() {
                 settings_path: path,
                 rate: Mutex::new(RateLimiter::default()),
                 cross_session: cross,
+                storage,
             });
             Ok(())
         })

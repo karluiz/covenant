@@ -15,12 +15,13 @@
 //!     the world model since the world's own subscriber populated them.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use karl_session::{SessionEvent, SessionId};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::settings::Settings;
+use crate::storage::Storage;
 use crate::world::SessionWorldModel;
 
 const DEBOUNCE: Duration = Duration::from_millis(500);
@@ -46,15 +47,17 @@ pub fn spawn_loop(
     session_id: SessionId,
     world: Arc<Mutex<SessionWorldModel>>,
     settings: Arc<Mutex<Settings>>,
+    storage: Storage,
     bus: broadcast::Receiver<SessionEvent>,
 ) {
-    tokio::spawn(run_loop(session_id, world, settings, bus));
+    tauri::async_runtime::spawn(run_loop(session_id, world, settings, storage, bus));
 }
 
 async fn run_loop(
     session_id: SessionId,
     world: Arc<Mutex<SessionWorldModel>>,
     settings: Arc<Mutex<Settings>>,
+    storage: Storage,
     mut bus: broadcast::Receiver<SessionEvent>,
 ) {
     let mut last_block_at: Option<Instant> = None;
@@ -81,7 +84,7 @@ async fn run_loop(
 
             _ = wait_until_debounce(last_block_at) => {
                 last_block_at = None;
-                if let Err(e) = regenerate(session_id, &world, &settings).await {
+                if let Err(e) = regenerate(session_id, &world, &settings, &storage).await {
                     tracing::warn!(
                         session = %session_id,
                         error = %e,
@@ -111,6 +114,7 @@ async fn regenerate(
     session_id: SessionId,
     world: &Arc<Mutex<SessionWorldModel>>,
     settings: &Arc<Mutex<Settings>>,
+    storage: &Storage,
 ) -> Result<(), String> {
     // Snapshot inputs without holding any locks across the http call.
     let (api_key, model) = {
@@ -177,6 +181,17 @@ async fn regenerate(
 
     let trimmed = summary.trim().to_string();
     let tokens_estimate = trimmed.len() / 4;
+
+    let updated_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    if let Err(e) = storage
+        .save_summary(session_id, trimmed.clone(), updated_at)
+        .await
+    {
+        tracing::warn!(error = %e, "failed to persist summary");
+    }
 
     world.lock().await.summary = Some(trimmed);
     tracing::info!(

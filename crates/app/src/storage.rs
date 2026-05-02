@@ -1,0 +1,309 @@
+//! SQLite persistence for karl-terminal sessions, blocks, and rolling
+//! summaries.
+//!
+//! M7.1 lands the WRITE path only. Spawned sessions are inserted on
+//! create; finished blocks are appended; per-session summaries are
+//! upserted as they're regenerated. Read path (querying historical
+//! blocks for the agent's world model) is M7.2.
+//!
+//! The DB lives at `<app_config_dir>/history.db` — same dir as
+//! `config.json`. WAL mode is enabled so the writer task and any future
+//! readers don't block each other. All sync rusqlite calls are wrapped
+//! in `tokio::task::spawn_blocking` so they don't stall the executor.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use karl_blocks::BlockId;
+use karl_session::SessionId;
+use rusqlite::{params, Connection};
+use thiserror::Error;
+use tokio::sync::Mutex;
+
+const SCHEMA: &str = "\
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+PRAGMA synchronous = NORMAL;
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id                  TEXT PRIMARY KEY,
+    started_at_unix_ms  INTEGER NOT NULL,
+    closed_at_unix_ms   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS blocks (
+    id                   TEXT PRIMARY KEY,
+    session_id           TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    command              TEXT NOT NULL,
+    cwd                  TEXT,
+    exit_code            INTEGER,
+    duration_ms          INTEGER,
+    finished_at_unix_ms  INTEGER NOT NULL,
+    output_text          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocks_session    ON blocks(session_id);
+CREATE INDEX IF NOT EXISTS idx_blocks_finished   ON blocks(finished_at_unix_ms);
+CREATE INDEX IF NOT EXISTS idx_blocks_failures   ON blocks(exit_code) WHERE exit_code IS NOT 0;
+
+CREATE TABLE IF NOT EXISTS summaries (
+    session_id          TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    summary             TEXT NOT NULL,
+    updated_at_unix_ms  INTEGER NOT NULL
+);
+";
+
+#[derive(Debug, Error)]
+pub enum StorageError {
+    #[error("sqlite: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("blocking task panicked: {0}")]
+    Join(String),
+}
+
+#[derive(Clone)]
+pub struct Storage {
+    inner: Arc<Mutex<Connection>>,
+    path: PathBuf,
+}
+
+impl Storage {
+    pub fn open(path: &Path) -> Result<Self, StorageError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(path)?;
+        conn.execute_batch(SCHEMA)?;
+        tracing::info!(path = %path.display(), "storage opened");
+        Ok(Self {
+            inner: Arc::new(Mutex::new(conn)),
+            path: path.to_path_buf(),
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Insert a new session row. Idempotent via INSERT OR IGNORE.
+    pub async fn save_session(
+        &self,
+        id: SessionId,
+        started_at_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        let id_str = id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT OR IGNORE INTO sessions (id, started_at_unix_ms) VALUES (?1, ?2)",
+                params![id_str, started_at_unix_ms as i64],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Mark a session closed. Best-effort — if the row doesn't exist
+    /// (lost session_id, etc.), silently does nothing.
+    pub async fn close_session(
+        &self,
+        id: SessionId,
+        closed_at_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        let id_str = id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE sessions SET closed_at_unix_ms = ?1 WHERE id = ?2",
+                params![closed_at_unix_ms as i64, id_str],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Append a finished block. Caller controls truncation of
+    /// `output_text` if the full output is too large to persist.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_block(
+        &self,
+        id: BlockId,
+        session_id: SessionId,
+        command: String,
+        cwd: Option<String>,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+        finished_at_unix_ms: u64,
+        output_text: String,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        let id_str = id.to_string();
+        let session_str = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT OR REPLACE INTO blocks
+                 (id, session_id, command, cwd, exit_code, duration_ms, finished_at_unix_ms, output_text)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    id_str,
+                    session_str,
+                    command,
+                    cwd,
+                    exit_code,
+                    duration_ms as i64,
+                    finished_at_unix_ms as i64,
+                    output_text,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Upsert the rolling summary for a session.
+    pub async fn save_summary(
+        &self,
+        session_id: SessionId,
+        summary: String,
+        updated_at_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        let session_str = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO summaries (session_id, summary, updated_at_unix_ms)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                     summary = excluded.summary,
+                     updated_at_unix_ms = excluded.updated_at_unix_ms",
+                params![session_str, summary, updated_at_unix_ms as i64],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Quick stats helper for diagnostics. Returns (sessions, blocks).
+    pub async fn counts(&self) -> Result<(u64, u64), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(u64, u64), StorageError> {
+            let c = conn.blocking_lock();
+            let s: i64 = c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))?;
+            let b: i64 = c.query_row("SELECT COUNT(*) FROM blocks", [], |r| r.get(0))?;
+            Ok((s as u64, b as u64))
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh() -> (Storage, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let s = Storage::open(&path).expect("open");
+        (s, dir)
+    }
+
+    #[tokio::test]
+    async fn schema_and_counts() {
+        let (s, _g) = fresh();
+        let (sessions, blocks) = s.counts().await.unwrap();
+        assert_eq!((sessions, blocks), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn round_trip_session_and_block() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1_000_000).await.unwrap();
+
+        let block = BlockId::new();
+        s.save_block(
+            block,
+            session,
+            "echo hi".to_string(),
+            Some("/tmp".to_string()),
+            Some(0),
+            12,
+            1_000_500,
+            "hi\n".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let (sessions, blocks) = s.counts().await.unwrap();
+        assert_eq!((sessions, blocks), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn save_block_without_session_fk_fails_cleanly() {
+        let (s, _g) = fresh();
+        // FK enforcement on; block referencing a non-existent session
+        // should be rejected by sqlite. We propagate the error rather
+        // than silently swallowing it.
+        let err = s
+            .save_block(
+                BlockId::new(),
+                SessionId::new(),
+                "x".to_string(),
+                None,
+                Some(0),
+                0,
+                0,
+                String::new(),
+            )
+            .await;
+        assert!(err.is_err(), "expected FK failure, got: {err:?}");
+    }
+
+    #[tokio::test]
+    async fn summary_upsert_replaces_prior() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1_000_000).await.unwrap();
+        s.save_summary(session, "first".to_string(), 1).await.unwrap();
+        s.save_summary(session, "second".to_string(), 2).await.unwrap();
+
+        let conn = s.inner.lock().await;
+        let row: (String, i64) = conn
+            .query_row(
+                "SELECT summary, updated_at_unix_ms FROM summaries WHERE session_id = ?1",
+                params![session.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("second".to_string(), 2));
+    }
+
+    #[tokio::test]
+    async fn close_session_sets_closed_at() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 100).await.unwrap();
+        s.close_session(session, 200).await.unwrap();
+
+        let conn = s.inner.lock().await;
+        let closed: Option<i64> = conn
+            .query_row(
+                "SELECT closed_at_unix_ms FROM sessions WHERE id = ?1",
+                params![session.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(closed, Some(200));
+    }
+}
