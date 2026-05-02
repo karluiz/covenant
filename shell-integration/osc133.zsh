@@ -30,7 +30,13 @@ __karl_emit_command_done() {
 }
 
 __karl_emit_output_start() {
-    print -nr -- $'\e]133;C\e\\'
+    # WezTerm/iTerm extension: emit the actual command line as the OSC
+    # 133;C payload so the parser does not have to reconstruct it from
+    # ZLE bytes — which breaks under zsh-autosuggestions, history-
+    # substring-search, syntax-highlighting, etc. Strip control bytes
+    # that would corrupt the OSC string terminator.
+    local cmd="${1//[$'\e\x07\x00']/}"
+    print -nr -- $'\e]133;C;'"$cmd"$'\e\\'
 }
 
 __karl_emit_osc7() {
@@ -48,7 +54,8 @@ __karl_precmd() {
 }
 
 __karl_preexec() {
-    __karl_emit_output_start
+    # zsh passes the about-to-execute command as $1.
+    __karl_emit_output_start "$1"
     _karl_cmd_active=1
 }
 

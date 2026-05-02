@@ -1,6 +1,7 @@
-// M0 round-trip: mount xterm.js, spawn a backend PTY session, pipe bytes
-// in both directions. No blocks, no tabs, no agent — just a working
-// terminal so we can verify the substrate before moving to M1.
+// M1 layout: terminal on the left, block sidebar on the right.
+// Both panels are driven by a single backend session — bytes flow to
+// xterm verbatim while the same chunks feed the OSC 133 parser, whose
+// events populate the sidebar.
 
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -13,10 +14,14 @@ import {
   spawnSession,
   writeToSession,
 } from "./api";
+import { BlockManager } from "./blocks/manager";
 
 async function bootTerminal(): Promise<void> {
-  const host = document.getElementById("terminal");
-  if (!host) throw new Error("missing #terminal mount node");
+  const termHost = document.getElementById("terminal");
+  const blocksHost = document.getElementById("blocks");
+  if (!termHost || !blocksHost) {
+    throw new Error("missing #terminal or #blocks mount node");
+  }
 
   const term = new Terminal({
     fontFamily:
@@ -39,10 +44,8 @@ async function bootTerminal(): Promise<void> {
 
   const fit = new FitAddon();
   term.loadAddon(fit);
-  term.open(host);
+  term.open(termHost);
 
-  // WebGL renderer is optional; fall back silently if the GPU path isn't
-  // available (e.g. headless / virtual display).
   try {
     term.loadAddon(new WebglAddon());
   } catch (err) {
@@ -52,9 +55,13 @@ async function bootTerminal(): Promise<void> {
 
   fit.fit();
 
-  const id = await spawnSession((chunk) => term.write(chunk));
+  const blocks = new BlockManager(blocksHost);
 
-  // Sync the backend PTY to the actual grid the front-end ended up with.
+  const id = await spawnSession({
+    onOutput: (chunk) => term.write(chunk),
+    onBlockEvent: (event) => blocks.handleEvent(event),
+  });
+
   await resizeSession(id, term.cols, term.rows);
 
   const encoder = new TextEncoder();
@@ -86,8 +93,8 @@ async function bootTerminal(): Promise<void> {
 void bootTerminal().catch((err) => {
   // eslint-disable-next-line no-console
   console.error("karl-terminal boot failed", err);
-  const host = document.getElementById("terminal");
-  if (host) {
-    host.textContent = `boot failed: ${String(err)}`;
+  const termHost = document.getElementById("terminal");
+  if (termHost) {
+    termHost.textContent = `boot failed: ${String(err)}`;
   }
 });

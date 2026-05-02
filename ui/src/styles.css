@@ -4,6 +4,15 @@
     -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   background: #0b0d10;
   color: #d6d8db;
+
+  --bg: #0b0d10;
+  --bg-panel: #11141a;
+  --border: #1c2027;
+  --muted: #6c7280;
+  --accent: #7aa2f7;
+  --ok: #9ece6a;
+  --fail: #f7768e;
+  --running: #e0af68;
 }
 
 html,
@@ -15,15 +24,21 @@ body {
   overflow: hidden;
 }
 
-#terminal {
+#layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  height: 100%;
   width: 100%;
+}
+
+#terminal {
   height: 100%;
   padding: 8px;
   box-sizing: border-box;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 
-/* Make xterm's own viewport fill the host container without inner scroll
-   bars (xterm's scrollback handles scrolling itself). */
 .xterm,
 .xterm-viewport,
 .xterm-screen {
@@ -33,4 +48,109 @@ body {
 
 .xterm-viewport {
   background-color: transparent !important;
+}
+
+#blocks {
+  height: 100%;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.blocks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.blocks-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.blocks-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 16px;
+}
+
+.blocks-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.blocks-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.blocks-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.block-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.block-cwd {
+  color: var(--muted);
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-cmd {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.block-exit.ok {
+  color: var(--ok);
+}
+
+.block-exit.fail {
+  color: var(--fail);
+}
+
+.block-running {
+  color: var(--running);
+}
+
+.block-dur {
+  margin-left: auto;
 }

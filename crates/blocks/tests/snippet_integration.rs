@@ -61,18 +61,17 @@ async fn zsh_snippet_emits_osc133_markers() {
         "expected at least one PromptStart in: {events:?}"
     );
     assert!(
-        events.iter().any(|e| matches!(e, BlockEvent::CommandStart)),
-        "expected at least one CommandStart in: {events:?}"
-    );
-    assert!(
-        events.iter().any(|e| matches!(e, BlockEvent::OutputStart)),
-        "expected OutputStart in: {events:?}"
+        events.iter().any(|e| matches!(
+            e,
+            BlockEvent::CommandSubmitted { command } if command.contains("echo karl-test")
+        )),
+        "expected CommandSubmitted{{echo karl-test}} in: {events:?}"
     );
     assert!(
         events
             .iter()
             .any(|e| matches!(e, BlockEvent::CommandFinished { exit_code: Some(0) })),
-        "expected CommandFinished {{0}} for `echo karl-test` in: {events:?}"
+        "expected CommandFinished{{0}} for `echo karl-test` in: {events:?}"
     );
     assert!(
         events.iter().any(|e| matches!(e, BlockEvent::CwdChanged { .. })),

@@ -26,6 +26,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 ulid = { workspace = true }
+tempfile = "3"
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

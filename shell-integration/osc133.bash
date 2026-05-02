@@ -31,7 +31,11 @@ __karl_preexec() {
     case "$BASH_COMMAND" in
         __karl_*) return ;;
     esac
-    printf '\e]133;C\e\\'
+    # Carry the command line as the OSC 133;C payload (parser prefers
+    # this over byte capture). BASH_COMMAND is the simple command, which
+    # is good enough for the sidebar.
+    local cmd="${BASH_COMMAND//[$'\e\x07\x00']/}"
+    printf '\e]133;C;%s\e\\' "$cmd"
     _karl_cmd_active=1
 }
 

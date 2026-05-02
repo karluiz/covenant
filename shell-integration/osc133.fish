@@ -22,7 +22,9 @@ function __karl_precmd --on-event fish_prompt
 end
 
 function __karl_preexec --on-event fish_preexec
-    printf '\e]133;C\e\\'
+    # fish_preexec passes the about-to-run command as $argv[1].
+    set -l cmd (string replace -a -r '[\\x00\\x07\\x1b]' '' -- "$argv[1]")
+    printf '\e]133;C;%s\e\\' "$cmd"
     set -g _karl_cmd_active 1
 end
 
