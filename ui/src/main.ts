@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { AgentPanel } from "./agent/panel";
+import { ToastHost } from "./notifications/toast";
 import { SettingsPanel } from "./settings/panel";
 import { TabManager } from "./tabs/manager";
 
@@ -28,6 +29,15 @@ async function boot(): Promise<void> {
 
   const settings = new SettingsPanel(document.body);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
+
+  const toasts = new ToastHost(document.body, {
+    onClick: (finding) => {
+      // Route a clicked toast into the agent panel so the user can
+      // ask follow-ups about the cross-session pattern.
+      agent.openWithSeed(`Re cross-session finding: ${finding.message}\n\n`);
+    },
+  });
+  await toasts.start();
 
   await manager.createTab();
 

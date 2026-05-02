@@ -8,6 +8,7 @@
 //! consumer). The same chunks feed both; xterm.js still receives every
 //! byte verbatim, the parser is purely observational.
 
+mod cross_session;
 mod fix_proposer;
 mod settings;
 mod summarizer;
@@ -28,6 +29,7 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ulid::Ulid;
 
+use cross_session::CrossSessionWatcher;
 use settings::Settings;
 use world::SessionWorldModel;
 
@@ -51,6 +53,7 @@ struct AppState {
     settings: Arc<Mutex<Settings>>,
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
+    cross_session: CrossSessionWatcher,
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -189,6 +192,13 @@ async fn spawn_session(
         session.subscribe(),
         bus_tx,
     );
+
+    // Cross-session watcher: forwards this session's bus into the
+    // global pump so M5 patterns across all open tabs can be detected.
+    state
+        .cross_session
+        .attach(id, world.clone(), session.subscribe())
+        .await;
 
     state
         .sessions
@@ -405,11 +415,15 @@ pub fn run() {
             let loaded = settings::load(&path);
             tracing::info!(path = %path.display(), "settings loaded");
 
+            let settings_arc = Arc::new(Mutex::new(loaded));
+            let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
+
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
-                settings: Arc::new(Mutex::new(loaded)),
+                settings: settings_arc,
                 settings_path: path,
                 rate: Mutex::new(RateLimiter::default()),
+                cross_session: cross,
             });
             Ok(())
         })

@@ -36,6 +36,18 @@ export class AgentPanel {
     this.render();
   }
 
+  /// Open the panel and pre-fill the input with `seed`. Used by toast
+  /// click-through so the user can immediately ask the agent about the
+  /// flagged cross-session finding.
+  openWithSeed(seed: string): void {
+    if (!this.isOpen()) this.render();
+    if (this.inputEl) {
+      this.inputEl.value = seed;
+      this.inputEl.focus();
+      this.inputEl.setSelectionRange(seed.length, seed.length);
+    }
+  }
+
   close(): void {
     if (!this.modal) return;
     this.modal.remove();
