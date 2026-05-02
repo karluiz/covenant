@@ -12,8 +12,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
 
-use karl_blocks::{BlockEvent, BlockParser};
-use karl_pty::{PtySession, SpawnOptions};
+use karl_blocks::BlockEvent;
+use karl_pty::SpawnOptions;
+use karl_session::{Session, SessionId, SessionStreams};
 use tauri::ipc::Channel;
 use tauri::State;
 use tempfile::TempDir;
@@ -29,17 +30,19 @@ const ZSH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.zsh");
 /// of the session so its `.zshrc` and snippet file stay readable if zsh
 /// ever re-sources them (uncommon, but cheap insurance).
 struct ManagedSession {
-    pty: PtySession,
+    session: Session,
     _zdotdir: TempDir,
 }
 
 #[derive(Default)]
 struct AppState {
-    sessions: Mutex<HashMap<Ulid, ManagedSession>>,
+    sessions: Mutex<HashMap<SessionId, ManagedSession>>,
 }
 
-fn parse_id(id: &str) -> Result<Ulid, String> {
-    Ulid::from_str(id).map_err(|e| format!("invalid session id {id:?}: {e}"))
+fn parse_id(id: &str) -> Result<SessionId, String> {
+    Ulid::from_str(id)
+        .map(SessionId)
+        .map_err(|e| format!("invalid session id {id:?}: {e}"))
 }
 
 /// Materialize a private ZDOTDIR holding shim files that re-source the
@@ -101,40 +104,47 @@ async fn spawn_session(
     opts.env
         .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
 
-    let (pty, mut rx) = PtySession::spawn(opts).map_err(|e| e.to_string())?;
-    let id = Ulid::new();
+    let (session, streams) = Session::spawn(opts).map_err(|e| e.to_string())?;
+    let id = session.id;
+    let id_str = id.to_string();
 
     state
         .sessions
         .lock()
         .await
-        .insert(id, ManagedSession { pty, _zdotdir: zdotdir });
+        .insert(id, ManagedSession {
+            session,
+            _zdotdir: zdotdir,
+        });
 
-    // Single pump: drains the PTY reader's mpsc, fans out to xterm.js
-    // via on_output, parses for BlockEvents in parallel via on_block_event.
+    // Hand the two karl-session streams off to per-session Tauri
+    // Channels. The session itself owns the parser + broadcast bus; we
+    // just relay to the frontend here. The bus subscription used by the
+    // M3.2 agent is orthogonal — it taps off `Session::subscribe()`
+    // without going through these channels.
+    let SessionStreams {
+        mut raw_bytes,
+        mut block_events,
+    } = streams;
+
     tauri::async_runtime::spawn(async move {
-        let mut parser = BlockParser::new();
-        while let Some(chunk) = rx.recv().await {
-            // 1. Raw bytes to xterm.js. If the channel's gone the
-            //    frontend has unmounted; stop pumping.
+        while let Some(chunk) = raw_bytes.recv().await {
             if on_output.send(chunk.to_vec()).is_err() {
                 tracing::debug!("output channel closed by frontend");
                 break;
             }
-            // 2. Same bytes through the OSC 133 parser. Block events go
-            //    on a separate channel; failures here don't kill the
-            //    output stream.
-            for event in parser.feed(&chunk) {
-                if on_block_event.send(event).is_err() {
-                    tracing::debug!("block event channel closed");
-                    break;
-                }
+        }
+    });
+    tauri::async_runtime::spawn(async move {
+        while let Some(event) = block_events.recv().await {
+            if on_block_event.send(event).is_err() {
+                tracing::debug!("block event channel closed by frontend");
+                break;
             }
         }
-        tracing::debug!(session = %id, "session pump exiting");
     });
 
-    Ok(id.to_string())
+    Ok(id_str)
 }
 
 #[tauri::command]
@@ -145,8 +155,8 @@ async fn write_to_session(
 ) -> Result<(), String> {
     let id = parse_id(&id)?;
     let mut sessions = state.sessions.lock().await;
-    let session = sessions.get_mut(&id).ok_or("session not found")?;
-    session.pty.write(&data).map_err(|e| e.to_string())
+    let managed = sessions.get_mut(&id).ok_or("session not found")?;
+    managed.session.write(&data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -158,16 +168,16 @@ async fn resize_session(
 ) -> Result<(), String> {
     let id = parse_id(&id)?;
     let sessions = state.sessions.lock().await;
-    let session = sessions.get(&id).ok_or("session not found")?;
-    session.pty.resize(cols, rows).map_err(|e| e.to_string())
+    let managed = sessions.get(&id).ok_or("session not found")?;
+    managed.session.resize(cols, rows).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let id = parse_id(&id)?;
     let mut sessions = state.sessions.lock().await;
-    if let Some(mut s) = sessions.remove(&id) {
-        let _ = s.pty.kill();
+    if let Some(mut managed) = sessions.remove(&id) {
+        let _ = managed.session.kill();
     }
     Ok(())
 }

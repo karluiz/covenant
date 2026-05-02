@@ -2055,6 +2055,8 @@ dependencies = [
  "karl-blocks",
  "karl-pty",
  "serde",
+ "strip-ansi-escapes",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

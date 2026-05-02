@@ -1,10 +1,31 @@
 //! Session lifecycle and event bus for karl-terminal.
 //!
-//! M2 will flesh this out. For now we expose the `SessionId` newtype so
-//! `karl-app` can reference sessions in Tauri command signatures.
+//! Wraps a [`karl_pty::PtySession`] with:
+//!   - a `tokio::broadcast` event bus carrying high-level [`SessionEvent`]s
+//!     for any number of subscribers (the super-agent in M3.2 is the
+//!     primary one);
+//!   - two `mpsc::UnboundedReceiver` streams the `karl-app` Tauri layer
+//!     hands off to per-session frontend channels (raw bytes for xterm,
+//!     parsed [`karl_blocks::BlockEvent`]s for the sidebar);
+//!   - per-block output accumulation so `BlockFinished` carries the
+//!     ANSI-stripped command output text the agent will summarize.
+//!
+//! Everything downstream of the PTY's blocking reader thread is async.
+//! The pump task that owns the fan-out is spawned with `tokio::spawn`,
+//! so callers must be inside a tokio runtime (Tauri provides one).
 
+use std::path::PathBuf;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use bytes::Bytes;
+use karl_blocks::{BlockEvent, BlockId, BlockParser};
+use karl_pty::{PtySession, SpawnOptions};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tokio::sync::{broadcast, mpsc};
 use ulid::Ulid;
+
+const EVENT_BUS_CAPACITY: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub Ulid);
@@ -24,5 +45,277 @@ impl Default for SessionId {
 impl std::fmt::Display for SessionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum SessionError {
+    #[error("pty: {0}")]
+    Pty(#[from] karl_pty::PtyError),
+}
+
+/// High-level events broadcast on a session's bus. Designed for the
+/// agent's world model — every variant is small enough to log/serialize
+/// freely. `BlockFinished::output_text` is the one heavy field; agents
+/// that don't need full output should subscribe and discard it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SessionEvent {
+    Opened {
+        session: SessionId,
+        started_at_unix_ms: u64,
+    },
+    Closed {
+        session: SessionId,
+    },
+    PromptStart {
+        session: SessionId,
+    },
+    BlockSubmitted {
+        session: SessionId,
+        block: BlockId,
+        command: String,
+        cwd: PathBuf,
+        started_at_unix_ms: u64,
+    },
+    BlockFinished {
+        session: SessionId,
+        block: BlockId,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+        /// Output text (ANSI stripped, lossy UTF-8) that appeared
+        /// between the matching `BlockSubmitted` and now.
+        output_text: String,
+    },
+    CwdChanged {
+        session: SessionId,
+        cwd: PathBuf,
+    },
+}
+
+/// Streams the Tauri layer drains to feed per-session frontend channels.
+/// Distinct from the broadcast bus because xterm needs every byte in
+/// order — no `Lagged` semantics — and because the sidebar already has
+/// a structured `BlockEvent` API.
+pub struct SessionStreams {
+    pub raw_bytes: mpsc::UnboundedReceiver<Bytes>,
+    pub block_events: mpsc::UnboundedReceiver<BlockEvent>,
+}
+
+/// Owned session handle. `write` / `resize` / `kill` are mirrors over
+/// the underlying [`PtySession`]. `subscribe` hands out a fresh receiver
+/// on the broadcast bus.
+pub struct Session {
+    pub id: SessionId,
+    pub started_at: Instant,
+    pty: PtySession,
+    events_tx: broadcast::Sender<SessionEvent>,
+}
+
+impl Session {
+    /// Spawn a new session. Caller must be inside a tokio runtime — the
+    /// internal pump task is `tokio::spawn`ed.
+    pub fn spawn(opts: SpawnOptions) -> Result<(Self, SessionStreams), SessionError> {
+        let (pty, pty_rx) = PtySession::spawn(opts)?;
+        let id = SessionId::new();
+        let (events_tx, _) = broadcast::channel(EVENT_BUS_CAPACITY);
+        let (raw_tx, raw_rx) = mpsc::unbounded_channel::<Bytes>();
+        let (block_tx, block_rx) = mpsc::unbounded_channel::<BlockEvent>();
+
+        let pump_events_tx = events_tx.clone();
+        tokio::spawn(pump(id, pty_rx, raw_tx, block_tx, pump_events_tx));
+
+        // Best-effort opened announcement. Subscribers attached after
+        // spawn won't see this — that's the broadcast contract. M3.2's
+        // agent will subscribe before spawn via a different channel
+        // (or accept the miss; `Opened` is informational).
+        let _ = events_tx.send(SessionEvent::Opened {
+            session: id,
+            started_at_unix_ms: now_ms(),
+        });
+
+        Ok((
+            Self {
+                id,
+                started_at: Instant::now(),
+                pty,
+                events_tx,
+            },
+            SessionStreams {
+                raw_bytes: raw_rx,
+                block_events: block_rx,
+            },
+        ))
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+        self.events_tx.subscribe()
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
+        self.pty.write(data).map_err(Into::into)
+    }
+
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<(), SessionError> {
+        self.pty.resize(cols, rows).map_err(Into::into)
+    }
+
+    pub fn kill(&mut self) -> Result<(), SessionError> {
+        self.pty.kill().map_err(Into::into)
+    }
+}
+
+async fn pump(
+    id: SessionId,
+    mut pty_rx: mpsc::UnboundedReceiver<Bytes>,
+    raw_tx: mpsc::UnboundedSender<Bytes>,
+    block_tx: mpsc::UnboundedSender<BlockEvent>,
+    events_tx: broadcast::Sender<SessionEvent>,
+) {
+    let mut parser = BlockParser::new();
+    // (block_id, output_buf, started_at) of the currently-executing block.
+    let mut current_block: Option<(BlockId, Vec<u8>, Instant)> = None;
+    let mut current_cwd = PathBuf::new();
+
+    while let Some(chunk) = pty_rx.recv().await {
+        // 1. Forward raw bytes to the UI consumer. If the UI side has
+        //    dropped its receiver, we keep going — the agent (broadcast)
+        //    may still want events.
+        let _ = raw_tx.send(chunk.clone());
+
+        // 2. Accumulate output bytes against the in-flight block, if any.
+        if let Some((_, ref mut buf, _)) = current_block {
+            buf.extend_from_slice(&chunk);
+        }
+
+        // 3. Parse for block events; forward verbatim to UI; lift to
+        //    SessionEvents on the broadcast bus.
+        for event in parser.feed(&chunk) {
+            let _ = block_tx.send(event.clone());
+
+            match event {
+                BlockEvent::PromptStart => {
+                    let _ = events_tx.send(SessionEvent::PromptStart { session: id });
+                }
+                BlockEvent::CwdChanged { path } => {
+                    current_cwd = path.clone();
+                    let _ = events_tx.send(SessionEvent::CwdChanged {
+                        session: id,
+                        cwd: path,
+                    });
+                }
+                BlockEvent::CommandSubmitted { command } => {
+                    let block = BlockId::new();
+                    current_block = Some((block, Vec::new(), Instant::now()));
+                    let _ = events_tx.send(SessionEvent::BlockSubmitted {
+                        session: id,
+                        block,
+                        command,
+                        cwd: current_cwd.clone(),
+                        started_at_unix_ms: now_ms(),
+                    });
+                }
+                BlockEvent::CommandFinished { exit_code } => {
+                    if let Some((block, buf, started)) = current_block.take() {
+                        let stripped = strip_ansi_escapes::strip(&buf);
+                        let output_text =
+                            String::from_utf8_lossy(&stripped).into_owned();
+                        let _ = events_tx.send(SessionEvent::BlockFinished {
+                            session: id,
+                            block,
+                            exit_code,
+                            duration_ms: started.elapsed().as_millis() as u64,
+                            output_text,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = events_tx.send(SessionEvent::Closed { session: id });
+    tracing::debug!(session = %id, "session pump exiting");
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn snippet_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../shell-integration/osc133.zsh")
+            .canonicalize()
+            .expect("locate osc133.zsh")
+    }
+
+    /// End-to-end: real zsh with our snippet, run a command, assert the
+    /// bus emitted BlockSubmitted + BlockFinished with matching block id
+    /// and the captured output text.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn session_bus_emits_block_lifecycle() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join(".zshrc"),
+            format!("PROMPT='$ '\nsource {}\n", snippet_path().display()),
+        )
+        .expect("write .zshrc");
+
+        let mut opts = SpawnOptions::zsh_interactive();
+        opts.args.push("--no-globalrcs".to_string());
+        opts.env
+            .push(("ZDOTDIR".to_string(), dir.path().display().to_string()));
+
+        let (mut session, _streams) = Session::spawn(opts).expect("spawn");
+        let mut bus = session.subscribe();
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        session
+            .write(b"echo karl-bus\nexit\n")
+            .expect("write");
+
+        let mut submitted: Option<BlockId> = None;
+        let mut finished: Option<(BlockId, String, Option<i32>)> = None;
+
+        let recv_loop = async {
+            while let Ok(event) = bus.recv().await {
+                match event {
+                    SessionEvent::BlockSubmitted { block, command, .. }
+                        if command.contains("echo karl-bus") =>
+                    {
+                        submitted = Some(block);
+                    }
+                    SessionEvent::BlockFinished {
+                        block,
+                        exit_code,
+                        output_text,
+                        ..
+                    } if Some(block) == submitted => {
+                        finished = Some((block, output_text, exit_code));
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        tokio::time::timeout(Duration::from_secs(10), recv_loop)
+            .await
+            .expect("bus drain timed out");
+
+        let (fin_block, output, exit) = finished.expect("no BlockFinished");
+        assert_eq!(Some(fin_block), submitted);
+        assert_eq!(exit, Some(0));
+        assert!(
+            output.contains("karl-bus"),
+            "expected 'karl-bus' in output_text, got: {output:?}"
+        );
     }
 }

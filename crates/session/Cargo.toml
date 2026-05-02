@@ -14,6 +14,11 @@ ulid = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+strip-ansi-escapes = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"
