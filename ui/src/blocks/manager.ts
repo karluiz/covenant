@@ -8,7 +8,13 @@
 // suggested command writes it into the PTY without a newline (the user
 // reviews and presses Enter — SuggestOnly policy, M4).
 
-import { injectCommand, type SessionId, type SessionUiEvent } from "../api";
+import {
+  getBlockOutput,
+  injectCommand,
+  type SessionId,
+  type SessionUiEvent,
+} from "../api";
+import { ContextMenu } from "../menu/context-menu";
 
 interface Block {
   id: string;
@@ -24,12 +30,14 @@ export class BlockManager {
   private readonly blocksById = new Map<string, Block>();
   private readonly order: string[] = [];
   private currentCwd = "";
+  private readonly menu: ContextMenu;
 
   constructor(
     private readonly host: HTMLElement,
     private readonly sessionId: SessionId,
   ) {
     this.host.classList.add("blocks-host");
+    this.menu = new ContextMenu(document.body);
     this.renderEmpty();
   }
 
@@ -122,7 +130,8 @@ export class BlockManager {
     this.host
       .querySelectorAll<HTMLElement>(".block-fix-cmd")
       .forEach((el) => {
-        el.addEventListener("click", () => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
           const cmd = el.dataset.cmd ?? "";
           if (cmd) {
             void injectCommand(this.sessionId, cmd).catch((err) => {
@@ -133,8 +142,61 @@ export class BlockManager {
         });
       });
 
+    // Wire right-click context menu on each block item.
+    this.host
+      .querySelectorAll<HTMLElement>(".block-item")
+      .forEach((el) => {
+        el.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          const blockId = el.dataset.blockId;
+          const block = blockId ? this.blocksById.get(blockId) : undefined;
+          if (!block) return;
+          this.openBlockContextMenu(block, e.clientX, e.clientY);
+        });
+      });
+
     const list = this.host.querySelector<HTMLUListElement>(".blocks-list");
     if (list) list.scrollTop = list.scrollHeight;
+  }
+
+  private openBlockContextMenu(block: Block, x: number, y: number): void {
+    const hasFinished = block.finishedAtMs !== undefined;
+    this.menu.show(x, y, [
+      {
+        label: "Copy command",
+        onClick: () => copyToClipboard(block.command),
+      },
+      {
+        label: "Copy output",
+        disabled: !hasFinished,
+        onClick: async () => {
+          try {
+            const out = await getBlockOutput(block.id);
+            if (out !== null && out.length > 0) {
+              await copyToClipboard(out);
+            }
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error("get_block_output failed", err);
+          }
+        },
+      },
+      ...(block.fix
+        ? [
+            { divider: true } as const,
+            {
+              label: "Inject fix into terminal",
+              onClick: () =>
+                injectCommand(this.sessionId, block.fix!.command).catch(
+                  (err) => {
+                    // eslint-disable-next-line no-console
+                    console.error("inject failed", err);
+                  },
+                ),
+            },
+          ]
+        : []),
+    ]);
   }
 }
 
@@ -184,6 +246,15 @@ function shortenCwd(path: string): string {
   const m = /^\/Users\/[^/]+(\/.*)?$/.exec(path);
   if (m) return `~${m[1] ?? ""}`;
   return path;
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("clipboard write failed", err);
+  }
 }
 
 function escapeHtml(s: string): string {

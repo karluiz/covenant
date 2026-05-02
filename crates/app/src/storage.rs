@@ -261,6 +261,31 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Fetch the persisted `output_text` for a block. Returns `Ok(None)`
+    /// when the block id doesn't exist (e.g. block from before the
+    /// persistence layer landed, or never reached BlockFinished).
+    pub async fn get_block_output(
+        &self,
+        block_id: String,
+    ) -> Result<Option<String>, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Option<String>, StorageError> {
+            let c = conn.blocking_lock();
+            let result: rusqlite::Result<String> = c.query_row(
+                "SELECT output_text FROM blocks WHERE id = ?1",
+                params![block_id],
+                |r| r.get(0),
+            );
+            match result {
+                Ok(s) => Ok(Some(s)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(e.into()),
+            }
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// Quick stats helper for diagnostics. Returns (sessions, blocks).
     pub async fn counts(&self) -> Result<(u64, u64), StorageError> {
         let conn = self.inner.clone();

@@ -416,6 +416,18 @@ fn short_cwd(p: &str) -> String {
     p.to_string()
 }
 
+#[tauri::command]
+async fn get_block_output(
+    state: State<'_, AppState>,
+    block_id: String,
+) -> Result<Option<String>, String> {
+    state
+        .storage
+        .get_block_output(block_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Type a command into the PTY *without* a trailing newline. The user
 /// reviews and presses Enter to execute. Used by the M4 fix-suggestion
 /// click path — SuggestOnly policy means we never auto-submit.
@@ -588,6 +600,7 @@ pub fn run() {
             resize_session,
             close_session,
             inject_command,
+            get_block_output,
             get_settings,
             set_settings,
             ask_agent,

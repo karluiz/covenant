@@ -82,6 +82,11 @@ export async function injectCommand(id: SessionId, command: string): Promise<voi
   return invoke<void>("inject_command", { id, command });
 }
 
+/// Fetch a block's persisted output_text (or null if not in DB).
+export async function getBlockOutput(blockId: BlockId): Promise<string | null> {
+  return invoke<string | null>("get_block_output", { blockId });
+}
+
 export type AgentTokenHandler = (delta: string) => void;
 
 export async function askAgent(

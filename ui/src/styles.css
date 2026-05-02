@@ -82,6 +82,42 @@ body {
   color: #fff;
 }
 
+.tab-colored {
+  border-left: 2px solid var(--tab-color, transparent);
+  padding-left: 8px;
+}
+
+.tab-colored.active {
+  background: color-mix(in srgb, var(--tab-color, var(--bg)) 14%, var(--bg));
+}
+
+.tab-dragging {
+  opacity: 0.4;
+}
+
+.tab-drop-left {
+  box-shadow: -2px 0 0 0 var(--accent);
+}
+
+.tab-drop-right {
+  box-shadow: 2px 0 0 0 var(--accent);
+}
+
+.tab-label-input {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: #fff;
+  padding: 1px 6px;
+  outline: none;
+  min-width: 80px;
+  max-width: 160px;
+  flex: 1;
+}
+
 .tab-label {
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -401,6 +437,101 @@ body {
 .toast-close:hover {
   color: #fff;
   background: var(--border);
+}
+
+/* ─── Context menu (tabs + blocks) ─────────────────── */
+
+.ctx-menu {
+  position: fixed;
+  z-index: 1100;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  user-select: none;
+  animation: ctx-pop 0.08s ease-out;
+}
+
+@keyframes ctx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ctx-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 6px 12px;
+  color: #d6d8db;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+}
+
+.ctx-item:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.ctx-item:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ctx-item-danger:hover:not(:disabled) {
+  background: var(--fail);
+}
+
+.ctx-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.ctx-swatch-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  align-items: center;
+}
+
+.ctx-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: transform 0.06s ease-out, border-color 0.06s ease-out;
+}
+
+.ctx-swatch:hover {
+  transform: scale(1.15);
+  border-color: #fff;
+}
+
+.ctx-swatch-none {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  background: transparent;
 }
 
 /* ─── Settings modal ───────────────────────────────── */
