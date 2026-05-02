@@ -32,7 +32,7 @@ use ulid::Ulid;
 
 use cross_session::CrossSessionWatcher;
 use settings::Settings;
-use storage::Storage;
+use storage::{HistoricalBlock, Storage};
 use world::SessionWorldModel;
 
 /// Bundled into the binary so the app is self-contained — no need to
@@ -362,6 +362,60 @@ fn truncate_for_persist(s: &str) -> String {
     }
 }
 
+/// Render historical cross-session blocks as a compact prompt section.
+/// Newest first, with a relative-time label so the model can reason
+/// about recency ("3h ago", "2d ago"). No output_text — keeps tokens
+/// bounded; the agent can ask follow-ups if it wants more detail.
+fn render_history_section(blocks: &[HistoricalBlock]) -> String {
+    let mut out = String::with_capacity(2048);
+    out.push_str("\n# Historical activity (other sessions, newest first)\n");
+    let now_ms = now_unix_ms();
+    for b in blocks {
+        let age = humanize_age(now_ms.saturating_sub(b.finished_at_unix_ms));
+        let exit = b
+            .exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let cwd = b
+            .cwd
+            .as_deref()
+            .map(|c| format!(" cwd={}", short_cwd(c)))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "$ {cmd}    [tab …{sid}, exit {exit}, {dur}ms, {age}{cwd}]\n",
+            cmd = b.command,
+            sid = b.session_id_short,
+            dur = b.duration_ms,
+        ));
+    }
+    out
+}
+
+fn humanize_age(ms: u64) -> String {
+    let s = ms / 1000;
+    if s < 60 {
+        format!("{s}s ago")
+    } else if s < 3600 {
+        format!("{}m ago", s / 60)
+    } else if s < 86_400 {
+        format!("{}h ago", s / 3600)
+    } else {
+        format!("{}d ago", s / 86_400)
+    }
+}
+
+fn short_cwd(p: &str) -> String {
+    // Crude HOME compaction; we don't have HOME at hand here so try the
+    // common /Users/<x>/ shape macOS gives us.
+    if let Some(rest) = p.strip_prefix("/Users/") {
+        if let Some(slash) = rest.find('/') {
+            return format!("~{}", &rest[slash..]);
+        }
+        return "~".to_string();
+    }
+    p.to_string()
+}
+
 /// Type a command into the PTY *without* a trailing newline. The user
 /// reviews and presses Enter to execute. Used by the M4 fix-suggestion
 /// click path — SuggestOnly policy means we never auto-submit.
@@ -432,13 +486,36 @@ async fn ask_agent(
         .await
         .check_and_increment(id, max_per_min)?;
 
-    // 3. Snapshot the world model for this session and render to a
-    //    user-message string.
-    let user_message = {
+    // 3. Snapshot the world model for this session.
+    let session_message = {
         let sessions = state.sessions.lock().await;
         let managed = sessions.get(&id).ok_or("session not found")?;
         let world = managed.world.lock().await;
         world.render_user_message(&question)
+    };
+
+    // 4. Pull recent cross-session history (other sessions, including
+    //    closed ones from prior app runs) so the agent can answer
+    //    "what did I do earlier" / "have I seen this before" questions.
+    //    Failure here degrades silently — the agent just won't see it.
+    let history_section = match state.storage.recent_blocks_excluding(id, 30).await {
+        Ok(blocks) if !blocks.is_empty() => render_history_section(&blocks),
+        Ok(_) => String::new(),
+        Err(e) => {
+            tracing::warn!(error = %e, "history fetch failed; agent will go without");
+            String::new()
+        }
+    };
+
+    // Slot history BEFORE the user question marker. world::render_user_message
+    // already ends with "# User question\n<question>\n"; we splice in.
+    let user_message = if history_section.is_empty() {
+        session_message
+    } else {
+        match session_message.rsplit_once("# User question") {
+            Some((head, tail)) => format!("{head}{history_section}\n# User question{tail}"),
+            None => format!("{session_message}\n{history_section}"),
+        }
     };
 
     // 4. Stream the response. Forward each delta through the Channel;

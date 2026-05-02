@@ -63,6 +63,29 @@ pub enum StorageError {
     Join(String),
 }
 
+/// Lightweight snapshot of a persisted block, tailored for the agent's
+/// historical context. `session_id_short` is the last 6 chars of the
+/// Ulid, enough for the model to refer to past sessions consistently
+/// without wasting tokens on the full id.
+#[derive(Debug, Clone)]
+pub struct HistoricalBlock {
+    pub session_id_short: String,
+    pub command: String,
+    pub cwd: Option<String>,
+    pub exit_code: Option<i32>,
+    pub duration_ms: u64,
+    pub finished_at_unix_ms: u64,
+}
+
+fn shorten(id: &str) -> String {
+    let n = id.len();
+    if n > 6 {
+        id[n - 6..].to_string()
+    } else {
+        id.to_string()
+    }
+}
+
 #[derive(Clone)]
 pub struct Storage {
     inner: Arc<Mutex<Connection>>,
@@ -193,6 +216,51 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Read most-recent blocks across ALL sessions (including closed
+    /// ones), excluding the given session. Used to enrich the agent's
+    /// ⌘K context with cross-session history.
+    ///
+    /// `output_text` is intentionally NOT returned — historical context
+    /// needs to be terse to control token cost.
+    pub async fn recent_blocks_excluding(
+        &self,
+        exclude: SessionId,
+        limit: u32,
+    ) -> Result<Vec<HistoricalBlock>, StorageError> {
+        let conn = self.inner.clone();
+        let exclude_str = exclude.to_string();
+        tokio::task::spawn_blocking(
+            move || -> Result<Vec<HistoricalBlock>, StorageError> {
+                let c = conn.blocking_lock();
+                let mut stmt = c.prepare(
+                    "SELECT session_id, command, cwd, exit_code, duration_ms,
+                            finished_at_unix_ms
+                     FROM blocks
+                     WHERE session_id != ?1
+                     ORDER BY finished_at_unix_ms DESC
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![exclude_str, limit as i64], |r| {
+                    Ok(HistoricalBlock {
+                        session_id_short: shorten(r.get::<_, String>(0)?.as_str()),
+                        command: r.get(1)?,
+                        cwd: r.get(2)?,
+                        exit_code: r.get(3)?,
+                        duration_ms: r.get::<_, i64>(4)? as u64,
+                        finished_at_unix_ms: r.get::<_, i64>(5)? as u64,
+                    })
+                })?;
+                let mut out = Vec::new();
+                for row in rows {
+                    out.push(row?);
+                }
+                Ok(out)
+            },
+        )
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// Quick stats helper for diagnostics. Returns (sessions, blocks).
     pub async fn counts(&self) -> Result<(u64, u64), StorageError> {
         let conn = self.inner.clone();
@@ -287,6 +355,78 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row, ("second".to_string(), 2));
+    }
+
+    #[tokio::test]
+    async fn recent_blocks_excludes_active_session_and_orders_desc() {
+        let (s, _g) = fresh();
+        let active = SessionId::new();
+        let other = SessionId::new();
+        s.save_session(active, 1).await.unwrap();
+        s.save_session(other, 2).await.unwrap();
+
+        // 2 in active, 3 in other — recent_blocks_excluding(active)
+        // should return only the other 3, newest first.
+        for i in 0..2 {
+            s.save_block(
+                BlockId::new(),
+                active,
+                format!("active-{i}"),
+                None,
+                Some(0),
+                10,
+                100 + i,
+                String::new(),
+            )
+            .await
+            .unwrap();
+        }
+        for i in 0..3 {
+            s.save_block(
+                BlockId::new(),
+                other,
+                format!("other-{i}"),
+                Some("/tmp".to_string()),
+                Some(if i == 1 { 1 } else { 0 }),
+                20,
+                200 + i,
+                String::new(),
+            )
+            .await
+            .unwrap();
+        }
+
+        let rows = s.recent_blocks_excluding(active, 10).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].command, "other-2");
+        assert_eq!(rows[1].command, "other-1");
+        assert_eq!(rows[1].exit_code, Some(1));
+        assert_eq!(rows[2].command, "other-0");
+    }
+
+    #[tokio::test]
+    async fn recent_blocks_respects_limit() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        let other = SessionId::new();
+        s.save_session(session, 1).await.unwrap();
+        s.save_session(other, 1).await.unwrap();
+        for i in 0..5 {
+            s.save_block(
+                BlockId::new(),
+                other,
+                format!("c{i}"),
+                None,
+                Some(0),
+                0,
+                i,
+                String::new(),
+            )
+            .await
+            .unwrap();
+        }
+        let rows = s.recent_blocks_excluding(session, 2).await.unwrap();
+        assert_eq!(rows.len(), 2);
     }
 
     #[tokio::test]
