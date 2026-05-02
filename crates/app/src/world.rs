@@ -33,6 +33,17 @@ pub struct SessionWorldModel {
     /// `None` means "no summary yet" — render falls back to dumping
     /// blocks raw so the agent still has context.
     pub summary: Option<String>,
+    /// Currently-executing block, if any. Set on BlockSubmitted, cleared
+    /// on BlockFinished. The Operator (M-OP) reads this to decide
+    /// whether the active command is an executor agent worth watching.
+    pub in_flight: Option<InFlightBlock>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InFlightBlock {
+    pub command: String,
+    pub cwd: PathBuf,
+    pub started_at_unix_ms: u64,
 }
 
 impl SessionWorldModel {
@@ -43,6 +54,18 @@ impl SessionWorldModel {
             SessionEvent::CwdChanged { cwd, .. } => {
                 self.cwd = cwd;
             }
+            SessionEvent::BlockSubmitted {
+                command,
+                cwd,
+                started_at_unix_ms,
+                ..
+            } => {
+                self.in_flight = Some(InFlightBlock {
+                    command,
+                    cwd,
+                    started_at_unix_ms,
+                });
+            }
             SessionEvent::BlockFinished {
                 command,
                 cwd,
@@ -51,6 +74,7 @@ impl SessionWorldModel {
                 output_text,
                 ..
             } => {
+                self.in_flight = None;
                 self.blocks.push_back(BlockSnapshot {
                     command: truncate(&command, MAX_COMMAND_CHARS),
                     cwd,

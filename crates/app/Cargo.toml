@@ -29,6 +29,7 @@ ulid = { workspace = true }
 tempfile = "3"
 rusqlite = { workspace = true }
 thiserror = { workspace = true }
+regex = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

@@ -51,6 +51,21 @@ CREATE TABLE IF NOT EXISTS summaries (
     summary             TEXT NOT NULL,
     updated_at_unix_ms  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS operator_decisions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT NOT NULL,
+    timestamp_unix_ms   INTEGER NOT NULL,
+    in_flight_command   TEXT,
+    output_excerpt      TEXT NOT NULL,
+    action              TEXT NOT NULL,
+    reply_text          TEXT,
+    rationale           TEXT,
+    executed            INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_op_dec_session   ON operator_decisions(session_id);
+CREATE INDEX IF NOT EXISTS idx_op_dec_timestamp ON operator_decisions(timestamp_unix_ms);
 ";
 
 #[derive(Debug, Error)]
@@ -75,6 +90,19 @@ pub struct HistoricalBlock {
     pub exit_code: Option<i32>,
     pub duration_ms: u64,
     pub finished_at_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OperatorDecisionRow {
+    pub id: i64,
+    pub session_id_short: String,
+    pub timestamp_unix_ms: u64,
+    pub in_flight_command: Option<String>,
+    pub output_excerpt: String,
+    pub action: String,
+    pub reply_text: Option<String>,
+    pub rationale: Option<String>,
+    pub executed: bool,
 }
 
 fn shorten(id: &str) -> String {
@@ -282,6 +310,85 @@ impl Storage {
                 Err(e) => Err(e.into()),
             }
         })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Append an operator decision (M-OP2: dry-run, executed=false).
+    /// Returns the autoincrement rowid so the UI can highlight new rows.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_operator_decision(
+        &self,
+        session_id: SessionId,
+        timestamp_unix_ms: u64,
+        in_flight_command: Option<String>,
+        output_excerpt: String,
+        action: String,
+        reply_text: Option<String>,
+        rationale: Option<String>,
+        executed: bool,
+    ) -> Result<i64, StorageError> {
+        let conn = self.inner.clone();
+        let session_str = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<i64, StorageError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "INSERT INTO operator_decisions
+                 (session_id, timestamp_unix_ms, in_flight_command,
+                  output_excerpt, action, reply_text, rationale, executed)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    session_str,
+                    timestamp_unix_ms as i64,
+                    in_flight_command,
+                    output_excerpt,
+                    action,
+                    reply_text,
+                    rationale,
+                    executed as i64,
+                ],
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn list_operator_decisions(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(
+            move || -> Result<Vec<OperatorDecisionRow>, StorageError> {
+                let c = conn.blocking_lock();
+                let mut stmt = c.prepare(
+                    "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
+                            output_excerpt, action, reply_text, rationale, executed
+                     FROM operator_decisions
+                     ORDER BY id DESC
+                     LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit as i64], |r| {
+                    Ok(OperatorDecisionRow {
+                        id: r.get(0)?,
+                        session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
+                        timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
+                        in_flight_command: r.get(3)?,
+                        output_excerpt: r.get(4)?,
+                        action: r.get(5)?,
+                        reply_text: r.get(6)?,
+                        rationale: r.get(7)?,
+                        executed: r.get::<_, i64>(8)? != 0,
+                    })
+                })?;
+                let mut out = Vec::new();
+                for row in rows {
+                    out.push(row?);
+                }
+                Ok(out)
+            },
+        )
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }

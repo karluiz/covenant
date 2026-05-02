@@ -25,6 +25,9 @@ pub struct Settings {
 
     #[serde(default)]
     pub agent: AgentConfig,
+
+    #[serde(default)]
+    pub operator: OperatorConfig,
 }
 
 impl Default for Settings {
@@ -32,6 +35,7 @@ impl Default for Settings {
         Self {
             anthropic_api_key: None,
             agent: AgentConfig::default(),
+            operator: OperatorConfig::default(),
         }
     }
 }
@@ -66,6 +70,106 @@ fn default_model_chat() -> String {
 
 fn default_max_calls_per_minute() -> u32 {
     6
+}
+
+/// The Operator is karl-terminal's coordinator: when an executor agent
+/// (Claude Code, Copilot CLI, opencode, aider, etc.) running inside the
+/// PTY pauses to ask the user a routine question, the Operator can
+/// answer on the user's behalf — within the explicit constraints below.
+///
+/// SuggestOnly first: M-OP2 only LOGS proposed decisions; M-OP3 will
+/// flip the switch to actually inject responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorConfig {
+    /// Default per-session enabled state. The per-tab toggle (M-OP2)
+    /// always wins. False by default — opt-in.
+    #[serde(default)]
+    pub enabled_default: bool,
+    /// User's freeform persona / authorization charter. Concatenated
+    /// with hard constraints to form the Operator's system prompt.
+    #[serde(default = "default_persona")]
+    pub persona: String,
+    /// Regex strings (each compiled at use). Match against the in-flight
+    /// block's command. Operator only kicks in when the running command
+    /// matches one of these.
+    #[serde(default = "default_executor_patterns")]
+    pub executor_patterns: Vec<String>,
+    /// Byte silence (in seconds) during a matching command before the
+    /// Operator considers the executor "stuck waiting for input".
+    #[serde(default = "default_idle_secs")]
+    pub idle_threshold_secs: u64,
+    /// Cap on Operator decisions per session per minute.
+    #[serde(default = "default_max_decisions_per_minute")]
+    pub max_decisions_per_minute: u32,
+    /// Extra regex patterns layered on top of the hard blocklist. The
+    /// Operator will refuse to type any reply that matches.
+    #[serde(default)]
+    pub deny_extra_patterns: Vec<String>,
+}
+
+impl Default for OperatorConfig {
+    fn default() -> Self {
+        Self {
+            enabled_default: false,
+            persona: default_persona(),
+            executor_patterns: default_executor_patterns(),
+            idle_threshold_secs: default_idle_secs(),
+            max_decisions_per_minute: default_max_decisions_per_minute(),
+            deny_extra_patterns: vec![],
+        }
+    }
+}
+
+fn default_persona() -> String {
+    r#"I'm a senior engineer who delegates trivial decisions and wants to sleep through routine agent prompts.
+
+ALWAYS-YES (when no destructive flags appear):
+- "run tests" / "cargo test" / "yarn test" / "pytest" / "npm test"
+- "should I commit?" — yes, if the branch is not main or master
+- "subagent: Sonnet or Opus?" — Sonnet (cheaper)
+- "fix N lint errors?" / "format the file?" — yes
+- "shall we continue?" / "proceed?" / "ready to move on?" — yes
+- "should I add a test for this?" — yes
+- "use approach A or B?" — pick the simpler one and document briefly
+- inline edits vs subagent dispatch — inline for < 50 lines, subagent otherwise
+
+ALWAYS-ASK-ME:
+- anything touching main / master branch directly
+- deleting files or directories
+- production deploys, k8s apply, terraform apply
+- API key, secret, .env changes
+- estimated cost over $5 in API calls
+- architectural decisions (which framework, db, language)
+- refactors larger than ~100 lines
+- migrations, schema changes
+
+STYLE:
+- terse, no apologies
+- when escalating, give me one sentence on what's blocking and why you're not confident
+- when answering, output exactly the keystrokes the executor expects (e.g. "y\n", "1\n", "yes\n")
+"#
+    .to_string()
+}
+
+fn default_executor_patterns() -> Vec<String> {
+    vec![
+        r"^claude(\s|$)".to_string(),
+        r"^claude-code(\s|$)".to_string(),
+        r"^gh\s+copilot".to_string(),
+        r"^opencode(\s|$)".to_string(),
+        r"^aider(\s|$)".to_string(),
+        r"^crush(\s|$)".to_string(),
+        r"^cursor(\s|$)".to_string(),
+        r"^cline(\s|$)".to_string(),
+    ]
+}
+
+fn default_idle_secs() -> u64 {
+    4
+}
+
+fn default_max_decisions_per_minute() -> u32 {
+    10
 }
 
 /// Read settings from disk. Missing file → defaults. Malformed file →

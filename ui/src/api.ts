@@ -87,6 +87,35 @@ export async function getBlockOutput(blockId: BlockId): Promise<string | null> {
   return invoke<string | null>("get_block_output", { blockId });
 }
 
+export async function setOperatorEnabled(
+  sessionId: SessionId,
+  enabled: boolean,
+): Promise<void> {
+  return invoke<void>("set_operator_enabled", { sessionId, enabled });
+}
+
+export async function isOperatorEnabled(sessionId: SessionId): Promise<boolean> {
+  return invoke<boolean>("is_operator_enabled", { sessionId });
+}
+
+export interface OperatorDecisionRow {
+  id: number;
+  session_id_short: string;
+  timestamp_unix_ms: number;
+  in_flight_command: string | null;
+  output_excerpt: string;
+  action: "reply" | "escalate" | "wait" | string;
+  reply_text: string | null;
+  rationale: string | null;
+  executed: boolean;
+}
+
+export async function listOperatorDecisions(
+  limit: number,
+): Promise<OperatorDecisionRow[]> {
+  return invoke<OperatorDecisionRow[]>("list_operator_decisions", { limit });
+}
+
 export type AgentTokenHandler = (delta: string) => void;
 
 export async function askAgent(

@@ -13,9 +13,19 @@ interface AgentConfig {
   max_calls_per_minute: number;
 }
 
+interface OperatorConfig {
+  enabled_default: boolean;
+  persona: string;
+  executor_patterns: string[];
+  idle_threshold_secs: number;
+  max_decisions_per_minute: number;
+  deny_extra_patterns: string[];
+}
+
 interface Settings {
   anthropic_api_key: string | null;
   agent: AgentConfig;
+  operator: OperatorConfig;
 }
 
 async function getSettings(): Promise<Settings> {
@@ -57,6 +67,14 @@ export class SettingsPanel {
           model_summary: "claude-sonnet-4-6",
           model_chat: "claude-opus-4-7",
           max_calls_per_minute: 6,
+        },
+        operator: {
+          enabled_default: false,
+          persona: "",
+          executor_patterns: [],
+          idle_threshold_secs: 4,
+          max_decisions_per_minute: 10,
+          deny_extra_patterns: [],
         },
       };
     }
@@ -128,6 +146,41 @@ export class SettingsPanel {
           </label>
         </fieldset>
 
+        <fieldset>
+          <legend>Operator</legend>
+          <p class="settings-hint" style="margin: 0 0 6px;">
+            When an executor agent (claude code, copilot, opencode, aider…)
+            pauses to ask you a routine question, the Operator can answer
+            on your behalf — within the constraints below. Enable per-tab
+            from the tab right-click menu. Currently in
+            <strong>dry-run</strong>: proposed answers are logged, never
+            typed.
+          </p>
+          <label class="settings-field">
+            <span class="settings-label">Persona / authorization charter</span>
+            <textarea
+              name="operator_persona"
+              rows="14"
+              spellcheck="false"
+              autocomplete="off"
+            ></textarea>
+            <small class="settings-hint">
+              Plain English. Concatenated with the hard blocklist
+              (rm&nbsp;-rf, sudo, force-push, secrets, …) which you cannot
+              override. The Operator escalates when it isn't confident.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Idle threshold (seconds)</span>
+            <input type="number" name="op_idle" min="1" max="60" />
+            <small class="settings-hint">Byte silence during a matching command before checking.</small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Max decisions / minute / session</span>
+            <input type="number" name="op_rate" min="1" max="60" />
+          </label>
+        </fieldset>
+
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
@@ -140,12 +193,20 @@ export class SettingsPanel {
     const modelSummary = card.querySelector<HTMLInputElement>('input[name="model_summary"]')!;
     const modelChat = card.querySelector<HTMLInputElement>('input[name="model_chat"]')!;
     const maxCalls = card.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
+    const opPersona = card.querySelector<HTMLTextAreaElement>(
+      'textarea[name="operator_persona"]',
+    )!;
+    const opIdle = card.querySelector<HTMLInputElement>('input[name="op_idle"]')!;
+    const opRate = card.querySelector<HTMLInputElement>('input[name="op_rate"]')!;
     const status = card.querySelector<HTMLElement>(".settings-status")!;
 
     apiKey.value = this.current.anthropic_api_key ?? "";
     modelSummary.value = this.current.agent.model_summary;
     modelChat.value = this.current.agent.model_chat;
     maxCalls.value = String(this.current.agent.max_calls_per_minute);
+    opPersona.value = this.current.operator.persona;
+    opIdle.value = String(this.current.operator.idle_threshold_secs);
+    opRate.value = String(this.current.operator.max_decisions_per_minute);
 
     apiKey.focus();
 
@@ -172,6 +233,7 @@ export class SettingsPanel {
     const form = card.querySelector<HTMLFormElement>(".settings-form")!;
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const prevOp = this.current!.operator;
       const next: Settings = {
         anthropic_api_key: apiKey.value.trim() === "" ? null : apiKey.value,
         agent: {
@@ -181,6 +243,22 @@ export class SettingsPanel {
             1,
             Math.min(60, Number(maxCalls.value) || 6),
           ),
+        },
+        operator: {
+          // M-OP1 only edits persona / idle / rate from the UI; keep
+          // the rest as round-tripped (defaults seeded by Rust on load).
+          enabled_default: prevOp.enabled_default,
+          persona: opPersona.value,
+          executor_patterns: prevOp.executor_patterns,
+          idle_threshold_secs: Math.max(
+            1,
+            Math.min(60, Number(opIdle.value) || 4),
+          ),
+          max_decisions_per_minute: Math.max(
+            1,
+            Math.min(60, Number(opRate.value) || 10),
+          ),
+          deny_extra_patterns: prevOp.deny_extra_patterns,
         },
       };
       try {

@@ -17,7 +17,9 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 import {
   closeSession,
+  isOperatorEnabled,
   resizeSession,
+  setOperatorEnabled,
   spawnSession,
   writeToSession,
   type SessionId,
@@ -55,6 +57,9 @@ interface Tab {
   color: string | null;
   /// Group membership. Null = not in any group.
   groupId: string | null;
+  /// Operator enabled on this tab — controls whether the backend's
+  /// OperatorWatcher checks this session for prompts to answer.
+  operatorEnabled: boolean;
   pane: HTMLElement;
   termHost: HTMLElement;
   blocksHost: HTMLElement;
@@ -212,6 +217,10 @@ export class TabManager {
       );
     });
 
+    // Pick up the backend's per-session enabled state (driven by
+    // settings.operator.enabled_default at attach() time).
+    const operatorEnabled = await isOperatorEnabled(sessionId).catch(() => false);
+
     const tab: Tab = {
       id,
       sessionId,
@@ -219,6 +228,7 @@ export class TabManager {
       customName: null,
       color: null,
       groupId: null,
+      operatorEnabled,
       pane,
       termHost,
       blocksHost,
@@ -232,6 +242,20 @@ export class TabManager {
     this.activeId = id;
     this.renderTabbar();
     term.focus();
+  }
+
+  private async toggleOperator(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const next = !tab.operatorEnabled;
+    try {
+      await setOperatorEnabled(tab.sessionId, next);
+      tab.operatorEnabled = next;
+      this.renderTabbar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("set_operator_enabled failed", err);
+    }
   }
 
   closeTab(id: string): void {
@@ -712,6 +736,14 @@ export class TabManager {
       }
     }
 
+    if (tab.operatorEnabled) {
+      const badge = document.createElement("span");
+      badge.className = "tab-operator-badge";
+      badge.textContent = "🤖";
+      badge.title = "Operator enabled (dry-run)";
+      pill.appendChild(badge);
+    }
+
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");
       input.type = "text";
@@ -873,6 +905,13 @@ export class TabManager {
       });
     }
 
+    items.push({ divider: true });
+    items.push({
+      label: tab.operatorEnabled
+        ? "🤖 Disable operator"
+        : "🤖 Enable operator",
+      onClick: () => this.toggleOperator(tab.id),
+    });
     items.push({ divider: true });
     items.push({
       label: "Close tab",

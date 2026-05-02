@@ -8,6 +8,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { AgentPanel } from "./agent/panel";
 import { ToastHost } from "./notifications/toast";
+import { OperatorPanel } from "./operator/panel";
 import { SettingsPanel } from "./settings/panel";
 import { TabManager } from "./tabs/manager";
 
@@ -29,6 +30,7 @@ async function boot(): Promise<void> {
 
   const settings = new SettingsPanel(document.body);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
+  const operator = new OperatorPanel(document.body);
 
   const toasts = new ToastHost(document.body, {
     onClick: (finding) => {
@@ -54,6 +56,12 @@ async function boot(): Promise<void> {
       agent.toggle();
       return;
     }
+    // ⌘O → operator decisions panel.
+    if (e.metaKey && !e.shiftKey && e.key === "o") {
+      e.preventDefault();
+      void operator.toggle();
+      return;
+    }
     // Esc closes any open modal first; only routes to terminal if none.
     if (e.key === "Escape") {
       if (settings.isOpen()) {
@@ -64,6 +72,11 @@ async function boot(): Promise<void> {
       if (agent.isOpen()) {
         e.preventDefault();
         agent.close();
+        return;
+      }
+      if (operator.isOpen()) {
+        e.preventDefault();
+        operator.close();
         return;
       }
     }

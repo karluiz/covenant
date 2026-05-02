@@ -10,6 +10,7 @@
 
 mod cross_session;
 mod fix_proposer;
+mod operator;
 mod settings;
 mod storage;
 mod summarizer;
@@ -31,8 +32,9 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ulid::Ulid;
 
 use cross_session::CrossSessionWatcher;
+use operator::{OperatorState, OperatorWatcher};
 use settings::Settings;
-use storage::{HistoricalBlock, Storage};
+use storage::{HistoricalBlock, OperatorDecisionRow, Storage};
 use world::SessionWorldModel;
 
 /// Bundled into the binary so the app is self-contained — no need to
@@ -46,6 +48,7 @@ struct ManagedSession {
     session: Session,
     _zdotdir: TempDir,
     world: Arc<Mutex<SessionWorldModel>>,
+    op_state: Arc<std::sync::Mutex<OperatorState>>,
 }
 
 struct AppState {
@@ -56,6 +59,7 @@ struct AppState {
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,
+    operator: OperatorWatcher,
     storage: Storage,
 }
 
@@ -248,6 +252,20 @@ async fn spawn_session(
         .attach(id, world.clone(), session.subscribe())
         .await;
 
+    let op_state = Arc::new(std::sync::Mutex::new(OperatorState::new()));
+
+    // Hook the operator watcher BEFORE inserting into the session map
+    // so the very first BlockSubmitted is visible.
+    state
+        .operator
+        .attach(
+            id,
+            op_state.clone(),
+            world.clone(),
+            state.settings.lock().await.operator.enabled_default,
+        )
+        .await;
+
     state
         .sessions
         .lock()
@@ -256,12 +274,19 @@ async fn spawn_session(
             session,
             _zdotdir: zdotdir,
             world,
+            op_state: op_state.clone(),
         });
 
-    // Pump 1: raw PTY bytes to xterm.
+    // Pump 1: raw PTY bytes to xterm. Also feeds the operator's tail
+    // buffer so it knows what the executor last printed when checking
+    // for a stuck prompt.
     let SessionStreams { mut raw_bytes } = streams;
+    let op_state_for_pump = op_state.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(chunk) = raw_bytes.recv().await {
+            if let Ok(mut st) = op_state_for_pump.lock() {
+                st.observe(&chunk);
+            }
             if on_output.send(chunk.to_vec()).is_err() {
                 tracing::debug!("output channel closed by frontend");
                 break;
@@ -329,6 +354,7 @@ async fn resize_session(
 #[tauri::command]
 async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let id = parse_id(&id)?;
+    state.operator.detach(id).await;
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();
@@ -337,6 +363,39 @@ async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), Str
         tracing::warn!(session = %id, error = %e, "close_session persist failed");
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn set_operator_enabled(
+    state: State<'_, AppState>,
+    session_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.operator.set_enabled(id, enabled).await;
+    tracing::info!(session = %id, enabled, "operator toggled");
+    Ok(())
+}
+
+#[tauri::command]
+async fn is_operator_enabled(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.is_enabled(id).await)
+}
+
+#[tauri::command]
+async fn list_operator_decisions(
+    state: State<'_, AppState>,
+    limit: u32,
+) -> Result<Vec<OperatorDecisionRow>, String> {
+    state
+        .storage
+        .list_operator_decisions(limit.clamp(1, 500))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn now_unix_ms() -> u64 {
@@ -583,6 +642,11 @@ pub fn run() {
 
             let settings_arc = Arc::new(Mutex::new(loaded));
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
+            let operator_watcher = OperatorWatcher::spawn(
+                app.handle().clone(),
+                settings_arc.clone(),
+                storage.clone(),
+            );
 
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
@@ -590,6 +654,7 @@ pub fn run() {
                 settings_path: path,
                 rate: Mutex::new(RateLimiter::default()),
                 cross_session: cross,
+                operator: operator_watcher,
                 storage,
             });
             Ok(())
@@ -604,6 +669,9 @@ pub fn run() {
             get_settings,
             set_settings,
             ask_agent,
+            set_operator_enabled,
+            is_operator_enabled,
+            list_operator_decisions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
