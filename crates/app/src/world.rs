@@ -28,6 +28,11 @@ pub struct BlockSnapshot {
 pub struct SessionWorldModel {
     pub cwd: PathBuf,
     pub blocks: VecDeque<BlockSnapshot>,
+    /// Rolling LLM-generated summary of session activity. Populated by
+    /// the summarizer task (M3.3) after each BlockFinished, debounced.
+    /// `None` means "no summary yet" — render falls back to dumping
+    /// blocks raw so the agent still has context.
+    pub summary: Option<String>,
 }
 
 impl SessionWorldModel {
@@ -62,8 +67,12 @@ impl SessionWorldModel {
     }
 
     /// Render the model + the user's question into a single string the
-    /// agent receives as the user message. Plain text by design — we do
-    /// not parse markdown server-side.
+    /// agent receives as the user message.
+    ///
+    /// When a summary exists, send it instead of the full block dump
+    /// (saves a lot of tokens on chatty sessions) and append only the
+    /// last few blocks raw for recency. Without a summary, fall back to
+    /// the full block list so the agent always has *some* context.
     pub fn render_user_message(&self, question: &str) -> String {
         let mut out = String::with_capacity(2048);
 
@@ -74,32 +83,28 @@ impl SessionWorldModel {
             out.push('\n');
         }
 
-        if self.blocks.is_empty() {
-            out.push_str("\n(no commands have completed in this session yet)\n");
-        } else {
-            out.push_str("\n# Recent blocks (oldest first)\n");
-            for (i, b) in self.blocks.iter().enumerate() {
-                let exit = b
-                    .exit_code
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "?".to_string());
-                out.push_str(&format!(
-                    "\n--- block {idx} ---\n\
-                     $ {cmd}\n\
-                     cwd:   {cwd}\n\
-                     exit:  {exit}    duration: {dur}ms\n",
-                    idx = i + 1,
-                    cmd = b.command,
-                    cwd = b.cwd.display(),
-                    exit = exit,
-                    dur = b.duration_ms,
-                ));
-                if !b.output_text.trim().is_empty() {
-                    out.push_str("output:\n");
-                    out.push_str(&b.output_text);
-                    if !b.output_text.ends_with('\n') {
-                        out.push('\n');
+        match (&self.summary, self.blocks.is_empty()) {
+            (Some(summary), _) => {
+                out.push_str("\n# Session summary (rolling, LLM-generated)\n");
+                out.push_str(summary.trim());
+                out.push('\n');
+
+                let recent: Vec<&BlockSnapshot> =
+                    self.blocks.iter().rev().take(4).collect();
+                if !recent.is_empty() {
+                    out.push_str("\n# Most recent blocks (newest last)\n");
+                    for b in recent.into_iter().rev() {
+                        render_block_brief(&mut out, b);
                     }
+                }
+            }
+            (None, true) => {
+                out.push_str("\n(no commands have completed in this session yet)\n");
+            }
+            (None, false) => {
+                out.push_str("\n# Recent blocks (oldest first)\n");
+                for (i, b) in self.blocks.iter().enumerate() {
+                    render_block_full(&mut out, i + 1, b);
                 }
             }
         }
@@ -110,6 +115,41 @@ impl SessionWorldModel {
 
         out
     }
+}
+
+fn render_block_full(out: &mut String, idx: usize, b: &BlockSnapshot) {
+    let exit = b
+        .exit_code
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "?".to_string());
+    out.push_str(&format!(
+        "\n--- block {idx} ---\n\
+         $ {cmd}\n\
+         cwd:   {cwd}\n\
+         exit:  {exit}    duration: {dur}ms\n",
+        cmd = b.command,
+        cwd = b.cwd.display(),
+        dur = b.duration_ms,
+    ));
+    if !b.output_text.trim().is_empty() {
+        out.push_str("output:\n");
+        out.push_str(&b.output_text);
+        if !b.output_text.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+}
+
+fn render_block_brief(out: &mut String, b: &BlockSnapshot) {
+    let exit = b
+        .exit_code
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "?".to_string());
+    out.push_str(&format!(
+        "$ {cmd}    [exit {exit}, {dur}ms]\n",
+        cmd = b.command,
+        dur = b.duration_ms,
+    ));
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -192,6 +232,22 @@ mod tests {
         let msg = w.render_user_message("hi");
         assert!(msg.contains("(no commands"));
         assert!(msg.contains("hi"));
+    }
+
+    #[test]
+    fn render_uses_summary_when_present() {
+        let mut w = SessionWorldModel::default();
+        w.summary = Some("user is debugging cargo build failures".to_string());
+        w.apply(finished("cargo build", 1, "error[E0432]\n"));
+        w.apply(finished("cargo check", 0, ""));
+
+        let msg = w.render_user_message("status?");
+        assert!(msg.contains("# Session summary"));
+        assert!(msg.contains("debugging cargo build failures"));
+        // Recent blocks in brief form, no full output dump.
+        assert!(msg.contains("$ cargo build"));
+        assert!(!msg.contains("error[E0432]"));
+        assert!(msg.contains("status?"));
     }
 
     #[test]

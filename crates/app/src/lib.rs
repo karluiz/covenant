@@ -9,6 +9,7 @@
 //! byte verbatim, the parser is purely observational.
 
 mod settings;
+mod summarizer;
 mod world;
 
 use std::collections::HashMap;
@@ -45,7 +46,9 @@ struct ManagedSession {
 
 struct AppState {
     sessions: Mutex<HashMap<SessionId, ManagedSession>>,
-    settings: Mutex<Settings>,
+    /// Wrapped in Arc so the per-session summarizer task can hold a
+    /// long-lived reference without keeping AppState alive on its own.
+    settings: Arc<Mutex<Settings>>,
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
 }
@@ -167,6 +170,15 @@ async fn spawn_session(
             }
         }
     });
+
+    // Summarizer: independently subscribed to the same bus, debounces
+    // BlockFinished events and calls Sonnet to refresh world.summary.
+    summarizer::spawn_loop(
+        id,
+        world.clone(),
+        state.settings.clone(),
+        session.subscribe(),
+    );
 
     state
         .sessions
@@ -354,7 +366,7 @@ pub fn run() {
 
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
-                settings: Mutex::new(loaded),
+                settings: Arc::new(Mutex::new(loaded)),
                 settings_path: path,
                 rate: Mutex::new(RateLimiter::default()),
             });

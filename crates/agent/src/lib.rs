@@ -44,6 +44,24 @@ pub enum AgentEvent {
     Done,
 }
 
+/// One-shot variant: drive a streaming call internally and return the
+/// fully concatenated assistant text. Used by the summarizer where
+/// nothing benefits from streaming.
+pub async fn ask_oneshot(req: AskRequest) -> Result<String, AgentError> {
+    let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let buf_for_cb = buffer.clone();
+    ask_streaming(req, move |event| {
+        if let AgentEvent::Delta(text) = event {
+            // Lock is briefly held; never across an await.
+            if let Ok(mut b) = buf_for_cb.lock() {
+                b.push_str(&text);
+            }
+        }
+    })
+    .await?;
+    Ok(buffer.lock().map(|b| b.clone()).unwrap_or_default())
+}
+
 /// Drive a streaming Messages API call. `on_event` is called from the
 /// same task as the caller (no spawn between them).
 pub async fn ask_streaming<F>(req: AskRequest, mut on_event: F) -> Result<(), AgentError>
