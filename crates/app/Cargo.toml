@@ -24,6 +24,8 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+tokio = { workspace = true }
+ulid = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

@@ -1,17 +1,37 @@
-// Typed wrappers around Tauri commands.
+// Typed wrappers around `karl-app` Tauri commands.
 //
-// Every command exposed by `karl-app` MUST funnel through this file so the
-// frontend has a single, type-safe surface and we can swap transports
-// without touching call sites.
+// Every command exposed by the Rust backend MUST funnel through this
+// file (CLAUDE.md ts conventions). The `Channel` pattern is used for the
+// per-session output stream so the frontend hands a callback to the
+// backend before any bytes can be produced — no listen-before-id race.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
-// M0 placeholder: no commands yet. M0 step 4 will add `spawnSession()` and
-// the matching event subscription helpers.
+export type SessionId = string;
 
-export async function ping(): Promise<string> {
-  // Will be replaced by the real session API. For now this just exists to
-  // give `main.ts` something to import without `@tauri-apps/api` being
-  // tree-shaken to oblivion.
-  return invoke<string>("ping").catch(() => "no-tauri");
+export type OutputHandler = (chunk: Uint8Array) => void;
+
+export async function spawnSession(onOutput: OutputHandler): Promise<SessionId> {
+  const channel = new Channel<number[]>();
+  channel.onmessage = (data) => onOutput(new Uint8Array(data));
+  return invoke<SessionId>("spawn_session", { onOutput: channel });
+}
+
+export async function writeToSession(id: SessionId, data: Uint8Array): Promise<void> {
+  // Tauri serializes args via JSON. number[] deserializes cleanly into
+  // Vec<u8> on the Rust side; Uint8Array → Array.from is the safe path
+  // across Tauri versions.
+  return invoke<void>("write_to_session", { id, data: Array.from(data) });
+}
+
+export async function resizeSession(
+  id: SessionId,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return invoke<void>("resize_session", { id, cols, rows });
+}
+
+export async function closeSession(id: SessionId): Promise<void> {
+  return invoke<void>("close_session", { id });
 }
