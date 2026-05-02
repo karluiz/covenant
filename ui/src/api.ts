@@ -116,6 +116,37 @@ export async function listOperatorDecisions(
   return invoke<OperatorDecisionRow[]>("list_operator_decisions", { limit });
 }
 
+export interface AgentConfig {
+  model_summary: string;
+  model_chat: string;
+  max_calls_per_minute: number;
+}
+
+export interface OperatorConfig {
+  enabled_default: boolean;
+  persona: string;
+  executor_patterns: string[];
+  idle_threshold_secs: number;
+  max_decisions_per_minute: number;
+  deny_extra_patterns: string[];
+}
+
+export interface TerminalConfig {
+  font_family: string;
+  font_size: number;
+}
+
+export interface Settings {
+  anthropic_api_key: string | null;
+  agent: AgentConfig;
+  operator: OperatorConfig;
+  terminal: TerminalConfig;
+}
+
+export async function getSettings(): Promise<Settings> {
+  return invoke<Settings>("get_settings");
+}
+
 export type AgentTokenHandler = (delta: string) => void;
 
 export async function askAgent(

@@ -28,6 +28,9 @@ pub struct Settings {
 
     #[serde(default)]
     pub operator: OperatorConfig,
+
+    #[serde(default)]
+    pub terminal: TerminalConfig,
 }
 
 impl Default for Settings {
@@ -36,8 +39,35 @@ impl Default for Settings {
             anthropic_api_key: None,
             agent: AgentConfig::default(),
             operator: OperatorConfig::default(),
+            terminal: TerminalConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            font_family: default_font_family(),
+            font_size: default_font_size(),
+        }
+    }
+}
+
+fn default_font_family() -> String {
+    "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace"
+        .to_string()
+}
+
+fn default_font_size() -> u32 {
+    13
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

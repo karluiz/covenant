@@ -17,34 +17,43 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 import {
   closeSession,
+  getSettings,
   isOperatorEnabled,
   resizeSession,
   setOperatorEnabled,
   spawnSession,
   writeToSession,
   type SessionId,
+  type TerminalConfig,
 } from "../api";
 import { BlockManager } from "../blocks/manager";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 
-const TERMINAL_OPTIONS = {
-  fontFamily:
-    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-  fontSize: 13,
-  lineHeight: 1.2,
-  cursorBlink: true,
-  cursorStyle: "block",
-  allowProposedApi: true,
-  convertEol: false,
-  scrollback: 10_000,
-  theme: {
-    background: "#0b0d10",
-    foreground: "#d6d8db",
-    cursor: "#7aa2f7",
-    cursorAccent: "#0b0d10",
-    selectionBackground: "#2a3148",
-  },
+const DEFAULT_FONT_FAMILY =
+  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
+const DEFAULT_FONT_SIZE = 13;
+
+const TERMINAL_THEME = {
+  background: "#0b0d10",
+  foreground: "#d6d8db",
+  cursor: "#7aa2f7",
+  cursorAccent: "#0b0d10",
+  selectionBackground: "#2a3148",
 } as const;
+
+function buildTerminalOptions(font: TerminalConfig | null): Record<string, unknown> {
+  return {
+    fontFamily: font?.font_family || DEFAULT_FONT_FAMILY,
+    fontSize: font?.font_size || DEFAULT_FONT_SIZE,
+    lineHeight: 1.2,
+    cursorBlink: true,
+    cursorStyle: "block",
+    allowProposedApi: true,
+    convertEol: false,
+    scrollback: 10_000,
+    theme: TERMINAL_THEME,
+  };
+}
 
 interface Tab {
   id: string;
@@ -65,6 +74,10 @@ interface Tab {
   blocksHost: HTMLElement;
   term: Terminal;
   fit: FitAddon;
+  /// Held so applyTerminalSettings can call webgl.clearTextureAtlas()
+  /// when the font changes — the addon caches glyph bitmaps separately
+  /// from the terminal options.
+  webgl: WebglAddon | null;
   blocks: BlockManager;
   disposers: IDisposable[];
 }
@@ -118,8 +131,287 @@ export class TabManager {
     });
   }
 
+  /// Pointer-event-based drag implementation.
+  ///
+  /// We don't use HTML5 drag-and-drop because Tauri's WebKit on macOS
+  /// doesn't reliably deliver `dragenter`/`dragover`/`drop` events to
+  /// elements when the source lives in the same container — they get
+  /// swallowed by the OS-level drag-region handling. Pointer events
+  /// always fire, so we synthesize the whole flow ourselves.
+  private installTabPointerDrag(pill: HTMLElement, tabId: string): void {
+    pill.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return; // left click only
+      if ((e.target as HTMLElement).closest(".tab-close")) return;
+      if (this.isRenamingTab(tabId)) return;
+      // Prevent webkit's default text-selection initiation. Without
+      // this, dragging over neighbouring tab labels triggers a text-
+      // selection sweep (highlighted "zsh 2", "zsh 3", etc).
+      e.preventDefault();
+      this.beginPointerDrag(e, { kind: "tab", id: tabId });
+    });
+  }
+
+  private installChipPointerDrag(chip: HTMLElement, groupId: string): void {
+    chip.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest(".group-chip-chev")) return;
+      if (this.isRenamingGroup(groupId)) return;
+      e.preventDefault();
+      this.beginPointerDrag(e, { kind: "group", id: groupId });
+    });
+  }
+
+  private beginPointerDrag(e: PointerEvent, src: NonNullable<DragSource>): void {
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let activated = false;
+    let ghost: HTMLElement | null = null;
+    let sourceEl: HTMLElement | null = null;
+
+    const cleanup = (): void => {
+      document.body.classList.remove("tab-drag-active");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      this.tabbarHost
+        .querySelectorAll(".tab-drop-left, .tab-drop-right, .group-chip-drop")
+        .forEach((el) =>
+          el.classList.remove(
+            "tab-drop-left",
+            "tab-drop-right",
+            "group-chip-drop",
+          ),
+        );
+      if (ghost) {
+        ghost.remove();
+        ghost = null;
+      }
+      if (sourceEl) {
+        sourceEl.classList.remove("tab-dragging", "group-chip-dragging");
+        sourceEl = null;
+      }
+      this.dragging = null;
+    };
+
+    const findSourceEl = (): HTMLElement | null => {
+      const sel =
+        src.kind === "tab"
+          ? `.tab-btn[data-tab-id="${src.id}"]`
+          : `.group-chip[data-group-id="${src.id}"]`;
+      return this.tabbarHost.querySelector<HTMLElement>(sel);
+    };
+
+    let ghostOriginX = 0;
+    let ghostOriginY = 0;
+
+    const activate = (): void => {
+      activated = true;
+      this.dragging = src;
+      // Globally disable text selection + tweak cursor while a drag
+      // is in flight. Without this, hovering over neighbour tab labels
+      // selects their text mid-drag.
+      document.body.classList.add("tab-drag-active");
+      sourceEl = findSourceEl();
+      if (sourceEl) {
+        sourceEl.classList.add(
+          src.kind === "tab" ? "tab-dragging" : "group-chip-dragging",
+        );
+        ghost = sourceEl.cloneNode(true) as HTMLElement;
+        ghost.classList.add("tab-ghost");
+        const rect = sourceEl.getBoundingClientRect();
+        ghost.style.width = `${rect.width}px`;
+        ghost.style.height = `${rect.height}px`;
+        ghostOriginX = rect.left;
+        ghostOriginY = rect.top;
+        ghost.style.left = `${ghostOriginX}px`;
+        ghost.style.top = `${ghostOriginY}px`;
+        document.body.appendChild(ghost);
+      }
+    };
+
+    const updateIndicators = (clientX: number, clientY: number): {
+      kind: "pill" | "chip" | null;
+      el: HTMLElement | null;
+      side: "left" | "right";
+    } => {
+      this.tabbarHost
+        .querySelectorAll(".tab-drop-left, .tab-drop-right, .group-chip-drop")
+        .forEach((el) => {
+          el.classList.remove(
+            "tab-drop-left",
+            "tab-drop-right",
+            "group-chip-drop",
+          );
+          el.querySelector(".tab-drop-anchor")?.remove();
+        });
+
+      const target = document.elementFromPoint(clientX, clientY) as
+        | HTMLElement
+        | null;
+      const chip = target?.closest<HTMLElement>(".group-chip") ?? null;
+      if (chip) {
+        const groupId = chip.dataset.groupId;
+        if (
+          groupId &&
+          !(src.kind === "group" && src.id === groupId) &&
+          !(src.kind === "tab" &&
+            this.tabs.find((t) => t.id === src.id)?.groupId === groupId)
+        ) {
+          chip.classList.add("group-chip-drop");
+          const rect = chip.getBoundingClientRect();
+          return {
+            kind: "chip",
+            el: chip,
+            side: clientX < rect.left + rect.width / 2 ? "left" : "right",
+          };
+        }
+      }
+
+      const pill = target?.closest<HTMLElement>(".tab-btn") ?? null;
+      if (pill) {
+        const tabId = pill.dataset.tabId;
+        if (!tabId) return { kind: null, el: null, side: "left" };
+        const tab = this.tabs.find((t) => t.id === tabId);
+        if (!tab) return { kind: null, el: null, side: "left" };
+        if (src.kind === "tab" && src.id === tabId) {
+          return { kind: null, el: null, side: "left" };
+        }
+        if (src.kind === "group" && tab.groupId === src.id) {
+          return { kind: null, el: null, side: "left" };
+        }
+        const rect = pill.getBoundingClientRect();
+        const side: "left" | "right" =
+          clientX < rect.left + rect.width / 2 ? "left" : "right";
+        pill.classList.add(side === "left" ? "tab-drop-left" : "tab-drop-right");
+        // Anchor dot at top of the indicator — visual cue for landing point.
+        const anchor = document.createElement("span");
+        anchor.className = "tab-drop-anchor";
+        pill.appendChild(anchor);
+        return { kind: "pill", el: pill, side };
+      }
+      return { kind: null, el: null, side: "left" };
+    };
+
+    const onMove = (ev: PointerEvent): void => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!activated) {
+        if (dx * dx + dy * dy < 5 * 5) return;
+        activate();
+      }
+      if (ghost) {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        ghost.style.transform = `translate(${dx}px, ${dy}px) rotate(2deg) scale(0.96)`;
+      }
+      updateIndicators(ev.clientX, ev.clientY);
+    };
+
+    const onUp = (ev: PointerEvent): void => {
+      if (!activated) {
+        cleanup();
+        return;
+      }
+      const drop = updateIndicators(ev.clientX, ev.clientY);
+      if (drop.kind === "chip" && drop.el) {
+        const groupId = drop.el.dataset.groupId!;
+        if (src.kind === "tab") {
+          this.addTabToGroup(src.id, groupId);
+        } else if (src.kind === "group" && src.id !== groupId) {
+          this.moveGroupRelativeToGroup(src.id, groupId, drop.side);
+        }
+      } else if (drop.kind === "pill" && drop.el) {
+        const tabId = drop.el.dataset.tabId!;
+        const tab = this.tabs.find((t) => t.id === tabId);
+        if (!tab) {
+          cleanup();
+          return;
+        }
+        if (src.kind === "tab" && src.id !== tabId) {
+          this.reorder(src.id, tabId, drop.side);
+        } else if (src.kind === "group" && tab.groupId !== src.id) {
+          this.moveGroupRelativeToTab(src.id, tabId, drop.side);
+        }
+      }
+      cleanup();
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
   hasTabs(): boolean {
     return this.tabs.length > 0;
+  }
+
+  /// Push terminal font/size into every open tab. Called from main.ts
+  /// when the user saves Settings (no restart needed).
+  ///
+  /// xterm.js caches glyph metrics + a WebGL texture atlas based on the
+  /// current font. Changing fontFamily/fontSize without invalidating
+  /// these caches makes new glyphs render against the OLD cell width —
+  /// the visible result is "spread out" characters. To fix:
+  ///   1. Wait for `document.fonts.ready` so the browser has actually
+  ///      loaded the new font before xterm measures it.
+  ///   2. Set options.
+  ///   3. Clear the WebGL texture atlas if the addon exposes it.
+  ///   4. Refit (recomputes cols/rows from new cell dims).
+  ///   5. Resync the backend PTY.
+  applyTerminalSettings(cfg: TerminalConfig): void {
+    const family = cfg.font_family || DEFAULT_FONT_FAMILY;
+    const size = cfg.font_size || DEFAULT_FONT_SIZE;
+
+    void document.fonts.ready.then(() => {
+      for (const tab of this.tabs) {
+        try {
+          tab.term.options.fontFamily = family;
+          tab.term.options.fontSize = size;
+
+          // Surefire WebGL refresh: dispose the addon + load a fresh
+          // one. clearTextureAtlas() alone is a silent no-op in xterm
+          // 5.x when the font changes after open(); the dispose-and-
+          // recreate dance forces a full atlas rebuild against the
+          // new font metrics.
+          if (tab.webgl) {
+            try {
+              tab.webgl.dispose();
+            } catch {
+              /* ignore */
+            }
+            try {
+              const next = new WebglAddon();
+              tab.term.loadAddon(next);
+              tab.webgl = next;
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "WebGL recreate failed; falling back to canvas",
+                err,
+              );
+              tab.webgl = null;
+            }
+          }
+
+          requestAnimationFrame(() => {
+            try {
+              tab.fit.fit();
+            } catch {
+              /* ignore */
+            }
+            tab.term.refresh(0, tab.term.rows - 1);
+            void resizeSession(
+              tab.sessionId,
+              tab.term.cols,
+              tab.term.rows,
+            ).catch(() => {});
+          });
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("apply terminal settings failed for tab", tab.id, err);
+        }
+      }
+    });
   }
 
   closeActive(): void {
@@ -169,16 +461,21 @@ export class TabManager {
     this.hideAllPanes();
     this.workspace.appendChild(pane);
 
-    const term = new Terminal(TERMINAL_OPTIONS);
+    // Read terminal font/size from settings each spawn so a Save in
+    // ⌘, applies on the next new tab without restart. Existing tabs
+    // are updated live via applyTerminalSettings().
+    const termCfg = await getSettings()
+      .then((s) => s.terminal)
+      .catch(() => null);
+    const term = new Terminal(buildTerminalOptions(termCfg));
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(termHost);
-    try {
-      term.loadAddon(new WebglAddon());
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("WebGL renderer unavailable, using canvas fallback", err);
-    }
+    // WebGL addon disabled temporarily — its glyph atlas doesn't pick
+    // up font changes from term.options.fontFamily reliably. DOM/canvas
+    // renderer respects the font option natively. M-OP perf hit is
+    // negligible at terminal byte rates.
+    const webgl: WebglAddon | null = null;
     fit.fit();
 
     let blocks: BlockManager | null = null;
@@ -234,6 +531,7 @@ export class TabManager {
       blocksHost,
       term,
       fit,
+      webgl,
       blocks,
       disposers: [dataDispose, resizeDispose],
     };
@@ -548,22 +846,37 @@ export class TabManager {
   private renderTabbar(): void {
     this.tabbarHost.innerHTML = "";
     let prevGroupId: string | null | undefined = undefined;
+    let pendingFirstGroupId: string | null = null;
     for (const tab of this.tabs) {
-      if (tab.groupId !== prevGroupId && tab.groupId !== null) {
-        const group = this.groups.get(tab.groupId);
+      const isNewGroupRun = tab.groupId !== prevGroupId && tab.groupId !== null;
+
+      if (isNewGroupRun) {
+        const group = this.groups.get(tab.groupId!);
         if (group) {
           const memberCount = this.memberIndices(group.id).length;
-          this.tabbarHost.appendChild(this.renderGroupChip(group, memberCount));
+          const chipEl = this.renderGroupChip(group, memberCount);
+          // Mark chip as having visible members → CSS fuses the seam
+          // between chip and the first member tab.
+          if (memberCount > 0 && !group.collapsed) {
+            chipEl.classList.add("group-chip-has-members");
+            pendingFirstGroupId = group.id;
+          }
+          this.tabbarHost.appendChild(chipEl);
         }
       }
-      // When a group is collapsed, its member tab pills are not rendered
-      // — only the chip remains in the tabbar. The active tab's pane
-      // and terminal stay alive in the workspace; the user can still
-      // reach it via ⌘1..⌘9 or by expanding the group.
+
       const group = tab.groupId ? this.groups.get(tab.groupId) : null;
       const hidden = group?.collapsed ?? false;
       if (!hidden) {
-        this.tabbarHost.appendChild(this.renderTabPill(tab));
+        const pillEl = this.renderTabPill(tab);
+        if (
+          pendingFirstGroupId !== null &&
+          tab.groupId === pendingFirstGroupId
+        ) {
+          pillEl.classList.add("tab-grouped-first");
+          pendingFirstGroupId = null;
+        }
+        this.tabbarHost.appendChild(pillEl);
       }
       prevGroupId = tab.groupId;
     }
@@ -573,7 +886,6 @@ export class TabManager {
     const chip = document.createElement("div");
     chip.className = "group-chip";
     chip.dataset.groupId = group.id;
-    chip.draggable = true;
     if (group.color) {
       chip.classList.add("group-chip-colored");
       chip.style.setProperty("--group-color", group.color);
@@ -583,15 +895,13 @@ export class TabManager {
       chip.classList.add("group-chip-dragging");
     }
 
-    // Chevron — opt-in click target for fold toggle. Keeping it
-    // separate from the chip body lets dblclick=rename work on the
-    // label without timing hacks.
+    // Chevron — opt-in click target for fold toggle. CSS draws a
+    // triangle pseudo-element that rotates between collapsed/expanded.
     const chevron = document.createElement("button");
     chevron.type = "button";
     chevron.className = "group-chip-chev";
-    chevron.draggable = false;
     chevron.title = group.collapsed ? "Expand group" : "Collapse group";
-    chevron.textContent = group.collapsed ? "▸" : "▾";
+    chevron.setAttribute("aria-label", chevron.title);
     chevron.addEventListener("mousedown", (e) => e.stopPropagation());
     chevron.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -654,59 +964,7 @@ export class TabManager {
     });
 
     // ── Drag (move whole group) ──
-    chip.addEventListener("dragstart", (e) => {
-      if (this.isRenamingGroup(group.id)) {
-        e.preventDefault();
-        return;
-      }
-      this.dragging = { kind: "group", id: group.id };
-      chip.classList.add("group-chip-dragging");
-      e.dataTransfer?.setData("text/plain", group.id);
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    });
-    chip.addEventListener("dragend", () => {
-      this.dragging = null;
-      chip.classList.remove("group-chip-dragging");
-      this.tabbarHost
-        .querySelectorAll(".tab-drop-left, .tab-drop-right, .group-chip-drop")
-        .forEach((el) =>
-          el.classList.remove(
-            "tab-drop-left",
-            "tab-drop-right",
-            "group-chip-drop",
-          ),
-        );
-    });
-
-    // ── Drop on chip (add tab to group OR reorder another group) ──
-    chip.addEventListener("dragover", (e) => {
-      if (!this.dragging) return;
-      // Self-drag of the same group → no-op.
-      if (this.dragging.kind === "group" && this.dragging.id === group.id) {
-        return;
-      }
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      chip.classList.add("group-chip-drop");
-    });
-    chip.addEventListener("dragleave", () => {
-      chip.classList.remove("group-chip-drop");
-    });
-    chip.addEventListener("drop", (e) => {
-      e.preventDefault();
-      chip.classList.remove("group-chip-drop");
-      const src = this.dragging;
-      if (!src) return;
-
-      if (src.kind === "tab") {
-        this.addTabToGroup(src.id, group.id);
-      } else if (src.kind === "group" && src.id !== group.id) {
-        const rect = chip.getBoundingClientRect();
-        const side: "left" | "right" =
-          e.clientX < rect.left + rect.width / 2 ? "left" : "right";
-        this.moveGroupRelativeToGroup(src.id, group.id, side);
-      }
-    });
+    this.installChipPointerDrag(chip, group.id);
 
     return chip;
   }
@@ -715,12 +973,15 @@ export class TabManager {
     // <div role=button> instead of <button> so we can nest <input> for
     // the inline rename (button > input is invalid HTML).
     const pill = document.createElement("div");
-    pill.role = "button";
+    pill.setAttribute("role", "button");
     pill.tabIndex = 0;
     pill.className = `tab-btn ${tab.id === this.activeId ? "active" : ""}`;
     pill.dataset.tabId = tab.id;
     pill.title = tabDisplayName(tab);
-    pill.draggable = true;
+    // Both the property AND the attribute — some webkit builds only
+    // honor one or the other for div elements.
+    // No native HTML5 draggable — we use pointer events instead
+    // (see installTabPointerDrag).
 
     if (tab.color) {
       pill.classList.add("tab-colored");
@@ -737,11 +998,10 @@ export class TabManager {
     }
 
     if (tab.operatorEnabled) {
-      const badge = document.createElement("span");
-      badge.className = "tab-operator-badge";
-      badge.textContent = "🤖";
-      badge.title = "Operator enabled (dry-run)";
-      pill.appendChild(badge);
+      const dot = document.createElement("span");
+      dot.className = "tab-operator-dot";
+      dot.title = "Operator enabled (dry-run)";
+      pill.appendChild(dot);
     }
 
     if (this.isRenamingTab(tab.id)) {
@@ -805,66 +1065,7 @@ export class TabManager {
     });
 
     // ── Drag and drop ──
-    pill.addEventListener("dragstart", (e) => {
-      if (this.isRenamingTab(tab.id)) {
-        e.preventDefault();
-        return;
-      }
-      this.dragging = { kind: "tab", id: tab.id };
-      pill.classList.add("tab-dragging");
-      e.dataTransfer?.setData("text/plain", tab.id);
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    });
-
-    pill.addEventListener("dragend", () => {
-      this.dragging = null;
-      pill.classList.remove("tab-dragging");
-      this.tabbarHost
-        .querySelectorAll(".tab-drop-left, .tab-drop-right, .group-chip-drop")
-        .forEach((el) =>
-          el.classList.remove(
-            "tab-drop-left",
-            "tab-drop-right",
-            "group-chip-drop",
-          ),
-        );
-    });
-
-    pill.addEventListener("dragover", (e) => {
-      const src = this.dragging;
-      if (!src) return;
-      if (src.kind === "tab" && src.id === tab.id) return;
-      // A group dragged over one of its own member pills is a no-op.
-      if (src.kind === "group" && tab.groupId === src.id) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      const rect = pill.getBoundingClientRect();
-      const side: "left" | "right" =
-        e.clientX < rect.left + rect.width / 2 ? "left" : "right";
-      pill.classList.toggle("tab-drop-left", side === "left");
-      pill.classList.toggle("tab-drop-right", side === "right");
-    });
-
-    pill.addEventListener("dragleave", () => {
-      pill.classList.remove("tab-drop-left", "tab-drop-right");
-    });
-
-    pill.addEventListener("drop", (e) => {
-      e.preventDefault();
-      pill.classList.remove("tab-drop-left", "tab-drop-right");
-      const src = this.dragging;
-      if (!src) return;
-
-      const rect = pill.getBoundingClientRect();
-      const side: "left" | "right" =
-        e.clientX < rect.left + rect.width / 2 ? "left" : "right";
-
-      if (src.kind === "tab" && src.id !== tab.id) {
-        this.reorder(src.id, tab.id, side);
-      } else if (src.kind === "group" && tab.groupId !== src.id) {
-        this.moveGroupRelativeToTab(src.id, tab.id, side);
-      }
-    });
+    this.installTabPointerDrag(pill, tab.id);
 
     return pill;
   }

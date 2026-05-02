@@ -22,10 +22,16 @@ interface OperatorConfig {
   deny_extra_patterns: string[];
 }
 
+interface TerminalConfig {
+  font_family: string;
+  font_size: number;
+}
+
 interface Settings {
   anthropic_api_key: string | null;
   agent: AgentConfig;
   operator: OperatorConfig;
+  terminal: TerminalConfig;
 }
 
 async function getSettings(): Promise<Settings> {
@@ -39,6 +45,11 @@ async function setSettings(settings: Settings): Promise<void> {
 export class SettingsPanel {
   private modal: HTMLElement | null = null;
   private current: Settings | null = null;
+
+  /// Optional callback fired whenever settings are saved. Used by main
+  /// to push live updates (terminal font, operator state, etc.) into
+  /// open tabs without requiring a restart.
+  public onSaved: ((next: Settings) => void) | null = null;
 
   constructor(private readonly mountHost: HTMLElement) {}
 
@@ -75,6 +86,11 @@ export class SettingsPanel {
           idle_threshold_secs: 4,
           max_decisions_per_minute: 10,
           deny_extra_patterns: [],
+        },
+        terminal: {
+          font_family:
+            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+          font_size: 13,
         },
       };
     }
@@ -147,6 +163,30 @@ export class SettingsPanel {
         </fieldset>
 
         <fieldset>
+          <legend>Terminal</legend>
+          <label class="settings-field">
+            <span class="settings-label">Font family</span>
+            <input
+              type="text"
+              name="term_font"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder='ui-monospace, "JetBrains Mono", monospace'
+            />
+            <small class="settings-hint">
+              CSS font stack. Use the exact name macOS reports in Font Book
+              (e.g. <code>"JetBrains Mono"</code>, <code>"Fira Code"</code>,
+              <code>"Cascadia Code"</code>, <code>"Iosevka"</code>). Always
+              end with <code>monospace</code> as a fallback.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Font size</span>
+            <input type="number" name="term_size" min="8" max="32" />
+          </label>
+        </fieldset>
+
+        <fieldset>
           <legend>Operator</legend>
           <p class="settings-hint" style="margin: 0 0 6px;">
             When an executor agent (claude code, copilot, opencode, aider…)
@@ -160,7 +200,7 @@ export class SettingsPanel {
             <span class="settings-label">Persona / authorization charter</span>
             <textarea
               name="operator_persona"
-              rows="14"
+              rows="22"
               spellcheck="false"
               autocomplete="off"
             ></textarea>
@@ -198,6 +238,8 @@ export class SettingsPanel {
     )!;
     const opIdle = card.querySelector<HTMLInputElement>('input[name="op_idle"]')!;
     const opRate = card.querySelector<HTMLInputElement>('input[name="op_rate"]')!;
+    const termFont = card.querySelector<HTMLInputElement>('input[name="term_font"]')!;
+    const termSize = card.querySelector<HTMLInputElement>('input[name="term_size"]')!;
     const status = card.querySelector<HTMLElement>(".settings-status")!;
 
     apiKey.value = this.current.anthropic_api_key ?? "";
@@ -207,6 +249,8 @@ export class SettingsPanel {
     opPersona.value = this.current.operator.persona;
     opIdle.value = String(this.current.operator.idle_threshold_secs);
     opRate.value = String(this.current.operator.max_decisions_per_minute);
+    termFont.value = this.current.terminal.font_family;
+    termSize.value = String(this.current.terminal.font_size);
 
     apiKey.focus();
 
@@ -260,10 +304,17 @@ export class SettingsPanel {
           ),
           deny_extra_patterns: prevOp.deny_extra_patterns,
         },
+        terminal: {
+          font_family:
+            termFont.value.trim() ||
+            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+          font_size: Math.max(8, Math.min(32, Number(termSize.value) || 13)),
+        },
       };
       try {
         await setSettings(next);
         this.current = next;
+        if (this.onSaved) this.onSaved(next);
         status.textContent = "saved ✓";
         status.classList.add("ok");
         setTimeout(() => this.close(), 600);
