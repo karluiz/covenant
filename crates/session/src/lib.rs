@@ -1,4 +1,4 @@
-//! Session lifecycle and event bus for karl-terminal.
+//! Session lifecycle and event bus for Covenant.
 //!
 //! Wraps a [`karl_pty::PtySession`] with:
 //!   - a `tokio::broadcast` event bus carrying high-level [`SessionEvent`]s

@@ -1,4 +1,4 @@
-//! SQLite persistence for karl-terminal sessions, blocks, and rolling
+//! SQLite persistence for Covenant sessions, blocks, and rolling
 //! summaries.
 //!
 //! M7.1 lands the WRITE path only. Spawned sessions are inserted on

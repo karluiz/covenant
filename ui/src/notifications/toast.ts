@@ -7,6 +7,8 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import { Icons } from "../icons";
+
 interface CrossSessionFinding {
   message: string;
   timestamp_unix_ms: number;
@@ -52,9 +54,9 @@ export class ToastHost {
     card.type = "button";
     card.className = "toast";
     card.innerHTML = `
-      <span class="toast-icon">🔗</span>
+      <span class="toast-icon">${Icons.link2({ size: 14 })}</span>
       <span class="toast-msg"></span>
-      <span class="toast-close" aria-label="dismiss">×</span>
+      <span class="toast-close" aria-label="dismiss">${Icons.x({ size: 12 })}</span>
     `;
     card.querySelector<HTMLElement>(".toast-msg")!.textContent = finding.message;
 

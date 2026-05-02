@@ -1,4 +1,4 @@
-//! Anthropic Messages API client for karl-terminal's super-agent.
+//! Anthropic Messages API client for Covenant's super-agent.
 //!
 //! M3.2b minimal: streaming SSE responses with prompt caching on the
 //! system block. The crate is *only* the HTTP client — world-model

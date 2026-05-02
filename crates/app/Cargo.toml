@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Karl Terminal — Tauri shell"
+description = "Covenant — AI-coordinated terminal"
 
 [lib]
 # `_lib` suffix avoids a Windows linker conflict with the bin name.

@@ -14,6 +14,7 @@ import {
   type SessionId,
   type SessionUiEvent,
 } from "../api";
+import { Icons } from "../icons";
 import { ContextMenu } from "../menu/context-menu";
 
 interface Block {
@@ -164,10 +165,12 @@ export class BlockManager {
     this.menu.show(x, y, [
       {
         label: "Copy command",
+        icon: Icons.copy(),
         onClick: () => copyToClipboard(block.command),
       },
       {
         label: "Copy output",
+        icon: Icons.copy(),
         disabled: !hasFinished,
         onClick: async () => {
           try {
@@ -186,6 +189,7 @@ export class BlockManager {
             { divider: true } as const,
             {
               label: "Inject fix into terminal",
+              icon: Icons.lightbulb(),
               onClick: () =>
                 injectCommand(this.sessionId, block.fix!.command).catch(
                   (err) => {
@@ -223,7 +227,10 @@ function renderFix(b: Block): string {
         class="block-fix-cmd"
         data-cmd="${escapeHtml(b.fix.command)}"
         title="Click to type into the terminal (won't auto-execute)"
-      >💡 ${escapeHtml(b.fix.command)}</button>
+      >
+        <span class="block-fix-icon">${Icons.lightbulb({ size: 12 })}</span>
+        <span class="block-fix-cmd-text">${escapeHtml(b.fix.command)}</span>
+      </button>
       ${
         b.fix.rationale
           ? `<div class="block-fix-why">${escapeHtml(b.fix.rationale)}</div>`

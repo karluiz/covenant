@@ -152,21 +152,20 @@ body {
      INSIDE the pill via ::after pseudo since ::before is taken. */
 }
 
-/* Operator badge — small green dot, top-right corner */
-.tab-operator-dot {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 2px var(--bg-tabbar);
+/* Operator marker — bot icon as a leading affordance instead of an
+   emoji. Tinted with `--ok` so it reads as "active and watching". */
+.tab-operator-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ok);
+  margin-right: 1px;
   pointer-events: none;
 }
 
-.tab-btn.active .tab-operator-dot {
-  box-shadow: 0 0 0 2px var(--tab-bg-active);
+.tab-operator-icon svg {
+  display: block;
 }
 
 .tab-dragging {
@@ -719,9 +718,31 @@ body.tab-drag-active * {
   font-size: 11px;
   color: var(--accent);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.block-fix-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--running);
+}
+
+.block-fix-icon svg {
+  display: block;
+}
+
+.block-fix-cmd-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .block-fix-cmd:hover {
@@ -800,8 +821,16 @@ body.tab-drag-active * {
 }
 
 .toast-icon {
-  font-size: 14px;
-  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--accent);
+  margin-top: 1px;
+}
+
+.toast-icon svg {
+  display: block;
 }
 
 .toast-msg {
@@ -809,11 +838,18 @@ body.tab-drag-active * {
 }
 
 .toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 4px;
+  width: 18px;
+  height: 18px;
   border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.toast-close svg {
+  display: block;
 }
 
 .toast-close:hover {
@@ -1084,8 +1120,35 @@ body.tab-drag-active * {
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
+}
+
+.ctx-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color 0.1s;
+}
+
+.ctx-item:hover:not(:disabled) .ctx-item-icon {
+  color: var(--bg);
+}
+
+.ctx-item-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ctx-item-icon + .ctx-item-label,
+.ctx-item-label:only-child {
+  /* defensive — second child gets the rest of the row */
 }
 
 .ctx-item:hover:not(:disabled) {
@@ -1136,9 +1199,15 @@ body.tab-drag-active * {
 
 .ctx-swatch-none {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1;
   background: transparent;
+}
+
+.ctx-swatch-none:hover {
+  color: #fff;
+}
+
+.ctx-swatch-none svg {
+  display: block;
 }
 
 /* ─── Settings modal ───────────────────────────────── */

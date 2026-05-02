@@ -1,6 +1,6 @@
 //! M-OP: the Operator. A coordinator agent that watches executor agents
 //! (Claude Code, Copilot CLI, opencode, aider, …) running inside a
-//! karl-terminal PTY and answers their routine prompts on the user's
+//! Covenant PTY and answers their routine prompts on the user's
 //! behalf, within an explicit charter (persona + hard constraints).
 //!
 //! # Threat model
@@ -451,7 +451,7 @@ async fn run_tick(
 
 fn build_system_prompt(persona: &str) -> String {
     format!(
-        "You are the Operator for karl-terminal — the user's coordinator that \
+        "You are the Operator for Covenant — the user's coordinator that \
          watches an executor agent (claude code, copilot, opencode, aider, …) \
          running inside their PTY. The executor has paused; the user wants you \
          to answer routine questions on their behalf within the charter below.\n\n\

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Covenant — source SVG for the macOS app icon.
+  Concept: a perfect ring (the covenant — the explicit boundary you set)
+  with a single offset dot inside (the operator working autonomously
+  within those constraints). Monochrome on dark, scales 16px → 1024px.
+
+  Regenerate the .icns / .ico / png set with:
+    npm run tauri icon ui/assets/covenant-logo.svg
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Background. macOS will round-mask the corners; we leave it
+       square so non-Apple platforms don't get an awkward double-mask. -->
+  <rect width="1024" height="1024" fill="#0b0d10"/>
+
+  <!-- Subtle radial depth so the ring doesn't sit on a flat plane. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#15191f"/>
+      <stop offset="100%" stop-color="#0b0d10"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- The covenant: a perfect ring. White-ish so it reads as "the
+       agreement boundary" — strict, clear, unbroken. -->
+  <circle cx="512" cy="512" r="320"
+          fill="none"
+          stroke="#e6e8ea"
+          stroke-width="40"/>
+
+  <!-- The operator: a single accent dot inside the ring, offset from
+       center to suggest autonomy within the boundary you set. -->
+  <circle cx="640" cy="416" r="60" fill="#7aa2f7"/>
+</svg>

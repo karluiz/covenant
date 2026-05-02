@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Karl Terminal",
+  "productName": "Covenant",
   "version": "0.1.0",
-  "identifier": "com.karluiz.karl-terminal",
+  "identifier": "com.karluiz.covenant",
   "build": {
     "frontendDist": "../../dist",
     "devUrl": "http://localhost:1420",
@@ -19,7 +19,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Karl Terminal",
+        "title": "Covenant",
         "width": 1100,
         "height": 720,
         "minWidth": 600,

@@ -1,4 +1,4 @@
-//! PTY abstraction over `portable-pty` for karl-terminal.
+//! PTY abstraction over `portable-pty` for Covenant.
 //!
 //! Two surfaces:
 //!

@@ -27,6 +27,7 @@ import {
   type TerminalConfig,
 } from "../api";
 import { BlockManager } from "../blocks/manager";
+import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 
 const DEFAULT_FONT_FAMILY =
@@ -998,10 +999,14 @@ export class TabManager {
     }
 
     if (tab.operatorEnabled) {
-      const dot = document.createElement("span");
-      dot.className = "tab-operator-dot";
-      dot.title = "Operator enabled (dry-run)";
-      pill.appendChild(dot);
+      // Bot icon as a discreet leading affordance instead of the
+      // top-right green dot. Reads as "this tab has the operator
+      // watching" without competing with the close button.
+      const botEl = document.createElement("span");
+      botEl.className = "tab-operator-icon";
+      botEl.title = "Operator enabled (dry-run)";
+      botEl.innerHTML = Icons.bot({ size: 13 });
+      pill.appendChild(botEl);
     }
 
     if (this.isRenamingTab(tab.id)) {
@@ -1072,7 +1077,11 @@ export class TabManager {
 
   private openTabContextMenu(tab: Tab, x: number, y: number): void {
     const items: Parameters<ContextMenu["show"]>[2] = [
-      { label: "Rename", onClick: () => this.startTabRename(tab.id) },
+      {
+        label: "Rename",
+        icon: Icons.pencil(),
+        onClick: () => this.startTabRename(tab.id),
+      },
       { divider: true },
       {
         swatches: COLOR_SWATCHES.map((sw) => ({
@@ -1084,38 +1093,41 @@ export class TabManager {
       { divider: true },
     ];
 
-    // Group operations. Show "Add to: <existing groups>" then "New
+    // Group operations. Show "Move to: <existing groups>" then "New
     // group from this tab" then "Remove from group" if applicable.
     const otherGroups = Array.from(this.groups.values()).filter(
       (g) => g.id !== tab.groupId,
     );
     for (const g of otherGroups) {
       items.push({
-        label: `→ Move to "${g.name}"`,
+        label: `Move to "${g.name}"`,
+        icon: Icons.arrowRight(),
         onClick: () => this.addTabToGroup(tab.id, g.id),
       });
     }
     items.push({
-      label: "+ New group from this tab",
+      label: "New group from this tab",
+      icon: Icons.plus(),
       onClick: () => this.createGroupFromTab(tab.id),
     });
     if (tab.groupId) {
       items.push({
         label: "Remove from group",
+        icon: Icons.folderMinus(),
         onClick: () => this.removeTabFromGroup(tab.id),
       });
     }
 
     items.push({ divider: true });
     items.push({
-      label: tab.operatorEnabled
-        ? "🤖 Disable operator"
-        : "🤖 Enable operator",
+      label: tab.operatorEnabled ? "Disable operator" : "Enable operator",
+      icon: Icons.bot(),
       onClick: () => this.toggleOperator(tab.id),
     });
     items.push({ divider: true });
     items.push({
       label: "Close tab",
+      icon: Icons.x(),
       danger: true,
       onClick: () => this.closeTab(tab.id),
     });
@@ -1125,9 +1137,14 @@ export class TabManager {
 
   private openGroupContextMenu(group: TabGroup, x: number, y: number): void {
     this.menu.show(x, y, [
-      { label: "Rename group", onClick: () => this.startGroupRename(group.id) },
+      {
+        label: "Rename group",
+        icon: Icons.pencil(),
+        onClick: () => this.startGroupRename(group.id),
+      },
       {
         label: group.collapsed ? "Expand group" : "Collapse group",
+        icon: Icons.folder(),
         onClick: () => this.toggleGroupCollapsed(group.id),
       },
       { divider: true },
@@ -1141,6 +1158,7 @@ export class TabManager {
       { divider: true },
       {
         label: "Ungroup",
+        icon: Icons.folderMinus(),
         danger: true,
         onClick: () => this.ungroup(group.id),
       },

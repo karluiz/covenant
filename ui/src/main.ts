@@ -148,7 +148,7 @@ async function boot(): Promise<void> {
 
 void boot().catch((err) => {
   // eslint-disable-next-line no-console
-  console.error("karl-terminal boot failed", err);
+  console.error("covenant boot failed", err);
   const workspace = document.getElementById("workspace");
   if (workspace) workspace.textContent = `boot failed: ${String(err)}`;
 });

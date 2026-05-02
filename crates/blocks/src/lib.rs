@@ -1,4 +1,4 @@
-//! OSC 133 block parser for karl-terminal.
+//! OSC 133 block parser for Covenant.
 //!
 //! Feeds raw PTY bytes through a [`vte::Parser`] and emits semantic
 //! [`BlockEvent`]s when prompt / command-submitted / done markers appear.

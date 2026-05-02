@@ -1,12 +1,13 @@
-//! Karl Terminal — Tauri shell.
+//! Covenant — AI-coordinated terminal.
 //!
-//! M1 wiring: each session spawns the user's zsh inside a sandboxed
-//! `ZDOTDIR` so we can layer our OSC 133 snippet on top of their real
-//! `~/.zshrc` without ever editing user files. Bytes from the PTY are
-//! fanned out via two `tauri::ipc::Channel`s — one for raw output (xterm
-//! consumer) and one for typed [`karl_blocks::BlockEvent`]s (sidebar
-//! consumer). The same chunks feed both; xterm.js still receives every
-//! byte verbatim, the parser is purely observational.
+//! Each session spawns the user's zsh inside a sandboxed `ZDOTDIR` so
+//! we can layer our OSC 133 snippet on top of their real `~/.zshrc`
+//! without ever editing user files. Bytes from the PTY are fanned out
+//! via Tauri Channels — raw output to xterm, typed
+//! `karl_session::SessionUiEvent`s to the sidebar — while the same
+//! stream feeds the world model, summarizer, fix-proposer, cross-session
+//! watcher, and (M-OP) the Operator that answers executor agents on
+//! the user's behalf.
 
 mod cross_session;
 mod fix_proposer;
@@ -521,7 +522,9 @@ async fn set_settings(
 }
 
 const SYSTEM_PROMPT: &str = "\
-You are the super-agent for Karl Terminal, a macOS terminal emulator. \
+You are the super-agent for Covenant, a macOS terminal that coordinates \
+between the user and executor agents (Claude Code, Copilot CLI, opencode, \
+aider…) running inside its PTYs. \
 The user is operating one or more shell sessions; you observe their \
 activity through a world model and answer questions about what they're \
 doing.
@@ -620,7 +623,7 @@ pub fn run() {
         .with(fmt::layer().with_target(false))
         .init();
 
-    tracing::info!("karl-terminal starting");
+    tracing::info!("covenant starting");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -633,6 +636,31 @@ pub fn run() {
                 .path()
                 .app_config_dir()
                 .map_err(|e| format!("resolve app_config_dir: {e}"))?;
+
+            // One-time migration from the previous bundle identifier
+            // (com.karluiz.karl-terminal → com.karluiz.covenant). If
+            // the new dir doesn't exist but the old one does, move
+            // settings + history.db over so the user keeps their data
+            // across the rename.
+            if let Some(parent) = dir.parent() {
+                let old_dir = parent.join("com.karluiz.karl-terminal");
+                if old_dir.exists() && !dir.exists() {
+                    match std::fs::rename(&old_dir, &dir) {
+                        Ok(_) => tracing::info!(
+                            from = %old_dir.display(),
+                            to = %dir.display(),
+                            "migrated config dir from previous identifier"
+                        ),
+                        Err(e) => tracing::warn!(
+                            from = %old_dir.display(),
+                            to = %dir.display(),
+                            error = %e,
+                            "config dir migration failed; old data preserved"
+                        ),
+                    }
+                }
+            }
+
             let path = dir.join("config.json");
             let loaded = settings::load(&path);
             tracing::info!(path = %path.display(), "settings loaded");

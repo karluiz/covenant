@@ -1,8 +1,8 @@
-//! Settings persistence for karl-terminal.
+//! Settings persistence for Covenant.
 //!
 //! Stored as JSON at `<config_dir>/config.json` where `<config_dir>` is
 //! Tauri's per-app `app_config_dir` (on macOS:
-//! `~/Library/Application Support/com.karluiz.karl-terminal/`).
+//! `~/Library/Application Support/com.karluiz.covenant/`).
 //!
 //! Writes are atomic (tmp file + rename) and the on-disk file is
 //! chmod'd to 0600 so only the current user can read it.
@@ -102,7 +102,7 @@ fn default_max_calls_per_minute() -> u32 {
     6
 }
 
-/// The Operator is karl-terminal's coordinator: when an executor agent
+/// The Operator is Covenant's coordinator: when an executor agent
 /// (Claude Code, Copilot CLI, opencode, aider, etc.) running inside the
 /// PTY pauses to ask the user a routine question, the Operator can
 /// answer on the user's behalf — within the explicit constraints below.

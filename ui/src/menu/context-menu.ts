@@ -4,8 +4,12 @@
 // dismisses on outside click or Escape. No keyboard navigation today
 // (tab/arrows) — mouse-only is enough for these surfaces.
 
+import { Icons } from "../icons";
+
 export interface MenuItem {
   label?: string;
+  /// Optional leading SVG icon (trusted HTML — pass `Icons.foo()`).
+  icon?: string;
   onClick?: () => void | Promise<void>;
   divider?: boolean;
   /// Inline group of color/swatch buttons rendered as one row.
@@ -108,7 +112,7 @@ export class ContextMenu {
           dot.style.background = sw.color;
         } else {
           dot.classList.add("ctx-swatch-none");
-          dot.textContent = "∅";
+          dot.innerHTML = Icons.ban({ size: 11 });
         }
         dot.addEventListener("click", () => {
           sw.onClick();
@@ -124,7 +128,18 @@ export class ContextMenu {
     btn.className = "ctx-item";
     if (item.danger) btn.classList.add("ctx-item-danger");
     if (item.disabled) btn.disabled = true;
-    btn.textContent = item.label ?? "";
+
+    if (item.icon) {
+      const iconEl = document.createElement("span");
+      iconEl.className = "ctx-item-icon";
+      iconEl.innerHTML = item.icon;
+      btn.appendChild(iconEl);
+    }
+    const labelEl = document.createElement("span");
+    labelEl.className = "ctx-item-label";
+    labelEl.textContent = item.label ?? "";
+    btn.appendChild(labelEl);
+
     if (item.onClick && !item.disabled) {
       btn.addEventListener("click", async () => {
         const cb = item.onClick;

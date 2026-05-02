@@ -139,7 +139,7 @@ export class SettingsPanel {
               <button type="button" class="settings-toggle" data-target="api_key">show</button>
             </div>
             <small class="settings-hint">
-              Stored locally at <code>~/Library/Application Support/com.karluiz.karl-terminal/config.json</code> (chmod 600).
+              Stored locally at <code>~/Library/Application Support/com.karluiz.covenant/config.json</code> (chmod 600).
             </small>
           </label>
         </fieldset>
