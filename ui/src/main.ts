@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { AgentPanel } from "./agent/panel";
 import { SettingsPanel } from "./settings/panel";
 import { TabManager } from "./tabs/manager";
 
@@ -26,6 +27,7 @@ async function boot(): Promise<void> {
   });
 
   const settings = new SettingsPanel(document.body);
+  const agent = new AgentPanel(document.body, () => manager.activeSessionId());
 
   await manager.createTab();
 
@@ -36,11 +38,24 @@ async function boot(): Promise<void> {
       void settings.toggle();
       return;
     }
-    // Esc closes any open modal first; only routes to terminal if none.
-    if (e.key === "Escape" && settings.isOpen()) {
+    // ⌘K → super-agent panel.
+    if (e.metaKey && !e.shiftKey && e.key === "k") {
       e.preventDefault();
-      settings.close();
+      agent.toggle();
       return;
+    }
+    // Esc closes any open modal first; only routes to terminal if none.
+    if (e.key === "Escape") {
+      if (settings.isOpen()) {
+        e.preventDefault();
+        settings.close();
+        return;
+      }
+      if (agent.isOpen()) {
+        e.preventDefault();
+        agent.close();
+        return;
+      }
     }
 
     if (!e.metaKey) return;

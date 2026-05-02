@@ -57,3 +57,19 @@ export async function resizeSession(
 export async function closeSession(id: SessionId): Promise<void> {
   return invoke<void>("close_session", { id });
 }
+
+export type AgentTokenHandler = (delta: string) => void;
+
+export async function askAgent(
+  sessionId: SessionId,
+  question: string,
+  onToken: AgentTokenHandler,
+): Promise<void> {
+  const channel = new Channel<string>();
+  channel.onmessage = (delta) => onToken(delta);
+  return invoke<void>("ask_agent", {
+    sessionId,
+    question,
+    onToken: channel,
+  });
+}

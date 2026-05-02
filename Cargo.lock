@@ -1987,14 +1987,13 @@ dependencies = [
 name = "karl-agent"
 version = "0.1.0"
 dependencies = [
- "karl-session",
+ "futures-util",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "ulid",
 ]
 
 [[package]]

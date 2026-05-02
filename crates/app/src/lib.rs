@@ -9,10 +9,13 @@
 //! byte verbatim, the parser is purely observational.
 
 mod settings;
+mod world;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use karl_blocks::BlockEvent;
 use karl_pty::SpawnOptions;
@@ -25,6 +28,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ulid::Ulid;
 
 use settings::Settings;
+use world::SessionWorldModel;
 
 /// Bundled into the binary so the app is self-contained — no need to
 /// know the repo layout at runtime.
@@ -36,12 +40,45 @@ const ZSH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.zsh");
 struct ManagedSession {
     session: Session,
     _zdotdir: TempDir,
+    world: Arc<Mutex<SessionWorldModel>>,
 }
 
 struct AppState {
     sessions: Mutex<HashMap<SessionId, ManagedSession>>,
     settings: Mutex<Settings>,
     settings_path: PathBuf,
+    rate: Mutex<RateLimiter>,
+}
+
+/// Per-session sliding-window call counter. Resets every 60s.
+#[derive(Default)]
+struct RateLimiter {
+    by_session: HashMap<SessionId, (Instant, u32)>,
+}
+
+impl RateLimiter {
+    fn check_and_increment(
+        &mut self,
+        session: SessionId,
+        max_per_minute: u32,
+    ) -> Result<(), String> {
+        let now = Instant::now();
+        let entry = self
+            .by_session
+            .entry(session)
+            .or_insert((now, 0));
+        if now.duration_since(entry.0) > Duration::from_secs(60) {
+            entry.0 = now;
+            entry.1 = 0;
+        }
+        if entry.1 >= max_per_minute {
+            return Err(format!(
+                "rate limit: max {max_per_minute} agent calls/minute per session"
+            ));
+        }
+        entry.1 += 1;
+        Ok(())
+    }
 }
 
 fn parse_id(id: &str) -> Result<SessionId, String> {
@@ -113,6 +150,24 @@ async fn spawn_session(
     let id = session.id;
     let id_str = id.to_string();
 
+    // World model: subscribed to the session bus before insertion so
+    // we don't miss BlockSubmitted/BlockFinished events for the very
+    // first command.
+    let world = Arc::new(Mutex::new(SessionWorldModel::default()));
+    let world_for_task = world.clone();
+    let mut bus = session.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match bus.recv().await {
+                Ok(event) => world_for_task.lock().await.apply(event),
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(skipped = n, "world model lagged on bus");
+                }
+            }
+        }
+    });
+
     state
         .sessions
         .lock()
@@ -120,6 +175,7 @@ async fn spawn_session(
         .insert(id, ManagedSession {
             session,
             _zdotdir: zdotdir,
+            world,
         });
 
     // Hand the two karl-session streams off to per-session Tauri
@@ -202,6 +258,76 @@ async fn set_settings(
     Ok(())
 }
 
+const SYSTEM_PROMPT: &str = "\
+You are the super-agent for Karl Terminal, a macOS terminal emulator. \
+The user is operating one or more shell sessions; you observe their \
+activity through a world model and answer questions about what they're \
+doing.
+
+Be terse and technical. Reference specific commands, exit codes, and \
+files when relevant. Don't restate what's obvious from the world model. \
+When uncertain, say so briefly. No filler — go straight to the answer. \
+Plain text only (no markdown, no code fences).";
+
+#[tauri::command]
+async fn ask_agent(
+    state: State<'_, AppState>,
+    session_id: String,
+    question: String,
+    on_token: Channel<String>,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+
+    // 1. Read settings (clone so we don't hold the lock across the http call).
+    let (api_key, model_chat, max_per_min) = {
+        let s = state.settings.lock().await;
+        let key = s
+            .anthropic_api_key
+            .clone()
+            .ok_or("no api key configured — open Settings (⌘,)")?;
+        (key, s.agent.model_chat.clone(), s.agent.max_calls_per_minute)
+    };
+
+    // 2. Rate limit (per session).
+    state
+        .rate
+        .lock()
+        .await
+        .check_and_increment(id, max_per_min)?;
+
+    // 3. Snapshot the world model for this session and render to a
+    //    user-message string.
+    let user_message = {
+        let sessions = state.sessions.lock().await;
+        let managed = sessions.get(&id).ok_or("session not found")?;
+        let world = managed.world.lock().await;
+        world.render_user_message(&question)
+    };
+
+    // 4. Stream the response. Forward each delta through the Channel;
+    //    return when the stream ends.
+    let req = karl_agent::AskRequest {
+        api_key,
+        model: model_chat,
+        system_prompt: SYSTEM_PROMPT.to_string(),
+        user_message,
+        max_tokens: 1024,
+    };
+
+    karl_agent::ask_streaming(req, move |event| match event {
+        karl_agent::AgentEvent::Delta(text) => {
+            let _ = on_token.send(text);
+        }
+        karl_agent::AgentEvent::Done => {
+            // Promise resolution on the JS side signals end-of-stream.
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -230,6 +356,7 @@ pub fn run() {
                 sessions: Mutex::new(HashMap::new()),
                 settings: Mutex::new(loaded),
                 settings_path: path,
+                rate: Mutex::new(RateLimiter::default()),
             });
             Ok(())
         })
@@ -240,6 +367,7 @@ pub fn run() {
             close_session,
             get_settings,
             set_settings,
+            ask_agent,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

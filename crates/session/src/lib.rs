@@ -81,6 +81,10 @@ pub enum SessionEvent {
     BlockFinished {
         session: SessionId,
         block: BlockId,
+        /// Denormalized from the matching `BlockSubmitted` so subscribers
+        /// (world model, agent) don't have to track in-flight blocks.
+        command: String,
+        cwd: PathBuf,
         exit_code: Option<i32>,
         duration_ms: u64,
         /// Output text (ANSI stripped, lossy UTF-8) that appeared
@@ -173,8 +177,10 @@ async fn pump(
     events_tx: broadcast::Sender<SessionEvent>,
 ) {
     let mut parser = BlockParser::new();
-    // (block_id, output_buf, started_at) of the currently-executing block.
-    let mut current_block: Option<(BlockId, Vec<u8>, Instant)> = None;
+    // (block_id, command, cwd_at_submit, output_buf, started_at) of the
+    // currently-executing block. Command + cwd are denormalized into
+    // BlockFinished so downstream consumers don't have to correlate.
+    let mut current_block: Option<(BlockId, String, PathBuf, Vec<u8>, Instant)> = None;
     let mut current_cwd = PathBuf::new();
 
     while let Some(chunk) = pty_rx.recv().await {
@@ -184,7 +190,7 @@ async fn pump(
         let _ = raw_tx.send(chunk.clone());
 
         // 2. Accumulate output bytes against the in-flight block, if any.
-        if let Some((_, ref mut buf, _)) = current_block {
+        if let Some((_, _, _, ref mut buf, _)) = current_block {
             buf.extend_from_slice(&chunk);
         }
 
@@ -206,7 +212,13 @@ async fn pump(
                 }
                 BlockEvent::CommandSubmitted { command } => {
                     let block = BlockId::new();
-                    current_block = Some((block, Vec::new(), Instant::now()));
+                    current_block = Some((
+                        block,
+                        command.clone(),
+                        current_cwd.clone(),
+                        Vec::new(),
+                        Instant::now(),
+                    ));
                     let _ = events_tx.send(SessionEvent::BlockSubmitted {
                         session: id,
                         block,
@@ -216,13 +228,17 @@ async fn pump(
                     });
                 }
                 BlockEvent::CommandFinished { exit_code } => {
-                    if let Some((block, buf, started)) = current_block.take() {
+                    if let Some((block, command, cwd, buf, started)) =
+                        current_block.take()
+                    {
                         let stripped = strip_ansi_escapes::strip(&buf);
                         let output_text =
                             String::from_utf8_lossy(&stripped).into_owned();
                         let _ = events_tx.send(SessionEvent::BlockFinished {
                             session: id,
                             block,
+                            command,
+                            cwd,
                             exit_code,
                             duration_ms: started.elapsed().as_millis() as u64,
                             output_text,

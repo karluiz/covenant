@@ -82,6 +82,13 @@ export class TabManager {
     if (this.activeId) this.closeTab(this.activeId);
   }
 
+  /// Backend session id (Ulid string) for whichever tab is currently
+  /// in the foreground, or null when no tabs exist.
+  activeSessionId(): SessionId | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    return tab?.sessionId ?? null;
+  }
+
   activateByIndex(index: number): void {
     const tab = this.tabs[index];
     if (tab) this.activate(tab.id);
