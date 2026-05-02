@@ -32,3 +32,6 @@ karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }
 karl-session = { path = "../session" }
 karl-agent = { path = "../agent" }
+
+[dev-dependencies]
+tempfile = "3"

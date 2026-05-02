@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
+import { SettingsPanel } from "./settings/panel";
 import { TabManager } from "./tabs/manager";
 
 function requireEl<T extends HTMLElement>(id: string): T {
@@ -24,10 +25,24 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
 
+  const settings = new SettingsPanel(document.body);
+
   await manager.createTab();
 
   window.addEventListener("keydown", (e) => {
-    // macOS-only modifiers; this is a Tauri macOS app per CLAUDE.md.
+    // ⌘, → settings (macOS Preferences convention). Open or toggle.
+    if (e.metaKey && !e.shiftKey && e.key === ",") {
+      e.preventDefault();
+      void settings.toggle();
+      return;
+    }
+    // Esc closes any open modal first; only routes to terminal if none.
+    if (e.key === "Escape" && settings.isOpen()) {
+      e.preventDefault();
+      settings.close();
+      return;
+    }
+
     if (!e.metaKey) return;
 
     if (!e.shiftKey && e.key === "t") {

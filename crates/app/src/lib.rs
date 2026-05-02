@@ -8,19 +8,23 @@
 //! consumer). The same chunks feed both; xterm.js still receives every
 //! byte verbatim, the parser is purely observational.
 
+mod settings;
+
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use karl_blocks::BlockEvent;
 use karl_pty::SpawnOptions;
 use karl_session::{Session, SessionId, SessionStreams};
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{Manager, State};
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ulid::Ulid;
+
+use settings::Settings;
 
 /// Bundled into the binary so the app is self-contained — no need to
 /// know the repo layout at runtime.
@@ -34,9 +38,10 @@ struct ManagedSession {
     _zdotdir: TempDir,
 }
 
-#[derive(Default)]
 struct AppState {
     sessions: Mutex<HashMap<SessionId, ManagedSession>>,
+    settings: Mutex<Settings>,
+    settings_path: PathBuf,
 }
 
 fn parse_id(id: &str) -> Result<SessionId, String> {
@@ -182,6 +187,21 @@ async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
+    Ok(state.settings.lock().await.clone())
+}
+
+#[tauri::command]
+async fn set_settings(
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> Result<(), String> {
+    settings::save(&state.settings_path, &settings).map_err(|e| e.to_string())?;
+    *state.settings.lock().await = settings;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -193,12 +213,33 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState::default())
+        .setup(|app| {
+            // app_config_dir on macOS resolves to
+            //   ~/Library/Application Support/<bundle identifier>/
+            // Tauri creates the directory lazily — settings::save handles
+            // the mkdir on first save.
+            let dir = app
+                .path()
+                .app_config_dir()
+                .map_err(|e| format!("resolve app_config_dir: {e}"))?;
+            let path = dir.join("config.json");
+            let loaded = settings::load(&path);
+            tracing::info!(path = %path.display(), "settings loaded");
+
+            app.manage(AppState {
+                sessions: Mutex::new(HashMap::new()),
+                settings: Mutex::new(loaded),
+                settings_path: path,
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             spawn_session,
             write_to_session,
             resize_session,
             close_session,
+            get_settings,
+            set_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
