@@ -4988,7 +4988,8 @@ button.status-segment.status-aom.status-aom-warn:hover {
     font-size: 9.5px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    font-family: var(--ui-font);
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     cursor: pointer;
     margin-left: 4px;
 }
@@ -5012,7 +5013,8 @@ button.status-segment.status-aom.status-aom-warn:hover {
     font-size: 9.5px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    font-family: var(--ui-font);
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     cursor: pointer;
     margin-left: 4px;
 }
