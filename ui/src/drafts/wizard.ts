@@ -1,3 +1,19 @@
+import { EditorState } from "@codemirror/state";
+import {
+  EditorView,
+  keymap,
+  highlightActiveLine,
+  drawSelection,
+} from "@codemirror/view";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+} from "@codemirror/commands";
+import { bracketMatching, indentOnInput } from "@codemirror/language";
+import { markdown } from "@codemirror/lang-markdown";
+
+import { editorHighlight, editorTheme } from "../structure/theme";
 import { draftsApi, type DraftDocument, type SuggestSection } from "./api";
 
 export interface DraftWizardOpts {
@@ -49,6 +65,9 @@ export class DraftWizard {
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
   private dirty = false;
 
+  /** CM6 EditorView instances keyed by section key. */
+  private editors = new Map<string, EditorView>();
+
   constructor(private opts: DraftWizardOpts) {
     this.slug = opts.slug;
   }
@@ -72,6 +91,8 @@ export class DraftWizard {
   dispose(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
+    for (const view of this.editors.values()) view.destroy();
+    this.editors.clear();
   }
 
   private hydrateFromDoc(doc: DraftDocument): void {
@@ -92,6 +113,10 @@ export class DraftWizard {
   }
 
   private render(): void {
+    // Destroy any existing editor instances before re-rendering DOM.
+    for (const view of this.editors.values()) view.destroy();
+    this.editors.clear();
+
     const sectionsHtml = SECTIONS.map(s => this.renderSection(s)).join("");
     this.opts.host.innerHTML = `
       <header class="drafts-header">
@@ -106,11 +131,11 @@ export class DraftWizard {
       <div class="wiz-body">${sectionsHtml}</div>
     `;
     this.bindEvents();
+    this.mountEditors();
     this.updatePublishEnabled();
   }
 
   private renderSection(s: SectionDef): string {
-    const value = this.values.get(s.key) ?? "";
     if (s.key === "Complexity") {
       return `
         <section class="wiz-section" data-key="${escapeAttr(s.key)}">
@@ -129,9 +154,57 @@ export class DraftWizard {
     return `
       <section class="wiz-section" data-key="${escapeAttr(s.key)}">
         <h2>${s.label} <span class="wiz-hint">— ${escapeHtml(s.hint)}</span> ${helpBtn}</h2>
-        <textarea class="wiz-textarea" data-key="${escapeAttr(s.key)}" placeholder="${escapeAttr(s.placeholder)}" rows="6">${escapeHtml(value)}</textarea>
+        <div class="wiz-editor" data-key="${escapeAttr(s.key)}"></div>
       </section>
     `;
+  }
+
+  /** Mount a CM6 EditorView into every `.wiz-editor` container. */
+  private mountEditors(): void {
+    for (const s of SECTIONS) {
+      if (s.key === "Complexity") continue;
+      const container = this.opts.host.querySelector<HTMLDivElement>(
+        `.wiz-editor[data-key="${cssEscape(s.key)}"]`
+      );
+      if (!container) continue;
+
+      const key = s.key;
+      const initialValue = this.values.get(key) ?? "";
+
+      const view = new EditorView({
+        state: EditorState.create({
+          doc: initialValue,
+          extensions: [
+            editorTheme,
+            editorHighlight,
+            highlightActiveLine(),
+            drawSelection(),
+            history(),
+            bracketMatching(),
+            indentOnInput(),
+            EditorView.lineWrapping,
+            markdown(),
+            keymap.of([
+              ...historyKeymap,
+              ...defaultKeymap,
+            ]),
+            EditorView.updateListener.of((u) => {
+              if (u.docChanged) {
+                this.values.set(key, u.state.doc.toString());
+                this.markDirty();
+                this.updatePublishEnabled();
+              }
+            }),
+          ],
+        }),
+        parent: container,
+      });
+
+      // Blur → autosave (mirror textarea blur behavior).
+      view.contentDOM.addEventListener("blur", () => { void this.save(); });
+
+      this.editors.set(key, view);
+    }
   }
 
   private bindEvents(): void {
@@ -143,11 +216,6 @@ export class DraftWizard {
     (host.querySelector("#wiz-title") as HTMLInputElement | null)?.addEventListener("input", (e) => {
       this.title = (e.target as HTMLInputElement).value;
       this.markDirty();
-    });
-    host.querySelectorAll<HTMLTextAreaElement>(".wiz-textarea").forEach(ta => {
-      const key = ta.dataset.key!;
-      ta.addEventListener("input", () => { this.values.set(key, ta.value); this.markDirty(); this.updatePublishEnabled(); });
-      ta.addEventListener("blur", () => { void this.save(); });
     });
     host.querySelectorAll<HTMLButtonElement>("[data-complexity]").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -251,13 +319,16 @@ export class DraftWizard {
     popover.querySelectorAll<HTMLButtonElement>(".wiz-suggestion").forEach(b => {
       b.addEventListener("click", () => {
         const i = Number(b.dataset.i!);
-        const ta = this.opts.host.querySelector<HTMLTextAreaElement>(`textarea[data-key="${cssEscape(sectionKey)}"]`);
-        if (ta) {
-          const sep = ta.value.endsWith("\n") || ta.value === "" ? "" : "\n";
-          ta.value = `${ta.value}${sep}- ${suggestions[i]}\n`;
-          this.values.set(sectionKey, ta.value);
-          this.markDirty();
-          this.updatePublishEnabled();
+        const view = this.editors.get(sectionKey);
+        if (view) {
+          const doc = view.state.doc;
+          const current = doc.toString();
+          const sep = current.endsWith("\n") || current === "" ? "" : "\n";
+          const insert = `${sep}- ${suggestions[i]}\n`;
+          view.dispatch({
+            changes: { from: doc.length, insert },
+          });
+          // updateListener will sync this.values + markDirty + updatePublishEnabled.
         }
         popover.remove();
       });
