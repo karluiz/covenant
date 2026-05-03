@@ -214,13 +214,12 @@ export class OperatorsPane {
         </div>
       </div>
 
-      <div class="operators-pane__field">
-        <label>Hard constraints
-          <span class="muted">(extra ALWAYS-ASK-ME, one per line)</span>
-        </label>
+      <details class="operators-pane__advanced"
+               ${this.editing.hard_constraints.trim().length > 0 ? "open" : ""}>
+        <summary>Hard constraints <span class="muted">(optional — extra ALWAYS-ASK-ME, one per line)</span></summary>
         <textarea data-bind="hard_constraints" rows="5"
           >${escapeHtml(this.editing.hard_constraints)}</textarea>
-      </div>
+      </details>
 
       <footer class="operators-pane__editor-foot">
         <button data-act="cancel">Discard changes</button>

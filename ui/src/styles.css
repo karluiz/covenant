@@ -6849,6 +6849,25 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   color: var(--muted);
 }
 .operators-pane__avatar-fallback summary { cursor: pointer; }
+.operators-pane__advanced { font-size: 12px; }
+.operators-pane__advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px 0;
+  user-select: none;
+}
+.operators-pane__advanced[open] summary { color: inherit; margin-bottom: 4px; }
+.operators-pane__advanced textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-overlay);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  resize: vertical;
+}
 .operators-pane__avatar-fallback input {
   margin-top: 4px;
   background: var(--bg-overlay);
