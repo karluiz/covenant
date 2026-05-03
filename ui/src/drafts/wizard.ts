@@ -61,7 +61,6 @@ export class DraftWizard {
   private values = new Map<string, string>();
   private complexity: typeof COMPLEXITY_VALUES[number] = "small";
   private llmCalls = 0;
-  private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private autoSaveInterval: ReturnType<typeof setInterval> | null = null;
   private dirty = false;
 
@@ -89,7 +88,7 @@ export class DraftWizard {
   }
 
   dispose(): void {
-    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.debounced.cancel();
     if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
     for (const view of this.editors.values()) view.destroy();
     this.editors.clear();
@@ -233,27 +232,20 @@ export class DraftWizard {
   }
 
   private updatePublishEnabled(): void {
-    const goal = (this.values.get("Goal") ?? "").trim();
-    const accept = (this.values.get("Acceptance criteria") ?? "").trim();
-    const ok = goal.length > 0 && accept.length > 0;
+    const ok = canPublish(this.values);
     const btn = this.opts.host.querySelector<HTMLButtonElement>("#wiz-publish");
     if (btn) btn.disabled = !ok;
   }
 
+  private readonly debounced = createDebouncedSaver(1500, () => { void this.save(); });
+
   private markDirty(): void {
     this.dirty = true;
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => { void this.save(); }, 1500);
+    this.debounced.trigger();
   }
 
   private buildBody(): string {
-    const lines: string[] = [`# Draft — ${this.title}`, ""];
-    for (const s of SECTIONS) {
-      lines.push(`## ${s.key}`);
-      lines.push(this.values.get(s.key) ?? "");
-      lines.push("");
-    }
-    return lines.join("\n");
+    return buildBody(this.title, this.values, SECTIONS.map(s => s.key));
   }
 
   private async save(): Promise<void> {
@@ -467,7 +459,56 @@ export class DraftWizard {
   }
 }
 
-function parseBody(body: string): Map<string, string> {
+// ---------------------------------------------------------------------------
+// Exported pure helpers (tested in wizard.test.ts)
+// ---------------------------------------------------------------------------
+
+/** Returns true when all three required publish fields have content. */
+export function canPublish(values: Map<string, string>): boolean {
+  const goal = (values.get("Goal") ?? "").trim();
+  const accept = (values.get("Acceptance criteria") ?? "").trim();
+  const complexity = (values.get("Complexity") ?? "").trim();
+  return goal.length > 0 && accept.length > 0 && complexity.length > 0;
+}
+
+export interface DebouncedSaver {
+  trigger(): void;
+  flush(): void;
+  cancel(): void;
+}
+
+/** Creates a debounced save helper. Exported for testing with fake timers. */
+export function createDebouncedSaver(delayMs: number, save: () => void): DebouncedSaver {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return {
+    trigger() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; save(); }, delayMs);
+    },
+    flush() {
+      if (timer) { clearTimeout(timer); timer = null; save(); }
+    },
+    cancel() {
+      if (timer) { clearTimeout(timer); timer = null; }
+    },
+  };
+}
+
+/**
+ * Builds a markdown body from title + section values.
+ * Exported for testing; the wizard class delegates to this.
+ */
+export function buildBody(title: string, values: Map<string, string>, sectionKeys: string[]): string {
+  const lines: string[] = [`# Draft — ${title}`, ""];
+  for (const key of sectionKeys) {
+    lines.push(`## ${key}`);
+    lines.push(values.get(key) ?? "");
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+export function parseBody(body: string): Map<string, string> {
   const out = new Map<string, string>();
   const lines = body.split("\n");
   let current: string | null = null;
