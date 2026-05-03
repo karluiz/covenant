@@ -372,6 +372,12 @@ async function boot(): Promise<void> {
     manager.refitActive();
   };
   window.addEventListener("drafts:toggle", () => draftsPanel.toggle());
+  window.addEventListener("drafts:open", (e: Event) => {
+    const detail = (e as CustomEvent<{ slug: string; autoPublish?: boolean }>).detail;
+    if (!detail || typeof detail.slug !== "string") return;
+    draftsPanel.open();
+    draftsPanel.openWizard(detail.slug, { autoPublish: detail.autoPublish });
+  });
 
   // Auto-stop notification: when the Operator hits the AOM budget,
   // it emits this event with stats. Surface as a non-dismissable
