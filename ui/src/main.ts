@@ -13,6 +13,7 @@ import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
 import { AomReportPanel } from "./aom/report";
+import { AfkOverlay } from "./aom/afk";
 import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -236,6 +237,10 @@ async function boot(): Promise<void> {
   // ⌘⇧R, also auto-opens after a budget-hit auto-stop so you don't
   // have to remember the shortcut at 6am.
   const aomReportPanel = new AomReportPanel(document.body);
+  const afk = new AfkOverlay(document.body, {
+    manager,
+    onExit: () => manager.refitActive(),
+  });
   const docsPage = requireEl<HTMLElement>("docs-page");
   const docsPanel = new DocsPanel(docsPage, workspace);
   docsPanel.onClosed = () => {
@@ -367,9 +372,21 @@ async function boot(): Promise<void> {
     // AOM auto-enables Operator on every tab (tracked, reverted on
     // stop). The banner's onChange listener handles the per-tab badge
     // refresh — no need to chain a manual refresh here.
+    // ⌘⇧A — layered AOM/AFK toggle:
+    //   AFK open       → close AFK (back to normal UI; AOM stays on)
+    //   AOM on, AFK off → open AFK (Battery Mode)
+    //   AOM off        → start AOM (existing banner toggle)
+    // Stopping AOM is done via the banner's Stop button (intentional —
+    // a four-state shortcut would be too easy to mistrigger overnight).
     if (e.metaKey && e.shiftKey && (e.key === "A" || e.key === "a")) {
       e.preventDefault();
-      void aomBanner.toggle();
+      if (afk.isOpen()) {
+        afk.close();
+      } else if (aomBanner.isOn()) {
+        afk.open();
+      } else {
+        void aomBanner.toggle();
+      }
       return;
     }
     // ⌘⇧R → AOM morning report. Read-only digest of the most recent
@@ -391,6 +408,11 @@ async function boot(): Promise<void> {
     }
     // Esc closes any open modal first; only routes to terminal if none.
     if (e.key === "Escape") {
+      if (afk.isOpen()) {
+        e.preventDefault();
+        afk.close();
+        return;
+      }
       if (settings.isOpen()) {
         e.preventDefault();
         settings.close();
