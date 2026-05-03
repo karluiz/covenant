@@ -405,3 +405,40 @@ export async function askAgent(
     onToken: channel,
   });
 }
+
+// 3.3 Structure (file tree) ---------------------------------------------
+
+export type EntryKind = "dir" | "file";
+
+export interface DirEntry {
+  name: string;
+  path: string;
+  kind: EntryKind;
+  is_symlink: boolean;
+}
+
+export type ReadKind = "text" | "binary" | "too_large";
+
+export interface ReadResult {
+  kind: ReadKind;
+  content: string | null;
+  size_bytes: number;
+}
+
+export async function structureListDir(cwd: string): Promise<DirEntry[]> {
+  return invoke<DirEntry[]>("structure_list_dir", { cwd });
+}
+
+export async function structureReadFile(
+  path: string,
+  maxBytes?: number,
+): Promise<ReadResult> {
+  return invoke<ReadResult>("structure_read_file", {
+    path,
+    maxBytes: maxBytes ?? null,
+  });
+}
+
+export async function structureWriteFile(path: string, content: string): Promise<void> {
+  return invoke<void>("structure_write_file", { path, content });
+}
