@@ -35,3 +35,6 @@ crates/app/gen/schemas/
 .env
 .env.local
 .env.*.local
+
+# Claude Code transient
+.claude/scheduled_tasks.lock
