@@ -100,7 +100,6 @@ export class StructureEditor {
   private readonly pathLabelEl: HTMLElement;
   private readonly extEl: HTMLElement;
   private readonly statusEl: HTMLElement;
-  private readonly wrapBtn: HTMLButtonElement;
   private readonly bodyEl: HTMLElement;
   private readonly editorHostEl: HTMLElement;
   private readonly placeholderEl: HTMLElement;
@@ -112,14 +111,13 @@ export class StructureEditor {
   private liveContent = "";
   private dirty = false;
   private visible = false;
-  private wrap: boolean;
 
-  /// CM6 view + reconfigurable compartments. Compartments let us swap
-  /// the language extension and toggle line-wrapping without rebuilding
-  /// the editor state from scratch on every file open / wrap toggle.
+  /// CM6 view + a reconfigurable compartment for the language so file
+  /// opens can swap grammar without rebuilding the whole state. Line
+  /// wrapping is hardcoded ON — the previous toggle was confusing and
+  /// rarely useful for the kind of files this editor handles.
   private view: EditorView | null = null;
   private readonly languageCompartment = new Compartment();
-  private readonly wrapCompartment = new Compartment();
 
   /// Preview state. `previewKind` is null when the open file has no
   /// preview available (the toggle hides). `currentPreview` holds the
@@ -166,15 +164,6 @@ export class StructureEditor {
     this.previewBtn.addEventListener("click", () => this.toggleViewMode());
     this.headerEl.appendChild(this.previewBtn);
 
-    // Wrap toggle — flips between soft-wrap (default) and no-wrap.
-    // Per-file, not persisted: every fresh file open starts wrapped.
-    this.wrap = true;
-    this.wrapBtn = document.createElement("button");
-    this.wrapBtn.type = "button";
-    this.wrapBtn.className = "structure-editor-wrap-btn";
-    this.wrapBtn.addEventListener("click", () => this.toggleWrap());
-    this.headerEl.appendChild(this.wrapBtn);
-
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "structure-editor-close";
@@ -207,8 +196,6 @@ export class StructureEditor {
     this.bodyEl.appendChild(this.placeholderEl);
 
     this.host.appendChild(this.root);
-
-    this.refreshWrapButton();
   }
 
   /// Build a fresh EditorState for `text` with the language matching
@@ -239,8 +226,7 @@ export class StructureEditor {
         bracketMatching(),
         indentOnInput(),
         indentUnit.of("  "), // 2-space indent — matches the previous textarea behaviour.
-        EditorView.lineWrapping, // placeholder; replaced by wrap compartment below
-        this.wrapCompartment.of(this.wrap ? EditorView.lineWrapping : []),
+        EditorView.lineWrapping,
 
         // Language (in a compartment so future file opens swap it
         // without rebuilding the whole state).
@@ -293,27 +279,6 @@ export class StructureEditor {
     return true;
   }
 
-  /// Flip between soft-wrap and no-wrap for the currently-open file.
-  /// Reconfigures the wrap compartment in-place — no state rebuild.
-  private toggleWrap(): void {
-    this.wrap = !this.wrap;
-    if (this.view) {
-      this.view.dispatch({
-        effects: this.wrapCompartment.reconfigure(
-          this.wrap ? EditorView.lineWrapping : [],
-        ),
-      });
-    }
-    this.refreshWrapButton();
-  }
-
-  private refreshWrapButton(): void {
-    this.wrapBtn.textContent = this.wrap ? "wrap: on" : "wrap: off";
-    this.wrapBtn.title = this.wrap
-      ? "Wrap on — long lines fold to fit the pane. Click to disable."
-      : "Wrap off — long lines extend horizontally with scroll. Click to enable.";
-  }
-
   isVisible(): boolean {
     return this.visible;
   }
@@ -325,15 +290,6 @@ export class StructureEditor {
     this.setExt(path);
     this.statusEl.textContent = "loading…";
     this.statusEl.classList.remove("dirty");
-
-    // Reset wrap to ON for every fresh file open. EXCEPTION: when
-    // jumping to a specific line (global search → editor), force wrap
-    // OFF so line numbers map 1:1 to visible rows.
-    const wantWrap = opts?.line === undefined;
-    if (this.wrap !== wantWrap) {
-      this.wrap = wantWrap;
-      this.refreshWrapButton();
-    }
 
     this.show();
     let result;

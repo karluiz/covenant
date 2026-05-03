@@ -77,6 +77,11 @@ class ZoomController {
     // there's no typed property on CSSStyleDeclaration in TS DOM lib.
     (document.documentElement.style as unknown as Record<string, string>).zoom =
       String(this.current);
+    // Expose the zoom as a CSS variable so subtrees that need to opt
+    // OUT of zoom (e.g. CodeMirror, whose `caretPositionFromPoint`
+    // hit-testing breaks under CSS `zoom`) can counter-scale via
+    // `zoom: calc(1 / var(--ui-zoom))` and resize via font-size.
+    document.documentElement.style.setProperty("--ui-zoom", String(this.current));
   }
 }
 

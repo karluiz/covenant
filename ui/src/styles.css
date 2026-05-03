@@ -4922,7 +4922,15 @@ button.status-segment.status-aom.status-aom-warn:hover {
 /* CodeMirror host — fills the body. CM6 owns its own gutter, line
    numbers, scroll, font and theme (see structure/theme.ts). The
    classes/IDs CM6 emits live on its rendered DOM; this wrapper just
-   needs to grow to fit the flex parent and let CM6 measure. */
+   needs to grow to fit the flex parent and let CM6 measure.
+
+   IMPORTANT — CSS `zoom` interaction: WebKit's `zoom` property
+   scales layout AND mouse coordinates, but `caretPositionFromPoint`
+   (used by CM6 to map clicks to character positions) doesn't always
+   account for it correctly. Result: at zoom != 1.0 the cursor lands
+   on a wrong character on click. We counter-zoom the editor so CM6
+   internally sees zoom: 1 (hit-testing works) and re-scale visually
+   via font-size, which CM6 measures from on every layout. */
 .structure-editor-cm {
     flex: 1;
     /* min-* same flex-shrink trick as before — without these, CM6's
@@ -4931,9 +4939,14 @@ button.status-segment.status-aom.status-aom-warn:hover {
     min-height: 0;
     overflow: hidden;
     position: relative;
+    zoom: calc(1 / var(--ui-zoom, 1));
 }
 .structure-editor-cm .cm-editor {
     height: 100%;
+    /* Compensate the counter-zoom: a 12.5px theme baseline scaled by
+       the UI zoom keeps the editor visually matched to the rest of
+       the app even though its internal zoom is 1. */
+    font-size: calc(12.5px * var(--ui-zoom, 1));
 }
 .structure-editor-cm .cm-scroller {
     /* Match the .structure-host font preference so editor + tree feel
@@ -4944,15 +4957,13 @@ button.status-segment.status-aom.status-aom-warn:hover {
     display: none;
 }
 
-/* Wrap + Preview toggle buttons — same metrics. CM6 owns the actual
-   wrap behaviour via the wrap compartment; the editor's view-mode
-   state machine owns Preview/Source. */
-.structure-editor-wrap-btn,
+/* Preview/Source toggle button in the editor header. CM6 wraps lines
+   by default — the wrap toggle was removed for being unclear. */
 .structure-editor-preview-btn {
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
     border-radius: 3px;
-    color: var(--muted);
+    color: color-mix(in srgb, var(--accent, #b794f4) 70%, #fff);
     padding: 1px 8px;
     font-size: 9.5px;
     letter-spacing: 0.06em;
@@ -4960,15 +4971,6 @@ button.status-segment.status-aom.status-aom-warn:hover {
     font-family:
         -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     cursor: pointer;
-}
-.structure-editor-wrap-btn:hover,
-.structure-editor-preview-btn:hover {
-    color: #d6d8db;
-    background: rgba(255, 255, 255, 0.04);
-}
-.structure-editor-preview-btn {
-    border-color: color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
-    color: color-mix(in srgb, var(--accent, #b794f4) 70%, #fff);
 }
 .structure-editor-preview-btn:hover {
     background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
