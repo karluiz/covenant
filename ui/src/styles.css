@@ -6056,3 +6056,126 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
         opacity 0.18s ease-out,
         visibility 0s linear 0.18s;
 }
+/* ---- Drafts page ---- */
+.drafts-page {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--fg);
+  overflow: auto;
+  min-height: 0;
+}
+.drafts-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  z-index: 1;
+}
+.drafts-header h1 { font-size: 16px; margin: 0; flex: 1; }
+.drafts-actions { display: flex; gap: 8px; align-items: center; }
+.drafts-primary {
+  background: var(--accent); color: #fff; border: 0; padding: 6px 12px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.drafts-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.drafts-close, .drafts-back {
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 18px; cursor: pointer; padding: 4px 8px;
+}
+.drafts-close:hover, .drafts-back:hover { color: var(--fg); }
+.drafts-list { list-style: none; margin: 0; padding: 8px 20px; }
+.drafts-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.drafts-row-open {
+  flex: 1; display: flex; flex-direction: column; align-items: flex-start;
+  background: transparent; border: 0; cursor: pointer; color: var(--fg);
+  padding: 4px 0; text-align: left;
+}
+.drafts-row-title { font-size: 14px; }
+.drafts-row-meta { font-size: 11px; color: var(--muted); }
+.drafts-row-delete {
+  background: transparent; border: 0; color: var(--muted);
+  cursor: pointer; padding: 4px 8px; font-size: 16px;
+}
+.drafts-row-delete:hover { color: #e44; }
+.drafts-empty { padding: 24px; color: var(--muted); text-align: center; }
+
+/* ---- Wizard ---- */
+.wiz-title {
+  flex: 1; font-size: 16px; padding: 4px 8px;
+  background: transparent; border: 1px solid transparent; color: var(--fg);
+  border-radius: 3px;
+}
+.wiz-title:hover, .wiz-title:focus { border-color: var(--border); outline: none; }
+.wiz-body { padding: 16px 24px 64px; max-width: 900px; }
+.wiz-section { margin-bottom: 24px; }
+.wiz-section h2 {
+  font-size: 13px; font-weight: 600; margin: 0 0 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.wiz-hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+.wiz-help {
+  margin-left: auto; background: transparent; border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; padding: 2px 8px; font-size: 11px;
+  border-radius: 3px;
+}
+.wiz-help:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
+.wiz-help:disabled { opacity: 0.4; cursor: not-allowed; }
+.wiz-textarea {
+  width: 100%; min-height: 100px; background: var(--bg-overlay);
+  color: var(--fg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px; font-family: ui-monospace, monospace; font-size: 13px;
+  resize: vertical;
+}
+.wiz-textarea:focus { outline: none; border-color: var(--accent); }
+.wiz-segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.wiz-segmented button {
+  background: transparent; border: 0; color: var(--muted); padding: 6px 14px;
+  cursor: pointer; font-size: 12px; border-right: 1px solid var(--border);
+}
+.wiz-segmented button:last-child { border-right: 0; }
+.wiz-segmented button.active { background: var(--accent); color: #fff; }
+
+/* ---- Suggestions popover ---- */
+.wiz-popover {
+  background: var(--bg-overlay); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px; min-width: 320px; max-width: 480px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 100;
+}
+.wiz-suggestion {
+  display: block; width: 100%; text-align: left; background: transparent;
+  border: 0; color: var(--fg); padding: 6px 8px; cursor: pointer;
+  font-size: 12px; border-radius: 3px;
+}
+.wiz-suggestion:hover { background: var(--bg-panel); }
+.wiz-popover-close {
+  display: block; width: 100%; background: transparent; border: 0;
+  color: var(--muted); padding: 6px 8px; cursor: pointer; font-size: 11px;
+  border-top: 1px solid var(--border); margin-top: 4px;
+}
+
+/* ── Publish modal (AC6) ──────────────────────────────────────────────── */
+.wiz-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.wiz-modal { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 20px; min-width: 420px; max-width: 90vw; }
+.wiz-modal h3 { margin: 0 0 12px; font-size: 14px; }
+.wiz-modal label { display: block; font-size: 11px; color: var(--muted); margin: 8px 0 4px; }
+.wiz-modal input { width: 100%; background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
+.wiz-modal input.invalid { border-color: #e44; }
+.wiz-modal-preview { margin: 12px 0; padding: 6px 8px; background: var(--bg-overlay); border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+.wiz-modal-error { color: #e44; font-size: 11px; margin-top: 4px; }
+.wiz-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.wiz-modal-actions button { padding: 6px 14px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; font-size: 13px; }
+.wiz-modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wiz-modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Post-publish toast (AC7) ─────────────────────────────────────────── */
+.drafts-toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 150; font-size: 13px; }
+.drafts-toast button { background: var(--accent); color: #fff; border: 0; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+.drafts-toast .drafts-toast-close { background: transparent; color: var(--muted); padding: 2px 6px; }

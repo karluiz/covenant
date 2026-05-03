@@ -552,3 +552,11 @@ export interface ConvergenceSnapshot {
 export async function getConvergenceSnapshot(): Promise<ConvergenceSnapshot> {
   return invoke<ConvergenceSnapshot>("get_convergence_snapshot");
 }
+
+export { draftsApi } from "./drafts/api";
+export type {
+  DraftFrontmatter,
+  DraftSummary,
+  DraftDocument,
+  SuggestSection,
+} from "./drafts/api";

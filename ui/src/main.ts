@@ -19,6 +19,7 @@ import { Icons } from "./icons";
 import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
+import { DraftsPanel } from "./drafts/panel";
 import { ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
@@ -242,6 +243,14 @@ async function boot(): Promise<void> {
   statusBar.onMissionSetRequested = (sessionId) =>
     manager.promptAndSetMissionForSession(sessionId);
 
+  // Post-publish toast "Open in Set Mission" fires this event with the
+  // published spec path so we can wire it directly into the active tab
+  // without going through the file-picker prompt.
+  window.addEventListener("mission:set", (e) => {
+    const detail = (e as CustomEvent<{ path: string }>).detail;
+    void manager.setMissionPathForActiveTab(detail.path);
+  });
+
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
@@ -356,6 +365,14 @@ async function boot(): Promise<void> {
     manager.refitActive();
   };
 
+  const draftsPage = requireEl<HTMLElement>("drafts-page");
+  const draftsPanel = new DraftsPanel(draftsPage, workspace);
+  draftsPanel.getRepoRoot = () => manager.activeCwd() ?? ".";
+  draftsPanel.onClosed = () => {
+    manager.refitActive();
+  };
+  window.addEventListener("drafts:toggle", () => draftsPanel.toggle());
+
   // Auto-stop notification: when the Operator hits the AOM budget,
   // it emits this event with stats. Surface as a non-dismissable
   // info toast so morning-you sees what happened — the banner is
@@ -447,9 +464,10 @@ async function boot(): Promise<void> {
     // ⌘, → settings (macOS Preferences convention). Open or toggle.
     if (e.metaKey && !e.shiftKey && e.key === ",") {
       e.preventDefault();
-      // Settings and docs share the workspace grid cell — only one can
-      // be visible. Close docs first if it's the one currently up.
+      // Settings, docs, and drafts share the workspace grid cell — only
+      // one can be visible. Close the others before opening settings.
       if (docsPanel.isOpen()) docsPanel.close();
+      if (draftsPanel.isOpen()) draftsPanel.close();
       void settings.toggle();
       return;
     }
@@ -544,13 +562,22 @@ async function boot(): Promise<void> {
       release.toggle();
       return;
     }
+    // ⌘⇧D → Drafts panel. Mutually exclusive with settings and docs.
+    if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+      e.preventDefault();
+      if (settings.isOpen()) settings.close();
+      if (docsPanel.isOpen()) docsPanel.close();
+      draftsPanel.toggle();
+      return;
+    }
     // ⌘? (Shift+/) and ⌘/ both toggle the in-app docs hub. Two
     // bindings because "?" requires Shift on most layouts; ⌘/ is the
     // shift-free alias.
     if (e.metaKey && (e.key === "?" || e.key === "/")) {
       e.preventDefault();
-      // Mutually exclusive with settings — see ⌘, branch above.
+      // Mutually exclusive with settings and drafts — see ⌘, branch above.
       if (settings.isOpen()) settings.close();
+      if (draftsPanel.isOpen()) draftsPanel.close();
       docsPanel.toggle();
       return;
     }
@@ -609,6 +636,11 @@ async function boot(): Promise<void> {
       if (docsPanel.isOpen()) {
         e.preventDefault();
         docsPanel.close();
+        return;
+      }
+      if (draftsPanel.isOpen()) {
+        e.preventDefault();
+        draftsPanel.close();
         return;
       }
     }

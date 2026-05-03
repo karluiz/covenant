@@ -23,6 +23,7 @@ tauri-plugin-dialog = { workspace = true }
 tauri-plugin-notification = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = "0.9"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
@@ -34,6 +35,7 @@ thiserror = { workspace = true }
 regex = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 ignore = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }
