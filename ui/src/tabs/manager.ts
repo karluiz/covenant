@@ -1805,18 +1805,18 @@ export class TabManager {
       }
 
       const group = tab.groupId ? this.groups.get(tab.groupId) : null;
-      const hidden = group?.collapsed ?? false;
-      if (!hidden) {
-        const pillEl = this.renderTabPill(tab);
-        if (
-          pendingFirstGroupId !== null &&
-          tab.groupId === pendingFirstGroupId
-        ) {
-          pillEl.classList.add("tab-grouped-first");
-          pendingFirstGroupId = null;
-        }
-        this.tabbarHost.appendChild(pillEl);
+      const folded = group?.collapsed ?? false;
+      const pillEl = this.renderTabPill(tab);
+      if (folded) pillEl.classList.add("tab-pill-folded");
+      if (
+        !folded &&
+        pendingFirstGroupId !== null &&
+        tab.groupId === pendingFirstGroupId
+      ) {
+        pillEl.classList.add("tab-grouped-first");
+        pendingFirstGroupId = null;
       }
+      this.tabbarHost.appendChild(pillEl);
       prevGroupId = tab.groupId;
     }
   }
@@ -1841,16 +1841,13 @@ export class TabManager {
     chevron.className = "group-chip-chev";
     chevron.title = group.collapsed ? "Expand group" : "Collapse group";
     chevron.setAttribute("aria-label", chevron.title);
+    chevron.innerHTML = Icons.chevronRight({ size: 12 });
     chevron.addEventListener("mousedown", (e) => e.stopPropagation());
     chevron.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggleGroupCollapsed(group.id);
     });
     chip.appendChild(chevron);
-
-    const dot = document.createElement("span");
-    dot.className = "group-chip-dot";
-    chip.appendChild(dot);
 
     if (this.isRenamingGroup(group.id)) {
       const input = document.createElement("input");

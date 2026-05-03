@@ -207,8 +207,13 @@ export class RecallPalette {
 
     this.listEl.querySelectorAll<HTMLElement>(".recall-palette-item").forEach(
       (el) => {
-        el.addEventListener("mouseenter", () => {
+        // Use mousemove (not mouseenter) so keyboard-driven scrolling
+        // doesn't trigger a phantom hover when a new row slides under
+        // a stationary cursor — that would yank the selection back to
+        // whatever item happens to be near the viewport top.
+        el.addEventListener("mousemove", () => {
           const idx = Number(el.dataset.index ?? "0");
+          if (idx === this.cursor) return;
           this.cursor = idx;
           this.highlight();
         });

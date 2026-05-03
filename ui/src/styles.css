@@ -142,7 +142,28 @@ body.bg-translucent {
     transition:
         background 0.12s ease-out,
         color 0.12s ease-out,
-        border-color 0.12s ease-out;
+        border-color 0.12s ease-out,
+        max-width 0.22s ease,
+        min-width 0.22s ease,
+        padding 0.22s ease,
+        margin 0.22s ease,
+        opacity 0.18s ease;
+}
+
+/* Folded group member — animated collapse to a zero-width sliver. The
+   pill stays in the DOM so width/opacity transitions can run; pointer
+   events are disabled so it cannot be clicked while hidden. */
+.tab-btn.tab-pill-folded {
+    max-width: 0;
+    min-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    border-left-width: 0;
+    border-right-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
 }
 
 .tab-btn:active {
@@ -894,45 +915,40 @@ body.tab-drag-active * {
      keeping this class for extension only. */
 }
 
-/* Chevron drawn as a CSS triangle for crispness. Rotates 90° between
-   collapsed (▶) and expanded (▼). */
+/* Chevron uses the Lucide chevron-right SVG (consistent with the
+   structure tree and blocks toggle). Rotates 90° when expanded. */
 .group-chip-chev {
     background: transparent;
     border: none;
     cursor: pointer;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     margin: 0 0 0 2px;
     padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border-radius: 4px;
-    opacity: 0.75;
+    opacity: 0.6;
     transition:
         opacity 0.12s ease-out,
         background 0.12s ease-out;
-    font-size: 0;
     color: inherit;
 }
 
-.group-chip-chev::before {
-    content: "";
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-width: 4px 0 4px 6px;
-    border-color: transparent transparent transparent currentColor;
+.group-chip-chev svg {
+    width: 12px;
+    height: 12px;
+    stroke-width: 2.25;
     transition: transform 0.16s ease-out;
 }
 
-.group-chip:not(.group-chip-collapsed) .group-chip-chev::before {
+.group-chip:not(.group-chip-collapsed) .group-chip-chev svg {
     transform: rotate(90deg);
 }
 
 .group-chip-chev:hover {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.08);
 }
 
 .group-chip-dot {
@@ -1181,6 +1197,17 @@ body.tab-drag-active * {
     grid-template-columns: 1fr 0 0 240px;
     transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+
+/* Pin each pane child to its grid column explicitly. Auto-flow can't
+   be trusted here: `[hidden]` removes the splitter / editor-host from
+   layout (display: none), and without explicit `grid-column` the
+   sidebar (.tab-blocks) auto-flows into the first available track
+   (col 2 = 0px) instead of staying in col 4 (240px). The result
+   was a sidebar that rendered with width 0 — no nav, no blocks. */
+.tab-pane > .tab-terminal     { grid-column: 1; }
+.tab-pane > .editor-splitter  { grid-column: 2; }
+.tab-pane > .editor-host      { grid-column: 3; }
+.tab-pane > .tab-blocks       { grid-column: 4; }
 
 /* When the sidebar is collapsed, give all the width to the terminal.
    The 28px sliver is just enough for the toggle button. */
@@ -4546,6 +4573,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     padding: 4px 6px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-panel);
+    flex-shrink: 0;
 }
 .sidebar-nav-btn {
     flex: 1;
