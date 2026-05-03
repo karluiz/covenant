@@ -249,7 +249,7 @@ impl OperatorRegistry {
         let op = Operator {
             id: OperatorId(Ulid::new()),
             name: "Default".into(),
-            emoji: "🤖".into(),
+            emoji: "pack:oldbusinessman1".into(),
             color: "#6B7280".into(),
             tags: vec![],
             persona: cfg.persona.clone(),
@@ -268,6 +268,36 @@ impl OperatorRegistry {
             .operator_decisions_backfill(id.to_string(), name)
             .await?;
         Ok(true)
+    }
+
+    /// One-shot: bump the legacy `🤖` default-emoji to the new
+    /// pack avatar. Idempotent — only runs against operators where
+    /// emoji is exactly the legacy value, so user-customized emojis
+    /// are preserved.
+    pub async fn upgrade_legacy_default_avatar(
+        &self,
+        storage: &Storage,
+    ) -> Result<usize, RegistryError> {
+        let to_upgrade: Vec<OperatorId> = {
+            let g = self.by_id.read().unwrap();
+            g.values()
+                .filter(|o| o.emoji == "🤖")
+                .map(|o| o.id)
+                .collect()
+        };
+        let n = to_upgrade.len();
+        for id in to_upgrade {
+            if let Some(mut op) = self.get(id) {
+                op.emoji = "pack:oldbusinessman1".to_string();
+                op.updated_at_unix_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                storage.operator_update(op.clone()).await?;
+                self.by_id.write().unwrap().insert(id, op);
+            }
+        }
+        Ok(n)
     }
 }
 
