@@ -200,6 +200,69 @@ pub fn delete_draft_sync(repo_root: &Path, slug: &str) -> Result<(), DraftError>
     Ok(())
 }
 
+/// Move `drafts/<slug>.md` → `<id>-<final_slug>.md`, strip
+/// frontmatter, rewrite the `# Draft — X` heading to `# <id> — X`.
+/// Returns the published file path. Validates ID uniqueness against
+/// existing `docs/specs/*.md` and slug uniqueness.
+pub fn publish_draft_sync(
+    repo_root: &Path,
+    slug: &str,
+    id: &str,
+    final_slug: &str,
+) -> Result<PathBuf, DraftError> {
+    // Validate ID format: `<u32>.<u32>`.
+    let mut parts = id.split('.');
+    let (Some(maj), Some(min), None) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(DraftError::Validation(format!("invalid id format: {id}")));
+    };
+    if maj.parse::<u32>().is_err() || min.parse::<u32>().is_err() {
+        return Err(DraftError::Validation(format!("invalid id numbers: {id}")));
+    }
+
+    // Validate slug.
+    let cleaned = slugify(final_slug);
+    if cleaned != final_slug {
+        return Err(DraftError::Validation(format!(
+            "slug must be kebab-case ascii: got {final_slug}, expected {cleaned}"
+        )));
+    }
+
+    let dest = repo_root.join("docs/specs").join(format!("{id}-{final_slug}.md"));
+    if dest.exists() {
+        return Err(DraftError::Collision(format!("{}", dest.display())));
+    }
+    // Also reject if any existing spec uses the same id prefix.
+    let specs_dir = repo_root.join("docs/specs");
+    if specs_dir.exists() {
+        for entry in std::fs::read_dir(&specs_dir)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy().to_string();
+            if name.starts_with(&format!("{id}-")) {
+                return Err(DraftError::Collision(format!("id {id} already used: {name}")));
+            }
+        }
+    }
+
+    let doc = read_draft_sync(repo_root, slug)?;
+    let title = &doc.frontmatter.title;
+    // Body may start with `# Draft — <title>`; rewrite or prepend.
+    let new_heading = format!("# {id} — {title}");
+    let rewritten = if doc.body.starts_with("# Draft —") || doc.body.starts_with("# Draft -") {
+        let nl = doc.body.find('\n').unwrap_or(doc.body.len());
+        format!("{new_heading}{}", &doc.body[nl..])
+    } else {
+        format!("{new_heading}\n\n{}", doc.body)
+    };
+
+    std::fs::create_dir_all(&specs_dir)?;
+    let tmp = dest.with_extension("md.tmp");
+    std::fs::write(&tmp, rewritten)?;
+    std::fs::rename(&tmp, &dest)?;
+    std::fs::remove_file(draft_path(repo_root, slug))?;
+    Ok(dest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +376,55 @@ mod tests {
     fn delete_missing_errors() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(matches!(delete_draft_sync(tmp.path(), "x"), Err(DraftError::NotFound(_))));
+    }
+
+    #[test]
+    fn publish_moves_file_and_rewrites_heading() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_draft_sync(
+            tmp.path(),
+            "mission-drafts",
+            "Mission Drafts",
+            "# Draft — Mission Drafts\n\n## Goal\nx\n",
+        ).unwrap();
+        let dest = publish_draft_sync(tmp.path(), "mission-drafts", "3.10", "mission-drafts").unwrap();
+        assert!(dest.ends_with("docs/specs/3.10-mission-drafts.md"));
+        let text = std::fs::read_to_string(&dest).unwrap();
+        assert!(text.starts_with("# 3.10 — Mission Drafts\n"));
+        assert!(!text.contains("---\nstatus:"));
+        assert!(!tmp.path().join("docs/specs/drafts/mission-drafts.md").exists());
+    }
+
+    #[test]
+    fn publish_rejects_duplicate_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs = tmp.path().join("docs/specs");
+        std::fs::create_dir_all(&specs).unwrap();
+        std::fs::write(specs.join("3.10-other.md"), "x").unwrap();
+        save_draft_sync(tmp.path(), "a", "A", "## Goal\nx").unwrap();
+        let err = publish_draft_sync(tmp.path(), "a", "3.10", "a").unwrap_err();
+        assert!(matches!(err, DraftError::Collision(_)));
+    }
+
+    #[test]
+    fn publish_rejects_invalid_slug() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
+        let err = publish_draft_sync(tmp.path(), "a", "1.0", "Bad Slug!").unwrap_err();
+        assert!(matches!(err, DraftError::Validation(_)));
+    }
+
+    #[test]
+    fn publish_rejects_invalid_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
+        assert!(matches!(
+            publish_draft_sync(tmp.path(), "a", "abc", "a").unwrap_err(),
+            DraftError::Validation(_)
+        ));
+        assert!(matches!(
+            publish_draft_sync(tmp.path(), "a", "1.0.0", "a").unwrap_err(),
+            DraftError::Validation(_)
+        ));
     }
 }
