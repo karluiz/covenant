@@ -78,7 +78,7 @@ export class OperatorsPane {
         const star = op.is_default ? "⭐" : "";
         const selected = op.id === this.selectedId ? " is-selected" : "";
         return `
-          <button class="operators-pane__row${selected}" data-id="${op.id}">
+          <button type="button" class="operators-pane__row${selected}" data-id="${op.id}">
             <span class="operators-pane__row-emoji"
                   style="background:${op.color}">${renderAvatarHtml(op.emoji, 22)}</span>
             <span class="operators-pane__row-name">${escapeHtml(op.name)}</span>
@@ -88,7 +88,7 @@ export class OperatorsPane {
       .join("");
     root.innerHTML = `
       ${items}
-      <button class="operators-pane__new" data-role="new">+ New operator</button>
+      <button type="button" class="operators-pane__new" data-role="new">+ New operator</button>
     `;
     root.querySelectorAll<HTMLButtonElement>('.operators-pane__row').forEach((btn) => {
       btn.addEventListener("click", () => this.selectId(btn.dataset.id!));
@@ -126,13 +126,13 @@ export class OperatorsPane {
       <header class="operators-pane__editor-head">
         <h4>${isNew ? "New operator" : escapeHtml(sel!.name)}</h4>
         <div class="operators-pane__editor-actions">
-          <button data-act="set-default" ${canSetDefault ? "" : "disabled"}>
+          <button type="button" data-act="set-default" ${canSetDefault ? "" : "disabled"}>
             Set as default
           </button>
-          <button data-act="duplicate" ${isNew ? "disabled" : ""}>
+          <button type="button" data-act="duplicate" ${isNew ? "disabled" : ""}>
             Duplicate
           </button>
-          <button data-act="delete" class="danger" ${canDelete ? "" : "disabled"}>
+          <button type="button" data-act="delete" class="danger" ${canDelete ? "" : "disabled"}>
             Delete
           </button>
         </div>
@@ -223,8 +223,8 @@ export class OperatorsPane {
       </details>
 
       <footer class="operators-pane__editor-foot">
-        <button data-act="cancel">Discard changes</button>
-        <button data-act="save" class="primary">
+        <button type="button" data-act="cancel">Discard changes</button>
+        <button type="button" data-act="save" class="primary">
           ${isNew ? "Create operator" : "Save operator"}
         </button>
       </footer>
@@ -297,14 +297,19 @@ export class OperatorsPane {
       return;
     }
     try {
-      if (this.selectedId === null) {
+      const isCreate = this.selectedId === null;
+      let savedName = this.editing.name;
+      if (isCreate) {
         const created = await operatorCreate(this.editing);
         this.selectedId = created.id;
+        savedName = created.name;
       } else {
-        await operatorUpdate(this.selectedId, this.editing);
+        const updated = await operatorUpdate(this.selectedId!, this.editing);
+        savedName = updated.name;
       }
       this.dirty = false;
       await this.refresh();
+      flashOperatorToast(`${isCreate ? "Created" : "Saved"} operator: ${savedName}`);
     } catch (e) {
       alert(`Save failed: ${e}`);
     }
@@ -314,7 +319,9 @@ export class OperatorsPane {
     if (this.selectedId === null) return;
     try {
       await operatorSetDefault(this.selectedId);
+      const name = this.operators.find((o) => o.id === this.selectedId)?.name ?? "operator";
       await this.refresh();
+      flashOperatorToast(`Default set to ${name}`);
     } catch (e) {
       alert(`Set default failed: ${e}`);
     }
@@ -329,6 +336,7 @@ export class OperatorsPane {
       await operatorDelete(this.selectedId);
       this.selectedId = null;
       await this.refresh();
+      flashOperatorToast(`Deleted operator: ${name}`);
     } catch (e) {
       alert(`Delete failed: ${e}`);
     }
@@ -360,4 +368,21 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/// Tiny self-contained toast for save/delete feedback inside Settings.
+/// Avoids the global ToastHost (cross-session findings) so the styling
+/// and lifecycle stay isolated. Auto-dismisses after 1.6s.
+function flashOperatorToast(message: string): void {
+  const el = document.createElement("div");
+  el.className = "operators-toast";
+  el.textContent = message;
+  document.body.appendChild(el);
+  // Force reflow so the transition fires.
+  void el.offsetHeight;
+  el.classList.add("is-visible");
+  window.setTimeout(() => {
+    el.classList.remove("is-visible");
+    window.setTimeout(() => el.remove(), 200);
+  }, 1600);
 }
