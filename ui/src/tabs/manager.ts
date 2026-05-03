@@ -40,6 +40,7 @@ import {
 import { BlockManager } from "../blocks/manager";
 import { RecallManager } from "../recall/manager";
 import { StructureTree } from "../structure/tree";
+import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 
@@ -118,6 +119,7 @@ interface Tab {
   blocks: BlockManager;
   recall: RecallManager;
   structure: StructureTree;
+  editor: StructureEditor;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure";
@@ -645,6 +647,11 @@ export class TabManager {
     termHost.className = "tab-terminal";
     pane.appendChild(termHost);
 
+    const editorHost = document.createElement("div");
+    editorHost.className = "editor-host";
+    editorHost.hidden = true;
+    pane.appendChild(editorHost);
+
     const blocksHost = document.createElement("div");
     blocksHost.className = "tab-blocks";
     pane.appendChild(blocksHost);
@@ -757,10 +764,34 @@ export class TabManager {
     navEl.appendChild(navStructure);
     blocksHost.insertBefore(navEl, blocksHost.firstChild);
 
+    const editor = new StructureEditor(editorHost, {
+      toast: (msg, severity) => {
+        // eslint-disable-next-line no-console
+        if (severity === "error") console.error(msg);
+        // Existing toast/notification system can be wired here later.
+      },
+      onClose: () => {
+        editorHost.hidden = true;
+        requestAnimationFrame(() => {
+          try {
+            fit.fit();
+          } catch {
+            /* ignore */
+          }
+        });
+      },
+    });
+
     const structure = new StructureTree(blocksHost, (path) => {
-      // Editor wiring is added in Task 11. For now, file clicks log.
-      // eslint-disable-next-line no-console
-      console.log("structure file click:", path);
+      editorHost.hidden = false;
+      void editor.open(path);
+      requestAnimationFrame(() => {
+        try {
+          fit.fit();
+        } catch {
+          /* ignore */
+        }
+      });
     });
 
     const switchSidebar = (view: "blocks" | "structure") => {
@@ -847,6 +878,7 @@ export class TabManager {
       blocks,
       recall,
       structure,
+      editor,
       sidebarView: "blocks",
       cwd: null,
       disposers: [dataDispose, resizeDispose],
