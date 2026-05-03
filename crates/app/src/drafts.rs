@@ -2,6 +2,46 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+const SUGGEST_SYSTEM_PROMPT: &str = "You are a spec assistant for Covenant, an \
+    AI-native terminal. The user is writing a feature spec following a fixed \
+    template. Given the draft so far and the section name, return EXACTLY 3 \
+    concrete bullet suggestions for that section. Output JSON: \
+    {\"suggestions\":[\"...\",\"...\",\"...\"]}. No prose, no markdown fences.";
+
+pub const SUGGEST_MAX_TOKENS: u32 = 600;
+pub const LLM_CALL_CAP: u32 = 20;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SuggestSection {
+    OutOfScope,
+    AcceptanceCriteria,
+    OpenQuestions,
+}
+
+pub fn build_suggest_user_message(section: SuggestSection, draft_text: &str) -> String {
+    let label = match section {
+        SuggestSection::OutOfScope => "Out of scope",
+        SuggestSection::AcceptanceCriteria => "Acceptance criteria",
+        SuggestSection::OpenQuestions => "Open questions",
+    };
+    format!("Section: {label}\n\nDraft so far:\n\n{draft_text}\n\nReturn JSON now.")
+}
+
+pub fn parse_suggestions(text: &str) -> Result<Vec<String>, DraftError> {
+    #[derive(Deserialize)]
+    struct Wrap { suggestions: Vec<String> }
+    let trimmed = text.trim()
+        .trim_start_matches("```json").trim_start_matches("```")
+        .trim_end_matches("```").trim();
+    let wrap: Wrap = serde_json::from_str(trimmed)
+        .map_err(|e| DraftError::Validation(format!("bad llm json: {e}")))?;
+    if wrap.suggestions.is_empty() {
+        return Err(DraftError::Validation("no suggestions".into()));
+    }
+    Ok(wrap.suggestions.into_iter().take(3).collect())
+}
+
 #[derive(Debug, Error)]
 pub enum DraftError {
     #[error("io: {0}")]
@@ -426,5 +466,36 @@ mod tests {
             publish_draft_sync(tmp.path(), "a", "1.0.0", "a").unwrap_err(),
             DraftError::Validation(_)
         ));
+    }
+
+    #[test]
+    fn parse_suggestions_plain_json() {
+        let r = parse_suggestions(r#"{"suggestions":["a","b","c"]}"#).unwrap();
+        assert_eq!(r, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn parse_suggestions_with_fences() {
+        let r = parse_suggestions("```json\n{\"suggestions\":[\"x\",\"y\",\"z\"]}\n```").unwrap();
+        assert_eq!(r, vec!["x", "y", "z"]);
+    }
+
+    #[test]
+    fn parse_suggestions_trims_to_three() {
+        let r = parse_suggestions(r#"{"suggestions":["a","b","c","d"]}"#).unwrap();
+        assert_eq!(r.len(), 3);
+    }
+
+    #[test]
+    fn parse_suggestions_rejects_empty() {
+        assert!(parse_suggestions(r#"{"suggestions":[]}"#).is_err());
+        assert!(parse_suggestions("not json").is_err());
+    }
+
+    #[test]
+    fn build_user_message_includes_section() {
+        let m = build_suggest_user_message(SuggestSection::OutOfScope, "draft body");
+        assert!(m.contains("Out of scope"));
+        assert!(m.contains("draft body"));
     }
 }
