@@ -71,6 +71,117 @@ pub fn classify_status(inp: &StatusInputs) -> TileStatus {
     TileStatus::Idle
 }
 
+/// ANSI-strips the byte slice and returns the last non-empty line,
+/// truncated to `max_chars` (chars, not bytes — emoji-safe).
+pub fn last_non_empty_line(bytes: &[u8], max_chars: usize) -> Option<String> {
+    let stripped = strip_ansi_escapes::strip(bytes);
+    let s = String::from_utf8_lossy(&stripped);
+    let line = s
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())?
+        .to_string();
+    Some(line.chars().take(max_chars).collect())
+}
+
+use crate::aom::AomHandle;
+use crate::operator::{OperatorState, OperatorWatcher};
+use crate::storage::{OperatorDecisionRow, Storage};
+use karl_session::SessionId;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex as StdMutex};
+
+/// Per-session inputs the aggregator needs. The frontend supplies
+/// title/color (it owns tab metadata); the backend supplies status +
+/// activity. `op_state` is shared with the byte pump — we lock it
+/// only briefly to snapshot the tail.
+pub struct SessionInput {
+    pub session_id: SessionId,
+    pub op_state: Arc<StdMutex<OperatorState>>,
+}
+
+/// Builds a snapshot for the given sessions. The frontend will merge
+/// its own tab title/color in (we do not duplicate that state here).
+pub async fn build_convergence_snapshot(
+    sessions: Vec<SessionInput>,
+    operator: &OperatorWatcher,
+    storage: &Storage,
+    aom: &AomHandle,
+) -> ConvergenceSnapshot {
+    let recent = storage
+        .list_operator_decisions(200)
+        .await
+        .unwrap_or_default();
+    let by_short = index_decisions_by_short_id(&recent);
+
+    let aom_state = aom.read().await;
+    let aom_enabled = aom_state.enabled;
+    let aom_budget = aom_state.budget_usd;
+    drop(aom_state);
+
+    let now = Instant::now();
+    let mut tiles = Vec::with_capacity(sessions.len());
+    for s in sessions {
+        let id_str = s.session_id.to_string();
+        let short = shorten6(&id_str);
+
+        let (last_byte_at, bytes_total, last_decision_at_bytes_total, tail_bytes) = {
+            let st = s.op_state.lock().expect("op_state poisoned");
+            (
+                st.last_byte_at,
+                st.bytes_total,
+                st.last_decision_at_bytes_total,
+                st.snapshot_tail(8 * 1024),
+            )
+        };
+
+        let last = by_short.get(short.as_str()).copied();
+        let last_action = last.map(|d| d.action.as_str());
+
+        let status = classify_status(&StatusInputs {
+            last_byte_at,
+            bytes_total,
+            last_decision_at_bytes_total,
+            last_decision_action: last_action,
+            now,
+        });
+
+        let op_enabled = operator.is_enabled(s.session_id).await;
+        let aom_excluded = operator.is_aom_excluded(s.session_id).await;
+        let enrolled = aom_enabled && op_enabled && !aom_excluded;
+
+        let cost_usd = if enrolled { Some(0.0) } else { None };
+
+        tiles.push(ConvergenceTileState {
+            session_id: id_str,
+            title: String::new(),
+            color: None,
+            status,
+            last_decision_action: last.map(|d| d.action.clone()),
+            last_decision_rationale: last.and_then(|d| d.rationale.clone()),
+            last_command: last.and_then(|d| d.in_flight_command.clone()),
+            last_output_line: last_non_empty_line(&tail_bytes, 160),
+            cost_usd,
+            budget_usd: if enrolled { Some(aom_budget) } else { None },
+        });
+    }
+
+    ConvergenceSnapshot { tiles }
+}
+
+fn shorten6(id: &str) -> String {
+    let n = id.len();
+    if n > 6 { id[n - 6..].to_string() } else { id.to_string() }
+}
+
+fn index_decisions_by_short_id(rows: &[OperatorDecisionRow]) -> HashMap<&str, &OperatorDecisionRow> {
+    let mut out = HashMap::new();
+    for r in rows {
+        out.entry(r.session_id_short.as_str()).or_insert(r);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +240,25 @@ mod tests {
             now,
         });
         assert_eq!(s, TileStatus::Idle);
+    }
+
+    #[test]
+    fn last_non_empty_line_strips_ansi_and_skips_blanks() {
+        let raw = b"foo\n\x1b[31mbar\x1b[0m\n   \n";
+        let got = last_non_empty_line(raw, 200);
+        assert_eq!(got.as_deref(), Some("bar"));
+    }
+
+    #[test]
+    fn last_non_empty_line_truncates() {
+        let raw = b"hello world this is a long tail line";
+        let got = last_non_empty_line(raw, 10);
+        assert_eq!(got.as_deref(), Some("hello worl"));
+    }
+
+    #[test]
+    fn last_non_empty_line_returns_none_when_all_blank() {
+        let raw = b"\n   \n\t\n";
+        assert!(last_non_empty_line(raw, 200).is_none());
     }
 }
