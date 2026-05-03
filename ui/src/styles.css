@@ -4550,7 +4550,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
 .sidebar-nav-btn {
     flex: 1;
     height: 26px;
-    padding: 0;
+    padding: 0 8px;
     background: transparent;
     color: var(--muted);
     border: 1px solid transparent;
@@ -4559,6 +4559,11 @@ button.status-segment.status-aom.status-aom-warn:hover {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 .sidebar-nav-btn svg { display: block; }

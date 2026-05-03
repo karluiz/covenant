@@ -937,21 +937,23 @@ export class TabManager {
     const navEl = document.createElement("nav");
     navEl.className = "sidebar-nav";
 
-    // Icon-only nav (Zed-style minimalism). Tooltips + aria-labels
-     // carry the textual meaning so it remains accessible.
+    // Icon + label nav. Earlier polish stripped to icon-only, but the
+    // 14px monochrome glyphs against the dark surface read as blank
+    // for the user — restoring the label keeps the button discoverable
+    // while keeping the icon as a quick-scan affordance.
     const navBlocks = document.createElement("button");
     navBlocks.type = "button";
     navBlocks.className = "sidebar-nav-btn sidebar-nav-active";
     navBlocks.title = "Blocks";
     navBlocks.setAttribute("aria-label", "Blocks");
-    navBlocks.innerHTML = Icons.terminal({ size: 14 });
+    navBlocks.innerHTML = `${Icons.terminal({ size: 13 })}<span>Blocks</span>`;
 
     const navStructure = document.createElement("button");
     navStructure.type = "button";
     navStructure.className = "sidebar-nav-btn";
     navStructure.title = "Files";
     navStructure.setAttribute("aria-label", "Files");
-    navStructure.innerHTML = Icons.folder({ size: 14 });
+    navStructure.innerHTML = `${Icons.folder({ size: 13 })}<span>Files</span>`;
 
     navEl.appendChild(navBlocks);
     navEl.appendChild(navStructure);
