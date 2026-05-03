@@ -638,6 +638,17 @@ export class TabManager {
     if (tab) this.activate(tab.id);
   }
 
+  /// 3.6 — focus the tab whose backend session matches `sessionId`. Used
+  /// by the OS-notification click handler so clicking an "Operator paused"
+  /// popup brings the user back to the originating tab. No-op if the tab
+  /// has been closed since the notification fired.
+  activateBySessionId(sessionId: SessionId): boolean {
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    if (!tab) return false;
+    this.activate(tab.id);
+    return true;
+  }
+
   activateRelative(delta: number): void {
     if (this.tabs.length === 0) return;
     const currentIdx = this.tabs.findIndex((t) => t.id === this.activeId);
@@ -1760,13 +1771,13 @@ export class TabManager {
       pill.appendChild(botEl);
     }
     if (tab.mission) {
-      // Mission badge — small lightbulb (reusing existing icon set;
-      // a dedicated "target" icon can swap in later). Tooltip shows
-      // the spec path so the user remembers which mission is active.
+      // Mission badge — target icon (distinct from the lightbulb the
+      // block manager / toasts use for fix suggestions, so the two
+      // concepts don't visually collide). Tooltip shows the spec path.
       const missionEl = document.createElement("span");
       missionEl.className = "tab-mission-icon";
       missionEl.title = `Mission: ${tab.mission.path}\n${tab.mission.content_preview}`;
-      missionEl.innerHTML = Icons.lightbulb({ size: 12 });
+      missionEl.innerHTML = Icons.target({ size: 12 });
       pill.appendChild(missionEl);
     }
 

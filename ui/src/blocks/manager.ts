@@ -279,6 +279,23 @@ export class BlockManager {
         });
       });
 
+    // Dismiss-suggestion handler. Drops `fix` from the in-memory block
+    // and re-renders. The agent doesn't re-fire `fix_suggested` for the
+    // same block, so this is sufficient for the session lifetime.
+    this.content
+      .querySelectorAll<HTMLElement>(".block-fix-dismiss")
+      .forEach((el) => {
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const blockId = el.dataset.blockId;
+          if (!blockId) return;
+          const block = this.blocksById.get(blockId);
+          if (!block || !block.fix) return;
+          delete block.fix;
+          this.render();
+        });
+      });
+
     // Wire right-click context menu on each block item.
     this.content
       .querySelectorAll<HTMLElement>(".block-item")
@@ -364,16 +381,25 @@ function renderStatus(b: Block): string {
 function renderFix(b: Block): string {
   if (!b.fix) return "";
   return `
-    <div class="block-fix">
-      <button
-        type="button"
-        class="block-fix-cmd"
-        data-cmd="${escapeHtml(b.fix.command)}"
-        title="Click to type into the terminal (won't auto-execute)"
-      >
-        <span class="block-fix-icon">${Icons.lightbulb({ size: 12 })}</span>
-        <span class="block-fix-cmd-text">${escapeHtml(b.fix.command)}</span>
-      </button>
+    <div class="block-fix" data-block-id="${escapeHtml(b.id)}">
+      <div class="block-fix-row">
+        <button
+          type="button"
+          class="block-fix-cmd"
+          data-cmd="${escapeHtml(b.fix.command)}"
+          title="Click to type into the terminal (won't auto-execute)"
+        >
+          <span class="block-fix-icon">${Icons.lightbulb({ size: 12 })}</span>
+          <span class="block-fix-cmd-text">${escapeHtml(b.fix.command)}</span>
+        </button>
+        <button
+          type="button"
+          class="block-fix-dismiss"
+          data-block-id="${escapeHtml(b.id)}"
+          title="Dismiss suggestion"
+          aria-label="Dismiss suggestion"
+        >${Icons.x({ size: 11 })}</button>
+      </div>
       ${
         b.fix.rationale
           ? `<div class="block-fix-why">${escapeHtml(b.fix.rationale)}</div>`

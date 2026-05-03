@@ -46,6 +46,13 @@ interface AomConfig {
   default_budget_usd: number;
 }
 
+interface NotificationConfig {
+  on_operator_escalate: boolean;
+  on_aom_error: boolean;
+  on_aom_complete: boolean;
+  suppress_when_focused: boolean;
+}
+
 interface Settings {
   anthropic_api_key: string | null;
   agent: AgentConfig;
@@ -53,6 +60,7 @@ interface Settings {
   terminal: TerminalConfig;
   window: WindowConfig;
   aom: AomConfig;
+  notifications: NotificationConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
 }
@@ -127,6 +135,12 @@ export class SettingsPanel {
         },
         window: { background: "vibrant" },
         aom: { default_budget_usd: 10 },
+        notifications: {
+          on_operator_escalate: true,
+          on_aom_error: true,
+          on_aom_complete: true,
+          suppress_when_focused: true,
+        },
         status_bar_enabled: true,
       };
     }
@@ -171,6 +185,7 @@ export class SettingsPanel {
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operator" data-target="sec-operator">Operator</a>
+      <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
     `;
     body.appendChild(nav);
 
@@ -348,6 +363,43 @@ export class SettingsPanel {
             </small>
           </label>
         </section>
+        <section class="settings-section" id="sec-notifications">
+          <h3 class="settings-section-title">Notifications</h3>
+          <p class="settings-hint" style="margin: 0 0 6px;">
+            Native macOS popups when Covenant needs attention. Each
+            trigger throttles to one popup per 30s. Events are always
+            logged via tracing — these toggles only affect the popup.
+          </p>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notif_op_escalate" />
+              <span>Operator paused (ESCALATE)</span>
+            </span>
+          </label>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notif_aom_error" />
+              <span>AOM stopped on error (e.g., budget hit)</span>
+            </span>
+          </label>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notif_aom_complete" />
+              <span>AOM finished</span>
+            </span>
+          </label>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notif_suppress_focused" />
+              <span>Don't pop notifications when Covenant is focused</span>
+            </span>
+            <small class="settings-hint">
+              Recommended on. Looking at the window already counts as
+              "user is here" — the in-app banner / decision card has
+              you covered.
+            </small>
+          </label>
+        </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
@@ -379,6 +431,18 @@ export class SettingsPanel {
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
+    const notifOpEscalate = form.querySelector<HTMLInputElement>(
+      'input[name="notif_op_escalate"]',
+    )!;
+    const notifAomError = form.querySelector<HTMLInputElement>(
+      'input[name="notif_aom_error"]',
+    )!;
+    const notifAomComplete = form.querySelector<HTMLInputElement>(
+      'input[name="notif_aom_complete"]',
+    )!;
+    const notifSuppressFocused = form.querySelector<HTMLInputElement>(
+      'input[name="notif_suppress_focused"]',
+    )!;
     const status = form.querySelector<HTMLElement>(".settings-status")!;
 
     apiKey.value = this.current.anthropic_api_key ?? "";
@@ -398,6 +462,16 @@ export class SettingsPanel {
       r.checked = r.value === currentBg;
     });
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
+    const n = this.current.notifications ?? {
+      on_operator_escalate: true,
+      on_aom_error: true,
+      on_aom_complete: true,
+      suppress_when_focused: true,
+    };
+    notifOpEscalate.checked = n.on_operator_escalate;
+    notifAomError.checked = n.on_aom_error;
+    notifAomComplete.checked = n.on_aom_complete;
+    notifSuppressFocused.checked = n.suppress_when_focused;
 
     apiKey.focus();
 
@@ -509,6 +583,12 @@ export class SettingsPanel {
             0.1,
             Math.min(500, Number(aomBudget.value) || 10),
           ),
+        },
+        notifications: {
+          on_operator_escalate: notifOpEscalate.checked,
+          on_aom_error: notifAomError.checked,
+          on_aom_complete: notifAomComplete.checked,
+          suppress_when_focused: notifSuppressFocused.checked,
         },
         status_bar_enabled: statusBarEnabled.checked,
       };

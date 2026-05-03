@@ -231,16 +231,16 @@ body.bg-translucent {
     animation: operator-live-pulse 2.4s ease-in-out infinite;
 }
 
-/* Mission badge — sits next to the operator bot icon. Same shape +
-   sizing rules; tinted with --running (warm amber) so the user can
-   distinguish "tab has a mission" from "tab is live". Hover-tooltip
-   carries the spec path. */
+/* Mission badge — sits next to the operator bot icon. Tinted with
+   --accent so it matches the status-bar mission segment (consistent
+   "mission = blue" across surfaces). Hover-tooltip carries the spec
+   path. */
 .tab-mission-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: var(--running);
+    color: var(--accent);
     margin-right: 1px;
     pointer-events: none;
 }
@@ -1342,6 +1342,47 @@ body.tab-drag-active * {
     display: flex;
     flex-direction: column;
     gap: 3px;
+}
+
+/* Holds the fix command + the dismiss × on the same row. The cmd
+   button takes all available width; × hugs the right and reveals
+   on hover (kept dim by default so it doesn't fight the suggestion
+   for attention). */
+.block-fix-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+}
+
+.block-fix-dismiss {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    padding: 2px;
+    margin: 0;
+    border-radius: 4px;
+    color: var(--muted);
+    opacity: 0.45;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.block-fix:hover .block-fix-dismiss {
+    opacity: 1;
+}
+
+.block-fix-dismiss:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.block-fix-dismiss svg {
+    display: block;
 }
 
 .block-fix-cmd {
@@ -3326,6 +3367,172 @@ button.status-segment.status-mission:hover {
 button.status-segment.status-mission:focus-visible {
     outline: none;
     border-color: var(--accent, #b794f4);
+}
+
+/* Executor chip — shown when a known agent (claude/aider/opencode/...)
+   is running in the active tab. Tinted with the running color so the
+   user notices "yes, an agent is on" at a glance, with a soft pulse
+   on the icon to imply liveness. */
+.status-segment.status-executor {
+  color: color-mix(in srgb, var(--running, #e0af68) 80%, var(--fg, #d6d8db));
+}
+.status-segment.status-executor .status-icon {
+  color: var(--running, #e0af68);
+  animation: status-executor-pulse 2.4s ease-in-out infinite;
+}
+.status-segment.status-executor .status-text {
+  color: color-mix(in srgb, var(--running, #e0af68) 70%, var(--fg, #d6d8db));
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+
+@keyframes status-executor-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* AOM chip — clickable button in the status bar that shows the
+   running operator's metrics inline. Lighter visual weight than the
+   old floating pill (no border + transparent bg) — the icon's accent
+   tint + soft pulse is the "alive" signal. Hover lifts the bg to make
+   the click affordance obvious. */
+button.status-segment.status-aom {
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+.status-segment.status-aom .status-icon {
+  color: var(--accent, #7aa2f7);
+  animation: status-executor-pulse 2.4s ease-in-out infinite;
+}
+.status-segment.status-aom .status-text {
+  color: var(--accent, #7aa2f7);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+button.status-segment.status-aom:hover {
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #7aa2f7) 35%, transparent);
+}
+button.status-segment.status-aom:focus-visible {
+  outline: none;
+  border-color: var(--accent, #7aa2f7);
+}
+/* Warn variant when cost ≥ 80% of budget — flips icon + text to the
+   running color (warm amber) so the user notices without an alert. */
+.status-segment.status-aom.status-aom-warn .status-icon,
+.status-segment.status-aom.status-aom-warn .status-text {
+  color: var(--running, #e0af68);
+}
+button.status-segment.status-aom.status-aom-warn:hover {
+  background: color-mix(in srgb, var(--running, #e0af68) 16%, transparent);
+  border-color: color-mix(in srgb, var(--running, #e0af68) 40%, transparent);
+}
+
+/* AOM popover — opens on chip click, anchored above the chip. Hosts
+   the full stats grid + Stop / AFK action buttons. Floating element
+   on document.body so the status bar's overflow:hidden doesn't clip
+   it. */
+.status-aom-popover {
+  position: fixed;
+  width: 260px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  padding: 12px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--fg, #d6d8db);
+  z-index: 1300;
+  animation: settings-pop 0.12s ease-out;
+}
+
+.status-aom-pop-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--accent, #7aa2f7);
+  margin-bottom: 10px;
+}
+
+.status-aom-pop-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-aom-pop-title {
+  font-weight: 600;
+}
+
+.status-aom-pop-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-aom-pop-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.status-aom-pop-value {
+  text-align: right;
+  font-size: 11px;
+}
+
+.status-aom-pop-value.status-aom-pop-warn {
+  color: var(--running, #e0af68);
+  font-weight: 600;
+}
+
+.status-aom-pop-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.status-aom-pop-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg, #d6d8db);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
+}
+
+.status-aom-pop-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: color-mix(in srgb, var(--fg, #d6d8db) 30%, transparent);
+}
+
+/* Stop is destructive — tinted with fail color so the click is
+   distinguishable from the neutral AFK button. */
+.status-aom-pop-btn.status-aom-pop-stop {
+  color: var(--fail, #f7768e);
+  border-color: color-mix(in srgb, var(--fail, #f7768e) 30%, transparent);
+}
+.status-aom-pop-btn.status-aom-pop-stop:hover {
+  background: color-mix(in srgb, var(--fail, #f7768e) 14%, transparent);
+  border-color: color-mix(in srgb, var(--fail, #f7768e) 50%, transparent);
 }
 
 /* Mission viewer modal — borrows AOM-report shell styling but the body

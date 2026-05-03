@@ -389,6 +389,7 @@ impl OperatorWatcher {
         storage: Storage,
         aom: AomHandle,
         mission_store: PathBuf,
+        notifier: crate::notify::Notifier,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -399,6 +400,7 @@ impl OperatorWatcher {
             storage,
             app,
             aom,
+            notifier,
         ));
         Self {
             inner,
@@ -706,6 +708,7 @@ async fn tick_loop(
     storage: Storage,
     app: AppHandle,
     aom: AomHandle,
+    notifier: crate::notify::Notifier,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -724,7 +727,7 @@ async fn tick_loop(
             }
         }
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -791,6 +794,7 @@ async fn run_tick(
     storage: &Storage,
     app: &AppHandle,
     aom: &AomHandle,
+    notifier: &crate::notify::Notifier,
 ) -> Result<(), String> {
     // Snapshot AOM state once per tick. When on, every Operator-enabled
     // tab gets autonomous posture + forced live regardless of per-tab
@@ -1486,6 +1490,25 @@ async fn run_tick(
             }),
         );
 
+        // 3.6: fire an OS notification when the Operator escalates.
+        // Settings/throttle/focus-suppression all gate inside Notifier;
+        // we just hand it the body. First line of escalation_msg is
+        // typically a one-liner; truncate to 200 chars for tidiness.
+        if action_str == "escalate" {
+            if let Some(msg) = escalation_msg.as_deref() {
+                let body = msg.lines().next().unwrap_or(msg);
+                let body = truncate(body, 200);
+                notifier
+                    .emit(
+                        crate::notify::Trigger::OperatorEscalate,
+                        "Operator paused",
+                        body,
+                        Some(session_id),
+                    )
+                    .await;
+            }
+        }
+
         // If THIS decision pushed AOM over budget, finalize the
         // aom_sessions row + emit the dedicated event so the UI can
         // surface a toast explaining why the banner just disappeared.
@@ -1531,6 +1554,22 @@ async fn run_tick(
                         .saturating_sub(snap.started_at_unix_ms),
                 }),
             );
+            // 3.6: AOM auto-stop is the canonical "unrecoverable error"
+            // for AOM today — budget blown means no more decisions and
+            // the user needs to step in to ramp the cap or call it done.
+            let body = format!(
+                "AOM auto-stopped: spent ${:.2} of ${:.2} ({} decisions).",
+                snap.accumulated_cost_usd, snap.budget_usd, snap.decisions_count
+            );
+            drop(snap);
+            notifier
+                .emit(
+                    crate::notify::Trigger::AomError,
+                    "AOM stopped (budget)",
+                    body,
+                    None,
+                )
+                .await;
             // Stop processing further candidates this tick — AOM is
             // off, the next tick will just no-op for everyone.
             break;

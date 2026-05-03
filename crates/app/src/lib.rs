@@ -16,6 +16,7 @@ mod cross_session;
 mod fix_proposer;
 mod history_import;
 mod mission_persistence;
+mod notify;
 mod operator;
 mod safety;
 mod settings;
@@ -43,6 +44,7 @@ use ulid::Ulid;
 use aom::{AomHandle, AomStatus};
 use context::{ContextCache, DirContext};
 use cross_session::CrossSessionWatcher;
+use notify::{Notifier, Trigger};
 use operator::{OperatorState, OperatorWatcher};
 use settings::Settings;
 use storage::{AomReport, HistoricalBlock, OperatorDecisionRow, RecallMatch, Storage};
@@ -81,6 +83,11 @@ pub(crate) struct AppState {
     /// 3.7 status-bar — git/runtime detection cache shared across all
     /// `get_dir_context` calls. Tiny LRU, 5s TTL, no fs watcher.
     dir_context_cache: Arc<ContextCache>,
+    /// 3.6 OS notifications — fires native macOS popups for
+    /// ESCALATE / AOM error / AOM complete with throttle + setting
+    /// gating. Cloned into the operator watcher so its tick can emit
+    /// without reaching back through AppState.
+    notifier: Notifier,
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -687,6 +694,20 @@ async fn aom_stop(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // enabled manually (or that already had Operator on) stay on.
     let _reverted = state.operator.disable_aom_auto_enabled().await;
 
+    // 3.6: surface a "you can come back now" notification after a
+    // user-initiated stop. Budget-hit stops fire the AomError trigger
+    // from the operator tick instead — those are the same physical
+    // event but the user-facing meaning is different.
+    let body = format!(
+        "Spent ${accum:.2} over {decisions} decisions.",
+        accum = accum,
+        decisions = decisions,
+    );
+    state
+        .notifier
+        .emit(Trigger::AomComplete, "AOM finished", body, None)
+        .await;
+
     tracing::info!(decisions, "AOM stopped");
     Ok(status)
 }
@@ -837,6 +858,26 @@ fn maybe_import_zsh_history(
             Err(e) => {
                 tracing::warn!(error = %e, "zsh history import failed");
             }
+        }
+    });
+}
+
+/// Best-effort permission pre-warm. Tauri's notification plugin will
+/// also request lazily on first `show()`, but doing it once at boot
+/// surfaces the OS prompt at a calm moment instead of mid-escalation.
+fn request_notification_permission_async(notifier: Notifier) {
+    use tauri::plugin::PermissionState;
+    use tauri_plugin_notification::NotificationExt;
+    tauri::async_runtime::spawn(async move {
+        let app = notifier.app_handle();
+        match app.notification().permission_state() {
+            Ok(PermissionState::Prompt) | Ok(PermissionState::PromptWithRationale) => {
+                if let Err(e) = app.notification().request_permission() {
+                    tracing::warn!(error = %e, "request_notification_permission failed");
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "permission_state read failed"),
         }
     });
 }
@@ -1149,6 +1190,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // app_config_dir on macOS resolves to
             //   ~/Library/Application Support/<bundle identifier>/
@@ -1232,6 +1274,11 @@ pub fn run() {
 
             let settings_arc = Arc::new(Mutex::new(loaded));
             let aom_handle = aom::new_handle();
+            let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());
+            // Pre-warm macOS notification permission so the first real
+            // trigger doesn't race the OS prompt. tauri-plugin-notification
+            // no-ops when permission is already granted.
+            request_notification_permission_async(notifier.clone());
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
             let mission_store = dir.join("session_missions.json");
             let operator_watcher = OperatorWatcher::spawn(
@@ -1240,6 +1287,7 @@ pub fn run() {
                 storage.clone(),
                 aom_handle.clone(),
                 mission_store,
+                notifier.clone(),
             );
 
             // One-shot Recall seeding: on first launch, import the
@@ -1264,6 +1312,7 @@ pub fn run() {
                 aom: aom_handle,
                 tab_manifest_path,
                 dir_context_cache: Arc::new(ContextCache::new()),
+                notifier,
             });
             Ok(())
         })

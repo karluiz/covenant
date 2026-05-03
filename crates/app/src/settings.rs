@@ -38,6 +38,9 @@ pub struct Settings {
     #[serde(default)]
     pub aom: AomConfig,
 
+    #[serde(default)]
+    pub notifications: NotificationConfig,
+
     /// 3.7 status bar — when false, the bar isn't rendered and no
     /// detection runs. Default true; controlled by a single toggle in
     /// the Settings → Appearance section.
@@ -79,6 +82,38 @@ fn default_aom_budget_usd() -> f64 {
     10.0
 }
 
+/// 3.6 OS notifications. Three per-trigger toggles + a global focus
+/// suppressor. All default `true` — notifications are on out of the
+/// box; the user opts out per trigger from Settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationConfig {
+    #[serde(default = "default_true")]
+    pub on_operator_escalate: bool,
+    #[serde(default = "default_true")]
+    pub on_aom_error: bool,
+    #[serde(default = "default_true")]
+    pub on_aom_complete: bool,
+    /// When the Covenant window is currently focused, suppress popups.
+    /// The event is still logged via `tracing` regardless.
+    #[serde(default = "default_true")]
+    pub suppress_when_focused: bool,
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            on_operator_escalate: true,
+            on_aom_error: true,
+            on_aom_complete: true,
+            suppress_when_focused: true,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -88,6 +123,7 @@ impl Default for Settings {
             terminal: TerminalConfig::default(),
             window: WindowConfig::default(),
             aom: AomConfig::default(),
+            notifications: NotificationConfig::default(),
             status_bar_enabled: default_status_bar_enabled(),
             zsh_history_imported_at_unix_ms: None,
         }

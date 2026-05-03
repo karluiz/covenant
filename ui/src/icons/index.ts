@@ -37,6 +37,14 @@ export const Icons = {
       o,
     ),
 
+  /** Target — mission / objective. Distinct from `lightbulb`
+   * (suggestion) so the two concepts don't share an icon. */
+  target: (o?: IconOptions): string =>
+    svg(
+      `<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>`,
+      o,
+    ),
+
   /** Link / chain — cross-session correlation. */
   link2: (o?: IconOptions): string =>
     svg(

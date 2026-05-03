@@ -11,10 +11,15 @@ import { Icons } from "../icons";
 
 const POLL_MS = 5_000;
 
-/// Optional listener hook. main.ts uses it to call
-/// `TabManager.refreshAllOperatorState()` whenever the AOM toggle
-/// flips, so tab bot icons reflect the auto-enable/revert side-effect.
+/// Listener for AOM TRANSITIONS (off→on, on→off, budget-hit).
+/// `TabManager.refreshAllOperatorState()` uses this to refresh per-tab
+/// bot badges; expensive-to-recompute consumers go here.
 export type AomChangeListener = (next: AomStatus) => void;
+
+/// Listener for EVERY status update (transitions + every 5s poll tick).
+/// Used by the status-bar chip to keep the live cost / duration display
+/// in sync without each consumer running its own poll timer.
+export type AomUpdateListener = (next: AomStatus) => void;
 
 export class AomBanner {
   private root: HTMLElement;
@@ -22,6 +27,11 @@ export class AomBanner {
   private countEl: HTMLElement | null = null;
   private costEl: HTMLElement | null = null;
   private onEnterAfk: (() => void) | null = null;
+  /// When true, the banner stops painting its own floating pill. The
+  /// instance still polls, fires events, and serves as the source of
+  /// truth for AOM state — but rendering is delegated to whoever
+  /// subscribes via `onUpdate` (currently the status-bar chip).
+  private headless = false;
   private status: AomStatus = {
     enabled: false,
     started_at_unix_ms: 0,
@@ -32,12 +42,29 @@ export class AomBanner {
   };
   private poll: number | null = null;
   private listeners: AomChangeListener[] = [];
+  private updateListeners: AomUpdateListener[] = [];
 
   constructor(private readonly mountHost: HTMLElement) {
     this.root = document.createElement("div");
     this.root.className = "aom-banner";
     this.root.hidden = true;
     this.mountHost.appendChild(this.root);
+  }
+
+  /// Suppress the floating-pill rendering. State, polling and events
+  /// keep working — for the status-bar chip era we want the data
+  /// pipeline but not the visual.
+  setHeadless(headless: boolean): void {
+    this.headless = headless;
+    if (headless) {
+      this.root.hidden = true;
+      this.root.innerHTML = "";
+    }
+  }
+
+  /// Current cached status — synchronous, useful right after hydrate.
+  getStatus(): AomStatus {
+    return this.status;
   }
 
   /// Sync with the backend on boot. If AOM was already on (which can
@@ -68,6 +95,24 @@ export class AomBanner {
     this.listeners.push(listener);
   }
 
+  /// Subscribe to EVERY status update — fires on transitions AND on
+  /// every poll tick (~5s). Cheap consumers (rendering metrics) wire
+  /// here; expensive ones (TabManager refresh) stay on `onChange`.
+  onUpdate(listener: AomUpdateListener): void {
+    this.updateListeners.push(listener);
+  }
+
+  private fireUpdate(): void {
+    for (const l of this.updateListeners) {
+      try {
+        l(this.status);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("aom update listener failed", err);
+      }
+    }
+  }
+
   /// Re-fetch AOM status from the backend and re-apply (and notify
   /// listeners). Use when an external event might have changed AOM
   /// state — e.g. the budget-hit auto-stop emits an event the banner
@@ -95,7 +140,7 @@ export class AomBanner {
     const prevEnabled = this.status.enabled;
     this.status = s;
     if (s.enabled) {
-      this.render();
+      if (!this.headless) this.render();
       this.startPolling();
     } else {
       this.root.hidden = true;
@@ -107,6 +152,9 @@ export class AomBanner {
     if (prevEnabled !== s.enabled) {
       for (const l of this.listeners) l(s);
     }
+    // Update listeners ALWAYS fire (cheap consumers like the status
+    // bar chip live-display the cost / duration).
+    this.fireUpdate();
   }
 
   private render(): void {
@@ -166,20 +214,28 @@ export class AomBanner {
   }
 
   /// 5s poll while active — pulls the latest decisions count from the
-  /// backend so the banner reflects what the Operator just did. Cheap;
+  /// backend so subscribers reflect what the Operator just did. Cheap;
   /// the cost is one Tauri RPC per poll.
   private startPolling(): void {
     if (this.poll !== null) return;
     this.poll = window.setInterval(() => {
       void aomStatus()
         .then((s) => {
+          const prevEnabled = this.status.enabled;
           this.status = s;
           if (!s.enabled) {
             this.stopPolling();
             this.root.hidden = true;
+            // Transition to off captured by polling — emit both
+            // change and update listeners.
+            if (prevEnabled !== s.enabled) {
+              for (const l of this.listeners) l(s);
+            }
+            this.fireUpdate();
             return;
           }
-          this.refreshDisplay();
+          if (!this.headless) this.refreshDisplay();
+          this.fireUpdate();
         })
         .catch(() => {
           /* transient — try again next tick */
