@@ -7,6 +7,7 @@
 // Reads cost/budget/elapsed from `aomStatus()` (5s poll). No new
 // backend code — pure frontend overlay.
 
+import { aomStatus, type AomStatus } from "../api";
 import type { TabManager } from "../tabs/manager";
 
 export interface AfkOverlayDeps {
@@ -19,6 +20,8 @@ export interface AfkOverlayDeps {
 
 export class AfkOverlay {
   private root: HTMLElement | null = null;
+  private poll: number | null = null;
+  private status: AomStatus | null = null;
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -54,12 +57,64 @@ export class AfkOverlay {
     root
       .querySelector<HTMLButtonElement>(".afk-wakeup")!
       .addEventListener("click", () => this.close());
+
+    void this.refreshHeader();
+    this.poll = window.setInterval(() => void this.refreshHeader(), 5_000);
   }
 
   close(): void {
     if (!this.root) return;
+    if (this.poll !== null) {
+      window.clearInterval(this.poll);
+      this.poll = null;
+    }
     this.root.remove();
     this.root = null;
+    this.status = null;
     this.deps.onExit?.();
   }
+
+  private async refreshHeader(): Promise<void> {
+    if (!this.root) return;
+    try {
+      this.status = await aomStatus();
+    } catch {
+      return;
+    }
+    this.renderHeader();
+  }
+
+  private renderHeader(): void {
+    if (!this.root || !this.status) return;
+    const s = this.status;
+    const costEl = this.root.querySelector<HTMLElement>(".afk-stat-cost");
+    const elapsedEl = this.root.querySelector<HTMLElement>(".afk-stat-elapsed");
+    const tabsEl = this.root.querySelector<HTMLElement>(".afk-stat-tabs");
+    if (costEl) {
+      costEl.textContent = `$${s.accumulated_cost_usd.toFixed(
+        3,
+      )} / $${s.budget_usd.toFixed(2)}`;
+      const ratio = s.budget_usd > 0 ? s.accumulated_cost_usd / s.budget_usd : 0;
+      costEl.classList.toggle("afk-stat-warn", ratio >= 0.8);
+    }
+    if (elapsedEl) {
+      const ms = s.started_at_unix_ms > 0 ? Date.now() - s.started_at_unix_ms : 0;
+      elapsedEl.textContent = formatElapsed(ms);
+    }
+    if (tabsEl) {
+      const n = this.deps.manager.aomActiveTabCount();
+      tabsEl.textContent = `${n} tab${n === 1 ? "" : "s"}`;
+    }
+  }
+}
+
+function formatElapsed(ms: number): string {
+  if (ms <= 0) return "just now";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m - h * 60;
+  return rm === 0 ? `${h}h` : `${h}h ${rm}m`;
 }

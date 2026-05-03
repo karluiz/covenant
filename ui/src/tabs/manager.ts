@@ -606,6 +606,14 @@ export class TabManager {
     return tab?.sessionId ?? null;
   }
 
+  /// Count of tabs that AOM is currently driving — operator-enabled
+  /// tabs (AOM auto-enables on every non-excluded tab on start, and
+  /// reverts on stop, so this count IS the AOM-active set while AOM
+  /// is on).
+  aomActiveTabCount(): number {
+    return this.tabs.filter((t) => t.operatorEnabled).length;
+  }
+
   /// Most recent cwd reported by the active session via OSC 7
   /// (`cwd_changed`). Used by the Recall palette so the backend
   /// can apply its cwd bonus.
