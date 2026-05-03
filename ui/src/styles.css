@@ -3879,7 +3879,10 @@ button.status-segment.status-mission:focus-visible {
 .afk-overlay {
     position: fixed;
     inset: 0;
-    z-index: 200;
+    /* Above every existing modal/banner stack: AOM banner is 1200,
+       text-prompt modal is 1300. AFK is a takeover surface, so it
+       must clear all of them. */
+    z-index: 1400;
     display: grid;
     grid-template-rows: auto 1fr auto;
     background: var(--bg-overlay);
@@ -4011,6 +4014,11 @@ button.status-segment.status-mission:focus-visible {
 .afk-card-body {
     color: inherit;
     font-size: 13px;
+    /* min-width: 0 is required for text-overflow: ellipsis inside a
+       grid cell — grid items default to min-width: auto, which prevents
+       the cell from shrinking below content width and disables the
+       ellipsis. */
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
