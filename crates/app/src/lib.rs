@@ -699,6 +699,31 @@ async fn aom_report(state: State<'_, AppState>) -> Result<Option<AomReport>, Str
         .map_err(|e| e.to_string())
 }
 
+/// 3.8 Convergence Mode — one snapshot per UI poll (1 Hz). Read-only
+/// aggregator over existing handles; no schema changes.
+#[tauri::command]
+async fn get_convergence_snapshot(
+    state: State<'_, AppState>,
+) -> Result<convergence::ConvergenceSnapshot, String> {
+    let inputs: Vec<convergence::SessionInput> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .iter()
+            .map(|(id, ms)| convergence::SessionInput {
+                session_id: *id,
+                op_state: ms.op_state.clone(),
+            })
+            .collect()
+    };
+    Ok(convergence::build_convergence_snapshot(
+        inputs,
+        &state.operator,
+        &state.storage,
+        &state.aom,
+    )
+    .await)
+}
+
 #[tauri::command]
 async fn aom_stop(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // Snapshot the row id + final stats under the write lock, then
@@ -1376,6 +1401,7 @@ pub fn run() {
             aom_start,
             aom_stop,
             aom_report,
+            get_convergence_snapshot,
             recall_search,
             zsh_autosuggestions_status,
             tab_manifest_load,
