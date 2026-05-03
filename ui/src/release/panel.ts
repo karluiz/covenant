@@ -76,7 +76,7 @@ export class ReleasePanel {
         </div>
         <button type="button" class="release-close" aria-label="Close">×</button>
       </header>
-      <div class="release-body">${renderMarkdown(__APP_CHANGELOG__)}</div>
+      <div class="release-body markdown-body">${renderMarkdown(__APP_CHANGELOG__)}</div>
     `;
 
     card

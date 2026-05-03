@@ -31,6 +31,7 @@ import {
   setSessionMissionContent,
 } from "../api";
 import { Icons } from "../icons";
+import { renderMarkdown } from "../release/markdown";
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
@@ -545,6 +546,8 @@ function basename(p: string): string {
 /// moved while we were editing (the user has it open in another
 /// editor). We surface a banner with Reload (use disk content) and
 /// Overwrite (force-write past the conflict).
+const MISSION_VIEW_KIND_KEY = "covenant.mission-viewer.view-kind";
+
 class MissionViewerModal {
   private overlay: HTMLElement | null = null;
   /// Source of truth for the on-disk file. Updated on showContent and
@@ -553,6 +556,11 @@ class MissionViewerModal {
   private content = "";
   private sessionId: SessionId | null = null;
   private mode: "view" | "edit" = "view";
+  /// View-mode toggle: "rendered" runs CHANGELOG-style markdown
+  /// rendering (default — most missions are .md specs), "source" shows
+  /// the raw file in a `<pre>`. Persisted in localStorage so the user
+  /// keeps whichever view they prefer between opens.
+  private viewKind: "rendered" | "source" = loadMissionViewKind();
   /// Cached at openLoading. Lets us decide synchronously whether to
   /// allow Edit. Re-checked on Edit click in case AOM started in between.
   private aomActive = false;
@@ -673,6 +681,24 @@ class MissionViewerModal {
     actions.innerHTML = "";
 
     if (this.mode === "view") {
+      // View-kind toggle: switches between rendered markdown and raw
+      // source. Single button shows the OPPOSITE state's label so the
+      // user reads it as "what clicking will do".
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      toggleBtn.className = "mission-viewer-toggle";
+      const showingRendered = this.viewKind === "rendered";
+      toggleBtn.title = showingRendered
+        ? "Show raw markdown source"
+        : "Show rendered markdown";
+      toggleBtn.textContent = showingRendered ? "Source" : "Rendered";
+      toggleBtn.addEventListener("click", () => {
+        this.viewKind = showingRendered ? "source" : "rendered";
+        saveMissionViewKind(this.viewKind);
+        this.renderAll();
+      });
+      actions.appendChild(toggleBtn);
+
       const editBtn = document.createElement("button");
       editBtn.type = "button";
       editBtn.className = "mission-viewer-edit";
@@ -716,10 +742,17 @@ class MissionViewerModal {
       return;
     }
     body.innerHTML = "";
-    const pre = document.createElement("pre");
-    pre.className = "mission-viewer-content";
-    pre.textContent = this.content;
-    body.appendChild(pre);
+    if (this.viewKind === "rendered") {
+      const wrap = document.createElement("div");
+      wrap.className = "mission-viewer-content mission-viewer-rendered markdown-body";
+      wrap.innerHTML = renderMarkdown(this.content);
+      body.appendChild(wrap);
+    } else {
+      const pre = document.createElement("pre");
+      pre.className = "mission-viewer-content";
+      pre.textContent = this.content;
+      body.appendChild(pre);
+    }
   }
 
   private renderEditBody(body: HTMLElement): void {
@@ -899,4 +932,21 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function loadMissionViewKind(): "rendered" | "source" {
+  try {
+    const v = localStorage.getItem(MISSION_VIEW_KIND_KEY);
+    return v === "source" ? "source" : "rendered";
+  } catch {
+    return "rendered";
+  }
+}
+
+function saveMissionViewKind(kind: "rendered" | "source"): void {
+  try {
+    localStorage.setItem(MISSION_VIEW_KIND_KEY, kind);
+  } catch {
+    /* private mode / quota — leave the runtime value as the source of truth */
+  }
 }

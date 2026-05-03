@@ -4089,6 +4089,35 @@ button.status-segment.status-aom.status-aom-warn:hover {
 
 .mission-viewer-edit svg { display: block; }
 
+/* Source/Rendered toggle — same metrics as Edit but quieter (no
+   pencil icon, neutral border) since it's a view-only switch. */
+.mission-viewer-toggle {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 9px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.mission-viewer-toggle:hover {
+    color: var(--fg, #d6d8db);
+    background: color-mix(in srgb, var(--fg, #d6d8db) 6%, transparent);
+    border-color: color-mix(in srgb, var(--fg, #d6d8db) 20%, transparent);
+}
+
+/* Container tweaks for the rendered view — drop the monospace +
+   pre-wrap that .mission-viewer-content carries for source mode,
+   so the markdown-body typography rules apply cleanly. */
+.mission-viewer-rendered {
+    font-family: inherit !important;
+    white-space: normal !important;
+    color: #d6d8db;
+}
+
 /* Edit-mode textarea — same monospace metrics as the read view. */
 .mission-viewer-textarea {
     width: 100%;
@@ -5116,49 +5145,54 @@ button.status-segment.status-aom.status-aom-warn:hover {
     border-radius: 3px;
 }
 
-.release-body h1,
-.release-body h2,
-.release-body h3,
-.release-body h4 {
+/* Shared markdown typography — applied wherever rendered markdown
+   shows up (release log, mission viewer, future docs hub). The
+   container picks padding / scroll; this class only owns inline
+   formatting. */
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
     color: #fff;
     margin: 18px 0 6px;
     font-weight: 600;
     letter-spacing: 0.01em;
 }
 
-.release-body h1 { font-size: 16px; }
-.release-body h2 {
+.markdown-body h1 { font-size: 16px; }
+.markdown-body h2 {
     font-size: 14px;
     padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
 }
-.release-body h3 {
+.markdown-body h3 {
     font-size: 12.5px;
     color: color-mix(in srgb, var(--accent, #b794f4) 60%, #fff);
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
-.release-body h4 { font-size: 12px; }
+.markdown-body h4 { font-size: 12px; }
 
-.release-body h1:first-child,
-.release-body h2:first-child {
+.markdown-body h1:first-child,
+.markdown-body h2:first-child {
     margin-top: 0;
 }
 
-.release-body p {
+.markdown-body p {
     margin: 6px 0;
 }
 
-.release-body ul {
+.markdown-body ul {
     margin: 6px 0 12px;
     padding-left: 20px;
 }
 
-.release-body li {
+.markdown-body li {
     margin: 3px 0;
 }
 
-.release-body code {
+.markdown-body code {
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 11.5px;
@@ -5168,27 +5202,27 @@ button.status-segment.status-aom.status-aom-warn:hover {
     border-radius: 3px;
 }
 
-.release-body strong {
+.markdown-body strong {
     color: #fff;
     font-weight: 600;
 }
 
-.release-body em {
+.markdown-body em {
     color: #c8ccd2;
     font-style: italic;
 }
 
-.release-body a {
+.markdown-body a {
     color: var(--accent, #b794f4);
     text-decoration: none;
     border-bottom: 1px dotted color-mix(in srgb, var(--accent, #b794f4) 50%, transparent);
 }
 
-.release-body a:hover {
+.markdown-body a:hover {
     border-bottom-style: solid;
 }
 
-.release-body hr {
+.markdown-body hr {
     border: none;
     border-top: 1px solid var(--border);
     margin: 18px 0;
