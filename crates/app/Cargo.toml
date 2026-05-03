@@ -36,6 +36,7 @@ regex = { workspace = true }
 strip-ansi-escapes = { workspace = true }
 ignore = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
+trash = "5"
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

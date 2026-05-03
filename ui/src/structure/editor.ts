@@ -43,6 +43,7 @@ import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 
 import { Icons } from "../icons";
 import {
+  structureReadBinaryFile,
   structureReadFile,
   structureWriteBinaryFile,
   structureWriteFile,
@@ -50,6 +51,7 @@ import {
 import { languageForPath } from "./languages";
 import {
   MarkdownPreview,
+  PngPreview,
   type Preview,
   type PreviewKind,
   previewKindForPath,
@@ -335,6 +337,13 @@ export class StructureEditor {
     return this.visible;
   }
 
+  /// Path of the currently-open file, or null if no file is open.
+  /// Used by external listeners (e.g., the file tree) to react when
+  /// a rename / trash affects the editor's target.
+  getCurrentPath(): string | null {
+    return this.currentPath;
+  }
+
   async open(path: string, opts?: { line?: number }): Promise<void> {
     this.currentPath = path;
     this.pathLabelEl.textContent = shortenPath(path);
@@ -344,6 +353,16 @@ export class StructureEditor {
     this.statusEl.classList.remove("dirty");
 
     this.show();
+
+    // Image-class files bypass the text-read path entirely. Their
+    // preview is the only useful view (no source-mode editing makes
+    // sense), so we read raw bytes and hand them straight to the
+    // PngPreview renderer.
+    if (previewKindForPath(path) === "png") {
+      await this.openImage(path);
+      return;
+    }
+
     let result;
     try {
       result = await structureReadFile(path, SIZE_THRESHOLD_BYTES);
@@ -450,10 +469,61 @@ export class StructureEditor {
     }
   }
 
+  /// Image-only open path: read bytes, hand to PngPreview, no source
+  /// mode at all. Toggling source/preview is disabled for this kind.
+  private async openImage(path: string): Promise<void> {
+    let result;
+    try {
+      result = await structureReadBinaryFile(path);
+    } catch (err) {
+      this.showPlaceholder(`Failed to read image: ${err}`);
+      return;
+    }
+    if (result.kind === "too_large") {
+      this.showPlaceholder(
+        `Image too large to preview (${formatBytes(result.size_bytes)}).`,
+      );
+      return;
+    }
+
+    if (this.view) {
+      this.view.destroy();
+      this.view = null;
+    }
+    if (this.currentPreview) {
+      this.currentPreview.dispose();
+      this.currentPreview = null;
+    }
+    this.previewHostEl.innerHTML = "";
+
+    this.previewKind = "png";
+    this.viewMode = "preview";
+    this.editorHostEl.hidden = true;
+    this.previewHostEl.hidden = false;
+    this.placeholderEl.hidden = true;
+    this.originalContent = null;
+    this.liveContent = "";
+    this.dirty = false;
+
+    this.currentPreview = makePreview("png");
+    // PngPreview consumes the JSON-stringified byte array via its
+    // `content` param — keeping the Preview interface uniform across
+    // text and image kinds.
+    this.currentPreview.mount(
+      this.previewHostEl,
+      JSON.stringify(result.bytes),
+    );
+
+    this.refreshPreviewButton();
+    this.renderStatus();
+  }
+
   /// Flip between Preview and Source for the current file. No-op when
   /// `previewKind` is null (button is hidden, so the only way in is
-  /// the keyboard shortcut firing on a non-previewable file).
+  /// the keyboard shortcut firing on a non-previewable file). Images
+  /// have no source view so we no-op for them too.
   private toggleViewMode(): void {
+    if (this.previewKind === "png") return;
     if (!this.previewKind || !this.currentPath) return;
 
     // Snapshot the latest text before swapping. In source mode we read
@@ -681,6 +751,8 @@ function makePreview(kind: PreviewKind): Preview {
       return new MarkdownPreview();
     case "svg":
       return new SvgPreview();
+    case "png":
+      return new PngPreview();
   }
 }
 
