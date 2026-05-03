@@ -43,7 +43,6 @@ export async function svgToPng(
     "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgText)));
 
   const img = new Image();
-  img.decoding = "sync";
   img.src = dataUrl;
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
@@ -108,7 +107,7 @@ function parseSvgDimensions(svgText: string): { width: number; height: number } 
     return { width: w, height: h };
   }
 
-  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/\s+/);
+  const vb = (root.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/);
   if (vb.length === 4) {
     const vbW = parseFloat(vb[2]);
     const vbH = parseFloat(vb[3]);
