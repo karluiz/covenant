@@ -55,7 +55,12 @@ import {
   previewKindForPath,
   SvgPreview,
 } from "./preview";
-import { loadSvgScale, type PngScale, saveSvgScale, svgToPng } from "./png-export";
+import {
+  loadSvgScale,
+  type PngScale,
+  saveSvgScale,
+  svgToPng,
+} from "./png-export";
 import { editorHighlight, editorTheme } from "./theme";
 
 export interface EditorCallbacks {
@@ -615,6 +620,8 @@ export class StructureEditor {
       this.currentPreview = null;
     }
     this.previewBtn.hidden = true;
+    this.pngBtn.hidden = true;
+    this.pngScaleSelect.hidden = true;
     this.callbacks.onClose?.();
   }
 
@@ -631,6 +638,8 @@ export class StructureEditor {
     this.previewHostEl.hidden = true;
     this.previewKind = null;
     this.previewBtn.hidden = true;
+    this.pngBtn.hidden = true;
+    this.pngScaleSelect.hidden = true;
     this.placeholderEl.hidden = false;
     this.placeholderEl.textContent = message;
     this.originalContent = null;
