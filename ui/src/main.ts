@@ -160,16 +160,22 @@ async function boot(): Promise<void> {
   // status-bar chip — keep the rendering in one place.
   manager.onMissionViewRequested = (mission, sessionId) =>
     void statusBar.openMissionFor(mission, sessionId);
+  // Inverse direction: the "+ Set mission" affordance the status bar
+  // surfaces on project-like cwds clicks back into TabManager so the
+  // file-picker prompt is a single shared flow with the tab menu.
+  statusBar.onMissionSetRequested = (sessionId) =>
+    manager.promptAndSetMissionForSession(sessionId);
 
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
-  const operator = new OperatorPanel(document.body);
+  const operator = new OperatorPanel(document.body, manager);
   const recallPalette = new RecallPalette(
     document.body,
     () => manager.activeSessionId(),
     () => manager.activeCwd(),
     (sessionId, command) => injectCommand(sessionId, command),
+    () => manager.focusActive(),
   );
 
   const searchPalette = new GlobalSearchPalette(document.body, {
@@ -214,6 +220,11 @@ async function boot(): Promise<void> {
   // the budget-hit auto-stop) so the tab bar refreshes per-tab badges
   // for tabs AOM auto-enabled or auto-reverted.
   const aomBanner = new AomBanner(document.body);
+  // Headless: the banner owns state + polling, but the chip in the
+  // status bar handles all rendering. Without this we'd get both
+  // the floating pill AND the chip on screen at once.
+  aomBanner.setHeadless(true);
+  aomBanner.onUpdate((status) => statusBar.setAom(status));
   aomBanner.onChange((status) => {
     void manager.refreshAllOperatorState().then(() => {
       // "AOM is alive" — the moment the user enters AOM, derive
@@ -243,6 +254,13 @@ async function boot(): Promise<void> {
     onExit: () => manager.refitActive(),
   });
   aomBanner.setEnterAfkHandler(() => afk.open());
+  // Wire the status-bar chip's popover Stop/AFK buttons. Same
+  // semantics as the (now hidden) banner buttons: Stop toggles
+  // AOM off, AFK opens the overlay.
+  statusBar.bindAomActions({
+    onStop: () => void aomBanner.toggle(),
+    onAfk: () => afk.open(),
+  });
   const docsPage = requireEl<HTMLElement>("docs-page");
   const docsPanel = new DocsPanel(docsPage, workspace);
   docsPanel.onClosed = () => {

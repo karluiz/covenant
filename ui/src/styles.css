@@ -1777,6 +1777,131 @@ body.tab-drag-active * {
     color: #d6d8db;
 }
 
+/* ─── Operator panel: filters / chips ──────────────── */
+
+.operator-counters {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+}
+
+.operator-filters {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+
+.operator-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.operator-pill {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 80ms ease, color 80ms ease, border-color 80ms ease;
+}
+
+.operator-pill:hover {
+    color: #fff;
+    border-color: color-mix(in srgb, var(--accent, #b794f4) 50%, var(--border));
+}
+
+.operator-pill-active {
+    background: color-mix(in srgb, var(--accent, #b794f4) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent, #b794f4) 60%, var(--border));
+    color: #fff;
+}
+
+.operator-pill-count {
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.operator-pill-active .operator-pill-count {
+    color: color-mix(in srgb, #fff 70%, var(--accent));
+}
+
+.operator-filter-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.operator-filter-label,
+.operator-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.operator-session-select {
+    background: var(--bg);
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    max-width: 160px;
+}
+
+.operator-filter-toggle input {
+    accent-color: var(--accent, #b794f4);
+}
+
+.op-chip {
+    font-size: 10px;
+    padding: 1px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: #d6d8db;
+    background: rgba(255, 255, 255, 0.02);
+    font-variant-numeric: tabular-nums;
+}
+
+.op-chip-executor {
+    color: color-mix(in srgb, var(--accent, #b794f4) 80%, #fff);
+    border-color: color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent, #b794f4) 10%, transparent);
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+}
+
+.op-chip-tab {
+    color: #fff;
+}
+
+.op-chip-tab.op-chip-stale {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: rgba(255, 255, 255, 0.25);
+}
+
+.op-chip-mission {
+    color: #f0d97a;
+    border-color: rgba(240, 217, 122, 0.35);
+    background: rgba(240, 217, 122, 0.08);
+}
+
 /* ─── Context menu (tabs + blocks) ─────────────────── */
 
 .ctx-menu {
@@ -2403,7 +2528,8 @@ body.tab-drag-active * {
     padding: 14px 18px;
     flex: 1;
     overflow-y: auto;
-    white-space: pre-wrap;
+    /* whitespace handled by .agent-text children (pre-wrap) so the
+       container itself doesn't leak gaps between segment blocks. */
     font-family:
         -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     font-size: 13px;
@@ -2430,6 +2556,116 @@ body.tab-drag-active * {
 .agent-response::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 3px;
+}
+
+/* Live-rendered segments inside the response. Text honors newlines via
+   pre-wrap; code blocks render as a card with a header (lang + Copy)
+   and a monospace body. */
+.agent-text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.agent-text + .agent-code,
+.agent-code + .agent-text,
+.agent-code + .agent-code,
+.agent-text + .agent-text {
+    margin-top: 10px;
+}
+
+.agent-inline-code {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    padding: 0 5px;
+    color: var(--accent, #7aa2f7);
+}
+
+.agent-code {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+
+.agent-code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 10px;
+    background: color-mix(in srgb, var(--bg-tabbar, #15171a) 80%, transparent);
+    border-bottom: 1px solid var(--border);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
+.agent-code-lang {
+    text-transform: lowercase;
+}
+
+.agent-code-streaming {
+    font-size: 10.5px;
+    font-style: italic;
+    color: var(--muted);
+}
+
+.agent-code-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    padding: 2px 7px;
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.agent-code-copy svg { display: block; }
+
+.agent-code-copy:hover {
+    color: var(--fg, #d6d8db);
+    background: color-mix(in srgb, var(--fg, #d6d8db) 6%, transparent);
+    border-color: color-mix(in srgb, var(--fg, #d6d8db) 22%, transparent);
+}
+
+/* Brief confirmation flash after a successful copy. */
+.agent-code-copy.copied {
+    color: var(--ok, #9ece6a);
+    border-color: color-mix(in srgb, var(--ok, #9ece6a) 50%, transparent);
+}
+.agent-code-copy.copied::after {
+    content: "copied";
+}
+.agent-code-copy.copied span,
+.agent-code-copy.copied svg {
+    display: none;
+}
+
+.agent-code-body {
+    margin: 0;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #e6e8ea;
+    white-space: pre;
+}
+
+.agent-code-body code {
+    font: inherit;
+    color: inherit;
+    background: transparent;
 }
 
 /* ─── Recall sidebar (contextual) ──────────────────── */
@@ -3369,6 +3605,51 @@ button.status-segment.status-mission:focus-visible {
     border-color: var(--accent, #b794f4);
 }
 
+/* "+ Set mission" affordance — same chip metrics as status-mission so
+   the bar layout doesn't shift when a mission is later attached.
+   Lower opacity in rest so it reads as "you could do this" without
+   competing with active status; full on hover. Matches Zed's pattern
+   of subtle add-affordances. */
+button.status-segment.status-add-mission {
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    font: inherit;
+    padding: 0 6px;
+    height: 18px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.55;
+    transition:
+        opacity 0.12s ease,
+        background-color 0.12s ease,
+        border-color 0.12s ease;
+}
+
+button.status-segment.status-add-mission .status-icon {
+    color: var(--accent, #b794f4);
+}
+
+button.status-segment.status-add-mission .status-text {
+    color: color-mix(in srgb, var(--fg, #d6d8db) 80%, transparent);
+    /* Italics communicate "not a fact, an action you can take" — the
+       attached-mission chip stays upright so the two read distinctly
+       even at the same width. */
+    font-style: italic;
+}
+
+button.status-segment.status-add-mission:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--accent, #b794f4) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent, #b794f4) 35%, transparent);
+}
+
+button.status-segment.status-add-mission:focus-visible {
+    outline: none;
+    opacity: 1;
+    border-color: var(--accent, #b794f4);
+}
+
 /* Executor chip — shown when a known agent (claude/aider/opencode/...)
    is running in the active tab. Tinted with the running color so the
    user notices "yes, an agent is on" at a glance, with a soft pulse
@@ -3622,6 +3903,11 @@ button.status-segment.status-aom.status-aom-warn:hover {
     flex: 1;
     overflow-y: auto;
     padding: 14px 18px;
+    /* Column flex so children (textarea + optional conflict banner)
+       can stretch vertically without explicit heights. */
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .mission-viewer-body::-webkit-scrollbar {
@@ -3652,6 +3938,172 @@ button.status-segment.status-aom.status-aom-warn:hover {
     font-size: 12px;
 }
 
+/* Header action cluster: Edit + × buttons sit together on the right. */
+.mission-viewer-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.mission-viewer-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 9px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.mission-viewer-edit:hover:not(:disabled) {
+    color: var(--fg, #d6d8db);
+    background: color-mix(in srgb, var(--fg, #d6d8db) 6%, transparent);
+    border-color: color-mix(in srgb, var(--fg, #d6d8db) 20%, transparent);
+}
+
+.mission-viewer-edit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.mission-viewer-edit svg { display: block; }
+
+/* Edit-mode textarea — same monospace metrics as the read view. */
+.mission-viewer-textarea {
+    width: 100%;
+    min-height: 320px;
+    /* Stretch to fill the body (which is flex:1 in the card column). */
+    height: 100%;
+    box-sizing: border-box;
+    background: var(--bg, #0d0e10);
+    color: var(--fg, #d6d8db);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    resize: none;
+    outline: none;
+    transition: border-color 0.12s;
+}
+
+.mission-viewer-textarea:focus {
+    border-color: var(--accent, #7aa2f7);
+}
+
+/* Footer with hint + status + Cancel/Save. Sticks to the bottom of
+   the card; only visible in edit mode (`hidden` attribute toggled). */
+.mission-viewer-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-overlay);
+    flex-shrink: 0;
+}
+
+.mission-viewer-footer[hidden] { display: none; }
+
+.mission-viewer-footer-hint {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.mission-viewer-footer-hint kbd {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-size: 10px;
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--fg, #d6d8db);
+}
+
+.mission-viewer-status {
+    flex: 1;
+    font-size: 11px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mission-viewer-cancel,
+.mission-viewer-save {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--fg, #d6d8db);
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s;
+}
+
+.mission-viewer-cancel:hover {
+    background: color-mix(in srgb, var(--fg, #d6d8db) 8%, transparent);
+}
+
+.mission-viewer-save {
+    background: var(--accent, #7aa2f7);
+    border-color: var(--accent, #7aa2f7);
+    color: #0d0e10;
+    font-weight: 600;
+}
+
+.mission-viewer-save:hover {
+    background: color-mix(in srgb, var(--accent, #7aa2f7) 88%, white);
+}
+
+/* Conflict banner — sits above the textarea when the disk file moved
+   while editing. Warm tint to read as a warning without screaming. */
+.mission-viewer-conflict {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--running, #e0af68) 45%, transparent);
+    background: color-mix(in srgb, var(--running, #e0af68) 12%, transparent);
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: var(--fg, #d6d8db);
+}
+
+.mission-viewer-conflict-msg {
+    flex: 1;
+}
+
+.mission-viewer-conflict-reload,
+.mission-viewer-conflict-overwrite {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--running, #e0af68) 50%, transparent);
+    border-radius: 5px;
+    padding: 3px 9px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--fg, #d6d8db);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.mission-viewer-conflict-reload:hover,
+.mission-viewer-conflict-overwrite:hover {
+    background: color-mix(in srgb, var(--running, #e0af68) 22%, transparent);
+}
+
 .settings-checkbox-row {
     display: inline-flex;
     align-items: center;
@@ -3664,26 +4116,33 @@ button.status-segment.status-aom.status-aom-warn:hover {
     margin: 0;
 }
 
-/* 3.3 Structure — sidebar nav strip */
+/* 3.3 Structure — sidebar nav strip. Icon-only (Zed-style); the
+   textual meaning lives in title/aria-label. */
 .sidebar-nav {
     display: flex;
-    gap: 4px;
-    padding: 6px 8px;
+    gap: 2px;
+    padding: 4px 6px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-panel);
 }
 .sidebar-nav-btn {
     flex: 1;
-    padding: 4px 8px;
-    font-size: 11px;
+    height: 26px;
+    padding: 0;
     background: transparent;
     color: var(--muted);
     border: 1px solid transparent;
     border-radius: 4px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
+.sidebar-nav-btn svg { display: block; }
 .sidebar-nav-btn:hover {
     color: var(--fg);
+    background: rgba(255, 255, 255, 0.03);
 }
 .sidebar-nav-active {
     color: var(--fg);

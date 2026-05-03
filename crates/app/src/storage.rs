@@ -193,6 +193,14 @@ pub struct OperatorDecisionRow {
     pub reply_text: Option<String>,
     pub rationale: Option<String>,
     pub executed: bool,
+    /// Mission spec path attached to the session at the moment the
+    /// decision fired. NULL for pre-Phase-B rows + sessions that had
+    /// no mission attached.
+    pub mission_path: Option<String>,
+    /// Detected executor agent (claude / copilot / aider / …) parsed
+    /// from `in_flight_command` at decision time. NULL when no known
+    /// executor matched the command head.
+    pub executor_name: Option<String>,
 }
 
 fn shorten(id: &str) -> String {
@@ -222,6 +230,18 @@ impl Storage {
         // column already exists — squelch silently.
         let _ = conn.execute(
             "ALTER TABLE operator_decisions ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0",
+            [],
+        );
+        // Per-decision context snapshot (insight panel, Phase B): the
+        // mission spec attached and executor agent detected at the
+        // moment the decision fired. NULL for older rows + decisions
+        // where neither was determinable.
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN mission_path TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN executor_name TEXT",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
@@ -639,6 +659,8 @@ impl Storage {
         rationale: Option<String>,
         executed: bool,
         cost_usd: f64,
+        mission_path: Option<String>,
+        executor_name: Option<String>,
     ) -> Result<i64, StorageError> {
         let conn = self.inner.clone();
         let session_str = session_id.to_string();
@@ -648,8 +670,8 @@ impl Storage {
                 "INSERT INTO operator_decisions
                  (session_id, timestamp_unix_ms, in_flight_command,
                   output_excerpt, action, reply_text, rationale, executed,
-                  cost_usd)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                  cost_usd, mission_path, executor_name)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     session_str,
                     timestamp_unix_ms as i64,
@@ -660,6 +682,8 @@ impl Storage {
                     rationale,
                     executed as i64,
                     cost_usd,
+                    mission_path,
+                    executor_name,
                 ],
             )?;
             Ok(c.last_insert_rowid())
@@ -925,7 +949,8 @@ impl Storage {
                 let c = conn.blocking_lock();
                 let mut stmt = c.prepare(
                     "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
-                            output_excerpt, action, reply_text, rationale, executed
+                            output_excerpt, action, reply_text, rationale, executed,
+                            mission_path, executor_name
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -941,6 +966,8 @@ impl Storage {
                         reply_text: r.get(6)?,
                         rationale: r.get(7)?,
                         executed: r.get::<_, i64>(8)? != 0,
+                        mission_path: r.get(9)?,
+                        executor_name: r.get(10)?,
                     })
                 })?;
                 let mut out = Vec::new();
@@ -1474,6 +1501,8 @@ mod tests {
             Some("noise".to_string()),
             true,
             0.001,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1488,6 +1517,8 @@ mod tests {
             Some("ALWAYS-YES tests".to_string()),
             true,
             0.012,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1502,6 +1533,8 @@ mod tests {
             Some("blocked: rm -rf in proposed reply".to_string()),
             false,
             0.008,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1516,6 +1549,8 @@ mod tests {
             Some("ALWAYS-YES commit".to_string()),
             true,
             0.015,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1536,6 +1571,8 @@ mod tests {
             Some("post-aom".to_string()),
             true,
             0.005,
+            None,
+            None,
         )
         .await
         .unwrap();

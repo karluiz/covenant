@@ -375,11 +375,39 @@ pub struct MissionDoc {
 /// `content_preview` is the first ~240 chars of the spec — enough for
 /// a tooltip / sidebar header without sending the whole file across
 /// IPC every time the UI refreshes.
+///
+/// `mtime_unix_ms` is the on-disk mtime at the moment we loaded the
+/// content. The mission viewer modal carries it back when saving so
+/// the backend can detect "file changed in another editor" conflicts.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MissionInfo {
     pub path: String,
     pub content_preview: String,
     pub loaded_at_unix_ms: u64,
+    pub mtime_unix_ms: u64,
+}
+
+/// Outcome of `set_mission_content`. Serialized to the UI as a tagged
+/// enum so the modal can branch cleanly: success swaps back to view
+/// mode with the new content; `Conflict` shows the "file changed on
+/// disk" banner with the disk content available for Reload.
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MissionSaveResult {
+    Saved {
+        info: MissionInfo,
+    },
+    /// The file's mtime moved between when the UI loaded the content
+    /// and when it tried to save. `current_content` is what's on disk
+    /// right now — the UI offers it as the Reload option.
+    Conflict {
+        actual_mtime_unix_ms: u64,
+        current_content: String,
+    },
+    /// No mission is attached to the session — UI should close the
+    /// modal. This is a defensive case (the modal shouldn't even
+    /// open without a mission).
+    NoMission,
 }
 
 impl OperatorWatcher {
@@ -544,6 +572,7 @@ impl OperatorWatcher {
             path: doc.path.display().to_string(),
             content_preview: take_preview(&doc.content, 240),
             loaded_at_unix_ms: doc.loaded_at_unix_ms,
+            mtime_unix_ms: doc.mtime_unix_ms,
         };
         // Read the session's cwd while holding the inner lock, then
         // attach the mission. Persist outside the lock — disk I/O
@@ -621,6 +650,7 @@ impl OperatorWatcher {
                     path: m.path.display().to_string(),
                     content_preview: take_preview(&m.content, 240),
                     loaded_at_unix_ms: m.loaded_at_unix_ms,
+                    mtime_unix_ms: m.mtime_unix_ms,
                 })
             })
     }
@@ -635,6 +665,66 @@ impl OperatorWatcher {
             .sessions
             .get(&session_id)
             .and_then(|a| a.mission.as_ref().map(|m| m.content.clone()))
+    }
+
+    /// Persist a new mission spec body from the viewer modal.
+    ///
+    /// `expected_mtime_unix_ms` is the mtime the UI saw at load time;
+    /// when it differs from the on-disk mtime now we return Conflict
+    /// (the user has the file open in another editor that just saved).
+    /// Pass `0` to bypass the check (the "Overwrite" path).
+    ///
+    /// On success we re-read the file from disk to capture the new
+    /// mtime accurately (filesystem rounding can shift mtime slightly
+    /// vs the value we'd compute right after the write).
+    pub async fn set_mission_content(
+        &self,
+        session_id: SessionId,
+        new_content: String,
+        expected_mtime_unix_ms: u64,
+    ) -> Result<MissionSaveResult, String> {
+        // Snap the path under the lock; release before disk I/O.
+        let path = {
+            let inner = self.inner.lock().await;
+            let Some(att) = inner.sessions.get(&session_id) else {
+                return Ok(MissionSaveResult::NoMission);
+            };
+            let Some(m) = att.mission.as_ref() else {
+                return Ok(MissionSaveResult::NoMission);
+            };
+            m.path.clone()
+        };
+
+        // Mtime conflict check. Skipped when caller passes 0 (Overwrite).
+        if expected_mtime_unix_ms != 0 {
+            if let Some(actual) = mtime_unix_ms(&path) {
+                if actual != expected_mtime_unix_ms {
+                    let current_content = tokio::fs::read_to_string(&path)
+                        .await
+                        .map_err(|e| format!("read mission file {}: {e}", path.display()))?;
+                    return Ok(MissionSaveResult::Conflict {
+                        actual_mtime_unix_ms: actual,
+                        current_content,
+                    });
+                }
+            }
+        }
+
+        tokio::fs::write(&path, new_content.as_bytes())
+            .await
+            .map_err(|e| format!("write mission file {}: {e}", path.display()))?;
+
+        let doc = load_mission_doc(&path).await?;
+        let info = MissionInfo {
+            path: doc.path.display().to_string(),
+            content_preview: take_preview(&doc.content, 240),
+            loaded_at_unix_ms: doc.loaded_at_unix_ms,
+            mtime_unix_ms: doc.mtime_unix_ms,
+        };
+        if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
+            att.mission = Some(doc);
+        }
+        Ok(MissionSaveResult::Saved { info })
     }
 
     /// AOM auto-enable: flip Operator on for every currently-disabled
@@ -1353,9 +1443,13 @@ async fn run_tick(
                             // Inject the bytes. Failure here downgrades
                             // to a dry-run reply so the user sees the
                             // attempt in the audit panel.
-                            let injected = inject_to_session(app, session_id, text.as_bytes())
-                                .await
-                                .is_ok();
+                            let injected = inject_operator_reply(
+                                app,
+                                session_id,
+                                text.as_bytes(),
+                            )
+                            .await
+                            .is_ok();
                             (
                                 OperatorAction::Reply {
                                     text: text.clone(),
@@ -1448,6 +1542,8 @@ async fn run_tick(
                 rationale.clone(),
                 executed,
                 call_cost_usd,
+                mission.as_ref().map(|m| m.path.display().to_string()),
+                detect_executor(&cmd),
             )
             .await
         {
@@ -1695,6 +1791,46 @@ async fn inject_to_session(
     managed.session.write(bytes).map_err(|e| e.to_string())
 }
 
+/// Two-stage injection for Operator REPLY actions. Body bytes go first;
+/// any trailing CR/LF run is held back and written separately after a
+/// short delay.
+///
+/// WHY: modern TUIs (Claude Code's ink/React input, aider, opencode)
+/// distinguish between "pasted text containing a newline" (which they
+/// keep as a literal newline inside the input field) and "Enter key
+/// pressed" (which submits). When body + submit byte arrive in a
+/// single PTY write, several of these TUIs treat the chunk as a paste
+/// and the trailing newline never fires their submit handler — the
+/// user sees their message typed but stuck in the input box. Splitting
+/// the writes makes the submit byte arrive as a discrete keystroke.
+///
+/// 60ms is enough for ink's input reducer to commit the body before
+/// the next keystroke event lands without being noticeable to humans.
+async fn inject_operator_reply(
+    app: &AppHandle,
+    session_id: SessionId,
+    bytes: &[u8],
+) -> Result<(), String> {
+    // Find the boundary between body and trailing CR/LF run.
+    let split = bytes
+        .iter()
+        .rposition(|b| *b != b'\r' && *b != b'\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let (body, submit) = bytes.split_at(split);
+
+    if !body.is_empty() {
+        inject_to_session(app, session_id, body).await?;
+    }
+    if !submit.is_empty() {
+        if !body.is_empty() {
+            tokio::time::sleep(Duration::from_millis(60)).await;
+        }
+        inject_to_session(app, session_id, submit).await?;
+    }
+    Ok(())
+}
+
 fn build_system_prompt(
     persona: &str,
     aom_active: bool,
@@ -1723,13 +1859,50 @@ fn build_system_prompt(
          {mission_block}\
          # PERSONA (set by user — guides judgment for the routine cases)\n\
          {persona}\n\n\
+         # {recommendation}\n\n\
          # {hard}\n\n\
          # {fmt}",
         persona = persona.trim(),
+        recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
         hard = HARD_CONSTRAINTS,
         fmt = OUTPUT_FORMAT,
     )
 }
+
+/// Always-on guidance: when the executor explicitly presents its own
+/// recommendation before pausing for confirmation, the Operator should
+/// CONFIRM by default. The executor has wider context (full code,
+/// reasoning, runtime state) than the Operator gets in 4KB of tail —
+/// its recommendation is a fact-grounded anchor, not a coin flip. The
+/// Operator's job in that situation is to ratify, not to redo the
+/// analysis from a smaller window. Lives outside AOM/mission directives
+/// because the principle holds in dry-run, AOM, and mission-scoped
+/// modes alike.
+const EXECUTOR_RECOMMENDATION_DIRECTIVE: &str = "EXECUTOR-RECOMMENDED PATH — when the executor presents its OWN recommendation BEFORE asking, default to CONFIRMING IT.
+
+Recognize the pattern: the executor lays out a position with reasoning, then ends with a confirmation prompt. Common surface forms (any language, any tool):
+
+- 'Mi recomendación: X. Razones: …  ¿Confirmas?'
+- 'My recommendation: X. Because: …  Confirm?'
+- 'I recommend X — Y. Proceed?' / 'Recommended: X. Continue?'
+- 'My take: X. Sound good?' / 'I'd go with X. OK?'
+- A bulleted analysis of options ending in '<option> wins because …  Should I go with that?'
+
+In all of these the executor has ALREADY done the analysis you'd do yourself — usually with more context (full repo, recent diff, prior turns) than you have in the excerpt. Treat its recommendation as a FACT-GROUNDED proposal, not a question for fresh deliberation.
+
+DEFAULT POSTURE FOR EXECUTOR-RECOMMENDED PATHS = REPLY confirming.
+
+Concrete decoding rule: if the executor said 'Confirmas?' / 'Proceed?' / 'OK?' after presenting a recommendation, REPLY with the language-appropriate affirmative ('si\\n', 'y\\n', 'yes\\n', '1\\n' if its recommendation is option 1 of a numbered list). If the prompt expects a free-text confirmation, a brief 'sí, [recommendation summary]' is fine — keep it under one line.
+
+OVERRIDE the default ONLY when:
+- The recommendation, if confirmed, would trigger a HARD CONSTRAINT below.
+- The recommendation violates ACTIVE MISSION scope (out-of-scope item, file boundary breach, open-question territory) — those rules still win.
+- The recommendation is genuinely uncertain on the executor's own face — it explicitly hedges ('not sure which is better, your call', 'flagging for human review', 'this could go either way and matters long-term').
+- The user has personally weighed in earlier in the excerpt with a contrary preference.
+
+DO NOT escalate just because YOU would have picked differently in isolation. Your local preference is weaker than the executor's contextualized recommendation. Disagreeing with a sound recommendation isn't escalation-worthy — it's second-guessing.
+
+DO NOT escalate because the recommendation is 'opinionated' or 'has tradeoffs'. Most recommendations have tradeoffs — the executor weighed them and picked. That's the value-add you're ratifying.";
 
 const MISSION_DIRECTIVE: &str = "ACTIVE MISSION — the user has set a focused spec for this session.
 
@@ -2180,6 +2353,54 @@ fn now_unix_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Best-effort executor name detection from an in-flight command.
+/// Mirrors the frontend's `detectExecutor` (ui/src/executor.ts) so
+/// historical rows in the operator panel render the same chip the
+/// live tab does. Returns None when the command head doesn't match
+/// any known agent — operator decisions on plain shell commands
+/// (rare but possible during tail-bias) just won't show a chip.
+fn detect_executor(command: &str) -> Option<String> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Skip leading `env VAR=val …`, `time`, `sudo`.
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let t = tokens[i];
+        if t == "env" || t == "time" || t == "sudo" {
+            i += 1;
+            while i < tokens.len() && tokens[i].contains('=') {
+                i += 1;
+            }
+            continue;
+        }
+        break;
+    }
+    let head = tokens.get(i)?;
+    // Strip a path prefix so /usr/local/bin/claude → claude.
+    let base = head.rsplit('/').next().unwrap_or(head);
+    let name = match base {
+        "claude" | "claude-code" => "claude",
+        "opencode" => "opencode",
+        "aider" => "aider",
+        "cursor" | "cursor-agent" => "cursor",
+        "codex" => "codex",
+        "copilot" | "github-copilot-cli" => "copilot",
+        "gh" => {
+            // `gh copilot <subcmd>` — match the subcommand form.
+            if tokens.get(i + 1).map(|s| *s) == Some("copilot") {
+                "copilot"
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    Some(name.to_string())
 }
 
 #[cfg(test)]

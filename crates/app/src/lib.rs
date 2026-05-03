@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use karl_pty::SpawnOptions;
 use karl_session::{Session, SessionId, SessionStreams, SessionUiEvent};
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -516,6 +516,39 @@ async fn get_session_mission_content(
 ) -> Result<Option<String>, String> {
     let id = parse_id(&session_id)?;
     Ok(state.operator.get_mission_content(id).await)
+}
+
+/// Persist a new mission spec body from the viewer modal. Refuses
+/// while AOM is active (the Operator is reading the spec on every
+/// tick — editing it mid-run would surface inconsistent behavior
+/// silently). On a successful save we re-emit `mission-changed` so
+/// every other tab sharing the file refreshes its tooltip / preview.
+#[tauri::command]
+async fn set_session_mission_content(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    session_id: String,
+    content: String,
+    expected_mtime_unix_ms: u64,
+) -> Result<operator::MissionSaveResult, String> {
+    if state.aom.read().await.enabled {
+        return Err("aom_active".to_string());
+    }
+    let id = parse_id(&session_id)?;
+    let result = state
+        .operator
+        .set_mission_content(id, content, expected_mtime_unix_ms)
+        .await?;
+    if let operator::MissionSaveResult::Saved { ref info } = result {
+        let _ = app.emit(
+            "mission-changed",
+            serde_json::json!({
+                "session_id": session_id,
+                "path": info.path,
+            }),
+        );
+    }
+    Ok(result)
 }
 
 /// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
@@ -1337,6 +1370,7 @@ pub fn run() {
             clear_session_mission,
             get_session_mission,
             get_session_mission_content,
+            set_session_mission_content,
             aom_status,
             aom_start,
             aom_stop,

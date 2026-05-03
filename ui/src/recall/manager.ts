@@ -27,6 +27,11 @@ export interface RecallCallbacks {
   /// non-empty) or stops being relevant (input cleared / Enter).
   /// TabManager uses this to flip visibility between Blocks and Recall.
   onShouldShow: (show: boolean) => void;
+
+  /// Fired after a recall item is injected so the host can return
+  /// keyboard focus to the terminal — without this, the user has
+  /// to click the terminal again to type the Enter that submits.
+  focusTerminal?: () => void;
 }
 
 const DEBOUNCE_MS = 100;
@@ -296,6 +301,9 @@ export class RecallManager {
       this.buffer = command;
       this.lastQuery = "";
       this.callbacks.onShouldShow(false);
+      // Return focus to the terminal so the user can immediately
+      // press Enter (or edit) without an extra click on xterm.
+      this.callbacks.focusTerminal?.();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("recall inject failed", err);

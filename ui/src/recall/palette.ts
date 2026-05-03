@@ -30,6 +30,10 @@ export class RecallPalette {
     private readonly getSessionId: SessionIdProvider,
     private readonly getCwd: CwdProvider,
     private readonly inject: InjectFn,
+    /// Called after a successful inject so the host can return
+    /// keyboard focus to the active terminal — otherwise the next
+    /// keystroke (typically Enter to run the command) is lost.
+    private readonly focusTerminal?: () => void,
   ) {}
 
   isOpen(): boolean {
@@ -234,6 +238,9 @@ export class RecallPalette {
       console.error("recall palette inject failed", err);
     }
     this.close();
+    // After the overlay is torn down, hand focus back to xterm so the
+    // user can immediately press Enter to execute the chosen command.
+    this.focusTerminal?.();
   }
 }
 
