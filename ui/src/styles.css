@@ -6362,3 +6362,136 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 .drafts-toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 150; font-size: 13px; }
 .drafts-toast button { background: var(--accent); color: #fff; border: 0; padding: 4px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; }
 .drafts-toast .drafts-toast-close { background: transparent; color: var(--muted); padding: 2px 6px; }
+
+/* ----- Settings → Operators ----- */
+.operators-pane {
+  display: block;
+  width: 100%;
+}
+
+.operators-pane__layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  min-height: 0;
+}
+
+.operators-pane__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  overflow-y: auto;
+}
+
+.operators-pane__row {
+  display: grid;
+  grid-template-columns: 28px 1fr 20px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.operators-pane__row:hover { background: var(--bg-panel); }
+.operators-pane__row.is-selected {
+  background: var(--bg-panel);
+  border-color: var(--accent);
+}
+
+.operators-pane__row-emoji {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.operators-pane__row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operators-pane__row-star { font-size: 12px; }
+
+.operators-pane__new {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+}
+.operators-pane__new:hover { color: inherit; border-color: var(--accent); }
+
+.operators-pane__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.operators-pane__editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.operators-pane__editor-head h4 { margin: 0; }
+.operators-pane__editor-actions { display: flex; gap: 6px; }
+.operators-pane__editor-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: inherit;
+  cursor: pointer;
+}
+.operators-pane__editor-actions button:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+.operators-pane__editor-actions .danger { color: #ef4444; }
+
+.operators-pane__field { display: flex; flex-direction: column; gap: 4px; }
+.operators-pane__field label { font-size: 12px; color: var(--muted); }
+.operators-pane__field input[type="text"],
+.operators-pane__field textarea,
+.operators-pane__field select {
+  background: var(--bg-overlay);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.operators-pane__field textarea { resize: vertical; }
+.operators-pane__row-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+
+.operators-pane__editor-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.operators-pane__editor-foot button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  color: inherit;
+  cursor: pointer;
+}
+.operators-pane__editor-foot .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg, #fff);
+}
