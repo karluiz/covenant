@@ -39,6 +39,7 @@ import {
 } from "../api";
 import { BlockManager } from "../blocks/manager";
 import { RecallManager } from "../recall/manager";
+import { StructureTree } from "../structure/tree";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 
@@ -116,6 +117,10 @@ interface Tab {
   webgl: WebglAddon | null;
   blocks: BlockManager;
   recall: RecallManager;
+  structure: StructureTree;
+  /// Which sidebar view is currently selected manually. Recall still
+  /// overrides this when user is typing (existing behavior).
+  sidebarView: "blocks" | "structure";
   /// Last cwd seen via OSC 7 / cwd_changed; passed to Recall so the
   /// backend can apply its cwd bonus.
   cwd: string | null;
@@ -144,6 +149,12 @@ interface SerializedTab {
   cwd: string | null;
   color: string | null;
   group_id: string | null;
+  /// Spec path of the mission attached to this tab at save time. The
+  /// backend used to auto-restore missions on `cwd_changed` from a
+  /// per-cwd map, but that leaked missions onto unrelated new tabs in
+  /// the same dir. Now restoration is explicit per persisted tab —
+  /// fresh tabs (⌘T) always start blank.
+  mission_path: string | null;
 }
 
 interface SerializedGroup {
@@ -680,6 +691,9 @@ export class TabManager {
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) tabRef.current.cwd = event.cwd;
               recall?.setCwd(event.cwd);
+              if (tabRef.current?.structure.isVisible()) {
+                void tabRef.current.structure.setCwd(event.cwd);
+              }
               this.scheduleSave();
               // Status bar: only push when this tab is the visible one.
               // Background tabs cd'ing don't shift what the user sees.
@@ -721,6 +735,53 @@ export class TabManager {
         },
       },
     );
+
+    // Sidebar nav strip — sits at the top of the sidebar column. Two
+    // entries: Blocks (default) and Structure. Recall stays contextual.
+    const navEl = document.createElement("nav");
+    navEl.className = "sidebar-nav";
+
+    const navBlocks = document.createElement("button");
+    navBlocks.type = "button";
+    navBlocks.className = "sidebar-nav-btn sidebar-nav-active";
+    navBlocks.title = "Blocks";
+    navBlocks.textContent = "Blocks";
+
+    const navStructure = document.createElement("button");
+    navStructure.type = "button";
+    navStructure.className = "sidebar-nav-btn";
+    navStructure.title = "Structure";
+    navStructure.textContent = "Files";
+
+    navEl.appendChild(navBlocks);
+    navEl.appendChild(navStructure);
+    blocksHost.insertBefore(navEl, blocksHost.firstChild);
+
+    const structure = new StructureTree(blocksHost, (path) => {
+      // Editor wiring is added in Task 11. For now, file clicks log.
+      // eslint-disable-next-line no-console
+      console.log("structure file click:", path);
+    });
+
+    const switchSidebar = (view: "blocks" | "structure") => {
+      const t = tabRef.current;
+      if (t) t.sidebarView = view;
+      if (view === "blocks") {
+        navBlocks.classList.add("sidebar-nav-active");
+        navStructure.classList.remove("sidebar-nav-active");
+        structure.hide();
+        blocks!.show();
+      } else {
+        navStructure.classList.add("sidebar-nav-active");
+        navBlocks.classList.remove("sidebar-nav-active");
+        blocks!.hide();
+        structure.show();
+        if (t?.cwd) void structure.setCwd(t.cwd);
+      }
+    };
+
+    navBlocks.addEventListener("click", () => switchSidebar("blocks"));
+    navStructure.addEventListener("click", () => switchSidebar("structure"));
 
     // Refit + resize after the BlockManager has applied its collapsed
     // class — the sidebar width can change the terminal area, so xterm
@@ -785,6 +846,8 @@ export class TabManager {
       webgl,
       blocks,
       recall,
+      structure,
+      sidebarView: "blocks",
       cwd: null,
       disposers: [dataDispose, resizeDispose],
     };
@@ -961,6 +1024,7 @@ export class TabManager {
         cwd: t.cwd,
         color: t.color,
         group_id: t.groupId,
+        mission_path: t.mission?.path ?? null,
       })),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
@@ -972,10 +1036,12 @@ export class TabManager {
   }
 
   /// Recreate tabs + groups from a previously-saved manifest. Spawns
-  /// fresh PTY sessions; `cd <cwd>` is injected into each on its
-  /// first prompt_start. Mission auto-restore via cwd_changed handles
-  /// the rest. Falls back to a single fresh tab if anything goes
-  /// wrong (corrupted file, version mismatch, etc).
+  /// fresh PTY sessions; cwd is set on the shell directly via the
+  /// spawn options (no visible `cd` line). Missions are restored
+  /// EXPLICITLY per persisted tab — the backend no longer auto-
+  /// restores on cwd_changed (that leaked missions onto unrelated new
+  /// tabs in the same dir). Falls back to a single fresh tab if
+  /// anything goes wrong (corrupted file, version mismatch, etc).
   async restoreFromManifest(m: TabManifestV1): Promise<void> {
     if (m.version !== 1 || !Array.isArray(m.tabs) || m.tabs.length === 0) {
       await this.createTab();
@@ -998,6 +1064,21 @@ export class TabManager {
         groupId: t.group_id,
         cwd: t.cwd,
       });
+      const created = this.tabs[this.tabs.length - 1];
+      if (created && t.mission_path) {
+        try {
+          const info = await setSessionMission(created.sessionId, t.mission_path);
+          created.mission = info;
+        } catch (err) {
+          // Spec file may have moved/been deleted since save — restore
+          // the tab anyway, just without a mission.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `mission restore failed for ${t.mission_path}; tab restored without mission`,
+            err,
+          );
+        }
+      }
     }
     // Restore active selection.
     const idx = Math.min(m.active_index ?? 0, this.tabs.length - 1);

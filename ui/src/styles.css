@@ -3173,3 +3173,29 @@ button.status-segment.status-mission:focus-visible {
   margin: 0;
 }
 
+/* 3.3 Structure — sidebar nav strip */
+.sidebar-nav {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.sidebar-nav-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sidebar-nav-btn:hover {
+  color: var(--fg);
+}
+.sidebar-nav-active {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
