@@ -4976,6 +4976,50 @@ button.status-segment.status-aom.status-aom-warn:hover {
     background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
 }
 
+/* PNG export button — same chip style as the preview toggle, with
+   a slightly different accent so the two controls are visually
+   distinct without being loud. */
+.structure-editor-png-btn {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
+    border-radius: 3px;
+    color: color-mix(in srgb, var(--accent, #b794f4) 70%, #fff);
+    padding: 1px 8px;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: var(--ui-font);
+    cursor: pointer;
+    margin-left: 4px;
+}
+.structure-editor-png-btn:hover {
+    background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
+}
+.structure-editor-png-btn:disabled {
+    opacity: 0.5;
+    cursor: progress;
+}
+
+/* Scale dropdown — sits left of the PNG button. Native select to
+   avoid pulling in a custom dropdown widget. */
+.structure-editor-png-scale {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
+    border-radius: 3px;
+    color: color-mix(in srgb, var(--accent, #b794f4) 70%, #fff);
+    padding: 0 4px;
+    height: 18px;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: var(--ui-font);
+    cursor: pointer;
+    margin-left: 4px;
+}
+.structure-editor-png-scale:hover {
+    background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
+}
+
 /* Preview host — sibling of the CM6 host. Each viewer renders its
    own root inside this div. Padding/scroll live here so each Preview
    implementation can stay focused on its content. */
