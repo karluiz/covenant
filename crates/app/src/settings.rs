@@ -47,6 +47,19 @@ pub struct Settings {
     #[serde(default = "default_status_bar_enabled")]
     pub status_bar_enabled: bool,
 
+    /// Layout of the tabbar — horizontal across the top (default) or a
+    /// fixed vertical column on the left, à la Wave Terminal. Frontend
+    /// toggles `body.tabbar-left` from this value.
+    #[serde(default)]
+    pub tabbar_position: TabbarPosition,
+
+    /// Optional CSS font stack for the UI chrome (panels, settings,
+    /// modals, group chip labels). `None` = use the built-in
+    /// system-sans default. The terminal/editor have their own font
+    /// settings; this only controls the rest of the app's typography.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_font_family: Option<String>,
+
     /// Unix-ms when we last imported `~/.zsh_history` into the blocks
     /// table for Recall. `None` means we've never imported and the
     /// next launch will run the one-shot import.
@@ -56,6 +69,14 @@ pub struct Settings {
 
 fn default_status_bar_enabled() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabbarPosition {
+    #[default]
+    Top,
+    Left,
 }
 
 /// AOM configuration. Today only the budget default; Phase C will add
@@ -125,6 +146,8 @@ impl Default for Settings {
             aom: AomConfig::default(),
             notifications: NotificationConfig::default(),
             status_bar_enabled: default_status_bar_enabled(),
+            tabbar_position: TabbarPosition::default(),
+            ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
         }
     }

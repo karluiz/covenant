@@ -45,8 +45,19 @@ export interface AomActions {
   onAfk: () => void;
 }
 
+/// Lightweight active-tab descriptor — just enough for the leading
+/// status-bar chip. The full Tab type lives in the tabs module; we
+/// only consume the few presentation fields here.
+export interface ActiveTabInfo {
+  name: string;
+  color: string | null;
+  groupName: string | null;
+  groupColor: string | null;
+}
+
 export class StatusBar {
   private enabled = true;
+  private currentTab: ActiveTabInfo | null = null;
   private currentCwd: string | null = null;
   private currentMission: MissionInfo | null = null;
   private currentSessionId: SessionId | null = null;
@@ -93,6 +104,26 @@ export class StatusBar {
     } else {
       this.host.innerHTML = "";
     }
+  }
+
+  /// Pushed by TabManager when the active tab changes (or its
+  /// name/color/group changes). Renders a leading chip so the user
+  /// can always see which terminal is focused — useful when the
+  /// vertical sidebar is collapsed and the tab strip isn't visible.
+  setActiveTab(info: ActiveTabInfo | null): void {
+    const a = this.currentTab;
+    const b = info;
+    const same =
+      (a === null && b === null) ||
+      (a !== null &&
+        b !== null &&
+        a.name === b.name &&
+        a.color === b.color &&
+        a.groupName === b.groupName &&
+        a.groupColor === b.groupColor);
+    if (same) return;
+    this.currentTab = info;
+    this.render(this.lastDirCtx);
   }
 
   /// Called by main.ts whenever the active tab changes OR the active
@@ -320,6 +351,9 @@ export class StatusBar {
     if (!this.enabled) return;
     this.host.innerHTML = "";
 
+    if (this.currentTab) {
+      this.host.appendChild(activeTabSegment(this.currentTab));
+    }
     if (ctx.git) {
       this.host.appendChild(
         segment(GIT_BRANCH_SVG, ctx.git.repo_name, ctx.git.branch),
@@ -395,6 +429,46 @@ export class StatusBar {
     if (!this.modal.isOpen()) return;
     this.modal.showContent(mission, content ?? "", sessionId);
   }
+}
+
+/// Leading active-tab chip. Renders the tab name with a small color
+/// dot if the tab has a custom color; if grouped, prefixes the chip
+/// with the group name in the group's color. Read-only — selecting
+/// tabs still happens via the tabbar.
+function activeTabSegment(info: ActiveTabInfo): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "status-segment status-active-tab";
+  el.title = info.groupName
+    ? `Active tab: ${info.groupName} / ${info.name}`
+    : `Active tab: ${info.name}`;
+
+  if (info.color || info.groupColor) {
+    const dot = document.createElement("span");
+    dot.className = "status-tab-dot";
+    dot.style.background = (info.color ?? info.groupColor) as string;
+    el.appendChild(dot);
+  }
+
+  if (info.groupName) {
+    const grp = document.createElement("span");
+    grp.className = "status-tab-group";
+    if (info.groupColor) {
+      grp.style.color = info.groupColor;
+    }
+    grp.textContent = info.groupName;
+    el.appendChild(grp);
+    const sep = document.createElement("span");
+    sep.className = "status-tab-sep";
+    sep.textContent = "›";
+    el.appendChild(sep);
+  }
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = info.name;
+  el.appendChild(text);
+
+  return el;
 }
 
 function segment(iconSvg: string, primary: string, secondary: string | null): HTMLElement {

@@ -15,6 +15,7 @@ import { AomBanner } from "./aom/banner";
 import { playAomEntrySplash, playAomExitSplash } from "./aom/entry-splash";
 import { AomReportPanel } from "./aom/report";
 import { AfkOverlay } from "./aom/afk";
+import { Icons } from "./icons";
 import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -37,6 +38,40 @@ function applyWindowBackground(kind: WindowBackground): void {
   const body = document.body;
   body.classList.remove("bg-solid", "bg-vibrant", "bg-translucent");
   body.classList.add(`bg-${kind}`);
+}
+
+/// Toggle the vertical-tabbar layout. CSS does the heavy lifting via
+/// `body.tabbar-left`; the rest of the app stays layout-agnostic.
+function applyTabbarPosition(pos: "top" | "left" | undefined): void {
+  document.body.classList.toggle("tabbar-left", pos === "left");
+}
+
+/// Override the chrome font stack. Empty / null restores the default
+/// defined in `:root { --ui-font: ... }`. Setting any string replaces
+/// the variable for the whole document — every UI element that uses
+/// `var(--ui-font)` updates instantly via CSS cascade.
+function applyUiFont(stack: string | null | undefined): void {
+  const root = document.documentElement;
+  if (stack && stack.trim() !== "") {
+    root.style.setProperty("--ui-font", stack);
+  } else {
+    root.style.removeProperty("--ui-font");
+  }
+}
+
+const TABBAR_LEFT_COLLAPSED_KEY = "covenant.tabbar-left-collapsed";
+
+/// Toggle the collapsed state of the vertical tabbar. Only meaningful
+/// when `body.tabbar-left` is active; in top mode the fold chevron is
+/// hidden by CSS so the body class is harmless.
+function applyTabbarCollapsed(collapsed: boolean): void {
+  document.body.classList.toggle("tabbar-left-collapsed", collapsed);
+  const btn = document.getElementById("tabbar-fold");
+  if (btn) {
+    const t = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    btn.title = t;
+    btn.setAttribute("aria-label", t);
+  }
 }
 
 function requireEl<T extends HTMLElement>(id: string): T {
@@ -143,13 +178,30 @@ async function boot(): Promise<void> {
   try {
     initialSettings = await invoke<Settings>("get_settings");
     applyWindowBackground(initialSettings.window?.background ?? "vibrant");
+    applyTabbarPosition(initialSettings.tabbar_position ?? "top");
+    applyUiFont(initialSettings.ui_font_family);
   } catch {
     applyWindowBackground("vibrant");
+    applyTabbarPosition("top");
+    applyUiFont(null);
   }
+  applyTabbarCollapsed(localStorage.getItem(TABBAR_LEFT_COLLAPSED_KEY) === "1");
 
   const tabbar = requireEl<HTMLElement>("tabs");
   const workspace = requireEl<HTMLElement>("workspace");
   const newTabBtn = requireEl<HTMLElement>("new-tab");
+  const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
+
+  // Lucide chevrons-left icon — flipped via CSS when the sidebar is
+  // collapsed so a single SVG covers both states.
+  tabbarFoldBtn.innerHTML = Icons.chevronRight({ size: 14 });
+  tabbarFoldBtn.addEventListener("click", () => {
+    const next = !document.body.classList.contains("tabbar-left-collapsed");
+    applyTabbarCollapsed(next);
+    localStorage.setItem(TABBAR_LEFT_COLLAPSED_KEY, next ? "1" : "0");
+    // xterm needs to remeasure cells after the column width animation.
+    setTimeout(() => manager.refitActive(), 320);
+  });
 
   // Render the new-tab button with its keyboard hint visible inline,
   // adapted to the host platform's modifier symbol.
@@ -172,6 +224,7 @@ async function boot(): Promise<void> {
   const statusBar = new StatusBar(requireEl<HTMLElement>("status-bar"));
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
   manager.onActiveContextChange = (cwd) => statusBar.setCwd(cwd);
+  manager.onActiveTabChange = (info) => statusBar.setActiveTab(info);
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
   // Mirror the active tab's Operator state into the status bar — the
@@ -221,7 +274,11 @@ async function boot(): Promise<void> {
   settings.onSaved = (next) => {
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
+    applyTabbarPosition(next.tabbar_position ?? "top");
+    applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
+    // Layout reflowed → xterm cells need re-measuring.
+    manager.refitActive();
   };
 
   // When the settings page closes, the workspace becomes visible again.

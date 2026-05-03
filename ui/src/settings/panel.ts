@@ -63,7 +63,11 @@ interface Settings {
   notifications: NotificationConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
+  tabbar_position: TabbarPosition;
+  ui_font_family: string | null;
 }
+
+type TabbarPosition = "top" | "left";
 
 async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
@@ -142,6 +146,8 @@ export class SettingsPanel {
           suppress_when_focused: true,
         },
         status_bar_enabled: true,
+        tabbar_position: "top",
+        ui_font_family: null,
       };
     }
     this.workspace.hidden = true;
@@ -265,6 +271,41 @@ export class SettingsPanel {
             </span>
             <small class="settings-hint">
               Detection is cwd-driven and runs only when the bar is visible.
+            </small>
+          </label>
+          <fieldset class="settings-field">
+            <span class="settings-label">Tabbar position</span>
+            <label class="settings-radio">
+              <input type="radio" name="tabbar_position" value="top" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Top <span class="settings-badge">default</span></span>
+                <span class="settings-radio-hint">Horizontal tabbar across the top of the window.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tabbar_position" value="left" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Left sidebar</span>
+                <span class="settings-radio-hint">Vertical column on the left — better for long tab names and many tabs (Wave-style).</span>
+              </span>
+            </label>
+          </fieldset>
+          <label class="settings-field">
+            <span class="settings-label">UI font</span>
+            <input
+              type="text"
+              name="ui_font"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder='-apple-system, "SF Pro Text", system-ui, sans-serif'
+            />
+            <small class="settings-hint">
+              CSS font stack for the chrome (settings, modals, panels,
+              labels). Empty = system default. The terminal and editor
+              keep their own font settings (above/below). Try
+              <code>"Inter"</code>, <code>"IBM Plex Sans"</code>, or any
+              installed sans family — always end with
+              <code>sans-serif</code> as a fallback.
             </small>
           </label>
         </section>
@@ -431,6 +472,12 @@ export class SettingsPanel {
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
+    const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
+      'input[name="tabbar_position"]',
+    );
+    const uiFont = form.querySelector<HTMLInputElement>(
+      'input[name="ui_font"]',
+    )!;
     const notifOpEscalate = form.querySelector<HTMLInputElement>(
       'input[name="notif_op_escalate"]',
     )!;
@@ -462,6 +509,11 @@ export class SettingsPanel {
       r.checked = r.value === currentBg;
     });
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
+    const currentTabbarPos = this.current.tabbar_position ?? "top";
+    tabbarPosRadios.forEach((r) => {
+      r.checked = r.value === currentTabbarPos;
+    });
+    uiFont.value = this.current.ui_font_family ?? "";
     const n = this.current.notifications ?? {
       on_operator_escalate: true,
       on_aom_error: true,
@@ -591,6 +643,10 @@ export class SettingsPanel {
           suppress_when_focused: notifSuppressFocused.checked,
         },
         status_bar_enabled: statusBarEnabled.checked,
+        tabbar_position:
+          (Array.from(tabbarPosRadios).find((r) => r.checked)
+            ?.value as TabbarPosition) || "top",
+        ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
       };
       try {
         await setSettings(next);

@@ -1,7 +1,13 @@
 :root {
     color-scheme: dark;
-    font-family:
+    /* Sans stack used across the chrome (settings, modals, panels,
+       group chip labels). Overridable at runtime by the `UI font`
+       Settings field — `main.ts` sets `--ui-font` on the root element
+       to the user's chosen stack. The literal default below stays as
+       the fallback when the setting is empty. */
+    --ui-font:
         -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    font-family: var(--ui-font);
     /* Window itself is transparent — macOS NSVisualEffectView (vibrancy)
      paints behind. Surface tints below honor --surface-alpha. */
     background: transparent;
@@ -143,11 +149,12 @@ body.bg-translucent {
         background 0.12s ease-out,
         color 0.12s ease-out,
         border-color 0.12s ease-out,
-        max-width 0.22s ease,
-        min-width 0.22s ease,
-        padding 0.22s ease,
-        margin 0.22s ease,
-        opacity 0.18s ease;
+        max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        margin 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        border-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.22s ease-out;
 }
 
 /* Folded group member — animated collapse to a zero-width sliver. The
@@ -871,7 +878,7 @@ body.tab-drag-active * {
     border-radius: var(--tab-radius) var(--tab-radius) 0 0;
     color: color-mix(in srgb, var(--group-color, var(--muted)) 80%, #fff 20%);
     font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        var(--ui-font);
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -1307,14 +1314,17 @@ body.tab-drag-active * {
     font-size: 9px;
 }
 
-/* Collapsed state: only the toggle visible, label/count hidden. */
+/* Collapsed state: only the toggle visible, label/count hidden. The
+   Blocks/Files nav strip is also hidden — at 28px it would overflow
+   visibly past the rail (the labels poke into the workspace). */
 .blocks-collapsed .blocks-header {
     padding: 6px 4px;
     justify-content: center;
 }
 
 .blocks-collapsed .blocks-header-label,
-.blocks-collapsed .blocks-count {
+.blocks-collapsed .blocks-count,
+.blocks-collapsed .sidebar-nav {
     display: none;
 }
 
@@ -1397,7 +1407,7 @@ body.tab-drag-active * {
   color: #d6d8db;
   font-size: 14px;
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    var(--ui-font);
 }
 
 .global-search-status {
@@ -1429,7 +1439,7 @@ body.tab-drag-active * {
   color: var(--muted);
   font-style: italic;
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    var(--ui-font);
 }
 
 .global-search-file {
@@ -1439,7 +1449,7 @@ body.tab-drag-active * {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    var(--ui-font);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2865,7 +2875,7 @@ body.tab-drag-active * {
     outline: none;
     color: #fff;
     font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        var(--ui-font);
     font-size: 14px;
 }
 
@@ -2891,7 +2901,7 @@ body.tab-drag-active * {
     /* whitespace handled by .agent-text children (pre-wrap) so the
        container itself doesn't leak gaps between segment blocks. */
     font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        var(--ui-font);
     font-size: 13px;
     line-height: 1.55;
     color: #e6e8ea;
@@ -3930,6 +3940,41 @@ body.tab-drag-active * {
     color: var(--muted);
 }
 
+/* Active-tab chip — leading segment so the user can always see which
+   terminal is focused, especially when the vertical sidebar is
+   collapsed or the top tabbar wraps. */
+.status-segment.status-active-tab .status-text {
+    color: color-mix(in srgb, var(--fg, #d6d8db) 92%, transparent);
+    font-weight: 500;
+    max-width: 200px;
+}
+
+.status-segment.status-active-tab .status-tab-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.status-segment.status-active-tab .status-tab-group {
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-segment.status-active-tab .status-tab-sep {
+    color: var(--muted);
+    opacity: 0.55;
+    font-size: 11px;
+}
+
 /* Mission chip — interactive variant of .status-segment. Reset button
    defaults so it sits flush with the read-only segments. */
 button.status-segment.status-mission {
@@ -4153,7 +4198,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     0 2px 6px rgba(0, 0, 0, 0.3);
   padding: 12px;
   font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    var(--ui-font);
   font-size: 12px;
   color: var(--fg, #d6d8db);
   z-index: 1300;
@@ -4591,7 +4636,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     font-size: 11px;
     letter-spacing: 0.02em;
     font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        var(--ui-font);
     transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 .sidebar-nav-btn svg { display: block; }
@@ -4880,7 +4925,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     border: 1px solid var(--border);
     color: var(--muted);
     font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        var(--ui-font);
 }
 .structure-editor-status {
     font-size: 12px;
@@ -4969,7 +5014,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-family:
-        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        var(--ui-font);
     cursor: pointer;
 }
 .structure-editor-preview-btn:hover {
@@ -5698,4 +5743,270 @@ button.status-segment.status-aom.status-aom-warn:hover {
     color: var(--muted);
     font-size: 11.5px;
     margin-top: 1px;
+}
+
+/* ─── Vertical tabbar ──────────────────────────────────────────────
+   When `body.tabbar-left` is set (Settings → Appearance → Tabbar
+   position = Left), reflow #layout into a 2-column grid: a fixed
+   sidebar on the left holding the tabbar, and the workspace + status
+   bar on the right. Pills become full-width rows; group chips sit on
+   their own row with members indented below. The fold/unfold
+   animation switches axis from width to height. */
+
+body.tabbar-left {
+    --tabbar-w: 200px;
+}
+
+body.tabbar-left #layout {
+    grid-template-columns: var(--tabbar-w) 1fr;
+    grid-template-rows: 1fr auto;
+}
+
+body.tabbar-left #tabbar-host {
+    grid-column: 1;
+    grid-row: 1;
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    box-shadow: 1px 0 0 rgba(0, 0, 0, 0.5);
+    padding: 8px 8px 8px;
+    gap: 6px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+body.tabbar-left #workspace,
+body.tabbar-left #settings-page,
+body.tabbar-left #docs-page {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+body.tabbar-left #status-bar {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+}
+
+body.tabbar-left #tabs {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding-top: 0;
+}
+
+/* Pills become left-rounded rectangles spanning the sidebar width.
+   Drop the negative margins / fused-border tricks the horizontal
+   layout uses — vertical stacking doesn't need them. */
+body.tabbar-left .tab-btn {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--tab-border-rest);
+    border-bottom: 1px solid var(--tab-border-rest);
+    /* Switch the fold animation axis from width → height. */
+    transition:
+        background 0.12s ease-out,
+        color 0.12s ease-out,
+        border-color 0.12s ease-out,
+        max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        padding-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        margin-bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        border-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.22s ease-out;
+}
+
+body.tabbar-left .tab-btn.tab-pill-folded {
+    max-height: 0;
+    min-height: 0;
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    /* Reset the horizontal-mode fold props so they don't fight. */
+    max-width: none;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-left-width: 1px;
+    border-right-width: 1px;
+}
+
+/* Top accent stripe → left accent stripe. */
+body.tabbar-left .tab-btn.active::before {
+    top: 4px;
+    bottom: 4px;
+    left: -1px;
+    right: auto;
+    width: 2px;
+    height: auto;
+    border-radius: 2px;
+}
+
+/* Group member indent so the hierarchy reads at a glance. */
+body.tabbar-left .tab-grouped {
+    padding-left: 22px;
+}
+
+body.tabbar-left .tab-grouped::after {
+    /* The group-color stripe lives on the chip in vertical mode;
+       drop the per-member top accent — it would overlap awkwardly. */
+    display: none;
+}
+
+body.tabbar-left .tab-grouped-first,
+body.tabbar-left .tab-grouped + .tab-grouped {
+    margin-left: 0;
+    border-top-left-radius: 6px;
+    border-left-color: var(--tab-border-rest);
+}
+
+/* Group chip — full-width row, left-stripe colored. */
+body.tabbar-left .group-chip {
+    width: 100%;
+    height: 28px;
+    border-radius: 6px;
+    border-bottom: 1px solid;
+    border-color: color-mix(
+        in srgb,
+        var(--group-color, var(--border)) 22%,
+        var(--tab-border-hover)
+    );
+    padding: 0 10px 0 6px;
+    margin-top: 4px;
+}
+
+body.tabbar-left .group-chip-has-members {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom-color: transparent;
+    margin-bottom: 0;
+}
+
+body.tabbar-left .group-chip::before {
+    /* Move the colored stripe from top to left edge. */
+    top: 4px;
+    bottom: 4px;
+    left: -1px;
+    right: auto;
+    width: 2px;
+    height: auto;
+    border-radius: 2px;
+}
+
+/* + New tab button as a full-width row at the top of the sidebar. */
+body.tabbar-left #new-tab {
+    width: 100%;
+    justify-content: center;
+    height: 28px;
+    margin-bottom: 4px;
+    border-radius: 6px;
+}
+
+/* ─── Sidebar fold (left tabbar only) ─────────────────────────────
+   The fold chevron lives inside #tabbar-host and is hidden in top
+   mode. In left mode it sits as a small affordance at the top of
+   the column. Clicking toggles `body.tabbar-left-collapsed`, which
+   shrinks the column to a thin rail and fades out everything except
+   the chevron itself (rotated 180° to point left = "expand"). */
+
+#tabbar-fold,
+#tabbar-brand-row {
+    display: none;
+}
+
+body.tabbar-left #tabbar-brand-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 2px 4px 6px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid var(--border);
+}
+
+body.tabbar-left #tabbar-brand {
+    font-family: var(--ui-font);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: color-mix(in srgb, var(--accent, #d6d8db) 70%, #fff 30%);
+    user-select: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.tabbar-left #tabbar-fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0.55;
+    margin-bottom: 4px;
+    transition:
+        opacity 0.12s ease-out,
+        background 0.12s ease-out;
+}
+
+body.tabbar-left #tabbar-fold:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+body.tabbar-left #tabbar-fold svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.tabbar-left.tabbar-left-collapsed #tabbar-fold svg {
+    transform: rotate(180deg);
+}
+
+body.tabbar-left #layout {
+    transition: grid-template-columns 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.tabbar-left.tabbar-left-collapsed {
+    --tabbar-w: 30px;
+}
+
+body.tabbar-left.tabbar-left-collapsed #tabbar-host {
+    padding: 8px 4px;
+    overflow: hidden;
+}
+
+body.tabbar-left.tabbar-left-collapsed #tabbar-brand-row {
+    justify-content: center;
+    border-bottom-color: transparent;
+    padding: 2px 0 6px;
+}
+
+body.tabbar-left.tabbar-left-collapsed #tabbar-brand {
+    display: none;
+}
+
+body.tabbar-left.tabbar-left-collapsed #tabs,
+body.tabbar-left.tabbar-left-collapsed #new-tab {
+    opacity: 0;
+    pointer-events: none;
+    visibility: hidden;
+    transition:
+        opacity 0.18s ease-out,
+        visibility 0s linear 0.18s;
 }

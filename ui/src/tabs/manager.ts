@@ -238,6 +238,11 @@ export class TabManager {
   private readonly menu: ContextMenu;
   private renaming: RenameTarget = null;
   private dragging: DragSource = null;
+  /// groupId → last-rendered collapsed state. Used to detect a fold/
+  /// unfold transition between renders so we can stage the "from"
+  /// state on the freshly-built pill and flip to the "to" state on
+  /// the next frame, letting CSS animate.
+  private lastCollapsed: Map<string, boolean> = new Map();
   /// Pending debounce handle for `scheduleSave`. Coalesces a burst of
   /// state changes (drag reorder, group manipulations, …) into one
   /// disk write 200ms later.
@@ -275,6 +280,19 @@ export class TabManager {
         state: { enabled: boolean; live: boolean } | null,
         sessionId: SessionId | null,
       ) => void)
+    | null = null;
+
+  /// Fires whenever the *active* tab's identity (name, color, or
+  /// group membership/color) changes — including activation. Lets the
+  /// status bar render a leading chip so the user always knows which
+  /// terminal is focused, even when the tabbar is hidden / collapsed.
+  public onActiveTabChange:
+    | ((info: {
+        name: string;
+        color: string | null;
+        groupName: string | null;
+        groupColor: string | null;
+      } | null) => void)
     | null = null;
 
   constructor(
@@ -558,6 +576,24 @@ export class TabManager {
     // tab activation.
     this.emitActiveMission();
     this.emitActiveOperator();
+  }
+
+  /// Push the active tab's identity (name + group + colors) to the
+  /// status bar. Safe to call any time the tab strip changes — does
+  /// nothing if no listener is attached.
+  private emitActiveTab(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) {
+      this.onActiveTabChange?.(null);
+      return;
+    }
+    const group = tab.groupId ? this.groups.get(tab.groupId) ?? null : null;
+    this.onActiveTabChange?.({
+      name: tabDisplayName(tab),
+      color: tab.color,
+      groupName: group?.name ?? null,
+      groupColor: group?.color ?? null,
+    });
   }
 
   /// Push the active tab's mission to whoever is listening (status bar).
@@ -1505,6 +1541,7 @@ export class TabManager {
     if (this.tabs.length === 0) {
       this.activeId = null;
       this.renderTabbar();
+      this.emitActiveTab();
       this.scheduleSave();
       this.onAllTabsClosed();
       return;
@@ -1536,6 +1573,7 @@ export class TabManager {
     this.onActiveContextChange?.(tab.cwd);
     this.emitActiveMission();
     this.emitActiveOperator();
+    this.emitActiveTab();
 
     requestAnimationFrame(() => {
       try {
@@ -1566,6 +1604,7 @@ export class TabManager {
     if (!tab) return;
     tab.color = color;
     this.renderTabbar();
+    if (id === this.activeId) this.emitActiveTab();
     this.scheduleSave();
   }
 
@@ -1574,6 +1613,8 @@ export class TabManager {
     if (!g) return;
     g.color = color;
     this.renderTabbar();
+    const active = this.tabs.find((t) => t.id === this.activeId);
+    if (active?.groupId === groupId) this.emitActiveTab();
     this.scheduleSave();
   }
 
@@ -1595,6 +1636,7 @@ export class TabManager {
     this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
     this.renaming = null;
     this.renderTabbar();
+    if (id === this.activeId) this.emitActiveTab();
     this.scheduleSave();
   }
 
@@ -1605,6 +1647,8 @@ export class TabManager {
     g.name = trimmed.length > 0 ? trimmed : `group ${this.nextGroupSeq - 1}`;
     this.renaming = null;
     this.renderTabbar();
+    const active = this.tabs.find((t) => t.id === this.activeId);
+    if (active?.groupId === id) this.emitActiveTab();
     this.scheduleSave();
   }
 
@@ -1639,7 +1683,56 @@ export class TabManager {
     const g = this.groups.get(groupId);
     if (!g) return;
     g.collapsed = !g.collapsed;
-    this.renderTabbar();
+    // CRITICAL: do NOT re-render the tabbar here. A full re-render
+    // wipes innerHTML, killing any in-flight CSS transition and
+    // causing the visible flicker the user reported. We mutate the
+    // existing DOM in place — the only state that changes is the
+    // chip's collapsed flag and each member pill's folded class.
+    const memberCount = this.memberIndices(groupId).length;
+    const chip = this.tabbarHost.querySelector<HTMLElement>(
+      `.group-chip[data-group-id="${groupId}"]`,
+    );
+    if (chip) {
+      chip.classList.toggle("group-chip-collapsed", g.collapsed);
+      chip.classList.toggle(
+        "group-chip-has-members",
+        !g.collapsed && memberCount > 0,
+      );
+      const chev = chip.querySelector<HTMLElement>(".group-chip-chev");
+      if (chev) {
+        const title = g.collapsed ? "Expand group" : "Collapse group";
+        chev.title = title;
+        chev.setAttribute("aria-label", title);
+      }
+    }
+    for (const idx of this.memberIndices(groupId)) {
+      const tab = this.tabs[idx];
+      const pill = this.tabbarHost.querySelector<HTMLElement>(
+        `.tab-btn[data-tab-id="${tab.id}"]`,
+      );
+      if (!pill) continue;
+      pill.classList.toggle("tab-pill-folded", g.collapsed);
+      // The first member's left-corner radius depends on whether the
+      // chip below shows it as fused (only relevant in the horizontal
+      // top-tabbar mode; harmless in vertical mode where the rule is
+      // overridden by `body.tabbar-left .tab-grouped-first`).
+      if (g.collapsed) pill.classList.remove("tab-grouped-first");
+    }
+    if (!g.collapsed) {
+      // On unfold, re-tag the first visible member so the chip+pill
+      // border fusion in horizontal mode is restored.
+      const firstIdx = this.memberIndices(groupId)[0];
+      if (firstIdx !== undefined) {
+        const firstTab = this.tabs[firstIdx];
+        const firstPill = this.tabbarHost.querySelector<HTMLElement>(
+          `.tab-btn[data-tab-id="${firstTab.id}"]`,
+        );
+        firstPill?.classList.add("tab-grouped-first");
+      }
+    }
+    // Sync snapshot so the next full renderTabbar() doesn't think a
+    // transition is pending.
+    this.lastCollapsed.set(groupId, g.collapsed);
     this.scheduleSave();
   }
 
@@ -1786,6 +1879,10 @@ export class TabManager {
     this.tabbarHost.innerHTML = "";
     let prevGroupId: string | null | undefined = undefined;
     let pendingFirstGroupId: string | null = null;
+    /// Pills whose group toggled fold/unfold this render. We paint
+    /// them with the *previous* state, then flip to the new state on
+    /// the next animation frame so the CSS transition has a "from".
+    const transitions: Array<{ el: HTMLElement; collapsing: boolean }> = [];
     for (const tab of this.tabs) {
       const isNewGroupRun = tab.groupId !== prevGroupId && tab.groupId !== null;
 
@@ -1806,8 +1903,17 @@ export class TabManager {
 
       const group = tab.groupId ? this.groups.get(tab.groupId) : null;
       const folded = group?.collapsed ?? false;
+      const wasCollapsed = group ? this.lastCollapsed.get(group.id) : undefined;
+      const transitioning = group != null && wasCollapsed !== undefined && wasCollapsed !== folded;
       const pillEl = this.renderTabPill(tab);
-      if (folded) pillEl.classList.add("tab-pill-folded");
+      // Paint with the *previous* fold state when transitioning, so
+      // CSS has a starting frame to animate from. We flip to the new
+      // state on the next rAF below.
+      const initiallyFolded = transitioning ? wasCollapsed! : folded;
+      if (initiallyFolded) pillEl.classList.add("tab-pill-folded");
+      if (transitioning) {
+        transitions.push({ el: pillEl, collapsing: folded });
+      }
       if (
         !folded &&
         pendingFirstGroupId !== null &&
@@ -1818,6 +1924,28 @@ export class TabManager {
       }
       this.tabbarHost.appendChild(pillEl);
       prevGroupId = tab.groupId;
+    }
+
+    // Sync the snapshot now that we've captured the prev state above.
+    this.lastCollapsed.clear();
+    for (const g of this.groups.values()) {
+      this.lastCollapsed.set(g.id, g.collapsed);
+    }
+
+    if (transitions.length > 0) {
+      // Force layout/style flush so the "from" state is committed
+      // before we flip the class. A single rAF is not enough — the
+      // browser will coalesce the class addition with the original
+      // paint and skip the transition. Reading offsetWidth synchronously
+      // forces a reflow with the initial styles applied.
+      void this.tabbarHost.offsetWidth;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          for (const t of transitions) {
+            t.el.classList.toggle("tab-pill-folded", t.collapsing);
+          }
+        });
+      });
     }
   }
 

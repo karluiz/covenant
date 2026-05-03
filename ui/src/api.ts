@@ -402,7 +402,16 @@ export interface Settings {
   aom: AomConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
+  /// Tabbar layout: "top" (default, horizontal across the top) or
+  /// "left" (fixed vertical sidebar à la Wave Terminal).
+  tabbar_position: TabbarPosition;
+  /// CSS font stack for UI chrome (panels, settings, modals, group
+  /// labels). `null` = built-in system sans default. Terminal and
+  /// editor fonts are configured separately.
+  ui_font_family: string | null;
 }
+
+export type TabbarPosition = "top" | "left";
 
 /// 3.7 — directory-context probe for the status bar. Both segments are
 /// optional; null means "not applicable / not detected" and the bar
