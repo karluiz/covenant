@@ -85,7 +85,8 @@ body.bg-translucent {
    stacking when the row layout otherwise would auto-flow. */
 #workspace,
 #settings-page,
-#docs-page {
+#docs-page,
+#drafts-page {
     grid-row: 2 / 3;
     grid-column: 1;
     min-height: 0;
@@ -6212,12 +6213,21 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
         visibility 0s linear 0.18s;
 }
 /* ---- Drafts page ---- */
-.drafts-page {
+#drafts-page {
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: var(--bg);
   color: var(--fg);
   overflow: auto;
+  min-height: 0;
+  animation: settings-fade 0.12s ease-out;
+}
+#drafts-page[hidden] {
+  display: none;
+}
+.drafts-page { /* legacy class kept on host for any inherited rules */
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 .drafts-header {
@@ -6290,6 +6300,28 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   resize: vertical;
 }
 .wiz-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* CodeMirror 6 editor wrapper for wizard sections */
+.wiz-editor {
+  width: 100%;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: border-color 0.12s ease-out;
+}
+.wiz-editor:focus-within { border-color: var(--accent); }
+.wiz-editor .cm-editor { min-height: 120px; max-height: 360px; background: transparent; }
+.wiz-editor .cm-editor.cm-focused { outline: none; }
+.wiz-editor .cm-scroller {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 4px;
+}
+.wiz-editor .cm-content { caret-color: var(--accent); color: var(--fg); }
+.wiz-editor .cm-line { padding: 0 8px; }
+.wiz-editor .cm-gutters { background: transparent; border-right: 0; color: var(--muted); }
 .wiz-segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .wiz-segmented button {
   background: transparent; border: 0; color: var(--muted); padding: 6px 14px;
