@@ -42,6 +42,7 @@ export class AfkOverlay {
   private poll: number | null = null;
   private status: AomStatus | null = null;
   private unlistenDecision: UnlistenFn | null = null;
+  private autoScroll = true;
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -64,8 +65,11 @@ export class AfkOverlay {
           <span class="afk-stat afk-stat-tabs">—</span>
         </div>
       </header>
-      <main class="afk-feed" tabindex="-1">
-        <div class="afk-feed-empty">No decisions yet.</div>
+      <main class="afk-feed-wrap">
+        <div class="afk-feed" tabindex="-1">
+          <div class="afk-feed-empty">No decisions yet.</div>
+        </div>
+        <button type="button" class="afk-live-pill" hidden>Back to live</button>
       </main>
       <footer class="afk-footer">
         <button type="button" class="afk-wakeup">Wake up</button>
@@ -77,6 +81,20 @@ export class AfkOverlay {
     root
       .querySelector<HTMLButtonElement>(".afk-wakeup")!
       .addEventListener("click", () => this.close());
+
+    const feed = root.querySelector<HTMLElement>(".afk-feed")!;
+    const pill = root.querySelector<HTMLButtonElement>(".afk-live-pill")!;
+    feed.addEventListener("scroll", () => {
+      const atBottom =
+        feed.scrollHeight - feed.scrollTop - feed.clientHeight < 32;
+      this.autoScroll = atBottom;
+      pill.hidden = atBottom;
+    });
+    pill.addEventListener("click", () => {
+      this.autoScroll = true;
+      feed.scrollTop = feed.scrollHeight;
+      pill.hidden = true;
+    });
 
     this.poll = window.setInterval(() => void this.refreshHeader(), 5_000);
     void this.bootstrap();
@@ -146,6 +164,12 @@ export class AfkOverlay {
       this.close();
     });
     feed.appendChild(card);
+    if (this.autoScroll) {
+      feed.scrollTop = feed.scrollHeight;
+    } else {
+      const pill = this.root.querySelector<HTMLButtonElement>(".afk-live-pill");
+      if (pill) pill.hidden = false;
+    }
   }
 
   /// Sequenced startup: header → listener attach → seed history. Each
@@ -193,6 +217,10 @@ export class AfkOverlay {
     }
     for (const r of scoped) {
       feed.appendChild(renderSeededCard(r));
+    }
+    if (this.autoScroll && this.root) {
+      const feedEl = this.root.querySelector<HTMLElement>(".afk-feed");
+      if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
     }
   }
 }
