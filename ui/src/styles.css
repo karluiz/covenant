@@ -1355,6 +1355,12 @@ body.tab-drag-active * {
   font-size: 11px;
 }
 
+/* AOM-active variant: tint the subtitle so the user can spot at a
+   glance that decisions are being typed, not merely proposed. */
+.operator-subtitle.operator-subtitle-live {
+  color: color-mix(in srgb, var(--accent, #b794f4) 80%, var(--muted));
+}
+
 .operator-close {
   background: transparent;
   border: none;

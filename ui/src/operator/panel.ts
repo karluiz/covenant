@@ -1,20 +1,22 @@
 // ⌘O — Operator decisions panel.
 //
-// Lists recent decisions the Operator has proposed. M-OP2 is dry-run:
-// every decision is persisted with executed=false so the user can review
-// what the Operator WOULD do before M-OP3 lets it actually act.
+// Lists recent decisions the Operator has proposed. The subtitle adapts
+// to the current mode: "AOM live" when AOM is active, "Dry-run" otherwise.
 //
 // Auto-refreshes when the backend emits "operator-decision" via Tauri.
+// Also re-checks AOM status on each refresh so the subtitle stays in
+// sync without needing a separate event subscription.
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { listOperatorDecisions, type OperatorDecisionRow } from "../api";
+import { aomStatus, listOperatorDecisions, type OperatorDecisionRow } from "../api";
 
 const LIMIT = 80;
 
 export class OperatorPanel {
   private modal: HTMLElement | null = null;
   private listEl: HTMLElement | null = null;
+  private subtitleEl: HTMLElement | null = null;
   private unlisten: UnlistenFn | null = null;
 
   constructor(private readonly mountHost: HTMLElement) {}
@@ -34,11 +36,13 @@ export class OperatorPanel {
   async open(): Promise<void> {
     if (this.isOpen()) return;
     this.render();
-    await this.refresh();
+    await Promise.all([this.refresh(), this.refreshSubtitle()]);
 
-    // Auto-refresh on new decisions while the panel is open.
+    // Auto-refresh on new decisions while the panel is open. Also
+    // bounce the subtitle in case AOM toggled between events.
     this.unlisten = await listen("operator-decision", () => {
       void this.refresh();
+      void this.refreshSubtitle();
     });
   }
 
@@ -51,6 +55,7 @@ export class OperatorPanel {
       this.modal.remove();
       this.modal = null;
       this.listEl = null;
+      this.subtitleEl = null;
     }
   }
 
@@ -69,7 +74,7 @@ export class OperatorPanel {
       <header class="operator-header">
         <div>
           <h2>Operator decisions</h2>
-          <small>Dry-run (M-OP2) — proposals only, nothing typed yet.</small>
+          <small class="operator-subtitle">checking mode…</small>
         </div>
         <button type="button" class="operator-close" aria-label="Close">×</button>
       </header>
@@ -83,6 +88,30 @@ export class OperatorPanel {
     this.mountHost.appendChild(overlay);
     this.modal = overlay;
     this.listEl = card.querySelector<HTMLElement>(".operator-list");
+    this.subtitleEl = card.querySelector<HTMLElement>(".operator-subtitle");
+  }
+
+  /// Re-fetch AOM state and update the subtitle so it reflects whether
+  /// decisions are being typed (AOM) or merely proposed (dry-run).
+  /// Cheap call — we run it on every refresh so the panel never gets
+  /// stuck showing the wrong mode after AOM toggles.
+  private async refreshSubtitle(): Promise<void> {
+    if (!this.subtitleEl) return;
+    try {
+      const status = await aomStatus();
+      if (status.enabled) {
+        this.subtitleEl.textContent =
+          "AOM live — replies auto-submit on every Operator-included tab.";
+        this.subtitleEl.classList.add("operator-subtitle-live");
+      } else {
+        this.subtitleEl.textContent =
+          "Dry-run — proposals only. Enable Operator + Live (or AOM) on a tab to actually type.";
+        this.subtitleEl.classList.remove("operator-subtitle-live");
+      }
+    } catch {
+      // Don't blow up the panel for a missing aomStatus — leave whatever
+      // subtitle was last shown.
+    }
   }
 
   private async refresh(): Promise<void> {

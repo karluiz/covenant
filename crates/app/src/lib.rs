@@ -303,6 +303,15 @@ async fn spawn_session(
 
     // Hook the operator watcher BEFORE inserting into the session map
     // so the very first BlockSubmitted is visible.
+    //
+    // AOM-active edge case: when the user opens a NEW tab while AOM is
+    // already running, the new tab is for fresh manual work — not for
+    // AOM to start typing into. Default `aom_excluded = true` so the
+    // tab joins AOM only if the user explicitly toggles it via the
+    // context menu. Tabs spawned BEFORE AOM started keep their
+    // included-by-default posture (they were swept by `aom_start` →
+    // `enable_all_for_aom` and `clear_all_aom_excluded`).
+    let aom_active_now = state.aom.read().await.enabled;
     state
         .operator
         .attach(
@@ -310,6 +319,7 @@ async fn spawn_session(
             op_state.clone(),
             world.clone(),
             state.settings.lock().await.operator.enabled_default,
+            aom_active_now,
         )
         .await;
 

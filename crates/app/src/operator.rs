@@ -89,24 +89,38 @@ const DECISION_SCAN_WINDOW: usize = 800;
 /// poison the read.
 const MODEL_EXCERPT_CHARS: usize = 4000;
 
-/// Loop detector — when the last `LOOP_THRESHOLD` consecutive decisions
-/// hash to the same value (same action, same normalized rationale,
-/// same screen signature), the operator is stuck in a feedback loop:
-///   - Repeat-REPLY: "spin up… spin up… spin up…" echo cycles
-///   - Stuck-WAIT: "still processing" 5x in a row when nothing changed
-///   - Stuck-ESCALATE: same notification raised repeatedly
-/// The next decision is forcibly converted to a special escalation
-/// and the tab is parked in cooldown for `LOOP_COOLDOWN`. This caps
-/// the worst-case cost of a misfiring loop at LOOP_THRESHOLD model
-/// calls + one escalate, then silence until the user intervenes.
+/// Loop detector — covers two distinct failure modes:
+///
+/// **General loop** (WAIT/ESCALATE): when the last `LOOP_THRESHOLD`
+/// consecutive decisions hash to the same value (action + rationale +
+/// screen signature), the operator is observing the same state and
+/// drawing the same conclusion. Common case: "still processing" 3× in
+/// a row when nothing's changed.
+///
+/// **Repeat-REPLY loop** (the worse one): the executor isn't accepting
+/// our REPLY (typed but not submitted, or submitted but ignored), so
+/// the model sees roughly the same state next tick and tries again
+/// with the SAME text. Each iteration accumulates an extra typed line
+/// in the executor's input box, which makes the screen signature
+/// DIFFER each time → the general-loop hash misses it. We catch this
+/// with a separate, stricter check: 2 consecutive REPLY actions whose
+/// normalized text matches → loop. Threshold is 2 (not 3) because
+/// "model wrote literally the same answer twice" is a much stronger
+/// signal than "model justified WAIT the same way twice".
+///
+/// Both detection paths force ESCALATE on hit and park the tab in
+/// `LOOP_COOLDOWN`. Cap the worst case to ~2-3 model calls + 1 escalate.
 const LOOP_WINDOW: usize = 3;
 const LOOP_THRESHOLD: usize = 3;
+const REPLY_REPEAT_THRESHOLD: usize = 2;
 const LOOP_COOLDOWN: Duration = Duration::from_secs(120);
-/// Tail-signature granularity for loop hashing. Coarser than the model
-/// excerpt — we want "same screen state" detection, not byte equality.
-/// 256 chars ≈ last ~3 visible rows; if those are bit-identical between
-/// decisions the executor hasn't moved.
-const LOOP_TAIL_SIG_CHARS: usize = 256;
+/// Tail-signature granularity for the GENERAL loop hash. Smaller than
+/// before (was 256) because the bigger window made us blind to the
+/// repeat-REPLY case — accumulated input lines in the executor's
+/// textbox shifted the signature each round. 80 chars ≈ last visible
+/// row; tight enough to focus on the prompt area, loose enough that
+/// cursor blink doesn't alone shift it.
+const LOOP_TAIL_SIG_CHARS: usize = 80;
 
 const HARD_CONSTRAINTS: &str = "\
 HARD CONSTRAINTS — these override every line of the persona, including \
@@ -306,6 +320,13 @@ struct Attached {
     /// This is the safety net for the "Operator stuck in WAIT/REPLY
     /// repeating itself while burning tokens" failure mode.
     recent_decision_hashes: VecDeque<u64>,
+    /// Companion to `recent_decision_hashes` for the repeat-REPLY case
+    /// specifically. Hashes ONLY the normalized REPLY text — independent
+    /// of screen state — so a model that keeps typing the same answer
+    /// gets caught even when accumulated input lines shift the screen
+    /// signature. Cleared whenever a non-REPLY action arrives or the
+    /// reply text changes.
+    recent_reply_hashes: VecDeque<u64>,
     /// When set, `run_tick` skips this tab entirely until `now ≥ this`.
     /// Set after a loop is detected — gives the user time to intervene
     /// without paying for more identical decisions.
@@ -368,13 +389,14 @@ impl OperatorWatcher {
         state: Arc<StdMutex<OperatorState>>,
         world: Arc<AsyncMutex<SessionWorldModel>>,
         enabled: bool,
+        aom_excluded: bool,
     ) {
         self.inner.lock().await.sessions.insert(
             session_id,
             Attached {
                 enabled,
                 live: false,
-                aom_excluded: false,
+                aom_excluded,
                 enabled_by_aom: false,
                 mission: None,
                 aom_startup: AomStartupPending::default(),
@@ -385,6 +407,7 @@ impl OperatorWatcher {
                 world,
                 decisions_in_window: VecDeque::new(),
                 recent_decision_hashes: VecDeque::with_capacity(LOOP_WINDOW),
+                recent_reply_hashes: VecDeque::with_capacity(REPLY_REPEAT_THRESHOLD),
                 loop_cooldown_until: None,
             },
         );
@@ -408,10 +431,11 @@ impl OperatorWatcher {
                 att.live = false;
             }
             // The user toggling Operator is a fresh start — wipe the
-            // loop detector ring + cooldown so a previous stuck state
+            // loop detector rings + cooldown so a previous stuck state
             // doesn't carry over and prematurely re-trip on the next
             // few decisions.
             att.recent_decision_hashes.clear();
+            att.recent_reply_hashes.clear();
             att.loop_cooldown_until = None;
         }
     }
@@ -538,55 +562,23 @@ impl OperatorWatcher {
     /// we have a persisted mission for that directory. If yes AND the
     /// session has no current mission, restore it silently. Emits
     /// `mission-changed` so the UI badge appears.
+    ///
+    /// IMPORTANT: this is a no-op for fresh tabs by design. Auto-
+    /// restoring a mission whenever a tab `cd`s into a known directory
+    /// caused a strong UX regression: opening a new tab in a directory
+    /// where you'd previously set a mission would silently inherit
+    /// that mission, even though the user opened the new tab to do
+    /// unrelated work. The persistence file is still maintained — the
+    /// frontend reads it explicitly on `restoreFromManifest` (where
+    /// auto-restore IS what the user wants) and calls `set_mission`
+    /// per restored tab. Fresh tabs stay blank.
     pub async fn notify_cwd_changed(
         &self,
-        session_id: SessionId,
-        cwd: &str,
-        app: &AppHandle,
+        _session_id: SessionId,
+        _cwd: &str,
+        _app: &AppHandle,
     ) {
-        // Bail early when this session already has a mission — never
-        // overwrite the user's explicit choice.
-        {
-            let inner = self.inner.lock().await;
-            let Some(att) = inner.sessions.get(&session_id) else {
-                return;
-            };
-            if att.mission.is_some() {
-                return;
-            }
-        }
-        let Some(spec_path) = mission_persistence::lookup(&self.mission_store, cwd)
-        else {
-            return;
-        };
-        let doc = match load_mission_doc(&spec_path).await {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    path = %spec_path.display(),
-                    "auto-restore mission load failed"
-                );
-                return;
-            }
-        };
-        let path_str = doc.path.display().to_string();
-        if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
-            att.mission = Some(doc);
-        }
-        tracing::info!(
-            session = %session_id,
-            cwd,
-            path = %path_str,
-            "mission auto-restored from cwd mapping"
-        );
-        let _ = app.emit(
-            "mission-changed",
-            serde_json::json!({
-                "session_id": session_id.to_string(),
-                "path": path_str,
-            }),
-        );
+        // intentional no-op — see doc comment above.
     }
 
     pub async fn get_mission(&self, session_id: SessionId) -> Option<MissionInfo> {
@@ -1147,34 +1139,69 @@ async fn run_tick(
             }
         };
 
-        // Loop detector: hash (action_kind, normalized_rationale,
-        // tail-signature) and compare against the recent ring. When the
-        // last LOOP_THRESHOLD decisions all hash identically the
-        // operator is stuck — same input, same output, no progress.
-        // Override with a single explicit escalate and park the tab in
-        // cooldown so we stop burning tokens.
+        // Two loop detectors run side-by-side:
+        //  1. General loop: same action + rationale + screen-tail hash
+        //     LOOP_THRESHOLD times in a row (catches stuck-WAIT etc).
+        //  2. Repeat-REPLY: same normalized REPLY text twice in a row,
+        //     screen-independent (catches the executor not accepting
+        //     our submit — accumulated input lines fool the screen
+        //     hash, but the model writing the same answer doesn't).
+        // Either fires → forced ESCALATE + tab cooldown.
         let decision_hash = compute_loop_hash(&parsed_action, &tail);
-        let looped = {
+        let reply_hash = match &parsed_action {
+            OperatorAction::Reply { text, .. } => Some(compute_reply_text_hash(text)),
+            _ => None,
+        };
+        let (looped, loop_kind) = {
             let mut i = inner.lock().await;
             if let Some(att) = i.sessions.get_mut(&session_id) {
+                // General-loop ring update.
                 att.recent_decision_hashes.push_back(decision_hash);
                 while att.recent_decision_hashes.len() > LOOP_WINDOW {
                     att.recent_decision_hashes.pop_front();
                 }
-                let stuck = att.recent_decision_hashes.len() >= LOOP_THRESHOLD
+                let general_stuck = att.recent_decision_hashes.len() >= LOOP_THRESHOLD
                     && att
                         .recent_decision_hashes
                         .iter()
                         .all(|h| *h == decision_hash);
-                if stuck {
+
+                // Reply-repeat ring update — only meaningful for REPLY
+                // actions. Any non-REPLY clears the ring so a single
+                // legit interleave (REPLY → WAIT → REPLY same text)
+                // doesn't re-trip on the second REPLY.
+                let reply_stuck = match reply_hash {
+                    Some(h) => {
+                        att.recent_reply_hashes.push_back(h);
+                        while att.recent_reply_hashes.len() > REPLY_REPEAT_THRESHOLD {
+                            att.recent_reply_hashes.pop_front();
+                        }
+                        att.recent_reply_hashes.len() >= REPLY_REPEAT_THRESHOLD
+                            && att.recent_reply_hashes.iter().all(|x| *x == h)
+                    }
+                    None => {
+                        att.recent_reply_hashes.clear();
+                        false
+                    }
+                };
+
+                let kind = if reply_stuck {
+                    Some("repeat-reply")
+                } else if general_stuck {
+                    Some("general")
+                } else {
+                    None
+                };
+                if kind.is_some() {
                     att.loop_cooldown_until = Some(Instant::now() + LOOP_COOLDOWN);
-                    // Reset the ring so a future re-arm doesn't insta-fire
-                    // again on the first new decision.
+                    // Reset BOTH rings so a future re-arm doesn't
+                    // insta-fire again on the first new decision.
                     att.recent_decision_hashes.clear();
+                    att.recent_reply_hashes.clear();
                 }
-                stuck
+                (kind.is_some(), kind)
             } else {
-                false
+                (false, None)
             }
         };
 
@@ -1182,15 +1209,24 @@ async fn run_tick(
             tracing::warn!(
                 session = %session_id,
                 cooldown_secs = LOOP_COOLDOWN.as_secs(),
+                kind = loop_kind.unwrap_or("?"),
                 "operator loop detected — forcing escalate, parking tab"
             );
-            OperatorAction::Escalate {
-                notification: format!(
+            let why = match loop_kind {
+                Some("repeat-reply") => format!(
+                    "Operator typed the same reply {REPLY_REPEAT_THRESHOLD}x in a row — the executor is likely not accepting input (try pressing Enter manually) or the submit key is wrong for this TUI. Tab paused for {}s.",
+                    LOOP_COOLDOWN.as_secs()
+                ),
+                _ => format!(
                     "Operator loop detected — same decision {LOOP_THRESHOLD}x in a row. Tab paused for {}s. Likely cause: executor stuck or model misreading state. Manual intervention required.",
                     LOOP_COOLDOWN.as_secs()
                 ),
+            };
+            OperatorAction::Escalate {
+                notification: why,
                 rationale: format!(
-                    "loop guard: action={} repeated with identical screen signature, parking to avoid runaway cost",
+                    "loop guard ({}): action={} parked to avoid runaway cost",
+                    loop_kind.unwrap_or("?"),
                     parsed_action.kind()
                 ),
             }
@@ -1835,6 +1871,19 @@ fn normalize_for_hash(s: &str) -> String {
         .to_lowercase()
 }
 
+/// Hash a REPLY text alone — no rationale, no screen state. Used by
+/// the repeat-REPLY loop detector. Strips trailing CR/LF the auto-
+/// submit code would have added/stripped anyway, so "x", "x\n",
+/// "x\r" all collide and don't fool the detector.
+fn compute_reply_text_hash(text: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    let trimmed = text.trim_end_matches(|c| c == '\n' || c == '\r');
+    normalize_for_hash(trimmed).hash(&mut hasher);
+    hasher.finish()
+}
+
 fn parse_response(text: &str) -> Option<OperatorAction> {
     // Find the ACTION marker and extract subsequent labelled lines.
     let mut action: Option<&str> = None;
@@ -2157,6 +2206,26 @@ mod tests {
         assert_ne!(
             compute_loop_hash(&a, b"screen one"),
             compute_loop_hash(&a, b"screen two")
+        );
+    }
+
+    #[test]
+    fn reply_text_hash_collides_on_trailing_line_chars() {
+        assert_eq!(
+            compute_reply_text_hash("Continue with Task 10"),
+            compute_reply_text_hash("Continue with Task 10\n")
+        );
+        assert_eq!(
+            compute_reply_text_hash("Continue with Task 10"),
+            compute_reply_text_hash("Continue with Task 10\r")
+        );
+    }
+
+    #[test]
+    fn reply_text_hash_differs_for_different_text() {
+        assert_ne!(
+            compute_reply_text_hash("Continue with Task 10"),
+            compute_reply_text_hash("Continue with Task 11")
         );
     }
 

@@ -35,7 +35,11 @@ cd "$REPO_ROOT"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "→ building release bundle (this can take a couple of minutes the first time)…"
-  npm run tauri:build
+  # --bundles app: only the .app, skip .dmg. The dmg path requires
+  # `create-dmg` to be invoked with specific args that have broken
+  # in some Tauri CLI versions; we don't ship via .dmg locally so
+  # there's no point letting that block our install loop.
+  npx tauri build --bundles app
 else
   echo "→ skipping build (--skip-build)"
 fi
