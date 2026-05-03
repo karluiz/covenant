@@ -1078,6 +1078,40 @@ async fn ask_agent(
     Ok(())
 }
 
+#[tauri::command]
+async fn structure_list_dir(cwd: String) -> Result<Vec<structure::DirEntry>, String> {
+    let path = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || structure::list_dir(&path))
+        .await
+        .map_err(|e| format!("list_dir join: {e}"))?
+}
+
+/// Hard cap on the per-file read size to keep memory bounded. The
+/// frontend can request a smaller threshold; we never honor a larger
+/// one. 4 MiB is well above the 1 MiB UI default and below anything
+/// that would stall the IPC bridge.
+const MAX_READ_BYTES_HARD_CAP: u64 = 4 * 1024 * 1024;
+
+#[tauri::command]
+async fn structure_read_file(
+    path: String,
+    max_bytes: Option<u64>,
+) -> Result<structure::ReadResult, String> {
+    let p = PathBuf::from(path);
+    let max = max_bytes.unwrap_or(1024 * 1024).min(MAX_READ_BYTES_HARD_CAP);
+    tokio::task::spawn_blocking(move || structure::read_file_text(&p, max))
+        .await
+        .map_err(|e| format!("read_file join: {e}"))?
+}
+
+#[tauri::command]
+async fn structure_write_file(path: String, content: String) -> Result<(), String> {
+    let p = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || structure::write_file_text(&p, &content))
+        .await
+        .map_err(|e| format!("write_file join: {e}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -1239,6 +1273,9 @@ pub fn run() {
             tab_manifest_save,
             recent_blocks_by_cwd,
             get_dir_context,
+            structure_list_dir,
+            structure_read_file,
+            structure_write_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
