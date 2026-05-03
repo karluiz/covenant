@@ -12,6 +12,7 @@ import {
   type Operator,
   type SessionId,
 } from "../api";
+import { renderAvatarHtml } from "./avatars";
 
 export class OperatorPicker {
   private root: HTMLElement;
@@ -94,7 +95,7 @@ export class OperatorPicker {
         (o, i) => `
         <li class="${i === this.highlighted ? "is-highlighted" : ""}"
             data-id="${o.id}">
-          <span class="emoji" style="background:${o.color}">${escapeHtml(o.emoji)}</span>
+          ${renderAvatarHtml(o.emoji, 32)}
           <span class="name">${escapeHtml(o.name)}</span>
           ${o.is_default ? '<span class="star">⭐</span>' : ""}
         </li>`,
@@ -110,14 +111,16 @@ export class OperatorPicker {
 
     const sel = this.filtered[this.highlighted];
     this.preview.innerHTML = sel
-      ? `
-        <h4>${escapeHtml(sel.emoji)} ${escapeHtml(sel.name)}</h4>
-        <p class="muted">${sel.tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join(" ")}</p>
-        <dl>
-          <dt>Threshold</dt><dd>${sel.escalate_threshold.toFixed(2)}</dd>
-          <dt>Model</dt><dd>${escapeHtml(sel.model)}</dd>
-        </dl>
-        <pre class="persona">${escapeHtml(sel.persona.slice(0, 600))}${sel.persona.length > 600 ? "…" : ""}</pre>`
+      ? `<header class="operator-picker__preview-head">
+           ${renderAvatarHtml(sel.emoji, 64)}
+           <h4>${escapeHtml(sel.name)}</h4>
+         </header>
+         <p class="muted">${sel.tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join(" ")}</p>
+         <dl>
+           <dt>Threshold</dt><dd>${sel.escalate_threshold.toFixed(2)}</dd>
+           <dt>Model</dt><dd>${escapeHtml(sel.model)}</dd>
+         </dl>
+         <pre class="persona">${escapeHtml(sel.persona.slice(0, 600))}${sel.persona.length > 600 ? "…" : ""}</pre>`
       : `<p class="muted">No matches.</p>`;
   }
 

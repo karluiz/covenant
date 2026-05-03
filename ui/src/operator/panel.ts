@@ -16,6 +16,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { aomStatus, listOperatorDecisions, operatorList, type Operator, type OperatorDecisionRow } from "../api";
+import { renderAvatarHtml } from "./avatars";
 import { detectExecutor } from "../executor";
 import type { TabManager } from "../tabs/manager";
 
@@ -493,11 +494,10 @@ export class OperatorPanel {
 
     const opCached = r.operator_id ? this.operatorCache.get(r.operator_id) : null;
     const opColor = opCached?.color ?? "#6B7280";
-    const opLabel = r.operator_name
-      ? (opCached ? `${opCached.emoji} ${r.operator_name}` : r.operator_name)
-      : null;
-    const operatorChip = opLabel
-      ? `<span class="op-decision-chip" style="background:${escapeAttr(opColor)}" title="Operator: ${escapeAttr(opLabel)}">${escapeHtml(opLabel)}</span>`
+    const opName = r.operator_name ?? opCached?.name ?? null;
+    const opAvatarHtml = opCached ? renderAvatarHtml(opCached.emoji, 16) : "";
+    const operatorChip = opName
+      ? `<span class="op-decision-chip" style="background:${escapeAttr(opColor)}" title="Operator: ${escapeAttr(opName)}">${opAvatarHtml}<span>${escapeHtml(opName)}</span></span>`
       : "";
 
     const replyLine = r.reply_text

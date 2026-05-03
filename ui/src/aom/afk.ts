@@ -17,6 +17,7 @@ import {
   type Operator,
   type OperatorDecisionRow,
 } from "../api";
+import { renderAvatarHtml } from "../operator/avatars";
 import type { TabManager } from "../tabs/manager";
 
 interface DecisionEvent {
@@ -137,8 +138,9 @@ export class AfkOverlay {
       .map((id) => {
         const op = this.opCache.get(id);
         const color = op?.color ?? "#6B7280";
-        const label = op ? `${op.emoji} ${op.name}` : `…${id.slice(-6)}`;
-        return `<span class="afk-op-chip" style="background:${escapeHtml(color)}">${escapeHtml(label)}</span>`;
+        const name = op ? op.name : `…${id.slice(-6)}`;
+        const avatarHtml = op ? renderAvatarHtml(op.emoji, 24) : "";
+        return `<span class="afk-op-chip" style="background:${escapeHtml(color)}" title="${escapeHtml(name)}">${avatarHtml}<span>${escapeHtml(name)}</span></span>`;
       })
       .join("");
     el.innerHTML = `<span class="afk-active-label">Active operators:</span>${chips}`;

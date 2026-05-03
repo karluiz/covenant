@@ -47,6 +47,7 @@ import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 import { openMissionPicker } from "./mission-picker";
+import { renderAvatarHtml } from "../operator/avatars";
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -238,18 +239,6 @@ function saveSessionNameCache(m: Map<string, CachedSessionName>): void {
   }
 }
 
-/// Extract initials from an operator name (up to 3 chars).
-///   "Strict Reviewer" → "SR"
-///   "My Coder" → "MC"
-///   "Solo" → "S"
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w[0]!.toUpperCase())
-    .join("")
-    .slice(0, 3);
-}
 
 export class TabManager {
   private readonly tabs: Tab[] = [];
@@ -2246,17 +2235,16 @@ export class TabManager {
       pill.appendChild(label);
     }
 
-    // Operator chip — shows initials of the pinned operator in its brand
-    // color. Only rendered when the tab has an operator_id that we have
+    // Operator chip — shows avatar of the pinned operator.
+    // Only rendered when the tab has an operator_id that we have
     // cached; absent otherwise (no cache hit = chip stays hidden).
     if (tab.operator_id) {
       const op = this.operatorCache.get(tab.operator_id) ?? null;
       if (op) {
         const opChip = document.createElement("span");
         opChip.className = "tab-op-chip";
-        opChip.style.background = op.color;
         opChip.title = op.name;
-        opChip.textContent = initials(op.name);
+        opChip.innerHTML = renderAvatarHtml(op.emoji, 18);
         pill.appendChild(opChip);
       }
     }
