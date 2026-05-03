@@ -6215,34 +6215,29 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 }
 /* ---- Drafts page ---- */
 #drafts-page {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 56px 1fr;
   background: var(--bg);
   color: var(--fg);
-  overflow: auto;
-  min-height: 0;
+  overflow: hidden;
   animation: settings-fade 0.12s ease-out;
 }
 #drafts-page[hidden] {
   display: none;
 }
-.drafts-page { /* legacy class kept on host for any inherited rules */
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+.drafts-page { /* host class — body content scrolls inside row 2 */
+  display: contents;
 }
 .drafts-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: var(--bg-panel);
-  z-index: 1;
+  background: var(--bg-tabbar);
+  min-width: 0;
 }
-.drafts-header h1 { font-size: 16px; margin: 0; flex: 1; }
+.drafts-header h1 { font-size: 14px; font-weight: 600; color: #fff; margin: 0; flex: 1; letter-spacing: 0.01em; }
 .drafts-actions { display: flex; gap: 8px; align-items: center; }
 .drafts-primary {
   background: var(--accent); color: #fff; border: 0; padding: 6px 12px;
@@ -6254,7 +6249,7 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   font-size: 18px; cursor: pointer; padding: 4px 8px;
 }
 .drafts-close:hover, .drafts-back:hover { color: var(--fg); }
-.drafts-list { list-style: none; margin: 0; padding: 8px 20px; }
+.drafts-list { list-style: none; margin: 0; padding: 8px 24px; overflow-y: auto; min-height: 0; }
 .drafts-row {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 0; border-bottom: 1px solid var(--border);
@@ -6280,7 +6275,7 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   border-radius: 3px;
 }
 .wiz-title:hover, .wiz-title:focus { border-color: var(--border); outline: none; }
-.wiz-body { padding: 16px 24px 64px; max-width: 900px; }
+.wiz-body { padding: 24px; max-width: 900px; margin: 0 auto; width: 100%; box-sizing: border-box; overflow-y: auto; min-height: 0; }
 .wiz-section { margin-bottom: 24px; }
 .wiz-section h2 {
   font-size: 13px; font-weight: 600; margin: 0 0 8px;
