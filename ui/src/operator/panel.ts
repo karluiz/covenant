@@ -494,7 +494,10 @@ export class OperatorPanel {
 
     const opCached = r.operator_id ? this.operatorCache.get(r.operator_id) : null;
     const opColor = opCached?.color ?? "#6B7280";
-    const opName = r.operator_name ?? opCached?.name ?? null;
+    // Prefer the LIVE name from the cache so renames propagate to
+    // historical rows. Fall back to the snapshot only when the operator
+    // was deleted — keeps audit visibility for orphaned decisions.
+    const opName = opCached?.name ?? r.operator_name ?? null;
     const opAvatarHtml = opCached ? renderAvatarHtml(opCached.emoji, 16) : "";
     const operatorChip = opName
       ? `<span class="op-decision-chip" style="background:${escapeAttr(opColor)}" title="Operator: ${escapeAttr(opName)}">${opAvatarHtml}<span>${escapeHtml(opName)}</span></span>`
