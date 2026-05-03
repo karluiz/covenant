@@ -174,8 +174,12 @@ export class AfkOverlay {
       return;
     }
     // Scope to the current AOM session — earlier decisions belong to a
-    // previous run and would be misleading in the live feed.
-    const startMs = this.status?.started_at_unix_ms ?? 0;
+    // previous run and would be misleading in the live feed. If the
+    // status fetch failed (refreshHeader swallowed the error) or AOM
+    // has never started (started_at_unix_ms === 0), refuse to seed
+    // rather than fall back to "show every decision ever".
+    const startMs = this.status?.started_at_unix_ms;
+    if (!startMs) return;
     const scoped = rows.filter((r) => r.timestamp_unix_ms >= startMs);
     // listOperatorDecisions returns newest-first; reverse so chronological
     // order matches live (newest at bottom).
@@ -286,7 +290,11 @@ function renderSeededCard(r: OperatorDecisionRow): HTMLElement {
     case "escalate":
       cls = "warn";
       title = "ESCALATE";
-      body = r.rationale ?? r.reply_text ?? "(no detail)";
+      // OperatorDecisionRow has no `escalation` field (unlike the live
+      // event); rationale is the canonical source. Don't fall back to
+      // reply_text — for an escalate row, that field is either null or
+      // the next reply's content, not the escalation message.
+      body = r.rationale ?? "(no detail)";
       break;
     case "wait":
       cls = "muted";
