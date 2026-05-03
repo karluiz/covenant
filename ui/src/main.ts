@@ -368,14 +368,12 @@ async function boot(): Promise<void> {
       searchPalette.toggle();
       return;
     }
-    // ⌘⇧A → toggle Autonomous Operator Mode (AOM). Global — when on,
-    // AOM auto-enables Operator on every tab (tracked, reverted on
-    // stop). The banner's onChange listener handles the per-tab badge
-    // refresh — no need to chain a manual refresh here.
     // ⌘⇧A — layered AOM/AFK toggle:
-    //   AFK open       → close AFK (back to normal UI; AOM stays on)
+    //   AFK open        → close AFK (back to normal UI; AOM stays on)
     //   AOM on, AFK off → open AFK (Battery Mode)
-    //   AOM off        → start AOM (existing banner toggle)
+    //   AOM off         → start AOM (auto-enables Operator on every
+    //                     non-excluded tab; banner.onChange refreshes
+    //                     per-tab badges).
     // Stopping AOM is done via the banner's Stop button (intentional —
     // a four-state shortcut would be too easy to mistrigger overnight).
     if (e.metaKey && e.shiftKey && (e.key === "A" || e.key === "a")) {
