@@ -9,7 +9,12 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { aomStatus, type AomStatus } from "../api";
+import {
+  aomStatus,
+  listOperatorDecisions,
+  type AomStatus,
+  type OperatorDecisionRow,
+} from "../api";
 import type { TabManager } from "../tabs/manager";
 
 interface DecisionEvent {
@@ -73,16 +78,8 @@ export class AfkOverlay {
       .querySelector<HTMLButtonElement>(".afk-wakeup")!
       .addEventListener("click", () => this.close());
 
-    void this.refreshHeader();
     this.poll = window.setInterval(() => void this.refreshHeader(), 5_000);
-
-    void listen<DecisionEvent>("operator-decision", (event) => {
-      this.pushDecision(event.payload);
-    }).then((un) => {
-      // If close() ran before listen() resolved, immediately detach.
-      if (this.root === null) un();
-      else this.unlistenDecision = un;
-    });
+    void this.bootstrap();
   }
 
   close(): void {
@@ -149,6 +146,50 @@ export class AfkOverlay {
       this.close();
     });
     feed.appendChild(card);
+  }
+
+  /// Sequenced startup: header → listener attach → seed history. Each
+  /// `await` re-checks `this.root` after resuming so a same-tick close()
+  /// doesn't leak a listener or render to a torn-down overlay.
+  private async bootstrap(): Promise<void> {
+    await this.refreshHeader();
+    if (!this.root) return; // closed during await
+    const un = await listen<DecisionEvent>("operator-decision", (event) => {
+      this.pushDecision(event.payload);
+    });
+    if (this.root === null) {
+      un();
+      return;
+    }
+    this.unlistenDecision = un;
+    await this.seedFeed();
+  }
+
+  private async seedFeed(): Promise<void> {
+    if (!this.root) return;
+    let rows: OperatorDecisionRow[];
+    try {
+      rows = await listOperatorDecisions(200);
+    } catch {
+      return;
+    }
+    // Scope to the current AOM session — earlier decisions belong to a
+    // previous run and would be misleading in the live feed.
+    const startMs = this.status?.started_at_unix_ms ?? 0;
+    const scoped = rows.filter((r) => r.timestamp_unix_ms >= startMs);
+    // listOperatorDecisions returns newest-first; reverse so chronological
+    // order matches live (newest at bottom).
+    scoped.reverse();
+    if (!this.root) return;
+    const feed = this.root.querySelector<HTMLElement>(".afk-feed");
+    if (!feed) return;
+    if (scoped.length > 0) {
+      const empty = feed.querySelector(".afk-feed-empty");
+      if (empty) empty.remove();
+    }
+    for (const r of scoped) {
+      feed.appendChild(renderSeededCard(r));
+    }
   }
 }
 
@@ -230,4 +271,44 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function renderSeededCard(r: OperatorDecisionRow): HTMLElement {
+  let cls: string;
+  let title: string;
+  let body: string;
+  switch (r.action) {
+    case "reply":
+      cls = r.executed ? "ok" : "muted";
+      title = r.executed ? "REPLY" : "REPLY (dry)";
+      body = formatReplyLine(r.reply_text, r.rationale);
+      break;
+    case "escalate":
+      cls = "warn";
+      title = "ESCALATE";
+      body = r.rationale ?? r.reply_text ?? "(no detail)";
+      break;
+    case "wait":
+      cls = "muted";
+      title = "WAIT";
+      body = r.rationale ?? "(no detail)";
+      break;
+    default:
+      cls = "muted";
+      title = r.action.toUpperCase();
+      body = r.rationale ?? "";
+  }
+  const time = formatClock(r.timestamp_unix_ms);
+  // No `<button>`: seeded rows can't click-jump (we only have the short
+  // session id, not the full SessionId). Render as plain div for parity.
+  const card = document.createElement("div");
+  card.className = `afk-card afk-card-${cls} afk-card-seeded`;
+  card.innerHTML = `
+    <span class="afk-card-time">${escapeHtml(time)}</span>
+    <span class="afk-card-tab">…${escapeHtml(r.session_id_short)}</span>
+    <span class="afk-card-action">${escapeHtml(title)}</span>
+    <span class="afk-card-body"></span>
+  `;
+  card.querySelector<HTMLElement>(".afk-card-body")!.textContent = body;
+  return card;
 }
