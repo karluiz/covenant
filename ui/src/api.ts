@@ -503,3 +503,33 @@ export async function structureSearch(
 ): Promise<SearchHit[]> {
   return invoke<SearchHit[]>("structure_search", { cwd, query, limit });
 }
+
+// 3.8 Convergence Mode -----------------------------------------------------
+
+export type TileStatus =
+  | "idle"
+  | "working"
+  | "awaiting-input"
+  | "blocked"
+  | "operator-thinking";
+
+export interface ConvergenceTileState {
+  session_id: string;
+  title: string;        // backend leaves empty; overlay fills from TabManager
+  color: string | null;
+  status: TileStatus;
+  last_decision_action: string | null;
+  last_decision_rationale: string | null;
+  last_command: string | null;
+  last_output_line: string | null;
+  cost_usd: number | null;
+  budget_usd: number | null;
+}
+
+export interface ConvergenceSnapshot {
+  tiles: ConvergenceTileState[];
+}
+
+export async function getConvergenceSnapshot(): Promise<ConvergenceSnapshot> {
+  return invoke<ConvergenceSnapshot>("get_convergence_snapshot");
+}
