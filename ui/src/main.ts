@@ -190,6 +190,14 @@ async function boot(): Promise<void> {
   statusBar.onMissionSetRequested = (sessionId) =>
     manager.promptAndSetMissionForSession(sessionId);
 
+  // Post-publish toast "Open in Set Mission" fires this event with the
+  // published spec path so we can wire it directly into the active tab
+  // without going through the file-picker prompt.
+  window.addEventListener("mission:set", (e) => {
+    const detail = (e as CustomEvent<{ path: string }>).detail;
+    void manager.setMissionPathForActiveTab(detail.path);
+  });
+
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());

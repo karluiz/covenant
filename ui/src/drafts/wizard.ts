@@ -340,17 +340,130 @@ export class DraftWizard {
     await this.save();
     const suggestedId = await draftsApi.nextId(this.opts.repoRoot);
     const suggestedSlug = slugify(this.title);
-    const id = prompt(`Spec ID (suggested: ${suggestedId}):`, suggestedId);
-    if (!id) return;
-    const finalSlug = prompt(`Slug (suggested: ${suggestedSlug}):`, suggestedSlug);
-    if (!finalSlug) return;
-    try {
-      const dest = await draftsApi.publish(this.opts.repoRoot, this.slug!, id, finalSlug);
-      alert(`Published as ${dest}`);
+
+    // Build modal DOM
+    const backdrop = document.createElement("div");
+    backdrop.className = "wiz-modal-backdrop";
+
+    const card = document.createElement("div");
+    card.className = "wiz-modal";
+
+    const renderPreview = (): string => {
+      const idVal = (card.querySelector<HTMLInputElement>("#pub-id")?.value ?? "").trim();
+      const slugVal = (card.querySelector<HTMLInputElement>("#pub-slug")?.value ?? "").trim();
+      return `docs/specs/${idVal}-${slugVal}.md`;
+    };
+
+    const validate = (): { idOk: boolean; slugOk: boolean } => {
+      const idVal = (card.querySelector<HTMLInputElement>("#pub-id")?.value ?? "").trim();
+      const slugVal = (card.querySelector<HTMLInputElement>("#pub-slug")?.value ?? "").trim();
+      return {
+        idOk: /^\d+\.\d+$/.test(idVal),
+        slugOk: /^[a-z0-9]+(-[a-z0-9]+)*$/.test(slugVal),
+      };
+    };
+
+    card.innerHTML = `
+      <h3>Publish draft</h3>
+      <label for="pub-id">Spec ID</label>
+      <input id="pub-id" type="text" value="${escapeAttr(suggestedId)}" autocomplete="off" spellcheck="false" />
+      <div class="wiz-modal-error" id="pub-id-err" style="display:none">Must match &lt;u32&gt;.&lt;u32&gt; (e.g. 3.10)</div>
+      <label for="pub-slug">Slug</label>
+      <input id="pub-slug" type="text" value="${escapeAttr(suggestedSlug)}" autocomplete="off" spellcheck="false" />
+      <div class="wiz-modal-error" id="pub-slug-err" style="display:none">Must be kebab-case (e.g. my-feature)</div>
+      <div class="wiz-modal-preview" id="pub-preview">docs/specs/${escapeHtml(suggestedId)}-${escapeHtml(suggestedSlug)}.md</div>
+      <div class="wiz-modal-error" id="pub-api-err" style="display:none"></div>
+      <div class="wiz-modal-actions">
+        <button id="pub-cancel" type="button">Cancel</button>
+        <button id="pub-confirm" type="button" class="primary">Publish</button>
+      </div>
+    `;
+
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+
+    const idInput = card.querySelector<HTMLInputElement>("#pub-id")!;
+    const slugInput = card.querySelector<HTMLInputElement>("#pub-slug")!;
+    const preview = card.querySelector<HTMLDivElement>("#pub-preview")!;
+    const idErr = card.querySelector<HTMLDivElement>("#pub-id-err")!;
+    const slugErr = card.querySelector<HTMLDivElement>("#pub-slug-err")!;
+    const apiErr = card.querySelector<HTMLDivElement>("#pub-api-err")!;
+    const confirmBtn = card.querySelector<HTMLButtonElement>("#pub-confirm")!;
+    const cancelBtn = card.querySelector<HTMLButtonElement>("#pub-cancel")!;
+
+    const updateState = (): void => {
+      const { idOk, slugOk } = validate();
+      idInput.classList.toggle("invalid", !idOk);
+      slugInput.classList.toggle("invalid", !slugOk);
+      idErr.style.display = idOk ? "none" : "";
+      slugErr.style.display = slugOk ? "none" : "";
+      confirmBtn.disabled = !idOk || !slugOk;
+      preview.textContent = renderPreview();
+    };
+
+    idInput.addEventListener("input", updateState);
+    slugInput.addEventListener("input", updateState);
+    updateState();
+
+    const close = (): void => {
+      backdrop.remove();
+      // Return focus to publish button if still in DOM
+      this.opts.host.querySelector<HTMLButtonElement>("#wiz-publish")?.focus();
+    };
+
+    cancelBtn.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+
+    const escHandler = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") { e.stopPropagation(); close(); document.removeEventListener("keydown", escHandler, true); }
+    };
+    document.addEventListener("keydown", escHandler, true);
+
+    confirmBtn.addEventListener("click", () => {
+      void (async () => {
+        const id = idInput.value.trim();
+        const finalSlug = slugInput.value.trim();
+        confirmBtn.disabled = true;
+        apiErr.style.display = "none";
+        try {
+          const dest = await draftsApi.publish(this.opts.repoRoot, this.slug!, id, finalSlug);
+          document.removeEventListener("keydown", escHandler, true);
+          backdrop.remove();
+          this.showPublishedToast(dest, id, finalSlug);
+        } catch (e) {
+          apiErr.textContent = `Publish failed: ${String(e)}`;
+          apiErr.style.display = "";
+          confirmBtn.disabled = false;
+        }
+      })();
+    });
+
+    idInput.focus();
+  }
+
+  private showPublishedToast(destPath: string, id: string, _slug: string): void {
+    const toast = document.createElement("div");
+    toast.className = "drafts-toast";
+    toast.innerHTML = `
+      <span>Published as <strong>${escapeHtml(id)}</strong></span>
+      <button id="toast-open" type="button">Open in Set Mission</button>
+      <button class="drafts-toast-close" type="button" aria-label="Close">×</button>
+    `;
+    document.body.appendChild(toast);
+
+    let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => { toast.remove(); }, 8000);
+
+    const closeToast = (): void => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      toast.remove();
+    };
+
+    toast.querySelector(".drafts-toast-close")?.addEventListener("click", closeToast);
+    toast.querySelector("#toast-open")?.addEventListener("click", () => {
+      closeToast();
+      window.dispatchEvent(new CustomEvent("mission:set", { detail: { path: destPath } }));
       this.opts.onBack();
-    } catch (e) {
-      alert(`Publish failed: ${e}`);
-    }
+    });
   }
 }
 

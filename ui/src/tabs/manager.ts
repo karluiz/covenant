@@ -1304,6 +1304,23 @@ export class TabManager {
     void this.promptAndSetMission(tab.id);
   }
 
+  /// Directly set a mission path on the currently active tab without
+  /// prompting. Used by the post-publish toast "Open in Set Mission"
+  /// action so the published spec is wired immediately.
+  async setMissionPathForActiveTab(path: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    try {
+      const info = await setSessionMission(tab.sessionId, path);
+      tab.mission = info;
+      this.renderTabbar();
+      if (tab.id === this.activeId) this.emitActiveMission();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("setMissionPathForActiveTab failed", err);
+    }
+  }
+
   /// Open an inline modal that asks for a spec path, then attach
   /// the mission to the session. The user can either type a path or
   /// click "Browse…" for a native file picker. Errors (file not
