@@ -43,6 +43,7 @@ import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
+import { openMissionPicker } from "./mission-picker";
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -1380,17 +1381,11 @@ export class TabManager {
   private async promptAndSetMission(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const initial = tab.mission?.path ?? "";
-    const path = await openTextPrompt({
-      title: "Set mission spec",
-      hint: "Absolute path or path relative to the backend's CWD. The Operator reads this file as authoritative scope (Out of scope → escalate, File boundaries → constraints, Open questions → auto-escalate).",
-      placeholder: `${tab.cwd ?? "~"}/docs/specs/<id>.md`,
-      initial,
-      submitLabel: "Set mission",
+    const repoRoot = tab.cwd ?? "."; // backend default; mission-picker handles "no specs dir"
+    const result = await openMissionPicker({
+      repoRoot,
+      currentMissionPath: tab.mission?.path ?? null,
       onBrowse: async () => {
-        // defaultPath: prefer the existing mission's directory, then
-        // the tab's cwd, otherwise let the OS pick. Filter on .md so
-        // the picker only shows specs.
         const start =
           tab.mission?.path ??
           (tab.cwd ? `${tab.cwd}/docs/specs` : undefined);
@@ -1401,13 +1396,24 @@ export class TabManager {
           defaultPath: start,
           filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
         });
-        // Tauri returns string | null for single-file mode.
         return typeof picked === "string" ? picked : null;
       },
     });
-    if (path === null) return; // user cancelled
+
+    if (result === null) return; // cancelled
+
+    if (result.kind === "publishDraft") {
+      window.dispatchEvent(
+        new CustomEvent("drafts:open", {
+          detail: { slug: result.slug, autoPublish: true },
+        }),
+      );
+      return;
+    }
+
+    // result.kind === "set"
     try {
-      const info = await setSessionMission(tab.sessionId, path);
+      const info = await setSessionMission(tab.sessionId, result.path);
       tab.mission = info;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveMission();
@@ -2343,112 +2349,6 @@ export class TabManager {
   }
 }
 
-/// Lightweight modal asking the user for a single-line text value.
-/// Returns the entered string on submit, or `null` on cancel/Esc.
-/// `onBrowse` adds a "Browse…" button that, when present, lets the
-/// user fall back to a native picker — useful for path inputs.
-function openTextPrompt(opts: {
-  title: string;
-  hint?: string;
-  placeholder?: string;
-  initial?: string;
-  submitLabel?: string;
-  onBrowse?: () => Promise<string | null>;
-}): Promise<string | null> {
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "text-prompt-overlay";
-
-    const card = document.createElement("div");
-    card.className = "text-prompt-card";
-    card.innerHTML = `
-      <header class="text-prompt-header">${escapeHtmlText(opts.title)}</header>
-      ${
-        opts.hint
-          ? `<div class="text-prompt-hint">${escapeHtmlText(opts.hint)}</div>`
-          : ""
-      }
-      <div class="text-prompt-input-row">
-        <input type="text" class="text-prompt-input"
-               autocomplete="off"
-               spellcheck="false"
-               placeholder="${escapeHtmlText(opts.placeholder ?? "")}"
-               value="${escapeHtmlText(opts.initial ?? "")}" />
-        ${
-          opts.onBrowse
-            ? `<button type="button" class="text-prompt-browse">Browse…</button>`
-            : ""
-        }
-      </div>
-      <div class="text-prompt-actions">
-        <button type="button" class="text-prompt-cancel">Cancel</button>
-        <button type="button" class="text-prompt-submit">${escapeHtmlText(
-          opts.submitLabel ?? "OK",
-        )}</button>
-      </div>
-    `;
-    overlay.appendChild(card);
-    document.body.appendChild(overlay);
-
-    const input = card.querySelector<HTMLInputElement>(".text-prompt-input")!;
-    const cancelBtn = card.querySelector<HTMLButtonElement>(
-      ".text-prompt-cancel",
-    )!;
-    const submitBtn = card.querySelector<HTMLButtonElement>(
-      ".text-prompt-submit",
-    )!;
-
-    const cleanup = (value: string | null): void => {
-      overlay.remove();
-      window.removeEventListener("keydown", onKey);
-      resolve(value);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        cleanup(null);
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const v = input.value.trim();
-        if (v.length > 0) cleanup(v);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) cleanup(null);
-    });
-    cancelBtn.addEventListener("click", () => cleanup(null));
-    submitBtn.addEventListener("click", () => {
-      const v = input.value.trim();
-      if (v.length > 0) cleanup(v);
-    });
-
-    if (opts.onBrowse) {
-      const browseBtn = card.querySelector<HTMLButtonElement>(
-        ".text-prompt-browse",
-      );
-      browseBtn?.addEventListener("click", async () => {
-        const picked = await opts.onBrowse!();
-        if (picked) {
-          input.value = picked;
-          input.focus();
-        }
-      });
-    }
-
-    input.focus();
-    if (opts.initial) input.select();
-  });
-}
-
-function escapeHtmlText(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 /// Derive a short tab-name slug from a mission spec path:
 ///   /docs/specs/3.5-docs-hub.md → "docs-hub"
