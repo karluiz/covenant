@@ -151,6 +151,42 @@ pub struct DraftSummary {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PublishedSpec {
+    pub id: String,         // "3.10"
+    pub title: String,      // "Mission Drafts"
+    pub goal: String,       // first non-empty paragraph after `## Goal`, ≤ 200 chars
+    pub path: String,       // absolute path
+    pub updated_at: String, // file mtime RFC3339
+}
+
+/// Parse "# 3.10 — Mission Drafts" or "# 3.10 - Mission Drafts" into (id, title).
+/// Returns None for headings that don't match the expected published-spec pattern.
+pub fn parse_published_spec_heading(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    let rest = line.strip_prefix("# ")?;
+    // Split on em-dash or hyphen surrounded by spaces.
+    let (id_part, title_part) = if let Some(idx) = rest.find(" — ") {
+        (&rest[..idx], &rest[idx + " — ".len()..])
+    } else if let Some(idx) = rest.find(" - ") {
+        (&rest[..idx], &rest[idx + " - ".len()..])
+    } else {
+        return None;
+    };
+    // Validate ID = "<u32>.<u32>"
+    let mut parts = id_part.split('.');
+    let (Some(maj), Some(min), None) = (parts.next(), parts.next(), parts.next()) else {
+        return None;
+    };
+    maj.parse::<u32>().ok()?;
+    min.parse::<u32>().ok()?;
+    let title = title_part.trim();
+    if title.is_empty() {
+        return None;
+    }
+    Some((id_part.to_string(), title.to_string()))
+}
+
 fn drafts_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("docs/specs/drafts")
 }
@@ -497,6 +533,32 @@ mod tests {
         let m = build_suggest_user_message(SuggestSection::OutOfScope, "draft body");
         assert!(m.contains("Out of scope"));
         assert!(m.contains("draft body"));
+    }
+
+    #[test]
+    fn parse_heading_em_dash() {
+        let r = parse_published_spec_heading("# 3.10 — Mission Drafts");
+        assert_eq!(r, Some(("3.10".into(), "Mission Drafts".into())));
+    }
+
+    #[test]
+    fn parse_heading_hyphen() {
+        let r = parse_published_spec_heading("# 1.0 - Foo Bar");
+        assert_eq!(r, Some(("1.0".into(), "Foo Bar".into())));
+    }
+
+    #[test]
+    fn parse_heading_rejects_no_id() {
+        assert!(parse_published_spec_heading("# Mission Drafts").is_none());
+        assert!(parse_published_spec_heading("# abc — Title").is_none());
+        assert!(parse_published_spec_heading("# 1.0.0 — Title").is_none());
+        assert!(parse_published_spec_heading("# 3.10 —").is_none());
+    }
+
+    #[test]
+    fn parse_heading_rejects_non_h1() {
+        assert!(parse_published_spec_heading("## 3.10 — X").is_none());
+        assert!(parse_published_spec_heading("3.10 — X").is_none());
     }
 }
 
