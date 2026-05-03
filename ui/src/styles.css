@@ -6526,3 +6526,79 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   cursor: pointer;
 }
 .status-chip-operator:hover { filter: brightness(1.1); }
+
+/* ── Operator Picker (⌘⇧O) ─────────────────────────────────────────── */
+.operator-picker[hidden] { display: none; }
+.operator-picker {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh;
+}
+.operator-picker__backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.4);
+}
+.operator-picker__modal {
+  position: relative;
+  width: min(720px, 90vw);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.operator-picker__input {
+  background: var(--bg-panel);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit; font-size: 14px;
+  width: 100%; box-sizing: border-box;
+}
+.operator-picker__layout {
+  display: grid; grid-template-columns: 240px 1fr; gap: 12px;
+  min-height: 240px; max-height: 50vh;
+}
+.operator-picker__list {
+  list-style: none; margin: 0; padding: 0;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.operator-picker__list li {
+  display: grid; grid-template-columns: 24px 1fr 16px;
+  align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer;
+}
+.operator-picker__list li:hover { background: var(--bg-panel); }
+.operator-picker__list li.is-highlighted { background: var(--bg-panel); }
+.operator-picker__list .emoji {
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 5px; color: #fff;
+}
+.operator-picker__preview {
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+  overflow-y: auto;
+}
+.operator-picker__preview h4 { margin: 0 0 6px 0; }
+.operator-picker__preview .tag {
+  display: inline-block;
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--bg-panel); font-size: 11px;
+}
+.operator-picker__preview dl {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 2px 12px; margin: 8px 0;
+  font-size: 12px;
+}
+.operator-picker__preview dt { color: var(--muted); }
+.operator-picker__preview .persona {
+  background: var(--bg-panel);
+  padding: 8px; border-radius: 6px;
+  font-size: 11px; white-space: pre-wrap; max-height: 220px; overflow: auto;
+}
+.operator-picker__hint {
+  color: var(--muted); font-size: 11px; text-align: right;
+}

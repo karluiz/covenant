@@ -32,6 +32,7 @@ import { TabManager } from "./tabs/manager";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
+import { OperatorPicker } from "./operator/picker";
 
 /// Set body class controlling --surface-alpha. Adds `bg-{kind}` and
 /// removes the other two so toggling at runtime is idempotent.
@@ -438,11 +439,27 @@ async function boot(): Promise<void> {
   // restored — chips in the tab strip and status bar need this.
   void manager.refreshOperatorCache();
 
-  // Task 5 will wire this to an OperatorPicker. For now it's a no-op
-  // stub so the click handler compiles and doesn't crash.
-  statusBar.onOperatorChipClick = (_sessionId) => {
-    // Picker hookup lives in Plan 3 Task 5.
+  // ⌘⇧O Operator Picker (Plan 3 Task 5)
+  const operatorPicker = new OperatorPicker(document.body);
+  operatorPicker.onAssigned = async (sessionId, op) => {
+    const tab = manager.tabForSession(sessionId);
+    if (tab) await manager.setTabOperator(tab.id, op.id);
   };
+  // TODO: open directly to Operators pane when openTo API is added to SettingsPanel
+  operatorPicker.onNewRequested = () => { settings.toggle(); };
+  // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
+  operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
+  statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
+
+  // ⌘⇧O → open operator picker for the active session.
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey && e.shiftKey && (e.key === "O" || e.key === "o")) {
+      e.preventDefault();
+      const sid = manager.activeSessionId();
+      if (sid) void operatorPicker.open(sid);
+      return;
+    }
+  });
 
   window.addEventListener("keydown", (e) => {
     // ⌘= / ⌘+ → zoom in, ⌘- → zoom out, ⌘0 → reset (browser convention).

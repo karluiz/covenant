@@ -1417,6 +1417,13 @@ export class TabManager {
     }
   }
 
+  /// Look up a tab by its backend session id. Used by the OperatorPicker
+  /// (⌘⇧O) to resolve the sessionId it receives back to a tab id so it
+  /// can call setTabOperator.
+  tabForSession(sessionId: SessionId): Tab | null {
+    return this.tabs.find((t) => t.sessionId === sessionId) ?? null;
+  }
+
   /// Public sibling of `promptAndSetMission` that takes a sessionId
   /// instead of a tabId. Lets external surfaces (status bar's
   /// "+ Mission" affordance) reuse the same prompt + set-mission
