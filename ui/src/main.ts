@@ -24,6 +24,8 @@ import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager } from "./tabs/manager";
+import { ConvergenceOverlay } from "./convergence/overlay";
+import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 
 /// Set body class controlling --surface-alpha. Adds `bg-{kind}` and
@@ -147,6 +149,8 @@ async function boot(): Promise<void> {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
     void getCurrentWindow().close();
   });
+
+  const convergence = new ConvergenceOverlay(makeTabsBridge(manager));
 
   // 3.7 status bar — bottom of #layout. Hidden when status_bar_enabled
   // is false (collapses the third grid row). TabManager pushes the
@@ -388,6 +392,12 @@ async function boot(): Promise<void> {
       searchPalette.toggle();
       return;
     }
+    // ⌘⇧O → Convergence Mode overlay (spec 3.8). Toggles full-window.
+    if (e.metaKey && e.shiftKey && (e.key === "O" || e.key === "o")) {
+      e.preventDefault();
+      convergence.toggle();
+      return;
+    }
     // ⌘⇧A — layered AOM/AFK toggle:
     //   AFK open        → close AFK (back to normal UI; AOM stays on)
     //   AOM on, AFK off → open AFK (Battery Mode)
@@ -426,6 +436,11 @@ async function boot(): Promise<void> {
     }
     // Esc closes any open modal first; only routes to terminal if none.
     if (e.key === "Escape") {
+      if (convergence.isVisible()) {
+        e.preventDefault();
+        convergence.close();
+        return;
+      }
       if (afk.isOpen()) {
         e.preventDefault();
         afk.close();
