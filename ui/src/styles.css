@@ -6640,8 +6640,13 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 
 .operators-pane__editor-foot {
   display: flex; justify-content: flex-end; gap: 8px;
-  padding-top: 6px;
+  padding: 8px 0 4px;
   border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(to bottom, transparent 0, var(--bg-panel, #1a1d23) 8px);
+  margin-top: auto;
+  z-index: 1;
 }
 .operators-pane__editor-foot button {
   background: transparent;

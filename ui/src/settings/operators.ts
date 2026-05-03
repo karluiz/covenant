@@ -223,9 +223,9 @@ export class OperatorsPane {
       </div>
 
       <footer class="operators-pane__editor-foot">
-        <button data-act="cancel">Cancel</button>
+        <button data-act="cancel">Discard changes</button>
         <button data-act="save" class="primary">
-          ${isNew ? "Create" : "Save"}
+          ${isNew ? "Create operator" : "Save operator"}
         </button>
       </footer>
     `;
