@@ -22,7 +22,7 @@ mod notify;
 mod operator;
 pub mod operator_registry;
 mod safety;
-mod settings;
+pub mod settings;
 pub mod storage;
 mod structure;
 mod summarizer;

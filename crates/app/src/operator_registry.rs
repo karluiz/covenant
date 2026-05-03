@@ -226,4 +226,47 @@ impl OperatorRegistry {
         self.default()
             .expect("operator registry has no default — migration did not run")
     }
+
+    /// First-boot migration. If the registry already contains any
+    /// operator row, this is a no-op (returns Ok(false)). Otherwise
+    /// inserts a single `Default` row sourced from the legacy
+    /// `OperatorConfig` charter and the global summary model, and
+    /// backfills `operator_decisions.operator_id` for historical
+    /// rows. Returns Ok(true) when the seed actually ran.
+    pub async fn seed_default_from_settings(
+        &self,
+        storage: &Storage,
+        cfg: &crate::settings::OperatorConfig,
+        global_model: &str,
+    ) -> Result<bool, RegistryError> {
+        if !self.by_id.read().unwrap().is_empty() {
+            return Ok(false);
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let op = Operator {
+            id: OperatorId(Ulid::new()),
+            name: "Default".into(),
+            emoji: "🤖".into(),
+            color: "#6B7280".into(),
+            tags: vec![],
+            persona: cfg.persona.clone(),
+            escalate_threshold: 0.6,
+            model: global_model.to_string(),
+            hard_constraints: "".into(),
+            is_default: true,
+            created_at_unix_ms: now,
+            updated_at_unix_ms: now,
+        };
+        let id = op.id;
+        let name = op.name.clone();
+        self.create(storage, op).await?;
+        // Backfill historical decisions.
+        let _ = storage
+            .operator_decisions_backfill(id.to_string(), name)
+            .await?;
+        Ok(true)
+    }
 }

@@ -1,4 +1,5 @@
 use covenant_lib::operator_registry::{Operator, OperatorId, OperatorRegistry};
+use covenant_lib::settings::OperatorConfig;
 use covenant_lib::storage::Storage;
 use karl_session::SessionId;
 use ulid::Ulid;
@@ -91,4 +92,32 @@ async fn effective_for_unpinned_session_returns_default() {
     let session_id = SessionId::new();
     let op = reg.effective_for(session_id);
     assert_eq!(op.name, "Default");
+}
+
+#[tokio::test]
+async fn migration_seeds_default_from_settings_only_once() {
+    let (_d, s) = tmp_storage();
+    let cfg = OperatorConfig::default();
+    let model = "claude-sonnet-4-6".to_string();
+
+    let reg1 = OperatorRegistry::load(&s).await.unwrap();
+    let inserted = reg1
+        .seed_default_from_settings(&s, &cfg, &model)
+        .await
+        .unwrap();
+    assert!(inserted, "first call should insert");
+    assert_eq!(reg1.list().len(), 1);
+    let def = reg1.default().unwrap();
+    assert_eq!(def.name, "Default");
+    assert_eq!(def.persona, cfg.persona);
+    assert!(def.is_default);
+
+    // Second call (e.g. next boot) is a no-op.
+    let reg2 = OperatorRegistry::load(&s).await.unwrap();
+    let inserted2 = reg2
+        .seed_default_from_settings(&s, &cfg, &model)
+        .await
+        .unwrap();
+    assert!(!inserted2, "second call should be a no-op");
+    assert_eq!(reg2.list().len(), 1);
 }
