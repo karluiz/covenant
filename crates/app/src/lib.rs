@@ -1413,6 +1413,13 @@ pub fn run() {
             structure_read_file,
             structure_write_file,
             structure_search,
+            drafts::list_drafts,
+            drafts::read_draft,
+            drafts::save_draft,
+            drafts::delete_draft,
+            drafts::publish_draft,
+            drafts::next_draft_id,
+            drafts::suggest_draft_section,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

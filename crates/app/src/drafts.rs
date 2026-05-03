@@ -499,3 +499,143 @@ mod tests {
         assert!(m.contains("draft body"));
     }
 }
+
+// ── Tauri command wrappers ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_drafts(repo_root: String) -> Result<Vec<DraftSummary>, String> {
+    let path = PathBuf::from(repo_root);
+    tokio::task::spawn_blocking(move || list_drafts_sync(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn read_draft(repo_root: String, slug: String) -> Result<DraftDocumentDto, String> {
+    let path = PathBuf::from(repo_root);
+    let doc = tokio::task::spawn_blocking(move || read_draft_sync(&path, &slug))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(DraftDocumentDto::from(doc))
+}
+
+#[tauri::command]
+pub async fn save_draft(
+    repo_root: String,
+    slug: String,
+    title: String,
+    body: String,
+) -> Result<DraftDocumentDto, String> {
+    let path = PathBuf::from(repo_root);
+    let doc = tokio::task::spawn_blocking(move || save_draft_sync(&path, &slug, &title, &body))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    Ok(DraftDocumentDto::from(doc))
+}
+
+#[tauri::command]
+pub async fn delete_draft(repo_root: String, slug: String) -> Result<(), String> {
+    let path = PathBuf::from(repo_root);
+    tokio::task::spawn_blocking(move || delete_draft_sync(&path, &slug))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn publish_draft(
+    repo_root: String,
+    slug: String,
+    id: String,
+    final_slug: String,
+) -> Result<String, String> {
+    let path = PathBuf::from(repo_root);
+    let dest = tokio::task::spawn_blocking(move || {
+        publish_draft_sync(&path, &slug, &id, &final_slug)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn next_draft_id(repo_root: String) -> Result<String, String> {
+    let path = PathBuf::from(repo_root);
+    tokio::task::spawn_blocking(move || next_spec_id(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn suggest_draft_section(
+    state: tauri::State<'_, crate::AppState>,
+    repo_root: String,
+    slug: String,
+    section: SuggestSection,
+) -> Result<Vec<String>, String> {
+    let (api_key, model) = {
+        let s = state.settings.lock().await;
+        let key = s
+            .anthropic_api_key
+            .clone()
+            .filter(|k| !k.trim().is_empty())
+            .ok_or_else(|| "no API key".to_string())?;
+        (key, s.agent.model_summary.clone())
+    };
+
+    // Read draft + check cap.
+    let path = PathBuf::from(&repo_root);
+    let slug_clone = slug.clone();
+    let doc = tokio::task::spawn_blocking(move || read_draft_sync(&path, &slug_clone))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if doc.frontmatter.llm_calls >= LLM_CALL_CAP {
+        return Err(format!("cap reached ({LLM_CALL_CAP})"));
+    }
+
+    let user_msg = build_suggest_user_message(section, &doc.body);
+    let response = karl_agent::ask_oneshot(karl_agent::AskRequest {
+        api_key,
+        model,
+        system_prompt: SUGGEST_SYSTEM_PROMPT.to_string(),
+        user_message: user_msg,
+        max_tokens: SUGGEST_MAX_TOKENS,
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Increment llm_calls in frontmatter (best-effort, non-fatal).
+    let path = PathBuf::from(&repo_root);
+    let slug_clone = slug.clone();
+    let _ = tokio::task::spawn_blocking(move || -> Result<(), DraftError> {
+        let mut existing = read_draft_sync(&path, &slug_clone)?;
+        existing.frontmatter.llm_calls += 1;
+        existing.frontmatter.updated_at = chrono::Utc::now().to_rfc3339();
+        let text = serialize_draft(&existing)?;
+        std::fs::write(draft_path(&path, &slug_clone), text)?;
+        Ok(())
+    })
+    .await;
+
+    parse_suggestions(&response).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DraftDocumentDto {
+    pub frontmatter: DraftFrontmatter,
+    pub body: String,
+}
+impl From<DraftDocument> for DraftDocumentDto {
+    fn from(d: DraftDocument) -> Self {
+        Self {
+            frontmatter: d.frontmatter,
+            body: d.body,
+        }
+    }
+}
