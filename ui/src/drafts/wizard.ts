@@ -22,6 +22,7 @@ export interface DraftWizardOpts {
   slug: string | null;
   onBack: () => void;
   onClose: () => void;
+  autoPublish?: boolean;
 }
 
 interface SectionDef {
@@ -85,6 +86,9 @@ export class DraftWizard {
     }
     this.render();
     this.autoSaveInterval = setInterval(() => { if (this.dirty) void this.save(); }, 30_000);
+    if (this.opts.autoPublish && this.slug) {
+      queueMicrotask(() => { void this.openPublishModal(); });
+    }
   }
 
   dispose(): void {
