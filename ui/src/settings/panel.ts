@@ -13,6 +13,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { Icons } from "../icons";
+import { pushInfoToast } from "../notifications/toast";
 import { OperatorsPane } from "./operators";
 
 interface AgentConfig {
@@ -461,8 +462,6 @@ export class SettingsPanel {
     const notifSuppressFocused = form.querySelector<HTMLInputElement>(
       'input[name="notif_suppress_focused"]',
     )!;
-    const status = form.querySelector<HTMLElement>(".settings-status")!;
-
     apiKey.value = this.current.anthropic_api_key ?? "";
     modelSummary.value = this.current.agent.model_summary;
     modelChat.value = this.current.agent.model_chat;
@@ -611,12 +610,10 @@ export class SettingsPanel {
         await setSettings(next);
         this.current = next;
         if (this.onSaved) this.onSaved(next);
-        status.textContent = "saved ✓";
-        status.classList.add("ok");
-        setTimeout(() => this.close(), 600);
+        pushInfoToast({ message: "Settings saved" });
+        setTimeout(() => this.close(), 400);
       } catch (err) {
-        status.textContent = `save failed: ${String(err)}`;
-        status.classList.add("err");
+        pushInfoToast({ message: `Save failed: ${String(err)}` });
       }
     });
 

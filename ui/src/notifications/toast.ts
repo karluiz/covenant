@@ -29,6 +29,23 @@ export interface InfoToast {
 
 const AUTO_DISMISS_MS = 12_000;
 
+/// Module-level reference set by main.ts after the global ToastHost
+/// is constructed. Lets any code (Settings save, operator save, etc.)
+/// surface info toasts via `pushInfoToast` without prop-drilling.
+let SHARED: ToastHost | null = null;
+
+export function setSharedToastHost(host: ToastHost): void {
+  SHARED = host;
+}
+
+/// Convenience: surface an info toast through the shared host.
+/// Silently no-ops if main.ts hasn't registered the host yet (e.g.
+/// during early boot) — feedback that early in the lifecycle isn't
+/// worth crashing for.
+export function pushInfoToast(toast: InfoToast): void {
+  SHARED?.pushInfo(toast);
+}
+
 export class ToastHost {
   private container: HTMLElement;
   private unlisten?: UnlistenFn;

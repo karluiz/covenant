@@ -9,6 +9,7 @@ import {
   operatorUpdate,
 } from "../api";
 import { AVATAR_PACK, parseAvatar, renderAvatarHtml } from "../operator/avatars";
+import { pushInfoToast } from "../notifications/toast";
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
@@ -309,7 +310,7 @@ export class OperatorsPane {
       }
       this.dirty = false;
       await this.refresh();
-      flashOperatorToast(`${isCreate ? "Created" : "Saved"} operator: ${savedName}`);
+      pushInfoToast({ message: `${isCreate ? "Created" : "Saved"} operator: ${savedName}` });
     } catch (e) {
       alert(`Save failed: ${e}`);
     }
@@ -321,7 +322,7 @@ export class OperatorsPane {
       await operatorSetDefault(this.selectedId);
       const name = this.operators.find((o) => o.id === this.selectedId)?.name ?? "operator";
       await this.refresh();
-      flashOperatorToast(`Default set to ${name}`);
+      pushInfoToast({ message: `Default set to ${name}` });
     } catch (e) {
       alert(`Set default failed: ${e}`);
     }
@@ -336,7 +337,7 @@ export class OperatorsPane {
       await operatorDelete(this.selectedId);
       this.selectedId = null;
       await this.refresh();
-      flashOperatorToast(`Deleted operator: ${name}`);
+      pushInfoToast({ message: `Deleted operator: ${name}` });
     } catch (e) {
       alert(`Delete failed: ${e}`);
     }
@@ -368,21 +369,4 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-/// Tiny self-contained toast for save/delete feedback inside Settings.
-/// Avoids the global ToastHost (cross-session findings) so the styling
-/// and lifecycle stay isolated. Auto-dismisses after 1.6s.
-function flashOperatorToast(message: string): void {
-  const el = document.createElement("div");
-  el.className = "operators-toast";
-  el.textContent = message;
-  document.body.appendChild(el);
-  // Force reflow so the transition fires.
-  void el.offsetHeight;
-  el.classList.add("is-visible");
-  window.setTimeout(() => {
-    el.classList.remove("is-visible");
-    window.setTimeout(() => el.remove(), 200);
-  }, 1600);
 }

@@ -20,7 +20,7 @@ import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api"
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
-import { ToastHost } from "./notifications/toast";
+import { setSharedToastHost, ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
@@ -308,6 +308,7 @@ async function boot(): Promise<void> {
     },
   });
   await toasts.start();
+  setSharedToastHost(toasts);
 
   // One-shot zsh-autosuggestions hint. Recall (sidebar) covers the
   // "search past commands" case; autosuggestions covers inline ghost

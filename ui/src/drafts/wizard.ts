@@ -358,6 +358,14 @@ export class DraftWizard {
     popover.style.position = "absolute";
     popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
     popover.style.left = `${rect.left + window.scrollX}px`;
+    // Clamp inside viewport so the popover never bleeds off the right edge.
+    const popRect = popover.getBoundingClientRect();
+    const margin = 8;
+    if (popRect.right > window.innerWidth - margin) {
+      const alignedLeft = rect.right - popRect.width + window.scrollX;
+      const clampedLeft = Math.max(margin + window.scrollX, alignedLeft);
+      popover.style.left = `${clampedLeft}px`;
+    }
     const sectionKey = sectionToKey(section);
     popover.querySelectorAll<HTMLButtonElement>(".wiz-suggestion").forEach(b => {
       b.addEventListener("click", () => {
