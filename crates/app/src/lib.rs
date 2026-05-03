@@ -1497,6 +1497,14 @@ pub fn run() {
             drafts::publish_draft,
             drafts::next_draft_id,
             drafts::suggest_draft_section,
+            operator_registry::commands::operator_list,
+            operator_registry::commands::operator_get,
+            operator_registry::commands::operator_create,
+            operator_registry::commands::operator_update,
+            operator_registry::commands::operator_delete,
+            operator_registry::commands::operator_set_default,
+            operator_registry::commands::session_set_operator,
+            operator_registry::commands::session_get_operator,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

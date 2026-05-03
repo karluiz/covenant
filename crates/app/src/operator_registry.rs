@@ -270,3 +270,149 @@ impl OperatorRegistry {
         Ok(true)
     }
 }
+
+pub mod commands {
+    use super::*;
+    use crate::storage::Storage;
+    use karl_session::SessionId;
+    use serde::{Deserialize, Serialize};
+    use std::sync::Arc;
+    use tauri::State;
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct OperatorDraft {
+        pub name: String,
+        pub emoji: String,
+        pub color: String,
+        pub tags: Vec<String>,
+        pub persona: String,
+        pub escalate_threshold: f32,
+        pub model: String,
+        pub hard_constraints: String,
+    }
+
+    fn now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn map_err<E: std::fmt::Display>(e: E) -> String {
+        e.to_string()
+    }
+
+    #[tauri::command]
+    pub async fn operator_list(
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<Vec<Operator>, String> {
+        Ok(registry.list())
+    }
+
+    #[tauri::command]
+    pub async fn operator_get(
+        id: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<Option<Operator>, String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        Ok(registry.get(id))
+    }
+
+    #[tauri::command]
+    pub async fn operator_create(
+        draft: OperatorDraft,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<Operator, String> {
+        let now = now_ms();
+        let op = Operator {
+            id: OperatorId(Ulid::new()),
+            name: draft.name,
+            emoji: draft.emoji,
+            color: draft.color,
+            tags: draft.tags,
+            persona: draft.persona,
+            escalate_threshold: draft.escalate_threshold,
+            model: draft.model,
+            hard_constraints: draft.hard_constraints,
+            is_default: false,
+            created_at_unix_ms: now,
+            updated_at_unix_ms: now,
+        };
+        registry.create(&storage, op).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_update(
+        id: String,
+        draft: OperatorDraft,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<Operator, String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        let existing = registry
+            .get(id)
+            .ok_or_else(|| format!("operator not found: {id}"))?;
+        let updated = Operator {
+            id,
+            name: draft.name,
+            emoji: draft.emoji,
+            color: draft.color,
+            tags: draft.tags,
+            persona: draft.persona,
+            escalate_threshold: draft.escalate_threshold,
+            model: draft.model,
+            hard_constraints: draft.hard_constraints,
+            is_default: existing.is_default,
+            created_at_unix_ms: existing.created_at_unix_ms,
+            updated_at_unix_ms: now_ms(),
+        };
+        registry.update(&storage, updated).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_delete(
+        id: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.delete(&storage, id).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_default(
+        id: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.set_default(&storage, id).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn session_set_operator(
+        session_id: String,
+        operator_id: Option<String>,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<(), String> {
+        let sid: SessionId = session_id.parse().map_err(map_err)?;
+        match operator_id {
+            Some(s) => {
+                let oid: OperatorId = s.parse().map_err(map_err)?;
+                registry.pin_session(sid, oid);
+            }
+            None => registry.unpin_session(sid),
+        }
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub async fn session_get_operator(
+        session_id: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<Operator, String> {
+        let sid: SessionId = session_id.parse().map_err(map_err)?;
+        Ok(registry.effective_for(sid))
+    }
+}

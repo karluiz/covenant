@@ -49,6 +49,13 @@ impl std::fmt::Display for SessionId {
     }
 }
 
+impl std::str::FromStr for SessionId {
+    type Err = ulid::DecodeError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ulid::from_string(s).map(SessionId)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error("pty: {0}")]
