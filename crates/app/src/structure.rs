@@ -122,6 +122,19 @@ pub fn read_file_text(path: &Path, max_bytes: u64) -> Result<ReadResult, String>
     }
 }
 
+pub fn write_file_text(path: &Path, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            return Err(format!(
+                "parent dir does not exist: {}",
+                parent.display()
+            ));
+        }
+    }
+    std::fs::write(path, content.as_bytes())
+        .map_err(|e| format!("write: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +251,29 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let f = tmp.path().join("nope.txt");
         assert!(read_file_text(&f, 1024).is_err());
+    }
+
+    #[test]
+    fn write_overwrites_existing_file() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("a.txt");
+        fs::write(&f, "old").unwrap();
+        write_file_text(&f, "new content").unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "new content");
+    }
+
+    #[test]
+    fn write_creates_new_file() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("new.txt");
+        write_file_text(&f, "fresh").unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), "fresh");
+    }
+
+    #[test]
+    fn write_to_missing_parent_errors() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("nope/missing.txt");
+        assert!(write_file_text(&f, "x").is_err());
     }
 }
