@@ -1095,15 +1095,37 @@ export class TabManager {
       onClose: () => {
         editorHost.hidden = true;
         showSplitter(false);
-        requestAnimationFrame(() => {
-          try {
-            fit.fit();
-          } catch {
-            /* ignore */
-          }
-        });
+        refitAfterLayoutTransition();
       },
     });
+
+    // Refit the terminal twice: once on the next rAF (for the
+    // first frame of the grid transition) and again on transitionend
+    // (when the columns have fully settled at their target widths).
+    // Skipping the second refit leaves xterm with stale cell metrics
+    // because the rAF measurement happens before the 220ms tween
+    // finishes, so the final terminal size never gets remeasured.
+    const refitAfterLayoutTransition = (): void => {
+      requestAnimationFrame(() => {
+        try {
+          fit.fit();
+        } catch {
+          /* ignore */
+        }
+      });
+      const onEnd = (ev: TransitionEvent) => {
+        if (ev.target !== pane) return;
+        if (ev.propertyName !== "grid-template-columns") return;
+        pane.removeEventListener("transitionend", onEnd);
+        try {
+          fit.fit();
+          void resizeSession(sessionId, term.cols, term.rows);
+        } catch {
+          /* ignore */
+        }
+      };
+      pane.addEventListener("transitionend", onEnd);
+    };
 
     // Single source of truth for "open this path in the editor".
     // Used both by the file-tree click and the global-search-palette
@@ -1114,13 +1136,7 @@ export class TabManager {
       editorHost.hidden = false;
       showSplitter(true);
       void editor.open(path, opts);
-      requestAnimationFrame(() => {
-        try {
-          fit.fit();
-        } catch {
-          /* ignore */
-        }
-      });
+      refitAfterLayoutTransition();
     };
 
     const structure = new StructureTree(blocksHost, (path) => openEditor(path));

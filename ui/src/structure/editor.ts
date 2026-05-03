@@ -44,6 +44,13 @@ import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { Icons } from "../icons";
 import { structureReadFile, structureWriteFile } from "../api";
 import { languageForPath } from "./languages";
+import {
+  MarkdownPreview,
+  type Preview,
+  type PreviewKind,
+  previewKindForPath,
+  SvgPreview,
+} from "./preview";
 import { editorHighlight, editorTheme } from "./theme";
 
 export interface EditorCallbacks {
@@ -53,6 +60,39 @@ export interface EditorCallbacks {
 }
 
 const SIZE_THRESHOLD_BYTES = 1024 * 1024; // 1 MiB per spec.
+
+/// Which mode the editor body is currently in. "source" = CodeMirror,
+/// "preview" = read-only renderer keyed off the file extension. The
+/// default mode for a freshly-opened file is decided by the
+/// per-extension preference (see `loadViewModePref` / `saveViewModePref`).
+type ViewMode = "source" | "preview";
+
+const VIEW_MODE_PREFS_KEY = "covenant.editor.view-mode-by-ext";
+
+interface ViewModePrefs {
+  /// Lowercased extension → last-used mode. Persisted across sessions.
+  /// Files without a registered preview never end up in this map.
+  [ext: string]: ViewMode;
+}
+
+function loadViewModePrefs(): ViewModePrefs {
+  try {
+    const raw = localStorage.getItem(VIEW_MODE_PREFS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as ViewModePrefs) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveViewModePrefs(prefs: ViewModePrefs): void {
+  try {
+    localStorage.setItem(VIEW_MODE_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* private mode / quota — runtime value still wins this session */
+  }
+}
 
 export class StructureEditor {
   private readonly root: HTMLElement;
@@ -66,6 +106,10 @@ export class StructureEditor {
   private readonly placeholderEl: HTMLElement;
   private currentPath: string | null = null;
   private originalContent: string | null = null;
+  /// Latest known content irrespective of viewer. In source mode it
+  /// shadows the CM6 doc on every change; in preview mode it keeps
+  /// the last source value so toggling back doesn't lose edits.
+  private liveContent = "";
   private dirty = false;
   private visible = false;
   private wrap: boolean;
@@ -76,6 +120,16 @@ export class StructureEditor {
   private view: EditorView | null = null;
   private readonly languageCompartment = new Compartment();
   private readonly wrapCompartment = new Compartment();
+
+  /// Preview state. `previewKind` is null when the open file has no
+  /// preview available (the toggle hides). `currentPreview` holds the
+  /// active renderer when `viewMode === "preview"`, null otherwise.
+  /// `previewHostEl` is permanent so we don't churn DOM nodes on toggle.
+  private viewMode: ViewMode = "source";
+  private previewKind: PreviewKind | null = null;
+  private currentPreview: Preview | null = null;
+  private readonly previewHostEl: HTMLElement;
+  private readonly previewBtn: HTMLButtonElement;
 
   constructor(
     private readonly host: HTMLElement,
@@ -101,6 +155,16 @@ export class StructureEditor {
     this.statusEl = document.createElement("span");
     this.statusEl.className = "structure-editor-status";
     this.headerEl.appendChild(this.statusEl);
+
+    // Preview/Source toggle — only shown when the open file has a
+    // preview kind registered (md/svg). Hidden for plain code files
+    // so the header doesn't carry a non-functional button.
+    this.previewBtn = document.createElement("button");
+    this.previewBtn.type = "button";
+    this.previewBtn.className = "structure-editor-preview-btn";
+    this.previewBtn.hidden = true;
+    this.previewBtn.addEventListener("click", () => this.toggleViewMode());
+    this.headerEl.appendChild(this.previewBtn);
 
     // Wrap toggle — flips between soft-wrap (default) and no-wrap.
     // Per-file, not persisted: every fresh file open starts wrapped.
@@ -128,6 +192,14 @@ export class StructureEditor {
     this.editorHostEl = document.createElement("div");
     this.editorHostEl.className = "structure-editor-cm";
     this.bodyEl.appendChild(this.editorHostEl);
+
+    // Preview host — sibling to the CM6 host. Each view-mode shows
+    // exactly one of the two via .hidden, sparing us a teardown of
+    // CM6's DOM tree on every toggle.
+    this.previewHostEl = document.createElement("div");
+    this.previewHostEl.className = "structure-editor-preview";
+    this.previewHostEl.hidden = true;
+    this.bodyEl.appendChild(this.previewHostEl);
 
     this.placeholderEl = document.createElement("div");
     this.placeholderEl.className = "structure-editor-placeholder";
@@ -180,6 +252,14 @@ export class StructureEditor {
         // (the global content-search palette owns that).
         keymap.of([
           { key: "Mod-s", preventDefault: true, run: () => this.handleSave() },
+          {
+            key: "Mod-Shift-p",
+            preventDefault: true,
+            run: () => {
+              this.toggleViewMode();
+              return true;
+            },
+          },
           ...searchKeymap,
           ...historyKeymap,
           ...foldKeymap,
@@ -198,8 +278,8 @@ export class StructureEditor {
 
   private onDocChanged(): void {
     if (!this.view) return;
-    const current = this.view.state.doc.toString();
-    const next = current !== (this.originalContent ?? "");
+    this.liveContent = this.view.state.doc.toString();
+    const next = this.liveContent !== (this.originalContent ?? "");
     if (next !== this.dirty) {
       this.dirty = next;
       this.renderStatus();
@@ -276,31 +356,136 @@ export class StructureEditor {
     }
     const text = result.content ?? "";
     this.originalContent = text;
+    this.liveContent = text;
     this.dirty = false;
     this.placeholderEl.hidden = true;
-    this.editorHostEl.hidden = false;
 
-    // Tear down any previous view + state. Cheaper than reconfiguring
-    // language + replacing the whole document on a totally different
-    // file; CM6 dispatches per-line for big inserts otherwise.
+    // Decide initial view mode based on the file's preview kind +
+    // user's persisted preference for that extension. Preview is the
+    // default for previewable types when the user hasn't picked yet.
+    // EXCEPTION: a `line` jump from global search forces source mode —
+    // line jumping is meaningless in a rendered preview.
+    this.previewKind = previewKindForPath(path);
+    const ext = extensionOf(path);
+    const prefs = loadViewModePrefs();
+    const preferred =
+      this.previewKind && ext
+        ? (prefs[ext] ?? "preview")
+        : "source";
+    const initialMode: ViewMode =
+      this.previewKind && opts?.line === undefined ? preferred : "source";
+
+    // Tear down any previous CM6 view + Preview before remounting.
     if (this.view) {
       this.view.destroy();
       this.view = null;
     }
-    const state = this.buildState(path, text);
+    if (this.currentPreview) {
+      this.currentPreview.dispose();
+      this.currentPreview = null;
+    }
+    this.previewHostEl.innerHTML = "";
+
+    if (initialMode === "preview") {
+      this.enterPreview(text, { focus: false });
+    } else {
+      this.enterSource(text, { focus: true, jumpToLine: opts?.line });
+    }
+    this.refreshPreviewButton();
+    this.renderStatus();
+  }
+
+  /// Mount CM6 with `text` as the initial doc. Used both for fresh
+  /// file opens and for toggling preview→source.
+  private enterSource(
+    text: string,
+    opts: { focus: boolean; jumpToLine?: number },
+  ): void {
+    this.viewMode = "source";
+    this.previewHostEl.hidden = true;
+    this.editorHostEl.hidden = false;
+    if (this.currentPreview) {
+      this.currentPreview.dispose();
+      this.currentPreview = null;
+    }
+    if (!this.currentPath) return;
+    const state = this.buildState(this.currentPath, text);
     this.view = new EditorView({
       state,
       parent: this.editorHostEl,
     });
-    this.renderStatus();
-
     requestAnimationFrame(() => {
       if (!this.view) return;
-      this.view.focus();
-      if (opts?.line !== undefined) {
-        this.jumpToLine(opts.line);
-      }
+      if (opts.focus) this.view.focus();
+      if (opts.jumpToLine !== undefined) this.jumpToLine(opts.jumpToLine);
     });
+  }
+
+  /// Mount the preview renderer for the current `previewKind` with
+  /// `text` as content. `text` may be the original disk content OR
+  /// the user's edits-in-flight when toggling source→preview.
+  private enterPreview(text: string, opts: { focus: boolean }): void {
+    if (!this.previewKind) return;
+    this.viewMode = "preview";
+    this.editorHostEl.hidden = true;
+    this.previewHostEl.hidden = false;
+    if (this.view) {
+      this.view.destroy();
+      this.view = null;
+    }
+    this.currentPreview = makePreview(this.previewKind);
+    this.currentPreview.mount(this.previewHostEl, text);
+    if (opts.focus) {
+      // Preview is read-only but should be focusable for ⌘⇧P / Esc.
+      this.previewHostEl.tabIndex = -1;
+      this.previewHostEl.focus({ preventScroll: true });
+    }
+  }
+
+  /// Flip between Preview and Source for the current file. No-op when
+  /// `previewKind` is null (button is hidden, so the only way in is
+  /// the keyboard shortcut firing on a non-previewable file).
+  private toggleViewMode(): void {
+    if (!this.previewKind || !this.currentPath) return;
+
+    // Snapshot the latest text before swapping. In source mode we read
+    // from CM6's doc (could be dirty); in preview mode liveContent
+    // already holds the most recent edit.
+    const text =
+      this.viewMode === "source" && this.view
+        ? this.view.state.doc.toString()
+        : this.liveContent;
+    this.liveContent = text;
+
+    if (this.viewMode === "source") {
+      this.enterPreview(text, { focus: true });
+    } else {
+      this.enterSource(text, { focus: true });
+    }
+
+    // Persist the choice for this extension so the next file with
+    // the same extension opens straight into the user's preferred mode.
+    const ext = extensionOf(this.currentPath);
+    if (ext) {
+      const prefs = loadViewModePrefs();
+      prefs[ext] = this.viewMode;
+      saveViewModePrefs(prefs);
+    }
+
+    this.refreshPreviewButton();
+  }
+
+  private refreshPreviewButton(): void {
+    if (!this.previewKind) {
+      this.previewBtn.hidden = true;
+      return;
+    }
+    this.previewBtn.hidden = false;
+    const inPreview = this.viewMode === "preview";
+    this.previewBtn.textContent = inPreview ? "source" : "preview";
+    this.previewBtn.title = inPreview
+      ? "Show source (⌘⇧P)"
+      : "Show preview (⌘⇧P)";
   }
 
   /// Move caret + scroll to `line` (1-based) in the active doc. Used
@@ -318,12 +503,20 @@ export class StructureEditor {
   }
 
   async save(): Promise<void> {
-    if (!this.currentPath || !this.view) return;
+    if (!this.currentPath) return;
     if (!this.dirty) return;
-    const text = this.view.state.doc.toString();
+    // In preview mode the file isn't directly editable, but we may
+    // have buffered edits from a prior source toggle in `liveContent`.
+    // Either way liveContent is the source of truth for "what the user
+    // would save right now".
+    const text =
+      this.viewMode === "source" && this.view
+        ? this.view.state.doc.toString()
+        : this.liveContent;
     try {
       await structureWriteFile(this.currentPath, text);
       this.originalContent = text;
+      this.liveContent = text;
       this.dirty = false;
       this.renderStatus();
       this.callbacks.toast?.("Saved", "info");
@@ -338,6 +531,18 @@ export class StructureEditor {
     this.visible = true;
     this.root.hidden = false;
     this.host.classList.add("structure-editor-open");
+    // Replay the entry animation on every fresh show. We remove the
+    // class first and force a reflow so re-adding it actually
+    // retriggers the keyframes (otherwise the class is already there
+    // from a prior open and nothing happens).
+    this.root.classList.remove("structure-editor-entering");
+    void this.root.offsetWidth;
+    this.root.classList.add("structure-editor-entering");
+    const onEnd = () => {
+      this.root.classList.remove("structure-editor-entering");
+      this.root.removeEventListener("animationend", onEnd);
+    };
+    this.root.addEventListener("animationend", onEnd);
   }
 
   close(): void {
@@ -351,11 +556,18 @@ export class StructureEditor {
     this.host.classList.remove("structure-editor-open");
     this.currentPath = null;
     this.originalContent = null;
+    this.liveContent = "";
     this.dirty = false;
+    this.previewKind = null;
     if (this.view) {
       this.view.destroy();
       this.view = null;
     }
+    if (this.currentPreview) {
+      this.currentPreview.dispose();
+      this.currentPreview = null;
+    }
+    this.previewBtn.hidden = true;
     this.callbacks.onClose?.();
   }
 
@@ -364,10 +576,18 @@ export class StructureEditor {
       this.view.destroy();
       this.view = null;
     }
+    if (this.currentPreview) {
+      this.currentPreview.dispose();
+      this.currentPreview = null;
+    }
     this.editorHostEl.hidden = true;
+    this.previewHostEl.hidden = true;
+    this.previewKind = null;
+    this.previewBtn.hidden = true;
     this.placeholderEl.hidden = false;
     this.placeholderEl.textContent = message;
     this.originalContent = null;
+    this.liveContent = "";
     this.dirty = false;
     this.statusEl.textContent = "";
     this.statusEl.classList.remove("dirty");
@@ -396,6 +616,15 @@ export class StructureEditor {
     }
     this.extEl.hidden = false;
     this.extEl.textContent = ext;
+  }
+}
+
+function makePreview(kind: PreviewKind): Preview {
+  switch (kind) {
+    case "markdown":
+      return new MarkdownPreview();
+    case "svg":
+      return new SvgPreview();
   }
 }
 

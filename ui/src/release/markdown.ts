@@ -61,8 +61,32 @@ export function renderMarkdown(src: string): string {
     }
   };
 
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
     const line = raw.replace(/\s+$/, "");
+
+    // Fenced code block (``` or ~~~). Greedy: scan until the matching
+    // closing fence on its own line. Content goes into <pre><code>
+    // un-formatted (no inline markdown inside code). Optional language
+    // tag after the opening fence becomes a `lang-<x>` class so we
+    // can style per-language later if we want.
+    const fence = line.match(/^([`~]{3,})\s*([A-Za-z0-9_+-]*)\s*$/);
+    if (fence) {
+      flushPara();
+      closeList();
+      const closeRe = new RegExp(`^${fence[1].charAt(0)}{${fence[1].length},}\\s*$`);
+      const lang = fence[2] ? ` class="lang-${esc(fence[2])}"` : "";
+      const buf: string[] = [];
+      i++;
+      while (i < lines.length && !closeRe.test(lines[i])) {
+        buf.push(lines[i]);
+        i++;
+      }
+      // Trailing fence is consumed by the for-loop's i++; if EOF we
+      // just stop.
+      out.push(`<pre><code${lang}>${esc(buf.join("\n"))}</code></pre>`);
+      continue;
+    }
 
     if (line.trim() === "") {
       flushPara();
