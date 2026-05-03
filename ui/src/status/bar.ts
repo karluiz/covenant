@@ -22,6 +22,7 @@ import type {
   DirContext,
   MissionInfo,
   MissionSaveResult,
+  Operator,
   SessionId,
 } from "../api";
 import {
@@ -69,6 +70,11 @@ export class StatusBar {
   private currentAom: AomStatus | null = null;
   private aomActions: AomActions | null = null;
   private aomPopover: HTMLElement | null = null;
+  /// Pinned Operator entity for the active tab. Set via setOperatorEntity;
+  /// separate from `currentOperator` (enabled/live booleans). Null when
+  /// the active tab has no pinned operator (uses backend default) or when
+  /// no tab is active.
+  private currentOperatorEntity: Operator | null = null;
   private lastDirCtx: DirContext = { git: null, runtime: null };
   /// Monotonic; bumped on every fetch — late-arriving stale responses
   /// are dropped by comparing against this on completion.
@@ -86,6 +92,11 @@ export class StatusBar {
   /// opens the release-log modal. Decoupling the StatusBar from the
   /// ReleasePanel directly so the bar stays a thin renderer.
   public onVersionChipClick: (() => void) | null = null;
+
+  /// Wired by main.ts (Task 5 will hook this to an OperatorPicker).
+  /// Fires when the user clicks the operator chip in the status bar.
+  /// No-op stub until the picker is wired in Plan 3 Task 5.
+  public onOperatorChipClick: ((sessionId: SessionId) => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("status-bar");
@@ -183,6 +194,15 @@ export class StatusBar {
     if (this.currentSessionId === null && sessionId !== null) {
       this.currentSessionId = sessionId;
     }
+    this.render(this.lastDirCtx);
+  }
+
+  /// Pushed by TabManager when the active tab's pinned Operator entity
+  /// changes (tab switch, setTabOperator, refreshOperatorCache). Null
+  /// collapses the chip — no chip for "using default operator".
+  setOperatorEntity(op: Operator | null): void {
+    if (this.currentOperatorEntity?.id === op?.id) return;
+    this.currentOperatorEntity = op;
     this.render(this.lastDirCtx);
   }
 
@@ -363,6 +383,18 @@ export class StatusBar {
       this.host.appendChild(
         segment(CPU_SVG, ctx.runtime.language, ctx.runtime.version),
       );
+    }
+    if (this.currentOperatorEntity) {
+      const opEntity = this.currentOperatorEntity;
+      const sid = this.currentSessionId;
+      const btn = document.createElement("button");
+      btn.className = "status-chip status-chip-operator";
+      btn.style.background = opEntity.color;
+      btn.innerHTML = `${escapeHtml(opEntity.emoji)}<span>${escapeHtml(opEntity.name)}</span>`;
+      btn.addEventListener("click", () => {
+        if (sid) this.onOperatorChipClick?.(sid);
+      });
+      this.host.appendChild(btn);
     }
     if (this.currentMission && this.currentSessionId) {
       this.host.appendChild(

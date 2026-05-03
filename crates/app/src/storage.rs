@@ -80,6 +80,25 @@ CREATE TABLE IF NOT EXISTS aom_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_aom_sessions_started ON aom_sessions(started_at_unix_ms);
+
+CREATE TABLE IF NOT EXISTS operators (
+    id                   TEXT PRIMARY KEY,
+    name                 TEXT NOT NULL,
+    emoji                TEXT NOT NULL DEFAULT '🤖',
+    color                TEXT NOT NULL DEFAULT '#6B7280',
+    tags_json            TEXT NOT NULL DEFAULT '[]',
+    persona              TEXT NOT NULL,
+    escalate_threshold   REAL NOT NULL DEFAULT 0.6,
+    model                TEXT NOT NULL,
+    hard_constraints     TEXT NOT NULL DEFAULT '',
+    is_default           INTEGER NOT NULL DEFAULT 0,
+    created_at_unix_ms   INTEGER NOT NULL,
+    updated_at_unix_ms   INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS operators_default_unique
+    ON operators(is_default) WHERE is_default = 1;
+CREATE UNIQUE INDEX IF NOT EXISTS operators_name_ci
+    ON operators(LOWER(name));
 ";
 
 #[derive(Debug, Error)]
@@ -90,6 +109,8 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("blocking task panicked: {0}")]
     Join(String),
+    #[error("{0}")]
+    Other(String),
 }
 
 /// Lightweight snapshot of a persisted block, tailored for the agent's
@@ -201,6 +222,12 @@ pub struct OperatorDecisionRow {
     /// from `in_flight_command` at decision time. NULL when no known
     /// executor matched the command head.
     pub executor_name: Option<String>,
+    /// Operator that fired this decision. NULL for rows predating the
+    /// multi-operator feature or sessions with no operator attached.
+    pub operator_id: Option<String>,
+    /// Display name of the operator at decision time (snapshot so the
+    /// chip still shows the right name even if the operator is renamed).
+    pub operator_name: Option<String>,
 }
 
 fn shorten(id: &str) -> String {
@@ -242,6 +269,14 @@ impl Storage {
         );
         let _ = conn.execute(
             "ALTER TABLE operator_decisions ADD COLUMN executor_name TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN operator_id TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN operator_name TEXT",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
@@ -661,6 +696,8 @@ impl Storage {
         cost_usd: f64,
         mission_path: Option<String>,
         executor_name: Option<String>,
+        operator_id: Option<String>,
+        operator_name: Option<String>,
     ) -> Result<i64, StorageError> {
         let conn = self.inner.clone();
         let session_str = session_id.to_string();
@@ -670,8 +707,8 @@ impl Storage {
                 "INSERT INTO operator_decisions
                  (session_id, timestamp_unix_ms, in_flight_command,
                   output_excerpt, action, reply_text, rationale, executed,
-                  cost_usd, mission_path, executor_name)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  cost_usd, mission_path, executor_name, operator_id, operator_name)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     session_str,
                     timestamp_unix_ms as i64,
@@ -684,6 +721,8 @@ impl Storage {
                     cost_usd,
                     mission_path,
                     executor_name,
+                    operator_id,
+                    operator_name,
                 ],
             )?;
             Ok(c.last_insert_rowid())
@@ -950,7 +989,7 @@ impl Storage {
                 let mut stmt = c.prepare(
                     "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
-                            mission_path, executor_name
+                            mission_path, executor_name, operator_id, operator_name
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -968,6 +1007,8 @@ impl Storage {
                         executed: r.get::<_, i64>(8)? != 0,
                         mission_path: r.get(9)?,
                         executor_name: r.get(10)?,
+                        operator_id: r.get(11)?,
+                        operator_name: r.get(12)?,
                     })
                 })?;
                 let mut out = Vec::new();
@@ -977,6 +1018,176 @@ impl Storage {
                 Ok(out)
             },
         )
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Insert a new operator row. Returns DuplicateName if `name`
+    /// (case-insensitive) is already taken.
+    pub async fn operator_insert(
+        &self,
+        op: crate::operator_registry::Operator,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            let tags_json = serde_json::to_string(&op.tags)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            c.execute(
+                "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
+                 escalate_threshold, model, hard_constraints, is_default, \
+                 created_at_unix_ms, updated_at_unix_ms) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                params![
+                    op.id.to_string(),
+                    op.name,
+                    op.emoji,
+                    op.color,
+                    tags_json,
+                    op.persona,
+                    op.escalate_threshold as f64,
+                    op.model,
+                    op.hard_constraints,
+                    if op.is_default { 1_i64 } else { 0_i64 },
+                    op.created_at_unix_ms as i64,
+                    op.updated_at_unix_ms as i64,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn operator_update(
+        &self,
+        op: crate::operator_registry::Operator,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            let tags_json = serde_json::to_string(&op.tags)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            c.execute(
+                "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
+                 persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
+                 updated_at_unix_ms=?10 WHERE id=?1",
+                params![
+                    op.id.to_string(),
+                    op.name,
+                    op.emoji,
+                    op.color,
+                    tags_json,
+                    op.persona,
+                    op.escalate_threshold as f64,
+                    op.model,
+                    op.hard_constraints,
+                    op.updated_at_unix_ms as i64,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn operator_delete(&self, id: String) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            c.execute("DELETE FROM operators WHERE id=?1", params![id])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Atomically flip the default flag: clear all, set the target.
+    /// Errors if `id` does not exist.
+    pub async fn operator_set_default(&self, id: String) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let mut c = conn.blocking_lock();
+            let tx = c.transaction()?;
+            tx.execute("UPDATE operators SET is_default = 0", [])?;
+            let n = tx.execute(
+                "UPDATE operators SET is_default = 1 WHERE id = ?1",
+                params![id],
+            )?;
+            if n == 0 {
+                return Err(StorageError::Other(format!("operator id {id} not found")));
+            }
+            tx.commit()?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn operator_list(
+        &self,
+    ) -> Result<Vec<crate::operator_registry::Operator>, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<_, StorageError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, name, emoji, color, tags_json, persona, \
+                 escalate_threshold, model, hard_constraints, is_default, \
+                 created_at_unix_ms, updated_at_unix_ms FROM operators \
+                 ORDER BY is_default DESC, LOWER(name) ASC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    let id: String = row.get(0)?;
+                    let tags_json: String = row.get(4)?;
+                    let tags: Vec<String> =
+                        serde_json::from_str(&tags_json).unwrap_or_default();
+                    Ok(crate::operator_registry::Operator {
+                        id: id.parse().map_err(|_| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                0,
+                                rusqlite::types::Type::Text,
+                                "invalid ulid".into(),
+                            )
+                        })?,
+                        name: row.get(1)?,
+                        emoji: row.get(2)?,
+                        color: row.get(3)?,
+                        tags,
+                        persona: row.get(5)?,
+                        escalate_threshold: row.get::<_, f64>(6)? as f32,
+                        model: row.get(7)?,
+                        hard_constraints: row.get(8)?,
+                        is_default: row.get::<_, i64>(9)? != 0,
+                        created_at_unix_ms: row.get::<_, i64>(10)? as u64,
+                        updated_at_unix_ms: row.get::<_, i64>(11)? as u64,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// One-shot backfill of `operator_decisions.operator_id` /
+    /// `operator_name` to the given default. Idempotent: only updates
+    /// rows where `operator_id IS NULL`.
+    pub async fn operator_decisions_backfill(
+        &self,
+        default_id: String,
+        default_name: String,
+    ) -> Result<usize, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<usize, StorageError> {
+            let c = conn.blocking_lock();
+            let n = c.execute(
+                "UPDATE operator_decisions SET operator_id = ?1, operator_name = ?2 \
+                 WHERE operator_id IS NULL",
+                params![default_id, default_name],
+            )?;
+            Ok(n)
+        })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -1503,6 +1714,8 @@ mod tests {
             0.001,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1517,6 +1730,8 @@ mod tests {
             Some("ALWAYS-YES tests".to_string()),
             true,
             0.012,
+            None,
+            None,
             None,
             None,
         )
@@ -1535,6 +1750,8 @@ mod tests {
             0.008,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1549,6 +1766,8 @@ mod tests {
             Some("ALWAYS-YES commit".to_string()),
             true,
             0.015,
+            None,
+            None,
             None,
             None,
         )
@@ -1571,6 +1790,8 @@ mod tests {
             Some("post-aom".to_string()),
             true,
             0.005,
+            None,
+            None,
             None,
             None,
         )

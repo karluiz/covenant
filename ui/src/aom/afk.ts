@@ -12,7 +12,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   aomStatus,
   listOperatorDecisions,
+  operatorList,
   type AomStatus,
+  type Operator,
   type OperatorDecisionRow,
 } from "../api";
 import type { TabManager } from "../tabs/manager";
@@ -27,6 +29,8 @@ interface DecisionEvent {
   executed: boolean;
   cost_usd: number;
   timestamp_unix_ms: number;
+  /// Operator that fired this decision, if present in the event payload.
+  operator_id?: string | null;
 }
 
 export interface AfkOverlayDeps {
@@ -46,6 +50,8 @@ export class AfkOverlay {
   private status: AomStatus | null = null;
   private unlistenDecision: UnlistenFn | null = null;
   private autoScroll = true;
+  private activeOperatorIds = new Set<string>();
+  private opCache: Map<string, Operator> = new Map();
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -67,6 +73,7 @@ export class AfkOverlay {
           <span class="afk-stat afk-stat-elapsed">—</span>
           <span class="afk-stat afk-stat-tabs">—</span>
         </div>
+        <div class="afk-active-operators" data-role="active-operators"></div>
       </header>
       <main class="afk-feed-wrap">
         <div class="afk-feed" tabindex="-1">
@@ -99,8 +106,42 @@ export class AfkOverlay {
       pill.hidden = true;
     });
 
+    this.activeOperatorIds.clear();
     this.poll = window.setInterval(() => void this.refreshHeader(), 5_000);
+    void this.refreshOpCache();
     void this.bootstrap();
+  }
+
+  private async refreshOpCache(): Promise<void> {
+    try {
+      const ops = await operatorList();
+      this.opCache.clear();
+      for (const op of ops) {
+        this.opCache.set(op.id, op);
+      }
+      this.renderActiveOperators();
+    } catch {
+      // Non-fatal.
+    }
+  }
+
+  private renderActiveOperators(): void {
+    if (!this.root) return;
+    const el = this.root.querySelector<HTMLElement>("[data-role='active-operators']");
+    if (!el) return;
+    if (this.activeOperatorIds.size === 0) {
+      el.innerHTML = "";
+      return;
+    }
+    const chips = Array.from(this.activeOperatorIds)
+      .map((id) => {
+        const op = this.opCache.get(id);
+        const color = op?.color ?? "#6B7280";
+        const label = op ? `${op.emoji} ${op.name}` : `…${id.slice(-6)}`;
+        return `<span class="afk-op-chip" style="background:${escapeHtml(color)}">${escapeHtml(label)}</span>`;
+      })
+      .join("");
+    el.innerHTML = `<span class="afk-active-label">Active operators:</span>${chips}`;
   }
 
   close(): void {
@@ -187,6 +228,11 @@ export class AfkOverlay {
     const feed = this.root.querySelector<HTMLElement>(".afk-feed");
     if (!feed) return;
 
+    if (d.operator_id) {
+      this.activeOperatorIds.add(d.operator_id);
+      this.renderActiveOperators();
+    }
+
     // Drop the empty-state on first card.
     const empty = feed.querySelector(".afk-feed-empty");
     if (empty) empty.remove();
@@ -249,8 +295,12 @@ export class AfkOverlay {
       if (empty) empty.remove();
     }
     for (const r of scoped) {
+      if (r.operator_id) {
+        this.activeOperatorIds.add(r.operator_id);
+      }
       feed.appendChild(renderSeededCard(r));
     }
+    this.renderActiveOperators();
     if (this.autoScroll) {
       feed.scrollTop = feed.scrollHeight;
     }

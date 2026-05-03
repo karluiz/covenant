@@ -20,9 +20,10 @@ mod history_import;
 mod mission_persistence;
 mod notify;
 mod operator;
+pub mod operator_registry;
 mod safety;
-mod settings;
-mod storage;
+pub mod settings;
+pub mod storage;
 mod structure;
 mod summarizer;
 mod tab_manifest;
@@ -418,9 +419,14 @@ async fn resize_session(
 }
 
 #[tauri::command]
-async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
+async fn close_session(
+    state: State<'_, AppState>,
+    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    id: String,
+) -> Result<(), String> {
     let id = parse_id(&id)?;
     state.operator.detach(id).await;
+    registry.unpin_session(id);
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();
@@ -1377,6 +1383,34 @@ pub fn run() {
                 .map_err(|e| format!("open storage: {e}"))?;
 
             let settings_arc = Arc::new(Mutex::new(loaded));
+
+            // Boot-time: construct OperatorRegistry, seed Default from legacy
+            // operator config, then manage Arc'd registry + storage clone so
+            // Tauri commands (Task 6) can resolve State<Arc<OperatorRegistry>>
+            // and State<Arc<Storage>>.
+            let registry = tauri::async_runtime::block_on(async {
+                crate::operator_registry::OperatorRegistry::load(&storage).await
+            })
+            .map_err(|e| format!("load operator registry: {e}"))?;
+
+            {
+                let (legacy_op_cfg, global_model) = {
+                    let s = settings_arc.blocking_lock();
+                    (s.operator.clone(), s.agent.model_summary.clone())
+                };
+                if let Err(e) = tauri::async_runtime::block_on(async {
+                    registry
+                        .seed_default_from_settings(&storage, &legacy_op_cfg, &global_model)
+                        .await
+                }) {
+                    tracing::warn!(error = %e, "operator seed failed; continuing");
+                }
+            }
+
+            let registry_arc = Arc::new(registry);
+            app.manage(registry_arc.clone());
+            app.manage(Arc::new(storage.clone()));
+
             let aom_handle = aom::new_handle();
             let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());
             // Pre-warm macOS notification permission so the first real
@@ -1392,6 +1426,7 @@ pub fn run() {
                 aom_handle.clone(),
                 mission_store,
                 notifier.clone(),
+                registry_arc.clone(),
             );
 
             // One-shot Recall seeding: on first launch, import the
@@ -1469,6 +1504,14 @@ pub fn run() {
             drafts::next_draft_id,
             drafts::suggest_draft_section,
             drafts::list_published_specs,
+            operator_registry::commands::operator_list,
+            operator_registry::commands::operator_get,
+            operator_registry::commands::operator_create,
+            operator_registry::commands::operator_update,
+            operator_registry::commands::operator_delete,
+            operator_registry::commands::operator_set_default,
+            operator_registry::commands::session_set_operator,
+            operator_registry::commands::session_get_operator,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

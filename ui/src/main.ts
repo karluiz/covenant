@@ -32,6 +32,7 @@ import { TabManager } from "./tabs/manager";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
+import { OperatorPicker } from "./operator/picker";
 
 /// Set body class controlling --surface-alpha. Adds `bg-{kind}` and
 /// removes the other two so toggling at runtime is idempotent.
@@ -233,6 +234,8 @@ async function boot(): Promise<void> {
   // tab strip stays minimal.
   manager.onActiveOperatorChange = (state, sessionId) =>
     statusBar.setOperator(state, sessionId);
+  manager.onActiveOperatorEntityChange = (op) =>
+    statusBar.setOperatorEntity(op);
   // Tab context-menu "View mission…" reuses the same modal as the
   // status-bar chip — keep the rendering in one place.
   manager.onMissionViewRequested = (mission, sessionId) =>
@@ -437,6 +440,32 @@ async function boot(): Promise<void> {
   if (!restored) {
     await manager.createTab();
   }
+
+  // Populate operator cache once the backend is up and tabs are
+  // restored — chips in the tab strip and status bar need this.
+  void manager.refreshOperatorCache();
+
+  // ⌘⇧O Operator Picker (Plan 3 Task 5)
+  const operatorPicker = new OperatorPicker(document.body);
+  operatorPicker.onAssigned = async (sessionId, op) => {
+    const tab = manager.tabForSession(sessionId);
+    if (tab) await manager.setTabOperator(tab.id, op.id);
+  };
+  // TODO: open directly to Operators pane when openTo API is added to SettingsPanel
+  operatorPicker.onNewRequested = () => { settings.toggle(); };
+  // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
+  operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
+  statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
+
+  // ⌘⇧O → open operator picker for the active session.
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey && e.shiftKey && (e.key === "O" || e.key === "o")) {
+      e.preventDefault();
+      const sid = manager.activeSessionId();
+      if (sid) void operatorPicker.open(sid);
+      return;
+    }
+  });
 
   window.addEventListener("keydown", (e) => {
     // ⌘= / ⌘+ → zoom in, ⌘- → zoom out, ⌘0 → reset (browser convention).

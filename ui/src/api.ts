@@ -130,6 +130,56 @@ export async function isAomExcluded(sessionId: SessionId): Promise<boolean> {
   return invoke<boolean>("is_aom_excluded", { sessionId });
 }
 
+export interface Operator {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+  tags: string[];
+  persona: string;
+  escalate_threshold: number;
+  model: string;
+  hard_constraints: string;
+  is_default: boolean;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+}
+
+export interface OperatorDraft {
+  name: string;
+  emoji: string;
+  color: string;
+  tags: string[];
+  persona: string;
+  escalate_threshold: number;
+  model: string;
+  hard_constraints: string;
+}
+
+export async function operatorList(): Promise<Operator[]> {
+  return invoke<Operator[]>("operator_list");
+}
+
+export async function operatorGet(id: string): Promise<Operator | null> {
+  return invoke<Operator | null>("operator_get", { id });
+}
+
+export async function operatorCreate(draft: OperatorDraft): Promise<Operator> {
+  return invoke<Operator>("operator_create", { draft });
+}
+
+export async function operatorUpdate(id: string, draft: OperatorDraft): Promise<Operator> {
+  return invoke<Operator>("operator_update", { id, draft });
+}
+
+export async function operatorDelete(id: string): Promise<void> {
+  return invoke<void>("operator_delete", { id });
+}
+
+export async function operatorSetDefault(id: string): Promise<void> {
+  return invoke<void>("operator_set_default", { id });
+}
+
 /// M-OP6 mission spec attached to a session. The Operator reads it
 /// as authoritative scope (Out of scope → escalate, File boundaries
 /// → constraints, Open questions → auto-escalate). Pass an absolute
@@ -321,6 +371,10 @@ export interface OperatorDecisionRow {
   /// Executor agent (claude / copilot / aider / …) detected at
   /// decision time. Null when no known executor matched.
   executor_name: string | null;
+  /// Operator that fired this decision. Null for pre-multi-operator rows.
+  operator_id: string | null;
+  /// Snapshot of the operator's display name at decision time.
+  operator_name: string | null;
 }
 
 export async function listOperatorDecisions(
@@ -586,3 +640,16 @@ export type {
   SuggestSection,
 } from "./drafts/api";
 export type { PublishedSpec } from "./drafts/api";
+
+// 3.9 Multi-operator surfaces -----------------------------------------------
+
+export async function sessionSetOperator(
+  sessionId: SessionId,
+  operatorId: string | null,
+): Promise<void> {
+  return invoke<void>("session_set_operator", { sessionId, operatorId });
+}
+
+export async function sessionGetOperator(sessionId: SessionId): Promise<Operator> {
+  return invoke<Operator>("session_get_operator", { sessionId });
+}

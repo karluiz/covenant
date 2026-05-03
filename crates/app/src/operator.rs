@@ -35,6 +35,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::aom::AomHandle;
 use crate::cost;
 use crate::mission_persistence;
+use crate::operator_registry::OperatorRegistry;
 use crate::safety;
 use crate::settings::Settings;
 use crate::storage::Storage;
@@ -246,6 +247,7 @@ pub struct OperatorWatcher {
     /// shared across the entire process. We pass it everywhere via
     /// the watcher rather than re-deriving from app_handle each call.
     mission_store: PathBuf,
+    registry: Arc<OperatorRegistry>,
 }
 
 struct Inner {
@@ -418,6 +420,7 @@ impl OperatorWatcher {
         aom: AomHandle,
         mission_store: PathBuf,
         notifier: crate::notify::Notifier,
+        registry: Arc<OperatorRegistry>,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -429,10 +432,12 @@ impl OperatorWatcher {
             app,
             aom,
             notifier,
+            registry.clone(),
         ));
         Self {
             inner,
             mission_store,
+            registry,
         }
     }
 
@@ -799,6 +804,7 @@ async fn tick_loop(
     app: AppHandle,
     aom: AomHandle,
     notifier: crate::notify::Notifier,
+    registry: Arc<OperatorRegistry>,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -817,7 +823,7 @@ async fn tick_loop(
             }
         }
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &registry).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -885,6 +891,7 @@ async fn run_tick(
     app: &AppHandle,
     aom: &AomHandle,
     notifier: &crate::notify::Notifier,
+    registry: &Arc<OperatorRegistry>,
 ) -> Result<(), String> {
     // Snapshot AOM state once per tick. When on, every Operator-enabled
     // tab gets autonomous posture + forced live regardless of per-tab
@@ -948,10 +955,8 @@ async fn run_tick(
 
     let (
         api_key,
-        model,
-        persona,
         executor_patterns_str,
-        deny_extra_str,
+        deny_extra_global,
         idle_threshold,
         max_per_min,
     ) = {
@@ -962,8 +967,6 @@ async fn run_tick(
         };
         (
             key,
-            s.agent.model_summary.clone(),
-            s.operator.persona.clone(),
             s.operator.executor_patterns.clone(),
             s.operator.deny_extra_patterns.clone(),
             Duration::from_secs(s.operator.idle_threshold_secs.max(1)),
@@ -975,10 +978,23 @@ async fn run_tick(
     if executor_regexes.is_empty() {
         return Ok(()); // no patterns configured
     }
-    let deny_extra_regexes = compile_regexes(&deny_extra_str);
 
     let now = Instant::now();
     for (session_id, state_arc, world_arc, per_tab_live, aom_excluded, mission) in candidates {
+        // Resolve per-session operator from the registry. Falls back to
+        // the Default operator if no assignment exists for this session.
+        let op = registry.effective_for(session_id);
+        let persona = op.persona.clone();
+        let model = op.model.clone();
+        let deny_extra_for_session: Vec<String> = op
+            .hard_constraints
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.to_string())
+            .chain(deny_extra_global.iter().cloned())
+            .collect();
+        let deny_extra_regexes = compile_regexes(&deny_extra_for_session);
+
         // Per-tab AOM opt-out wins: if this tab is excluded, AOM is
         // effectively off for it (falls back to per-tab live behavior +
         // normal persona). The global AOM banner stays on for everyone
@@ -1544,6 +1560,8 @@ async fn run_tick(
                 call_cost_usd,
                 mission.as_ref().map(|m| m.path.display().to_string()),
                 detect_executor(&cmd),
+                Some(op.id.to_string()),
+                Some(op.name.clone()),
             )
             .await
         {
@@ -1594,10 +1612,11 @@ async fn run_tick(
             if let Some(msg) = escalation_msg.as_deref() {
                 let body = msg.lines().next().unwrap_or(msg);
                 let body = truncate(body, 200);
+                let title = format!("[{}] paused", op.name);
                 notifier
                     .emit(
                         crate::notify::Trigger::OperatorEscalate,
-                        "Operator paused",
+                        &title,
                         body,
                         Some(session_id),
                     )
