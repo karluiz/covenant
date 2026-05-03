@@ -635,3 +635,16 @@ export type {
   DraftDocument,
   SuggestSection,
 } from "./drafts/api";
+
+// 3.9 Multi-operator surfaces -----------------------------------------------
+
+export async function sessionSetOperator(
+  sessionId: SessionId,
+  operatorId: string | null,
+): Promise<void> {
+  return invoke<void>("session_set_operator", { sessionId, operatorId });
+}
+
+export async function sessionGetOperator(sessionId: SessionId): Promise<Operator> {
+  return invoke<Operator>("session_get_operator", { sessionId });
+}

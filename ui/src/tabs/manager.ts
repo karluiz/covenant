@@ -27,6 +27,7 @@ import {
   isOperatorLive,
   resizeSession,
   setAomExcluded,
+  sessionSetOperator,
   setOperatorEnabled,
   setOperatorLive,
   setSessionMission,
@@ -132,6 +133,9 @@ interface Tab {
   /// Last cwd seen via OSC 7 / cwd_changed; passed to Recall so the
   /// backend can apply its cwd bonus.
   cwd: string | null;
+  /// Operator pinned to this tab. Null = backend default (first operator
+  /// in the registry). Persisted in the tab manifest; replayed on restore.
+  operator_id: string | null;
   disposers: IDisposable[];
 }
 
@@ -163,6 +167,8 @@ interface SerializedTab {
   /// the same dir. Now restoration is explicit per persisted tab —
   /// fresh tabs (⌘T) always start blank.
   mission_path: string | null;
+  /// Operator pinned to this tab at save time. Null = default operator.
+  operator_id: string | null;
 }
 
 interface SerializedGroup {
@@ -1294,6 +1300,7 @@ export class TabManager {
       openEditor,
       sidebarView: "blocks",
       cwd: null,
+      operator_id: null,
       disposers: [dataDispose, resizeDispose],
     };
     tabRef.current = tab;
@@ -1342,6 +1349,26 @@ export class TabManager {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_live failed", err);
+    }
+  }
+
+  /// Callback fired when the active tab's operator pin changes (e.g.
+  /// via `setTabOperator`). Tasks 3–4 wire the statusbar chip here.
+  public onActiveOperatorChanged: ((tab: Tab) => void) | null = null;
+
+  /// Pin (or unpin) an operator to a tab. Propagates to the backend,
+  /// persists to the manifest, and re-renders the tab strip.
+  public async setTabOperator(tabId: string, operatorId: string | null): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    tab.operator_id = operatorId;
+    if (tab.sessionId) {
+      await sessionSetOperator(tab.sessionId, operatorId);
+    }
+    this.scheduleSave();
+    this.renderTabbar();
+    if (tab.id === this.activeId) {
+      this.onActiveOperatorChanged?.(tab);
     }
   }
 
@@ -1504,6 +1531,7 @@ export class TabManager {
         color: t.color,
         group_id: t.groupId,
         mission_path: t.mission?.path ?? null,
+        operator_id: t.operator_id,
       })),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
@@ -1558,6 +1586,16 @@ export class TabManager {
           );
         }
       }
+      if (created) {
+        created.operator_id = t.operator_id ?? null;
+        if (created.operator_id) {
+          try {
+            await sessionSetOperator(created.sessionId, created.operator_id);
+          } catch (e) {
+            console.warn("session_set_operator failed on restore", e);
+          }
+        }
+      }
     }
     // Restore active selection.
     const idx = Math.min(m.active_index ?? 0, this.tabs.length - 1);
@@ -1574,6 +1612,11 @@ export class TabManager {
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
     this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
+    // Belt-and-suspenders: unpin operator before closing. Backend also
+    // unpins in close_session, but this keeps the in-process state clean.
+    if (tab.sessionId) {
+      void sessionSetOperator(tab.sessionId, null).catch(() => {});
+    }
     for (const d of tab.disposers) d.dispose();
     void closeSession(tab.sessionId).catch(() => {});
     tab.term.dispose();
