@@ -1222,6 +1222,17 @@ async fn structure_write_file(path: String, content: String) -> Result<(), Strin
         .map_err(|e| format!("write_file join: {e}"))?
 }
 
+#[tauri::command]
+async fn structure_write_binary_file(
+    path: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    let p = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || structure::write_file_binary(&p, &bytes))
+        .await
+        .map_err(|e| format!("write_binary join: {e}"))?
+}
+
 /// Project-wide substring search across the cwd, honoring .gitignore.
 /// Heavy filesystem work runs on the blocking pool so the IPC thread
 /// stays responsive while the user is still typing the next char.
@@ -1411,6 +1422,7 @@ pub fn run() {
             structure_list_dir,
             structure_read_file,
             structure_write_file,
+            structure_write_binary_file,
             structure_search,
         ])
         .run(tauri::generate_context!())
