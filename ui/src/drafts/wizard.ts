@@ -4,6 +4,7 @@ import {
   keymap,
   highlightActiveLine,
   drawSelection,
+  placeholder as cmPlaceholder,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -35,23 +36,68 @@ interface SectionDef {
 }
 
 const SECTIONS: SectionDef[] = [
-  { key: "Goal", label: "Goal", hint: "One sentence. The user-visible problem this resolves.",
-    placeholder: "Open an in-app reference without leaving Covenant when I forget what AOM does.",
-    required: true },
-  { key: "Out of scope", label: "Out of scope", hint: "What looks related but is NOT this task.",
-    placeholder: "- thing the agent might be tempted to also build\n- adjacent improvement",
-    helpSection: "out-of-scope", required: false },
-  { key: "Acceptance criteria", label: "Acceptance criteria", hint: "3–5 bullets, each observable.",
-    placeholder: "- [ ] user can do X via Y\n- [ ] command Z passes",
-    helpSection: "acceptance-criteria", required: true },
-  { key: "File boundaries", label: "File boundaries", hint: "Hint at the blast radius.",
-    placeholder: "- **Create**: `path/to/file.rs` (≤ 200 lines)\n- **DO NOT touch**: `crates/agent/`",
-    required: false },
-  { key: "Complexity", label: "Complexity", hint: "small | medium | large", placeholder: "small",
-    required: true },
-  { key: "Open questions", label: "Open questions", hint: "Decisions the agent shouldn't make alone.",
-    placeholder: "- decision X\n- tradeoff Y",
-    helpSection: "open-questions", required: false },
+  {
+    key: "Goal", label: "Goal",
+    hint: "One sentence. The user-visible problem this resolves.",
+    placeholder:
+`One sentence describing the outcome (not the implementation).
+
+Examples:
+  Open an in-app reference without leaving Covenant when I forget what AOM does.
+  Allow the Operator to escalate before consuming a session's full token budget.
+  Persist tab order across restarts so my workspace is the same every morning.`,
+    required: true,
+  },
+  {
+    key: "Out of scope", label: "Out of scope",
+    hint: "What looks related but is NOT this task — the broader, the safer.",
+    placeholder:
+`Bullets. The agent uses this to recognize when it's drifting and should stop.
+
+- Refactors of unrelated modules (e.g. don't touch storage just because you're nearby).
+- Adjacent UX improvements that deserve their own spec.
+- Performance tuning unless it blocks the goal.
+- Schema migrations beyond what this feature requires.`,
+    helpSection: "out-of-scope", required: false,
+  },
+  {
+    key: "Acceptance criteria", label: "Acceptance criteria",
+    hint: "3–5 observable bullets. The agent uses these to know when to stop.",
+    placeholder:
+`Each bullet must be checkable by hand or by a test.
+
+- [ ] User can press ⌘K and see the agent's last decision.
+- [ ] Selecting a suggestion calls \`apply_suggestion\` and updates the tab.
+- [ ] Closing the panel returns focus to the active terminal.
+- [ ] \`cargo test -p covenant\` passes (no regression).`,
+    helpSection: "acceptance-criteria", required: true,
+  },
+  {
+    key: "File boundaries", label: "File boundaries",
+    hint: "Hint at the blast radius. Lets the agent escalate instead of widening silently.",
+    placeholder:
+`- **Create**: \`crates/app/src/foo.rs\` (≤ 250 lines)
+- **Touch**: \`ui/src/main.ts\` (≤ 20 lines), \`ui/src/api.ts\` (≤ 10 lines)
+- **DO NOT touch**: \`crates/agent/\`, \`crates/operator/\`, anything outside the feature surface.`,
+    required: false,
+  },
+  {
+    key: "Complexity", label: "Complexity",
+    hint: "How big is this? Used to decide if it fits one AOM session.",
+    placeholder: "small",
+    required: true,
+  },
+  {
+    key: "Open questions", label: "Open questions",
+    hint: "Decisions the agent must NOT make alone — escalate instead.",
+    placeholder:
+`If any. Each item makes the agent pause for your call rather than guess.
+
+- Should drafts be selectable as missions, or always require publish first?
+- What's the fallback when the LLM cap is reached mid-session?
+- Default cadence for the autosave: 1.5s vs 5s?`,
+    helpSection: "open-questions", required: false,
+  },
 ];
 
 const COMPLEXITY_VALUES = ["small", "medium", "large"] as const;
@@ -186,6 +232,7 @@ export class DraftWizard {
             bracketMatching(),
             indentOnInput(),
             EditorView.lineWrapping,
+            cmPlaceholder(s.placeholder),
             markdown(),
             keymap.of([
               ...historyKeymap,
