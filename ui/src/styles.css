@@ -1714,6 +1714,29 @@ body.tab-drag-active * {
     color: var(--muted);
 }
 
+/* Dry-run modifier — appears on every badge variant when the decision
+   wasn't executed. Communicates "proposed, not actuated" with a
+   leading dot + slight transparency, instead of a verbose "(DRY)"
+   text suffix that repeats on every single row. */
+.op-badge.op-badge-dry {
+    opacity: 0.7;
+    padding-left: 11px;
+    position: relative;
+}
+
+.op-badge.op-badge-dry::before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.6;
+}
+
 .op-reply {
     display: flex;
     gap: 8px;
@@ -1897,9 +1920,77 @@ body.tab-drag-active * {
 }
 
 .op-chip-mission {
-    color: #f0d97a;
-    border-color: rgba(240, 217, 122, 0.35);
-    background: rgba(240, 217, 122, 0.08);
+    color: color-mix(in srgb, #f0d97a 75%, var(--muted));
+    border-color: transparent;
+    background: transparent;
+    font-style: italic;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* `×N · last 3s` group counter inserted into the row head when
+   consecutive identical decisions collapse into one row. Click toggles
+   the rest of the run open below. Subtle so it doesn't compete with
+   the badge — looks like a meta-chip more than an action. */
+.op-group-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    padding: 1px 9px;
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.op-group-toggle:hover {
+    color: var(--fg, #d6d8db);
+    background: color-mix(in srgb, var(--fg, #d6d8db) 6%, transparent);
+    border-color: color-mix(in srgb, var(--fg, #d6d8db) 22%, transparent);
+}
+
+.op-group-toggle-age {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 10px;
+}
+
+.op-group-toggle-open {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Container for the expanded "rest of the run" rows. Indented + a
+   left border so the relationship to the head row is obvious. */
+.op-group-rest {
+    margin-left: 16px;
+    padding-left: 12px;
+    border-left: 2px solid var(--border);
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+.op-row.op-row-grouped {
+    border-bottom: 1px dashed var(--border);
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.op-row.op-row-grouped:last-child {
+    border-bottom: none;
+}
+
+/* The command line — slightly muted vs the executor chip so the eye
+   lands on the chip first, then reads the args. */
+.op-cmd {
+    color: color-mix(in srgb, var(--accent) 80%, var(--fg, #d6d8db));
 }
 
 /* ─── Context menu (tabs + blocks) ─────────────────── */

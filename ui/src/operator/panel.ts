@@ -63,6 +63,11 @@ export class OperatorPanel {
   private unlisten: UnlistenFn | null = null;
   private rows: OperatorDecisionRow[] = [];
   private filter: FilterState = loadPrefs();
+  /// Decision IDs (the head row of a collapsed group) the user has
+  /// chosen to expand. Survives in-panel re-renders driven by streaming
+  /// "operator-decision" events; cleared on close. Not persisted to
+  /// localStorage — expansion is a transient view state.
+  private expandedGroups: Set<number> = new Set();
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -107,6 +112,7 @@ export class OperatorPanel {
       this.countersEl = null;
       this.filtersEl = null;
     }
+    this.expandedGroups.clear();
   }
 
   private render(): void {
@@ -328,16 +334,63 @@ export class OperatorPanel {
       return;
     }
 
-    this.listEl.innerHTML = visible
-      .map((r) => this.renderRow(r))
+    const groups = groupConsecutive(visible);
+    this.listEl.innerHTML = groups
+      .map((g) => this.renderGroup(g))
       .join("");
+
+    // Delegated handler for the group expand/collapse toggle. Single
+    // listener since we re-render the whole list on every refresh.
+    this.listEl
+      .querySelectorAll<HTMLElement>(".op-group-toggle")
+      .forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const idStr = btn.dataset.headId;
+          if (!idStr) return;
+          const id = Number(idStr);
+          if (this.expandedGroups.has(id)) this.expandedGroups.delete(id);
+          else this.expandedGroups.add(id);
+          this.renderList();
+        });
+      });
   }
 
-  private renderRow(r: OperatorDecisionRow): string {
+  /// Render one group. count==1 → just the row. count>1 → the head row
+  /// adorned with a `×N · last <age>` badge that toggles expansion;
+  /// when expanded, the remaining rows render below (newer at top so
+  /// they read chronologically against the head's "last" timestamp).
+  private renderGroup(g: Group): string {
+    if (g.rows.length === 1) return this.renderRow(g.rows[0], { groupBadge: "" });
+
+    const head = g.rows[0];
+    const expanded = this.expandedGroups.has(head.id);
+    const lastAge = humanizeAge(Date.now() - head.timestamp_unix_ms);
+    const badge = `
+      <button
+        type="button"
+        class="op-group-toggle${expanded ? " op-group-toggle-open" : ""}"
+        data-head-id="${head.id}"
+        title="${expanded ? "Collapse" : "Show all"}"
+      >
+        ×${g.rows.length}<span class="op-group-toggle-age">last ${escapeHtml(lastAge)}</span>
+      </button>
+    `;
+
+    const headHtml = this.renderRow(head, { groupBadge: badge });
+    if (!expanded) return headHtml;
+    const rest = g.rows
+      .slice(1)
+      .map((r) => this.renderRow(r, { groupBadge: "", inGroup: true }))
+      .join("");
+    return `${headHtml}<div class="op-group-rest">${rest}</div>`;
+  }
+
+  private renderRow(
+    r: OperatorDecisionRow,
+    opts: { groupBadge: string; inGroup?: boolean } = { groupBadge: "" },
+  ): string {
     const age = humanizeAge(Date.now() - r.timestamp_unix_ms);
-    const cmd = r.in_flight_command
-      ? `<code>${escapeHtml(truncate(r.in_flight_command, 60))}</code>`
-      : `<span class="op-muted">(no in-flight command)</span>`;
 
     const actionBadge = renderActionBadge(r.action, r.executed);
     // Prefer the executor name persisted at decision time (Phase B);
@@ -349,6 +402,19 @@ export class OperatorPanel {
     const executorChip = executor
       ? `<span class="op-chip op-chip-executor" title="Executor agent at decision time">${escapeHtml(executor)}</span>`
       : "";
+
+    // Strip the executor binary (already shown in the chip) so the
+    // command line carries only the args — short and readable. Falls
+    // back to the full command when no executor was detected.
+    const displayCmd = executor && r.in_flight_command
+      ? stripExecutorBinary(r.in_flight_command, executor)
+      : r.in_flight_command;
+    const cmd =
+      displayCmd && displayCmd.trim().length > 0
+        ? `<code class="op-cmd" title="${escapeAttr(r.in_flight_command ?? "")}">${escapeHtml(truncate(displayCmd, 60))}</code>`
+        : r.in_flight_command
+          ? `<span class="op-muted">(no args)</span>`
+          : `<span class="op-muted">(no in-flight command)</span>`;
 
     const tabInfo = this.manager.tabBySessionShort(r.session_id_short);
     const tabName = tabInfo
@@ -368,8 +434,17 @@ export class OperatorPanel {
     // current mission for old rows where the snapshot is null.
     const missionPath = r.mission_path ?? tabInfo?.missionPath ?? null;
     const missionFromSnapshot = r.mission_path !== null;
-    const missionChip = missionPath
-      ? `<span class="op-chip op-chip-mission" title="${missionFromSnapshot ? "Mission at decision time" : "Tab's current mission (no snapshot)"}: ${escapeAttr(missionPath)}">${escapeHtml(missionBasename(missionPath))}</span>`
+    // Hide the mission chip when its basename is identical to the tab
+    // name — common when the tab is auto-named after the mission, and
+    // the duplicate just adds visual noise. Path remains available in
+    // the tab chip's tooltip via the row data.
+    const missionBase = missionPath ? missionBasename(missionPath) : null;
+    const missionRedundant =
+      tabInfo !== null &&
+      missionBase !== null &&
+      tabInfo.displayName === missionBase;
+    const missionChip = missionPath && !missionRedundant
+      ? `<span class="op-chip op-chip-mission" title="${missionFromSnapshot ? "Mission at decision time" : "Tab's current mission (no snapshot)"}: ${escapeAttr(missionPath)}">${escapeHtml(missionBase ?? "")}</span>`
       : "";
 
     const replyLine = r.reply_text
@@ -384,12 +459,14 @@ export class OperatorPanel {
       ? `<details class="op-excerpt"><summary>excerpt (${r.output_excerpt.length} chars)</summary><pre>${escapeHtml(r.output_excerpt)}</pre></details>`
       : "";
 
+    const rowClass = `op-row${opts.inGroup ? " op-row-grouped" : ""}`;
     return `
-      <div class="op-row">
+      <div class="${rowClass}">
         <div class="op-row-head">
           ${actionBadge}
           ${executorChip}
           ${cmd}
+          ${opts.groupBadge}
           <span class="op-meta">${tabChip}${missionChip} · ${escapeHtml(age)}</span>
         </div>
         ${replyLine}
@@ -398,6 +475,53 @@ export class OperatorPanel {
       </div>
     `;
   }
+}
+
+interface Group {
+  rows: OperatorDecisionRow[];
+}
+
+/// Walk the visible rows once and collapse consecutive entries that
+/// share `(session, action, command, executed)` into a single Group.
+/// "Consecutive" matters: a Reply between two Waits does NOT collapse,
+/// because the temporal narrative is what makes each row useful.
+function groupConsecutive(rows: OperatorDecisionRow[]): Group[] {
+  const out: Group[] = [];
+  for (const r of rows) {
+    const last = out[out.length - 1];
+    if (last && sameRun(last.rows[0], r)) {
+      last.rows.push(r);
+    } else {
+      out.push({ rows: [r] });
+    }
+  }
+  return out;
+}
+
+function sameRun(a: OperatorDecisionRow, b: OperatorDecisionRow): boolean {
+  return (
+    a.session_id_short === b.session_id_short &&
+    a.action === b.action &&
+    a.in_flight_command === b.in_flight_command &&
+    a.executed === b.executed
+  );
+}
+
+/// Drop the executor binary (and any `--flag` style "permission
+/// boilerplate") that's already implied by the executor chip. Returns
+/// just the args. We're conservative: we only strip an exact leading
+/// match against the executor name — no path resolution, no alias
+/// expansion. If the binary doesn't appear, return the original.
+function stripExecutorBinary(cmd: string, executor: string): string {
+  const trimmed = cmd.trim();
+  if (trimmed.length === 0) return trimmed;
+  const tokens = trimmed.split(/\s+/);
+  const first = tokens[0].toLowerCase();
+  // Match either "claude" or "/usr/local/bin/claude" — basename only.
+  const slash = first.lastIndexOf("/");
+  const firstBase = slash >= 0 ? first.slice(slash + 1) : first;
+  if (firstBase !== executor.toLowerCase()) return trimmed;
+  return tokens.slice(1).join(" ");
 }
 
 function countByAction(rows: OperatorDecisionRow[]): {
@@ -456,8 +580,13 @@ function renderActionBadge(action: string, executed: boolean): string {
       : action === "escalate"
         ? "op-badge-escalate"
         : "op-badge-wait";
-  const label = executed ? action.toUpperCase() : `${action.toUpperCase()} (dry)`;
-  return `<span class="op-badge ${cls}">${label}</span>`;
+  // Dry-run state is conveyed by a CSS-driven dimming + a leading dot
+  // pseudo-element (see styles.css `.op-badge-dry`) instead of a
+  // verbose "(DRY)" text suffix on every row. Tooltip carries the
+  // explicit word for screen readers and curious users.
+  const dry = executed ? "" : " op-badge-dry";
+  const title = executed ? "Executed" : "Dry-run — proposed only";
+  return `<span class="op-badge ${cls}${dry}" title="${title}">${action.toUpperCase()}</span>`;
 }
 
 function visualizeBytes(s: string): string {
