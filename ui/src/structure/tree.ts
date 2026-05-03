@@ -5,6 +5,7 @@
 // the backend's hardcoded ignore set + .gitignore (we don't see those
 // entries at all). Manual refresh button re-lists from root.
 
+import { Icons } from "../icons";
 import { structureListDir, type DirEntry } from "../api";
 
 export type FileClickHandler = (path: string) => void;
@@ -164,12 +165,17 @@ export class StructureTree {
 
     const chevron = document.createElement("span");
     chevron.className = "structure-chevron";
-    chevron.textContent = entry.kind === "dir" ? "▸" : "";
+    if (entry.kind === "dir") {
+      chevron.innerHTML = Icons.chevronRight({ size: 11 });
+    }
     row.appendChild(chevron);
 
     const icon = document.createElement("span");
     icon.className = "structure-icon";
-    icon.textContent = entry.kind === "dir" ? "📁" : "📄";
+    icon.innerHTML =
+      entry.kind === "dir"
+        ? Icons.folder({ size: 13 })
+        : Icons.fileText({ size: 13 });
     row.appendChild(icon);
 
     const name = document.createElement("span");
@@ -206,8 +212,6 @@ export class StructureTree {
     if (node.entry.kind !== "dir") return;
     node.expanded = true;
     node.el.classList.add("structure-node-expanded");
-    const chev = node.el.querySelector(".structure-chevron");
-    if (chev) chev.textContent = "▾";
     if (this.cwd) {
       this.expandedPaths.add(node.entry.path);
       saveExpanded(this.cwd, this.expandedPaths);
@@ -246,8 +250,6 @@ export class StructureTree {
     if (!node.expanded) return;
     node.expanded = false;
     node.el.classList.remove("structure-node-expanded");
-    const chev = node.el.querySelector(".structure-chevron");
-    if (chev) chev.textContent = "▸";
     const childList = node.el.querySelector(".structure-children");
     if (childList instanceof HTMLElement) childList.hidden = true;
     if (this.cwd) {

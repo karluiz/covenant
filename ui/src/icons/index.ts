@@ -108,6 +108,18 @@ export const Icons = {
       o,
     ),
 
+  /** Chevron right — disclosure triangle. Rotated 90° via CSS for
+   * "expanded" state (no separate `chevronDown` icon needed). */
+  chevronRight: (o?: IconOptions): string =>
+    svg(`<path d="m9 18 6-6-6-6"/>`, o),
+
+  /** File — generic file. Used by the Structure tree for non-dir entries. */
+  fileText: (o?: IconOptions): string =>
+    svg(
+      `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>`,
+      o,
+    ),
+
   /** Covenant logo — the seal (ring), the prompt (chevron) and the
    * operator (offset dot). Monochrome, inherits color via currentColor.
    * Mirrors the geometry of the dock icon at 24×24. */
