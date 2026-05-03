@@ -6283,10 +6283,19 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 }
 .wiz-hint { font-weight: 400; color: var(--muted); font-size: 12px; }
 .wiz-help {
-  margin-left: auto; background: transparent; border: 1px solid var(--border);
-  color: var(--muted); cursor: pointer; padding: 2px 8px; font-size: 11px;
-  border-radius: 3px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 4px;
 }
+.wiz-help svg { color: var(--accent); }
 .wiz-help:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
 .wiz-help:disabled { opacity: 0.4; cursor: not-allowed; }
 .wiz-textarea {
@@ -6326,24 +6335,107 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 .wiz-segmented button:last-child { border-right: 0; }
 .wiz-segmented button.active { background: var(--accent); color: #fff; }
 
-/* ---- Suggestions popover ---- */
+/* ---- Suggestions popover (AI Help) ---- */
 .wiz-popover {
-  background: var(--bg-overlay); border: 1px solid var(--border);
-  border-radius: 4px; padding: 6px; min-width: 320px; max-width: 480px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 100;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  min-width: 360px;
+  max-width: 480px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
-.wiz-suggestion {
-  display: block; width: 100%; text-align: left; background: transparent;
-  border: 0; color: var(--fg); padding: 6px 8px; cursor: pointer;
-  font-size: 12px; border-radius: 3px;
-  white-space: normal; word-wrap: break-word; user-select: text;
+.wiz-popover-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 12px;
 }
-.wiz-suggestion:hover { background: var(--bg-panel); }
-.wiz-popover-close {
-  display: block; width: 100%; background: transparent; border: 0;
-  color: var(--muted); padding: 6px 8px; cursor: pointer; font-size: 11px;
-  border-top: 1px solid var(--border); margin-top: 4px;
+.wiz-popover-head-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--muted);
 }
+.wiz-popover-head-title svg { color: var(--accent); }
+.wiz-popover-head-title strong { color: var(--fg); font-weight: 600; }
+.wiz-popover-x {
+  background: transparent; border: 0; color: var(--muted);
+  cursor: pointer; padding: 2px 4px; border-radius: 4px;
+  display: inline-flex; align-items: center;
+}
+.wiz-popover-x:hover { color: var(--fg); background: var(--bg-overlay); }
+
+.wiz-popover-body { padding: 6px; max-height: 360px; overflow-y: auto; }
+.wiz-popover-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wiz-popover-card {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--bg-panel);
+  transition: border-color 0.12s ease;
+}
+.wiz-popover-card:hover { border-color: var(--accent); }
+.wiz-popover-text {
+  flex: 1; min-width: 0;
+  margin: 0;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+  word-wrap: break-word;
+  user-select: text;
+}
+.wiz-popover-insert {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.wiz-popover-insert:hover { filter: brightness(1.1); }
+
+.wiz-popover-empty {
+  padding: 16px 10px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+.wiz-popover-empty svg { color: var(--accent); }
+
+.wiz-popover-foot {
+  display: flex; justify-content: flex-end;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.wiz-popover-regen {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+.wiz-popover-regen:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
+.wiz-popover-regen:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Brief flash on the editor content right after Insert lands. */
+.wiz-editor-flash { background: rgba(122, 162, 247, 0.12); transition: background 0.6s ease-out; }
 
 /* ── Publish modal (AC6) ──────────────────────────────────────────────── */
 .wiz-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; }

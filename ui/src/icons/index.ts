@@ -74,6 +74,20 @@ export const Icons = {
   plus: (o?: IconOptions): string =>
     svg(`<path d="M5 12h14"/><path d="M12 5v14"/>`, o),
 
+  /** Sparkles — AI-assisted suggestion / help. */
+  sparkles: (o?: IconOptions): string =>
+    svg(
+      `<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .962L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>`,
+      o,
+    ),
+
+  /** Refresh / regenerate — re-run a generation. */
+  refresh: (o?: IconOptions): string =>
+    svg(
+      `<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>`,
+      o,
+    ),
+
   /** Arrow right — e.g. move to. */
   arrowRight: (o?: IconOptions): string =>
     svg(

@@ -14,6 +14,7 @@ import {
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 
+import { Icons } from "../icons";
 import { editorHighlight, editorTheme } from "../structure/theme";
 import { draftsApi, type DraftDocument, type SuggestSection } from "./api";
 
@@ -198,7 +199,7 @@ export class DraftWizard {
       `;
     }
     const helpBtn = s.helpSection
-      ? `<button type="button" class="wiz-help" data-help="${s.helpSection}" ${this.llmCalls >= 20 ? "disabled" : ""}>✨ Help</button>`
+      ? `<button type="button" class="wiz-help" data-help="${s.helpSection}" data-section-label="${escapeAttr(s.label)}" ${this.llmCalls >= 20 ? "disabled" : ""}>${Icons.sparkles({ size: 13 })}<span>Help</span></button>`
       : "";
     return `
       <section class="wiz-section" data-key="${escapeAttr(s.key)}">
@@ -327,33 +328,133 @@ export class DraftWizard {
 
   private async handleHelp(btn: HTMLButtonElement): Promise<void> {
     const section = btn.dataset.help as SuggestSection;
+    const sectionLabel = btn.dataset.sectionLabel ?? section;
     if (!this.slug) await this.save();
+    const helpLabelHtml = `${Icons.sparkles({ size: 13 })}<span>Help</span>`;
     btn.disabled = true;
-    btn.textContent = "✨ …";
+    btn.innerHTML = `${Icons.sparkles({ size: 13 })}<span>…</span>`;
     let suggestions: string[];
     try {
       suggestions = await draftsApi.suggest(this.opts.repoRoot, this.slug!, section);
     } catch (e) {
-      btn.textContent = "✨ unavailable";
+      btn.innerHTML = `${Icons.sparkles({ size: 13 })}<span>unavailable</span>`;
       console.error(e);
       return;
     } finally {
       btn.disabled = false;
     }
-    btn.textContent = "✨ Help";
-    this.showSuggestionsPopover(btn, section, suggestions);
+    btn.innerHTML = helpLabelHtml;
+    this.showSuggestionsPopover(btn, section, sectionLabel, suggestions);
   }
 
-  private showSuggestionsPopover(anchor: HTMLElement, section: SuggestSection, suggestions: string[]): void {
+  private showSuggestionsPopover(
+    anchor: HTMLElement,
+    section: SuggestSection,
+    sectionLabel: string,
+    suggestions: string[],
+  ): void {
     const existing = document.getElementById("wiz-popover");
     existing?.remove();
     const popover = document.createElement("div");
     popover.id = "wiz-popover";
     popover.className = "wiz-popover";
-    popover.innerHTML = suggestions.map((s, i) => `
-      <button type="button" class="wiz-suggestion" data-i="${i}">${escapeHtml(s)}</button>
-    `).join("") + `<button type="button" class="wiz-popover-close">Dismiss</button>`;
+
+    const renderBody = (items: string[], regenerating: boolean): string => {
+      if (regenerating) {
+        return `<div class="wiz-popover-empty">${Icons.sparkles({ size: 14 })} Generating…</div>`;
+      }
+      if (items.length === 0) {
+        return `<div class="wiz-popover-empty">No suggestions for this section yet — try filling in a bit more context first.</div>`;
+      }
+      return `<ul class="wiz-popover-list">${items
+        .map(
+          (s, i) => `
+        <li class="wiz-popover-card">
+          <p class="wiz-popover-text">${escapeHtml(s)}</p>
+          <button type="button" class="wiz-popover-insert" data-i="${i}">
+            ${Icons.plus({ size: 12 })}<span>Insert</span>
+          </button>
+        </li>`,
+        )
+        .join("")}</ul>`;
+    };
+
+    const render = (items: string[], regenerating = false): void => {
+      popover.innerHTML = `
+        <header class="wiz-popover-head">
+          <div class="wiz-popover-head-title">
+            ${Icons.sparkles({ size: 13 })}
+            <span>Suggestions for <strong>${escapeHtml(sectionLabel)}</strong></span>
+          </div>
+          <button type="button" class="wiz-popover-x" aria-label="Close">${Icons.x({ size: 14 })}</button>
+        </header>
+        <div class="wiz-popover-body">${renderBody(items, regenerating)}</div>
+        <footer class="wiz-popover-foot">
+          <button type="button" class="wiz-popover-regen" ${regenerating ? "disabled" : ""}>
+            ${Icons.refresh({ size: 12 })}<span>Regenerate</span>
+          </button>
+        </footer>
+      `;
+      wireHandlers(items);
+    };
+
+    const sectionKey = sectionToKey(section);
+    const insertSuggestion = (text: string): void => {
+      const view = this.editors.get(sectionKey);
+      if (!view) return;
+      const doc = view.state.doc;
+      const current = doc.toString();
+      const sep = current.endsWith("\n") || current === "" ? "" : "\n";
+      const insertBlob = `${sep}- ${text}\n`;
+      view.dispatch({
+        changes: { from: doc.length, insert: insertBlob },
+        scrollIntoView: true,
+      });
+      // Brief flash on the inserted range so the user sees where it landed.
+      const dom = view.contentDOM;
+      dom.classList.add("wiz-editor-flash");
+      window.setTimeout(() => dom.classList.remove("wiz-editor-flash"), 900);
+      // Don't dismiss — user might want to insert another suggestion.
+    };
+
+    const close = (): void => {
+      popover.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      }
+    };
+
+    const wireHandlers = (items: string[]): void => {
+      popover.querySelectorAll<HTMLButtonElement>(".wiz-popover-insert").forEach((b) => {
+        b.addEventListener("click", () => {
+          const i = Number(b.dataset.i!);
+          insertSuggestion(items[i]!);
+        });
+      });
+      popover.querySelector<HTMLButtonElement>(".wiz-popover-x")
+        ?.addEventListener("click", close);
+      popover.querySelector<HTMLButtonElement>(".wiz-popover-regen")
+        ?.addEventListener("click", async () => {
+          render([], true);
+          try {
+            const next = await draftsApi.suggest(this.opts.repoRoot, this.slug!, section);
+            render(next);
+          } catch (e) {
+            console.error(e);
+            render(items);
+          }
+        });
+    };
+
     document.body.appendChild(popover);
+    render(suggestions);
+    document.addEventListener("keydown", onKey);
+
     const rect = anchor.getBoundingClientRect();
     popover.style.position = "absolute";
     popover.style.top = `${rect.bottom + window.scrollY + 4}px`;
@@ -366,25 +467,6 @@ export class DraftWizard {
       const clampedLeft = Math.max(margin + window.scrollX, alignedLeft);
       popover.style.left = `${clampedLeft}px`;
     }
-    const sectionKey = sectionToKey(section);
-    popover.querySelectorAll<HTMLButtonElement>(".wiz-suggestion").forEach(b => {
-      b.addEventListener("click", () => {
-        const i = Number(b.dataset.i!);
-        const view = this.editors.get(sectionKey);
-        if (view) {
-          const doc = view.state.doc;
-          const current = doc.toString();
-          const sep = current.endsWith("\n") || current === "" ? "" : "\n";
-          const insert = `${sep}- ${suggestions[i]}\n`;
-          view.dispatch({
-            changes: { from: doc.length, insert },
-          });
-          // updateListener will sync this.values + markDirty + updatePublishEnabled.
-        }
-        popover.remove();
-      });
-    });
-    popover.querySelector(".wiz-popover-close")?.addEventListener("click", () => popover.remove());
   }
 
   private async openPublishModal(): Promise<void> {
