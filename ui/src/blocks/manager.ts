@@ -188,7 +188,7 @@ export class BlockManager {
       })
       .join("");
     return `
-      <div class="blocks-history-sep">from previous sessions in this dir (${this.historicalBlocks.length})</div>
+      <div class="blocks-history-sep">from previous sessions in this dir</div>
       <ul class="blocks-list blocks-list-history">${items}</ul>
     `;
   }

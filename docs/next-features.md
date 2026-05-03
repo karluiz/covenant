@@ -86,3 +86,13 @@ Principios:
 Discreta — informa, no distrae
 Contextual — solo muestra lo aplicable (no aparece "Go: —" en un proyecto Node)
 Reactiva — se actualiza al cambiar de directorio
+
+### 3.8 Convergence Mode
+
+Un espacio **visual** donde se ven todos los **agent executors** trabajando en paralelo, con el operador supervisándolos. Tipo "control room" / video wall.
+
+- Una tile por sesión (tab): muestra estado actual (idle / working / awaiting-input / blocked), última decisión del operador, preview del último comando + output, costo de la sesión si está bajo AOM.
+- Pensado para **ver el sistema entero de un vistazo** sin saltar entre tabs.
+- Click en una tile → entra a ese tab.
+
+**Convergencia con AFK (3.4)**: a futuro Convergence Mode vive dentro del AFK mode como su vista principal — AFK deja de ser sólo feed cronológico y pasa a ser **command-center (estado actual) + feed lateral (historia)**. v1 envía la office independiente para validar la metáfora visual antes de acoplarla.

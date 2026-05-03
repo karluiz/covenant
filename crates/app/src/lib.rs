@@ -11,6 +11,7 @@
 
 mod aom;
 mod context;
+pub mod convergence;
 mod cost;
 mod cross_session;
 mod fix_proposer;
@@ -35,7 +36,7 @@ use std::time::{Duration, Instant};
 use karl_pty::SpawnOptions;
 use karl_session::{Session, SessionId, SessionStreams, SessionUiEvent};
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -518,6 +519,39 @@ async fn get_session_mission_content(
     Ok(state.operator.get_mission_content(id).await)
 }
 
+/// Persist a new mission spec body from the viewer modal. Refuses
+/// while AOM is active (the Operator is reading the spec on every
+/// tick — editing it mid-run would surface inconsistent behavior
+/// silently). On a successful save we re-emit `mission-changed` so
+/// every other tab sharing the file refreshes its tooltip / preview.
+#[tauri::command]
+async fn set_session_mission_content(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    session_id: String,
+    content: String,
+    expected_mtime_unix_ms: u64,
+) -> Result<operator::MissionSaveResult, String> {
+    if state.aom.read().await.enabled {
+        return Err("aom_active".to_string());
+    }
+    let id = parse_id(&session_id)?;
+    let result = state
+        .operator
+        .set_mission_content(id, content, expected_mtime_unix_ms)
+        .await?;
+    if let operator::MissionSaveResult::Saved { ref info } = result {
+        let _ = app.emit(
+            "mission-changed",
+            serde_json::json!({
+                "session_id": session_id,
+                "path": info.path,
+            }),
+        );
+    }
+    Ok(result)
+}
+
 /// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
 /// per-tab live setting + normal persona instead of inheriting the
 /// AOM act-by-default posture. Reset to false on every aom_start.
@@ -663,6 +697,31 @@ async fn aom_report(state: State<'_, AppState>) -> Result<Option<AomReport>, Str
         .aom_session_latest_report()
         .await
         .map_err(|e| e.to_string())
+}
+
+/// 3.8 Convergence Mode — one snapshot per UI poll (1 Hz). Read-only
+/// aggregator over existing handles; no schema changes.
+#[tauri::command]
+async fn get_convergence_snapshot(
+    state: State<'_, AppState>,
+) -> Result<convergence::ConvergenceSnapshot, String> {
+    let inputs: Vec<convergence::SessionInput> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .iter()
+            .map(|(id, ms)| convergence::SessionInput {
+                session_id: *id,
+                op_state: ms.op_state.clone(),
+            })
+            .collect()
+    };
+    Ok(convergence::build_convergence_snapshot(
+        inputs,
+        &state.operator,
+        &state.storage,
+        &state.aom,
+    )
+    .await)
 }
 
 #[tauri::command]
@@ -1337,10 +1396,12 @@ pub fn run() {
             clear_session_mission,
             get_session_mission,
             get_session_mission_content,
+            set_session_mission_content,
             aom_status,
             aom_start,
             aom_stop,
             aom_report,
+            get_convergence_snapshot,
             recall_search,
             zsh_autosuggestions_status,
             tab_manifest_load,

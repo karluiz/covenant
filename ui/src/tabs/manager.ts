@@ -186,6 +186,49 @@ function tabDisplayName(t: Tab): string {
   return t.customName?.trim() || t.defaultTitle;
 }
 
+/// localStorage key for the short-id → display-name cache. Purpose:
+/// when an Operator-decisions row points at a tab that's been closed,
+/// we still want to show "zsh 2" or "anvil-light-toggle" instead of
+/// `…3BDWPP`. The cache is populated on every tab create / rename so
+/// the entry is up to date even if the tab is closed seconds later.
+const SESSION_NAME_CACHE_KEY = "covenant.session-name-history";
+const SESSION_NAME_CACHE_MAX = 200;
+
+interface CachedSessionName {
+  name: string;
+  /// Last touched (Unix-ms). Used for LRU trim when the cache fills.
+  ts: number;
+}
+
+function loadSessionNameCache(): Map<string, CachedSessionName> {
+  try {
+    const raw = localStorage.getItem(SESSION_NAME_CACHE_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, CachedSessionName>;
+    return new Map(Object.entries(parsed));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSessionNameCache(m: Map<string, CachedSessionName>): void {
+  try {
+    // Trim to most-recent SESSION_NAME_CACHE_MAX. Older entries are
+    // evicted — they're for sessions the user almost certainly won't
+    // see surface in the panel again.
+    if (m.size > SESSION_NAME_CACHE_MAX) {
+      const sorted = Array.from(m.entries()).sort((a, b) => b[1].ts - a[1].ts);
+      m = new Map(sorted.slice(0, SESSION_NAME_CACHE_MAX));
+    }
+    localStorage.setItem(
+      SESSION_NAME_CACHE_KEY,
+      JSON.stringify(Object.fromEntries(m)),
+    );
+  } catch {
+    /* quota / private mode — fine to skip */
+  }
+}
+
 export class TabManager {
   private readonly tabs: Tab[] = [];
   private readonly groups: Map<string, TabGroup> = new Map();
@@ -199,6 +242,11 @@ export class TabManager {
   /// state changes (drag reorder, group manipulations, …) into one
   /// disk write 200ms later.
   private saveTimer: number | null = null;
+
+  /// short-id → display name cache (see `SESSION_NAME_CACHE_KEY`).
+  /// Updated on every name-affecting mutation; consulted by panels
+  /// that need to label closed tabs.
+  private sessionNameCache: Map<string, CachedSessionName> = loadSessionNameCache();
 
   /// 3.7 — fired whenever the *active* tab's cwd context changes:
   ///   - tab switched (new active tab → its cwd)
@@ -505,6 +553,20 @@ export class TabManager {
     this.onActiveMissionChange?.(tab?.mission ?? null, tab?.sessionId ?? null);
   }
 
+  /// Focus the active tab's terminal. Public so overlays (Recall
+  /// palette, etc.) can return keyboard focus to xterm after they
+  /// inject — without this the next keystroke lands on the overlay
+  /// or wherever browser focus drifted.
+  focusActive(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    try {
+      tab.term.focus();
+    } catch {
+      /* term may be disposed mid-call */
+    }
+  }
+
   /// Refit the active tab's terminal. Public so main.ts can call it
   /// after the settings page closes (workspace was hidden + restored).
   refitActive(): void {
@@ -636,6 +698,41 @@ export class TabManager {
   activateByIndex(index: number): void {
     const tab = this.tabs[index];
     if (tab) this.activate(tab.id);
+  }
+
+  /// Lookup tab metadata by the last-6-char session id stored on
+  /// historical rows (operator decisions, blocks). For OPEN tabs returns
+  /// `open: true` plus the live display name + current mission. For
+  /// CLOSED tabs falls back to the localStorage cache so the panel can
+  /// still render "zsh 2" instead of `…3BDWPP`. Null only when the
+  /// short id has never been seen on this machine.
+  tabBySessionShort(short: string): {
+    displayName: string;
+    missionPath: string | null;
+    open: boolean;
+  } | null {
+    const tab = this.tabs.find((t) => t.sessionId.slice(-6) === short);
+    if (tab) {
+      return {
+        displayName: tabDisplayName(tab),
+        missionPath: tab.mission?.path ?? null,
+        open: true,
+      };
+    }
+    const cached = this.sessionNameCache.get(short);
+    if (cached) {
+      return { displayName: cached.name, missionPath: null, open: false };
+    }
+    return null;
+  }
+
+  /// Stamp `short → name` in the cache. Idempotent; called on tab
+  /// create, rename, and just before close so the most current name
+  /// survives the session.
+  private rememberSessionName(sessionId: string, name: string): void {
+    const short = sessionId.slice(-6);
+    this.sessionNameCache.set(short, { name, ts: Date.now() });
+    saveSessionNameCache(this.sessionNameCache);
   }
 
   /// 3.6 — focus the tab whose backend session matches `sessionId`. Used
@@ -793,6 +890,16 @@ export class TabManager {
             else t?.structure.show();
           }
         },
+        focusTerminal: () => {
+          // After a Recall click injects, give xterm focus back so the
+          // next keystroke (typically Enter) lands on the prompt — not
+          // on the Recall list item that was just clicked.
+          try {
+            term.focus();
+          } catch {
+            /* term may have been disposed mid-click race */
+          }
+        },
       },
     );
 
@@ -801,17 +908,21 @@ export class TabManager {
     const navEl = document.createElement("nav");
     navEl.className = "sidebar-nav";
 
+    // Icon-only nav (Zed-style minimalism). Tooltips + aria-labels
+     // carry the textual meaning so it remains accessible.
     const navBlocks = document.createElement("button");
     navBlocks.type = "button";
     navBlocks.className = "sidebar-nav-btn sidebar-nav-active";
     navBlocks.title = "Blocks";
-    navBlocks.textContent = "Blocks";
+    navBlocks.setAttribute("aria-label", "Blocks");
+    navBlocks.innerHTML = Icons.terminal({ size: 14 });
 
     const navStructure = document.createElement("button");
     navStructure.type = "button";
     navStructure.className = "sidebar-nav-btn";
-    navStructure.title = "Structure";
-    navStructure.textContent = "Files";
+    navStructure.title = "Files";
+    navStructure.setAttribute("aria-label", "Files");
+    navStructure.innerHTML = Icons.folder({ size: 14 });
 
     navEl.appendChild(navBlocks);
     navEl.appendChild(navStructure);
@@ -1078,9 +1189,13 @@ export class TabManager {
     tabRef.current = tab;
 
     this.tabs.push(tab);
-    this.activeId = id;
-    this.renderTabbar();
-    term.focus();
+    this.rememberSessionName(sessionId, tabDisplayName(tab));
+    // Route through activate() so the StatusBar callbacks
+    // (onActiveContextChange, emitActiveMission, …) fire on the new
+    // tab. Without this, the bar keeps showing the previous tab's
+    // mission/cwd until the user switches tabs and back, since the
+    // activate() path is where those callbacks live.
+    this.activate(id, { skipIfSame: false });
     this.scheduleSave();
   }
 
@@ -1116,6 +1231,17 @@ export class TabManager {
       // eslint-disable-next-line no-console
       console.error("set_operator_live failed", err);
     }
+  }
+
+  /// Public sibling of `promptAndSetMission` that takes a sessionId
+  /// instead of a tabId. Lets external surfaces (status bar's
+  /// "+ Mission" affordance) reuse the same prompt + set-mission
+  /// flow as the tab context menu without leaking the tab-id
+  /// abstraction.
+  promptAndSetMissionForSession(sessionId: SessionId): void {
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    if (!tab) return;
+    void this.promptAndSetMission(tab.id);
   }
 
   /// Open an inline modal that asks for a spec path, then attach
@@ -1316,6 +1442,9 @@ export class TabManager {
     if (idx < 0) return;
 
     const tab = this.tabs[idx];
+    // Stamp the final name in the cache before disposal so closed-tab
+    // labels survive for the operator-decisions panel.
+    this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
     for (const d of tab.disposers) d.dispose();
     void closeSession(tab.sessionId).catch(() => {});
     tab.term.dispose();
@@ -1413,6 +1542,7 @@ export class TabManager {
     if (!tab) return;
     const trimmed = value.trim();
     tab.customName = trimmed.length > 0 ? trimmed : null;
+    this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
     this.renaming = null;
     this.renderTabbar();
     this.scheduleSave();

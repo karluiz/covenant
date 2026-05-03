@@ -139,7 +139,23 @@ export interface MissionInfo {
   /// Single-line preview of the spec content (≤ 240 chars).
   content_preview: string;
   loaded_at_unix_ms: number;
+  /// On-disk mtime when the content was loaded. Carried back on save
+  /// so the backend can detect "file changed in another editor"
+  /// conflicts.
+  mtime_unix_ms: number;
 }
+
+/// Result of `set_session_mission_content`. Discriminated union: the
+/// caller branches on `kind` to either close the modal (`saved`),
+/// surface a Reload/Overwrite banner (`conflict`), or no-op (`no_mission`).
+export type MissionSaveResult =
+  | { kind: "saved"; info: MissionInfo }
+  | {
+      kind: "conflict";
+      actual_mtime_unix_ms: number;
+      current_content: string;
+    }
+  | { kind: "no_mission" };
 
 export async function setSessionMission(
   sessionId: SessionId,
@@ -167,6 +183,22 @@ export async function getSessionMissionContent(
   sessionId: SessionId,
 ): Promise<string | null> {
   return invoke<string | null>("get_session_mission_content", { sessionId });
+}
+
+/// Persist a new mission spec body. Backend rejects with the string
+/// error `"aom_active"` when AOM is running (the modal disables Edit
+/// up-front, but this is a defensive double-check). Pass
+/// `expectedMtimeUnixMs = 0` to bypass the conflict check (Overwrite).
+export async function setSessionMissionContent(
+  sessionId: SessionId,
+  content: string,
+  expectedMtimeUnixMs: number,
+): Promise<MissionSaveResult> {
+  return invoke<MissionSaveResult>("set_session_mission_content", {
+    sessionId,
+    content,
+    expectedMtimeUnixMs,
+  });
 }
 
 /// AOM (Autonomous Operator Mode) — global toggle. When on, every
@@ -281,6 +313,14 @@ export interface OperatorDecisionRow {
   reply_text: string | null;
   rationale: string | null;
   executed: boolean;
+  /// Mission spec path attached to the session at the moment the
+  /// decision fired. Null for pre-Phase-B rows + sessions without a
+  /// mission. Prefer this over a live tab lookup so historical rows
+  /// reflect the mission that was actually loaded then.
+  mission_path: string | null;
+  /// Executor agent (claude / copilot / aider / …) detected at
+  /// decision time. Null when no known executor matched.
+  executor_name: string | null;
 }
 
 export async function listOperatorDecisions(
@@ -462,4 +502,34 @@ export async function structureSearch(
   limit: number,
 ): Promise<SearchHit[]> {
   return invoke<SearchHit[]>("structure_search", { cwd, query, limit });
+}
+
+// 3.8 Convergence Mode -----------------------------------------------------
+
+export type TileStatus =
+  | "idle"
+  | "working"
+  | "awaiting-input"
+  | "blocked"
+  | "operator-thinking";
+
+export interface ConvergenceTileState {
+  session_id: string;
+  title: string;        // backend leaves empty; overlay fills from TabManager
+  color: string | null;
+  status: TileStatus;
+  last_decision_action: string | null;
+  last_decision_rationale: string | null;
+  last_command: string | null;
+  last_output_line: string | null;
+  cost_usd: number | null;
+  budget_usd: number | null;
+}
+
+export interface ConvergenceSnapshot {
+  tiles: ConvergenceTileState[];
+}
+
+export async function getConvergenceSnapshot(): Promise<ConvergenceSnapshot> {
+  return invoke<ConvergenceSnapshot>("get_convergence_snapshot");
 }

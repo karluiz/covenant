@@ -17,8 +17,19 @@
 // shell init are common) by tagging each request with a monotonically
 // increasing ticket and ignoring stale results.
 
-import type { AomStatus, DirContext, MissionInfo, SessionId } from "../api";
-import { getDirContext, getSessionMissionContent } from "../api";
+import type {
+  AomStatus,
+  DirContext,
+  MissionInfo,
+  MissionSaveResult,
+  SessionId,
+} from "../api";
+import {
+  aomStatus,
+  getDirContext,
+  getSessionMissionContent,
+  setSessionMissionContent,
+} from "../api";
 import { Icons } from "../icons";
 
 const GIT_BRANCH_SVG =
@@ -47,6 +58,13 @@ export class StatusBar {
   /// are dropped by comparing against this on completion.
   private fetchTicket = 0;
   private modal: MissionViewerModal | null = null;
+
+  /// Wired by main.ts to TabManager. Fires when the user clicks the
+  /// "+ Mission" affordance on the status bar (only shown when no
+  /// mission is attached and the cwd looks like a project — git repo
+  /// or detected runtime). Reuses the same prompt as the tab context
+  /// menu's "Set mission…" so both routes end in one code path.
+  public onMissionSetRequested: ((sessionId: SessionId) => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("status-bar");
@@ -281,6 +299,18 @@ export class StatusBar {
       this.host.appendChild(
         missionSegment(this.currentMission, () => this.openMission()),
       );
+    } else if (
+      this.currentSessionId &&
+      // "Looks like a project" heuristic: backend already detected
+      // either a git repo or a runtime manifest (package.json,
+      // Cargo.toml, pyproject, …). We piggy-back on that signal so
+      // there's no separate marker-file list to maintain here.
+      (ctx.git !== null || ctx.runtime !== null)
+    ) {
+      const sid = this.currentSessionId;
+      this.host.appendChild(
+        addMissionSegment(() => this.onMissionSetRequested?.(sid)),
+      );
     }
     if (this.currentExecutor) {
       this.host.appendChild(executorSegment(this.currentExecutor));
@@ -317,7 +347,7 @@ export class StatusBar {
     // Race guard: if the user closed the modal before the fetch
     // returned, don't pop it back open.
     if (!this.modal.isOpen()) return;
-    this.modal.showContent(mission, content ?? "");
+    this.modal.showContent(mission, content ?? "", sessionId);
   }
 }
 
@@ -440,16 +470,61 @@ function missionSegment(mission: MissionInfo, onClick: () => void): HTMLElement 
   return el;
 }
 
+/// Subtle "+ Mission" affordance shown only when the active tab has
+/// no mission AND the cwd looks like a project. Lower opacity in
+/// rest, full on hover, so it stays discoverable without competing
+/// with real status segments.
+function addMissionSegment(onClick: () => void): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "status-segment status-add-mission";
+  el.title = "Set mission for this tab — anchor scope and constraints";
+  el.setAttribute("aria-label", "Set mission");
+
+  const icon = document.createElement("span");
+  icon.className = "status-icon";
+  icon.innerHTML = Icons.target({ size: 12 });
+  el.appendChild(icon);
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = "Set mission";
+  el.appendChild(text);
+
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return el;
+}
+
 function basename(p: string): string {
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return idx >= 0 ? p.slice(idx + 1) : p;
 }
 
-/// Modal that shows the full mission spec text. Read-only — for editing
-/// the user opens the file in their editor (path is shown in the header
-/// so they can copy it).
+/// Modal that shows the full mission spec. Default mode is read-only;
+/// click "Edit" to swap the content into a textarea (⌘S to save, Esc
+/// to cancel). Editing is disabled while AOM is running — the
+/// Operator is reading the spec on every tick, so changing it
+/// mid-flight would surface inconsistent behavior silently.
+///
+/// On save, the backend rejects with a Conflict if the file's mtime
+/// moved while we were editing (the user has it open in another
+/// editor). We surface a banner with Reload (use disk content) and
+/// Overwrite (force-write past the conflict).
 class MissionViewerModal {
   private overlay: HTMLElement | null = null;
+  /// Source of truth for the on-disk file. Updated on showContent and
+  /// after a successful save (we trust the backend's returned mtime).
+  private mission: MissionInfo | null = null;
+  private content = "";
+  private sessionId: SessionId | null = null;
+  private mode: "view" | "edit" = "view";
+  /// Cached at openLoading. Lets us decide synchronously whether to
+  /// allow Edit. Re-checked on Edit click in case AOM started in between.
+  private aomActive = false;
 
   constructor(private readonly mountHost: HTMLElement) {}
 
@@ -458,27 +533,33 @@ class MissionViewerModal {
   }
 
   openLoading(mission: MissionInfo): void {
+    this.mission = mission;
+    this.content = "";
+    this.sessionId = null;
+    this.mode = "view";
     this.ensureOverlay();
-    this.renderHeader(mission);
+    this.renderAll();
     const body = this.bodyEl();
     if (body) body.innerHTML = `<div class="mission-viewer-empty">Loading…</div>`;
+    // Fire-and-forget: refresh AOM state so the Edit button reflects
+    // reality by the time the content load resolves.
+    void aomStatus()
+      .then((s) => {
+        this.aomActive = s.enabled;
+        this.renderHeader();
+      })
+      .catch(() => {
+        /* leave default false; backend will still gate on save */
+      });
   }
 
-  showContent(mission: MissionInfo, content: string): void {
+  showContent(mission: MissionInfo, content: string, sessionId: SessionId): void {
+    this.mission = mission;
+    this.content = content;
+    this.sessionId = sessionId;
+    this.mode = "view";
     this.ensureOverlay();
-    this.renderHeader(mission);
-    const body = this.bodyEl();
-    if (body) {
-      if (content.trim() === "") {
-        body.innerHTML = `<div class="mission-viewer-empty">spec file is empty</div>`;
-      } else {
-        body.innerHTML = "";
-        const pre = document.createElement("pre");
-        pre.className = "mission-viewer-content";
-        pre.textContent = content;
-        body.appendChild(pre);
-      }
-    }
+    this.renderAll();
   }
 
   showError(msg: string): void {
@@ -494,14 +575,24 @@ class MissionViewerModal {
     if (!this.overlay) return;
     this.overlay.remove();
     this.overlay = null;
+    this.mission = null;
+    this.content = "";
+    this.sessionId = null;
+    this.mode = "view";
     document.removeEventListener("keydown", this.escListener);
   }
 
   private escListener = (e: KeyboardEvent): void => {
-    if (e.key === "Escape" && this.overlay) {
+    if (e.key !== "Escape" || !this.overlay) return;
+    // In edit mode, Esc cancels back to view (matches the modal in
+    // most editors); in view mode, it closes.
+    if (this.mode === "edit") {
       e.preventDefault();
-      this.close();
+      this.cancelEdit();
+      return;
     }
+    e.preventDefault();
+    this.close();
   };
 
   private ensureOverlay(): void {
@@ -509,7 +600,9 @@ class MissionViewerModal {
     const overlay = document.createElement("div");
     overlay.className = "mission-viewer-overlay";
     overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) this.close();
+      // Clicking the backdrop closes only in view mode — in edit
+      // mode it would silently lose the user's in-progress edits.
+      if (e.target === overlay && this.mode === "view") this.close();
     });
 
     const card = document.createElement("div");
@@ -520,26 +613,247 @@ class MissionViewerModal {
           <h2 class="mission-viewer-title">Mission</h2>
           <code class="mission-viewer-path"></code>
         </div>
-        <button type="button" class="mission-viewer-close" aria-label="close">${Icons.x({
-          size: 14,
-        })}</button>
+        <div class="mission-viewer-actions"></div>
       </header>
       <div class="mission-viewer-body"></div>
+      <footer class="mission-viewer-footer" hidden></footer>
     `;
     overlay.appendChild(card);
     this.mountHost.appendChild(overlay);
     this.overlay = overlay;
 
-    const closeBtn = card.querySelector<HTMLButtonElement>(".mission-viewer-close");
-    if (closeBtn) closeBtn.addEventListener("click", () => this.close());
-
     document.addEventListener("keydown", this.escListener);
   }
 
-  private renderHeader(mission: MissionInfo): void {
+  /// Re-render header (title/path/buttons) AND body+footer from
+  /// `this.mode` + state. Called whenever any of those change.
+  private renderAll(): void {
+    this.renderHeader();
+    this.renderBody();
+  }
+
+  private renderHeader(): void {
+    if (!this.overlay || !this.mission) return;
+    const pathEl = this.overlay.querySelector<HTMLElement>(".mission-viewer-path");
+    if (pathEl) pathEl.textContent = this.mission.path;
+
+    const actions = this.overlay.querySelector<HTMLElement>(".mission-viewer-actions");
+    if (!actions) return;
+    actions.innerHTML = "";
+
+    if (this.mode === "view") {
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "mission-viewer-edit";
+      editBtn.disabled = this.aomActive || this.sessionId === null;
+      editBtn.title = this.aomActive
+        ? "Mission locked while AOM is running"
+        : "Edit mission";
+      editBtn.innerHTML = `${Icons.pencil({ size: 12 })}<span>Edit</span>`;
+      editBtn.addEventListener("click", () => this.enterEdit());
+      actions.appendChild(editBtn);
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "mission-viewer-close";
+    closeBtn.setAttribute("aria-label", "close");
+    closeBtn.innerHTML = Icons.x({ size: 14 });
+    closeBtn.addEventListener("click", () => {
+      if (this.mode === "edit") this.cancelEdit();
+      else this.close();
+    });
+    actions.appendChild(closeBtn);
+  }
+
+  private renderBody(): void {
+    const body = this.bodyEl();
+    if (!body) return;
+
+    if (this.mode === "view") {
+      this.renderViewBody(body);
+      this.hideFooter();
+      return;
+    }
+    this.renderEditBody(body);
+    this.renderEditFooter();
+  }
+
+  private renderViewBody(body: HTMLElement): void {
+    if (this.content.trim() === "") {
+      body.innerHTML = `<div class="mission-viewer-empty">spec file is empty</div>`;
+      return;
+    }
+    body.innerHTML = "";
+    const pre = document.createElement("pre");
+    pre.className = "mission-viewer-content";
+    pre.textContent = this.content;
+    body.appendChild(pre);
+  }
+
+  private renderEditBody(body: HTMLElement): void {
+    body.innerHTML = "";
+    const ta = document.createElement("textarea");
+    ta.className = "mission-viewer-textarea";
+    ta.value = this.content;
+    ta.spellcheck = false;
+    ta.autocapitalize = "off";
+    ta.autocomplete = "off";
+    ta.addEventListener("keydown", (e) => {
+      // ⌘S / Ctrl+S → save without leaving the modal. We swallow it
+      // so the browser's "save page" dialog never appears.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void this.save(ta.value);
+      }
+    });
+    body.appendChild(ta);
+    requestAnimationFrame(() => ta.focus());
+  }
+
+  private renderEditFooter(status?: string): void {
     if (!this.overlay) return;
-    const path = this.overlay.querySelector<HTMLElement>(".mission-viewer-path");
-    if (path) path.textContent = mission.path;
+    const footer = this.overlay.querySelector<HTMLElement>(".mission-viewer-footer");
+    if (!footer) return;
+    footer.hidden = false;
+    footer.innerHTML = `
+      <span class="mission-viewer-footer-hint">
+        <kbd>⌘S</kbd> save · <kbd>Esc</kbd> cancel
+      </span>
+      <span class="mission-viewer-status" aria-live="polite">${escapeHtml(
+        status ?? "",
+      )}</span>
+      <button type="button" class="mission-viewer-cancel">Cancel</button>
+      <button type="button" class="mission-viewer-save">Save</button>
+    `;
+    footer
+      .querySelector<HTMLButtonElement>(".mission-viewer-cancel")!
+      .addEventListener("click", () => this.cancelEdit());
+    footer
+      .querySelector<HTMLButtonElement>(".mission-viewer-save")!
+      .addEventListener("click", () => {
+        const ta = this.overlay?.querySelector<HTMLTextAreaElement>(
+          ".mission-viewer-textarea",
+        );
+        if (ta) void this.save(ta.value);
+      });
+  }
+
+  private hideFooter(): void {
+    const footer = this.overlay?.querySelector<HTMLElement>(
+      ".mission-viewer-footer",
+    );
+    if (footer) {
+      footer.hidden = true;
+      footer.innerHTML = "";
+    }
+  }
+
+  private enterEdit(): void {
+    if (this.aomActive || this.sessionId === null) return;
+    this.mode = "edit";
+    this.renderAll();
+  }
+
+  private cancelEdit(): void {
+    this.mode = "view";
+    this.renderAll();
+  }
+
+  /// Persist; on Conflict, render an inline banner above the textarea
+  /// with Reload (replace draft with disk content) / Overwrite (re-save
+  /// past the conflict). The banner doesn't dismiss the user's draft —
+  /// only Reload does.
+  private async save(newContent: string, force = false): Promise<void> {
+    if (!this.mission || !this.sessionId) return;
+    this.setStatus("saving…");
+    let result: MissionSaveResult;
+    try {
+      result = await setSessionMissionContent(
+        this.sessionId,
+        newContent,
+        force ? 0 : this.mission.mtime_unix_ms,
+      );
+    } catch (err) {
+      const msg = String(err);
+      // Backend gates on AOM; surface it inline rather than as a
+      // generic error so the user understands why.
+      if (msg.includes("aom_active")) {
+        this.aomActive = true;
+        this.setStatus("AOM started — mission locked.");
+        return;
+      }
+      this.setStatus(`save failed: ${msg}`);
+      return;
+    }
+
+    if (result.kind === "saved") {
+      this.mission = result.info;
+      this.content = newContent;
+      this.mode = "view";
+      this.renderAll();
+      return;
+    }
+    if (result.kind === "no_mission") {
+      this.close();
+      return;
+    }
+    // Conflict: keep the user's draft visible, surface a banner with
+    // both options. The disk content is in `result.current_content`.
+    this.showConflictBanner(result.current_content, result.actual_mtime_unix_ms);
+  }
+
+  private setStatus(msg: string): void {
+    const el = this.overlay?.querySelector<HTMLElement>(
+      ".mission-viewer-status",
+    );
+    if (el) el.textContent = msg;
+  }
+
+  private showConflictBanner(
+    diskContent: string,
+    diskMtime: number,
+  ): void {
+    const body = this.bodyEl();
+    if (!body) return;
+    // Insert the banner above the textarea; if one already exists,
+    // replace it (the user might have ignored the first one).
+    body.querySelector(".mission-viewer-conflict")?.remove();
+    const banner = document.createElement("div");
+    banner.className = "mission-viewer-conflict";
+    banner.innerHTML = `
+      <span class="mission-viewer-conflict-msg">
+        File changed on disk while you were editing.
+      </span>
+      <button type="button" class="mission-viewer-conflict-reload">Reload from disk</button>
+      <button type="button" class="mission-viewer-conflict-overwrite">Overwrite</button>
+    `;
+    body.insertBefore(banner, body.firstChild);
+
+    banner
+      .querySelector<HTMLButtonElement>(".mission-viewer-conflict-reload")!
+      .addEventListener("click", () => {
+        // Adopt the disk content + its mtime as the new baseline; the
+        // user's draft is discarded by design (Reload is destructive
+        // and the button label says so).
+        this.content = diskContent;
+        if (this.mission) this.mission = { ...this.mission, mtime_unix_ms: diskMtime };
+        const ta = body.querySelector<HTMLTextAreaElement>(
+          ".mission-viewer-textarea",
+        );
+        if (ta) ta.value = diskContent;
+        banner.remove();
+        this.setStatus("reloaded from disk");
+      });
+    banner
+      .querySelector<HTMLButtonElement>(".mission-viewer-conflict-overwrite")!
+      .addEventListener("click", () => {
+        const ta = body.querySelector<HTMLTextAreaElement>(
+          ".mission-viewer-textarea",
+        );
+        banner.remove();
+        if (ta) void this.save(ta.value, true);
+      });
   }
 
   private bodyEl(): HTMLElement | null {
