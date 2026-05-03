@@ -419,9 +419,14 @@ async fn resize_session(
 }
 
 #[tauri::command]
-async fn close_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
+async fn close_session(
+    state: State<'_, AppState>,
+    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    id: String,
+) -> Result<(), String> {
     let id = parse_id(&id)?;
     state.operator.detach(id).await;
+    registry.unpin_session(id);
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();

@@ -121,3 +121,37 @@ async fn migration_seeds_default_from_settings_only_once() {
     assert!(!inserted2, "second call should be a no-op");
     assert_eq!(reg2.list().len(), 1);
 }
+
+#[tokio::test]
+async fn pin_unpin_round_trip() {
+    let (_d, s) = tmp_storage();
+    let reg = OperatorRegistry::load(&s).await.unwrap();
+    reg.create(&s, sample("Default", true)).await.unwrap();
+    let sec = sample("Sec-Op", false);
+    let sec_id = sec.id;
+    reg.create(&s, sec).await.unwrap();
+
+    let sid = SessionId::new();
+    assert_eq!(reg.effective_for(sid).name, "Default");
+
+    reg.pin_session(sid, sec_id);
+    assert_eq!(reg.effective_for(sid).name, "Sec-Op");
+
+    reg.unpin_session(sid);
+    assert_eq!(reg.effective_for(sid).name, "Default");
+}
+
+#[tokio::test]
+async fn deleting_pinned_operator_falls_back_to_default() {
+    let (_d, s) = tmp_storage();
+    let reg = OperatorRegistry::load(&s).await.unwrap();
+    reg.create(&s, sample("Default", true)).await.unwrap();
+    let sec = sample("Sec-Op", false);
+    let sec_id = sec.id;
+    reg.create(&s, sec).await.unwrap();
+
+    let sid = SessionId::new();
+    reg.pin_session(sid, sec_id);
+    reg.delete(&s, sec_id).await.unwrap();
+    assert_eq!(reg.effective_for(sid).name, "Default");
+}
