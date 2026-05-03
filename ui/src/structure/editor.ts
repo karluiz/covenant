@@ -42,7 +42,11 @@ import {
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 
 import { Icons } from "../icons";
-import { structureReadFile, structureWriteFile } from "../api";
+import {
+  structureReadFile,
+  structureWriteBinaryFile,
+  structureWriteFile,
+} from "../api";
 import { languageForPath } from "./languages";
 import {
   MarkdownPreview,
@@ -51,7 +55,7 @@ import {
   previewKindForPath,
   SvgPreview,
 } from "./preview";
-import { loadSvgScale, type PngScale, saveSvgScale } from "./png-export";
+import { loadSvgScale, type PngScale, saveSvgScale, svgToPng } from "./png-export";
 import { editorHighlight, editorTheme } from "./theme";
 
 export interface EditorCallbacks {
@@ -493,10 +497,42 @@ export class StructureEditor {
     this.pngScaleSelect.hidden = !isSvg;
   }
 
-  /// Real export logic lives here in Task 5. The stub keeps the
-  /// click handler wiring valid for now.
+  /// Rasterize the open SVG to <basename>.png next to the source.
+  /// Uses the live in-memory text so unsaved edits are reflected.
+  /// Overwrites the destination without prompting (the spec calls
+  /// this out — re-export to update is the common case). Disables
+  /// the button during the async work so a frantic double-click
+  /// can't fire two writes against the same file.
   private async handleExportPng(): Promise<void> {
-    this.callbacks.toast?.("PNG export not yet wired", "error");
+    if (!this.currentPath) return;
+    if (this.previewKind !== "svg") return;
+
+    const svgText = this.getCurrentSvgText();
+    const outPath = pngPathFor(this.currentPath);
+
+    this.pngBtn.disabled = true;
+    try {
+      const result = await svgToPng(svgText, this.pngScale);
+      await structureWriteBinaryFile(outPath, result.bytes);
+      const baseName = outPath.split("/").pop() ?? outPath;
+      this.callbacks.toast?.(
+        `Exported ${baseName} (${this.pngScale}x, ${result.width}×${result.height})`,
+        "info",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.callbacks.toast?.(`PNG export failed: ${msg}`, "error");
+    } finally {
+      this.pngBtn.disabled = false;
+    }
+  }
+
+  /// Return the current SVG text — CM6 doc when in source mode,
+  /// `liveContent` (last edit snapshot) when in preview mode.
+  private getCurrentSvgText(): string {
+    return this.viewMode === "source" && this.view
+      ? this.view.state.doc.toString()
+      : this.liveContent;
   }
 
   /// Move caret + scroll to `line` (1-based) in the active doc. Used
@@ -662,4 +698,15 @@ function extensionOf(path: string): string | null {
   const ext = base.slice(dot + 1).toLowerCase();
   if (!ext || ext.length > 8) return null;
   return ext;
+}
+
+/// Map `foo/bar.svg` → `foo/bar.png`. Always replaces the final
+/// extension; for files without a dot we just append `.png`.
+function pngPathFor(svgPath: string): string {
+  const slash = svgPath.lastIndexOf("/");
+  const base = slash >= 0 ? svgPath.slice(slash + 1) : svgPath;
+  const dir = slash >= 0 ? svgPath.slice(0, slash + 1) : "";
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  return `${dir}${stem}.png`;
 }
