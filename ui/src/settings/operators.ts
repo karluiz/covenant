@@ -8,6 +8,7 @@ import {
   operatorSetDefault,
   operatorUpdate,
 } from "../api";
+import { AVATAR_PACK, parseAvatar } from "../operator/avatars";
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
@@ -143,17 +144,33 @@ export class OperatorsPane {
                value="${escapeHtml(this.editing.name)}" />
       </div>
 
-      <div class="operators-pane__row-2">
-        <div class="operators-pane__field">
-          <label>Emoji</label>
-          <input data-bind="emoji" type="text" maxlength="4"
-                 value="${escapeHtml(this.editing.emoji)}" />
+      <div class="operators-pane__field">
+        <label>Avatar</label>
+        <div class="operators-pane__avatar-grid">
+          ${AVATAR_PACK.map((a) => {
+            const selected = this.editing.emoji === `pack:${a.id}`;
+            return `<button type="button"
+                            class="operators-pane__avatar-cell${selected ? " is-selected" : ""}"
+                            data-avatar-id="${a.id}"
+                            title="${escapeHtml(a.label)}">
+                      <img src="${a.url}" alt="${escapeHtml(a.label)}"
+                           width="56" height="56"
+                           class="op-avatar op-avatar-pixel" draggable="false" />
+                    </button>`;
+          }).join("")}
         </div>
-        <div class="operators-pane__field">
-          <label>Color</label>
-          <input data-bind="color" type="color"
-                 value="${this.editing.color}" />
-        </div>
+        <details class="operators-pane__avatar-fallback">
+          <summary>or use an emoji</summary>
+          <input type="text" data-bind="emoji" maxlength="4"
+                 value="${escapeHtml(parseAvatar(this.editing.emoji).kind === "emoji" ? (parseAvatar(this.editing.emoji) as { kind: "emoji"; char: string }).char : "")}"
+                 placeholder="🤖" />
+        </details>
+      </div>
+
+      <div class="operators-pane__field">
+        <label>Color</label>
+        <input data-bind="color" type="color"
+               value="${this.editing.color}" />
       </div>
 
       <div class="operators-pane__field">
@@ -230,6 +247,19 @@ export class OperatorsPane {
         }
       });
     };
+
+    // Wire avatar grid clicks — each button sets emoji to "pack:<id>"
+    root.querySelectorAll<HTMLButtonElement>('.operators-pane__avatar-cell').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.avatarId!;
+        this.editing.emoji = `pack:${id}`;
+        this.dirty = true;
+        root.querySelectorAll('.operators-pane__avatar-cell').forEach(c => c.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        const emojiInput = root.querySelector<HTMLInputElement>('[data-bind="emoji"]');
+        if (emojiInput) emojiInput.value = "";
+      });
+    });
 
     bind("name", (v) => v);
     bind("emoji", (v) => v);
