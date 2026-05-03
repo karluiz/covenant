@@ -371,6 +371,10 @@ export interface OperatorDecisionRow {
   /// Executor agent (claude / copilot / aider / …) detected at
   /// decision time. Null when no known executor matched.
   executor_name: string | null;
+  /// Operator that fired this decision. Null for pre-multi-operator rows.
+  operator_id: string | null;
+  /// Snapshot of the operator's display name at decision time.
+  operator_name: string | null;
 }
 
 export async function listOperatorDecisions(

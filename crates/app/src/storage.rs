@@ -222,6 +222,12 @@ pub struct OperatorDecisionRow {
     /// from `in_flight_command` at decision time. NULL when no known
     /// executor matched the command head.
     pub executor_name: Option<String>,
+    /// Operator that fired this decision. NULL for rows predating the
+    /// multi-operator feature or sessions with no operator attached.
+    pub operator_id: Option<String>,
+    /// Display name of the operator at decision time (snapshot so the
+    /// chip still shows the right name even if the operator is renamed).
+    pub operator_name: Option<String>,
 }
 
 fn shorten(id: &str) -> String {
@@ -983,7 +989,7 @@ impl Storage {
                 let mut stmt = c.prepare(
                     "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
-                            mission_path, executor_name
+                            mission_path, executor_name, operator_id, operator_name
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -1001,6 +1007,8 @@ impl Storage {
                         executed: r.get::<_, i64>(8)? != 0,
                         mission_path: r.get(9)?,
                         executor_name: r.get(10)?,
+                        operator_id: r.get(11)?,
+                        operator_name: r.get(12)?,
                     })
                 })?;
                 let mut out = Vec::new();

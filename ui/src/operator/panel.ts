@@ -15,7 +15,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { aomStatus, listOperatorDecisions, type OperatorDecisionRow } from "../api";
+import { aomStatus, listOperatorDecisions, operatorList, type Operator, type OperatorDecisionRow } from "../api";
 import { detectExecutor } from "../executor";
 import type { TabManager } from "../tabs/manager";
 
@@ -27,6 +27,7 @@ interface FilterState {
   action: ActionFilter;
   session: string | "all";
   executedOnly: boolean;
+  operatorFilter: string | "all";
 }
 
 const PREF_KEY = "covenant.operator-panel.filter";
@@ -34,15 +35,16 @@ const PREF_KEY = "covenant.operator-panel.filter";
 function loadPrefs(): FilterState {
   try {
     const raw = localStorage.getItem(PREF_KEY);
-    if (!raw) return { action: "all", session: "all", executedOnly: false };
+    if (!raw) return { action: "all", session: "all", executedOnly: false, operatorFilter: "all" };
     const p = JSON.parse(raw) as Partial<FilterState>;
     return {
       action: (p.action ?? "all") as ActionFilter,
       session: p.session ?? "all",
       executedOnly: !!p.executedOnly,
+      operatorFilter: p.operatorFilter ?? "all",
     };
   } catch {
-    return { action: "all", session: "all", executedOnly: false };
+    return { action: "all", session: "all", executedOnly: false, operatorFilter: "all" };
   }
 }
 
@@ -68,11 +70,27 @@ export class OperatorPanel {
   /// "operator-decision" events; cleared on close. Not persisted to
   /// localStorage — expansion is a transient view state.
   private expandedGroups: Set<number> = new Set();
+  private operatorCache: Map<string, Operator> = new Map();
 
   constructor(
     private readonly mountHost: HTMLElement,
     private readonly manager: TabManager,
   ) {}
+
+  private async refreshOperatorCache(): Promise<void> {
+    try {
+      const ops = await operatorList();
+      this.operatorCache.clear();
+      for (const op of ops) {
+        this.operatorCache.set(op.id, op);
+      }
+      // Re-render filters after the cache is populated so the operator
+      // dropdown reflects the current operator list.
+      this.renderFilters();
+    } catch {
+      // Non-fatal — chips fall back to neutral color.
+    }
+  }
 
   isOpen(): boolean {
     return this.modal !== null;
@@ -89,7 +107,7 @@ export class OperatorPanel {
   async open(): Promise<void> {
     if (this.isOpen()) return;
     this.render();
-    await Promise.all([this.refresh(), this.refreshSubtitle()]);
+    await Promise.all([this.refresh(), this.refreshSubtitle(), this.refreshOperatorCache()]);
 
     // Auto-refresh on new decisions while the panel is open. Also
     // bounce the subtitle in case AOM toggled between events.
@@ -212,6 +230,18 @@ export class OperatorPanel {
               .join("")}
           </select>
         </label>
+        <label class="operator-filter-label">
+          Operator
+          <select class="operator-operator-select" data-role="filter-operator">
+            <option value="all">All operators</option>
+            ${Array.from(this.operatorCache.values())
+              .map((op) => {
+                const sel = this.filter.operatorFilter === op.id ? " selected" : "";
+                return `<option value="${escapeAttr(op.id)}"${sel}>${escapeHtml(op.emoji + " " + op.name)}</option>`;
+              })
+              .join("")}
+          </select>
+        </label>
         <label class="operator-filter-toggle">
           <input type="checkbox" class="operator-executed-only"${this.filter.executedOnly ? " checked" : ""}>
           Executed only
@@ -235,6 +265,14 @@ export class OperatorPanel {
       .querySelector<HTMLSelectElement>(".operator-session-select")!
       .addEventListener("change", (e) => {
         this.filter.session = (e.target as HTMLSelectElement).value;
+        savePrefs(this.filter);
+        this.renderList();
+      });
+
+    this.filtersEl
+      .querySelector<HTMLSelectElement>(".operator-operator-select")!
+      .addEventListener("change", (e) => {
+        this.filter.operatorFilter = (e.target as HTMLSelectElement).value;
         savePrefs(this.filter);
         this.renderList();
       });
@@ -300,6 +338,12 @@ export class OperatorPanel {
         return false;
       }
       if (this.filter.executedOnly && !r.executed) return false;
+      if (
+        this.filter.operatorFilter !== "all" &&
+        r.operator_id !== this.filter.operatorFilter
+      ) {
+        return false;
+      }
       return true;
     });
 
@@ -447,6 +491,15 @@ export class OperatorPanel {
       ? `<span class="op-chip op-chip-mission" title="${missionFromSnapshot ? "Mission at decision time" : "Tab's current mission (no snapshot)"}: ${escapeAttr(missionPath)}">${escapeHtml(missionBase ?? "")}</span>`
       : "";
 
+    const opCached = r.operator_id ? this.operatorCache.get(r.operator_id) : null;
+    const opColor = opCached?.color ?? "#6B7280";
+    const opLabel = r.operator_name
+      ? (opCached ? `${opCached.emoji} ${r.operator_name}` : r.operator_name)
+      : null;
+    const operatorChip = opLabel
+      ? `<span class="op-decision-chip" style="background:${escapeAttr(opColor)}" title="Operator: ${escapeAttr(opLabel)}">${escapeHtml(opLabel)}</span>`
+      : "";
+
     const replyLine = r.reply_text
       ? `<div class="op-reply"><span class="op-reply-label">would type</span><code>${escapeHtml(visualizeBytes(r.reply_text))}</code></div>`
       : "";
@@ -464,6 +517,7 @@ export class OperatorPanel {
       <div class="${rowClass}">
         <div class="op-row-head">
           ${actionBadge}
+          ${operatorChip}
           ${executorChip}
           ${cmd}
           ${opts.groupBadge}

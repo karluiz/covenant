@@ -6602,3 +6602,29 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 .operator-picker__hint {
   color: var(--muted); font-size: 11px; text-align: right;
 }
+
+/* ── Operator decision chip (Task 6) ───────────────────────── */
+.op-decision-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #fff;
+  margin-right: 4px;
+}
+
+/* ── AFK active-operators strip (Task 7) ────────────────────── */
+.afk-active-operators {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 4px 0;
+}
+.afk-active-label {
+  color: var(--muted); font-size: 12px; align-self: center;
+}
+.afk-op-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff; font-size: 11px;
+}
