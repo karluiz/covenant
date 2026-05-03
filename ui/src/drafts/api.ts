@@ -37,4 +37,14 @@ export const draftsApi = {
     invoke<string>("next_draft_id", { repoRoot }),
   suggest: (repoRoot: string, slug: string, section: SuggestSection) =>
     invoke<string[]>("suggest_draft_section", { repoRoot, slug, section }),
+  listPublishedSpecs: (repoRoot: string) =>
+    invoke<PublishedSpec[]>("list_published_specs", { repoRoot }),
 };
+
+export interface PublishedSpec {
+  id: string;
+  title: string;
+  goal: string;
+  path: string;
+  updated_at: string;
+}

@@ -13,6 +13,7 @@ export class DraftsPanel {
   private view: View = "list";
   private currentSlug: string | null = null;
   private wizard: DraftWizard | null = null;
+  private wizardOpts: { autoPublish?: boolean } = {};
   public onClosed: (() => void) | null = null;
   public getRepoRoot: () => string = () => ".";
 
@@ -49,9 +50,10 @@ export class DraftsPanel {
     this.onClosed?.();
   }
 
-  openWizard(slug: string | null): void {
+  openWizard(slug: string | null, opts?: { autoPublish?: boolean }): void {
     this.view = "wizard";
     this.currentSlug = slug;
+    this.wizardOpts = opts ?? {};
     void this.render();
   }
 
@@ -128,6 +130,7 @@ export class DraftsPanel {
       host: this.pageHost,
       repoRoot: this.getRepoRoot(),
       slug: this.currentSlug,
+      autoPublish: this.wizardOpts.autoPublish,
       onBack: () => {
         this.view = "list";
         void this.render();

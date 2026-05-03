@@ -585,3 +585,4 @@ export type {
   DraftDocument,
   SuggestSection,
 } from "./drafts/api";
+export type { PublishedSpec } from "./drafts/api";
