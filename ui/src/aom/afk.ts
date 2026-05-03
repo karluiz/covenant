@@ -111,6 +111,7 @@ export class AfkOverlay {
 function formatElapsed(ms: number): string {
   if (ms <= 0) return "just now";
   const s = Math.floor(ms / 1000);
+  if (s === 0) return "just now";
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m`;
