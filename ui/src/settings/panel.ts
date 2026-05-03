@@ -13,6 +13,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { Icons } from "../icons";
+import { OperatorsPane } from "./operators";
 
 interface AgentConfig {
   model_summary: string;
@@ -80,6 +81,7 @@ async function setSettings(settings: Settings): Promise<void> {
 export class SettingsPanel {
   private isOpenState = false;
   private current: Settings | null = null;
+  private operatorsPane: OperatorsPane | null = null;
 
   /// Optional callback fired whenever settings are saved. Used by main
   /// to push live updates (terminal font, operator state, etc.) into
@@ -153,7 +155,7 @@ export class SettingsPanel {
     this.workspace.hidden = true;
     this.pageHost.hidden = false;
     this.isOpenState = true;
-    this.render();
+    await this.render();
   }
 
   close(): void {
@@ -166,7 +168,7 @@ export class SettingsPanel {
     if (this.onClosed) this.onClosed();
   }
 
-  private render(): void {
+  private async render(): Promise<void> {
     if (!this.current) return;
 
     this.pageHost.innerHTML = "";
@@ -426,11 +428,6 @@ export class SettingsPanel {
     const modelSummary = form.querySelector<HTMLInputElement>('input[name="model_summary"]')!;
     const modelChat = form.querySelector<HTMLInputElement>('input[name="model_chat"]')!;
     const maxCalls = form.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
-    const opPersona = form.querySelector<HTMLTextAreaElement>(
-      'textarea[name="operator_persona"]',
-    )!;
-    const opIdle = form.querySelector<HTMLInputElement>('input[name="op_idle"]')!;
-    const opRate = form.querySelector<HTMLInputElement>('input[name="op_rate"]')!;
     const aomBudget = form.querySelector<HTMLInputElement>('input[name="aom_budget"]')!;
     const termFont = form.querySelector<HTMLInputElement>('input[name="term_font"]')!;
     const termSize = form.querySelector<HTMLInputElement>('input[name="term_size"]')!;
@@ -470,9 +467,6 @@ export class SettingsPanel {
     modelSummary.value = this.current.agent.model_summary;
     modelChat.value = this.current.agent.model_chat;
     maxCalls.value = String(this.current.agent.max_calls_per_minute);
-    opPersona.value = this.current.operator.persona;
-    opIdle.value = String(this.current.operator.idle_threshold_secs);
-    opRate.value = String(this.current.operator.max_decisions_per_minute);
     aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
     termFont.value = this.current.terminal.font_family;
     termSize.value = String(this.current.terminal.font_size);
@@ -500,6 +494,12 @@ export class SettingsPanel {
     notifSuppressFocused.checked = n.suppress_when_focused;
 
     apiKey.focus();
+
+    const opMount = form.querySelector<HTMLElement>("#operators-pane");
+    if (opMount) {
+      this.operatorsPane = new OperatorsPane(opMount);
+      await this.operatorsPane.open();
+    }
 
     form
       .querySelector<HTMLButtonElement>(".settings-toggle")!
@@ -569,22 +569,7 @@ export class SettingsPanel {
             Math.min(60, Number(maxCalls.value) || 6),
           ),
         },
-        operator: {
-          // M-OP1 only edits persona / idle / rate from the UI; keep
-          // the rest as round-tripped (defaults seeded by Rust on load).
-          enabled_default: prevOp.enabled_default,
-          persona: opPersona.value,
-          executor_patterns: prevOp.executor_patterns,
-          idle_threshold_secs: Math.max(
-            1,
-            Math.min(60, Number(opIdle.value) || 4),
-          ),
-          max_decisions_per_minute: Math.max(
-            1,
-            Math.min(60, Number(opRate.value) || 10),
-          ),
-          deny_extra_patterns: prevOp.deny_extra_patterns,
-        },
+        operator: prevOp,
         terminal: {
           font_family:
             termFont.value.trim() ||
