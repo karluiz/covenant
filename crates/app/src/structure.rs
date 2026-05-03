@@ -152,6 +152,57 @@ pub fn write_file_binary(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BinaryReadResult {
+    Found { bytes: Vec<u8>, size_bytes: u64 },
+    TooLarge { size_bytes: u64 },
+}
+
+/// Read `path` as raw bytes (for image previews, etc.). Returns
+/// `TooLarge` instead of bytes when the file exceeds `max_bytes` —
+/// callers render a friendly placeholder rather than blow IPC.
+pub fn read_file_binary(path: &Path, max_bytes: u64) -> Result<BinaryReadResult, String> {
+    let metadata = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
+    if !metadata.is_file() {
+        return Err(format!("not a file: {}", path.display()));
+    }
+    let size = metadata.len();
+    if size > max_bytes {
+        return Ok(BinaryReadResult::TooLarge { size_bytes: size });
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
+    Ok(BinaryReadResult::Found { bytes, size_bytes: size })
+}
+
+/// Rename `from` to `to`. Refuses if `from` doesn't exist, if `to`
+/// already exists (no overwrite), or if the parent dirs differ —
+/// renames are intentionally same-directory only. Cross-directory
+/// moves are out of scope for now (would need a separate "move" UX).
+pub fn rename_path(from: &Path, to: &Path) -> Result<(), String> {
+    if !from.exists() {
+        return Err(format!("source does not exist: {}", from.display()));
+    }
+    if to.exists() {
+        return Err(format!("destination already exists: {}", to.display()));
+    }
+    if from.parent() != to.parent() {
+        return Err("rename across directories is not supported".to_string());
+    }
+    std::fs::rename(from, to).map_err(|e| format!("rename: {e}"))
+}
+
+/// Move `path` to the system Trash (Recycle Bin on Windows, Trash on
+/// macOS, freedesktop trash on Linux). Soft-delete: the user can
+/// restore from the OS Trash UI. We never `remove_file`/`remove_dir`
+/// directly — too easy to lose work.
+pub fn trash_path(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("path does not exist: {}", path.display()));
+    }
+    trash::delete(path).map_err(|e| format!("trash: {e}"))
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SearchHit {
     pub path: String,
     /// 1-based line number where the match was found.

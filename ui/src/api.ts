@@ -502,6 +502,31 @@ export async function structureWriteBinaryFile(
   return invoke<void>("structure_write_binary_file", { path, bytes });
 }
 
+export type BinaryReadResult =
+  | { kind: "found"; bytes: number[]; size_bytes: number }
+  | { kind: "too_large"; size_bytes: number };
+
+export async function structureReadBinaryFile(
+  path: string,
+  maxBytes?: number,
+): Promise<BinaryReadResult> {
+  return invoke<BinaryReadResult>("structure_read_binary_file", {
+    path,
+    maxBytes: maxBytes ?? null,
+  });
+}
+
+export async function structureRenamePath(
+  from: string,
+  to: string,
+): Promise<void> {
+  return invoke<void>("structure_rename_path", { from, to });
+}
+
+export async function structureTrashPath(path: string): Promise<void> {
+  return invoke<void>("structure_trash_path", { path });
+}
+
 /// One match from a global search. `match_start`/`match_end` are CHAR
 /// offsets within `line_text` (already truncated server-side if the
 /// source line was very long), suitable for highlighting in the UI.

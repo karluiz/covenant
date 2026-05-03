@@ -13,7 +13,7 @@
 
 import { renderMarkdown } from "../release/markdown";
 
-export type PreviewKind = "markdown" | "svg";
+export type PreviewKind = "markdown" | "svg" | "png";
 
 export interface Preview {
   /// Mount + render. The implementation OWNS `host.innerHTML` for
@@ -35,6 +35,9 @@ export function previewKindForPath(path: string): PreviewKind | null {
   const ext = base.slice(dot + 1).toLowerCase();
   if (ext === "md" || ext === "markdown" || ext === "mdx") return "markdown";
   if (ext === "svg") return "svg";
+  if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "webp") {
+    return "png";
+  }
   return null;
 }
 
@@ -106,6 +109,69 @@ export class SvgPreview implements Preview {
   }
   dispose(): void {
     /* no listeners */
+  }
+}
+
+// ─── Raster image (PNG / JPG / GIF / WebP) ─────────────
+
+/// Renders a raster image from raw bytes via a transient object URL.
+/// Despite the kind name "png", this is reused for jpg/gif/webp —
+/// the browser sniffs the actual format from the bytes. Disposes the
+/// object URL on `dispose()` so we don't leak the blob through repeated
+/// file opens.
+export class PngPreview implements Preview {
+  private currentUrl: string | null = null;
+
+  /// Mounts an `<img>` with bytes converted to an object URL. The
+  /// `content` param here is the JSON-array string of bytes (the
+  /// IPC layer hands us `number[]`); we Uint8Array-ify it before
+  /// blobbing.
+  mount(host: HTMLElement, content: string): void {
+    this.dispose();
+    host.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "structure-preview-png";
+
+    let bytes: Uint8Array;
+    try {
+      const arr = JSON.parse(content);
+      if (!Array.isArray(arr)) throw new Error("not an array");
+      bytes = Uint8Array.from(arr);
+    } catch (err) {
+      wrap.innerHTML = `
+        <div class="structure-preview-error">
+          <strong>Image data invalid.</strong>
+          <pre>${escapeHtml(String(err))}</pre>
+        </div>
+      `;
+      host.appendChild(wrap);
+      return;
+    }
+
+    const blob = new Blob([bytes as BlobPart]);
+    this.currentUrl = URL.createObjectURL(blob);
+
+    const img = document.createElement("img");
+    img.src = this.currentUrl;
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = "100%";
+    img.style.objectFit = "contain";
+    img.style.display = "block";
+    img.style.margin = "0 auto";
+    img.alt = "Image preview";
+    wrap.appendChild(img);
+    host.appendChild(wrap);
+  }
+
+  update(host: HTMLElement, content: string): void {
+    this.mount(host, content);
+  }
+
+  dispose(): void {
+    if (this.currentUrl) {
+      URL.revokeObjectURL(this.currentUrl);
+      this.currentUrl = null;
+    }
   }
 }
 

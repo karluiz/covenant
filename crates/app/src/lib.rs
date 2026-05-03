@@ -1233,6 +1233,39 @@ async fn structure_write_binary_file(
         .map_err(|e| format!("write_binary join: {e}"))?
 }
 
+const MAX_BINARY_READ_BYTES_HARD_CAP: u64 = 16 * 1024 * 1024;
+
+#[tauri::command]
+async fn structure_read_binary_file(
+    path: String,
+    max_bytes: Option<u64>,
+) -> Result<structure::BinaryReadResult, String> {
+    let p = PathBuf::from(path);
+    let max = max_bytes
+        .unwrap_or(10 * 1024 * 1024)
+        .min(MAX_BINARY_READ_BYTES_HARD_CAP);
+    tokio::task::spawn_blocking(move || structure::read_file_binary(&p, max))
+        .await
+        .map_err(|e| format!("read_binary join: {e}"))?
+}
+
+#[tauri::command]
+async fn structure_rename_path(from: String, to: String) -> Result<(), String> {
+    let from_p = PathBuf::from(from);
+    let to_p = PathBuf::from(to);
+    tokio::task::spawn_blocking(move || structure::rename_path(&from_p, &to_p))
+        .await
+        .map_err(|e| format!("rename join: {e}"))?
+}
+
+#[tauri::command]
+async fn structure_trash_path(path: String) -> Result<(), String> {
+    let p = PathBuf::from(path);
+    tokio::task::spawn_blocking(move || structure::trash_path(&p))
+        .await
+        .map_err(|e| format!("trash join: {e}"))?
+}
+
 /// Project-wide substring search across the cwd, honoring .gitignore.
 /// Heavy filesystem work runs on the blocking pool so the IPC thread
 /// stays responsive while the user is still typing the next char.
@@ -1423,6 +1456,9 @@ pub fn run() {
             structure_read_file,
             structure_write_file,
             structure_write_binary_file,
+            structure_read_binary_file,
+            structure_rename_path,
+            structure_trash_path,
             structure_search,
         ])
         .run(tauri::generate_context!())

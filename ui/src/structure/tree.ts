@@ -6,9 +6,23 @@
 // entries at all). Manual refresh button re-lists from root.
 
 import { Icons } from "../icons";
-import { structureListDir, type DirEntry } from "../api";
+import {
+  structureListDir,
+  structureRenamePath,
+  structureTrashPath,
+  type DirEntry,
+} from "../api";
 
 export type FileClickHandler = (path: string) => void;
+/// Fires when a tree mutation (rename / trash) succeeds so the
+/// caller can close / re-route an open editor pointing at the
+/// affected path. `kind` is "rename" with old + new path, or
+/// "trash" with the deleted path.
+export type TreeChangeHandler = (
+  change:
+    | { kind: "rename"; oldPath: string; newPath: string }
+    | { kind: "trash"; path: string },
+) => void;
 
 interface NodeState {
   entry: DirEntry;
@@ -53,6 +67,7 @@ export class StructureTree {
   constructor(
     private readonly host: HTMLElement,
     private readonly onFileClick: FileClickHandler,
+    private readonly onChange?: TreeChangeHandler,
   ) {
     this.root = document.createElement("div");
     this.root.className = "structure-host";
@@ -204,7 +219,139 @@ export class StructureTree {
       }
     });
 
+    row.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      this.openContextMenu(ev.clientX, ev.clientY, node);
+    });
+
     return node;
+  }
+
+  private openContextMenu(x: number, y: number, node: NodeState): void {
+    closeAnyContextMenu();
+
+    const menu = document.createElement("div");
+    menu.className = "structure-context-menu";
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.dataset.kind = "structure-context-menu";
+
+    const rename = makeMenuItem("Rename", () => {
+      closeAnyContextMenu();
+      this.startRename(node);
+    });
+    menu.appendChild(rename);
+
+    const del = makeMenuItem("Move to Trash", () => {
+      closeAnyContextMenu();
+      void this.confirmAndTrash(node);
+    });
+    del.classList.add("danger");
+    menu.appendChild(del);
+
+    document.body.appendChild(menu);
+
+    // Clamp to viewport so it doesn't render off-screen.
+    requestAnimationFrame(() => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+      }
+    });
+
+    const dismiss = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e instanceof MouseEvent && menu.contains(e.target as Node)) return;
+      closeAnyContextMenu();
+    };
+    setTimeout(() => {
+      document.addEventListener("click", dismiss, { once: true });
+      document.addEventListener("keydown", dismiss, { once: true });
+    }, 0);
+    menu.dataset.dismissBound = "1";
+  }
+
+  /// Swap the node's name span for an inline `<input>` and let the
+  /// user type a new name. Enter renames; Esc / blur cancels.
+  private startRename(node: NodeState): void {
+    const nameEl = node.el.querySelector(".structure-name");
+    if (!(nameEl instanceof HTMLElement)) return;
+
+    const oldName = node.entry.name;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "structure-rename-input";
+    input.value = oldName;
+    input.spellcheck = false;
+
+    nameEl.replaceWith(input);
+    input.focus();
+    // Select the stem (everything before the final dot) so the
+    // extension stays untouched in the typical rename case.
+    const dot = oldName.lastIndexOf(".");
+    if (dot > 0) input.setSelectionRange(0, dot);
+    else input.select();
+
+    let done = false;
+    const finish = (commit: boolean): void => {
+      if (done) return;
+      done = true;
+      const next = input.value.trim();
+      const restoreSpan = (text: string) => {
+        const span = document.createElement("span");
+        span.className = "structure-name";
+        span.textContent = text;
+        input.replaceWith(span);
+      };
+      if (!commit || next === oldName || next.length === 0 || next.includes("/")) {
+        restoreSpan(oldName);
+        return;
+      }
+      const oldPath = node.entry.path;
+      const slash = oldPath.lastIndexOf("/");
+      const newPath = slash >= 0 ? oldPath.slice(0, slash + 1) + next : next;
+      restoreSpan(next);
+      void this.applyRename(oldPath, newPath);
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  private async applyRename(oldPath: string, newPath: string): Promise<void> {
+    try {
+      await structureRenamePath(oldPath, newPath);
+    } catch (err) {
+      this.showError(`Rename failed: ${err}`);
+      await this.refresh();
+      return;
+    }
+    this.onChange?.({ kind: "rename", oldPath, newPath });
+    await this.refresh();
+  }
+
+  private async confirmAndTrash(node: NodeState): Promise<void> {
+    const ok = await confirmTrash(node.entry.name, node.entry.kind);
+    if (!ok) return;
+    try {
+      await structureTrashPath(node.entry.path);
+    } catch (err) {
+      this.showError(`Move to Trash failed: ${err}`);
+      return;
+    }
+    this.onChange?.({ kind: "trash", path: node.entry.path });
+    await this.refresh();
   }
 
   private async expand(node: NodeState): Promise<void> {
@@ -272,4 +419,82 @@ function shortenCwd(cwd: string): string {
   const parts = cwd.split("/").filter(Boolean);
   if (parts.length <= 2) return cwd;
   return ".../" + parts.slice(-2).join("/");
+}
+
+function makeMenuItem(label: string, onClick: () => void): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "structure-context-menu-item";
+  btn.textContent = label;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function closeAnyContextMenu(): void {
+  document
+    .querySelectorAll('[data-kind="structure-context-menu"]')
+    .forEach((el) => el.remove());
+}
+
+/// Modal confirmation for moving a path to Trash. Resolves with
+/// `true` if the user confirms, `false` on cancel / Escape.
+function confirmTrash(name: string, kind: "file" | "dir"): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "structure-confirm-overlay";
+
+    const dialog = document.createElement("div");
+    dialog.className = "structure-confirm-dialog";
+
+    const heading = document.createElement("h3");
+    heading.textContent = `Move ${kind === "dir" ? "folder" : "file"} to Trash?`;
+    dialog.appendChild(heading);
+
+    const body = document.createElement("p");
+    body.textContent = name;
+    dialog.appendChild(body);
+
+    const note = document.createElement("p");
+    note.className = "structure-confirm-note";
+    note.textContent = "You can restore it from the system Trash.";
+    dialog.appendChild(note);
+
+    const actions = document.createElement("div");
+    actions.className = "structure-confirm-actions";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "structure-confirm-cancel";
+    cancel.textContent = "Cancel";
+    actions.appendChild(cancel);
+
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "structure-confirm-ok";
+    confirm.textContent = "Move to Trash";
+    actions.appendChild(confirm);
+
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const close = (result: boolean) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close(false);
+      else if (e.key === "Enter") close(true);
+    };
+
+    cancel.addEventListener("click", () => close(false));
+    confirm.addEventListener("click", () => close(true));
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close(false);
+    });
+    document.addEventListener("keydown", onKey);
+
+    requestAnimationFrame(() => confirm.focus());
+  });
 }

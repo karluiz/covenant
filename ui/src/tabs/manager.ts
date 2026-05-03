@@ -1177,7 +1177,23 @@ export class TabManager {
       refitAfterLayoutTransition();
     };
 
-    const structure = new StructureTree(blocksHost, (path) => openEditor(path));
+    const structure = new StructureTree(
+      blocksHost,
+      (path) => openEditor(path),
+      (change) => {
+        // React to filesystem mutations from the tree's context menu.
+        // If the open editor is pointing at the affected path, reroute
+        // it (rename) or close it (trash) so the user isn't left with
+        // a stale view.
+        const open = editor.getCurrentPath();
+        if (!open) return;
+        if (change.kind === "rename" && open === change.oldPath) {
+          openEditor(change.newPath);
+        } else if (change.kind === "trash" && open === change.path) {
+          editor.close();
+        }
+      },
+    );
 
     const switchSidebar = (view: "blocks" | "structure") => {
       const t = tabRef.current;

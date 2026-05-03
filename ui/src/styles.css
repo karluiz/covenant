@@ -5157,6 +5157,161 @@ button.status-segment.status-aom.status-aom-warn:hover {
     white-space: pre-wrap;
 }
 
+/* PNG / JPG / GIF / WebP raster preview. Same checkered backdrop
+   as the SVG host so transparent areas read clearly; centered with
+   object-fit handled inline on the <img>. */
+.structure-preview-png {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(13, 16, 21, var(--surface-alpha));
+    background-image:
+        linear-gradient(45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.03) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.03) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* Right-click context menu on tree rows. Floating popover anchored
+   at the cursor; closed on outside click or Escape. */
+.structure-context-menu {
+    position: fixed;
+    z-index: 1000;
+    min-width: 160px;
+    background: rgb(20 24 30 / 0.98);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+.structure-context-menu-item {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--fg, #e5e7eb);
+    text-align: left;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.structure-context-menu-item:hover {
+    background: color-mix(in srgb, var(--accent, #b794f4) 14%, transparent);
+}
+.structure-context-menu-item.danger {
+    color: #f7768e;
+}
+.structure-context-menu-item.danger:hover {
+    background: rgba(247, 118, 142, 0.14);
+}
+
+/* Inline rename input that replaces the name span on a tree row. */
+.structure-rename-input {
+    flex: 1;
+    min-width: 0;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 50%, var(--border));
+    border-radius: 3px;
+    color: var(--fg, #e5e7eb);
+    font-size: 12px;
+    padding: 1px 4px;
+    margin: 0;
+    outline: none;
+    font-family: inherit;
+}
+.structure-rename-input:focus {
+    border-color: var(--accent, #b794f4);
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* Confirm-trash modal. Full-screen translucent overlay + centered
+   dialog. Native focus on the destructive action; Esc cancels. */
+.structure-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(2px);
+}
+.structure-confirm-dialog {
+    min-width: 320px;
+    max-width: 440px;
+    background: rgb(20 24 30 / 0.98);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px 16px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+.structure-confirm-dialog h3 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg, #e5e7eb);
+}
+.structure-confirm-dialog p {
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: var(--fg, #e5e7eb);
+    word-break: break-all;
+}
+.structure-confirm-note {
+    color: var(--muted, #9ca3af) !important;
+    font-size: 11px !important;
+    margin-bottom: 14px !important;
+}
+.structure-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+}
+.structure-confirm-cancel,
+.structure-confirm-ok {
+    appearance: none;
+    border-radius: 4px;
+    padding: 5px 14px;
+    font-size: 11.5px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.structure-confirm-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg, #e5e7eb);
+}
+.structure-confirm-cancel:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+.structure-confirm-ok {
+    background: rgba(247, 118, 142, 0.18);
+    border: 1px solid rgba(247, 118, 142, 0.55);
+    color: #f7768e;
+}
+.structure-confirm-ok:hover {
+    background: rgba(247, 118, 142, 0.28);
+}
+.structure-confirm-ok:focus-visible {
+    outline: 2px solid #f7768e;
+    outline-offset: 1px;
+}
+
 .structure-editor-placeholder {
     flex: 1;
     padding: 24px;
