@@ -233,6 +233,8 @@ async function boot(): Promise<void> {
   // tab strip stays minimal.
   manager.onActiveOperatorChange = (state, sessionId) =>
     statusBar.setOperator(state, sessionId);
+  manager.onActiveOperatorEntityChange = (op) =>
+    statusBar.setOperatorEntity(op);
   // Tab context-menu "View mission…" reuses the same modal as the
   // status-bar chip — keep the rendering in one place.
   manager.onMissionViewRequested = (mission, sessionId) =>
@@ -431,6 +433,16 @@ async function boot(): Promise<void> {
   if (!restored) {
     await manager.createTab();
   }
+
+  // Populate operator cache once the backend is up and tabs are
+  // restored — chips in the tab strip and status bar need this.
+  void manager.refreshOperatorCache();
+
+  // Task 5 will wire this to an OperatorPicker. For now it's a no-op
+  // stub so the click handler compiles and doesn't crash.
+  statusBar.onOperatorChipClick = (_sessionId) => {
+    // Picker hookup lives in Plan 3 Task 5.
+  };
 
   window.addEventListener("keydown", (e) => {
     // ⌘= / ⌘+ → zoom in, ⌘- → zoom out, ⌘0 → reset (browser convention).
