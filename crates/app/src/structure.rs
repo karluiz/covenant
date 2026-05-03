@@ -39,6 +39,12 @@ pub fn list_dir(cwd: &Path) -> Result<Vec<DirEntry>, String> {
     if !cwd.is_dir() {
         return Err(format!("not a directory: {}", cwd.display()));
     }
+    // Build a one-shot gitignore matcher rooted at this dir. The
+    // `ignore` crate's WalkBuilder is overkill for one-level reads —
+    // we just want the matcher. Errors loading .gitignore are
+    // soft-fail: we still list the directory, just without those rules.
+    let gi_path = cwd.join(".gitignore");
+    let (matcher, _gi_err) = ignore::gitignore::Gitignore::new(&gi_path);
     let mut out = Vec::new();
     let read = std::fs::read_dir(cwd).map_err(|e| format!("read_dir: {e}"))?;
     for entry in read {
@@ -59,9 +65,13 @@ pub fn list_dir(cwd: &Path) -> Result<Vec<DirEntry>, String> {
         } else {
             continue;
         };
+        let abs = entry.path();
+        if matcher.matched(&abs, matches!(kind, EntryKind::Dir)).is_ignore() {
+            continue;
+        }
         out.push(DirEntry {
             name,
-            path: entry.path().display().to_string(),
+            path: abs.display().to_string(),
             kind,
             is_symlink,
         });
@@ -118,5 +128,38 @@ mod tests {
         let f = tmp.path().join("file.txt");
         fs::write(&f, b"").unwrap();
         assert!(list_dir(&f).is_err());
+    }
+
+    #[test]
+    fn honors_gitignore() {
+        let tmp = TempDir::new().unwrap();
+        make_tree(&tmp, &[
+            "src/main.rs",
+            "build/output.bin",
+            "secret.env",
+            "README.md",
+            ".gitignore",
+        ]);
+        fs::write(tmp.path().join(".gitignore"), "build/\n*.env\n").unwrap();
+        let entries = list_dir(tmp.path()).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        // .gitignore itself is shown (gitignore patterns don't hide it),
+        // but build/ and secret.env are filtered.
+        assert!(names.contains(&"src"));
+        assert!(names.contains(&"README.md"));
+        assert!(names.contains(&".gitignore"));
+        assert!(!names.contains(&"build"));
+        assert!(!names.contains(&"secret.env"));
+    }
+
+    #[test]
+    fn gitignore_only_applies_inside_repo_or_with_root() {
+        // No .gitignore = nothing extra is filtered (only hardcoded set).
+        let tmp = TempDir::new().unwrap();
+        make_tree(&tmp, &["foo.log", "bar.txt"]);
+        let entries = list_dir(tmp.path()).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"foo.log"));
+        assert!(names.contains(&"bar.txt"));
     }
 }
