@@ -1378,6 +1378,34 @@ pub fn run() {
                 .map_err(|e| format!("open storage: {e}"))?;
 
             let settings_arc = Arc::new(Mutex::new(loaded));
+
+            // Boot-time: construct OperatorRegistry, seed Default from legacy
+            // operator config, then manage Arc'd registry + storage clone so
+            // Tauri commands (Task 6) can resolve State<Arc<OperatorRegistry>>
+            // and State<Arc<Storage>>.
+            let registry = tauri::async_runtime::block_on(async {
+                crate::operator_registry::OperatorRegistry::load(&storage).await
+            })
+            .map_err(|e| format!("load operator registry: {e}"))?;
+
+            {
+                let (legacy_op_cfg, global_model) = {
+                    let s = settings_arc.blocking_lock();
+                    (s.operator.clone(), s.agent.model_summary.clone())
+                };
+                if let Err(e) = tauri::async_runtime::block_on(async {
+                    registry
+                        .seed_default_from_settings(&storage, &legacy_op_cfg, &global_model)
+                        .await
+                }) {
+                    tracing::warn!(error = %e, "operator seed failed; continuing");
+                }
+            }
+
+            let registry_arc = Arc::new(registry);
+            app.manage(registry_arc);
+            app.manage(Arc::new(storage.clone()));
+
             let aom_handle = aom::new_handle();
             let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());
             // Pre-warm macOS notification permission so the first real
