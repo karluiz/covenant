@@ -66,6 +66,11 @@ export class StatusBar {
   /// menu's "Set mission…" so both routes end in one code path.
   public onMissionSetRequested: ((sessionId: SessionId) => void) | null = null;
 
+  /// Wired by main.ts. Fires when the user clicks the version chip;
+  /// opens the release-log modal. Decoupling the StatusBar from the
+  /// ReleasePanel directly so the bar stays a thin renderer.
+  public onVersionChipClick: (() => void) | null = null;
+
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("status-bar");
     this.host.setAttribute("role", "status");
@@ -320,6 +325,12 @@ export class StatusBar {
         aomSegment(this.currentAom, (anchor) => this.openAomPopover(anchor)),
       );
     }
+    // Version chip lives at the trailing edge — informational, click
+    // opens the release log. Always rendered so the user always has a
+    // glanceable "what build am I on" indicator.
+    this.host.appendChild(
+      versionSegment(__APP_VERSION__, () => this.onVersionChipClick?.()),
+    );
   }
 
   private async openMission(): Promise<void> {
@@ -424,6 +435,26 @@ function formatElapsed(ms: number): string {
   const h = Math.floor(m / 60);
   const rm = m - h * 60;
   return rm === 0 ? `${h}h` : `${h}h${rm}m`;
+}
+
+function versionSegment(version: string, onClick: () => void): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "status-segment status-version";
+  el.title = `Covenant v${version} — click for release log (⌘⇧V)`;
+  el.setAttribute("aria-label", `Version ${version}. Open release log.`);
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = `v${version}`;
+  el.appendChild(text);
+
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return el;
 }
 
 function executorSegment(name: string): HTMLElement {

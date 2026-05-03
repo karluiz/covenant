@@ -1,7 +1,26 @@
 import { defineConfig } from "vite";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+// Source-of-truth version from package.json — exposed to the frontend
+// as `__APP_VERSION__`. We also read CHANGELOG.md raw at config time
+// and inline it as `__APP_CHANGELOG__` so the release-log modal can
+// render it without a runtime fetch (Tauri webview file:// reads can
+// fail on some macOS configs; inlining sidesteps the whole class).
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(
+  readFileSync(resolve(__dirname, "package.json"), "utf-8"),
+) as { version: string };
+let changelog = "";
+try {
+  changelog = readFileSync(resolve(__dirname, "CHANGELOG.md"), "utf-8");
+} catch {
+  changelog = "# Changelog\n\nNo changelog file found at build time.";
+}
 
 // Vite is configured for Tauri:
 //  - frontend root is `ui/` (entry: ui/index.html)
@@ -13,6 +32,10 @@ export default defineConfig(async () => ({
   root: "ui",
   publicDir: false,
   clearScreen: false,
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_CHANGELOG__: JSON.stringify(changelog),
+  },
   build: {
     outDir: "../dist",
     emptyOutDir: true,

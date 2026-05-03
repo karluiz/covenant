@@ -20,6 +20,7 @@ import { DocsPanel } from "./docs/panel";
 import { ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
+import { ReleasePanel } from "./release/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { StatusBar } from "./status/bar";
@@ -114,6 +115,17 @@ function formatBudgetDuration(ms: number): string {
 async function boot(): Promise<void> {
   await waitForTauri();
 
+  // Window title carries the running version — visible in the macOS
+  // top bar + app switcher so it's clear which build is which when
+  // multiple installs coexist (DMG vs `tauri dev`).
+  try {
+    await getCurrentWindow().setTitle(`Covenant v${__APP_VERSION__}`);
+  } catch {
+    /* setTitle can race with the window's first frame on cold boot —
+       not fatal, the static title from tauri.conf.json shows in the
+       interim. */
+  }
+
   // UI zoom — apply the persisted level BEFORE the first layout pass
   // so the user doesn't see a flash at 100% when their saved zoom is
   // 120%. Also subscribes the TabManager later (after it's created)
@@ -174,6 +186,14 @@ async function boot(): Promise<void> {
   const settings = new SettingsPanel(settingsPage, workspace);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
   const operator = new OperatorPanel(document.body, manager);
+  const release = new ReleasePanel(document.body);
+  statusBar.onVersionChipClick = () => release.toggle();
+  // Auto-show "What's new" on the first launch after a version bump.
+  // Compares the persisted last-seen version with the running one;
+  // if missing or different, pop the modal once. Marked seen on close.
+  if (ReleasePanel.lastSeenVersion() !== __APP_VERSION__) {
+    release.openWhatsNew();
+  }
   const recallPalette = new RecallPalette(
     document.body,
     () => manager.activeSessionId(),
@@ -424,6 +444,13 @@ async function boot(): Promise<void> {
       aomReportPanel.toggle();
       return;
     }
+    // ⌘⇧V → release log / version history. Same modal that auto-pops
+    // on a fresh-version launch.
+    if (e.metaKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
+      e.preventDefault();
+      release.toggle();
+      return;
+    }
     // ⌘? (Shift+/) and ⌘/ both toggle the in-app docs hub. Two
     // bindings because "?" requires Shift on most layouts; ⌘/ is the
     // shift-free alias.
@@ -474,6 +501,11 @@ async function boot(): Promise<void> {
       if (aomReportPanel.isOpen()) {
         e.preventDefault();
         aomReportPanel.close();
+        return;
+      }
+      if (release.isOpen()) {
+        e.preventDefault();
+        release.close();
         return;
       }
       if (docsPanel.isOpen()) {

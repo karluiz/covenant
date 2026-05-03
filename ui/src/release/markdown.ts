@@ -1,0 +1,107 @@
+// Tiny markdown renderer scoped to what CHANGELOG.md needs:
+//   # / ## / ### / #### headings
+//   bullet lists (`-` or `*`)
+//   inline `code`, **bold**, *italic*
+//   bare links [text](url)
+//   horizontal rules (---)
+//   paragraphs separated by blank lines
+//
+// We deliberately avoid pulling in a full markdown library — the format
+// of our changelog is tightly controlled by us, and a 60-line custom
+// parser saves ~20 KB and one more dep to keep in sync. If the format
+// ever needs tables, images, or footnotes, swap to `marked`.
+
+const ESCAPE_RE = /[&<>"']/g;
+const ESCAPE_MAP: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+function esc(s: string): string {
+  return s.replace(ESCAPE_RE, (c) => ESCAPE_MAP[c]);
+}
+
+/// Inline transforms run on already-escaped text. Order matters: code
+/// spans first (so their content doesn't get re-formatted), then bold,
+/// italic, then links.
+function inline(s: string): string {
+  let out = esc(s);
+  out = out.replace(/`([^`]+)`/g, (_, c: string) => `<code>${c}</code>`);
+  out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  out = out.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    (_, label: string, url: string) =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`,
+  );
+  return out;
+}
+
+/// Render a markdown string to HTML. Output is safe to drop into
+/// innerHTML — text is escaped before formatting, and the only
+/// HTML produced is from our own template strings.
+export function renderMarkdown(src: string): string {
+  const lines = src.split(/\r?\n/);
+  const out: string[] = [];
+  let inList = false;
+  let inPara: string[] = [];
+
+  const flushPara = (): void => {
+    if (inPara.length === 0) return;
+    out.push(`<p>${inline(inPara.join(" "))}</p>`);
+    inPara = [];
+  };
+  const closeList = (): void => {
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+
+    if (line.trim() === "") {
+      flushPara();
+      closeList();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      flushPara();
+      closeList();
+      const level = heading[1].length;
+      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    if (line.match(/^[-*]{3,}$/)) {
+      flushPara();
+      closeList();
+      out.push("<hr>");
+      continue;
+    }
+
+    const li = line.match(/^[-*]\s+(.*)$/);
+    if (li) {
+      flushPara();
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${inline(li[1])}</li>`);
+      continue;
+    }
+
+    closeList();
+    inPara.push(line.trim());
+  }
+
+  flushPara();
+  closeList();
+  return out.join("\n");
+}
