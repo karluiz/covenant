@@ -390,7 +390,7 @@ export class StatusBar {
       const btn = document.createElement("button");
       btn.className = "status-chip status-chip-operator";
       btn.style.background = opEntity.color;
-      btn.innerHTML = `${escapeHtml(opEntity.emoji)}<span>${escapeHtml(opEntity.name)}</span>`;
+      btn.innerHTML = `<span>${escapeHtml(opEntity.name)}</span>`;
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);
       });

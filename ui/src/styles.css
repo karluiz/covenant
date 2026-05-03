@@ -6774,3 +6774,85 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   padding: 2px 8px;
   border-radius: 999px;
 }
+
+/* ── Operator avatars ─────────────────────────────────────────────── */
+.op-avatar {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+.op-avatar-pixel {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  border-radius: 2px;
+}
+.op-avatar-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* ── Avatar picker grid (settings/operators.ts) ───────────────────── */
+.operators-pane__avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.operators-pane__avatar-cell {
+  aspect-ratio: 1;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.1s;
+}
+.operators-pane__avatar-cell:hover { border-color: var(--border); }
+.operators-pane__avatar-cell.is-selected { border-color: var(--accent); }
+.operators-pane__avatar-fallback {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.operators-pane__avatar-fallback summary { cursor: pointer; }
+.operators-pane__avatar-fallback input {
+  margin-top: 4px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  color: inherit;
+  width: 80px;
+}
+
+/* ── Tab op chip ──────────────────────────────────────────────────── */
+.tab-op-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 0;
+}
+
+/* ── Operator picker preview head ────────────────────────────────── */
+.operator-picker__preview-head {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 0 8px 0;
+}
+.operator-picker__preview-head h4 { margin: 0; }
+
+/* ── Operator picker list avatar column ──────────────────────────── */
+.operator-picker__list li {
+  grid-template-columns: 36px 1fr 16px;
+}
+
+/* ── Decision chip flex ───────────────────────────────────────────── */
+.op-decision-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+}
