@@ -1612,10 +1612,11 @@ async fn run_tick(
             if let Some(msg) = escalation_msg.as_deref() {
                 let body = msg.lines().next().unwrap_or(msg);
                 let body = truncate(body, 200);
+                let title = format!("[{}] paused", op.name);
                 notifier
                     .emit(
                         crate::notify::Trigger::OperatorEscalate,
-                        "Operator paused",
+                        &title,
                         body,
                         Some(session_id),
                     )
