@@ -690,6 +690,8 @@ impl Storage {
         cost_usd: f64,
         mission_path: Option<String>,
         executor_name: Option<String>,
+        operator_id: Option<String>,
+        operator_name: Option<String>,
     ) -> Result<i64, StorageError> {
         let conn = self.inner.clone();
         let session_str = session_id.to_string();
@@ -699,8 +701,8 @@ impl Storage {
                 "INSERT INTO operator_decisions
                  (session_id, timestamp_unix_ms, in_flight_command,
                   output_excerpt, action, reply_text, rationale, executed,
-                  cost_usd, mission_path, executor_name)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  cost_usd, mission_path, executor_name, operator_id, operator_name)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     session_str,
                     timestamp_unix_ms as i64,
@@ -713,6 +715,8 @@ impl Storage {
                     cost_usd,
                     mission_path,
                     executor_name,
+                    operator_id,
+                    operator_name,
                 ],
             )?;
             Ok(c.last_insert_rowid())
@@ -1702,6 +1706,8 @@ mod tests {
             0.001,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1716,6 +1722,8 @@ mod tests {
             Some("ALWAYS-YES tests".to_string()),
             true,
             0.012,
+            None,
+            None,
             None,
             None,
         )
@@ -1734,6 +1742,8 @@ mod tests {
             0.008,
             None,
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1748,6 +1758,8 @@ mod tests {
             Some("ALWAYS-YES commit".to_string()),
             true,
             0.015,
+            None,
+            None,
             None,
             None,
         )
@@ -1770,6 +1782,8 @@ mod tests {
             Some("post-aom".to_string()),
             true,
             0.005,
+            None,
+            None,
             None,
             None,
         )

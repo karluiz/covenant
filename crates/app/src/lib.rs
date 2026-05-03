@@ -1403,7 +1403,7 @@ pub fn run() {
             }
 
             let registry_arc = Arc::new(registry);
-            app.manage(registry_arc);
+            app.manage(registry_arc.clone());
             app.manage(Arc::new(storage.clone()));
 
             let aom_handle = aom::new_handle();
@@ -1421,6 +1421,7 @@ pub fn run() {
                 aom_handle.clone(),
                 mission_store,
                 notifier.clone(),
+                registry_arc.clone(),
             );
 
             // One-shot Recall seeding: on first launch, import the
