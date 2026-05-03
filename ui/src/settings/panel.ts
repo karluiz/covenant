@@ -1,11 +1,18 @@
-// Settings modal. Reads/writes via the get_settings / set_settings
+// Settings page. Reads/writes via the get_settings / set_settings
 // Tauri commands. Persists to ~/Library/Application Support/<bundle>/
 // config.json (chmod 600) on the Rust side. The API key round-trips
 // through this DOM in cleartext (it's the user's own machine and own
 // key); the input is type=password so it's visually masked, with a
 // per-field show/hide toggle.
+//
+// V2: rendered as a full PAGE (not a modal). When open it replaces
+// the workspace; the tabbar stays visible. There's no outside-click
+// dismiss — closing requires an explicit Cancel/Save/× — so multi-
+// paragraph edits to the operator persona are never lost by accident.
 
 import { invoke } from "@tauri-apps/api/core";
+
+import { Icons } from "../icons";
 
 interface AgentConfig {
   model_summary: string;
@@ -25,6 +32,18 @@ interface OperatorConfig {
 interface TerminalConfig {
   font_family: string;
   font_size: number;
+  letter_spacing: number;
+  line_height: number;
+}
+
+type WindowBackground = "solid" | "vibrant" | "translucent";
+
+interface WindowConfig {
+  background: WindowBackground;
+}
+
+interface AomConfig {
+  default_budget_usd: number;
 }
 
 interface Settings {
@@ -32,6 +51,10 @@ interface Settings {
   agent: AgentConfig;
   operator: OperatorConfig;
   terminal: TerminalConfig;
+  window: WindowConfig;
+  aom: AomConfig;
+  /// 3.7 — render the bottom status bar (git + runtime). Default true.
+  status_bar_enabled: boolean;
 }
 
 async function getSettings(): Promise<Settings> {
@@ -43,7 +66,7 @@ async function setSettings(settings: Settings): Promise<void> {
 }
 
 export class SettingsPanel {
-  private modal: HTMLElement | null = null;
+  private isOpenState = false;
   private current: Settings | null = null;
 
   /// Optional callback fired whenever settings are saved. Used by main
@@ -51,10 +74,18 @@ export class SettingsPanel {
   /// open tabs without requiring a restart.
   public onSaved: ((next: Settings) => void) | null = null;
 
-  constructor(private readonly mountHost: HTMLElement) {}
+  /// Optional callback fired when the page closes (any reason). Used
+  /// by main to refit the active terminal once the workspace becomes
+  /// visible again.
+  public onClosed: (() => void) | null = null;
+
+  constructor(
+    private readonly pageHost: HTMLElement,
+    private readonly workspace: HTMLElement,
+  ) {}
 
   isOpen(): boolean {
-    return this.modal !== null;
+    return this.isOpenState;
   }
 
   async toggle(): Promise<void> {
@@ -91,41 +122,66 @@ export class SettingsPanel {
           font_family:
             'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
           font_size: 13,
+          letter_spacing: 0,
+          line_height: 1.2,
         },
+        window: { background: "vibrant" },
+        aom: { default_budget_usd: 10 },
+        status_bar_enabled: true,
       };
     }
+    this.workspace.hidden = true;
+    this.pageHost.hidden = false;
+    this.isOpenState = true;
     this.render();
   }
 
   close(): void {
-    if (!this.modal) return;
-    this.modal.remove();
-    this.modal = null;
+    if (!this.isOpen()) return;
+    this.pageHost.innerHTML = "";
+    this.pageHost.hidden = true;
+    this.workspace.hidden = false;
+    this.isOpenState = false;
     this.current = null;
+    if (this.onClosed) this.onClosed();
   }
 
   private render(): void {
     if (!this.current) return;
 
-    const overlay = document.createElement("div");
-    overlay.className = "settings-overlay";
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) this.close();
-    });
+    this.pageHost.innerHTML = "";
 
-    const card = document.createElement("div");
-    card.className = "settings-card";
-    overlay.appendChild(card);
+    const header = document.createElement("header");
+    header.className = "settings-page-header";
+    header.innerHTML = `
+      <h2>Settings</h2>
+      <button type="button" class="settings-close" aria-label="Close" title="Close (Esc)">${Icons.x({ size: 14 })}</button>
+    `;
+    this.pageHost.appendChild(header);
 
-    card.innerHTML = `
-      <header class="settings-header">
-        <h2>Settings</h2>
-        <button type="button" class="settings-close" aria-label="Close">×</button>
-      </header>
+    const body = document.createElement("div");
+    body.className = "settings-body";
+    this.pageHost.appendChild(body);
 
-      <form class="settings-form" novalidate>
-        <fieldset>
-          <legend>Anthropic</legend>
+    const nav = document.createElement("nav");
+    nav.className = "settings-nav";
+    nav.innerHTML = `
+      <a href="#sec-anthropic" data-target="sec-anthropic">Anthropic</a>
+      <a href="#sec-models" data-target="sec-models">Models</a>
+      <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
+      <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
+      <a href="#sec-operator" data-target="sec-operator">Operator</a>
+    `;
+    body.appendChild(nav);
+
+    const form = document.createElement("form");
+    form.className = "settings-form";
+    form.setAttribute("novalidate", "");
+    body.appendChild(form);
+
+    form.innerHTML = `
+        <section class="settings-section" id="sec-anthropic">
+          <h3 class="settings-section-title">Anthropic</h3>
           <label class="settings-field">
             <span class="settings-label">API key</span>
             <div class="settings-input-row">
@@ -142,10 +198,9 @@ export class SettingsPanel {
               Stored locally at <code>~/Library/Application Support/com.karluiz.covenant/config.json</code> (chmod 600).
             </small>
           </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Models</legend>
+        </section>
+        <section class="settings-section" id="sec-models">
+          <h3 class="settings-section-title">Models</h3>
           <label class="settings-field">
             <span class="settings-label">Summary model</span>
             <input type="text" name="model_summary" autocomplete="off" spellcheck="false" />
@@ -160,10 +215,46 @@ export class SettingsPanel {
             <span class="settings-label">Max calls / minute / session</span>
             <input type="number" name="max_calls" min="1" max="60" />
           </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Terminal</legend>
+        </section>
+        <section class="settings-section" id="sec-appearance">
+          <h3 class="settings-section-title">Appearance</h3>
+          <fieldset class="settings-field settings-radio-group">
+            <legend class="settings-label">Window background</legend>
+            <label class="settings-radio">
+              <input type="radio" name="window_background" value="solid" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Solid</span>
+                <span class="settings-radio-hint">Fully opaque. Maximum text contrast — best for sunlit rooms or busy wallpapers.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="window_background" value="vibrant" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Vibrant <span class="settings-badge">default</span></span>
+                <span class="settings-radio-hint">Moderate translucency. Wallpaper visible behind a dark tint, contrast stays comfortable.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="window_background" value="translucent" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Translucent</span>
+                <span class="settings-radio-hint">Heavy translucency — most "wow", relies on the wallpaper behind for legibility.</span>
+              </span>
+            </label>
+          </fieldset>
+          <label class="settings-field">
+            <span class="settings-label">Status bar</span>
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="status_bar_enabled" />
+              <span>Show repo + runtime at the bottom of the window</span>
+            </span>
+            <small class="settings-hint">
+              Detection is cwd-driven and runs only when the bar is visible.
+            </small>
+          </label>
+        </section>
+        <section class="settings-section" id="sec-terminal">
+          <h3 class="settings-section-title">Terminal</h3>
           <label class="settings-field">
             <span class="settings-label">Font family</span>
             <input
@@ -184,10 +275,25 @@ export class SettingsPanel {
             <span class="settings-label">Font size</span>
             <input type="number" name="term_size" min="8" max="32" />
           </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Operator</legend>
+          <label class="settings-field">
+            <span class="settings-label">Letter spacing</span>
+            <input type="number" name="term_letter_spacing" min="-10" max="10" step="1" />
+            <small class="settings-hint">
+              Pixels added between cells. <strong>Negative pulls cells closer</strong> —
+              useful for ligature fonts (Comic Code, Fira, JetBrains) whose
+              glyphs render narrower than the cell width xterm measures.
+              Try <code>-2</code> for most ligature fonts; Comic Code often
+              needs <code>-5</code> or lower.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Line height</span>
+            <input type="number" name="term_line_height" min="0.8" max="2" step="0.1" />
+            <small class="settings-hint">Multiplier on cell height. 1.2 is the default.</small>
+          </label>
+        </section>
+        <section class="settings-section" id="sec-operator">
+          <h3 class="settings-section-title">Operator</h3>
           <p class="settings-hint" style="margin: 0 0 6px;">
             When an executor agent (claude code, copilot, opencode, aider…)
             pauses to ask you a routine question, the Operator can answer
@@ -219,28 +325,61 @@ export class SettingsPanel {
             <span class="settings-label">Max decisions / minute / session</span>
             <input type="number" name="op_rate" min="1" max="60" />
           </label>
-        </fieldset>
-
+          <h4 class="settings-subsection-title">Autonomous Operator Mode (AOM)</h4>
+          <p class="settings-hint" style="margin: 0 0 6px;">
+            Press <kbd>⌘⇧A</kbd> to enter AOM. Every tab is auto-enabled
+            for the Operator while AOM is on; ⌘⇧A again reverts. The
+            cost cap below auto-stops AOM when reached.
+          </p>
+          <label class="settings-field">
+            <span class="settings-label">Default budget (USD)</span>
+            <input
+              type="number"
+              name="aom_budget"
+              min="0.1"
+              max="500"
+              step="0.5"
+            />
+            <small class="settings-hint">
+              Hard ceiling per AOM session. AOM auto-stops the moment
+              the running total reaches this. Set this generously for
+              overnight runs ($10–50) and low ($1–2) when you're
+              testing the wiring.
+            </small>
+          </label>
+        </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
           <button type="submit" class="settings-save">Save</button>
         </div>
-      </form>
     `;
 
-    const apiKey = card.querySelector<HTMLInputElement>('input[name="api_key"]')!;
-    const modelSummary = card.querySelector<HTMLInputElement>('input[name="model_summary"]')!;
-    const modelChat = card.querySelector<HTMLInputElement>('input[name="model_chat"]')!;
-    const maxCalls = card.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
-    const opPersona = card.querySelector<HTMLTextAreaElement>(
+    const apiKey = form.querySelector<HTMLInputElement>('input[name="api_key"]')!;
+    const modelSummary = form.querySelector<HTMLInputElement>('input[name="model_summary"]')!;
+    const modelChat = form.querySelector<HTMLInputElement>('input[name="model_chat"]')!;
+    const maxCalls = form.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
+    const opPersona = form.querySelector<HTMLTextAreaElement>(
       'textarea[name="operator_persona"]',
     )!;
-    const opIdle = card.querySelector<HTMLInputElement>('input[name="op_idle"]')!;
-    const opRate = card.querySelector<HTMLInputElement>('input[name="op_rate"]')!;
-    const termFont = card.querySelector<HTMLInputElement>('input[name="term_font"]')!;
-    const termSize = card.querySelector<HTMLInputElement>('input[name="term_size"]')!;
-    const status = card.querySelector<HTMLElement>(".settings-status")!;
+    const opIdle = form.querySelector<HTMLInputElement>('input[name="op_idle"]')!;
+    const opRate = form.querySelector<HTMLInputElement>('input[name="op_rate"]')!;
+    const aomBudget = form.querySelector<HTMLInputElement>('input[name="aom_budget"]')!;
+    const termFont = form.querySelector<HTMLInputElement>('input[name="term_font"]')!;
+    const termSize = form.querySelector<HTMLInputElement>('input[name="term_size"]')!;
+    const termLetterSpacing = form.querySelector<HTMLInputElement>(
+      'input[name="term_letter_spacing"]',
+    )!;
+    const termLineHeight = form.querySelector<HTMLInputElement>(
+      'input[name="term_line_height"]',
+    )!;
+    const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
+      'input[name="window_background"]',
+    );
+    const statusBarEnabled = form.querySelector<HTMLInputElement>(
+      'input[name="status_bar_enabled"]',
+    )!;
+    const status = form.querySelector<HTMLElement>(".settings-status")!;
 
     apiKey.value = this.current.anthropic_api_key ?? "";
     modelSummary.value = this.current.agent.model_summary;
@@ -249,32 +388,74 @@ export class SettingsPanel {
     opPersona.value = this.current.operator.persona;
     opIdle.value = String(this.current.operator.idle_threshold_secs);
     opRate.value = String(this.current.operator.max_decisions_per_minute);
+    aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
     termFont.value = this.current.terminal.font_family;
     termSize.value = String(this.current.terminal.font_size);
+    termLetterSpacing.value = String(this.current.terminal.letter_spacing);
+    termLineHeight.value = String(this.current.terminal.line_height);
+    const currentBg = this.current.window?.background ?? "vibrant";
+    windowBgRadios.forEach((r) => {
+      r.checked = r.value === currentBg;
+    });
+    statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
 
     apiKey.focus();
 
-    card
+    form
       .querySelector<HTMLButtonElement>(".settings-toggle")!
       .addEventListener("click", (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
         const target = btn.dataset.target;
         if (!target) return;
-        const input = card.querySelector<HTMLInputElement>(`input[name="${target}"]`);
+        const input = form.querySelector<HTMLInputElement>(`input[name="${target}"]`);
         if (!input) return;
         const showing = input.type === "text";
         input.type = showing ? "password" : "text";
         btn.textContent = showing ? "show" : "hide";
       });
 
-    card
+    header
       .querySelector<HTMLButtonElement>(".settings-close")!
       .addEventListener("click", () => this.close());
-    card
+    form
       .querySelector<HTMLButtonElement>(".settings-cancel")!
       .addEventListener("click", () => this.close());
 
-    const form = card.querySelector<HTMLFormElement>(".settings-form")!;
+    // Sidebar nav: smooth-scroll to anchored fieldset on click, and
+    // highlight whichever section is in view via IntersectionObserver.
+    const navLinks = nav.querySelectorAll<HTMLAnchorElement>("a[data-target]");
+    navLinks.forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const target = a.dataset.target;
+        if (!target) return;
+        const fs = form.querySelector<HTMLElement>(`#${target}`);
+        fs?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
+    const sectionEls = Array.from(
+      form.querySelectorAll<HTMLElement>("section.settings-section[id^='sec-']"),
+    );
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Pick the entry closest to the top of the viewport.
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort(
+            (a, b) =>
+              a.boundingClientRect.top - b.boundingClientRect.top,
+          );
+        if (visible.length === 0) return;
+        const id = visible[0].target.id;
+        navLinks.forEach((a) => {
+          a.classList.toggle("active", a.dataset.target === id);
+        });
+      },
+      { root: form, rootMargin: "0px 0px -60% 0px", threshold: 0 },
+    );
+    sectionEls.forEach((el) => observer.observe(el));
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const prevOp = this.current!.operator;
@@ -309,7 +490,27 @@ export class SettingsPanel {
             termFont.value.trim() ||
             'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
           font_size: Math.max(8, Math.min(32, Number(termSize.value) || 13)),
+          letter_spacing: Math.max(
+            -10,
+            Math.min(10, Math.round(Number(termLetterSpacing.value) || 0)),
+          ),
+          line_height: Math.max(
+            0.8,
+            Math.min(2, Number(termLineHeight.value) || 1.2),
+          ),
         },
+        window: {
+          background:
+            (Array.from(windowBgRadios).find((r) => r.checked)
+              ?.value as WindowBackground) || "vibrant",
+        },
+        aom: {
+          default_budget_usd: Math.max(
+            0.1,
+            Math.min(500, Number(aomBudget.value) || 10),
+          ),
+        },
+        status_bar_enabled: statusBarEnabled.checked,
       };
       try {
         await setSettings(next);
@@ -324,7 +525,5 @@ export class SettingsPanel {
       }
     });
 
-    this.mountHost.appendChild(overlay);
-    this.modal = overlay;
   }
 }

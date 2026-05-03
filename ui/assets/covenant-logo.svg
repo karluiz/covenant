@@ -1,35 +1,95 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Covenant — source SVG for the macOS app icon.
-  Concept: a perfect ring (the covenant — the explicit boundary you set)
-  with a single offset dot inside (the operator working autonomously
-  within those constraints). Monochrome on dark, scales 16px → 1024px.
+
+  Shape: macOS Big Sur+ squircle (rx≈22.4% of width) with transparent
+  corners, so it sits in the dock like Terminal.app / iTerm2 instead of
+  filling the cell as a hard square.
+
+  Composition (read inside-out):
+    1. The terminal: a bold chevron prompt — the only element the eye
+       needs to recognize this as a terminal app.
+    2. The agent: a luminous cyan cursor above-right of the prompt — the
+       autonomous operator, alive on the prompt line.
+
+  Two-tone palette (warm cream vs cool cyan) carries the narrative:
+  classic prompt meets modern, electric agent.
 
   Regenerate the .icns / .ico / png set with:
-    npm run tauri icon ui/assets/covenant-logo.svg
+    npx tauri icon ui/assets/covenant-logo.svg
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- Background. macOS will round-mask the corners; we leave it
-       square so non-Apple platforms don't get an awkward double-mask. -->
-  <rect width="1024" height="1024" fill="#0b0d10"/>
-
-  <!-- Subtle radial depth so the ring doesn't sit on a flat plane. -->
   <defs>
-    <radialGradient id="bg" cx="50%" cy="42%" r="65%">
-      <stop offset="0%" stop-color="#15191f"/>
-      <stop offset="100%" stop-color="#0b0d10"/>
+    <!-- Deep indigo radial — terminal-window depth, not flat black. -->
+    <radialGradient id="bg" cx="50%" cy="32%" r="80%">
+      <stop offset="0%"   stop-color="#1c2238"/>
+      <stop offset="55%"  stop-color="#0a0d18"/>
+      <stop offset="100%" stop-color="#03040a"/>
     </radialGradient>
+
+    <!-- Warm cream → old gold for the prompt mark. -->
+    <linearGradient id="seal" x1="15%" y1="10%" x2="85%" y2="95%">
+      <stop offset="0%"   stop-color="#fdf6e4"/>
+      <stop offset="55%"  stop-color="#ecdcb1"/>
+      <stop offset="100%" stop-color="#c9b07a"/>
+    </linearGradient>
+
+    <!-- Cyan glow halo around the agent cursor. -->
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#aef9ff" stop-opacity="0.70"/>
+      <stop offset="35%"  stop-color="#6cf6ff" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#6cf6ff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Faint top highlight for the "window edge" feel. -->
+    <linearGradient id="topedge" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Squircle rim — bright at top, dim at bottom. Mimics Big Sur+
+         "lit from above" bevel that Terminal.app, VS Code etc. use. -->
+    <linearGradient id="rim" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.42"/>
+      <stop offset="55%"  stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- macOS Big Sur+ squircle, rx≈22.4% of width = 230. -->
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
   </defs>
-  <rect width="1024" height="1024" fill="url(#bg)"/>
 
-  <!-- The covenant: a perfect ring. White-ish so it reads as "the
-       agreement boundary" — strict, clear, unbroken. -->
-  <circle cx="512" cy="512" r="320"
-          fill="none"
-          stroke="#e6e8ea"
-          stroke-width="40"/>
+  <!-- macOS icon grid: ~100px safe-area inset on all sides so the
+       squircle body occupies ~824×824, matching VS Code / Terminal /
+       Steam in the dock. Inner geometry stays in the original 1024
+       coord space; the parent transform shrinks + centers everything. -->
+  <g transform="translate(100 100) scale(0.8047)" clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
 
-  <!-- The operator: a single accent dot inside the ring, offset from
-       center to suggest autonomy within the boundary you set. -->
-  <circle cx="640" cy="416" r="60" fill="#7aa2f7"/>
+    <!-- Subtle "window edge" highlight along the top arc. -->
+    <rect x="0" y="0" width="1024" height="120" fill="url(#topedge)"/>
+
+    <!-- The terminal: a bold chevron prompt. Slightly left of center
+         to leave the agent cursor space on the prompt line. -->
+    <polyline points="356,332 600,512 356,692"
+              fill="none"
+              stroke="url(#seal)"
+              stroke-width="104"
+              stroke-linecap="round"
+              stroke-linejoin="round"/>
+
+    <!-- The agent: glowing cyan cursor on the prompt line. Three
+         layers (halo, core, pinpoint) give it real luminance. -->
+    <circle cx="752" cy="468" r="170" fill="url(#glow)"/>
+    <circle cx="752" cy="468" r="58"  fill="#6cf6ff"/>
+    <circle cx="752" cy="468" r="28"  fill="#f3ffff"/>
+
+    <!-- Visible rim at the squircle edge — matches Terminal.app's
+         framed-window look. Drawn at the squircle bounds so the outer
+         half is clipped, leaving a clean ~10px rim inside the body. -->
+    <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"
+          fill="none" stroke="url(#rim)" stroke-width="22"/>
+  </g>
 </svg>

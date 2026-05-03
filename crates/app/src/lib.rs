@@ -9,12 +9,19 @@
 //! watcher, and (M-OP) the Operator that answers executor agents on
 //! the user's behalf.
 
+mod aom;
+mod context;
+mod cost;
 mod cross_session;
 mod fix_proposer;
+mod history_import;
+mod mission_persistence;
 mod operator;
+mod safety;
 mod settings;
 mod storage;
 mod summarizer;
+mod tab_manifest;
 mod world;
 
 use std::collections::HashMap;
@@ -32,10 +39,12 @@ use tokio::sync::Mutex;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ulid::Ulid;
 
+use aom::{AomHandle, AomStatus};
+use context::{ContextCache, DirContext};
 use cross_session::CrossSessionWatcher;
 use operator::{OperatorState, OperatorWatcher};
 use settings::Settings;
-use storage::{HistoricalBlock, OperatorDecisionRow, Storage};
+use storage::{AomReport, HistoricalBlock, OperatorDecisionRow, RecallMatch, Storage};
 use world::SessionWorldModel;
 
 /// Bundled into the binary so the app is self-contained — no need to
@@ -52,8 +61,8 @@ struct ManagedSession {
     op_state: Arc<std::sync::Mutex<OperatorState>>,
 }
 
-struct AppState {
-    sessions: Mutex<HashMap<SessionId, ManagedSession>>,
+pub(crate) struct AppState {
+    pub(crate) sessions: Mutex<HashMap<SessionId, ManagedSession>>,
     /// Wrapped in Arc so the per-session summarizer task can hold a
     /// long-lived reference without keeping AppState alive on its own.
     settings: Arc<Mutex<Settings>>,
@@ -62,6 +71,15 @@ struct AppState {
     cross_session: CrossSessionWatcher,
     operator: OperatorWatcher,
     storage: Storage,
+    /// Autonomous Operator Mode global toggle. Read by the operator
+    /// tick on every poll; flipped by `aom_start` / `aom_stop`.
+    aom: AomHandle,
+    /// Path to the tab manifest JSON. Read once at boot, written
+    /// (debounced) every time the user reorders/renames/colors/etc.
+    tab_manifest_path: PathBuf,
+    /// 3.7 status-bar — git/runtime detection cache shared across all
+    /// `get_dir_context` calls. Tiny LRU, 5s TTL, no fs watcher.
+    dir_context_cache: Arc<ContextCache>,
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -150,15 +168,30 @@ fn shell_quote(p: &Path) -> String {
 
 #[tauri::command]
 async fn spawn_session(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     on_output: Channel<Vec<u8>>,
     on_session_event: Channel<SessionUiEvent>,
+    initial_cwd: Option<String>,
 ) -> Result<String, String> {
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::zsh_interactive();
     opts.args.push("--no-globalrcs".to_string());
     opts.env
         .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
+    // Persistence-restored cwd is set HERE (before spawn) instead of
+    // injected as `cd <path>\r` after the first prompt. portable-pty
+    // launches the shell directly in this directory — no visible
+    // typed line, no bogus block in the sidebar. We validate the
+    // path exists; if it's gone (cleaned-up dir) fall back to $HOME.
+    if let Some(cwd) = initial_cwd {
+        let p = std::path::PathBuf::from(&cwd);
+        if p.is_dir() {
+            opts.cwd = Some(p);
+        } else {
+            tracing::warn!(cwd, "restored cwd no longer exists, falling back to $HOME");
+        }
+    }
 
     let (session, streams) = Session::spawn(opts).map_err(|e| e.to_string())?;
     let id = session.id;
@@ -178,6 +211,8 @@ async fn spawn_session(
     let world = Arc::new(Mutex::new(SessionWorldModel::default()));
     let world_for_task = world.clone();
     let storage_for_world = state.storage.clone();
+    let operator_for_world = state.operator.clone();
+    let app_for_world = app.clone();
     let mut world_bus = session.subscribe();
     tauri::async_runtime::spawn(async move {
         loop {
@@ -215,6 +250,16 @@ async fn spawn_session(
                         {
                             tracing::warn!(error = %e, "save_block failed");
                         }
+                    }
+                    // Mission auto-restore hook: when this session
+                    // walks into a directory we've seen with a saved
+                    // mission before, the operator picks it up.
+                    if let karl_session::SessionEvent::CwdChanged { cwd, .. } = &event
+                    {
+                        let cwd_str = cwd.display().to_string();
+                        operator_for_world
+                            .notify_cwd_changed(id, &cwd_str, &app_for_world)
+                            .await;
                     }
                     world_for_task.lock().await.apply(event);
                 }
@@ -387,6 +432,324 @@ async fn is_operator_enabled(
     Ok(state.operator.is_enabled(id).await)
 }
 
+/// Per-session live-mode toggle (M-OP3). Live = the Operator actually
+/// types replies into the PTY (after passing the safety blocklist),
+/// instead of just logging proposed decisions. Requires `enabled=true`
+/// to take effect — both must be on for any byte to be injected.
+#[tauri::command]
+async fn set_operator_live(
+    state: State<'_, AppState>,
+    session_id: String,
+    live: bool,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.operator.set_live(id, live).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn is_operator_live(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.is_live(id).await)
+}
+
+/// Mission spec attached to a session. The Operator reads the spec
+/// content as authoritative scope: Out of scope → escalate triggers;
+/// File boundaries → constraints; Open questions → auto-escalate.
+#[tauri::command]
+async fn set_session_mission(
+    state: State<'_, AppState>,
+    session_id: String,
+    spec_path: String,
+) -> Result<operator::MissionInfo, String> {
+    let id = parse_id(&session_id)?;
+    let path = PathBuf::from(spec_path);
+    state.operator.set_mission(id, path).await
+}
+
+#[tauri::command]
+async fn clear_session_mission(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.operator.clear_mission(id).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_session_mission(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Option<operator::MissionInfo>, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.get_mission(id).await)
+}
+
+/// Full mission spec content for the viewer modal. Returns null when
+/// no mission is set on the session.
+#[tauri::command]
+async fn get_session_mission_content(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Option<String>, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.get_mission_content(id).await)
+}
+
+/// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
+/// per-tab live setting + normal persona instead of inheriting the
+/// AOM act-by-default posture. Reset to false on every aom_start.
+#[tauri::command]
+async fn set_aom_excluded(
+    state: State<'_, AppState>,
+    session_id: String,
+    excluded: bool,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.operator.set_aom_excluded(id, excluded).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn is_aom_excluded(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.is_aom_excluded(id).await)
+}
+
+#[derive(Debug, serde::Serialize)]
+struct AutosuggestStatus {
+    /// True when the plugin is present at one of the well-known
+    /// locations our shell snippet probes. False is a reliable
+    /// "missing" — the user can still have it loaded via some other
+    /// path, but we'd then have shown the hint unnecessarily, which
+    /// is the safer failure mode.
+    found: bool,
+    /// First matching path, for diagnostics / UI affordance.
+    path: Option<String>,
+}
+
+/// Mirror of the path list in `shell-integration/osc133.zsh`. Kept in
+/// lockstep so the UI's "installed?" status matches what zsh actually
+/// sources. If you add a path here, add it there (and vice versa).
+fn known_autosuggest_paths() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let zsh = std::env::var("ZSH").unwrap_or_else(|_| format!("{home}/.oh-my-zsh"));
+    let zsh_custom = std::env::var("ZSH_CUSTOM")
+        .unwrap_or_else(|_| format!("{home}/.oh-my-zsh/custom"));
+    vec![
+        PathBuf::from("/opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
+        PathBuf::from("/usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
+        PathBuf::from(format!(
+            "{zsh_custom}/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        )),
+        PathBuf::from(format!(
+            "{zsh}/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        )),
+        PathBuf::from(format!(
+            "{home}/.zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        )),
+        PathBuf::from(format!(
+            "{home}/.local/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        )),
+        PathBuf::from("/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
+        PathBuf::from("/usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"),
+    ]
+}
+
+#[tauri::command]
+fn zsh_autosuggestions_status() -> AutosuggestStatus {
+    for p in known_autosuggest_paths() {
+        if p.exists() {
+            return AutosuggestStatus {
+                found: true,
+                path: Some(p.display().to_string()),
+            };
+        }
+    }
+    AutosuggestStatus {
+        found: false,
+        path: None,
+    }
+}
+
+/// AOM (Autonomous Operator Mode) — global toggle.
+///
+/// `aom_status` returns the current state. `aom_start` flips it on,
+/// resets the per-session decision counter, and stamps the start
+/// time. `aom_stop` flips it off; the started_at timestamp is left
+/// untouched so the UI can show "ran for 3h 14m" even after stop.
+///
+/// All three return the resulting AomStatus so the caller can update
+/// its banner in one round trip.
+#[tauri::command]
+async fn aom_status(state: State<'_, AppState>) -> Result<AomStatus, String> {
+    Ok(AomStatus::from(&*state.aom.read().await))
+}
+
+#[tauri::command]
+async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
+    // Read budget from settings ONCE at start time so a mid-session
+    // settings change doesn't shift the cap underneath the user.
+    let budget = state.settings.lock().await.aom.default_budget_usd;
+    // Fresh AOM session = fresh per-tab exclusions. Saves the user
+    // from the "I don't remember which tabs I excluded last time"
+    // foot-gun on a new sleep period.
+    state.operator.clear_all_aom_excluded().await;
+    // M-OP5 UX fix: AOM is "one button does it all". Auto-enable
+    // Operator on every tab that doesn't already have it. We track
+    // which tabs we touched so `aom_stop` reverts exactly them
+    // (manually enabled tabs keep their user choice). The frontend
+    // refreshes per-tab state after the toggle resolves.
+    let _auto_enabled = state.operator.enable_all_for_aom().await;
+    // Queue proactive startup actions: claude /rename, bypass-exit,
+    // etc. These fire later in run_tick when conditions are met.
+    state.operator.queue_aom_startup_actions().await;
+    let started_at = now_unix_ms();
+
+    // Persist the AOM session row so the morning report has a window
+    // boundary to filter operator_decisions against. Failure here
+    // doesn't block AOM — it just means no report row for this run.
+    let row_id = match state.storage.aom_session_start(started_at, budget).await {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(error = %e, "aom_session_start: persistence failed");
+            None
+        }
+    };
+
+    let mut s = state.aom.write().await;
+    s.enabled = true;
+    s.started_at_unix_ms = started_at;
+    s.decisions_count = 0;
+    s.budget_usd = budget;
+    s.accumulated_cost_usd = 0.0;
+    s.cost_cap_hit_at_unix_ms = None;
+    s.current_session_row_id = row_id;
+    tracing::info!(budget_usd = budget, row_id = ?row_id, "AOM started");
+    Ok(AomStatus::from(&*s))
+}
+
+/// Morning report — aggregate digest of the most recent AOM session.
+/// `Ok(None)` if AOM has never been started on this DB.
+#[tauri::command]
+async fn aom_report(state: State<'_, AppState>) -> Result<Option<AomReport>, String> {
+    state
+        .storage
+        .aom_session_latest_report()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn aom_stop(state: State<'_, AppState>) -> Result<AomStatus, String> {
+    // Snapshot the row id + final stats under the write lock, then
+    // release it before doing any storage I/O.
+    let (row_id, accum, decisions, cap_hit, status) = {
+        let mut s = state.aom.write().await;
+        s.enabled = false;
+        let row_id = s.current_session_row_id;
+        let accum = s.accumulated_cost_usd;
+        let decisions = s.decisions_count;
+        let cap_hit = s.cost_cap_hit_at_unix_ms;
+        s.current_session_row_id = None;
+        (row_id, accum, decisions, cap_hit, AomStatus::from(&*s))
+    };
+
+    if let Some(id) = row_id {
+        if let Err(e) = state
+            .storage
+            .aom_session_finish(id, now_unix_ms(), accum, decisions, cap_hit)
+            .await
+        {
+            tracing::warn!(error = %e, "aom_session_finish failed");
+        }
+    }
+
+    // Revert the auto-enables done at aom_start. Tabs the user
+    // enabled manually (or that already had Operator on) stay on.
+    let _reverted = state.operator.disable_aom_auto_enabled().await;
+
+    tracing::info!(decisions, "AOM stopped");
+    Ok(status)
+}
+
+/// Recent blocks that ran in `cwd` across sessions. Used by the
+/// BlockManager sidebar to surface "what was I doing here" when a
+/// restored tab lands in the same directory.
+#[derive(serde::Serialize)]
+struct HistoricalBlockRow {
+    session_id_short: String,
+    command: String,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    finished_at_unix_ms: u64,
+}
+
+#[tauri::command]
+async fn recent_blocks_by_cwd(
+    state: State<'_, AppState>,
+    cwd: String,
+    limit: u32,
+) -> Result<Vec<HistoricalBlockRow>, String> {
+    let rows = state
+        .storage
+        .recent_blocks_by_cwd(cwd, limit.clamp(1, 200))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|b| HistoricalBlockRow {
+            session_id_short: b.session_id_short,
+            command: b.command,
+            exit_code: b.exit_code,
+            duration_ms: b.duration_ms,
+            finished_at_unix_ms: b.finished_at_unix_ms,
+        })
+        .collect())
+}
+
+/// Tab persistence — frontend's TabManager owns the schema; backend
+/// just stores the raw JSON blob. `Ok(None)` means first run / cleared.
+#[tauri::command]
+async fn tab_manifest_load(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    tab_manifest::load(&state.tab_manifest_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn tab_manifest_save(
+    state: State<'_, AppState>,
+    body: String,
+) -> Result<(), String> {
+    tab_manifest::save(&state.tab_manifest_path, &body).map_err(|e| e.to_string())
+}
+
+/// Recall: search the persisted block history for commands matching
+/// `query`, ranked by frequency × recency with cwd / success bonuses.
+/// Empty query → most-recent distinct commands. `cwd` is optional;
+/// when provided, commands previously run there get a score boost.
+#[tauri::command]
+async fn recall_search(
+    state: State<'_, AppState>,
+    query: String,
+    cwd: Option<String>,
+    limit: u32,
+) -> Result<Vec<RecallMatch>, String> {
+    state
+        .storage
+        .recall_search(query, cwd, limit.clamp(1, 100))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn list_operator_decisions(
     state: State<'_, AppState>,
@@ -397,6 +760,82 @@ async fn list_operator_decisions(
         .list_operator_decisions(limit.clamp(1, 500))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// One-shot Recall seeding from `~/.zsh_history`.
+///
+/// Skipped when `settings.zsh_history_imported_at_unix_ms` is already
+/// set — Recall is meant to grow from the user's actual usage; we
+/// only seed the empty case. Runs in a detached task so startup
+/// stays snappy regardless of history file size.
+fn maybe_import_zsh_history(
+    storage: Storage,
+    settings: Arc<Mutex<Settings>>,
+    settings_path: PathBuf,
+) {
+    // Tauri's `setup` callback runs before tokio's runtime is bound to
+    // the current thread, so `tokio::spawn` panics with "no reactor
+    // running". `tauri::async_runtime::spawn` resolves to the right
+    // executor regardless of context.
+    tauri::async_runtime::spawn(async move {
+        // Cheap pre-check: if the user already imported, skip without
+        // touching disk.
+        if settings.lock().await.zsh_history_imported_at_unix_ms.is_some() {
+            return;
+        }
+
+        let Ok(home) = std::env::var("HOME") else {
+            tracing::warn!("$HOME unset — skipping zsh history import");
+            return;
+        };
+        let path = PathBuf::from(home).join(".zsh_history");
+        if !path.exists() {
+            tracing::info!("no ~/.zsh_history — skipping import");
+            // Still mark as done so we don't re-check every launch.
+            mark_imported(&settings, &settings_path).await;
+            return;
+        }
+
+        let now = now_unix_ms();
+        let entries = match tokio::task::spawn_blocking(move || {
+            history_import::read_and_parse(&path, now, 5_000)
+        })
+        .await
+        {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "failed to read ~/.zsh_history");
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "history import join failed");
+                return;
+            }
+        };
+
+        let count = entries.len();
+        match storage.import_zsh_history(entries).await {
+            Ok(inserted) => {
+                tracing::info!(
+                    parsed = count,
+                    inserted,
+                    "imported ~/.zsh_history into Recall"
+                );
+                mark_imported(&settings, &settings_path).await;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "zsh history import failed");
+            }
+        }
+    });
+}
+
+async fn mark_imported(settings: &Arc<Mutex<Settings>>, path: &Path) {
+    let mut s = settings.lock().await;
+    s.zsh_history_imported_at_unix_ms = Some(now_unix_ms());
+    if let Err(e) = settings::save(path, &s) {
+        tracing::warn!(error = %e, "failed to persist zsh-history-imported flag");
+    }
 }
 
 fn now_unix_ms() -> u64 {
@@ -506,6 +945,25 @@ async fn inject_command(
         .map_err(|e| e.to_string())
 }
 
+/// 3.7 — directory-context probe for the status bar. Pushed off the UI
+/// thread via `spawn_blocking` because the git probe shells out and the
+/// file probes touch disk. Empty / non-existent cwd returns the empty
+/// `DirContext` (both fields None) — the bar then renders no segments.
+#[tauri::command]
+async fn get_dir_context(
+    state: State<'_, AppState>,
+    cwd: String,
+) -> Result<DirContext, String> {
+    if cwd.trim().is_empty() {
+        return Ok(DirContext { git: None, runtime: None });
+    }
+    let cache = state.dir_context_cache.clone();
+    let path = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || context::dir_context(&path, &cache))
+        .await
+        .map_err(|e| format!("dir_context join: {e}"))
+}
+
 #[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
     Ok(state.settings.lock().await.clone())
@@ -606,6 +1064,9 @@ async fn ask_agent(
         karl_agent::AgentEvent::Delta(text) => {
             let _ = on_token.send(text);
         }
+        karl_agent::AgentEvent::Usage(_) => {
+            // ⌘K doesn't track cost yet — AOM does that downstream.
+        }
         karl_agent::AgentEvent::Done => {
             // Promise resolution on the JS side signals end-of-stream.
         }
@@ -627,6 +1088,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // app_config_dir on macOS resolves to
             //   ~/Library/Application Support/<bundle identifier>/
@@ -638,25 +1100,65 @@ pub fn run() {
                 .map_err(|e| format!("resolve app_config_dir: {e}"))?;
 
             // One-time migration from the previous bundle identifier
-            // (com.karluiz.karl-terminal → com.karluiz.covenant). If
-            // the new dir doesn't exist but the old one does, move
-            // settings + history.db over so the user keeps their data
-            // across the rename.
+            // (com.karluiz.karl-terminal → com.karluiz.covenant).
+            // Handles three cases:
+            //   1. new dir doesn't exist + old does → straight rename
+            //   2. new dir exists but is empty (Tauri pre-created it
+            //      before our setup ran) + old has data → move files
+            //      one-by-one into new
+            //   3. both have data → leave alone (no overwrite, log warn)
             if let Some(parent) = dir.parent() {
                 let old_dir = parent.join("com.karluiz.karl-terminal");
-                if old_dir.exists() && !dir.exists() {
-                    match std::fs::rename(&old_dir, &dir) {
-                        Ok(_) => tracing::info!(
-                            from = %old_dir.display(),
-                            to = %dir.display(),
-                            "migrated config dir from previous identifier"
-                        ),
-                        Err(e) => tracing::warn!(
-                            from = %old_dir.display(),
-                            to = %dir.display(),
-                            error = %e,
-                            "config dir migration failed; old data preserved"
-                        ),
+                if old_dir.exists() {
+                    let new_has_data = dir.exists()
+                        && (dir.join("config.json").exists()
+                            || dir.join("history.db").exists());
+
+                    if !dir.exists() {
+                        // Case 1: simple rename.
+                        match std::fs::rename(&old_dir, &dir) {
+                            Ok(_) => tracing::info!(
+                                from = %old_dir.display(),
+                                to = %dir.display(),
+                                "migrated config dir from previous identifier"
+                            ),
+                            Err(e) => tracing::warn!(
+                                from = %old_dir.display(),
+                                to = %dir.display(),
+                                error = %e,
+                                "config dir migration failed; old data preserved"
+                            ),
+                        }
+                    } else if !new_has_data {
+                        // Case 2: new dir is empty stub; move old's
+                        // contents in one entry at a time.
+                        let result = (|| -> std::io::Result<()> {
+                            for entry in std::fs::read_dir(&old_dir)? {
+                                let entry = entry?;
+                                let dest = dir.join(entry.file_name());
+                                std::fs::rename(entry.path(), dest)?;
+                            }
+                            std::fs::remove_dir(&old_dir).ok();
+                            Ok(())
+                        })();
+                        match result {
+                            Ok(_) => tracing::info!(
+                                from = %old_dir.display(),
+                                to = %dir.display(),
+                                "migrated config dir contents (new dir was empty stub)"
+                            ),
+                            Err(e) => tracing::warn!(
+                                error = %e,
+                                "partial migration; check both dirs manually"
+                            ),
+                        }
+                    } else {
+                        tracing::warn!(
+                            old = %old_dir.display(),
+                            new = %dir.display(),
+                            "both old and new config dirs have data — \
+                             refusing to overwrite. Delete one manually."
+                        );
                     }
                 }
             }
@@ -669,13 +1171,28 @@ pub fn run() {
                 .map_err(|e| format!("open storage: {e}"))?;
 
             let settings_arc = Arc::new(Mutex::new(loaded));
+            let aom_handle = aom::new_handle();
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
+            let mission_store = dir.join("session_missions.json");
             let operator_watcher = OperatorWatcher::spawn(
                 app.handle().clone(),
                 settings_arc.clone(),
                 storage.clone(),
+                aom_handle.clone(),
+                mission_store,
             );
 
+            // One-shot Recall seeding: on first launch, import the
+            // user's existing ~/.zsh_history so Recall isn't empty.
+            // Runs in the background — startup must not block on
+            // disk I/O for potentially-megabyte-sized history files.
+            maybe_import_zsh_history(
+                storage.clone(),
+                settings_arc.clone(),
+                path.clone(),
+            );
+
+            let tab_manifest_path = dir.join("tab_manifest.json");
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
                 settings: settings_arc,
@@ -684,6 +1201,9 @@ pub fn run() {
                 cross_session: cross,
                 operator: operator_watcher,
                 storage,
+                aom: aom_handle,
+                tab_manifest_path,
+                dir_context_cache: Arc::new(ContextCache::new()),
             });
             Ok(())
         })
@@ -700,6 +1220,24 @@ pub fn run() {
             set_operator_enabled,
             is_operator_enabled,
             list_operator_decisions,
+            set_operator_live,
+            is_operator_live,
+            set_aom_excluded,
+            is_aom_excluded,
+            set_session_mission,
+            clear_session_mission,
+            get_session_mission,
+            get_session_mission_content,
+            aom_status,
+            aom_start,
+            aom_stop,
+            aom_report,
+            recall_search,
+            zsh_autosuggestions_status,
+            tab_manifest_load,
+            tab_manifest_save,
+            recent_blocks_by_cwd,
+            get_dir_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

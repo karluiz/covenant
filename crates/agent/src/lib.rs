@@ -3,7 +3,7 @@
 //! M3.2b minimal: streaming SSE responses with prompt caching on the
 //! system block. The crate is *only* the HTTP client — world-model
 //! assembly, rate limiting, settings reads, and Tauri plumbing live in
-//! `karl-app`. This separation keeps the agent reusable (CLI tool,
+//! `covenant`. This separation keeps the agent reusable (CLI tool,
 //! tests, etc.) and the API surface deliberately small.
 
 use futures_util::StreamExt;
@@ -40,26 +40,79 @@ pub enum AgentEvent {
     /// A text fragment of the assistant message. Concat all `Delta`s in
     /// order to get the full reply.
     Delta(String),
+    /// Token-usage update. Anthropic emits this in two places:
+    /// `message_start` (input + cache tokens, output_tokens=1 placeholder),
+    /// and `message_delta` (final output_tokens). Each event reports
+    /// the latest known counts; collectors should max-merge per field
+    /// (a 0 from one event must not overwrite a non-zero from another).
+    Usage(TokenUsage),
     /// Stream finished cleanly (`message_stop` from Anthropic).
     Done,
+}
+
+/// Token counts for a single Messages API call. All fields are 0 if the
+/// API response didn't include the corresponding field (older API
+/// versions, partial events). Cost is computed downstream — this crate
+/// is HTTP only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_creation_input_tokens: u32,
+    pub cache_read_input_tokens: u32,
+}
+
+/// One-shot result with usage. New API; the legacy `ask_oneshot`
+/// stays for callers that don't care about cost.
+#[derive(Debug, Clone)]
+pub struct AskResponse {
+    pub text: String,
+    pub usage: TokenUsage,
 }
 
 /// One-shot variant: drive a streaming call internally and return the
 /// fully concatenated assistant text. Used by the summarizer where
 /// nothing benefits from streaming.
 pub async fn ask_oneshot(req: AskRequest) -> Result<String, AgentError> {
+    Ok(ask_oneshot_with_usage(req).await?.text)
+}
+
+/// One-shot with token-usage capture. Used by the Operator's AOM cost
+/// accumulator. Same wire path as `ask_oneshot`; the only extra cost
+/// is two atomic field updates per call.
+pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, AgentError> {
     let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let usage = std::sync::Arc::new(std::sync::Mutex::new(TokenUsage::default()));
     let buf_for_cb = buffer.clone();
+    let usage_for_cb = usage.clone();
     ask_streaming(req, move |event| {
-        if let AgentEvent::Delta(text) = event {
-            // Lock is briefly held; never across an await.
-            if let Ok(mut b) = buf_for_cb.lock() {
-                b.push_str(&text);
+        match event {
+            AgentEvent::Delta(text) => {
+                if let Ok(mut b) = buf_for_cb.lock() {
+                    b.push_str(&text);
+                }
             }
+            AgentEvent::Usage(u) => {
+                // Max-merge per field. Anthropic's two events report
+                // different views of the same call; a later event with
+                // 0 in one field must not overwrite a prior non-zero.
+                if let Ok(mut existing) = usage_for_cb.lock() {
+                    existing.input_tokens = existing.input_tokens.max(u.input_tokens);
+                    existing.output_tokens = existing.output_tokens.max(u.output_tokens);
+                    existing.cache_creation_input_tokens =
+                        existing.cache_creation_input_tokens.max(u.cache_creation_input_tokens);
+                    existing.cache_read_input_tokens =
+                        existing.cache_read_input_tokens.max(u.cache_read_input_tokens);
+                }
+            }
+            AgentEvent::Done => {}
         }
     })
     .await?;
-    Ok(buffer.lock().map(|b| b.clone()).unwrap_or_default())
+    Ok(AskResponse {
+        text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),
+        usage: usage.lock().map(|u| *u).unwrap_or_default(),
+    })
 }
 
 /// Drive a streaming Messages API call. `on_event` is called from the
@@ -147,11 +200,33 @@ where
                             on_event(AgentEvent::Delta(text.to_string()));
                         }
                     }
+                    "message_start" => {
+                        // First usage snapshot — has input_tokens +
+                        // cache_*_input_tokens; output_tokens is a
+                        // placeholder (typically 1) until message_delta.
+                        if let Some(usage) = value
+                            .get("message")
+                            .and_then(|m| m.get("usage"))
+                            .and_then(parse_usage)
+                        {
+                            on_event(AgentEvent::Usage(usage));
+                        }
+                    }
+                    "message_delta" => {
+                        // Final-output update. Has the real
+                        // output_tokens; input fields may be 0 here, so
+                        // the collector must max-merge across events.
+                        if let Some(usage) =
+                            value.get("usage").and_then(parse_usage)
+                        {
+                            on_event(AgentEvent::Usage(usage));
+                        }
+                    }
                     "message_stop" => {
                         on_event(AgentEvent::Done);
                         return Ok(());
                     }
-                    _ => {} // message_start, content_block_start/stop, ping, message_delta — ignore
+                    _ => {} // content_block_start/stop, ping — ignore
                 }
             }
         }
@@ -163,4 +238,22 @@ where
 
 fn find_double_newline(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\n\n")
+}
+
+/// Map an Anthropic `usage` JSON object to our TokenUsage. Missing
+/// fields default to 0 — the API has added fields over time and we
+/// want to keep accepting older shapes.
+fn parse_usage(v: &serde_json::Value) -> Option<TokenUsage> {
+    let get = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_u64())
+            .map(|n| n as u32)
+            .unwrap_or(0)
+    };
+    Some(TokenUsage {
+        input_tokens: get("input_tokens"),
+        output_tokens: get("output_tokens"),
+        cache_creation_input_tokens: get("cache_creation_input_tokens"),
+        cache_read_input_tokens: get("cache_read_input_tokens"),
+    })
 }

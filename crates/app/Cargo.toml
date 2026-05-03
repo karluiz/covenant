@@ -1,5 +1,5 @@
 [package]
-name = "karl-app"
+name = "covenant"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,7 +10,7 @@ description = "Covenant — AI-coordinated terminal"
 [lib]
 # `_lib` suffix avoids a Windows linker conflict with the bin name.
 # https://github.com/rust-lang/cargo/issues/8519
-name = "karl_app_lib"
+name = "covenant_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -19,6 +19,7 @@ tauri-build = { workspace = true }
 [dependencies]
 tauri = { workspace = true }
 tauri-plugin-opener = { workspace = true }
+tauri-plugin-dialog = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
@@ -30,6 +31,7 @@ tempfile = "3"
 rusqlite = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
+strip-ansi-escapes = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

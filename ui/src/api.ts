@@ -47,7 +47,10 @@ export interface SpawnHandlers {
   onSessionEvent: SessionUiEventHandler;
 }
 
-export async function spawnSession(handlers: SpawnHandlers): Promise<SessionId> {
+export async function spawnSession(
+  handlers: SpawnHandlers,
+  opts?: { initialCwd?: string | null },
+): Promise<SessionId> {
   const outputChannel = new Channel<number[]>();
   outputChannel.onmessage = (data) => handlers.onOutput(new Uint8Array(data));
 
@@ -57,6 +60,7 @@ export async function spawnSession(handlers: SpawnHandlers): Promise<SessionId> 
   return invoke<SessionId>("spawn_session", {
     onOutput: outputChannel,
     onSessionEvent: sessionEventChannel,
+    initialCwd: opts?.initialCwd ?? null,
   });
 }
 
@@ -98,6 +102,175 @@ export async function isOperatorEnabled(sessionId: SessionId): Promise<boolean> 
   return invoke<boolean>("is_operator_enabled", { sessionId });
 }
 
+/// M-OP3 live mode toggle. Requires the Operator to also be enabled
+/// for actual injection — both are per-session opt-in.
+export async function setOperatorLive(
+  sessionId: SessionId,
+  live: boolean,
+): Promise<void> {
+  return invoke<void>("set_operator_live", { sessionId, live });
+}
+
+export async function isOperatorLive(sessionId: SessionId): Promise<boolean> {
+  return invoke<boolean>("is_operator_live", { sessionId });
+}
+
+/// Per-tab AOM opt-out toggle. When AOM is on globally, an excluded
+/// tab keeps its individual live setting + normal persona instead of
+/// inheriting the AOM act-by-default posture. Reset to false on every
+/// AOM start (each AOM session begins with all tabs included).
+export async function setAomExcluded(
+  sessionId: SessionId,
+  excluded: boolean,
+): Promise<void> {
+  return invoke<void>("set_aom_excluded", { sessionId, excluded });
+}
+
+export async function isAomExcluded(sessionId: SessionId): Promise<boolean> {
+  return invoke<boolean>("is_aom_excluded", { sessionId });
+}
+
+/// M-OP6 mission spec attached to a session. The Operator reads it
+/// as authoritative scope (Out of scope → escalate, File boundaries
+/// → constraints, Open questions → auto-escalate). Pass an absolute
+/// path or one resolvable from the backend's CWD.
+export interface MissionInfo {
+  path: string;
+  /// Single-line preview of the spec content (≤ 240 chars).
+  content_preview: string;
+  loaded_at_unix_ms: number;
+}
+
+export async function setSessionMission(
+  sessionId: SessionId,
+  specPath: string,
+): Promise<MissionInfo> {
+  return invoke<MissionInfo>("set_session_mission", {
+    sessionId,
+    specPath,
+  });
+}
+
+export async function clearSessionMission(sessionId: SessionId): Promise<void> {
+  return invoke<void>("clear_session_mission", { sessionId });
+}
+
+export async function getSessionMission(
+  sessionId: SessionId,
+): Promise<MissionInfo | null> {
+  return invoke<MissionInfo | null>("get_session_mission", { sessionId });
+}
+
+/// Full mission spec text — used by the status-bar mission viewer
+/// modal. Returns null if no mission is set.
+export async function getSessionMissionContent(
+  sessionId: SessionId,
+): Promise<string | null> {
+  return invoke<string | null>("get_session_mission_content", { sessionId });
+}
+
+/// AOM (Autonomous Operator Mode) — global toggle. When on, every
+/// Operator-enabled tab adopts act-by-default posture and auto-submits
+/// replies (the user is not in the loop).
+export interface AomStatus {
+  enabled: boolean;
+  /// Unix-ms when AOM was last started. 0 if never started since boot.
+  /// Even after stop, this stays stamped so the UI can show "ran for X".
+  started_at_unix_ms: number;
+  /// Decisions made since the last aom_start (reset to 0 each start).
+  decisions_count: number;
+  /// USD cap configured at start time. AOM auto-stops when accumulated
+  /// cost reaches this.
+  budget_usd: number;
+  /// Running USD total since aom_start.
+  accumulated_cost_usd: number;
+  /// Set when AOM was auto-stopped because the cap was hit (vs the
+  /// user pressing ⌘⇧A). Drives the explanatory toast.
+  cost_cap_hit_at_unix_ms: number | null;
+}
+
+export async function aomStatus(): Promise<AomStatus> {
+  return invoke<AomStatus>("aom_status");
+}
+
+export async function aomStart(): Promise<AomStatus> {
+  return invoke<AomStatus>("aom_start");
+}
+
+export async function aomStop(): Promise<AomStatus> {
+  return invoke<AomStatus>("aom_stop");
+}
+
+export interface ActionBreakdown {
+  reply_count: number;
+  executed_count: number;
+  escalate_count: number;
+  wait_count: number;
+}
+
+export interface EscalationDigest {
+  timestamp_unix_ms: number;
+  session_id_short: string;
+  in_flight_command: string | null;
+  rationale: string | null;
+  reply_text: string | null;
+}
+
+export interface PerTabDigest {
+  session_id_short: string;
+  decisions_count: number;
+  last_activity_unix_ms: number;
+  cost_usd: number;
+  recent_commands: string[];
+}
+
+export interface AomReport {
+  session_row_id: number;
+  started_at_unix_ms: number;
+  ended_at_unix_ms: number | null;
+  budget_usd: number;
+  accumulated_cost_usd: number;
+  decisions_count: number;
+  cost_cap_hit_at_unix_ms: number | null;
+  action_breakdown: ActionBreakdown;
+  escalations: EscalationDigest[];
+  per_tab: PerTabDigest[];
+}
+
+/// Fetch the morning report for the most recent AOM session, or null
+/// if AOM has never been started on this DB.
+export async function aomReport(): Promise<AomReport | null> {
+  return invoke<AomReport | null>("aom_report");
+}
+
+/// Tab persistence — backend stores the raw JSON manifest produced
+/// by `TabManager.serializeManifest()`. Schema lives in the frontend.
+export async function tabManifestLoad(): Promise<string | null> {
+  return invoke<string | null>("tab_manifest_load");
+}
+
+export async function tabManifestSave(body: string): Promise<void> {
+  return invoke<void>("tab_manifest_save", { body });
+}
+
+/// Recent blocks that ran in `cwd` across sessions. Used by the
+/// BlockManager sidebar when a tab lands in a known dir — surfaces
+/// "what was I doing here" before any new command runs.
+export interface HistoricalBlockRow {
+  session_id_short: string;
+  command: string;
+  exit_code: number | null;
+  duration_ms: number;
+  finished_at_unix_ms: number;
+}
+
+export async function recentBlocksByCwd(
+  cwd: string,
+  limit: number,
+): Promise<HistoricalBlockRow[]> {
+  return invoke<HistoricalBlockRow[]>("recent_blocks_by_cwd", { cwd, limit });
+}
+
 export interface OperatorDecisionRow {
   id: number;
   session_id_short: string;
@@ -114,6 +287,38 @@ export async function listOperatorDecisions(
   limit: number,
 ): Promise<OperatorDecisionRow[]> {
   return invoke<OperatorDecisionRow[]>("list_operator_decisions", { limit });
+}
+
+export interface AutosuggestStatus {
+  found: boolean;
+  path: string | null;
+}
+
+/// Probe whether zsh-autosuggestions is installed at one of the
+/// well-known paths our shell snippet sources from. UI uses this to
+/// surface a one-time hint when missing.
+export async function zshAutosuggestionsStatus(): Promise<AutosuggestStatus> {
+  return invoke<AutosuggestStatus>("zsh_autosuggestions_status");
+}
+
+export interface RecallMatch {
+  command: string;
+  count: number;
+  success_count: number;
+  cwd_match_count: number;
+  last_used_unix_ms: number;
+  score: number;
+}
+
+/// Recall: search persisted block history for commands matching `query`.
+/// Empty query → most recent distinct commands. `cwd` boosts matches
+/// previously run there.
+export async function recallSearch(
+  query: string,
+  cwd: string | null,
+  limit: number,
+): Promise<RecallMatch[]> {
+  return invoke<RecallMatch[]>("recall_search", { query, cwd, limit });
 }
 
 export interface AgentConfig {
@@ -134,6 +339,18 @@ export interface OperatorConfig {
 export interface TerminalConfig {
   font_family: string;
   font_size: number;
+  letter_spacing: number;
+  line_height: number;
+}
+
+export type WindowBackground = "solid" | "vibrant" | "translucent";
+
+export interface WindowConfig {
+  background: WindowBackground;
+}
+
+export interface AomConfig {
+  default_budget_usd: number;
 }
 
 export interface Settings {
@@ -141,6 +358,32 @@ export interface Settings {
   agent: AgentConfig;
   operator: OperatorConfig;
   terminal: TerminalConfig;
+  window: WindowConfig;
+  aom: AomConfig;
+  /// 3.7 — render the bottom status bar (git + runtime). Default true.
+  status_bar_enabled: boolean;
+}
+
+/// 3.7 — directory-context probe for the status bar. Both segments are
+/// optional; null means "not applicable / not detected" and the bar
+/// renders no chip for that segment.
+export interface GitInfo {
+  repo_name: string;
+  branch: string;
+}
+
+export interface RuntimeInfo {
+  language: string;
+  version: string | null;
+}
+
+export interface DirContext {
+  git: GitInfo | null;
+  runtime: RuntimeInfo | null;
+}
+
+export async function getDirContext(cwd: string): Promise<DirContext> {
+  return invoke<DirContext>("get_dir_context", { cwd });
 }
 
 export async function getSettings(): Promise<Settings> {

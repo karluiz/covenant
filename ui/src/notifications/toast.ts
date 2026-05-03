@@ -20,6 +20,13 @@ interface ToastOptions {
   onClick: (finding: CrossSessionFinding) => void;
 }
 
+export interface InfoToast {
+  message: string;
+  /// Optional handler invoked when the user clicks the card. Returning
+  /// `false` prevents auto-dismiss; everything else dismisses.
+  onClick?: () => void | boolean;
+}
+
 const AUTO_DISMISS_MS = 12_000;
 
 export class ToastHost {
@@ -47,6 +54,56 @@ export class ToastHost {
       this.unlisten();
       this.unlisten = undefined;
     }
+  }
+
+  /// Render an arbitrary informational toast (not driven by a backend
+  /// event). Used for one-shot setup hints like "zsh-autosuggestions
+  /// not detected — `brew install zsh-autosuggestions`".
+  pushInfo(toast: InfoToast): void {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "toast toast-info";
+    card.innerHTML = `
+      <span class="toast-icon">${Icons.lightbulb({ size: 14 })}</span>
+      <span class="toast-msg"></span>
+      <span class="toast-close" aria-label="dismiss">${Icons.x({ size: 12 })}</span>
+    `;
+    card.querySelector<HTMLElement>(".toast-msg")!.textContent = toast.message;
+
+    let dismissTimer: number | undefined;
+    const dismiss = (): void => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+      card.classList.add("toast-leaving");
+      window.setTimeout(() => card.remove(), 180);
+    };
+    const armDismiss = (): void => {
+      dismissTimer = window.setTimeout(dismiss, AUTO_DISMISS_MS);
+    };
+
+    card.addEventListener("mouseenter", () => {
+      if (dismissTimer !== undefined) {
+        window.clearTimeout(dismissTimer);
+        dismissTimer = undefined;
+      }
+    });
+    card.addEventListener("mouseleave", armDismiss);
+    card.querySelector<HTMLElement>(".toast-close")!.addEventListener(
+      "click",
+      (e) => {
+        e.stopPropagation();
+        dismiss();
+      },
+    );
+    card.addEventListener("click", () => {
+      const result = toast.onClick?.();
+      if (result !== false) dismiss();
+    });
+
+    this.container.appendChild(card);
+    armDismiss();
   }
 
   private show(finding: CrossSessionFinding): void {

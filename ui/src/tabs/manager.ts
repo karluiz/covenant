@@ -14,19 +14,31 @@
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
+  aomStatus,
+  clearSessionMission,
   closeSession,
+  getSessionMission,
   getSettings,
+  isAomExcluded,
   isOperatorEnabled,
+  isOperatorLive,
   resizeSession,
+  setAomExcluded,
   setOperatorEnabled,
+  setOperatorLive,
+  setSessionMission,
   spawnSession,
+  tabManifestSave,
   writeToSession,
+  type MissionInfo,
   type SessionId,
   type TerminalConfig,
 } from "../api";
 import { BlockManager } from "../blocks/manager";
+import { RecallManager } from "../recall/manager";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 
@@ -34,8 +46,12 @@ const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 const DEFAULT_FONT_SIZE = 13;
 
+/// Background is fully transparent so the workspace #workspace surface
+/// tint (controlled by body.bg-{solid,vibrant,translucent} via the
+/// --surface-alpha custom property) shows through xterm. cursorAccent
+/// stays opaque so the block cursor reads against any wallpaper.
 const TERMINAL_THEME = {
-  background: "#0b0d10",
+  background: "rgba(0, 0, 0, 0)",
   foreground: "#d6d8db",
   cursor: "#7aa2f7",
   cursorAccent: "#0b0d10",
@@ -46,10 +62,14 @@ function buildTerminalOptions(font: TerminalConfig | null): Record<string, unkno
   return {
     fontFamily: font?.font_family || DEFAULT_FONT_FAMILY,
     fontSize: font?.font_size || DEFAULT_FONT_SIZE,
-    lineHeight: 1.2,
+    lineHeight: font?.line_height ?? 1.2,
+    letterSpacing: font?.letter_spacing ?? 0,
     cursorBlink: true,
     cursorStyle: "block",
     allowProposedApi: true,
+    /// xterm's DOM/canvas renderer paints theme.background opaquely
+    /// unless this is on. Required for vibrancy to show through.
+    allowTransparency: true,
     convertEol: false,
     scrollback: 10_000,
     theme: TERMINAL_THEME,
@@ -70,6 +90,21 @@ interface Tab {
   /// Operator enabled on this tab — controls whether the backend's
   /// OperatorWatcher checks this session for prompts to answer.
   operatorEnabled: boolean;
+  /// M-OP3 live mode. When true AND operatorEnabled is also true, the
+  /// Operator actually types replies into this PTY (after passing the
+  /// safety blocklist) instead of just logging dry-run decisions.
+  /// Disabling the Operator on the backend also clears live, so this
+  /// mirrors the server-side invariant.
+  operatorLive: boolean;
+  /// M-OP5 per-tab AOM opt-out. Only meaningful while AOM is on
+  /// globally — when true, this tab is invisible to the AOM banner
+  /// and keeps its per-tab live setting + normal persona. Reset by
+  /// the backend on every aom_start.
+  aomExcluded: boolean;
+  /// M-OP6 mission spec attached to this tab. When set, the Operator
+  /// uses the spec content as authoritative scope — Out of scope →
+  /// escalate, File boundaries → constraints. Tab badge surfaces this.
+  mission: MissionInfo | null;
   pane: HTMLElement;
   termHost: HTMLElement;
   blocksHost: HTMLElement;
@@ -80,10 +115,38 @@ interface Tab {
   /// from the terminal options.
   webgl: WebglAddon | null;
   blocks: BlockManager;
+  recall: RecallManager;
+  /// Last cwd seen via OSC 7 / cwd_changed; passed to Recall so the
+  /// backend can apply its cwd bonus.
+  cwd: string | null;
   disposers: IDisposable[];
 }
 
 interface TabGroup {
+  id: string;
+  name: string;
+  color: string | null;
+  collapsed: boolean;
+}
+
+/// Persisted manifest schema. Version-tagged so we can evolve later
+/// without breaking old files. Bumped → `restoreFromManifest` falls
+/// back to a fresh tab instead of failing loudly.
+export interface TabManifestV1 {
+  version: 1;
+  active_index: number;
+  tabs: SerializedTab[];
+  groups: SerializedGroup[];
+}
+
+interface SerializedTab {
+  custom_name: string | null;
+  cwd: string | null;
+  color: string | null;
+  group_id: string | null;
+}
+
+interface SerializedGroup {
   id: string;
   name: string;
   color: string | null;
@@ -113,6 +176,27 @@ export class TabManager {
   private readonly menu: ContextMenu;
   private renaming: RenameTarget = null;
   private dragging: DragSource = null;
+  /// Pending debounce handle for `scheduleSave`. Coalesces a burst of
+  /// state changes (drag reorder, group manipulations, …) into one
+  /// disk write 200ms later.
+  private saveTimer: number | null = null;
+
+  /// 3.7 — fired whenever the *active* tab's cwd context changes:
+  ///   - tab switched (new active tab → its cwd)
+  ///   - active tab emitted cwd_changed (its new cwd)
+  ///   - last tab closed (null)
+  /// Set by main.ts to push updates into the StatusBar. Single
+  /// listener — there's only one bar.
+  public onActiveContextChange: ((cwd: string | null) => void) | null = null;
+
+  /// Mission-side companion to onActiveContextChange. Fires whenever the
+  /// active tab's mission changes (set / cleared / hot-reloaded by the
+  /// backend file watcher) OR when the active tab itself changes. Pushes
+  /// (mission, sessionId) so the StatusBar can render the chip and route
+  /// the modal's content fetch to the right session.
+  public onActiveMissionChange:
+    | ((mission: MissionInfo | null, sessionId: SessionId | null) => void)
+    | null = null;
 
   constructor(
     private readonly tabbarHost: HTMLElement,
@@ -346,6 +430,81 @@ export class TabManager {
     return this.tabs.length > 0;
   }
 
+  /// "AOM is alive" proactive step: when AOM transitions on, every
+  /// tab with a mission attached AND no user-set name gets renamed
+  /// to a slug derived from the mission file. Pure derived rename —
+  /// no model call, no backend hop. Makes the tab bar instantly
+  /// readable ("docs-hub", "mission-tracking") instead of a wall of
+  /// "zsh 1, zsh 2, zsh 3". User-set names are NEVER overwritten.
+  applyMissionTabNames(): void {
+    let touched = false;
+    for (const tab of this.tabs) {
+      if (!tab.mission) continue;
+      if (tab.customName && tab.customName.trim().length > 0) continue;
+      const slug = slugFromMissionPath(tab.mission.path);
+      if (!slug) continue;
+      tab.customName = slug;
+      touched = true;
+    }
+    if (touched) this.renderTabbar();
+  }
+
+  /// Re-sync every tab's per-session Operator + mission state from
+  /// the backend. Called after the AOM toggle so tabs auto-enabled
+  /// by AOM (or reverted on aom_stop) immediately reflect the new
+  /// state, and after `mission-changed` events so tooltips match
+  /// disk content.
+  async refreshAllOperatorState(): Promise<void> {
+    for (const tab of this.tabs) {
+      const enabled = await isOperatorEnabled(tab.sessionId).catch(
+        () => tab.operatorEnabled,
+      );
+      const live = enabled
+        ? await isOperatorLive(tab.sessionId).catch(() => tab.operatorLive)
+        : false;
+      const excluded = enabled
+        ? await isAomExcluded(tab.sessionId).catch(() => tab.aomExcluded)
+        : false;
+      const mission = await getSessionMission(tab.sessionId).catch(
+        () => tab.mission,
+      );
+      tab.operatorEnabled = enabled;
+      tab.operatorLive = live;
+      tab.aomExcluded = excluded;
+      tab.mission = mission;
+    }
+    this.renderTabbar();
+    // Re-push the active tab's mission too — file watcher / AOM
+    // auto-enable cycles can change it without a tab activation.
+    this.emitActiveMission();
+  }
+
+  /// Push the active tab's mission to whoever is listening (status bar).
+  /// Safe to call any time mission state may have shifted.
+  private emitActiveMission(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    this.onActiveMissionChange?.(tab?.mission ?? null, tab?.sessionId ?? null);
+  }
+
+  /// Refit the active tab's terminal. Public so main.ts can call it
+  /// after the settings page closes (workspace was hidden + restored).
+  refitActive(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    requestAnimationFrame(() => {
+      try {
+        tab.fit.fit();
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("fit failed on refitActive", err);
+      }
+      void resizeSession(tab.sessionId, tab.term.cols, tab.term.rows).catch(
+        () => {},
+      );
+      tab.term.focus();
+    });
+  }
+
   /// Push terminal font/size into every open tab. Called from main.ts
   /// when the user saves Settings (no restart needed).
   ///
@@ -368,6 +527,8 @@ export class TabManager {
         try {
           tab.term.options.fontFamily = family;
           tab.term.options.fontSize = size;
+          tab.term.options.letterSpacing = cfg.letter_spacing ?? 0;
+          tab.term.options.lineHeight = cfg.line_height ?? 1.2;
 
           // Surefire WebGL refresh: dispose the addon + load a fresh
           // one. clearTextureAtlas() alone is a silent no-op in xterm
@@ -426,6 +587,14 @@ export class TabManager {
     return tab?.sessionId ?? null;
   }
 
+  /// Most recent cwd reported by the active session via OSC 7
+  /// (`cwd_changed`). Used by the Recall palette so the backend
+  /// can apply its cwd bonus.
+  activeCwd(): string | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    return tab?.cwd ?? null;
+  }
+
   activateByIndex(index: number): void {
     const tab = this.tabs[index];
     if (tab) this.activate(tab.id);
@@ -443,7 +612,17 @@ export class TabManager {
     this.activate(this.tabs[nextIdx].id);
   }
 
-  async createTab(): Promise<void> {
+  /// Spawn a new tab. `opts` is used by the persistence restore path
+  /// to recreate a tab as it was: pre-existing custom name, color,
+  /// group, and a `cwd` that the spawned shell will `cd` into on its
+  /// first prompt. For brand-new tabs (the `+` button, ⌘T), opts is
+  /// undefined and the shell starts in `$HOME`.
+  async createTab(opts?: {
+    customName?: string | null;
+    color?: string | null;
+    groupId?: string | null;
+    cwd?: string | null;
+  }): Promise<void> {
     const id = crypto.randomUUID();
     const seq = this.nextSeq++;
 
@@ -480,12 +659,41 @@ export class TabManager {
     fit.fit();
 
     let blocks: BlockManager | null = null;
+    let recall: RecallManager | null = null;
+    // Closure-captured so onSessionEvent (set BEFORE spawn returns)
+    // can update the tab's cwd as `cwd_changed` events arrive.
+    const tabRef: { current: Tab | null } = { current: null };
     let sessionId: SessionId;
     try {
-      sessionId = await spawnSession({
-        onOutput: (chunk) => term.write(chunk),
-        onSessionEvent: (event) => blocks?.handleEvent(event),
-      });
+      sessionId = await spawnSession(
+        {
+          onOutput: (chunk) => term.write(chunk),
+          onSessionEvent: (event) => {
+            blocks?.handleEvent(event);
+            // Recall reacts to two flavors of session event:
+            //   - prompt_start: shell drew a fresh prompt → reset
+            //     our shadow input buffer.
+            //   - cwd_changed: keep the cwd hint up to date so the
+            //     backend can apply its cwd bonus.
+            if (event.kind === "prompt_start") {
+              recall?.notifyPromptStart();
+            } else if (event.kind === "cwd_changed") {
+              if (tabRef.current) tabRef.current.cwd = event.cwd;
+              recall?.setCwd(event.cwd);
+              this.scheduleSave();
+              // Status bar: only push when this tab is the visible one.
+              // Background tabs cd'ing don't shift what the user sees.
+              if (tabRef.current && tabRef.current.id === this.activeId) {
+                this.onActiveContextChange?.(event.cwd);
+              }
+            }
+          },
+        },
+        // Persistence-restored cwd is set on the SHELL itself before
+        // spawn — no visible `cd <path>` line, no bogus block. If
+        // the dir is gone, backend silently falls back to $HOME.
+        { initialCwd: opts?.cwd ?? null },
+      );
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("spawn_session failed", err);
@@ -495,6 +703,35 @@ export class TabManager {
       return;
     }
     blocks = new BlockManager(blocksHost, sessionId);
+    recall = new RecallManager(
+      blocksHost,
+      (data) => writeToSession(sessionId, data),
+      {
+        onShouldShow: (show) => {
+          // Contextual swap: while Recall has results, hide Blocks
+          // and show Recall; otherwise revert. The blocks-host stays
+          // the same width either way, so no terminal refit needed.
+          if (show) {
+            blocks!.hide();
+            recall!.show();
+          } else {
+            recall!.hide();
+            blocks!.show();
+          }
+        },
+      },
+    );
+
+    // Refit + resize after the BlockManager has applied its collapsed
+    // class — the sidebar width can change the terminal area, so xterm
+    // needs to remeasure.
+    requestAnimationFrame(() => {
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+    });
 
     await resizeSession(sessionId, term.cols, term.rows).catch((e) =>
       // eslint-disable-next-line no-console
@@ -503,10 +740,14 @@ export class TabManager {
 
     const encoder = new TextEncoder();
     const dataDispose = term.onData((data) => {
+      // Forward to the PTY, then to Recall's shadow buffer. Order
+      // matters only insofar as we want the keystroke to land in
+      // the shell first; Recall's response is best-effort.
       void writeToSession(sessionId, encoder.encode(data)).catch((e) =>
         // eslint-disable-next-line no-console
         console.error("write failed", e),
       );
+      recall?.notifyInput(data);
     });
     const resizeDispose = term.onResize(({ cols, rows }) => {
       void resizeSession(sessionId, cols, rows).catch((e) =>
@@ -516,17 +757,26 @@ export class TabManager {
     });
 
     // Pick up the backend's per-session enabled state (driven by
-    // settings.operator.enabled_default at attach() time).
+    // settings.operator.enabled_default at attach() time). Live always
+    // starts off — even if enabled_default flipped on, the user must
+    // explicitly opt into live before any byte gets typed. AOM excluded
+    // also defaults to false (each AOM session resets exclusions).
     const operatorEnabled = await isOperatorEnabled(sessionId).catch(() => false);
+    const operatorLive = await isOperatorLive(sessionId).catch(() => false);
+    const aomExcluded = await isAomExcluded(sessionId).catch(() => false);
+    const mission = await getSessionMission(sessionId).catch(() => null);
 
     const tab: Tab = {
       id,
       sessionId,
       defaultTitle: `zsh ${seq}`,
-      customName: null,
-      color: null,
-      groupId: null,
+      customName: opts?.customName ?? null,
+      color: opts?.color ?? null,
+      groupId: opts?.groupId ?? null,
       operatorEnabled,
+      operatorLive,
+      aomExcluded,
+      mission,
       pane,
       termHost,
       blocksHost,
@@ -534,13 +784,17 @@ export class TabManager {
       fit,
       webgl,
       blocks,
+      recall,
+      cwd: null,
       disposers: [dataDispose, resizeDispose],
     };
+    tabRef.current = tab;
 
     this.tabs.push(tab);
     this.activeId = id;
     this.renderTabbar();
     term.focus();
+    this.scheduleSave();
   }
 
   private async toggleOperator(tabId: string): Promise<void> {
@@ -550,10 +804,205 @@ export class TabManager {
     try {
       await setOperatorEnabled(tab.sessionId, next);
       tab.operatorEnabled = next;
+      // Backend invariant: disabling the operator also clears live.
+      // Mirror it here so the UI doesn't claim live until next render.
+      if (!next) tab.operatorLive = false;
       this.renderTabbar();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_enabled failed", err);
+    }
+  }
+
+  /// Flip the per-session live flag. M-OP3: when on AND operator is
+  /// enabled, the Operator's REPLY actions actually inject keystrokes
+  /// into the PTY (after passing the safety blocklist).
+  private async toggleOperatorLive(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const next = !tab.operatorLive;
+    try {
+      await setOperatorLive(tab.sessionId, next);
+      tab.operatorLive = next;
+      this.renderTabbar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("set_operator_live failed", err);
+    }
+  }
+
+  /// Open an inline modal that asks for a spec path, then attach
+  /// the mission to the session. The user can either type a path or
+  /// click "Browse…" for a native file picker. Errors (file not
+  /// found, etc.) come back from the backend.
+  private async promptAndSetMission(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const initial = tab.mission?.path ?? "";
+    const path = await openTextPrompt({
+      title: "Set mission spec",
+      hint: "Absolute path or path relative to the backend's CWD. The Operator reads this file as authoritative scope (Out of scope → escalate, File boundaries → constraints, Open questions → auto-escalate).",
+      placeholder: `${tab.cwd ?? "~"}/docs/specs/<id>.md`,
+      initial,
+      submitLabel: "Set mission",
+      onBrowse: async () => {
+        // defaultPath: prefer the existing mission's directory, then
+        // the tab's cwd, otherwise let the OS pick. Filter on .md so
+        // the picker only shows specs.
+        const start =
+          tab.mission?.path ??
+          (tab.cwd ? `${tab.cwd}/docs/specs` : undefined);
+        const picked = await openDialog({
+          title: "Pick mission spec",
+          multiple: false,
+          directory: false,
+          defaultPath: start,
+          filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+        });
+        // Tauri returns string | null for single-file mode.
+        return typeof picked === "string" ? picked : null;
+      },
+    });
+    if (path === null) return; // user cancelled
+    try {
+      const info = await setSessionMission(tab.sessionId, path);
+      tab.mission = info;
+      this.renderTabbar();
+      if (tab.id === this.activeId) this.emitActiveMission();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("set_session_mission failed", err);
+      alert(`Could not set mission: ${String(err)}`);
+    }
+  }
+
+  private async clearMission(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    try {
+      await clearSessionMission(tab.sessionId);
+      tab.mission = null;
+      this.renderTabbar();
+      if (tab.id === this.activeId) this.emitActiveMission();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("clear_session_mission failed", err);
+    }
+  }
+
+  /// Open the active tab's mission in a viewer-friendly way: the
+  /// status-bar chip is the canonical entry point but the tab context
+  /// menu also exposes "View mission…". Both paths converge here so
+  /// behavior stays identical.
+  private async viewMission(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab || !tab.mission) return;
+    if (tab.id !== this.activeId) this.activate(tab.id);
+    this.onMissionViewRequested?.(tab.mission, tab.sessionId);
+  }
+
+  /// Wired by main.ts to route the menu entry to the StatusBar's
+  /// already-built MissionViewerModal. Kept as a callback rather than
+  /// importing the modal here so TabManager doesn't depend on the
+  /// status bar.
+  public onMissionViewRequested:
+    | ((mission: MissionInfo, sessionId: SessionId) => void)
+    | null = null;
+
+  /// Per-tab AOM opt-out toggle. M-OP5: while AOM is on, an excluded
+  /// tab keeps its individual live setting + normal persona. Useful
+  /// for leaving an exploratory shell strictly manual without having
+  /// to disable Operator entirely.
+  private async toggleAomExcluded(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const next = !tab.aomExcluded;
+    try {
+      await setAomExcluded(tab.sessionId, next);
+      tab.aomExcluded = next;
+      this.renderTabbar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("set_aom_excluded failed", err);
+    }
+  }
+
+  /// Persist current tab + group state to disk. Debounced so a burst
+  /// of changes (drag reorder fires many tiny mutations) only writes
+  /// once. Backend stores the JSON blob opaquely; schema lives here.
+  private scheduleSave(): void {
+    if (this.saveTimer !== null) {
+      window.clearTimeout(this.saveTimer);
+    }
+    this.saveTimer = window.setTimeout(() => {
+      this.saveTimer = null;
+      const body = JSON.stringify(this.serializeManifest());
+      void tabManifestSave(body).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("tab_manifest_save failed", err);
+      });
+    }, 200);
+  }
+
+  /// Serialize current tab + group state into the manifest schema.
+  /// Public so main.ts can call `tabManifestSave` on `beforeunload`
+  /// for a synchronous final flush.
+  serializeManifest(): TabManifestV1 {
+    return {
+      version: 1,
+      active_index: this.activeId
+        ? Math.max(
+            0,
+            this.tabs.findIndex((t) => t.id === this.activeId),
+          )
+        : 0,
+      tabs: this.tabs.map((t) => ({
+        custom_name: t.customName,
+        cwd: t.cwd,
+        color: t.color,
+        group_id: t.groupId,
+      })),
+      groups: Array.from(this.groups.values()).map((g) => ({
+        id: g.id,
+        name: g.name,
+        color: g.color,
+        collapsed: g.collapsed,
+      })),
+    };
+  }
+
+  /// Recreate tabs + groups from a previously-saved manifest. Spawns
+  /// fresh PTY sessions; `cd <cwd>` is injected into each on its
+  /// first prompt_start. Mission auto-restore via cwd_changed handles
+  /// the rest. Falls back to a single fresh tab if anything goes
+  /// wrong (corrupted file, version mismatch, etc).
+  async restoreFromManifest(m: TabManifestV1): Promise<void> {
+    if (m.version !== 1 || !Array.isArray(m.tabs) || m.tabs.length === 0) {
+      await this.createTab();
+      return;
+    }
+    // Restore groups first so tabs that reference them have a target.
+    for (const g of m.groups ?? []) {
+      this.groups.set(g.id, {
+        id: g.id,
+        name: g.name,
+        color: g.color,
+        collapsed: g.collapsed,
+      });
+    }
+    // Sequential spawns — concurrent would race the order of tabs[].
+    for (const t of m.tabs) {
+      await this.createTab({
+        customName: t.custom_name,
+        color: t.color,
+        groupId: t.group_id,
+        cwd: t.cwd,
+      });
+    }
+    // Restore active selection.
+    const idx = Math.min(m.active_index ?? 0, this.tabs.length - 1);
+    if (this.tabs[idx]) {
+      this.activate(this.tabs[idx].id, { skipIfSame: false });
     }
   }
 
@@ -573,6 +1022,7 @@ export class TabManager {
     if (this.tabs.length === 0) {
       this.activeId = null;
       this.renderTabbar();
+      this.scheduleSave();
       this.onAllTabsClosed();
       return;
     }
@@ -584,6 +1034,7 @@ export class TabManager {
     } else {
       this.renderTabbar();
     }
+    this.scheduleSave();
   }
 
   activate(
@@ -599,6 +1050,8 @@ export class TabManager {
     tab.pane.hidden = false;
     this.activeId = id;
     this.renderTabbar();
+    this.onActiveContextChange?.(tab.cwd);
+    this.emitActiveMission();
 
     requestAnimationFrame(() => {
       try {
@@ -629,6 +1082,7 @@ export class TabManager {
     if (!tab) return;
     tab.color = color;
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private setGroupColor(groupId: string, color: string | null): void {
@@ -636,6 +1090,7 @@ export class TabManager {
     if (!g) return;
     g.color = color;
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private startTabRename(id: string): void {
@@ -655,6 +1110,7 @@ export class TabManager {
     tab.customName = trimmed.length > 0 ? trimmed : null;
     this.renaming = null;
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private commitGroupRename(id: string, value: string): void {
@@ -664,6 +1120,7 @@ export class TabManager {
     g.name = trimmed.length > 0 ? trimmed : `group ${this.nextGroupSeq - 1}`;
     this.renaming = null;
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private cancelRename(): void {
@@ -690,6 +1147,7 @@ export class TabManager {
     // member group.
     this.renaming = { kind: "group", id };
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private toggleGroupCollapsed(groupId: string): void {
@@ -697,6 +1155,7 @@ export class TabManager {
     if (!g) return;
     g.collapsed = !g.collapsed;
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   /// Tab indices belonging to a group, in their current `tabs[]` order.
@@ -732,6 +1191,7 @@ export class TabManager {
     this.tabs.length = 0;
     this.tabs.push(...remaining);
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   /// Move an entire group so its members land `side`-of the entire
@@ -775,6 +1235,7 @@ export class TabManager {
       this.tabs.splice(insertAt, 0, moved);
     }
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private removeTabFromGroup(tabId: string): void {
@@ -784,6 +1245,7 @@ export class TabManager {
     tab.groupId = null;
     if (oldGroupId) this.cleanupEmptyGroup(oldGroupId);
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private ungroup(groupId: string): void {
@@ -792,6 +1254,7 @@ export class TabManager {
     }
     this.groups.delete(groupId);
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   private cleanupEmptyGroup(groupId: string): void {
@@ -823,6 +1286,7 @@ export class TabManager {
       this.cleanupEmptyGroup(oldGroupId);
     }
     this.renderTabbar();
+    this.scheduleSave();
   }
 
   // ─── Render ─────────────────────────────────────────
@@ -830,17 +1294,6 @@ export class TabManager {
   private hideAllPanes(): void {
     for (const t of this.tabs) {
       t.pane.hidden = true;
-    }
-  }
-
-  private refitActive(): void {
-    const tab = this.tabs.find((t) => t.id === this.activeId);
-    if (!tab) return;
-    try {
-      tab.fit.fit();
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("fit failed on resize", err);
     }
   }
 
@@ -999,14 +1452,28 @@ export class TabManager {
     }
 
     if (tab.operatorEnabled) {
-      // Bot icon as a discreet leading affordance instead of the
-      // top-right green dot. Reads as "this tab has the operator
-      // watching" without competing with the close button.
+      // Bot icon as a discreet leading affordance. In live mode it
+      // gains a `tab-operator-live` modifier so CSS can recolor it
+      // (the user always sees at a glance whether bytes can fly).
       const botEl = document.createElement("span");
-      botEl.className = "tab-operator-icon";
-      botEl.title = "Operator enabled (dry-run)";
+      botEl.className = tab.operatorLive
+        ? "tab-operator-icon tab-operator-live"
+        : "tab-operator-icon";
+      botEl.title = tab.operatorLive
+        ? "Operator LIVE — replies will be typed into this tab"
+        : "Operator enabled (dry-run)";
       botEl.innerHTML = Icons.bot({ size: 13 });
       pill.appendChild(botEl);
+    }
+    if (tab.mission) {
+      // Mission badge — small lightbulb (reusing existing icon set;
+      // a dedicated "target" icon can swap in later). Tooltip shows
+      // the spec path so the user remembers which mission is active.
+      const missionEl = document.createElement("span");
+      missionEl.className = "tab-mission-icon";
+      missionEl.title = `Mission: ${tab.mission.path}\n${tab.mission.content_preview}`;
+      missionEl.innerHTML = Icons.lightbulb({ size: 12 });
+      pill.appendChild(missionEl);
     }
 
     if (this.isRenamingTab(tab.id)) {
@@ -1066,7 +1533,7 @@ export class TabManager {
 
     pill.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      this.openTabContextMenu(tab, e.clientX, e.clientY);
+      void this.openTabContextMenu(tab, e.clientX, e.clientY);
     });
 
     // ── Drag and drop ──
@@ -1075,7 +1542,25 @@ export class TabManager {
     return pill;
   }
 
-  private openTabContextMenu(tab: Tab, x: number, y: number): void {
+  private async openTabContextMenu(
+    tab: Tab,
+    x: number,
+    y: number,
+  ): Promise<void> {
+    // Pull AOM state at open time so the menu reflects reality. Two
+    // RPCs per right-click is cheap; subscribing globally would force
+    // an extra layer for marginal benefit. We also re-sync
+    // `tab.aomExcluded` because the backend resets it on every
+    // `aom_start` and the cached value here can be stale.
+    const aomOn = await aomStatus()
+      .then((s) => s.enabled)
+      .catch(() => false);
+    if (tab.operatorEnabled) {
+      tab.aomExcluded = await isAomExcluded(tab.sessionId).catch(
+        () => tab.aomExcluded,
+      );
+    }
+
     const items: Parameters<ContextMenu["show"]>[2] = [
       {
         label: "Rename",
@@ -1119,11 +1604,67 @@ export class TabManager {
     }
 
     items.push({ divider: true });
+    if (tab.mission) {
+      items.push({
+        label: "View mission…",
+        icon: Icons.lightbulb(),
+        onClick: () => this.viewMission(tab.id),
+      });
+    }
+    items.push({
+      label: tab.mission ? "Change mission…" : "Set mission…",
+      icon: Icons.pencil(),
+      onClick: () => this.promptAndSetMission(tab.id),
+    });
+    if (tab.mission) {
+      items.push({
+        label: "Clear mission",
+        icon: Icons.x(),
+        onClick: () => this.clearMission(tab.id),
+      });
+    }
+    items.push({ divider: true });
     items.push({
       label: tab.operatorEnabled ? "Disable operator" : "Enable operator",
       icon: Icons.bot(),
       onClick: () => this.toggleOperator(tab.id),
     });
+    if (tab.operatorEnabled) {
+      if (aomOn) {
+        // While AOM is global, the per-tab Live toggle is moot —
+        // AOM forces live=true on every included tab. Surface that
+        // truth in a disabled informational item, plus the per-tab
+        // exclusion toggle so the user can leave specific tabs out
+        // of AOM without disabling Operator.
+        items.push({
+          label: tab.aomExcluded
+            ? "Operator: dry-run (excluded from AOM)"
+            : "Operator: AOM is driving this tab (LIVE)",
+          icon: Icons.bot(),
+          disabled: true,
+          onClick: () => {
+            /* informational only */
+          },
+        });
+        items.push({
+          label: tab.aomExcluded
+            ? "Include in AOM"
+            : "Exclude from AOM (keep this tab manual)",
+          icon: Icons.bot(),
+          onClick: () => this.toggleAomExcluded(tab.id),
+        });
+      } else {
+        // Normal day-mode: the per-tab Live toggle decides typing.
+        items.push({
+          label: tab.operatorLive
+            ? "Operator: stop typing (back to dry-run)"
+            : "Operator: start typing into this tab (LIVE)",
+          icon: Icons.bot(),
+          danger: !tab.operatorLive,
+          onClick: () => this.toggleOperatorLive(tab.id),
+        });
+      }
+    }
     items.push({ divider: true });
     items.push({
       label: "Close tab",
@@ -1164,4 +1705,131 @@ export class TabManager {
       },
     ]);
   }
+}
+
+/// Lightweight modal asking the user for a single-line text value.
+/// Returns the entered string on submit, or `null` on cancel/Esc.
+/// `onBrowse` adds a "Browse…" button that, when present, lets the
+/// user fall back to a native picker — useful for path inputs.
+function openTextPrompt(opts: {
+  title: string;
+  hint?: string;
+  placeholder?: string;
+  initial?: string;
+  submitLabel?: string;
+  onBrowse?: () => Promise<string | null>;
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "text-prompt-overlay";
+
+    const card = document.createElement("div");
+    card.className = "text-prompt-card";
+    card.innerHTML = `
+      <header class="text-prompt-header">${escapeHtmlText(opts.title)}</header>
+      ${
+        opts.hint
+          ? `<div class="text-prompt-hint">${escapeHtmlText(opts.hint)}</div>`
+          : ""
+      }
+      <div class="text-prompt-input-row">
+        <input type="text" class="text-prompt-input"
+               autocomplete="off"
+               spellcheck="false"
+               placeholder="${escapeHtmlText(opts.placeholder ?? "")}"
+               value="${escapeHtmlText(opts.initial ?? "")}" />
+        ${
+          opts.onBrowse
+            ? `<button type="button" class="text-prompt-browse">Browse…</button>`
+            : ""
+        }
+      </div>
+      <div class="text-prompt-actions">
+        <button type="button" class="text-prompt-cancel">Cancel</button>
+        <button type="button" class="text-prompt-submit">${escapeHtmlText(
+          opts.submitLabel ?? "OK",
+        )}</button>
+      </div>
+    `;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const input = card.querySelector<HTMLInputElement>(".text-prompt-input")!;
+    const cancelBtn = card.querySelector<HTMLButtonElement>(
+      ".text-prompt-cancel",
+    )!;
+    const submitBtn = card.querySelector<HTMLButtonElement>(
+      ".text-prompt-submit",
+    )!;
+
+    const cleanup = (value: string | null): void => {
+      overlay.remove();
+      window.removeEventListener("keydown", onKey);
+      resolve(value);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cleanup(null);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (v.length > 0) cleanup(v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cleanup(null);
+    });
+    cancelBtn.addEventListener("click", () => cleanup(null));
+    submitBtn.addEventListener("click", () => {
+      const v = input.value.trim();
+      if (v.length > 0) cleanup(v);
+    });
+
+    if (opts.onBrowse) {
+      const browseBtn = card.querySelector<HTMLButtonElement>(
+        ".text-prompt-browse",
+      );
+      browseBtn?.addEventListener("click", async () => {
+        const picked = await opts.onBrowse!();
+        if (picked) {
+          input.value = picked;
+          input.focus();
+        }
+      });
+    }
+
+    input.focus();
+    if (opts.initial) input.select();
+  });
+}
+
+function escapeHtmlText(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/// Derive a short tab-name slug from a mission spec path:
+///   /docs/specs/3.5-docs-hub.md → "docs-hub"
+///   /specs/mission-tracking.md  → "mission-tracking"
+///   /work/My Notes.md           → "my-notes"
+///   /weird/.md                  → "" (caller should skip)
+///
+/// Strips: directory + extension, leading "<digits>(.<digits>)*-",
+/// non-slug chars (keep [a-z0-9-]), then collapses runs of "-".
+function slugFromMissionPath(path: string): string {
+  const file = path.split("/").pop() ?? path;
+  const stem = file.replace(/\.(md|markdown)$/i, "");
+  const noPrefix = stem.replace(/^\d+(\.\d+)*[-_\s]+/, "");
+  const slug = noPrefix
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug;
 }

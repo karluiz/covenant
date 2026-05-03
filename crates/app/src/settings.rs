@@ -31,6 +31,52 @@ pub struct Settings {
 
     #[serde(default)]
     pub terminal: TerminalConfig,
+
+    #[serde(default)]
+    pub window: WindowConfig,
+
+    #[serde(default)]
+    pub aom: AomConfig,
+
+    /// 3.7 status bar — when false, the bar isn't rendered and no
+    /// detection runs. Default true; controlled by a single toggle in
+    /// the Settings → Appearance section.
+    #[serde(default = "default_status_bar_enabled")]
+    pub status_bar_enabled: bool,
+
+    /// Unix-ms when we last imported `~/.zsh_history` into the blocks
+    /// table for Recall. `None` means we've never imported and the
+    /// next launch will run the one-shot import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zsh_history_imported_at_unix_ms: Option<u64>,
+}
+
+fn default_status_bar_enabled() -> bool {
+    true
+}
+
+/// AOM configuration. Today only the budget default; Phase C will add
+/// per-mission profiles (e.g. "long overnight" vs "lunch break").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AomConfig {
+    /// USD ceiling per AOM session. AOM auto-stops when accumulated
+    /// cost reaches this. Default $10 — enough for a few hours of
+    /// Sonnet decisions, low enough that a runaway loop can't drain
+    /// the user's API balance overnight.
+    #[serde(default = "default_aom_budget_usd")]
+    pub default_budget_usd: f64,
+}
+
+impl Default for AomConfig {
+    fn default() -> Self {
+        Self {
+            default_budget_usd: default_aom_budget_usd(),
+        }
+    }
+}
+
+fn default_aom_budget_usd() -> f64 {
+    10.0
 }
 
 impl Default for Settings {
@@ -40,7 +86,51 @@ impl Default for Settings {
             agent: AgentConfig::default(),
             operator: OperatorConfig::default(),
             terminal: TerminalConfig::default(),
+            window: WindowConfig::default(),
+            aom: AomConfig::default(),
+            status_bar_enabled: default_status_bar_enabled(),
+            zsh_history_imported_at_unix_ms: None,
         }
+    }
+}
+
+/// Window appearance — controls how transparent the foreground surfaces
+/// are over the macOS NSVisualEffectView (vibrancy) that's always-on at
+/// the OS level. The frontend translates `background` into a body class
+/// (`body.bg-solid` / `bg-vibrant` / `bg-translucent`) which sets the
+/// `--surface-alpha` custom property cascading through every `--bg-*`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowConfig {
+    #[serde(default)]
+    pub background: WindowBackground,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            background: WindowBackground::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WindowBackground {
+    /// Fully opaque dark surface — vibrancy hidden. Best for sunlit
+    /// rooms, low-contrast wallpapers, or users who find translucency
+    /// distracting.
+    Solid,
+    /// Default. Moderate translucency — wallpaper visible but text
+    /// contrast stays comfortable on most desktops.
+    Vibrant,
+    /// Heavy translucency. Maximum "wow" but text legibility depends
+    /// on the wallpaper behind.
+    Translucent,
+}
+
+impl Default for WindowBackground {
+    fn default() -> Self {
+        Self::Vibrant
     }
 }
 
@@ -50,6 +140,15 @@ pub struct TerminalConfig {
     pub font_family: String,
     #[serde(default = "default_font_size")]
     pub font_size: u32,
+    /// Pixels added between cells. Negative pulls cells closer — useful
+    /// for ligature fonts (Comic Code, JetBrains, Fira, …) whose glyph
+    /// advance is wider than the visual width.
+    #[serde(default)]
+    pub letter_spacing: i32,
+    /// Multiplier on cell height. 1.0 is xterm's default. 1.2 gives
+    /// some breathing room without sacrificing density.
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
 }
 
 impl Default for TerminalConfig {
@@ -57,6 +156,8 @@ impl Default for TerminalConfig {
         Self {
             font_family: default_font_family(),
             font_size: default_font_size(),
+            letter_spacing: 0,
+            line_height: default_line_height(),
         }
     }
 }
@@ -68,6 +169,10 @@ fn default_font_family() -> String {
 
 fn default_font_size() -> u32 {
     13
+}
+
+fn default_line_height() -> f32 {
+    1.2
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

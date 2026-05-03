@@ -9,14 +9,18 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "install:app": "./scripts/install.sh",
+    "install:app:reuse": "./scripts/install.sh --skip-build",
+    "install:app:open": "./scripts/install.sh --open"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
-    "@xterm/xterm": "^5.5.0",
     "@xterm/addon-fit": "^0.10.0",
-    "@xterm/addon-webgl": "^0.18.0"
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

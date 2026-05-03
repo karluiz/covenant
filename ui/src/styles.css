@@ -2,12 +2,24 @@
   color-scheme: dark;
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  background: #0b0d10;
+  /* Window itself is transparent — macOS NSVisualEffectView (vibrancy)
+     paints behind. Surface tints below honor --surface-alpha. */
+  background: transparent;
   color: #d6d8db;
 
-  --bg: #0b0d10;
-  --bg-panel: #11141a;
-  --bg-tabbar: #0e1116;
+  /* Vibrant default — overridden by body.bg-solid / body.bg-translucent.
+     0.72 keeps text contrast comfortable on most wallpapers while still
+     letting the wallpaper read through. */
+  --surface-alpha: 0.72;
+
+  --bg: rgb(11 13 16 / var(--surface-alpha));
+  --bg-panel: rgb(17 20 26 / var(--surface-alpha));
+  --bg-tabbar: rgb(14 17 22 / var(--surface-alpha));
+  /* Always-opaque surface for floating UI (popovers, modals, toasts,
+     drag ghosts). Vibrancy bleeding through them would shred legibility
+     when the terminal text sits behind. Use this for anything that
+     hovers above the workspace, not for chrome that is the workspace. */
+  --bg-overlay: #11141a;
   --border: #1c2027;
   --muted: #6c7280;
   --accent: #7aa2f7;
@@ -24,7 +36,7 @@
   --tab-border-rest: rgba(255, 255, 255, 0.04);
   --tab-border-hover: rgba(255, 255, 255, 0.1);
   --tab-border-active: rgba(255, 255, 255, 0.14);
-  --tab-radius: 8px;
+  --tab-radius: 0px;
   --tab-h: 30px;
 }
 
@@ -35,13 +47,41 @@ body {
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+  /* Critical: html/body must be transparent so NSVisualEffectView can
+     paint through. Surfaces inside the layout supply their own tints. */
+  background: transparent;
 }
+
+/* Window background mode — body class set by main.ts on boot from
+   settings.window.background. Only --surface-alpha changes; every
+   --bg-* derives from it via rgb(... / var(--surface-alpha)). */
+body.bg-solid       { --surface-alpha: 1; }
+body.bg-vibrant     { --surface-alpha: 0.72; }
+body.bg-translucent { --surface-alpha: 0.45; }
 
 #layout {
   display: grid;
-  grid-template-rows: 38px 1fr;
+  /* Row 3 = status bar (3.7). `auto` so it collapses to 0 height when
+     the bar is hidden (settings.status_bar_enabled === false). */
+  grid-template-rows: 38px 1fr auto;
   height: 100%;
   width: 100%;
+}
+
+/* Workspace, settings-page, and docs-page share the second row — only
+   one is visible at a time. The grid assignment keeps them from
+   stacking when the row layout otherwise would auto-flow. */
+#workspace,
+#settings-page,
+#docs-page {
+  grid-row: 2 / 3;
+  grid-column: 1;
+  min-height: 0;
+}
+
+#status-bar {
+  grid-row: 3 / 4;
+  grid-column: 1;
 }
 
 /* ─── Tabbar ───────────────────────────────────────── */
@@ -168,6 +208,274 @@ body {
   display: block;
 }
 
+/* Live mode: bot icon glows in the warn/red palette so the user
+   always sees at a glance that this tab can be typed into. The
+   subtle pulse keeps it noticeable without being distracting. */
+.tab-operator-icon.tab-operator-live {
+  color: var(--fail);
+  filter: drop-shadow(0 0 3px rgba(247, 118, 142, 0.6));
+  animation: operator-live-pulse 2.4s ease-in-out infinite;
+}
+
+/* Mission badge — sits next to the operator bot icon. Same shape +
+   sizing rules; tinted with --running (warm amber) so the user can
+   distinguish "tab has a mission" from "tab is live". Hover-tooltip
+   carries the spec path. */
+.tab-mission-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--running);
+  margin-right: 1px;
+  pointer-events: none;
+}
+
+.tab-mission-icon svg {
+  display: block;
+}
+
+/* ─── Generic text-prompt modal (mission picker, etc.) ─── */
+
+.text-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 120px;
+  z-index: 1300;
+  animation: settings-fade 0.1s ease-out;
+}
+
+.text-prompt-card {
+  width: 520px;
+  max-width: calc(100vw - 64px);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 16px 18px 14px;
+  animation: settings-pop 0.14s ease-out;
+}
+
+.text-prompt-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f6f7;
+  margin-bottom: 6px;
+}
+
+.text-prompt-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+
+.text-prompt-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.text-prompt-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #fff;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  outline: none;
+}
+
+.text-prompt-input:focus {
+  border-color: var(--accent);
+}
+
+.text-prompt-browse {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: #c8ccd2;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.text-prompt-browse:hover {
+  background: rgba(122, 162, 247, 0.1);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.text-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.text-prompt-cancel,
+.text-prompt-submit {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: #c8ccd2;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    border-color 0.1s,
+    color 0.1s;
+}
+
+.text-prompt-cancel:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.text-prompt-submit {
+  background: rgba(122, 162, 247, 0.15);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.text-prompt-submit:hover {
+  background: rgba(122, 162, 247, 0.25);
+}
+
+@keyframes operator-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ─── AOM banner ──────────────────────────────────────
+   Floating pill at the bottom-center of the workspace, always
+   visible while AOM is active. Reads as "the Operator is driving
+   right now" — the user's reassurance signal that something
+   autonomous is happening on their behalf. Always opaque (no
+   vibrancy bleed) so the count is legible over any wallpaper. */
+
+.aom-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--fail);
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 3px rgba(247, 118, 142, 0.12),
+    0 8px 24px rgba(0, 0, 0, 0.55);
+  font-family: inherit;
+  font-size: 12px;
+  color: #f5f6f7;
+  user-select: none;
+  animation: aom-banner-in 0.18s ease-out;
+}
+
+/* `display: flex` above overrides the user-agent's [hidden]
+   { display: none } rule, so the empty pill leaks through when AOM
+   is off. Re-assert hidden explicitly. Same trick we use for
+   .blocks-content and .recall-host. */
+.aom-banner[hidden] {
+  display: none;
+}
+
+@keyframes aom-banner-in {
+  from {
+    transform: translate(-50%, 12px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.aom-banner-icon {
+  display: inline-flex;
+  color: var(--fail);
+  filter: drop-shadow(0 0 4px rgba(247, 118, 142, 0.65));
+  animation: operator-live-pulse 2.4s ease-in-out infinite;
+}
+
+.aom-banner-icon svg {
+  display: block;
+}
+
+.aom-banner-label {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--fail);
+}
+
+.aom-banner-time,
+.aom-banner-count,
+.aom-banner-cost {
+  color: #c8ccd2;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Budget warning state — fires at ≥80% of budget. Color shift is
+   subtle but unmistakable; no animation so it doesn't jump. */
+.aom-banner-cost.aom-banner-cost-warn {
+  color: var(--running);
+  font-weight: 500;
+}
+
+.aom-banner-sep {
+  color: var(--muted);
+}
+
+.aom-banner-stop {
+  margin-left: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #c8ccd2;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    border-color 0.1s,
+    color 0.1s;
+}
+
+.aom-banner-stop:hover {
+  background: rgba(247, 118, 142, 0.12);
+  border-color: var(--fail);
+  color: #fff;
+}
+
 .tab-dragging {
   opacity: 0.35;
 }
@@ -191,7 +499,7 @@ body.tab-drag-active * {
   pointer-events: none;
   opacity: 0.92;
   z-index: 1100;
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid var(--accent);
   border-radius: var(--tab-radius);
   box-shadow:
@@ -531,20 +839,39 @@ body.tab-drag-active * {
 }
 
 #new-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 18px;
-  font-weight: 300;
-  width: 28px;
   height: 28px;
   margin-bottom: 4px;
   align-self: flex-end;
   cursor: pointer;
   border-radius: 6px;
-  padding: 0;
+  padding: 0 8px 0 6px;
   line-height: 1;
   transition: background 0.12s ease-out, color 0.12s ease-out;
+}
+
+#new-tab .new-tab-plus {
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+#new-tab .new-tab-kbd {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  padding: 2px 5px;
+  line-height: 1;
 }
 
 #new-tab:hover {
@@ -552,18 +879,40 @@ body.tab-drag-active * {
   color: #fff;
 }
 
+#new-tab:hover .new-tab-kbd {
+  color: #c8ccd2;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
 /* ─── Workspace + tab panes ────────────────────────── */
 
 #workspace {
   position: relative;
   overflow: hidden;
+  /* Provides the main-area surface tint that xterm sits on top of.
+     When --surface-alpha is < 1, NSVisualEffectView shows through. */
+  background: var(--bg);
 }
 
 .tab-pane {
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: 1fr 240px;
+  transition: grid-template-columns 0.18s ease-out;
+}
+
+/* When the sidebar is collapsed, give all the width to the terminal.
+   The 28px sliver is just enough for the toggle button. */
+.tab-pane:has(.blocks-collapsed) {
+  grid-template-columns: 1fr 28px;
+}
+
+/* But when Recall takes over the column (contextual switch while the
+   user is typing), force the full-width sidebar back even if Blocks
+   was collapsed. Recall has no collapsed state of its own. */
+.tab-pane:has(.blocks-host.recall-active) {
+  grid-template-columns: 1fr 240px;
 }
 
 .tab-pane[hidden] {
@@ -596,24 +945,68 @@ body.tab-drag-active * {
   background: var(--bg-panel);
   display: flex;
   flex-direction: column;
-  font-size: 12px;
+  font-size: 11px;
   overflow: hidden;
+  border-left: 1px solid var(--border);
 }
 
 .blocks-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+.blocks-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.1s, background 0.1s;
+}
+
+.blocks-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.blocks-toggle svg {
+  display: block;
+}
+
+.blocks-header-label {
+  flex: 1;
 }
 
 .blocks-count {
   font-variant-numeric: tabular-nums;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+
+/* Collapsed state: only the toggle visible, label/count hidden. */
+.blocks-collapsed .blocks-header {
+  padding: 6px 4px;
+  justify-content: center;
+}
+
+.blocks-collapsed .blocks-header-label,
+.blocks-collapsed .blocks-count {
+  display: none;
 }
 
 .blocks-empty {
@@ -645,39 +1038,77 @@ body.tab-drag-active * {
 }
 
 .block-item {
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+}
+
+/* Historical blocks (from previous sessions in this dir). Visually
+   distinct from live blocks: faded colors + italics, so the user
+   reads them as past context, not current activity. */
+.blocks-history-sep {
+  padding: 6px 10px 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+}
+
+.blocks-list-history {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+}
+
+.block-item-history {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.block-item-history .block-cmd {
+  font-style: italic;
+  color: #98a0a8;
+}
+
+.block-history-tab,
+.block-history-when {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .block-cwd {
   color: var(--muted);
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 9px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.3;
 }
 
 .block-cmd {
   font-family:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.4;
 }
 
 .block-meta {
   display: flex;
-  gap: 8px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  line-height: 1.3;
 }
 
 .block-exit.ok {
@@ -776,7 +1207,7 @@ body.tab-drag-active * {
   align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid rgba(122, 162, 247, 0.35);
   border-left: 3px solid var(--accent);
   border-radius: 8px;
@@ -796,6 +1227,17 @@ body.tab-drag-active * {
 
 .toast-leaving {
   animation: toast-out 0.18s ease-in forwards;
+}
+
+/* Info toasts are setup hints, not cross-session findings — give them
+   a calmer accent so they don't feel like an alert. */
+.toast.toast-info {
+  border-color: rgba(255, 255, 255, 0.12);
+  border-left-color: var(--ok);
+}
+
+.toast.toast-info:hover {
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 @keyframes toast-in {
@@ -879,7 +1321,7 @@ body.tab-drag-active * {
   width: 720px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 120px);
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow:
@@ -1088,7 +1530,7 @@ body.tab-drag-active * {
   position: fixed;
   z-index: 1100;
   min-width: 180px;
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid var(--border);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -1210,20 +1652,18 @@ body.tab-drag-active * {
   display: block;
 }
 
-/* ─── Settings modal ───────────────────────────────── */
+/* ─── Settings page ────────────────────────────────── */
 
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 40px;
-  z-index: 1000;
+#settings-page {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  background: var(--bg);
+  overflow: hidden;
   animation: settings-fade 0.12s ease-out;
+}
+
+#settings-page[hidden] {
+  display: none;
 }
 
 @keyframes settings-fade {
@@ -1235,33 +1675,62 @@ body.tab-drag-active * {
   }
 }
 
-.settings-card {
-  width: 760px;
-  max-width: calc(100vw - 32px);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.5),
-    0 4px 12px rgba(0, 0, 0, 0.3);
+.settings-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tabbar);
+}
+
+.settings-page-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.settings-nav {
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 80px);
-  overflow: hidden;
-  animation: settings-pop 0.16s ease-out;
+  gap: 2px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--bg-tabbar) 70%, transparent);
 }
 
-@keyframes settings-pop {
-  from {
-    transform: translateY(-8px) scale(0.98);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
+.settings-nav a {
+  display: block;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background 0.1s, color 0.1s;
+  cursor: pointer;
 }
 
+.settings-nav a:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #c8ccd2;
+}
+
+.settings-nav a.active {
+  background: rgba(122, 162, 247, 0.12);
+  color: var(--accent);
+}
+
+/* (legacy .settings-header kept for compat with older references) */
 .settings-header {
   display: flex;
   align-items: center;
@@ -1279,14 +1748,21 @@ body.tab-drag-active * {
 }
 
 .settings-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 20px;
-  line-height: 1;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  transition: background 0.12s ease-out, color 0.12s ease-out;
+}
+
+.settings-close svg {
+  display: block;
 }
 
 .settings-close:hover {
@@ -1294,30 +1770,72 @@ body.tab-drag-active * {
   color: #fff;
 }
 
-.settings-form {
-  padding: 16px 18px;
+.settings-section {
+  border-bottom: 1px solid var(--border);
+  padding: 48px 48px 52px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  overflow-y: auto;
-}
-
-.settings-form fieldset {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  gap: 20px;
   margin: 0;
+  scroll-margin-top: 24px;
 }
 
-.settings-form legend {
-  padding: 0 6px;
+.settings-section:first-of-type {
+  padding-top: 64px;
+}
+
+.settings-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 64px;
+}
+
+.settings-section-title {
+  margin: 0 0 16px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+/* Subsection inside a section — used for AOM grouped under Operator.
+   Smaller + muted vs the section title; restores top spacing because
+   it sits between fields. */
+.settings-subsection-title {
+  margin: 24px 0 8px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
+}
+
+/* The form is the scrolling container; the actions bar sticks to its
+   bottom so Save/Cancel are always reachable without scrolling. */
+.settings-form {
+  overflow-y: auto;
+  background: var(--bg-panel);
+  display: block;
+  /* As a grid item, the form's default min-height: auto would
+     expand to its content height — defeating overflow-y:auto and
+     leaving scrollIntoView/IntersectionObserver no real viewport.
+     Result: nav clicks don't scroll and "Anthropic" stays active. */
+  min-height: 0;
+}
+
+.settings-form > .settings-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-panel);
+  padding: 16px 48px 20px;
+  border-top: 1px solid var(--border);
+  z-index: 2;
+  /* Soft fade above the bar so content scrolling underneath fades
+     out instead of sliding sharply behind. */
+  box-shadow: 0 -16px 16px -8px var(--bg-panel);
 }
 
 .settings-field {
@@ -1384,6 +1902,85 @@ body.tab-drag-active * {
   flex: 1;
 }
 
+/* Radio group — used by the window-background picker. Each option is
+   a card with a title + hint, styled to match the rest of the panel. */
+.settings-radio-group {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-radio-group > legend {
+  font-size: 12px;
+  color: #c8ccd2;
+  padding: 0 0 6px;
+}
+
+.settings-radio {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--bg);
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.settings-radio:hover {
+  border-color: rgba(122, 162, 247, 0.35);
+}
+
+.settings-radio:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.06);
+}
+
+.settings-radio input[type="radio"] {
+  margin: 3px 0 0 0;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+}
+
+.settings-radio-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-radio-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #f5f6f7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-radio-hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.settings-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(122, 162, 247, 0.18);
+  color: var(--accent);
+}
+
 .settings-toggle {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -1418,7 +2015,7 @@ body.tab-drag-active * {
   gap: 8px;
   align-items: center;
   justify-content: flex-end;
-  padding-top: 4px;
+  /* padding handled by the sticky-positioning rule above. */
 }
 
 .settings-status {
@@ -1482,7 +2079,7 @@ body.tab-drag-active * {
   width: 640px;
   max-width: calc(100vw - 64px);
   max-height: calc(100vh - 200px);
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow:
@@ -1571,3 +2168,1008 @@ body.tab-drag-active * {
   background: var(--border);
   border-radius: 3px;
 }
+
+/* ─── Recall sidebar (contextual) ──────────────────── */
+
+/* The blocks-content wrapper lets BlockManager re-render in place
+   without wiping a sibling RecallManager subtree. Both fill the
+   .tab-blocks column. */
+.blocks-content,
+.recall-host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.blocks-content[hidden],
+.recall-host[hidden] {
+  display: none;
+}
+
+.recall-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+.recall-header-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+
+.recall-header-label {
+  flex: 1;
+}
+
+.recall-header-query {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #d8dee9;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recall-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.recall-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.recall-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.recall-empty {
+  padding: 16px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+}
+
+.recall-item {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: background 0.08s;
+  outline: none;
+}
+
+.recall-item:hover,
+.recall-item:focus {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.recall-cmd {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.recall-cmd mark {
+  background: rgba(122, 162, 247, 0.25);
+  color: #fff;
+  padding: 0;
+  border-radius: 2px;
+}
+
+.recall-stats {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recall-fail {
+  color: var(--fail);
+}
+
+/* ─── Recall palette (⌘P) ──────────────────────────── */
+
+.recall-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 100px;
+  z-index: 1000;
+  animation: settings-fade 0.1s ease-out;
+}
+
+.recall-palette-card {
+  width: 680px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 200px);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: settings-pop 0.14s ease-out;
+}
+
+.recall-palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recall-palette-label {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(122, 162, 247, 0.12);
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+
+.recall-palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+}
+
+.recall-palette-input::placeholder {
+  color: var(--muted);
+}
+
+.recall-palette-status {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.recall-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.recall-palette-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.recall-palette-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.recall-palette-item {
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.recall-palette-item.active {
+  background: rgba(122, 162, 247, 0.08);
+  border-left-color: var(--accent);
+}
+
+.recall-palette-cmd {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: #e6e8ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recall-palette-cmd mark {
+  background: rgba(122, 162, 247, 0.28);
+  color: #fff;
+  padding: 0;
+  border-radius: 2px;
+}
+
+.recall-palette-stats {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recall-palette-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ─── AOM Morning Report ──────────────────────────── */
+
+.aom-report-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 60px;
+  z-index: 1100;
+  animation: settings-fade 0.1s ease-out;
+}
+
+.aom-report-card {
+  width: 720px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 120px);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: settings-pop 0.14s ease-out;
+}
+
+.aom-report-card::-webkit-scrollbar {
+  width: 6px;
+}
+
+.aom-report-card::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.aom-report-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-overlay);
+  z-index: 2;
+}
+
+.aom-report-title {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #f5f6f7;
+}
+
+.aom-report-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.1s, color 0.1s;
+}
+
+.aom-report-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.aom-report-summary {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.aom-report-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.aom-report-label {
+  width: 80px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+}
+
+.aom-report-value {
+  color: #e6e8ea;
+  font-variant-numeric: tabular-nums;
+}
+
+.aom-report-muted {
+  color: var(--muted);
+}
+
+.aom-report-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+
+.aom-report-pill.ok {
+  background: rgba(158, 206, 106, 0.14);
+  color: var(--ok);
+}
+
+.aom-report-pill.warn {
+  background: rgba(247, 118, 142, 0.14);
+  color: var(--fail);
+}
+
+.aom-report-pill.muted {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.aom-report-section {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.aom-report-section:last-child {
+  border-bottom: none;
+}
+
+.aom-report-h3 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.aom-report-empty,
+.aom-report-empty-inline {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.aom-report-empty {
+  padding: 32px 18px;
+  text-align: center;
+}
+
+.aom-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aom-report-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+}
+
+.aom-report-item.escalate {
+  border-color: rgba(247, 118, 142, 0.35);
+  background: rgba(247, 118, 142, 0.06);
+}
+
+.aom-report-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.aom-report-warn-icon {
+  display: inline-flex;
+  color: var(--fail);
+}
+
+.aom-report-tab {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: #c8ccd2;
+}
+
+.aom-report-when {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.aom-report-cost,
+.aom-report-decisions {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.aom-report-decisions {
+  margin-left: 0;
+}
+
+.aom-report-rationale {
+  margin-top: 4px;
+  color: #e6e8ea;
+  line-height: 1.45;
+}
+
+.aom-report-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.aom-report-meta code,
+.aom-report-cmd-list code {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+.aom-report-cmd-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Docs hub (⌘? / ⌘/) — full-page reference. Mirrors settings:
+   shares row 2 of #layout with workspace/settings, sidebar+body
+   columns, sticky-friendly internal scroll. */
+#docs-page {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  background: var(--bg);
+  overflow: hidden;
+  animation: settings-fade 0.12s ease-out;
+}
+#docs-page[hidden] { display: none; }
+
+.docs-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tabbar);
+  min-width: 0;
+}
+.docs-page-header .docs-content-titles {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.docs-page-header .docs-content-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.docs-page-header .docs-content-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.docs-body-wrap {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.docs-sidebar {
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--bg-tabbar) 70%, transparent);
+}
+.docs-sidebar-head { padding: 4px 6px 2px; }
+.docs-sidebar-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.docs-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.docs-nav-item {
+  display: block;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition: background 0.1s, color 0.1s;
+}
+.docs-nav-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #c8ccd2;
+}
+.docs-nav-item.is-active {
+  background: rgba(122, 162, 247, 0.12);
+  color: var(--accent);
+}
+.docs-nav-label { font-weight: 500; }
+
+.docs-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: background 0.12s ease-out, color 0.12s ease-out;
+}
+.docs-close svg { display: block; }
+.docs-close:hover {
+  background: var(--border);
+  color: #fff;
+}
+
+.docs-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 48px 64px 72px;
+  background: var(--bg-panel);
+  font-size: 13px;
+  line-height: 1.6;
+  color: #d6d8db;
+  max-width: 880px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.docs-body::-webkit-scrollbar { width: 6px; }
+.docs-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.docs-body h3 {
+  margin: 24px 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.docs-body h3:first-child { margin-top: 0; }
+.docs-body p { margin: 0 0 12px; }
+.docs-body ul { margin: 0 0 12px; padding-left: 22px; }
+.docs-body li { margin: 3px 0; }
+.docs-body code,
+.docs-body kbd {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+.docs-body code {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--accent);
+}
+/* ─── AOM activity feed ────────────────────────────────
+   Stack of ephemeral cards at the bottom-right. Each card is a
+   single Operator decision or startup action; auto-fades after
+   ~4s, hover pauses, click dismisses. Bottom-right because the
+   AOM banner sits at bottom-center and cross-session toasts at
+   top-right — three corners, three roles. */
+
+.aom-feed {
+  position: fixed;
+  right: 12px;
+  bottom: 16px;
+  width: 320px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1150;
+  pointer-events: none;
+}
+
+.aom-feed-card {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  padding: 6px 8px 7px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  font-family: inherit;
+  font-size: 11px;
+  color: #d6d8db;
+  cursor: pointer;
+  animation: aom-feed-in 0.18s ease-out;
+}
+
+.aom-feed-leaving {
+  animation: aom-feed-out 0.2s ease-in forwards;
+}
+
+@keyframes aom-feed-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes aom-feed-out {
+  to { transform: translateX(20px); opacity: 0; }
+}
+
+.aom-feed-icon {
+  grid-column: 1; grid-row: 1;
+  display: inline-flex; align-items: center;
+  color: var(--muted);
+}
+
+.aom-feed-meta {
+  grid-column: 2; grid-row: 1;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.aom-feed-tab {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: #c8ccd2;
+}
+
+.aom-feed-title {
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.aom-feed-cost {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.aom-feed-body {
+  grid-column: 2; grid-row: 2;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.4;
+  color: #e6e8ea;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Per-action variants — left border color is the at-a-glance signal. */
+.aom-feed-ok      { border-left-color: var(--ok); }
+.aom-feed-ok      .aom-feed-icon, .aom-feed-ok .aom-feed-title      { color: var(--ok); }
+.aom-feed-warn    { border-left-color: var(--fail); }
+.aom-feed-warn    .aom-feed-icon, .aom-feed-warn .aom-feed-title    { color: var(--fail); }
+.aom-feed-startup { border-left-color: var(--accent); }
+.aom-feed-startup .aom-feed-icon, .aom-feed-startup .aom-feed-title { color: var(--accent); }
+.aom-feed-muted   { border-left-color: var(--muted); }
+
+.docs-body kbd {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: #f5f6f7;
+}
+
+/* ─── 3.7 Status bar ───────────────────────────────────
+   Lives in #layout's third row. Vibrancy-aware via --bg-panel +
+   --surface-alpha; never opaque so wallpaper/translucency reads
+   through consistently with the rest of the chrome. */
+#status-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 22px;
+  padding: 0 10px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-feature-settings: "tnum" 1;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.status-segment .status-icon {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.status-segment .status-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.status-segment .status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--fg, #d6d8db) 75%, transparent);
+}
+
+.status-segment .status-secondary {
+  color: var(--muted);
+}
+
+/* Mission chip — interactive variant of .status-segment. Reset button
+   defaults so it sits flush with the read-only segments. */
+button.status-segment.status-mission {
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+button.status-segment.status-mission .status-icon {
+  color: var(--accent, #b794f4);
+}
+
+button.status-segment.status-mission .status-text {
+  color: color-mix(in srgb, var(--fg, #d6d8db) 90%, transparent);
+}
+
+button.status-segment.status-mission:hover {
+  background: color-mix(in srgb, var(--accent, #b794f4) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #b794f4) 35%, transparent);
+}
+
+button.status-segment.status-mission:focus-visible {
+  outline: none;
+  border-color: var(--accent, #b794f4);
+}
+
+/* Mission viewer modal — borrows AOM-report shell styling but the body
+   is a single <pre> for spec text. Wider than the report so long lines
+   don't wrap aggressively. */
+.mission-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 60px;
+  z-index: 1150;
+  animation: settings-fade 0.1s ease-out;
+}
+
+.mission-viewer-card {
+  width: 820px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 120px);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: settings-pop 0.14s ease-out;
+}
+
+.mission-viewer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mission-viewer-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mission-viewer-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg, #d6d8db);
+  letter-spacing: 0.01em;
+}
+
+.mission-viewer-path {
+  font-size: 11px;
+  color: var(--muted);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.mission-viewer-close {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mission-viewer-close:hover {
+  background: color-mix(in srgb, var(--fg, #d6d8db) 8%, transparent);
+  color: var(--fg, #d6d8db);
+}
+
+.mission-viewer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px;
+}
+
+.mission-viewer-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mission-viewer-body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.mission-viewer-content {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg, #d6d8db);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  user-select: text;
+}
+
+.mission-viewer-empty {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg, #d6d8db);
+}
+
+.settings-checkbox-row input[type="checkbox"] {
+  margin: 0;
+}
+

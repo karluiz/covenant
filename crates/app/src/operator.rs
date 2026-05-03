@@ -23,22 +23,90 @@
 //! in the ⌘O panel. M-OP3 will flip the executed bit.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use karl_session::SessionId;
 use regex::Regex;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as AsyncMutex;
 
+use crate::aom::AomHandle;
+use crate::cost;
+use crate::mission_persistence;
+use crate::safety;
 use crate::settings::Settings;
 use crate::storage::Storage;
 use crate::world::SessionWorldModel;
+use crate::AppState;
 
-const TAIL_CAPACITY: usize = 8 * 1024;
+/// Per-session rolling byte buffer of recent executor output. Sized
+/// large enough to retain a question even after several screens of
+/// follow-up output (a long plan summary + a /rename + the renamed
+/// confirmation can easily eat 10–15KB of bytes including ANSI). 32KB
+/// covers ~4–5 visible screens — beyond which the user has manually
+/// scrolled and won't expect AOM to reach back anyway.
+const TAIL_CAPACITY: usize = 32 * 1024;
 const TICK_INTERVAL: Duration = Duration::from_millis(500);
-const SUMMARY_TAIL_TARGET: usize = 4 * 1024;
+/// What we sample from the tail for downstream processing (decisions,
+/// summary updates). Capped at 16KB raw; tail-bias slicing in the
+/// model excerpt happens separately on the stripped-text level.
+const SUMMARY_TAIL_TARGET: usize = 16 * 1024;
 const RATE_WINDOW: Duration = Duration::from_secs(60);
+/// Mission file watch: re-stat every Nth tick. With TICK_INTERVAL=500ms
+/// and N=5 → check every 2.5s. Fast enough that "edit spec, AOM picks
+/// up next decision" feels live; slow enough that 10 sessions × stat
+/// is negligible CPU.
+const MISSION_REFRESH_EVERY_TICKS: u64 = 5;
+
+/// After a decision fires, the executor echoes our injected text back
+/// through the PTY. That brief redraw can flip `is_decision` to false
+/// for a tick or two even though the executor is still waiting. We
+/// require the "pattern lost" state to persist this long before
+/// re-arming for a new fire — prevents the same prompt from getting
+/// answered 4× in 4 seconds.
+const DECISION_LOST_DEBOUNCE: Duration = Duration::from_secs(5);
+
+/// Idle threshold and response budget when the tail looks like the
+/// executor is at a decision point — fires faster (substantive prompts
+/// rarely have a cursor blink resetting idle past 2s) and gives the
+/// model room to write a real answer instead of just `y\n`.
+const DECISION_IDLE_THRESHOLD: Duration = Duration::from_secs(2);
+const DECISION_MAX_TOKENS: u32 = 2000;
+const DEFAULT_MAX_TOKENS: u32 = 400;
+/// Window of bytes from the tail we scan for decision-point signals.
+/// Bigger than typical menu/prompt; smaller than full context to keep
+/// regex pass cheap.
+const DECISION_SCAN_WINDOW: usize = 800;
+
+/// Tail-bias slice we hand to the model. Sized to ~2–3 visible
+/// screens of stripped text (~50 rows × 80 cols ≈ 4K chars). Big
+/// enough that an unanswered question issued before some follow-up
+/// activity (e.g. a /rename slash command between the question and
+/// the current prompt) is still inside the slice — small enough that
+/// minutes-old spinner spam from earlier in the session doesn't
+/// poison the read.
+const MODEL_EXCERPT_CHARS: usize = 4000;
+
+/// Loop detector — when the last `LOOP_THRESHOLD` consecutive decisions
+/// hash to the same value (same action, same normalized rationale,
+/// same screen signature), the operator is stuck in a feedback loop:
+///   - Repeat-REPLY: "spin up… spin up… spin up…" echo cycles
+///   - Stuck-WAIT: "still processing" 5x in a row when nothing changed
+///   - Stuck-ESCALATE: same notification raised repeatedly
+/// The next decision is forcibly converted to a special escalation
+/// and the tab is parked in cooldown for `LOOP_COOLDOWN`. This caps
+/// the worst-case cost of a misfiring loop at LOOP_THRESHOLD model
+/// calls + one escalate, then silence until the user intervenes.
+const LOOP_WINDOW: usize = 3;
+const LOOP_THRESHOLD: usize = 3;
+const LOOP_COOLDOWN: Duration = Duration::from_secs(120);
+/// Tail-signature granularity for loop hashing. Coarser than the model
+/// excerpt — we want "same screen state" detection, not byte equality.
+/// 256 chars ≈ last ~3 visible rows; if those are bit-identical between
+/// decisions the executor hasn't moved.
+const LOOP_TAIL_SIG_CHARS: usize = 256;
 
 const HARD_CONSTRAINTS: &str = "\
 HARD CONSTRAINTS — these override every line of the persona, including \
@@ -68,7 +136,18 @@ const OUTPUT_FORMAT: &str = "\
 OUTPUT — choose exactly one of these formats. No other lines.
 
 ACTION: REPLY
-TEXT: <bytes to type — use \\n for newline, \\t for tab. Include any newline the executor expects after the answer (e.g. for a y/n prompt, \"y\\n\").>
+TEXT: <bytes to type — use \\n for newline, \\t for tab.
+
+  TRAILING NEWLINE — this matters:
+  * TRIVIAL CONFIRMATIONS (single keystroke that auto-submits: y/n menus,
+    numbered picks, plain yes/no): INCLUDE \\n at the end. The executor
+    advances immediately. Examples: \"y\\n\", \"1\\n\", \"yes\\n\".
+  * SUBSTANTIVE ANSWERS (multi-sentence opinion, approach decision, anything
+    the user might want to skim before sending): OMIT the trailing \\n.
+    The user reads what you typed and presses Enter when satisfied (or
+    edits it first). Example for \"approach A or B?\":
+      TEXT: go with B — single bundled PR, less reviewer churn for a refactor this size.
+    (no \\n at the end — user reviews and commits with Enter)>
 RATIONALE: <one short sentence justifying the answer against the persona>
 
 ACTION: ESCALATE
@@ -138,17 +217,125 @@ impl OperatorState {
 #[derive(Clone)]
 pub struct OperatorWatcher {
     inner: Arc<AsyncMutex<Inner>>,
+    /// Path to the cwd→spec_path JSON store. Set from app setup;
+    /// shared across the entire process. We pass it everywhere via
+    /// the watcher rather than re-deriving from app_handle each call.
+    mission_store: PathBuf,
 }
 
 struct Inner {
     sessions: HashMap<SessionId, Attached>,
 }
 
+/// One-shot startup actions the Operator runs proactively when AOM
+/// transitions on, before its normal idle-decision flow. Each field
+/// represents a single action to fire ONCE per AOM cycle, then clear.
+/// Manual user actions during the AOM cycle never re-trigger these.
+#[derive(Debug, Clone, Default)]
+struct AomStartupPending {
+    /// Some(slug) → inject `/rename <slug>\r` into the executor when
+    /// it next reaches idle AND matches a claude-style pattern. Used
+    /// so `claude --resume <slug>` later picks up the right session.
+    rename_to: Option<String>,
+    // NOTE: an `exit_bypass` action was removed — it was misguided.
+    // Bypass mode and AOM are COMPLEMENTARY, not contradictory:
+    //   - Bypass: Claude executes tools without per-action prompts.
+    //   - AOM/Operator: engages on substantive decisions (idle +
+    //     decision patterns) regardless of bypass state.
+    // Forcing the user out of bypass made AOM slower AND more
+    // expensive (every tool needed a permission round-trip).
+}
+
 struct Attached {
     enabled: bool,
+    /// M-OP3: when true, REPLY actions actually inject keystrokes into
+    /// the PTY (after passing the safety blocklist). When false (the
+    /// default), they're persisted with `executed=false` like in M-OP2.
+    /// Live mode requires `enabled=true` AND `live=true` — both are
+    /// per-session opt-in, so the user has to flip two switches before
+    /// anything types automatically.
+    live: bool,
+    /// M-OP5: per-tab opt-out from AOM. When true, this tab keeps its
+    /// per-tab `live` semantics even while AOM is on globally — useful
+    /// when the user wants to leave certain tabs strictly manual
+    /// (e.g. an exploratory shell) without having to disable Operator
+    /// entirely. Reset to false on every `aom_start` (fresh session).
+    aom_excluded: bool,
+    /// True when this tab's `enabled` was flipped on by the AOM
+    /// auto-enable path (vs the user manually right-clicking Enable
+    /// operator). Lets `aom_stop` revert exactly the tabs AOM touched
+    /// while leaving the user's manual choices intact. The user
+    /// flipping `enabled` manually clears this flag — once they take
+    /// explicit ownership of the tab, AOM stops claiming it.
+    enabled_by_aom: bool,
+    /// M-OP6 mission tracking. When set, the spec content gets
+    /// prepended to the system prompt as authoritative scope — Out
+    /// of scope items become extra escalate triggers, File boundaries
+    /// become extra constraints, Open questions auto-escalate. Cleared
+    /// per-session by `clear_mission` or implicitly on detach.
+    mission: Option<MissionDoc>,
+    /// AOM startup actions to fire proactively (one-shot per AOM
+    /// cycle). Populated by `queue_aom_startup_actions`, drained by
+    /// `run_tick`, cleared by `disable_aom_auto_enabled`.
+    aom_startup: AomStartupPending,
+    /// First time we saw the CURRENT decision-point pattern in this
+    /// session's tail (trailing `?`, numbered menu, etc). Cleared
+    /// when the pattern disappears. Lets us trigger on STABLE
+    /// patterns even when raw idle never reaches threshold (cursor
+    /// blink in Claude Code's prompt counts as bytes — kills idle
+    /// math without changing visible content).
+    decision_point_stable_since: Option<Instant>,
+    /// True when we already fired a decision for the current stable
+    /// pattern. Reset only when the pattern is genuinely gone — see
+    /// `decision_pattern_lost_at` for debounce.
+    decision_point_fired: bool,
+    /// First time `is_decision` flipped to false AFTER a fire. The
+    /// inject we just sent gets echoed back through the PTY, which
+    /// can briefly break the prompt visibility; we must not treat
+    /// that as a "the pattern is gone, allow new fire" signal. Only
+    /// after the pattern stays false for `DECISION_LOST_DEBOUNCE`
+    /// do we accept that the executor truly moved on and re-arm.
+    decision_pattern_lost_at: Option<Instant>,
     state: Arc<StdMutex<OperatorState>>,
     world: Arc<AsyncMutex<SessionWorldModel>>,
     decisions_in_window: VecDeque<Instant>,
+    /// Loop-detector ring: hash(action_kind, normalized_rationale,
+    /// tail-signature) for the last `LOOP_WINDOW` decisions. When all
+    /// `LOOP_THRESHOLD` entries match, the next decision is forcibly
+    /// converted to a loop-escalation and `loop_cooldown_until` is set.
+    /// This is the safety net for the "Operator stuck in WAIT/REPLY
+    /// repeating itself while burning tokens" failure mode.
+    recent_decision_hashes: VecDeque<u64>,
+    /// When set, `run_tick` skips this tab entirely until `now ≥ this`.
+    /// Set after a loop is detected — gives the user time to intervene
+    /// without paying for more identical decisions.
+    loop_cooldown_until: Option<Instant>,
+}
+
+/// Mission spec attached to a session. Loaded from disk; content
+/// kept in memory. The Operator tick polls `path`'s mtime every
+/// `MISSION_REFRESH_EVERY_TICKS` ticks (~2.5s) and re-loads when
+/// it changes — so editing the spec mid-AOM picks up the new scope
+/// on the next decision automatically.
+#[derive(Debug, Clone)]
+pub struct MissionDoc {
+    pub path: PathBuf,
+    pub content: String,
+    pub loaded_at_unix_ms: u64,
+    /// File modification time in Unix-ms. Used by the watcher to
+    /// detect changes without re-reading the file every tick.
+    pub mtime_unix_ms: u64,
+}
+
+/// Status payload returned to the UI for `get_session_mission`.
+/// `content_preview` is the first ~240 chars of the spec — enough for
+/// a tooltip / sidebar header without sending the whole file across
+/// IPC every time the UI refreshes.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MissionInfo {
+    pub path: String,
+    pub content_preview: String,
+    pub loaded_at_unix_ms: u64,
 }
 
 impl OperatorWatcher {
@@ -156,6 +343,8 @@ impl OperatorWatcher {
         app: AppHandle,
         settings: Arc<AsyncMutex<Settings>>,
         storage: Storage,
+        aom: AomHandle,
+        mission_store: PathBuf,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -165,8 +354,12 @@ impl OperatorWatcher {
             settings,
             storage,
             app,
+            aom,
         ));
-        Self { inner }
+        Self {
+            inner,
+            mission_store,
+        }
     }
 
     pub async fn attach(
@@ -180,9 +373,19 @@ impl OperatorWatcher {
             session_id,
             Attached {
                 enabled,
+                live: false,
+                aom_excluded: false,
+                enabled_by_aom: false,
+                mission: None,
+                aom_startup: AomStartupPending::default(),
+                decision_point_stable_since: None,
+                decision_point_fired: false,
+                decision_pattern_lost_at: None,
                 state,
                 world,
                 decisions_in_window: VecDeque::new(),
+                recent_decision_hashes: VecDeque::with_capacity(LOOP_WINDOW),
+                loop_cooldown_until: None,
             },
         );
     }
@@ -194,6 +397,22 @@ impl OperatorWatcher {
     pub async fn set_enabled(&self, session_id: SessionId, enabled: bool) {
         if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
             att.enabled = enabled;
+            // The user just made an explicit choice — clear the
+            // "enabled_by_aom" flag so a later aom_stop doesn't
+            // override their decision.
+            att.enabled_by_aom = false;
+            // Disabling the operator also drops live mode — defensive
+            // so a future re-enable doesn't surprise the user with the
+            // previous live setting still active.
+            if !enabled {
+                att.live = false;
+            }
+            // The user toggling Operator is a fresh start — wipe the
+            // loop detector ring + cooldown so a previous stuck state
+            // doesn't carry over and prematurely re-trip on the next
+            // few decisions.
+            att.recent_decision_hashes.clear();
+            att.loop_cooldown_until = None;
         }
     }
 
@@ -206,6 +425,260 @@ impl OperatorWatcher {
             .map(|a| a.enabled)
             .unwrap_or(false)
     }
+
+    /// Flip the per-session live flag. Live requires enabled — the
+    /// caller can set `live=true` on a not-yet-enabled session, but
+    /// `run_tick` will still no-op until enabled flips to true.
+    pub async fn set_live(&self, session_id: SessionId, live: bool) {
+        if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
+            att.live = live;
+        }
+    }
+
+    pub async fn is_live(&self, session_id: SessionId) -> bool {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .map(|a| a.enabled && a.live)
+            .unwrap_or(false)
+    }
+
+    /// Per-tab AOM opt-out. When true, this tab is invisible to the
+    /// global AOM toggle — it keeps its individual live setting even
+    /// while AOM is driving everything else.
+    pub async fn set_aom_excluded(&self, session_id: SessionId, excluded: bool) {
+        if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
+            att.aom_excluded = excluded;
+        }
+    }
+
+    pub async fn is_aom_excluded(&self, session_id: SessionId) -> bool {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .map(|a| a.aom_excluded)
+            .unwrap_or(false)
+    }
+
+    /// Reset all per-tab AOM exclusions. Called on `aom_start` so each
+    /// new AOM session begins with every Operator-enabled tab included
+    /// — the user opts tabs out fresh each time, avoiding the "I forgot
+    /// I excluded this last week" foot-gun.
+    pub async fn clear_all_aom_excluded(&self) {
+        let mut inner = self.inner.lock().await;
+        for att in inner.sessions.values_mut() {
+            att.aom_excluded = false;
+        }
+    }
+
+    /// Attach a mission spec to a session. Reads `path` from disk,
+    /// stores the content in the per-session Attached. Errors bubble
+    /// up so the UI can show "file not found" / "permission denied"
+    /// instead of silently skipping. The session must be attached
+    /// (Operator enabled is NOT required — the mission survives if
+    /// the user later toggles Operator on).
+    pub async fn set_mission(
+        &self,
+        session_id: SessionId,
+        path: PathBuf,
+    ) -> Result<MissionInfo, String> {
+        let doc = load_mission_doc(&path).await?;
+        let info = MissionInfo {
+            path: doc.path.display().to_string(),
+            content_preview: take_preview(&doc.content, 240),
+            loaded_at_unix_ms: doc.loaded_at_unix_ms,
+        };
+        // Read the session's cwd while holding the inner lock, then
+        // attach the mission. Persist outside the lock — disk I/O
+        // shouldn't keep other sessions waiting.
+        let cwd = {
+            let mut inner = self.inner.lock().await;
+            let Some(att) = inner.sessions.get_mut(&session_id) else {
+                return Ok(info);
+            };
+            let cwd = {
+                let w = att.world.lock().await;
+                w.cwd.display().to_string()
+            };
+            att.mission = Some(doc.clone());
+            cwd
+        };
+        // Cwd-keyed persistence: lets the mission survive close-tab /
+        // app restart. New sessions in the same cwd auto-restore via
+        // notify_cwd_changed.
+        mission_persistence::record(
+            &self.mission_store,
+            cwd,
+            doc.path.display().to_string(),
+        );
+        Ok(info)
+    }
+
+    pub async fn clear_mission(&self, session_id: SessionId) {
+        let cwd = {
+            let mut inner = self.inner.lock().await;
+            let Some(att) = inner.sessions.get_mut(&session_id) else {
+                return;
+            };
+            let cwd = {
+                let w = att.world.lock().await;
+                w.cwd.display().to_string()
+            };
+            att.mission = None;
+            cwd
+        };
+        mission_persistence::forget(&self.mission_store, &cwd);
+    }
+
+    /// Hook for the session bus: when a session's cwd changes, see if
+    /// we have a persisted mission for that directory. If yes AND the
+    /// session has no current mission, restore it silently. Emits
+    /// `mission-changed` so the UI badge appears.
+    pub async fn notify_cwd_changed(
+        &self,
+        session_id: SessionId,
+        cwd: &str,
+        app: &AppHandle,
+    ) {
+        // Bail early when this session already has a mission — never
+        // overwrite the user's explicit choice.
+        {
+            let inner = self.inner.lock().await;
+            let Some(att) = inner.sessions.get(&session_id) else {
+                return;
+            };
+            if att.mission.is_some() {
+                return;
+            }
+        }
+        let Some(spec_path) = mission_persistence::lookup(&self.mission_store, cwd)
+        else {
+            return;
+        };
+        let doc = match load_mission_doc(&spec_path).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %spec_path.display(),
+                    "auto-restore mission load failed"
+                );
+                return;
+            }
+        };
+        let path_str = doc.path.display().to_string();
+        if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
+            att.mission = Some(doc);
+        }
+        tracing::info!(
+            session = %session_id,
+            cwd,
+            path = %path_str,
+            "mission auto-restored from cwd mapping"
+        );
+        let _ = app.emit(
+            "mission-changed",
+            serde_json::json!({
+                "session_id": session_id.to_string(),
+                "path": path_str,
+            }),
+        );
+    }
+
+    pub async fn get_mission(&self, session_id: SessionId) -> Option<MissionInfo> {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|a| {
+                a.mission.as_ref().map(|m| MissionInfo {
+                    path: m.path.display().to_string(),
+                    content_preview: take_preview(&m.content, 240),
+                    loaded_at_unix_ms: m.loaded_at_unix_ms,
+                })
+            })
+    }
+
+    /// Full mission spec content for the viewer modal. The in-memory
+    /// copy is the file at last load (or last hot-reload from the
+    /// watcher), so this stays cheap — no disk I/O on every modal open.
+    pub async fn get_mission_content(&self, session_id: SessionId) -> Option<String> {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|a| a.mission.as_ref().map(|m| m.content.clone()))
+    }
+
+    /// AOM auto-enable: flip Operator on for every currently-disabled
+    /// tab and remember which ones we touched so `disable_aom_auto_enabled`
+    /// can revert them on stop. Returns the affected session IDs so the
+    /// UI can refresh those tabs' badges without polling everyone.
+    pub async fn enable_all_for_aom(&self) -> Vec<SessionId> {
+        let mut inner = self.inner.lock().await;
+        let mut touched = Vec::new();
+        for (id, att) in inner.sessions.iter_mut() {
+            if !att.enabled {
+                att.enabled = true;
+                att.enabled_by_aom = true;
+                touched.push(*id);
+            }
+        }
+        touched
+    }
+
+    /// Inverse of `enable_all_for_aom`: turn Operator off again on
+    /// the tabs we auto-enabled, leaving the user's manually enabled
+    /// tabs alone. Live mode is also cleared since `enabled` going
+    /// false implies it (mirrors `set_enabled` behavior). Returns the
+    /// affected session IDs. Also clears any pending startup actions
+    /// — they're scoped to the AOM cycle that's ending now.
+    pub async fn disable_aom_auto_enabled(&self) -> Vec<SessionId> {
+        let mut inner = self.inner.lock().await;
+        let mut touched = Vec::new();
+        for (id, att) in inner.sessions.iter_mut() {
+            if att.enabled_by_aom {
+                att.enabled = false;
+                att.live = false;
+                att.enabled_by_aom = false;
+                touched.push(*id);
+            }
+            // Always clear startup actions on AOM stop, even for
+            // user-manually-enabled tabs (since AOM is what queued
+            // them in the first place).
+            att.aom_startup = AomStartupPending::default();
+        }
+        touched
+    }
+
+    /// Populate one-shot AOM startup actions for every Operator-enabled
+    /// session. Called from `aom_start` after `enable_all_for_aom`. The
+    /// actions FIRE later, in the operator tick, when conditions are
+    /// met (executor matches, idle reached, etc.).
+    pub async fn queue_aom_startup_actions(&self) {
+        let mut inner = self.inner.lock().await;
+        for att in inner.sessions.values_mut() {
+            if !att.enabled {
+                continue;
+            }
+            // /rename only makes sense when there's a mission to name
+            // it after. The mission_path → slug derivation matches
+            // the frontend's `slugFromMissionPath` so tab name and
+            // claude session name align.
+            if let Some(m) = att.mission.as_ref() {
+                let slug = slug_from_mission_path(&m.path);
+                if !slug.is_empty() {
+                    att.aom_startup.rename_to = Some(slug);
+                }
+            }
+        }
+    }
 }
 
 async fn tick_loop(
@@ -213,16 +686,84 @@ async fn tick_loop(
     settings: Arc<AsyncMutex<Settings>>,
     storage: Storage,
     app: AppHandle,
+    aom: AomHandle,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut tick_counter: u64 = 0;
 
     loop {
         ticker.tick().await;
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app).await {
+        tick_counter = tick_counter.wrapping_add(1);
+
+        // Periodic mission file watch — separate from run_tick because
+        // it reads from disk; we don't want to block the main decision
+        // path on slow I/O. Cheap stat for typical small spec files.
+        if tick_counter % MISSION_REFRESH_EVERY_TICKS == 0 {
+            if let Err(e) = refresh_changed_missions(&inner, &app).await {
+                tracing::debug!(error = %e, "mission refresh tick failed");
+            }
+        }
+
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
+}
+
+/// Walk every attached session, stat each session's mission file, and
+/// re-load any whose mtime moved since `loaded_at_unix_ms`. Emits
+/// `mission-changed` events so the UI can refresh its tooltip without
+/// polling.
+async fn refresh_changed_missions(
+    inner: &Arc<AsyncMutex<Inner>>,
+    app: &AppHandle,
+) -> Result<(), String> {
+    // Snap (session_id, path, current mtime) under the lock; release
+    // before doing any disk I/O.
+    let to_check: Vec<(SessionId, PathBuf, u64)> = {
+        let i = inner.lock().await;
+        i.sessions
+            .iter()
+            .filter_map(|(id, att)| {
+                att.mission
+                    .as_ref()
+                    .map(|m| (*id, m.path.clone(), m.mtime_unix_ms))
+            })
+            .collect()
+    };
+
+    for (id, path, prev_mtime) in to_check {
+        let Some(mt) = mtime_unix_ms(&path) else {
+            continue; // file gone / unreadable — leave the cached doc
+        };
+        if mt == prev_mtime {
+            continue;
+        }
+        match load_mission_doc(&path).await {
+            Ok(doc) => {
+                if let Some(att) = inner.lock().await.sessions.get_mut(&id) {
+                    att.mission = Some(doc);
+                }
+                tracing::info!(
+                    session = %id,
+                    path = %path.display(),
+                    "mission spec reloaded after on-disk change"
+                );
+                let _ = app.emit(
+                    "mission-changed",
+                    serde_json::json!({
+                        "session_id": id.to_string(),
+                        "path": path.display().to_string(),
+                    }),
+                );
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, path = %path.display(), "mission reload failed");
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn run_tick(
@@ -230,13 +771,25 @@ async fn run_tick(
     settings: &Arc<AsyncMutex<Settings>>,
     storage: &Storage,
     app: &AppHandle,
+    aom: &AomHandle,
 ) -> Result<(), String> {
+    // Snapshot AOM state once per tick. When on, every Operator-enabled
+    // tab gets autonomous posture + forced live regardless of per-tab
+    // live setting (the user opted in by enabling Operator on the tab).
+    let aom_active = aom.read().await.enabled;
     // Snapshot per-session refs without holding the inner lock across
-    // the model call.
+    // the model call. Bools: `live` (per-tab live mode) and
+    // `aom_excluded` (per-tab AOM opt-out). Mission is cloned out of
+    // the lock too — content is small (<5KB typical) and the
+    // alternative is reaching back into the lock from inside the
+    // model call.
     let candidates: Vec<(
         SessionId,
         Arc<StdMutex<OperatorState>>,
         Arc<AsyncMutex<SessionWorldModel>>,
+        bool,
+        bool,
+        Option<MissionDoc>,
     )> = {
         let mut i = inner.lock().await;
         let mut out = Vec::new();
@@ -246,6 +799,17 @@ async fn run_tick(
             if !att.enabled {
                 continue;
             }
+            // Loop cooldown — the previous decision burned the loop
+            // detector and parked this tab. Skip entirely until the
+            // cooldown elapses; the user can intervene by typing or
+            // toggling the tab. Expired cooldowns get cleared so the
+            // tab re-enters the candidate pool naturally.
+            if let Some(until) = att.loop_cooldown_until {
+                if now < until {
+                    continue;
+                }
+                att.loop_cooldown_until = None;
+            }
             while let Some(t) = att.decisions_in_window.front() {
                 if now.duration_since(*t) > RATE_WINDOW {
                     att.decisions_in_window.pop_front();
@@ -253,7 +817,14 @@ async fn run_tick(
                     break;
                 }
             }
-            out.push((*id, att.state.clone(), att.world.clone()));
+            out.push((
+                *id,
+                att.state.clone(),
+                att.world.clone(),
+                att.live,
+                att.aom_excluded,
+                att.mission.clone(),
+            ));
         }
         out
     };
@@ -262,7 +833,15 @@ async fn run_tick(
         return Ok(());
     }
 
-    let (api_key, model, persona, executor_patterns_str, idle_threshold, max_per_min) = {
+    let (
+        api_key,
+        model,
+        persona,
+        executor_patterns_str,
+        deny_extra_str,
+        idle_threshold,
+        max_per_min,
+    ) = {
         let s = settings.lock().await;
         let key = match s.anthropic_api_key.clone() {
             Some(k) if !k.trim().is_empty() => k,
@@ -273,6 +852,7 @@ async fn run_tick(
             s.agent.model_summary.clone(),
             s.operator.persona.clone(),
             s.operator.executor_patterns.clone(),
+            s.operator.deny_extra_patterns.clone(),
             Duration::from_secs(s.operator.idle_threshold_secs.max(1)),
             s.operator.max_decisions_per_minute,
         )
@@ -282,28 +862,114 @@ async fn run_tick(
     if executor_regexes.is_empty() {
         return Ok(()); // no patterns configured
     }
+    let deny_extra_regexes = compile_regexes(&deny_extra_str);
 
     let now = Instant::now();
-    for (session_id, state_arc, world_arc) in candidates {
-        // Cheap fast-path checks under the sync lock.
+    for (session_id, state_arc, world_arc, per_tab_live, aom_excluded, mission) in candidates {
+        // Per-tab AOM opt-out wins: if this tab is excluded, AOM is
+        // effectively off for it (falls back to per-tab live behavior +
+        // normal persona). The global AOM banner stays on for everyone
+        // else.
+        let effective_aom = aom_active && !aom_excluded;
+        let live = per_tab_live || effective_aom;
+        // Snapshot tail + idle BEFORE the threshold check so we can
+        // pre-scan for decision-point patterns. Dropping de-dup'd
+        // sessions still happens here under the sync lock.
         let (idle, bytes_total, tail) = {
             let st = state_arc.lock().map_err(|e| e.to_string())?;
-            let idle_for = now.duration_since(st.last_byte_at);
-            // De-dupe: skip if no new bytes since last decision OR idle
-            // window outside [threshold, threshold + 30s].
             let already_decided = st.last_decision_at_bytes_total == st.bytes_total;
-            if already_decided
-                || idle_for < idle_threshold
-                || idle_for > idle_threshold + Duration::from_secs(30)
-            {
+            if already_decided {
                 continue;
             }
             (
-                idle_for,
+                now.duration_since(st.last_byte_at),
                 st.bytes_total,
                 st.snapshot_tail(SUMMARY_TAIL_TARGET),
             )
         };
+
+        // M-OP4: tail heuristic decides whether this is a "substantive
+        // decision moment" or a normal idle. Decision points get a
+        // shorter idle window (so we react faster to prompts that
+        // would otherwise blink the cursor past 4s) and a larger token
+        // budget (so the model can write a real answer, not just `y`).
+        let is_decision = detect_decision_point(&tail);
+        let effective_threshold = if is_decision {
+            DECISION_IDLE_THRESHOLD.min(idle_threshold)
+        } else {
+            idle_threshold
+        };
+        let max_tokens_for_call = if is_decision {
+            DECISION_MAX_TOKENS
+        } else {
+            DEFAULT_MAX_TOKENS
+        };
+
+        // M-OP6 cursor-blink fix: track how long the CURRENT decision
+        // pattern has been stable. Cursor blinks (Claude Code's input
+        // prompt) emit ANSI bytes that reset idle even though visible
+        // content doesn't change. Stability tracking ignores those.
+        //
+        // M-OP6 echo fix: after we inject a reply, the executor echoes
+        // our text back. That redraw can flip `is_decision` to false
+        // for a tick or two — but the executor is still waiting at
+        // the same prompt. We must NOT treat that brief flip as
+        // "the pattern is gone, allow new fire". Hence the lost-debounce.
+        let now_inst = Instant::now();
+        let trigger_by_stable: bool = {
+            let mut inner_lock = inner.lock().await;
+            let Some(att) = inner_lock.sessions.get_mut(&session_id) else {
+                continue;
+            };
+            if is_decision {
+                // Pattern is back / never lost — clear the lost marker.
+                att.decision_pattern_lost_at = None;
+                let since = att
+                    .decision_point_stable_since
+                    .get_or_insert(now_inst);
+                let stable_for = now_inst.duration_since(*since);
+                let already_fired = att.decision_point_fired;
+                stable_for >= DECISION_IDLE_THRESHOLD && !already_fired
+            } else if att.decision_point_fired {
+                // We fired before AND lost the pattern. Wait for a
+                // SUSTAINED loss before re-arming. Brief flips
+                // (echo of our own inject) don't count.
+                if att.decision_pattern_lost_at.is_none() {
+                    att.decision_pattern_lost_at = Some(now_inst);
+                }
+                let lost_for = now_inst
+                    .duration_since(att.decision_pattern_lost_at.unwrap());
+                if lost_for >= DECISION_LOST_DEBOUNCE {
+                    att.decision_point_fired = false;
+                    att.decision_pattern_lost_at = None;
+                    att.decision_point_stable_since = None;
+                }
+                false
+            } else {
+                // Never fired for current pattern — reset stable
+                // timer so a flapping pattern starts counting fresh.
+                att.decision_point_stable_since = None;
+                false
+            }
+        };
+
+        let trigger_by_idle = idle >= effective_threshold
+            && idle <= effective_threshold + Duration::from_secs(30);
+
+        if !trigger_by_idle && !trigger_by_stable {
+            // Diagnostic: log why we're NOT engaging. With many ticks
+            // per second this can be noisy — only every ~5s per
+            // session via the existing tick cadence (RUST_LOG=debug).
+            tracing::debug!(
+                session = %session_id,
+                idle_ms = idle.as_millis() as u64,
+                threshold_ms = effective_threshold.as_millis() as u64,
+                is_decision,
+                aom = effective_aom,
+                "operator skipping: no trigger met"
+            );
+            continue;
+        }
 
         // Check that the in-flight command matches an executor pattern.
         let in_flight_command = {
@@ -311,10 +977,38 @@ async fn run_tick(
             w.in_flight.as_ref().map(|b| b.command.clone())
         };
         let Some(cmd) = in_flight_command else {
+            tracing::debug!(
+                session = %session_id,
+                "operator skipping: no in_flight command (shell idle)"
+            );
             continue; // shell idle, not an executor we should watch
         };
         if !executor_regexes.iter().any(|re| re.is_match(&cmd)) {
+            tracing::debug!(
+                session = %session_id,
+                cmd = %cmd,
+                "operator skipping: in_flight command doesn't match any executor pattern"
+            );
             continue;
+        }
+
+        // M-OP6: AOM startup actions. Fire one-shot proactive actions
+        // before any model call. We bail out of THIS tick after firing
+        // so the executor has a chance to react before we issue further
+        // commands. The next tick will re-evaluate (action gone from
+        // queue, normal decision flow proceeds).
+        if effective_aom {
+            let action_fired = maybe_fire_startup_action(
+                &inner,
+                session_id,
+                app,
+                &cmd,
+                &tail,
+            )
+            .await;
+            if action_fired {
+                continue;
+            }
         }
 
         // Rate limit per-session.
@@ -341,31 +1035,107 @@ async fn run_tick(
             w.cwd.display().to_string()
         };
         let user_message = render_user_message(&cmd, &cwd, idle, &tail);
-        let system_prompt = build_system_prompt(&persona);
+        let system_prompt =
+            build_system_prompt(&persona, effective_aom, mission.as_ref());
+
+        // CRITICAL: mark dedup BEFORE the model call. If we marked
+        // only on success, a failing call (bad API key, rate limit,
+        // network blip) would re-fire every 500ms tick because the
+        // trigger conditions stay met. That's a runaway loop. By
+        // marking up-front, each idle window gets EXACTLY one attempt
+        // — success or failure. User has to clear the condition
+        // (executor produces new bytes, types something) before the
+        // operator considers this session again.
+        if let Ok(mut st) = state_arc.lock() {
+            st.last_decision_at_bytes_total = bytes_total;
+        }
+        if is_decision {
+            if let Some(att) = inner.lock().await.sessions.get_mut(&session_id) {
+                att.decision_point_fired = true;
+            }
+        }
 
         let started = Instant::now();
-        let response = match karl_agent::ask_oneshot(karl_agent::AskRequest {
+        let ask_response = match karl_agent::ask_oneshot_with_usage(karl_agent::AskRequest {
             api_key: api_key.clone(),
             model: model.clone(),
             system_prompt,
             user_message,
-            max_tokens: 400,
+            max_tokens: max_tokens_for_call,
         })
         .await
         {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(error = %e, session = %session_id, "operator ask failed");
+                // Surface the failure to the UI so the user sees
+                // *something* in the activity feed instead of silent
+                // hammering. The card is styled like an escalation.
+                let _ = app.emit(
+                    "operator-decision",
+                    serde_json::json!({
+                        "id": null,
+                        "session_id": session_id.to_string(),
+                        "action": "escalate",
+                        "reply_text": null,
+                        "rationale": "operator API call failed",
+                        "escalation": format!("api error: {e}"),
+                        "executed": false,
+                        "cost_usd": 0.0,
+                        "timestamp_unix_ms": now_unix_ms(),
+                    }),
+                );
                 continue;
             }
         };
+        let response = ask_response.text;
+        let call_cost_usd = cost::estimate_usd(&model, ask_response.usage);
+
+        // Accumulate AOM cost. Auto-stop happens AFTER the current
+        // decision is fully processed below — that way the call we
+        // already paid for still produces an audit row, and only the
+        // NEXT tick is suppressed by the cap. Excluded tabs DON'T
+        // deplete the AOM budget — their activity is the user's
+        // regular per-tab cost, not AOM-driven cost.
+        let mut budget_hit = false;
+        // Snapshot the row id outside the AOM lock so we can pass it
+        // to storage WITHOUT holding the AOM lock across the await.
+        let mut budget_hit_row: Option<i64> = None;
+        let mut budget_hit_accum = 0.0;
+        let mut budget_hit_decisions: u64 = 0;
+        let mut budget_hit_cap_at: u64 = 0;
+        if effective_aom && call_cost_usd > 0.0 {
+            let mut a = aom.write().await;
+            a.accumulated_cost_usd += call_cost_usd;
+            if a.accumulated_cost_usd >= a.budget_usd && a.budget_usd > 0.0 {
+                budget_hit = true;
+                a.enabled = false;
+                let cap_at = now_unix_ms();
+                a.cost_cap_hit_at_unix_ms = Some(cap_at);
+                budget_hit_row = a.current_session_row_id;
+                budget_hit_accum = a.accumulated_cost_usd;
+                budget_hit_decisions = a.decisions_count;
+                budget_hit_cap_at = cap_at;
+                a.current_session_row_id = None;
+                tracing::warn!(
+                    spent_usd = a.accumulated_cost_usd,
+                    budget_usd = a.budget_usd,
+                    decisions = a.decisions_count,
+                    "AOM auto-stopped: budget reached"
+                );
+            }
+        }
+
         tracing::info!(
             session = %session_id,
             latency_ms = started.elapsed().as_millis() as u64,
+            decision_point = is_decision,
+            max_tokens = max_tokens_for_call,
+            cost_usd = call_cost_usd,
             "operator decision generated"
         );
 
-        let action = match parse_response(&response) {
+        let parsed_action = match parse_response(&response) {
             Some(a) => a,
             None => {
                 tracing::warn!(
@@ -377,33 +1147,196 @@ async fn run_tick(
             }
         };
 
-        let excerpt = String::from_utf8_lossy(&tail).to_string();
-
-        let (action_str, reply_text, rationale, escalation_msg) = match &action {
-            OperatorAction::Reply { text, rationale } => (
-                "reply".to_string(),
-                Some(text.clone()),
-                Some(rationale.clone()),
-                None,
-            ),
-            OperatorAction::Escalate {
-                notification,
-                rationale,
-            } => (
-                "escalate".to_string(),
-                None,
-                Some(rationale.clone()),
-                Some(notification.clone()),
-            ),
-            OperatorAction::Wait { rationale } => (
-                "wait".to_string(),
-                None,
-                Some(rationale.clone()),
-                None,
-            ),
+        // Loop detector: hash (action_kind, normalized_rationale,
+        // tail-signature) and compare against the recent ring. When the
+        // last LOOP_THRESHOLD decisions all hash identically the
+        // operator is stuck — same input, same output, no progress.
+        // Override with a single explicit escalate and park the tab in
+        // cooldown so we stop burning tokens.
+        let decision_hash = compute_loop_hash(&parsed_action, &tail);
+        let looped = {
+            let mut i = inner.lock().await;
+            if let Some(att) = i.sessions.get_mut(&session_id) {
+                att.recent_decision_hashes.push_back(decision_hash);
+                while att.recent_decision_hashes.len() > LOOP_WINDOW {
+                    att.recent_decision_hashes.pop_front();
+                }
+                let stuck = att.recent_decision_hashes.len() >= LOOP_THRESHOLD
+                    && att
+                        .recent_decision_hashes
+                        .iter()
+                        .all(|h| *h == decision_hash);
+                if stuck {
+                    att.loop_cooldown_until = Some(Instant::now() + LOOP_COOLDOWN);
+                    // Reset the ring so a future re-arm doesn't insta-fire
+                    // again on the first new decision.
+                    att.recent_decision_hashes.clear();
+                }
+                stuck
+            } else {
+                false
+            }
         };
 
-        // Persist (dry-run: executed=false always in M-OP2).
+        let action = if looped {
+            tracing::warn!(
+                session = %session_id,
+                cooldown_secs = LOOP_COOLDOWN.as_secs(),
+                "operator loop detected — forcing escalate, parking tab"
+            );
+            OperatorAction::Escalate {
+                notification: format!(
+                    "Operator loop detected — same decision {LOOP_THRESHOLD}x in a row. Tab paused for {}s. Likely cause: executor stuck or model misreading state. Manual intervention required.",
+                    LOOP_COOLDOWN.as_secs()
+                ),
+                rationale: format!(
+                    "loop guard: action={} repeated with identical screen signature, parking to avoid runaway cost",
+                    parsed_action.kind()
+                ),
+            }
+        } else {
+            parsed_action
+        };
+
+        let excerpt = String::from_utf8_lossy(&tail).to_string();
+
+        // M-OP3: in live mode, route REPLY through the safety blocklist
+        // before injecting. A blocked reply downgrades to ESCALATE so
+        // the user finds out something tried to type.
+        //
+        // M-OP5: in AOM, force a trailing \n on every REPLY (auto-submit).
+        // The model is told to do this in the directive, but enforce
+        // it here too — a missing \n in autonomous mode means the
+        // executor sits forever waiting for Enter that nobody presses.
+        let (final_action, executed, action_str, reply_text, rationale, escalation_msg) =
+            if live {
+                match action.clone() {
+                    OperatorAction::Reply {
+                        mut text,
+                        rationale,
+                    } => {
+                        if effective_aom {
+                            // Auto-submit in AOM. Most TUIs (Claude
+                            // Code, aider, opencode) treat `\n` as
+                            // "newline within input" and `\r` as
+                            // SUBMIT — same as physical Enter on a
+                            // tty. Strip whatever trailing line
+                            // chars the model added, then `\r` once.
+                            // For plain shells \r works too (the
+                            // tty translates it via icrnl).
+                            while text.ends_with('\n') || text.ends_with('\r') {
+                                text.pop();
+                            }
+                            text.push('\r');
+                        }
+                        if let Some(reason) =
+                            safety::is_dangerous(&text, &deny_extra_regexes)
+                        {
+                            tracing::warn!(
+                                session = %session_id,
+                                category = ?reason.category,
+                                "operator reply blocked by safety"
+                            );
+                            let note = format!("blocked: {}", reason.message);
+                            (
+                                OperatorAction::Escalate {
+                                    notification: note.clone(),
+                                    rationale: rationale.clone(),
+                                },
+                                false,
+                                "escalate".to_string(),
+                                None,
+                                Some(rationale),
+                                Some(note),
+                            )
+                        } else {
+                            // Inject the bytes. Failure here downgrades
+                            // to a dry-run reply so the user sees the
+                            // attempt in the audit panel.
+                            let injected = inject_to_session(app, session_id, text.as_bytes())
+                                .await
+                                .is_ok();
+                            (
+                                OperatorAction::Reply {
+                                    text: text.clone(),
+                                    rationale: rationale.clone(),
+                                },
+                                injected,
+                                "reply".to_string(),
+                                Some(text),
+                                Some(rationale),
+                                None,
+                            )
+                        }
+                    }
+                    OperatorAction::Escalate {
+                        notification,
+                        rationale,
+                    } => (
+                        OperatorAction::Escalate {
+                            notification: notification.clone(),
+                            rationale: rationale.clone(),
+                        },
+                        false,
+                        "escalate".to_string(),
+                        None,
+                        Some(rationale),
+                        Some(notification),
+                    ),
+                    OperatorAction::Wait { rationale } => (
+                        OperatorAction::Wait {
+                            rationale: rationale.clone(),
+                        },
+                        false,
+                        "wait".to_string(),
+                        None,
+                        Some(rationale),
+                        None,
+                    ),
+                }
+            } else {
+                // Dry-run mode: persist what would have happened, never
+                // touch the PTY. Same shape as before M-OP3.
+                match action.clone() {
+                    OperatorAction::Reply { text, rationale } => (
+                        OperatorAction::Reply {
+                            text: text.clone(),
+                            rationale: rationale.clone(),
+                        },
+                        false,
+                        "reply".to_string(),
+                        Some(text),
+                        Some(rationale),
+                        None,
+                    ),
+                    OperatorAction::Escalate {
+                        notification,
+                        rationale,
+                    } => (
+                        OperatorAction::Escalate {
+                            notification: notification.clone(),
+                            rationale: rationale.clone(),
+                        },
+                        false,
+                        "escalate".to_string(),
+                        None,
+                        Some(rationale),
+                        Some(notification),
+                    ),
+                    OperatorAction::Wait { rationale } => (
+                        OperatorAction::Wait {
+                            rationale: rationale.clone(),
+                        },
+                        false,
+                        "wait".to_string(),
+                        None,
+                        Some(rationale),
+                        None,
+                    ),
+                }
+            };
+        let _ = final_action; // surfaced via action_str/reply_text below
+
         let row_id = match storage
             .save_operator_decision(
                 session_id,
@@ -413,7 +1346,8 @@ async fn run_tick(
                 action_str.clone(),
                 reply_text.clone(),
                 rationale.clone(),
-                false,
+                executed,
+                call_cost_usd,
             )
             .await
         {
@@ -424,14 +1358,23 @@ async fn run_tick(
             }
         };
 
-        // Mark decided so we don't re-evaluate this same idle window.
-        if let Ok(mut st) = state_arc.lock() {
-            st.last_decision_at_bytes_total = bytes_total;
+        // (Dedup markers were set BEFORE the model call — see the
+        // "CRITICAL" comment above. Doing it up-front is what
+        // prevents a failing call from looping every 500ms.)
+
+        // Bump the AOM decisions counter (every action — reply, escalate,
+        // wait — counts as one AOM-driven decision). Excluded tabs are
+        // intentionally not counted: from AOM's bookkeeping perspective
+        // they aren't its work.
+        if effective_aom {
+            let mut a = aom.write().await;
+            a.decisions_count = a.decisions_count.saturating_add(1);
         }
 
         // Notify the UI: if an escalation, surface as a toast (reusing
-        // the cross-session-finding event channel for now). If a dry-run
-        // reply, just emit a generic event so the ⌘O panel can refresh.
+        // the cross-session-finding event channel for now). If a reply,
+        // emit so the ⌘O panel can refresh — `executed` distinguishes
+        // a live injection (visible badge) from a dry-run preview.
         let _ = app.emit(
             "operator-decision",
             serde_json::json!({
@@ -441,20 +1384,208 @@ async fn run_tick(
                 "reply_text": reply_text,
                 "rationale": rationale,
                 "escalation": escalation_msg,
+                "executed": executed,
+                "cost_usd": call_cost_usd,
                 "timestamp_unix_ms": now_unix_ms(),
             }),
         );
+
+        // If THIS decision pushed AOM over budget, finalize the
+        // aom_sessions row + emit the dedicated event so the UI can
+        // surface a toast explaining why the banner just disappeared.
+        // The decision event already landed first (audit), so the
+        // toast can reference it.
+        if budget_hit {
+            if let Some(id) = budget_hit_row {
+                if let Err(e) = storage
+                    .aom_session_finish(
+                        id,
+                        budget_hit_cap_at,
+                        budget_hit_accum,
+                        budget_hit_decisions,
+                        Some(budget_hit_cap_at),
+                    )
+                    .await
+                {
+                    tracing::warn!(error = %e, "aom_session_finish (budget hit) failed");
+                }
+            }
+            // Mirror aom_stop: revert tabs we auto-enabled, leave
+            // user-enabled tabs in their pre-AOM state.
+            //
+            // We can't reach OperatorWatcher's outer methods from here
+            // (we're inside its tick), so flip the flags directly.
+            let mut inner_lock = inner.lock().await;
+            for att in inner_lock.sessions.values_mut() {
+                if att.enabled_by_aom {
+                    att.enabled = false;
+                    att.live = false;
+                    att.enabled_by_aom = false;
+                }
+            }
+            drop(inner_lock);
+            let snap = aom.read().await;
+            let _ = app.emit(
+                "aom-budget-hit",
+                serde_json::json!({
+                    "spent_usd": snap.accumulated_cost_usd,
+                    "budget_usd": snap.budget_usd,
+                    "decisions_count": snap.decisions_count,
+                    "duration_ms": now_unix_ms()
+                        .saturating_sub(snap.started_at_unix_ms),
+                }),
+            );
+            // Stop processing further candidates this tick — AOM is
+            // off, the next tick will just no-op for everyone.
+            break;
+        }
     }
 
     Ok(())
 }
 
-fn build_system_prompt(persona: &str) -> String {
+/// Process at most ONE pending AOM startup action for this session.
+/// Returns `true` if an action fired (caller should skip the rest of
+/// the tick to give the executor time to react).
+///
+/// Today there's just one action — `ClaudeRename` — fired when the
+/// in-flight command matches a `claude*` pattern AND the executor
+/// reached idle. Future actions plug in the same way.
+async fn maybe_fire_startup_action(
+    inner: &Arc<AsyncMutex<Inner>>,
+    session_id: SessionId,
+    app: &AppHandle,
+    in_flight_cmd: &str,
+    _tail: &[u8],
+) -> bool {
+    // Snapshot pending under the lock; clear in the same critical
+    // section as the action so a concurrent tick can't double-fire.
+    let action: Option<StartupActionKind> = {
+        let mut inner_lock = inner.lock().await;
+        let Some(att) = inner_lock.sessions.get_mut(&session_id) else {
+            return false;
+        };
+        if let Some(slug) = att.aom_startup.rename_to.clone() {
+            // Only fire rename for claude-style executors (the slash
+            // command is Claude Code-specific). Aider has its own.
+            let is_claude = in_flight_cmd.starts_with("claude")
+                || in_flight_cmd == "claude-code"
+                || in_flight_cmd.starts_with("claude-code ");
+            // Resume case: the user is reopening an existing session
+            // that already has its own name (set previously, possibly
+            // edited by hand). `--resume` takes a session UUID, not
+            // the slug, so a literal compare never matches — but the
+            // semantic answer is the same regardless: do NOT rename a
+            // resumed session. The user's prior choice wins.
+            let is_resume = in_flight_cmd
+                .split_whitespace()
+                .any(|w| w == "--resume" || w == "-r" || w == "--continue" || w == "-c");
+            if is_claude && !is_resume {
+                att.aom_startup.rename_to = None;
+                Some(StartupActionKind::ClaudeRename(slug))
+            } else if is_claude && is_resume {
+                // Consume the action without firing — resumed sessions
+                // keep their existing name.
+                att.aom_startup.rename_to = None;
+                tracing::info!(
+                    session = %session_id,
+                    "AOM /rename skipped: session is being resumed (--resume/--continue)"
+                );
+                None
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let Some(action) = action else {
+        return false;
+    };
+
+    let (bytes, label): (Vec<u8>, &'static str) = match &action {
+        StartupActionKind::ClaudeRename(slug) => {
+            // /rename <slug>\r — the carriage-return submits the
+            // slash command. Claude renames the session in-place.
+            let cmd = format!("/rename {slug}\r");
+            (cmd.into_bytes(), "claude /rename")
+        }
+    };
+
+    if let Err(e) = inject_to_session(app, session_id, &bytes).await {
+        tracing::warn!(
+            error = %e,
+            session = %session_id,
+            action = label,
+            "startup action inject failed"
+        );
+        return false;
+    }
+    tracing::info!(
+        session = %session_id,
+        action = label,
+        "AOM startup action fired"
+    );
+    let _ = app.emit(
+        "operator-startup-action",
+        serde_json::json!({
+            "session_id": session_id.to_string(),
+            "action": label,
+        }),
+    );
+    true
+}
+
+#[derive(Debug, Clone)]
+enum StartupActionKind {
+    ClaudeRename(String),
+}
+
+/// Write bytes into the named session's PTY. Reaches AppState through
+/// the AppHandle so the Operator stays decoupled from the rest of
+/// lib.rs's command surface — same path that `inject_command` takes.
+async fn inject_to_session(
+    app: &AppHandle,
+    session_id: SessionId,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| "AppState not yet managed".to_string())?;
+    let mut sessions = state.sessions.lock().await;
+    let managed = sessions
+        .get_mut(&session_id)
+        .ok_or_else(|| "session not found".to_string())?;
+    managed.session.write(bytes).map_err(|e| e.to_string())
+}
+
+fn build_system_prompt(
+    persona: &str,
+    aom_active: bool,
+    mission: Option<&MissionDoc>,
+) -> String {
+    let aom_block = if aom_active {
+        format!("# {}\n\n", AOM_DIRECTIVE)
+    } else {
+        String::new()
+    };
+    let mission_block = mission
+        .map(|m| {
+            format!(
+                "# {prefix}\n\n{content}\n\n# END MISSION SPEC\n\n",
+                prefix = MISSION_DIRECTIVE,
+                content = m.content.trim(),
+            )
+        })
+        .unwrap_or_default();
     format!(
         "You are the Operator for Covenant — the user's coordinator that \
          watches an executor agent (claude code, copilot, opencode, aider, …) \
          running inside their PTY. The executor has paused; the user wants you \
          to answer routine questions on their behalf within the charter below.\n\n\
+         {aom_block}\
+         {mission_block}\
          # PERSONA (set by user — guides judgment for the routine cases)\n\
          {persona}\n\n\
          # {hard}\n\n\
@@ -465,24 +1596,243 @@ fn build_system_prompt(persona: &str) -> String {
     )
 }
 
+const MISSION_DIRECTIVE: &str = "ACTIVE MISSION — the user has set a focused spec for this session.
+
+Treat the spec below as the source-of-truth for what the executor is supposed to be doing in this PTY. The spec PRECEDES the persona's general examples; conflicts resolve in favor of the spec.
+
+Specifically:
+
+- The 'Out of scope' list = additional ESCALATE triggers. If the executor is about to do something on that list (refactor an unrelated module, add a search feature when search is out of scope, etc.), ESCALATE with notification 'mission scope violation: <which item>'.
+- The 'File boundaries' = additional constraints. If the executor proposes touching files outside the listed paths, or exceeding the line budgets, ESCALATE with notification 'mission file boundary exceeded: <path>'.
+- The 'Acceptance criteria' tells you when the work is DONE. If the executor proposes additional polish / refactors / docs beyond the listed criteria, ESCALATE with notification 'mission already complete — proposed extra work'.
+- The 'Open questions' section MUST NEVER be decided by you. Always ESCALATE those with notification 'open question requires user input: <which question>'.
+- If the executor's current activity doesn't match the mission AT ALL (wrong feature, accidental refactor, exploratory work outside scope), ESCALATE with notification 'mission drift detected'.
+
+Otherwise — for in-scope routine confirmations (yes/no on running tests, accepting suggested approach within scope, etc.) — apply your normal posture (the persona, plus AOM directive if active).
+
+# MISSION SPEC";
+
+const AOM_DIRECTIVE: &str = "AUTONOMOUS OPERATOR MODE (AOM) — ACTIVE.
+
+The user has explicitly delegated decision-making to you for this session \
+because they are away (asleep, in a meeting, focused elsewhere). Their \
+prime directive:
+
+  > 'If the decision is REVERSIBLE tomorrow, just decide.
+  > Only escalate the truly unrecoverable.'
+
+POSTURE — overrides the persona's ALWAYS-ASK rules. DEFAULT = DECIDE.
+
+For normal dev-loop decisions just answer with REPLY (don't WAIT, don't \
+ESCALATE):
+- run tests, install deps, edit files, refactor, debug, fix lint, format
+- commit to feature branches (anything except main/master/prod/release)
+- pick Sonnet vs Opus, approach A vs B, accept executor suggestions
+- restart hung processes, retry failed steps, revert your own changes
+- create new files / new branches / new test fixtures
+
+ESCALATE only when:
+- The hard blocklist below would block your reply.
+- Action publishes externally: ANY git push, npm publish, deploy, \
+  terraform apply, k8s apply, Slack/email send, Twitter/social post.
+- Action spends money via external API (provisioning, paid services \
+  beyond your own LLM call to Anthropic).
+- Action touches credentials/secrets directly (.env files, ~/.ssh, \
+  ~/.aws, ~/.config/gh, password stores, system keychain).
+- Decision is genuinely architectural with no good default (database \
+  choice, framework swap, auth model). Even here, prefer 'pick the \
+  simpler one and document briefly' if your judgment is clear.
+
+REVERSIBILITY TEST — when uncertain, ask:
+'Can morning-me undo this with git revert, git stash, cargo clean, \
+node_modules reinstall, or a 10-minute fix?'  → If yes, ACT.
+
+PROACTIVE DRIVE — the executor cursor sitting at an idle prompt does NOT \
+mean 'nothing to do'. SCAN the entire excerpt before deciding:
+- If there is an UNANSWERED question, numbered menu (1./2./3.), y/n \
+  prompt, or 'continue?' anywhere in the excerpt — even several lines \
+  ABOVE the current cursor — the user expects you to ANSWER IT. The \
+  cursor moving past a question (because someone typed a slash command, \
+  or the screen redrew) does NOT cancel the question; it's still pending.
+- If a mission is loaded and the executor finished its current task with \
+  no question pending, ADVANCE the mission. Issue the next concrete step \
+  as a REPLY ('implement Task N — <thing>', 'run the tests', 'commit \
+  this and move on'). Idle + mission = work to do.
+- WAIT only when (a) executor is genuinely running (spinner active, \
+  output streaming) and (b) you've checked the rest of the excerpt for \
+  earlier questions and found none.
+
+OUTPUT NOTE — in AOM, all REPLY actions auto-submit. Covenant appends \
+the actual submit keystroke for you, regardless of the trailing chars \
+you put in TEXT. So:
+- Don't worry about \\n at the end — Covenant strips it and sends a \
+  real submit (TUI-aware: `\\r` for Claude Code, aider, etc.; works \
+  for plain shells too).
+- DO use \\n WITHIN your TEXT for genuine multi-line answers (rare in \
+  AOM since trivial confirmations dominate).";
+
 fn render_user_message(
     cmd: &str,
     cwd: &str,
     idle_for: Duration,
     tail: &[u8],
 ) -> String {
-    let tail_str = String::from_utf8_lossy(tail);
+    // Tail-bias: strip ANSI then take only the LAST MODEL_EXCERPT_CHARS
+    // chars. The full tail (up to 32KB raw, 16KB sampled) carries
+    // multiple screens of executor history; the slice keeps enough to
+    // catch a question issued before some intervening activity (e.g. a
+    // /rename slash command between the question and the current
+    // prompt) without flooding the model with minutes-old spinner
+    // spam from much earlier in the session.
+    let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
+    let excerpt = take_last_chars(&stripped, MODEL_EXCERPT_CHARS);
     format!(
         "Executor command: {cmd}\n\
          Session cwd: {cwd}\n\
          Bytes idle: {idle}s\n\n\
-         <executor_output>\n{tail}\n</executor_output>\n\n\
+         CRITICAL READING NOTE — the <executor_output> below is the \
+         BOTTOM of the executor's terminal buffer (≈ last screen the \
+         user can see). Many TUIs (Claude Code, aider, opencode) \
+         redraw the screen continuously, so any \"Imagining…\", \
+         \"Gusting…\", spinners or progress indicators appearing in \
+         this excerpt represent the CURRENT state — they are NOT \
+         stale history. If the LAST few lines show a finished task \
+         with a question / numbered menu / `›` `❯` `>` prompt \
+         glyph, the executor IS waiting on you, regardless of what \
+         appears earlier in the excerpt.\n\n\
+         <executor_output>\n{excerpt}\n</executor_output>\n\n\
          What's your decision?",
         cmd = cmd,
         cwd = cwd,
         idle = idle_for.as_secs(),
-        tail = tail_str,
+        excerpt = excerpt,
     )
+}
+
+/// Heuristic: does the tail look like the executor is waiting on a
+/// substantive user decision (vs just "computing")?
+///
+/// Triggers on any of:
+///   - trailing `?`, `:`, `>`, `❯` near end (after stripping ANSI/cursor)
+///   - `(y/n)` / `[Y/n]` / `(yes/no)` / `y/N?` shapes in the recent window
+///   - numbered menu near end (≥2 lines starting with `<digit>.` or `<digit>)`)
+///
+/// False positives are tolerable — they cost one extra model call. False
+/// negatives delay the operator's reaction by `idle_threshold_secs` —
+/// not a correctness problem, just less responsive.
+pub fn detect_decision_point(tail: &[u8]) -> bool {
+    use std::sync::OnceLock;
+    static YES_NO: OnceLock<Regex> = OnceLock::new();
+    static MENU_ITEM: OnceLock<Regex> = OnceLock::new();
+
+    let yes_no = YES_NO.get_or_init(|| {
+        Regex::new(r"(?i)\(\s*y(es)?\s*/\s*n(o)?\s*\)|\[\s*y(es)?\s*/\s*n(o)?\s*\]|\by\s*/\s*n\s*\?")
+            .unwrap()
+    });
+    let menu = MENU_ITEM
+        .get_or_init(|| Regex::new(r"(?m)^\s*\d+\s*[.)]\s+\S").unwrap());
+
+    let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
+    let window = take_last_chars(&stripped, DECISION_SCAN_WINDOW);
+
+    // Trailing-character check (line-oriented executors: shells,
+    // pagers, simple REPLs): the cursor is the last visible byte.
+    let trim: &[char] = &[' ', '\t', '\n', '\r', '│', '|', '_', '▌', '▍', '▎'];
+    let tail_trimmed = window.trim_end_matches(trim);
+    // Prompt-character glyphs across TUI tools:
+    //   `›`  U+203A  Claude Code, fish
+    //   `❯`  U+276F  starship, p10k
+    //   `>`  ASCII   plain shells, REPLs
+    //   `❱`  U+2771  some prompt frameworks
+    //   `▶`  U+25B6  custom themes
+    //   `►`  U+25BA  custom themes
+    //   `?`         questions ("Continue?")
+    //   `:`         pagers, vim, "Choose:"
+    if tail_trimmed.ends_with('?')
+        || tail_trimmed.ends_with('>')
+        || tail_trimmed.ends_with('›')
+        || tail_trimmed.ends_with('❯')
+        || tail_trimmed.ends_with('❱')
+        || tail_trimmed.ends_with('▶')
+        || tail_trimmed.ends_with('►')
+        || tail_trimmed.ends_with(':')
+    {
+        return true;
+    }
+
+    // TUI absolute-positioning case (Claude Code, full-screen agents):
+    // the executor redraws status bar + input area independently of
+    // the byte stream order. After ANSI strip, the visible `›` prompt
+    // can appear MID-window with the status line trailing. We scan
+    // the whole window for the strong TUI prompt glyphs — these are
+    // rare in regular content so the false-positive cost is low.
+    //
+    // We also recognize Claude Code's status bar phrase as a definite
+    // "waiting for input" signal — it only appears when the TUI is
+    // at rest expecting a key.
+    if window.contains('›')
+        || window.contains('❯')
+        || window.contains('❱')
+        || window.contains("shift+tab to cycle")
+        || window.contains("Shift+Tab to cycle")
+    {
+        return true;
+    }
+
+    if yes_no.is_match(&window) {
+        return true;
+    }
+
+    // Numbered menu: count distinct lines that start with a number-marker.
+    if menu.find_iter(&window).take(2).count() >= 2 {
+        return true;
+    }
+
+    false
+}
+
+/// Take the last `n` chars (not bytes) of `s`. UTF-8 safe.
+fn take_last_chars(s: &str, n: usize) -> String {
+    let total = s.chars().count();
+    if total <= n {
+        return s.to_string();
+    }
+    s.chars().skip(total - n).collect()
+}
+
+/// Loop-detector hash. Combines:
+///   - action kind (reply/escalate/wait)
+///   - normalized rationale (lowercased, whitespace-collapsed) — same
+///     justification = same conclusion
+///   - tail signature: ANSI-stripped last LOOP_TAIL_SIG_CHARS, also
+///     normalized — captures "screen state" without being thrown off
+///     by spinner-frame churn or color toggles
+/// Two decisions hash equal when both the model's verdict AND the
+/// underlying screen are unchanged. That's the precise definition of
+/// "stuck" we want — distinct from "model said WAIT twice for two
+/// different reasons" (legit) or "REPLY then WAIT" (legit progression).
+fn compute_loop_hash(action: &OperatorAction, tail: &[u8]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    action.kind().hash(&mut hasher);
+    let rationale_norm = match action {
+        OperatorAction::Reply { rationale, .. } => normalize_for_hash(rationale),
+        OperatorAction::Escalate { rationale, .. } => normalize_for_hash(rationale),
+        OperatorAction::Wait { rationale } => normalize_for_hash(rationale),
+    };
+    rationale_norm.hash(&mut hasher);
+    let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
+    let sig = take_last_chars(&stripped, LOOP_TAIL_SIG_CHARS);
+    normalize_for_hash(&sig).hash(&mut hasher);
+    hasher.finish()
+}
+
+fn normalize_for_hash(s: &str) -> String {
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 fn parse_response(text: &str) -> Option<OperatorAction> {
@@ -578,6 +1928,104 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Read a mission spec from disk + stat for its mtime. Used by both
+/// `set_mission` (initial load) and the watcher (reload on change).
+async fn load_mission_doc(path: &std::path::Path) -> Result<MissionDoc, String> {
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .map_err(|e| format!("read mission file {}: {e}", path.display()))?;
+    let mtime = mtime_unix_ms(path).unwrap_or(0);
+    Ok(MissionDoc {
+        path: path.to_path_buf(),
+        content,
+        loaded_at_unix_ms: now_unix_ms(),
+        mtime_unix_ms: mtime,
+    })
+}
+
+/// Modification time of `path` in Unix-ms. Returns `None` if the file
+/// is unreadable or its mtime can't be expressed (pre-1970 etc.).
+fn mtime_unix_ms(path: &std::path::Path) -> Option<u64> {
+    use std::time::UNIX_EPOCH;
+    let meta = std::fs::metadata(path).ok()?;
+    let mt = meta.modified().ok()?;
+    mt.duration_since(UNIX_EPOCH).ok().map(|d| d.as_millis() as u64)
+}
+
+/// Derive a short slug from a mission spec path. Mirrors the frontend's
+/// `slugFromMissionPath` so tab rename and claude `/rename` align:
+///   `/docs/specs/3.5-docs-hub.md` → `docs-hub`
+///   `/specs/mission-tracking.md`  → `mission-tracking`
+///   `/work/My Notes.md`           → `my-notes`
+fn slug_from_mission_path(path: &std::path::Path) -> String {
+    let file = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    // Strip extension.
+    let stem = file
+        .strip_suffix(".md")
+        .or_else(|| file.strip_suffix(".markdown"))
+        .unwrap_or(&file)
+        .to_string();
+    // Strip "<digits>(.<digits>)*[-_ ]" prefix.
+    let no_prefix: String = {
+        let bytes: Vec<char> = stem.chars().collect();
+        let mut i = 0;
+        // digits . digits ... then a separator
+        while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == '.') {
+            i += 1;
+        }
+        if i > 0
+            && i < bytes.len()
+            && matches!(bytes[i], '-' | '_' | ' ')
+        {
+            // skip separator(s)
+            while i < bytes.len() && matches!(bytes[i], '-' | '_' | ' ') {
+                i += 1;
+            }
+            bytes[i..].iter().collect()
+        } else {
+            stem
+        }
+    };
+    // Lowercase, kebab-case, collapse runs.
+    let mut out = String::with_capacity(no_prefix.len());
+    let mut last_dash = true; // suppresses leading dash
+    for ch in no_prefix.chars() {
+        let lc = ch.to_ascii_lowercase();
+        if lc.is_ascii_alphanumeric() {
+            out.push(lc);
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+/// Like truncate but trims to a single-line preview (newlines collapsed
+/// to spaces). For mission content_preview where we want a glanceable
+/// summary instead of multi-line markdown.
+fn take_preview(s: &str, max_chars: usize) -> String {
+    let collapsed: String = s
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if collapsed.chars().count() <= max_chars {
+        collapsed
+    } else {
+        let cut: String = collapsed.chars().take(max_chars).collect();
+        format!("{cut}…")
+    }
+}
+
 fn now_unix_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -642,11 +2090,87 @@ mod tests {
     }
 
     #[test]
+    fn slug_from_mission_path_strips_prefix_and_extension() {
+        use std::path::PathBuf;
+        assert_eq!(
+            slug_from_mission_path(&PathBuf::from("/docs/specs/3.5-docs-hub.md")),
+            "docs-hub"
+        );
+        assert_eq!(
+            slug_from_mission_path(&PathBuf::from("/x/mission-tracking.md")),
+            "mission-tracking"
+        );
+        assert_eq!(
+            slug_from_mission_path(&PathBuf::from("/x/My Notes.markdown")),
+            "my-notes"
+        );
+        assert_eq!(
+            slug_from_mission_path(&PathBuf::from("/x/1-init.md")),
+            "init"
+        );
+        // No extension stripped if not md/markdown.
+        assert_eq!(
+            slug_from_mission_path(&PathBuf::from("/x/foo.txt")),
+            "foo-txt"
+        );
+        // Empty / weird → empty (caller skips).
+        assert_eq!(
+            slug_from_mission_path(&PathBuf::from("/x/.md")),
+            ""
+        );
+    }
+
+    #[test]
     fn unescape_handles_common_escapes() {
         assert_eq!(unescape("y\\n"), "y\n");
         assert_eq!(unescape("a\\tb"), "a\tb");
         assert_eq!(unescape("path\\\\to"), "path\\to");
         assert_eq!(unescape("plain"), "plain");
+    }
+
+    #[test]
+    fn loop_hash_stable_for_identical_action_and_tail() {
+        let a = OperatorAction::Wait {
+            rationale: "Still processing — spinner visible".to_string(),
+        };
+        let tail = b"...some output...\n>";
+        assert_eq!(compute_loop_hash(&a, tail), compute_loop_hash(&a, tail));
+    }
+
+    #[test]
+    fn loop_hash_normalizes_whitespace_and_case() {
+        let a = OperatorAction::Wait {
+            rationale: "still processing".to_string(),
+        };
+        let b = OperatorAction::Wait {
+            rationale: "  Still   PROCESSING\t".to_string(),
+        };
+        let tail = b"x";
+        assert_eq!(compute_loop_hash(&a, tail), compute_loop_hash(&b, tail));
+    }
+
+    #[test]
+    fn loop_hash_differs_when_screen_changes() {
+        let a = OperatorAction::Wait {
+            rationale: "still processing".to_string(),
+        };
+        assert_ne!(
+            compute_loop_hash(&a, b"screen one"),
+            compute_loop_hash(&a, b"screen two")
+        );
+    }
+
+    #[test]
+    fn loop_hash_differs_across_action_kinds() {
+        let tail = b"same tail";
+        let wait = OperatorAction::Wait {
+            rationale: "x".to_string(),
+        };
+        let reply = OperatorAction::Reply {
+            text: "y".to_string(),
+            rationale: "x".to_string(),
+        };
+        assert_ne!(compute_loop_hash(&wait, tail), compute_loop_hash(&reply, tail));
     }
 
     #[test]
@@ -672,6 +2196,100 @@ mod tests {
         let mut s = OperatorState::new();
         s.observe(b"abcdefghij");
         assert_eq!(s.snapshot_tail(4), b"ghij");
+    }
+
+    #[test]
+    fn decision_point_trailing_question_mark() {
+        assert!(detect_decision_point(b"Should I run the tests?"));
+        assert!(detect_decision_point(b"Should I run the tests? \n   "));
+    }
+
+    #[test]
+    fn decision_point_yes_no_shapes() {
+        assert!(detect_decision_point(b"Allow this tool use? (y/n) "));
+        assert!(detect_decision_point(b"Proceed? [Y/n]"));
+        assert!(detect_decision_point(b"Replace file? (yes/no): "));
+        assert!(detect_decision_point(b"continue y/n? "));
+    }
+
+    #[test]
+    fn decision_point_numbered_menu() {
+        let tail = b"\
+What would you like to do?
+1. Run the tests
+2. Skip and commit
+3. Cancel
+> ";
+        assert!(detect_decision_point(tail));
+    }
+
+    #[test]
+    fn decision_point_claude_code_prompt() {
+        // After stripping ANSI, Claude Code's interactive prompt ends
+        // with `› ` (U+203A, NOT ASCII >) waiting for the user's next
+        // message. We also accept ASCII `>` for other REPLs.
+        assert!(detect_decision_point("some text\n\n\u{203A} ".as_bytes()));
+        assert!(detect_decision_point(b"some text\n\n> "));
+    }
+
+    #[test]
+    fn decision_point_claude_tui_with_trailing_status_bar() {
+        // Real-world Claude Code layout after ANSI strip: the prompt
+        // `›` is somewhere mid-window, then the status line is the
+        // LAST line because Claude redraws it last each frame. Plain
+        // trailing-char detection misses this; the in-window scan
+        // catches it.
+        let tail = "Anything to push back on?\n\n\u{203A} \nModel: Opus 4.7 | Ctx: 100k\n\u{25B6}\u{25B6} bypass permissions on (shift+tab to cycle)";
+        assert!(detect_decision_point(tail.as_bytes()));
+    }
+
+    #[test]
+    fn decision_point_status_bar_phrase_alone() {
+        // Even without the prompt glyph, the Claude status phrase
+        // alone is a strong "at rest waiting" signal.
+        let tail = "lots of streamed output\n\n... bypass permissions on (shift+tab to cycle)";
+        assert!(detect_decision_point(tail.as_bytes()));
+    }
+
+    #[test]
+    fn decision_point_other_prompt_glyphs() {
+        // Every TUI agent ships its own prompt glyph. We accept the
+        // common set so the operator engages regardless of theme.
+        for glyph in ['\u{203A}', '\u{276F}', '\u{2771}', '\u{25B6}', '\u{25BA}'] {
+            let s = format!("response done\n\n{glyph} ");
+            assert!(
+                detect_decision_point(s.as_bytes()),
+                "should detect glyph {glyph:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn decision_point_negatives() {
+        assert!(!detect_decision_point(b"compiling crate covenant v0.1.0"));
+        assert!(!detect_decision_point(b"running 70 tests\ntest result: ok"));
+        assert!(!detect_decision_point(b""));
+        // A `?` mid-output (not at end) shouldn't trigger.
+        assert!(!detect_decision_point(
+            b"why? because that's how it works.\nDone."
+        ));
+    }
+
+    #[test]
+    fn decision_point_strips_ansi_before_checking() {
+        // `?` followed only by ANSI cursor reset codes — should still
+        // count as trailing.
+        let tail = b"Should I proceed?\x1b[0m\x1b[?25h";
+        assert!(detect_decision_point(tail));
+    }
+
+    #[test]
+    fn decision_point_single_numbered_line_does_not_match() {
+        // One numbered line is just text. The menu heuristic needs
+        // at least two consecutive items to fire.
+        assert!(!detect_decision_point(
+            b"step 1. install the deps\nready when you are"
+        ));
     }
 
     #[test]

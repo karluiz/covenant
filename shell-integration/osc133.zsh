@@ -54,8 +54,16 @@ __karl_precmd() {
 }
 
 __karl_preexec() {
-    # zsh passes the about-to-execute command as $1.
-    __karl_emit_output_start "$1"
+    # zsh's preexec receives 3 args:
+    #   $1 = line exactly as the user typed it (e.g. "cc help")
+    #   $2 = line after history expansion
+    #   $3 = line after ALL expansions including alias resolution
+    #        (e.g. "claude help" if `alias cc=claude`)
+    # We emit $3 so downstream consumers (Operator pattern matching,
+    # block parser, executor detection) see the real command being
+    # run — aliases like `cc=claude`, `oc=opencode`, `ai=aider` resolve
+    # transparently. Falls back to $1 if $3 is unset (older zsh paths).
+    __karl_emit_output_start "${3:-$1}"
     _karl_cmd_active=1
 }
 
@@ -79,3 +87,62 @@ precmd_functions=(__karl_precmd $precmd_functions __karl_inject_b)
 
 preexec_functions=(${preexec_functions:#__karl_preexec})
 preexec_functions+=(__karl_preexec)
+
+# ─── zsh-autosuggestions integration ──────────────────────────────────
+#
+# Inline ghost-text autocomplete (https://github.com/zsh-users/zsh-autosuggestions).
+# Covenant doesn't bundle it — too many install conventions to manage —
+# but we probe the common paths and source the first hit so the user
+# gets fish-like as-you-type completion in Covenant tabs without any
+# manual config. If their .zshrc already loaded it (oh-my-zsh, sheldon,
+# antidote, manual), this no-ops because the plugin sets a guard.
+#
+# Tuning rationale:
+#   - STRATEGY=(history completion): try shell history first, then fall
+#     back to zsh's completion system. Skip the `match_prev_cmd` strategy
+#     — it's slow on big histories and we have Recall for that anyway.
+#   - BUFFER_MAX_SIZE=20: don't suggest for huge pasted lines.
+#   - HIGHLIGHT_STYLE: dim cyan, plays nice with our covenant-cyan
+#     accent without competing with the user's actual prompt colors.
+__karl_load_autosuggestions() {
+    # Already loaded by the user's own config — leave it alone.
+    if (( ${+ZSH_AUTOSUGGEST_VERSION} )); then
+        export _COVENANT_AUTOSUGGEST=user
+        return 0
+    fi
+
+    local candidates=(
+        # Homebrew (Apple Silicon)
+        /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+        # Homebrew (Intel)
+        /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+        # oh-my-zsh custom plugin layout
+        "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        # oh-my-zsh bundled plugin layout (some installs)
+        "${ZSH:-$HOME/.oh-my-zsh}/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        # antidote / antibody / sheldon manual clone
+        "$HOME/.zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        "$HOME/.local/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+        # Linux distros
+        /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+        /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+    )
+
+    local p
+    for p in $candidates; do
+        if [[ -r "$p" ]]; then
+            # Defaults BEFORE source so the plugin picks them up.
+            : ${ZSH_AUTOSUGGEST_STRATEGY:='history completion'}
+            : ${ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE:=20}
+            : ${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:='fg=#5c7080'}
+            source "$p"
+            export _COVENANT_AUTOSUGGEST=loaded:$p
+            return 0
+        fi
+    done
+
+    export _COVENANT_AUTOSUGGEST=missing
+    return 1
+}
+
+__karl_load_autosuggestions

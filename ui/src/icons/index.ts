@@ -108,11 +108,12 @@ export const Icons = {
       o,
     ),
 
-  /** Covenant logo — the ring (boundary) + the offset dot (operator
-   * working within). Monochrome, inherits color via currentColor. */
+  /** Covenant logo — the seal (ring), the prompt (chevron) and the
+   * operator (offset dot). Monochrome, inherits color via currentColor.
+   * Mirrors the geometry of the dock icon at 24×24. */
   covenant: (o?: IconOptions): string =>
     svg(
-      `<circle cx="12" cy="12" r="9"/><circle cx="15" cy="9" r="2.2" fill="currentColor" stroke="none"/>`,
+      `<circle cx="12" cy="12" r="9"/><polyline points="9.5 8.5 13 12 9.5 15.5"/><circle cx="15.6" cy="8.8" r="1.4" fill="currentColor" stroke="none"/>`,
       o,
     ),
 };

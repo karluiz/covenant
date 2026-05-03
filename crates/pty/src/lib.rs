@@ -4,7 +4,7 @@
 //!
 //! 1. [`smoke_zsh_echo`] — M0 acceptance test that proves portable-pty
 //!    plumbing works on this host.
-//! 2. [`PtySession`] — the real handle used by `karl-app` and (later)
+//! 2. [`PtySession`] — the real handle used by `covenant` and (later)
 //!    `karl-session`. Owns one PTY pair plus the child shell, spawns a
 //!    dedicated blocking reader thread, and exposes an async
 //!    [`OutputReceiver`] of byte chunks.

@@ -4,7 +4,7 @@
 //!   - a `tokio::broadcast` event bus carrying high-level [`SessionEvent`]s
 //!     for any number of subscribers (the super-agent in M3.2 is the
 //!     primary one);
-//!   - two `mpsc::UnboundedReceiver` streams the `karl-app` Tauri layer
+//!   - two `mpsc::UnboundedReceiver` streams the `covenant` Tauri layer
 //!     hands off to per-session frontend channels (raw bytes for xterm,
 //!     parsed [`karl_blocks::BlockEvent`]s for the sidebar);
 //!   - per-block output accumulation so `BlockFinished` carries the
@@ -202,7 +202,7 @@ impl SessionEvent {
 /// Streams the Tauri layer drains to feed per-session frontend channels.
 /// xterm needs every byte in order, so the raw stream is its own mpsc
 /// (no `Lagged` semantics). Sidebar / agent UI events come from the
-/// broadcast bus directly — Tauri's relay task in karl-app converts
+/// broadcast bus directly — Tauri's relay task in covenant converts
 /// `SessionEvent` → `SessionUiEvent` before forwarding.
 pub struct SessionStreams {
     pub raw_bytes: mpsc::UnboundedReceiver<Bytes>,
