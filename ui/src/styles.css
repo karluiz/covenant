@@ -6619,6 +6619,20 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   padding: 6px 8px;
   font: inherit;
 }
+.operators-pane__field input[type="color"] {
+  width: 56px;
+  height: 32px;
+  padding: 2px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.operators-pane__field input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.operators-pane__field input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
 .operators-pane__field textarea { resize: vertical; }
 .operators-pane__row-2 {
   display: grid; grid-template-columns: 1fr 1fr; gap: 12px;

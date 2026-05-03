@@ -9,12 +9,12 @@
 // that haven't been re-skinned yet).
 
 const modules = import.meta.glob<string>(
-  "../operators/*_transparent.png",
+  "../../operators/*_transparent.png",
   { query: "?url", import: "default", eager: true },
 );
 
 // Build {id → url} from the glob keys. Key shape:
-//   "../operators/oldbusinessman1_transparent.png"
+//   "../../operators/oldbusinessman1_transparent.png"
 // id = stem with "_transparent" stripped.
 const URL_BY_ID: Record<string, string> = {};
 for (const [key, url] of Object.entries(modules)) {

@@ -8,7 +8,7 @@ import {
   operatorSetDefault,
   operatorUpdate,
 } from "../api";
-import { AVATAR_PACK, parseAvatar } from "../operator/avatars";
+import { AVATAR_PACK, parseAvatar, renderAvatarHtml } from "../operator/avatars";
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
@@ -80,7 +80,7 @@ export class OperatorsPane {
         return `
           <button class="operators-pane__row${selected}" data-id="${op.id}">
             <span class="operators-pane__row-emoji"
-                  style="background:${op.color}">${op.emoji}</span>
+                  style="background:${op.color}">${renderAvatarHtml(op.emoji, 22)}</span>
             <span class="operators-pane__row-name">${escapeHtml(op.name)}</span>
             <span class="operators-pane__row-star">${star}</span>
           </button>`;
