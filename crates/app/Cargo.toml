@@ -32,6 +32,7 @@ rusqlite = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 strip-ansi-escapes = { workspace = true }
+ignore = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

@@ -23,6 +23,7 @@ vte = "0.14"
 bytes = "1"
 ulid = { version = "1", features = ["serde"] }
 strip-ansi-escapes = "0.2"
+ignore = "0.4"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
