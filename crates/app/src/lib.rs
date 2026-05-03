@@ -20,6 +20,7 @@ mod history_import;
 mod mission_persistence;
 mod notify;
 mod operator;
+mod operator_registry;
 mod safety;
 mod settings;
 mod storage;
