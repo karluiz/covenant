@@ -25,6 +25,7 @@ import {
   isAomExcluded,
   isOperatorEnabled,
   isOperatorLive,
+  operatorList,
   resizeSession,
   setAomExcluded,
   sessionSetOperator,
@@ -35,6 +36,7 @@ import {
   tabManifestSave,
   writeToSession,
   type MissionInfo,
+  type Operator,
   type SessionId,
   type TerminalConfig,
 } from "../api";
@@ -235,6 +237,19 @@ function saveSessionNameCache(m: Map<string, CachedSessionName>): void {
   }
 }
 
+/// Extract initials from an operator name (up to 3 chars).
+///   "Strict Reviewer" → "SR"
+///   "My Coder" → "MC"
+///   "Solo" → "S"
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase())
+    .join("")
+    .slice(0, 3);
+}
+
 export class TabManager {
   private readonly tabs: Tab[] = [];
   private readonly groups: Map<string, TabGroup> = new Map();
@@ -244,6 +259,10 @@ export class TabManager {
   private readonly menu: ContextMenu;
   private renaming: RenameTarget = null;
   private dragging: DragSource = null;
+  /// Cache of operator_id → Operator for rendering chips. Populated
+  /// once at boot via refreshOperatorCache() and refreshed after any
+  /// CRUD (setTabOperator, picker save). Not polled.
+  private operatorCache: Map<string, Operator> = new Map();
   /// groupId → last-rendered collapsed state. Used to detect a fold/
   /// unfold transition between renders so we can stage the "from"
   /// state on the freshly-built pill and flip to the "to" state on
@@ -288,6 +307,13 @@ export class TabManager {
       ) => void)
     | null = null;
 
+  /// Fires when the active tab's pinned Operator entity changes — either
+  /// because the tab switched or because setTabOperator was called on the
+  /// active tab. The status bar uses this to render the operator chip.
+  /// Passes null when the active tab has no pinned operator_id or the
+  /// cache doesn't have a match yet.
+  public onActiveOperatorEntityChange: ((op: Operator | null) => void) | null = null;
+
   /// Fires whenever the *active* tab's identity (name, color, or
   /// group membership/color) changes — including activation. Lets the
   /// status bar render a leading chip so the user always knows which
@@ -317,6 +343,20 @@ export class TabManager {
         void closeSession(tab.sessionId).catch(() => {});
       }
     });
+  }
+
+  /// Refresh the in-memory operator cache from the backend. Should be
+  /// called once at boot and after any operator CRUD. Triggers a tab
+  /// strip re-render so chips pick up the latest names/colors.
+  async refreshOperatorCache(): Promise<void> {
+    try {
+      const ops = await operatorList();
+      this.operatorCache = new Map(ops.map((o) => [o.id, o]));
+      this.renderTabbar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("refreshOperatorCache failed", err);
+    }
   }
 
   /// Pointer-event-based drag implementation.
@@ -616,12 +656,15 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) {
       this.onActiveOperatorChange?.(null, null);
+      this.onActiveOperatorEntityChange?.(null);
       return;
     }
     this.onActiveOperatorChange?.(
       { enabled: tab.operatorEnabled, live: tab.operatorLive },
       tab.sessionId,
     );
+    const opEntity = tab.operator_id ? (this.operatorCache.get(tab.operator_id) ?? null) : null;
+    this.onActiveOperatorEntityChange?.(opEntity);
   }
 
   /// Focus the active tab's terminal. Public so overlays (Recall
@@ -1366,6 +1409,8 @@ export class TabManager {
       await sessionSetOperator(tab.sessionId, operatorId);
     }
     this.scheduleSave();
+    // Refresh operator cache so the chip picks up any name/color updates.
+    await this.refreshOperatorCache();
     this.renderTabbar();
     if (tab.id === this.activeId) {
       this.onActiveOperatorChanged?.(tab);
@@ -2186,6 +2231,21 @@ export class TabManager {
       label.className = "tab-label";
       label.textContent = tabDisplayName(tab);
       pill.appendChild(label);
+    }
+
+    // Operator chip — shows initials of the pinned operator in its brand
+    // color. Only rendered when the tab has an operator_id that we have
+    // cached; absent otherwise (no cache hit = chip stays hidden).
+    if (tab.operator_id) {
+      const op = this.operatorCache.get(tab.operator_id) ?? null;
+      if (op) {
+        const opChip = document.createElement("span");
+        opChip.className = "tab-op-chip";
+        opChip.style.background = op.color;
+        opChip.title = op.name;
+        opChip.textContent = initials(op.name);
+        pill.appendChild(opChip);
+      }
     }
 
     const close = document.createElement("span");

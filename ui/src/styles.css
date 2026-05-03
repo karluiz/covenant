@@ -6495,3 +6495,34 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   border-color: var(--accent);
   color: var(--accent-fg, #fff);
 }
+
+/* ── Task 3: Tab strip operator chip ───────────────────────────────── */
+.tab-op-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.4);
+}
+
+/* ── Task 4: Status bar operator chip ──────────────────────────────── */
+.status-chip-operator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: none;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.status-chip-operator:hover { filter: brightness(1.1); }
