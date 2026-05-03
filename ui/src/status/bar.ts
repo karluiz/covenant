@@ -51,6 +51,10 @@ export class StatusBar {
   private currentMission: MissionInfo | null = null;
   private currentSessionId: SessionId | null = null;
   private currentExecutor: string | null = null;
+  /// Per-active-tab Operator state. Null when no active tab OR the
+  /// active tab has Operator off — collapses the chip in either case.
+  /// `live` is meaningful only when `enabled: true` (backend invariant).
+  private currentOperator: { enabled: boolean; live: boolean } | null = null;
   private currentAom: AomStatus | null = null;
   private aomActions: AomActions | null = null;
   private aomPopover: HTMLElement | null = null;
@@ -126,6 +130,31 @@ export class StatusBar {
     this.render(this.lastDirCtx);
   }
 
+  /// Pushed by TabManager whenever the active tab's Operator state
+  /// changes (toggle, AOM auto-enable, tab switch). Replaces the
+  /// per-tab pill icon that used to live on every tab. Null collapses
+  /// the chip — no operator off "explicit" state, just absence.
+  setOperator(
+    state: { enabled: boolean; live: boolean } | null,
+    sessionId: SessionId | null,
+  ): void {
+    // Normalize: when not enabled, treat as null. We don't show a chip
+    // for "operator off" — that's the silent default.
+    const next = state && state.enabled ? state : null;
+    const sameState =
+      (this.currentOperator?.enabled ?? null) === (next?.enabled ?? null) &&
+      (this.currentOperator?.live ?? null) === (next?.live ?? null);
+    const sameSession = this.currentSessionId === sessionId;
+    if (sameState && sameSession) return;
+    this.currentOperator = next;
+    // currentSessionId is also tracked by setMission; only overwrite
+    // when it's unset, otherwise we'd race the mission renderer.
+    if (this.currentSessionId === null && sessionId !== null) {
+      this.currentSessionId = sessionId;
+    }
+    this.render(this.lastDirCtx);
+  }
+
   /// Bind the action handlers used by the AOM popover. Called once at
   /// boot — wires Stop/AFK so the chip's popover doesn't need to reach
   /// out to the global AomBanner / AfkOverlay itself.
@@ -196,7 +225,7 @@ export class StatusBar {
     const warnClass = ratio >= 0.8 ? " status-aom-pop-warn" : "";
     pop.innerHTML = `
       <div class="status-aom-pop-header">
-        <span class="status-aom-pop-icon">${Icons.bot({ size: 14 })}</span>
+        <span class="status-aom-pop-icon">${Icons.zap({ size: 14 })}</span>
         <span class="status-aom-pop-title">Autonomous Operator Mode</span>
       </div>
       <div class="status-aom-pop-grid">
@@ -318,6 +347,11 @@ export class StatusBar {
         addMissionSegment(() => this.onMissionSetRequested?.(sid)),
       );
     }
+    if (this.currentOperator && this.currentOperator.enabled) {
+      this.host.appendChild(
+        operatorSegment(this.currentOperator),
+      );
+    }
     if (this.currentExecutor) {
       this.host.appendChild(executorSegment(this.currentExecutor));
     }
@@ -401,7 +435,7 @@ function aomSegment(
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
-  icon.innerHTML = Icons.bot({ size: 12 });
+  icon.innerHTML = Icons.zap({ size: 12 });
   el.appendChild(icon);
 
   const label = document.createElement("span");
@@ -455,6 +489,39 @@ function versionSegment(version: string, onClick: () => void): HTMLElement {
     e.stopPropagation();
     onClick();
   });
+  return el;
+}
+
+/// Operator state for the active tab — replaces the per-tab pill icon
+/// that used to live on every tab. Two visual states:
+///   - dry-run (enabled, !live): muted bot, label "OP"
+///   - live (enabled & live):    warm bot with pulse, label "OP LIVE"
+/// Tooltip carries the verbose explanation (we keep the chip terse).
+/// No click target — toggling is still done from the tab context menu;
+/// adding a status-bar click would duplicate the affordance and surface
+/// menu chrome below the chip just to host two items.
+function operatorSegment(state: { enabled: boolean; live: boolean }): HTMLElement {
+  const el = document.createElement("span");
+  const liveCls = state.live ? " status-operator-live" : "";
+  el.className = `status-segment status-operator${liveCls}`;
+  el.title = state.live
+    ? "Operator LIVE — replies will be typed into this tab"
+    : "Operator enabled (dry-run) — replies are proposed, not typed";
+  el.setAttribute(
+    "aria-label",
+    state.live ? "Operator live" : "Operator enabled, dry-run",
+  );
+
+  const icon = document.createElement("span");
+  icon.className = "status-icon";
+  icon.innerHTML = Icons.bot({ size: 12 });
+  el.appendChild(icon);
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = state.live ? "OP LIVE" : "OP";
+  el.appendChild(text);
+
   return el;
 }
 

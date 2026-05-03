@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
+import { playAomEntrySplash, playAomExitSplash } from "./aom/entry-splash";
 import { AomReportPanel } from "./aom/report";
 import { AfkOverlay } from "./aom/afk";
 import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
@@ -21,6 +22,7 @@ import { ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
+import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { StatusBar } from "./status/bar";
@@ -172,6 +174,11 @@ async function boot(): Promise<void> {
   manager.onActiveContextChange = (cwd) => statusBar.setCwd(cwd);
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
+  // Mirror the active tab's Operator state into the status bar — the
+  // per-tab pill icon was removed in favor of this single chip so the
+  // tab strip stays minimal.
+  manager.onActiveOperatorChange = (state, sessionId) =>
+    statusBar.setOperator(state, sessionId);
   // Tab context-menu "View mission…" reuses the same modal as the
   // status-bar chip — keep the rendering in one place.
   manager.onMissionViewRequested = (mission, sessionId) =>
@@ -187,6 +194,7 @@ async function boot(): Promise<void> {
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
   const operator = new OperatorPanel(document.body, manager);
   const release = new ReleasePanel(document.body);
+  const shortcutsPanel = new ShortcutsPanel(document.body);
   statusBar.onVersionChipClick = () => release.toggle();
   // Auto-show "What's new" on the first launch after a version bump.
   // Compares the persisted last-seen version with the running one;
@@ -412,28 +420,56 @@ async function boot(): Promise<void> {
       searchPalette.toggle();
       return;
     }
-    // ⌘⇧O → Convergence Mode overlay (spec 3.8). Toggles full-window.
-    if (e.metaKey && e.shiftKey && (e.key === "O" || e.key === "o")) {
+    // ⌘⌥O → Convergence Mode overlay (spec 3.8). Toggles full-window.
+    // (Was ⌘⇧O; clashed with Octoclip's global shortcut.)
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "O" || e.key === "o" || e.key === "ø")) {
       e.preventDefault();
       convergence.toggle();
       return;
     }
-    // ⌘⇧A — layered AOM/AFK toggle:
-    //   AFK open        → close AFK (back to normal UI; AOM stays on)
-    //   AOM on, AFK off → open AFK (Battery Mode)
-    //   AOM off         → start AOM (auto-enables Operator on every
-    //                     non-excluded tab; banner.onChange refreshes
-    //                     per-tab badges).
-    // Stopping AOM is done via the banner's Stop button (intentional —
-    // a four-state shortcut would be too easy to mistrigger overnight).
+    // ⌘⇧K → Keyboard shortcuts modal (read-only list).
+    if (e.metaKey && e.shiftKey && (e.key === "K" || e.key === "k")) {
+      e.preventDefault();
+      shortcutsPanel.toggle();
+      return;
+    }
+    // ⌘⇧A — pure AOM toggle: off ↔ on.
+    //
+    // Earlier this shortcut layered AFK in between (off→on→AFK→off),
+    // but in practice the second press to stop AOM was muscle-memory
+    // and got hijacked into opening AFK. AFK is now reachable only
+    // from the AOM chip's popover (`bindAomActions.onAfk`) — that's
+    // where the dedicated affordance lives, so the keyboard stays
+    // simple and predictable.
+    //
+    // If AFK happens to be open when AOM gets stopped, we close AFK
+    // first so there's no orphan overlay sitting over a stopped AOM.
     if (e.metaKey && e.shiftKey && (e.key === "A" || e.key === "a")) {
       e.preventDefault();
-      if (afk.isOpen()) {
-        afk.close();
-      } else if (aomBanner.isOn()) {
-        afk.open();
+      if (aomBanner.isOn()) {
+        if (afk.isOpen()) afk.close();
+        // Snapshot the run stats BEFORE the toggle resolves — the
+        // backend keeps started_at/decisions/cost stamped after stop,
+        // but reading them post-toggle is also safe. We capture pre-
+        // toggle so a race with a poll tick that arrives mid-stop
+        // can't blank out the splash data.
+        const finalStatus = aomBanner.getStatus();
+        void aomBanner.toggle().then(() => {
+          if (!aomBanner.isOn()) {
+            void playAomExitSplash(finalStatus);
+          }
+        });
       } else {
-        void aomBanner.toggle();
+        // OFF→ON: kick the entry splash AFTER the backend confirms
+        // the toggle, so the budget the splash displays is the value
+        // AOM actually started with (not whatever the UI cached). If
+        // the toggle errors or doesn't actually flip on (race), skip
+        // the splash entirely.
+        void aomBanner.toggle().then(() => {
+          if (aomBanner.isOn()) {
+            void playAomEntrySplash(aomBanner.getStatus());
+          }
+        });
       }
       return;
     }
@@ -506,6 +542,11 @@ async function boot(): Promise<void> {
       if (release.isOpen()) {
         e.preventDefault();
         release.close();
+        return;
+      }
+      if (shortcutsPanel.isOpen()) {
+        e.preventDefault();
+        shortcutsPanel.close();
         return;
       }
       if (docsPanel.isOpen()) {

@@ -1,0 +1,86 @@
+// Language detection + grammar loader for the StructureEditor.
+//
+// Maps a file path → CodeMirror language extension. Detection is
+// extension-first (covers ~95% of cases), with a small filename
+// fallback for the special files that don't carry one (Dockerfile,
+// Makefile, Cargo.lock, …).
+//
+// Grammars are bundled — no dynamic import. Total payload is small
+// enough (~120 KB across the 12 supported languages) that paying for
+// it once at boot is simpler than juggling lazy chunks. If the list
+// grows past 25–30 grammars, revisit with `import()` per match.
+
+import type { Extension } from "@codemirror/state";
+import { rust } from "@codemirror/lang-rust";
+import { javascript } from "@codemirror/lang-javascript";
+import { python } from "@codemirror/lang-python";
+import { json } from "@codemirror/lang-json";
+import { markdown } from "@codemirror/lang-markdown";
+import { css } from "@codemirror/lang-css";
+import { html } from "@codemirror/lang-html";
+import { yaml } from "@codemirror/lang-yaml";
+import { StreamLanguage } from "@codemirror/language";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+
+/// Lookup by lowercased extension. Multiple keys can map to the same
+/// language (`.ts` and `.tsx` both → typescript variant of JS).
+const BY_EXT: Record<string, () => Extension> = {
+  rs: () => rust(),
+  ts: () => javascript({ typescript: true }),
+  tsx: () => javascript({ typescript: true, jsx: true }),
+  js: () => javascript(),
+  jsx: () => javascript({ jsx: true }),
+  mjs: () => javascript(),
+  cjs: () => javascript(),
+  py: () => python(),
+  pyi: () => python(),
+  json: () => json(),
+  md: () => markdown(),
+  markdown: () => markdown(),
+  mdx: () => markdown(),
+  css: () => css(),
+  scss: () => css(),
+  html: () => html(),
+  htm: () => html(),
+  xml: () => html(),
+  yaml: () => yaml(),
+  yml: () => yaml(),
+  sh: () => StreamLanguage.define(shell),
+  bash: () => StreamLanguage.define(shell),
+  zsh: () => StreamLanguage.define(shell),
+  toml: () => StreamLanguage.define(toml),
+};
+
+/// Filename fallback — exact (case-sensitive) match against the
+/// basename. These are filenames that don't carry an extension but
+/// whose language is well-known.
+const BY_NAME: Record<string, () => Extension> = {
+  Dockerfile: () => StreamLanguage.define(dockerFile),
+  Containerfile: () => StreamLanguage.define(dockerFile),
+  Makefile: () => StreamLanguage.define(shell), // close enough; shell-shaped
+  "Cargo.lock": () => StreamLanguage.define(toml),
+  "Cargo.toml": () => StreamLanguage.define(toml),
+};
+
+/// Resolve a CodeMirror language extension for `path`. Returns null
+/// when no supported language matches — caller falls back to plain
+/// text editing (still gets gutters, undo, search, just no colors).
+export function languageForPath(path: string): Extension | null {
+  const base = path.split("/").pop() ?? "";
+
+  const byName = BY_NAME[base];
+  if (byName) return byName();
+
+  // Dotfiles like `.zshrc`, `.bashrc` — treat as shell.
+  if (base.startsWith(".") && /^\.(z|ba)shrc$|^\.profile$|^\.zprofile$/.test(base)) {
+    return StreamLanguage.define(shell);
+  }
+
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const ext = base.slice(dot + 1).toLowerCase();
+  const factory = BY_EXT[ext];
+  return factory ? factory() : null;
+}

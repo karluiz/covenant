@@ -265,6 +265,18 @@ export class TabManager {
     | ((mission: MissionInfo | null, sessionId: SessionId | null) => void)
     | null = null;
 
+  /// Sibling of `onActiveMissionChange` for the Operator state. Fires
+  /// when the active tab's `operatorEnabled` / `operatorLive` flips
+  /// OR the active tab itself changes. The status bar uses this to
+  /// render an Operator chip in place of the per-tab pill icon that
+  /// used to live on every tab.
+  public onActiveOperatorChange:
+    | ((
+        state: { enabled: boolean; live: boolean } | null,
+        sessionId: SessionId | null,
+      ) => void)
+    | null = null;
+
   constructor(
     private readonly tabbarHost: HTMLElement,
     private readonly workspace: HTMLElement,
@@ -541,9 +553,11 @@ export class TabManager {
       tab.mission = mission;
     }
     this.renderTabbar();
-    // Re-push the active tab's mission too — file watcher / AOM
-    // auto-enable cycles can change it without a tab activation.
+    // Re-push the active tab's mission + operator state too — file
+    // watcher / AOM auto-enable cycles can change either without a
+    // tab activation.
     this.emitActiveMission();
+    this.emitActiveOperator();
   }
 
   /// Push the active tab's mission to whoever is listening (status bar).
@@ -551,6 +565,21 @@ export class TabManager {
   private emitActiveMission(): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     this.onActiveMissionChange?.(tab?.mission ?? null, tab?.sessionId ?? null);
+  }
+
+  /// Same idea as emitActiveMission but for Operator state. Called
+  /// after activation, after toggleOperator/toggleOperatorLive, and
+  /// after AOM bulk-refreshes the per-tab state.
+  private emitActiveOperator(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) {
+      this.onActiveOperatorChange?.(null, null);
+      return;
+    }
+    this.onActiveOperatorChange?.(
+      { enabled: tab.operatorEnabled, live: tab.operatorLive },
+      tab.sessionId,
+    );
   }
 
   /// Focus the active tab's terminal. Public so overlays (Recall
@@ -1210,6 +1239,7 @@ export class TabManager {
       // Mirror it here so the UI doesn't claim live until next render.
       if (!next) tab.operatorLive = false;
       this.renderTabbar();
+      if (tab.id === this.activeId) this.emitActiveOperator();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_enabled failed", err);
@@ -1227,6 +1257,7 @@ export class TabManager {
       await setOperatorLive(tab.sessionId, next);
       tab.operatorLive = next;
       this.renderTabbar();
+      if (tab.id === this.activeId) this.emitActiveOperator();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_live failed", err);
@@ -1486,6 +1517,7 @@ export class TabManager {
     this.renderTabbar();
     this.onActiveContextChange?.(tab.cwd);
     this.emitActiveMission();
+    this.emitActiveOperator();
 
     requestAnimationFrame(() => {
       try {
@@ -1836,7 +1868,7 @@ export class TabManager {
       if (group.collapsed) {
         const count = document.createElement("span");
         count.className = "group-chip-count";
-        count.textContent = `(${memberCount})`;
+        count.textContent = String(memberCount);
         chip.appendChild(count);
       }
     }
@@ -1886,30 +1918,12 @@ export class TabManager {
       }
     }
 
-    if (tab.operatorEnabled) {
-      // Bot icon as a discreet leading affordance. In live mode it
-      // gains a `tab-operator-live` modifier so CSS can recolor it
-      // (the user always sees at a glance whether bytes can fly).
-      const botEl = document.createElement("span");
-      botEl.className = tab.operatorLive
-        ? "tab-operator-icon tab-operator-live"
-        : "tab-operator-icon";
-      botEl.title = tab.operatorLive
-        ? "Operator LIVE — replies will be typed into this tab"
-        : "Operator enabled (dry-run)";
-      botEl.innerHTML = Icons.bot({ size: 13 });
-      pill.appendChild(botEl);
-    }
-    if (tab.mission) {
-      // Mission badge — target icon (distinct from the lightbulb the
-      // block manager / toasts use for fix suggestions, so the two
-      // concepts don't visually collide). Tooltip shows the spec path.
-      const missionEl = document.createElement("span");
-      missionEl.className = "tab-mission-icon";
-      missionEl.title = `Mission: ${tab.mission.path}\n${tab.mission.content_preview}`;
-      missionEl.innerHTML = Icons.target({ size: 12 });
-      pill.appendChild(missionEl);
-    }
+    // Operator + mission badges used to live here as leading icons on
+    // every tab pill. Moved to the status bar (active tab only) for a
+    // simpler, less noisy tab strip — see StatusBar.setMission and
+    // setOperator. Tradeoff: you can no longer see at a glance which
+    // INACTIVE tabs have Operator/mission on, but the right-click
+    // context menu still surfaces both per tab.
 
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");

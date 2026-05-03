@@ -45,6 +45,17 @@ export const Icons = {
       o,
     ),
 
+  /** Zap (lightning bolt) — Autonomous Operator Mode. Reserved for
+   * AOM surfaces ONLY (banner, status chip, splash). The Operator
+   * (per-tab) keeps `bot`; this distinction matters because the user
+   * needs to read the difference between "Operator is on for this
+   * tab" and "the global AOM kicked in across all tabs". */
+  zap: (o?: IconOptions): string =>
+    svg(
+      `<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`,
+      o,
+    ),
+
   /** Link / chain — cross-session correlation. */
   link2: (o?: IconOptions): string =>
     svg(

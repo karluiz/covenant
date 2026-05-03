@@ -160,7 +160,7 @@ export class AomBanner {
   private render(): void {
     this.root.hidden = false;
     this.root.innerHTML = `
-      <span class="aom-banner-icon">${Icons.bot({ size: 14 })}</span>
+      <span class="aom-banner-icon">${Icons.zap({ size: 14 })}</span>
       <span class="aom-banner-label">AOM</span>
       <span class="aom-banner-time" aria-label="time elapsed"></span>
       <span class="aom-banner-sep">·</span>

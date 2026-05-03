@@ -1,11 +1,50 @@
-// Minimal in-app editor: <textarea> backed by a synced line-number
-// gutter, with ⌘S save and a "too large" / binary placeholder. No
-// syntax highlighting, no LSP — explicitly out of scope per spec 3.3.
-// The point is the one-line edit escape hatch with enough polish to
-// feel intentional next to the rest of Covenant's surface.
+// In-app editor backed by CodeMirror 6. The pane lives inside the
+// Structure split (between terminal and sidebar); same header as
+// before (path, ext chip, dirty indicator, wrap toggle, close), but
+// the body is now an EditorView with syntax highlighting, gutter,
+// undo, multi-cursor, in-file ⌘F search, and virtualised rendering.
+//
+// ⌘F     — open in-file search panel (CM6 default).
+// ⌘⇧F    — UNTOUCHED. The global content-search palette wins; we
+//          deliberately don't register Mod-Shift-f anywhere here.
+// ⌘S     — save file (custom keymap below).
+// ⌘Z/⌘⇧Z — undo / redo (history extension).
+// Tab / Shift-Tab — indent / dedent (CM6 default).
+//
+// Wrap toggle, save, jumpToLine and the size/binary placeholder all
+// route through CM6's reconfiguration / dispatch APIs instead of the
+// previous textarea+gutter DOM.
+
+import { Compartment, EditorState } from "@codemirror/state";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  drawSelection,
+  rectangularSelection,
+  crosshairCursor,
+} from "@codemirror/view";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
+import {
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
+  indentUnit,
+} from "@codemirror/language";
+import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 
 import { Icons } from "../icons";
 import { structureReadFile, structureWriteFile } from "../api";
+import { languageForPath } from "./languages";
+import { editorHighlight, editorTheme } from "./theme";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -23,15 +62,20 @@ export class StructureEditor {
   private readonly statusEl: HTMLElement;
   private readonly wrapBtn: HTMLButtonElement;
   private readonly bodyEl: HTMLElement;
-  private readonly gutterEl: HTMLElement;
-  private readonly textareaEl: HTMLTextAreaElement;
+  private readonly editorHostEl: HTMLElement;
   private readonly placeholderEl: HTMLElement;
   private currentPath: string | null = null;
   private originalContent: string | null = null;
   private dirty = false;
   private visible = false;
-  private lastLineCount = 0;
   private wrap: boolean;
+
+  /// CM6 view + reconfigurable compartments. Compartments let us swap
+  /// the language extension and toggle line-wrapping without rebuilding
+  /// the editor state from scratch on every file open / wrap toggle.
+  private view: EditorView | null = null;
+  private readonly languageCompartment = new Compartment();
+  private readonly wrapCompartment = new Compartment();
 
   constructor(
     private readonly host: HTMLElement,
@@ -58,14 +102,8 @@ export class StructureEditor {
     this.statusEl.className = "structure-editor-status";
     this.headerEl.appendChild(this.statusEl);
 
-    // Wrap toggle — flips between soft-wrap (default) and no-wrap
-    // (horizontal scroll for code with long aligned lines). The
-    // preference is per-OPEN-FILE, NOT persisted across sessions:
-    // every time the user opens a file the editor starts wrapped so
-    // they always see the full content immediately. A previous design
-    // persisted the choice in localStorage, but a single accidental
-    // OFF click left the user stuck — every subsequent file opened
-    // with horizontal-scroll cuts and no obvious recovery.
+    // Wrap toggle — flips between soft-wrap (default) and no-wrap.
+    // Per-file, not persisted: every fresh file open starts wrapped.
     this.wrap = true;
     this.wrapBtn = document.createElement("button");
     this.wrapBtn.type = "button";
@@ -85,37 +123,11 @@ export class StructureEditor {
     this.bodyEl.className = "structure-editor-body";
     this.root.appendChild(this.bodyEl);
 
-    this.gutterEl = document.createElement("div");
-    this.gutterEl.className = "structure-editor-gutter";
-    this.gutterEl.setAttribute("aria-hidden", "true");
-    this.bodyEl.appendChild(this.gutterEl);
-
-    this.textareaEl = document.createElement("textarea");
-    this.textareaEl.className = "structure-editor-textarea";
-    this.textareaEl.spellcheck = false;
-    // wrap attribute mirrors the wrap CSS — set in applyWrap() below.
-    this.textareaEl.addEventListener("input", () => {
-      this.dirty = this.textareaEl.value !== (this.originalContent ?? "");
-      this.renderGutter();
-      this.renderStatus();
-    });
-    this.textareaEl.addEventListener("scroll", () => {
-      this.gutterEl.scrollTop = this.textareaEl.scrollTop;
-    });
-    this.textareaEl.addEventListener("keydown", (e) => {
-      const isMod = e.metaKey || e.ctrlKey;
-      if (isMod && e.key === "s") {
-        e.preventDefault();
-        void this.save();
-      } else if (e.key === "Tab") {
-        // Two-space indent on Tab (Shift+Tab dedents). Without this the
-        // textarea moves focus out of the editor on every Tab — useless
-        // for code.
-        e.preventDefault();
-        this.handleTab(e.shiftKey);
-      }
-    });
-    this.bodyEl.appendChild(this.textareaEl);
+    // Editor host — CM6 mounts here. Kept separate from `bodyEl` so the
+    // placeholder can sit alongside without colliding with CM6's layout.
+    this.editorHostEl = document.createElement("div");
+    this.editorHostEl.className = "structure-editor-cm";
+    this.bodyEl.appendChild(this.editorHostEl);
 
     this.placeholderEl = document.createElement("div");
     this.placeholderEl.className = "structure-editor-placeholder";
@@ -124,31 +136,98 @@ export class StructureEditor {
 
     this.host.appendChild(this.root);
 
-    // Initial wrap state — applies CSS class, textarea attr, and sets
-    // the toggle button label. Run after the DOM is wired so the body
-    // class lands on a real element.
-    this.applyWrap();
+    this.refreshWrapButton();
+  }
+
+  /// Build a fresh EditorState for `text` with the language matching
+  /// `path` (null → no language, plain editing). Reusable on every
+  /// file open: CM6 is fastest when the state is constructed once
+  /// per document instead of mutated piecemeal.
+  private buildState(path: string, text: string): EditorState {
+    const lang = languageForPath(path);
+    const langExtension = lang ? [lang] : [];
+
+    return EditorState.create({
+      doc: text,
+      extensions: [
+        // Chrome.
+        editorTheme,
+        editorHighlight,
+        lineNumbers(),
+        foldGutter(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        drawSelection(),
+        rectangularSelection(),
+        crosshairCursor(),
+        highlightSelectionMatches(),
+
+        // Editing.
+        history(),
+        bracketMatching(),
+        indentOnInput(),
+        indentUnit.of("  "), // 2-space indent — matches the previous textarea behaviour.
+        EditorView.lineWrapping, // placeholder; replaced by wrap compartment below
+        this.wrapCompartment.of(this.wrap ? EditorView.lineWrapping : []),
+
+        // Language (in a compartment so future file opens swap it
+        // without rebuilding the whole state).
+        this.languageCompartment.of(langExtension),
+
+        // Keymap. Order matters — search/history/default keep their
+        // standard bindings; we add Mod-s explicitly. We deliberately
+        // do NOT include any binding that would touch Mod-Shift-f
+        // (the global content-search palette owns that).
+        keymap.of([
+          { key: "Mod-s", preventDefault: true, run: () => this.handleSave() },
+          ...searchKeymap,
+          ...historyKeymap,
+          ...foldKeymap,
+          ...defaultKeymap,
+          indentWithTab,
+        ]),
+
+        // Track dirty state. Cheaper than diffing the whole doc — the
+        // listener fires only when the document actually changes.
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) this.onDocChanged();
+        }),
+      ],
+    });
+  }
+
+  private onDocChanged(): void {
+    if (!this.view) return;
+    const current = this.view.state.doc.toString();
+    const next = current !== (this.originalContent ?? "");
+    if (next !== this.dirty) {
+      this.dirty = next;
+      this.renderStatus();
+    }
+  }
+
+  /// Save handler bound to ⌘S in the keymap. Returns `true` to stop
+  /// CM6 from also handling the event.
+  private handleSave(): boolean {
+    void this.save();
+    return true;
   }
 
   /// Flip between soft-wrap and no-wrap for the currently-open file.
-  /// Not persisted — the next file open starts wrapped again.
+  /// Reconfigures the wrap compartment in-place — no state rebuild.
   private toggleWrap(): void {
     this.wrap = !this.wrap;
-    this.applyWrap();
+    if (this.view) {
+      this.view.dispatch({
+        effects: this.wrapCompartment.reconfigure(
+          this.wrap ? EditorView.lineWrapping : [],
+        ),
+      });
+    }
+    this.refreshWrapButton();
   }
 
-  /// Apply current `wrap` state to the DOM:
-  ///   - textarea wrap attribute (browser line breaking)
-  ///   - body CSS class (drives white-space + gutter visibility)
-  ///   - button label/title for affordance
-  /// Hides the gutter when wrap is on — the gutter lists ONE line per
-  /// logical newline, but a wrapped textarea has more visual lines than
-  /// logical, so the line numbers desync from cursor position. Hiding
-  /// is simpler and more honest than fighting the math.
-  private applyWrap(): void {
-    this.textareaEl.wrap = this.wrap ? "soft" : "off";
-    this.bodyEl.classList.toggle("structure-editor-wrap-on", this.wrap);
-    this.bodyEl.classList.toggle("structure-editor-wrap-off", !this.wrap);
+  private refreshWrapButton(): void {
     this.wrapBtn.textContent = this.wrap ? "wrap: on" : "wrap: off";
     this.wrapBtn.title = this.wrap
       ? "Wrap on — long lines fold to fit the pane. Click to disable."
@@ -166,18 +245,16 @@ export class StructureEditor {
     this.setExt(path);
     this.statusEl.textContent = "loading…";
     this.statusEl.classList.remove("dirty");
-    // Reset wrap to ON for every fresh file open. The toggle is a
-    // per-file knob — opening a different file always starts wrapped
-    // so the user immediately sees full content, never has to fight
-    // a stale preference from the previous file.
-    // EXCEPTION: when opening AT a specific line (jump from global
-    // search), force wrap OFF — line-jumping only makes sense if line
-    // numbers in the source map 1:1 to visible rows, which wrap breaks.
+
+    // Reset wrap to ON for every fresh file open. EXCEPTION: when
+    // jumping to a specific line (global search → editor), force wrap
+    // OFF so line numbers map 1:1 to visible rows.
     const wantWrap = opts?.line === undefined;
     if (this.wrap !== wantWrap) {
       this.wrap = wantWrap;
-      this.applyWrap();
+      this.refreshWrapButton();
     }
+
     this.show();
     let result;
     try {
@@ -201,46 +278,52 @@ export class StructureEditor {
     this.originalContent = text;
     this.dirty = false;
     this.placeholderEl.hidden = true;
-    this.textareaEl.hidden = false;
-    this.gutterEl.hidden = false;
-    this.textareaEl.value = text;
-    this.renderGutter();
+    this.editorHostEl.hidden = false;
+
+    // Tear down any previous view + state. Cheaper than reconfiguring
+    // language + replacing the whole document on a totally different
+    // file; CM6 dispatches per-line for big inserts otherwise.
+    if (this.view) {
+      this.view.destroy();
+      this.view = null;
+    }
+    const state = this.buildState(path, text);
+    this.view = new EditorView({
+      state,
+      parent: this.editorHostEl,
+    });
     this.renderStatus();
+
     requestAnimationFrame(() => {
-      this.textareaEl.focus();
+      if (!this.view) return;
+      this.view.focus();
       if (opts?.line !== undefined) {
         this.jumpToLine(opts.line);
       }
     });
   }
 
-  /// Position the caret at the start of `line` (1-based) and scroll
-  /// the textarea so that line is roughly centered in the viewport.
-  /// Used by global search "click to open" — caret position acts as
-  /// a visual marker for which match the user landed on.
+  /// Move caret + scroll to `line` (1-based) in the active doc. Used
+  /// by global content search "click to open" and intentional jumps
+  /// from elsewhere in the app.
   private jumpToLine(line: number): void {
-    const value = this.textareaEl.value;
-    const lines = value.split("\n");
-    const targetIdx = Math.max(0, Math.min(line - 1, lines.length - 1));
-    // Compute byte offset of the start of the target line.
-    let offset = 0;
-    for (let i = 0; i < targetIdx; i++) {
-      offset += lines[i].length + 1; // +1 for \n
-    }
-    this.textareaEl.selectionStart = offset;
-    this.textareaEl.selectionEnd = offset + lines[targetIdx].length;
-    // Scroll: approximate by line-height × target line, then center.
-    const lineHeight = 12.5 * 1.55; // matches CSS .structure-editor-textarea
-    const desired = lineHeight * targetIdx - this.textareaEl.clientHeight / 2;
-    this.textareaEl.scrollTop = Math.max(0, desired);
+    if (!this.view) return;
+    const doc = this.view.state.doc;
+    const target = Math.max(1, Math.min(line, doc.lines));
+    const lineInfo = doc.line(target);
+    this.view.dispatch({
+      selection: { anchor: lineInfo.from, head: lineInfo.to },
+      effects: EditorView.scrollIntoView(lineInfo.from, { y: "center" }),
+    });
   }
 
   async save(): Promise<void> {
-    if (!this.currentPath) return;
+    if (!this.currentPath || !this.view) return;
     if (!this.dirty) return;
+    const text = this.view.state.doc.toString();
     try {
-      await structureWriteFile(this.currentPath, this.textareaEl.value);
-      this.originalContent = this.textareaEl.value;
+      await structureWriteFile(this.currentPath, text);
+      this.originalContent = text;
       this.dirty = false;
       this.renderStatus();
       this.callbacks.toast?.("Saved", "info");
@@ -269,15 +352,19 @@ export class StructureEditor {
     this.currentPath = null;
     this.originalContent = null;
     this.dirty = false;
-    this.textareaEl.value = "";
-    this.gutterEl.textContent = "";
-    this.lastLineCount = 0;
+    if (this.view) {
+      this.view.destroy();
+      this.view = null;
+    }
     this.callbacks.onClose?.();
   }
 
   private showPlaceholder(message: string): void {
-    this.textareaEl.hidden = true;
-    this.gutterEl.hidden = true;
+    if (this.view) {
+      this.view.destroy();
+      this.view = null;
+    }
+    this.editorHostEl.hidden = true;
     this.placeholderEl.hidden = false;
     this.placeholderEl.textContent = message;
     this.originalContent = null;
@@ -300,24 +387,6 @@ export class StructureEditor {
     }
   }
 
-  /// Recompute the gutter only if the line count changed. Building DOM
-  /// for every keystroke at long files (>5k lines) would jank scroll.
-  private renderGutter(): void {
-    const value = this.textareaEl.value;
-    // String.split('\n') is fast enough at our sizes (we cap at 1 MiB).
-    // +1 because trailing-empty doesn't show as a line in `split` if the
-    // string ends without `\n` — but if it ends WITH `\n` we want one
-    // empty trailing line shown.
-    const lineCount = countLines(value);
-    if (lineCount === this.lastLineCount) return;
-    this.lastLineCount = lineCount;
-    let html = "";
-    for (let i = 1; i <= lineCount; i++) {
-      html += `<span>${i}</span>`;
-    }
-    this.gutterEl.innerHTML = html;
-  }
-
   private setExt(path: string): void {
     const ext = extensionOf(path);
     if (!ext) {
@@ -327,31 +396,6 @@ export class StructureEditor {
     }
     this.extEl.hidden = false;
     this.extEl.textContent = ext;
-  }
-
-  private handleTab(shift: boolean): void {
-    const ta = this.textareaEl;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const value = ta.value;
-    if (start === end && !shift) {
-      const insert = "  ";
-      ta.value = value.slice(0, start) + insert + value.slice(end);
-      ta.selectionStart = ta.selectionEnd = start + insert.length;
-    } else {
-      // Multi-line selection: indent / dedent each line.
-      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
-      const block = value.slice(lineStart, end);
-      const replaced = shift
-        ? block.replace(/^( {1,2}|\t)/gm, "")
-        : block.replace(/^/gm, "  ");
-      ta.value = value.slice(0, lineStart) + replaced + value.slice(end);
-      ta.selectionStart = lineStart;
-      ta.selectionEnd = lineStart + replaced.length;
-    }
-    this.dirty = ta.value !== (this.originalContent ?? "");
-    this.renderGutter();
-    this.renderStatus();
   }
 }
 
@@ -379,13 +423,3 @@ function extensionOf(path: string): string | null {
   if (!ext || ext.length > 8) return null;
   return ext;
 }
-
-function countLines(s: string): number {
-  if (s.length === 0) return 1;
-  let count = 1;
-  for (let i = 0; i < s.length; i++) {
-    if (s.charCodeAt(i) === 10) count++;
-  }
-  return count;
-}
-
