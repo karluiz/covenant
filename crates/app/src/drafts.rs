@@ -225,6 +225,66 @@ pub fn extract_goal_paragraph(body: &str, max_chars: usize) -> String {
     out
 }
 
+pub fn list_published_specs_sync(repo_root: &Path) -> Result<Vec<PublishedSpec>, DraftError> {
+    let dir = repo_root.join("docs/specs");
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let ftype = entry.file_type()?;
+        if !ftype.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.ends_with(".md") || name_str.starts_with('_') {
+            continue;
+        }
+        let path = entry.path();
+        let text = std::fs::read_to_string(&path)?;
+        // First non-empty line should be the H1 heading.
+        let heading_line = text
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
+        let Some((id, title)) = parse_published_spec_heading(heading_line) else {
+            continue; // not a published spec we can interpret
+        };
+        let goal = extract_goal_paragraph(&text, 200);
+        let updated_at = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| {
+                t.duration_since(std::time::UNIX_EPOCH).ok()
+                    .map(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
+            })
+            .flatten()
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default();
+        out.push(PublishedSpec {
+            id,
+            title,
+            goal,
+            path: path.to_string_lossy().into_owned(),
+            updated_at,
+        });
+    }
+    // Sort by semantic ID descending (major, minor).
+    out.sort_by(|a, b| {
+        let parse = |s: &str| -> (u32, u32) {
+            let mut p = s.split('.');
+            let maj = p.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+            let min = p.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+            (maj, min)
+        };
+        parse(&b.id).cmp(&parse(&a.id))
+    });
+    Ok(out)
+}
+
 fn drafts_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("docs/specs/drafts")
 }
@@ -630,9 +690,55 @@ mod tests {
         assert!(parse_published_spec_heading("## 3.10 — X").is_none());
         assert!(parse_published_spec_heading("3.10 — X").is_none());
     }
+
+    #[test]
+    fn list_published_excludes_template_and_drafts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs = tmp.path().join("docs/specs");
+        std::fs::create_dir_all(specs.join("drafts")).unwrap();
+        std::fs::write(specs.join("_template.md"), "# Template\n## Goal\nx\n").unwrap();
+        std::fs::write(specs.join("3.1-foo.md"), "# 3.1 — Foo\n\n## Goal\nFoo goal.\n").unwrap();
+        std::fs::write(specs.join("3.10-bar.md"), "# 3.10 — Bar\n\n## Goal\nBar goal.\n").unwrap();
+        std::fs::write(specs.join("drafts/draft-x.md"), "---\nstatus: draft\ntitle: x\nslug: draft-x\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n# Draft — x\n## Goal\nignored.\n").unwrap();
+
+        let r = list_published_specs_sync(tmp.path()).unwrap();
+        assert_eq!(r.len(), 2);
+        // Sorted descending: 3.10 then 3.1.
+        assert_eq!(r[0].id, "3.10");
+        assert_eq!(r[0].title, "Bar");
+        assert_eq!(r[0].goal, "Bar goal.");
+        assert_eq!(r[1].id, "3.1");
+    }
+
+    #[test]
+    fn list_published_skips_unparseable_heading() {
+        let tmp = tempfile::tempdir().unwrap();
+        let specs = tmp.path().join("docs/specs");
+        std::fs::create_dir_all(&specs).unwrap();
+        std::fs::write(specs.join("not-a-spec.md"), "Just some markdown\n").unwrap();
+        std::fs::write(specs.join("3.0-ok.md"), "# 3.0 — OK\n## Goal\ng\n").unwrap();
+        let r = list_published_specs_sync(tmp.path()).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].id, "3.0");
+    }
+
+    #[test]
+    fn list_published_empty_when_no_specs_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(list_published_specs_sync(tmp.path()).unwrap().len(), 0);
+    }
 }
 
 // ── Tauri command wrappers ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_published_specs(repo_root: String) -> Result<Vec<PublishedSpec>, String> {
+    let path = PathBuf::from(repo_root);
+    tokio::task::spawn_blocking(move || list_published_specs_sync(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
 
 #[tauri::command]
 pub async fn list_drafts(repo_root: String) -> Result<Vec<DraftSummary>, String> {

@@ -1468,6 +1468,7 @@ pub fn run() {
             drafts::publish_draft,
             drafts::next_draft_id,
             drafts::suggest_draft_section,
+            drafts::list_published_specs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
