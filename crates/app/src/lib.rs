@@ -1122,6 +1122,21 @@ async fn structure_write_file(path: String, content: String) -> Result<(), Strin
         .map_err(|e| format!("write_file join: {e}"))?
 }
 
+/// Project-wide substring search across the cwd, honoring .gitignore.
+/// Heavy filesystem work runs on the blocking pool so the IPC thread
+/// stays responsive while the user is still typing the next char.
+#[tauri::command]
+async fn structure_search(
+    cwd: String,
+    query: String,
+    limit: u32,
+) -> Result<Vec<structure::SearchHit>, String> {
+    let p = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || structure::search(&p, &query, limit))
+        .await
+        .map_err(|e| format!("search join: {e}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -1286,6 +1301,7 @@ pub fn run() {
             structure_list_dir,
             structure_read_file,
             structure_write_file,
+            structure_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

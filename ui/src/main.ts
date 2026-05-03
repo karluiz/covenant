@@ -19,9 +19,11 @@ import { DocsPanel } from "./docs/panel";
 import { ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
+import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager } from "./tabs/manager";
+import { zoom } from "./zoom";
 
 /// Set body class controlling --surface-alpha. Adds `bg-{kind}` and
 /// removes the other two so toggling at runtime is idempotent.
@@ -109,6 +111,12 @@ function formatBudgetDuration(ms: number): string {
 async function boot(): Promise<void> {
   await waitForTauri();
 
+  // UI zoom — apply the persisted level BEFORE the first layout pass
+  // so the user doesn't see a flash at 100% when their saved zoom is
+  // 120%. Also subscribes the TabManager later (after it's created)
+  // so xterm refits when the user changes zoom mid-session.
+  zoom.init();
+
   // Apply persisted window-background mode as early as possible so the
   // first paint already reflects the user's choice (no flash from the
   // CSS default). Falls back to "vibrant" if settings unreachable.
@@ -162,6 +170,11 @@ async function boot(): Promise<void> {
     () => manager.activeCwd(),
     (sessionId, command) => injectCommand(sessionId, command),
   );
+
+  const searchPalette = new GlobalSearchPalette(document.body, {
+    cwd: () => manager.activeCwd(),
+    open: (path, line) => manager.openFileAtLine(path, line),
+  });
 
   // Live-apply terminal font/size and window background to open tabs
   // whenever settings save. Background mode swaps a body class — pure
@@ -289,6 +302,34 @@ async function boot(): Promise<void> {
   }
 
   window.addEventListener("keydown", (e) => {
+    // ⌘= / ⌘+ → zoom in, ⌘- → zoom out, ⌘0 → reset (browser convention).
+    // Match both the unshifted (`=`, `-`, `0`) and the shifted (`+`)
+    // variants so US and intl keyboards both work. Refits the active
+    // terminal after each change so xterm cell metrics stay accurate.
+    if (e.metaKey && !e.shiftKey && (e.key === "=" || e.key === "+")) {
+      e.preventDefault();
+      zoom.zoomIn();
+      manager.refitActive();
+      return;
+    }
+    if (e.metaKey && e.shiftKey && (e.key === "+" || e.key === "=")) {
+      e.preventDefault();
+      zoom.zoomIn();
+      manager.refitActive();
+      return;
+    }
+    if (e.metaKey && !e.shiftKey && e.key === "-") {
+      e.preventDefault();
+      zoom.zoomOut();
+      manager.refitActive();
+      return;
+    }
+    if (e.metaKey && !e.shiftKey && e.key === "0") {
+      e.preventDefault();
+      zoom.reset();
+      manager.refitActive();
+      return;
+    }
     // ⌘, → settings (macOS Preferences convention). Open or toggle.
     if (e.metaKey && !e.shiftKey && e.key === ",") {
       e.preventDefault();
@@ -314,6 +355,12 @@ async function boot(): Promise<void> {
     if (e.metaKey && !e.shiftKey && e.key === "p") {
       e.preventDefault();
       recallPalette.toggle();
+      return;
+    }
+    // ⌘⇧F → global file-content search across the active tab's cwd.
+    if (e.metaKey && e.shiftKey && (e.key === "F" || e.key === "f")) {
+      e.preventDefault();
+      searchPalette.toggle();
       return;
     }
     // ⌘⇧A → toggle Autonomous Operator Mode (AOM). Global — when on,
@@ -362,6 +409,11 @@ async function boot(): Promise<void> {
       if (recallPalette.isOpen()) {
         e.preventDefault();
         recallPalette.close();
+        return;
+      }
+      if (searchPalette.isOpen()) {
+        e.preventDefault();
+        searchPalette.close();
         return;
       }
       if (aomReportPanel.isOpen()) {

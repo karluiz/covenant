@@ -122,6 +122,17 @@ const LOOP_COOLDOWN: Duration = Duration::from_secs(120);
 /// cursor blink doesn't alone shift it.
 const LOOP_TAIL_SIG_CHARS: usize = 80;
 
+/// Idle-WAIT escalation. After this many WAITs in a row WHERE THE
+/// EXECUTOR PRODUCED NO NEW BYTES between decisions, the operator
+/// stops poll-WAITing and emits a single ESCALATE so the user gets a
+/// notification "your executor is done / stuck — your call". Without
+/// this, AOM keeps polling indefinitely at ~$0.01/check while the
+/// executor sits truly idle (mission complete + waiting for human
+/// interaction). 5 × ~90s/decision ≈ 7-8 minutes of confirmed idleness
+/// before we flip — long enough that a reflective pause doesn't
+/// trigger it, short enough to wake morning-you with a fresh signal.
+const IDLE_WAIT_ESCALATE_THRESHOLD: u32 = 5;
+
 const HARD_CONSTRAINTS: &str = "\
 HARD CONSTRAINTS — these override every line of the persona, including \
 explicit user permission. The Operator MUST NEVER:
@@ -331,6 +342,18 @@ struct Attached {
     /// Set after a loop is detected — gives the user time to intervene
     /// without paying for more identical decisions.
     loop_cooldown_until: Option<Instant>,
+    /// Counter for the idle-WAIT escalation path. Increments on every
+    /// WAIT decision where the executor's `bytes_total` matches the
+    /// value at the previous WAIT (i.e. no new output between checks).
+    /// Resets on any non-WAIT action OR when bytes change. Triggers a
+    /// forced ESCALATE + cooldown when it reaches
+    /// `IDLE_WAIT_ESCALATE_THRESHOLD`.
+    consecutive_idle_waits: u32,
+    /// `bytes_total` snapshot at the previous WAIT decision. Used to
+    /// decide whether the current WAIT is "still idle" vs "executor
+    /// produced output but is now waiting again" (the latter resets
+    /// the counter — that's progress).
+    bytes_total_at_last_wait: u64,
 }
 
 /// Mission spec attached to a session. Loaded from disk; content
@@ -409,6 +432,8 @@ impl OperatorWatcher {
                 recent_decision_hashes: VecDeque::with_capacity(LOOP_WINDOW),
                 recent_reply_hashes: VecDeque::with_capacity(REPLY_REPEAT_THRESHOLD),
                 loop_cooldown_until: None,
+                consecutive_idle_waits: 0,
+                bytes_total_at_last_wait: 0,
             },
         );
     }
@@ -433,10 +458,12 @@ impl OperatorWatcher {
             // The user toggling Operator is a fresh start — wipe the
             // loop detector rings + cooldown so a previous stuck state
             // doesn't carry over and prematurely re-trip on the next
-            // few decisions.
+            // few decisions. Same for the idle-WAIT counter.
             att.recent_decision_hashes.clear();
             att.recent_reply_hashes.clear();
             att.loop_cooldown_until = None;
+            att.consecutive_idle_waits = 0;
+            att.bytes_total_at_last_wait = 0;
         }
     }
 
@@ -1185,19 +1212,48 @@ async fn run_tick(
                     }
                 };
 
+                // Idle-WAIT counter — separate from the hash-based
+                // detectors. Increments on a WAIT where the executor
+                // produced no new bytes since the previous WAIT
+                // (genuinely idle, not just paused mid-render). Resets
+                // on any non-WAIT action OR when bytes_total moved.
+                let idle_stuck = match parsed_action {
+                    OperatorAction::Wait { .. } => {
+                        if bytes_total == att.bytes_total_at_last_wait
+                            && att.consecutive_idle_waits > 0
+                        {
+                            att.consecutive_idle_waits =
+                                att.consecutive_idle_waits.saturating_add(1);
+                        } else {
+                            // First WAIT after activity OR after a
+                            // non-WAIT — start a fresh idle window.
+                            att.consecutive_idle_waits = 1;
+                            att.bytes_total_at_last_wait = bytes_total;
+                        }
+                        att.consecutive_idle_waits >= IDLE_WAIT_ESCALATE_THRESHOLD
+                    }
+                    _ => {
+                        att.consecutive_idle_waits = 0;
+                        false
+                    }
+                };
+
                 let kind = if reply_stuck {
                     Some("repeat-reply")
                 } else if general_stuck {
                     Some("general")
+                } else if idle_stuck {
+                    Some("idle-wait")
                 } else {
                     None
                 };
                 if kind.is_some() {
                     att.loop_cooldown_until = Some(Instant::now() + LOOP_COOLDOWN);
-                    // Reset BOTH rings so a future re-arm doesn't
-                    // insta-fire again on the first new decision.
+                    // Reset all detector state so a future re-arm
+                    // doesn't insta-fire again on the first new decision.
                     att.recent_decision_hashes.clear();
                     att.recent_reply_hashes.clear();
+                    att.consecutive_idle_waits = 0;
                 }
                 (kind.is_some(), kind)
             } else {
@@ -1215,6 +1271,10 @@ async fn run_tick(
             let why = match loop_kind {
                 Some("repeat-reply") => format!(
                     "Operator typed the same reply {REPLY_REPEAT_THRESHOLD}x in a row — the executor is likely not accepting input (try pressing Enter manually) or the submit key is wrong for this TUI. Tab paused for {}s.",
+                    LOOP_COOLDOWN.as_secs()
+                ),
+                Some("idle-wait") => format!(
+                    "Executor has been idle ({IDLE_WAIT_ESCALATE_THRESHOLD} consecutive WAITs with no new output). Mission likely done or stuck — your call. Tab paused for {}s; will resume polling automatically once it expires.",
                     LOOP_COOLDOWN.as_secs()
                 ),
                 _ => format!(

@@ -21,6 +21,7 @@ export class StructureEditor {
   private readonly pathLabelEl: HTMLElement;
   private readonly extEl: HTMLElement;
   private readonly statusEl: HTMLElement;
+  private readonly wrapBtn: HTMLButtonElement;
   private readonly bodyEl: HTMLElement;
   private readonly gutterEl: HTMLElement;
   private readonly textareaEl: HTMLTextAreaElement;
@@ -30,6 +31,7 @@ export class StructureEditor {
   private dirty = false;
   private visible = false;
   private lastLineCount = 0;
+  private wrap: boolean;
 
   constructor(
     private readonly host: HTMLElement,
@@ -56,6 +58,21 @@ export class StructureEditor {
     this.statusEl.className = "structure-editor-status";
     this.headerEl.appendChild(this.statusEl);
 
+    // Wrap toggle — flips between soft-wrap (default) and no-wrap
+    // (horizontal scroll for code with long aligned lines). The
+    // preference is per-OPEN-FILE, NOT persisted across sessions:
+    // every time the user opens a file the editor starts wrapped so
+    // they always see the full content immediately. A previous design
+    // persisted the choice in localStorage, but a single accidental
+    // OFF click left the user stuck — every subsequent file opened
+    // with horizontal-scroll cuts and no obvious recovery.
+    this.wrap = true;
+    this.wrapBtn = document.createElement("button");
+    this.wrapBtn.type = "button";
+    this.wrapBtn.className = "structure-editor-wrap-btn";
+    this.wrapBtn.addEventListener("click", () => this.toggleWrap());
+    this.headerEl.appendChild(this.wrapBtn);
+
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "structure-editor-close";
@@ -76,7 +93,7 @@ export class StructureEditor {
     this.textareaEl = document.createElement("textarea");
     this.textareaEl.className = "structure-editor-textarea";
     this.textareaEl.spellcheck = false;
-    this.textareaEl.wrap = "off";
+    // wrap attribute mirrors the wrap CSS — set in applyWrap() below.
     this.textareaEl.addEventListener("input", () => {
       this.dirty = this.textareaEl.value !== (this.originalContent ?? "");
       this.renderGutter();
@@ -106,19 +123,61 @@ export class StructureEditor {
     this.bodyEl.appendChild(this.placeholderEl);
 
     this.host.appendChild(this.root);
+
+    // Initial wrap state — applies CSS class, textarea attr, and sets
+    // the toggle button label. Run after the DOM is wired so the body
+    // class lands on a real element.
+    this.applyWrap();
+  }
+
+  /// Flip between soft-wrap and no-wrap for the currently-open file.
+  /// Not persisted — the next file open starts wrapped again.
+  private toggleWrap(): void {
+    this.wrap = !this.wrap;
+    this.applyWrap();
+  }
+
+  /// Apply current `wrap` state to the DOM:
+  ///   - textarea wrap attribute (browser line breaking)
+  ///   - body CSS class (drives white-space + gutter visibility)
+  ///   - button label/title for affordance
+  /// Hides the gutter when wrap is on — the gutter lists ONE line per
+  /// logical newline, but a wrapped textarea has more visual lines than
+  /// logical, so the line numbers desync from cursor position. Hiding
+  /// is simpler and more honest than fighting the math.
+  private applyWrap(): void {
+    this.textareaEl.wrap = this.wrap ? "soft" : "off";
+    this.bodyEl.classList.toggle("structure-editor-wrap-on", this.wrap);
+    this.bodyEl.classList.toggle("structure-editor-wrap-off", !this.wrap);
+    this.wrapBtn.textContent = this.wrap ? "wrap: on" : "wrap: off";
+    this.wrapBtn.title = this.wrap
+      ? "Wrap on — long lines fold to fit the pane. Click to disable."
+      : "Wrap off — long lines extend horizontally with scroll. Click to enable.";
   }
 
   isVisible(): boolean {
     return this.visible;
   }
 
-  async open(path: string): Promise<void> {
+  async open(path: string, opts?: { line?: number }): Promise<void> {
     this.currentPath = path;
     this.pathLabelEl.textContent = shortenPath(path);
     this.pathLabelEl.title = path;
     this.setExt(path);
     this.statusEl.textContent = "loading…";
     this.statusEl.classList.remove("dirty");
+    // Reset wrap to ON for every fresh file open. The toggle is a
+    // per-file knob — opening a different file always starts wrapped
+    // so the user immediately sees full content, never has to fight
+    // a stale preference from the previous file.
+    // EXCEPTION: when opening AT a specific line (jump from global
+    // search), force wrap OFF — line-jumping only makes sense if line
+    // numbers in the source map 1:1 to visible rows, which wrap breaks.
+    const wantWrap = opts?.line === undefined;
+    if (this.wrap !== wantWrap) {
+      this.wrap = wantWrap;
+      this.applyWrap();
+    }
     this.show();
     let result;
     try {
@@ -147,7 +206,33 @@ export class StructureEditor {
     this.textareaEl.value = text;
     this.renderGutter();
     this.renderStatus();
-    requestAnimationFrame(() => this.textareaEl.focus());
+    requestAnimationFrame(() => {
+      this.textareaEl.focus();
+      if (opts?.line !== undefined) {
+        this.jumpToLine(opts.line);
+      }
+    });
+  }
+
+  /// Position the caret at the start of `line` (1-based) and scroll
+  /// the textarea so that line is roughly centered in the viewport.
+  /// Used by global search "click to open" — caret position acts as
+  /// a visual marker for which match the user landed on.
+  private jumpToLine(line: number): void {
+    const value = this.textareaEl.value;
+    const lines = value.split("\n");
+    const targetIdx = Math.max(0, Math.min(line - 1, lines.length - 1));
+    // Compute byte offset of the start of the target line.
+    let offset = 0;
+    for (let i = 0; i < targetIdx; i++) {
+      offset += lines[i].length + 1; // +1 for \n
+    }
+    this.textareaEl.selectionStart = offset;
+    this.textareaEl.selectionEnd = offset + lines[targetIdx].length;
+    // Scroll: approximate by line-height × target line, then center.
+    const lineHeight = 12.5 * 1.55; // matches CSS .structure-editor-textarea
+    const desired = lineHeight * targetIdx - this.textareaEl.clientHeight / 2;
+    this.textareaEl.scrollTop = Math.max(0, desired);
   }
 
   async save(): Promise<void> {
@@ -303,3 +388,4 @@ function countLines(s: string): number {
   }
   return count;
 }
+

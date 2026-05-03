@@ -120,6 +120,12 @@ interface Tab {
   recall: RecallManager;
   structure: StructureTree;
   editor: StructureEditor;
+  /// All-in-one "open this file in the editor" entry point — handles
+  /// un-hiding the editor host + splitter, restoring the persisted
+  /// splitter width, opening the file, and refitting the terminal.
+  /// Stored as a closure so it can capture the per-tab `showSplitter`
+  /// helper without forcing every caller to know the dance.
+  openEditor: (path: string, opts?: { line?: number }) => void;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure";
@@ -608,6 +614,17 @@ export class TabManager {
     return tab?.cwd ?? null;
   }
 
+  /// Open `path` in the active tab's editor and (optionally) jump to a
+  /// specific 1-based line. Used by the global search palette: clicking
+  /// a hit routes through here so the editor pane swaps into view, the
+  /// file loads, and the textarea scrolls to the matched line.
+  /// No-ops when there's no active tab.
+  openFileAtLine(path: string, line?: number): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    tab.openEditor(path, line !== undefined ? { line } : undefined);
+  }
+
   activateByIndex(index: number): void {
     const tab = this.tabs[index];
     if (tab) this.activate(tab.id);
@@ -646,6 +663,16 @@ export class TabManager {
     const termHost = document.createElement("div");
     termHost.className = "tab-terminal";
     pane.appendChild(termHost);
+
+    // Splitter between terminal and editor. Hidden when the editor is
+    // closed. When the editor opens, the user can drag this to resize
+    // the terminal/editor split; persists per-window in localStorage so
+    // the next open recovers the last layout.
+    const editorSplitter = document.createElement("div");
+    editorSplitter.className = "editor-splitter";
+    editorSplitter.hidden = true;
+    editorSplitter.title = "Drag to resize";
+    pane.appendChild(editorSplitter);
 
     const editorHost = document.createElement("div");
     editorHost.className = "editor-host";
@@ -729,15 +756,22 @@ export class TabManager {
       (data) => writeToSession(sessionId, data),
       {
         onShouldShow: (show) => {
-          // Contextual swap: while Recall has results, hide Blocks
-          // and show Recall; otherwise revert. The blocks-host stays
-          // the same width either way, so no terminal refit needed.
+          // Contextual swap: while Recall has results, it claims the
+          // entire sidebar regardless of whether Blocks or Files
+          // (StructureTree) is currently active. On hide, restore
+          // whichever view the user had selected.
+          // The blocks-host width stays the same either way, so no
+          // terminal refit needed.
+          const t = tabRef.current;
+          const view = t?.sidebarView ?? "blocks";
           if (show) {
             blocks!.hide();
+            t?.structure.hide();
             recall!.show();
           } else {
             recall!.hide();
-            blocks!.show();
+            if (view === "blocks") blocks!.show();
+            else t?.structure.show();
           }
         },
       },
@@ -764,6 +798,135 @@ export class TabManager {
     navEl.appendChild(navStructure);
     blocksHost.insertBefore(navEl, blocksHost.firstChild);
 
+    // Editor splitter: when the editor is open, the pane uses a 4-col
+    // grid `<terminal> <splitter> <editor> <sidebar>`. The user drags
+    // `editorSplitter` to set the terminal column width in pixels;
+    // we persist it in localStorage and re-apply on every editor open.
+    // CSS handles the default ratio when no override is set.
+    const SPLITTER_PREF_KEY = "covenant.editor.terminal-width";
+    const SIDEBAR_WIDTH = 220; // matches CSS for the editor-open layout
+    const TERMINAL_MIN = 200;
+    const EDITOR_MIN = 280;
+    const SPLITTER_PX = 4;
+
+    const applyTerminalWidth = (px: number | null): void => {
+      if (px === null) {
+        pane.style.gridTemplateColumns = "";
+        return;
+      }
+      const clamped = Math.max(
+        TERMINAL_MIN,
+        Math.min(px, pane.offsetWidth - SIDEBAR_WIDTH - EDITOR_MIN - SPLITTER_PX),
+      );
+      pane.style.gridTemplateColumns =
+        `${clamped}px ${SPLITTER_PX}px 1fr ${SIDEBAR_WIDTH}px`;
+    };
+
+    const persistedTerminalWidth = (): number | null => {
+      try {
+        const v = localStorage.getItem(SPLITTER_PREF_KEY);
+        if (v === null) return null;
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      } catch {
+        return null;
+      }
+    };
+
+    editorSplitter.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = termHost.offsetWidth;
+      // Disable text selection + show resize cursor globally during drag
+      // so the cursor doesn't flicker between col-resize and text-select
+      // when the mouse moves over the editor / terminal panes.
+      const prevUserSelect = document.body.style.userSelect;
+      const prevCursor = document.body.style.cursor;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      // Disable pointer events on the panes so the mouse stays glued to
+      // the splitter — without this the cursor "snags" on xterm or the
+      // editor textarea (each captures pointer events) and the drag
+      // feels janky/stuck. setPointerCapture is the modern equivalent
+      // but pointer-events:none is a stronger lock that also prevents
+      // accidental clicks landing inside the panes mid-drag.
+      pane.classList.add("editor-splitter-dragging");
+      try {
+        editorSplitter.setPointerCapture(e.pointerId);
+      } catch {
+        /* not all browsers support; pointer-events:none above is the fallback */
+      }
+
+      // Batch style updates to one per animation frame. Without this,
+      // a mousemove storm (200+/s on macOS Retina) triggers a reflow
+      // on every event — the grid + xterm + file tree all relayout
+      // and the drag feels like it's dragging through molasses.
+      let pendingX: number | null = null;
+      let rafScheduled = false;
+      const flush = () => {
+        rafScheduled = false;
+        if (pendingX === null) return;
+        const next = startWidth + (pendingX - startX);
+        pendingX = null;
+        applyTerminalWidth(next);
+      };
+
+      const onMove = (ev: PointerEvent) => {
+        pendingX = ev.clientX;
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(flush);
+        }
+      };
+      const onUp = (ev: PointerEvent) => {
+        document.body.style.userSelect = prevUserSelect;
+        document.body.style.cursor = prevCursor;
+        pane.classList.remove("editor-splitter-dragging");
+        try {
+          editorSplitter.releasePointerCapture(ev.pointerId);
+        } catch {
+          /* ignore */
+        }
+        editorSplitter.removeEventListener("pointermove", onMove);
+        editorSplitter.removeEventListener("pointerup", onUp);
+        editorSplitter.removeEventListener("pointercancel", onUp);
+        // Make sure any in-flight rAF lands before we read the final value.
+        if (pendingX !== null) flush();
+        // Persist the final settled width — read back from the inline
+        // style so we save the CLAMPED value, not the raw drag delta.
+        const m = pane.style.gridTemplateColumns.match(/^(\d+)px/);
+        if (m) {
+          try {
+            localStorage.setItem(SPLITTER_PREF_KEY, m[1]);
+          } catch {
+            /* ignore */
+          }
+        }
+        // xterm needs to remeasure cells after the column width changed.
+        requestAnimationFrame(() => {
+          try {
+            fit.fit();
+          } catch {
+            /* ignore */
+          }
+        });
+      };
+      // pointer events on the splitter itself — capture ensures we
+      // get them even when the cursor leaves the splitter element.
+      editorSplitter.addEventListener("pointermove", onMove);
+      editorSplitter.addEventListener("pointerup", onUp);
+      editorSplitter.addEventListener("pointercancel", onUp);
+    });
+
+    const showSplitter = (visible: boolean): void => {
+      editorSplitter.hidden = !visible;
+      if (visible) {
+        applyTerminalWidth(persistedTerminalWidth());
+      } else {
+        applyTerminalWidth(null);
+      }
+    };
+
     const editor = new StructureEditor(editorHost, {
       toast: (msg, severity) => {
         // eslint-disable-next-line no-console
@@ -772,6 +935,7 @@ export class TabManager {
       },
       onClose: () => {
         editorHost.hidden = true;
+        showSplitter(false);
         requestAnimationFrame(() => {
           try {
             fit.fit();
@@ -782,9 +946,15 @@ export class TabManager {
       },
     });
 
-    const structure = new StructureTree(blocksHost, (path) => {
+    // Single source of truth for "open this path in the editor".
+    // Used both by the file-tree click and the global-search-palette
+    // jump path (via `tab.openEditor` exposed below). Centralizing
+    // the dance — editor host visibility, splitter restore, file
+    // load, terminal refit — keeps the two callers in lockstep.
+    const openEditor = (path: string, opts?: { line?: number }): void => {
       editorHost.hidden = false;
-      void editor.open(path);
+      showSplitter(true);
+      void editor.open(path, opts);
       requestAnimationFrame(() => {
         try {
           fit.fit();
@@ -792,7 +962,9 @@ export class TabManager {
           /* ignore */
         }
       });
-    });
+    };
+
+    const structure = new StructureTree(blocksHost, (path) => openEditor(path));
 
     const switchSidebar = (view: "blocks" | "structure") => {
       const t = tabRef.current;
@@ -879,6 +1051,7 @@ export class TabManager {
       recall,
       structure,
       editor,
+      openEditor,
       sidebarView: "blocks",
       cwd: null,
       disposers: [dataDispose, resizeDispose],

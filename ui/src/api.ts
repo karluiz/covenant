@@ -442,3 +442,24 @@ export async function structureReadFile(
 export async function structureWriteFile(path: string, content: string): Promise<void> {
   return invoke<void>("structure_write_file", { path, content });
 }
+
+/// One match from a global search. `match_start`/`match_end` are CHAR
+/// offsets within `line_text` (already truncated server-side if the
+/// source line was very long), suitable for highlighting in the UI.
+export interface SearchHit {
+  path: string;
+  line_number: number;
+  line_text: string;
+  match_start: number;
+  match_end: number;
+}
+
+/// Substring search across `cwd`, honoring .gitignore + hardcoded
+/// ignore set. Empty query returns []. Server caps results to `limit`.
+export async function structureSearch(
+  cwd: string,
+  query: string,
+  limit: number,
+): Promise<SearchHit[]> {
+  return invoke<SearchHit[]>("structure_search", { cwd, query, limit });
+}

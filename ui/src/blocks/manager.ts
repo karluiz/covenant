@@ -209,18 +209,23 @@ export class BlockManager {
     this.content.innerHTML = this.renderHeader(0);
     if (!this.collapsed) {
       const history = this.renderHistoricalSection();
-      if (history.length > 0) {
-        // History exists but no current-session blocks yet — show
-        // history above the empty-state hint, so the user immediately
-        // sees "what was here last time" on a restored tab.
-        this.content.insertAdjacentHTML("beforeend", history);
-      }
       const empty = document.createElement("div");
-      empty.className = "blocks-empty";
-      empty.textContent =
-        history.length > 0
-          ? "(new commands will appear below)"
-          : "run a command to see it here";
+      if (history.length > 0) {
+        // History exists but no current-session blocks yet. The history
+        // list expands to fill the sidebar (flex:1, scrolls); the
+        // "(new commands appear below)" hint is a small inline line
+        // beneath it — NOT a flex:1 block, otherwise it competes with
+        // the history list for vertical space and the layout looks
+        // half-empty.
+        this.content.insertAdjacentHTML("beforeend", history);
+        empty.className = "blocks-empty blocks-empty-inline";
+        empty.textContent = "(new commands will appear below)";
+      } else {
+        // Truly empty (fresh tab, no history yet) — center the
+        // friendly hint in the whole sidebar.
+        empty.className = "blocks-empty";
+        empty.textContent = "run a command to see it here";
+      }
       this.content.appendChild(empty);
     }
     this.wireToggle();
