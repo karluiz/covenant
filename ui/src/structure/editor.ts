@@ -42,7 +42,11 @@ import {
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 
 import { Icons } from "../icons";
-import { structureReadFile, structureWriteFile } from "../api";
+import {
+  structureReadFile,
+  structureWriteBinaryFile,
+  structureWriteFile,
+} from "../api";
 import { languageForPath } from "./languages";
 import {
   MarkdownPreview,
@@ -51,6 +55,12 @@ import {
   previewKindForPath,
   SvgPreview,
 } from "./preview";
+import {
+  loadSvgScale,
+  type PngScale,
+  saveSvgScale,
+  svgToPng,
+} from "./png-export";
 import { editorHighlight, editorTheme } from "./theme";
 
 export interface EditorCallbacks {
@@ -129,6 +139,13 @@ export class StructureEditor {
   private readonly previewHostEl: HTMLElement;
   private readonly previewBtn: HTMLButtonElement;
 
+  /// PNG export controls — sibling pair to `previewBtn`. Only shown
+  /// when `previewKind === "svg"`; hidden for markdown/code so the
+  /// header stays uncluttered.
+  private readonly pngBtn: HTMLButtonElement;
+  private readonly pngScaleSelect: HTMLSelectElement;
+  private pngScale: PngScale = 2;
+
   constructor(
     private readonly host: HTMLElement,
     private readonly callbacks: EditorCallbacks,
@@ -153,6 +170,41 @@ export class StructureEditor {
     this.statusEl = document.createElement("span");
     this.statusEl.className = "structure-editor-status";
     this.headerEl.appendChild(this.statusEl);
+
+    // Scale dropdown — sits left of the PNG button. Persisted choice
+    // applies across restarts; default 2× covers the retina case.
+    this.pngScale = loadSvgScale();
+    this.pngScaleSelect = document.createElement("select");
+    this.pngScaleSelect.className = "structure-editor-png-scale";
+    this.pngScaleSelect.title = "PNG export scale";
+    this.pngScaleSelect.hidden = true;
+    for (const s of [1, 2, 3] as const) {
+      const opt = document.createElement("option");
+      opt.value = String(s);
+      opt.textContent = `${s}x`;
+      if (s === this.pngScale) opt.selected = true;
+      this.pngScaleSelect.appendChild(opt);
+    }
+    this.pngScaleSelect.addEventListener("change", () => {
+      const v = Number(this.pngScaleSelect.value);
+      if (v === 1 || v === 2 || v === 3) {
+        this.pngScale = v;
+        saveSvgScale(v);
+      }
+    });
+    this.headerEl.appendChild(this.pngScaleSelect);
+
+    // PNG export button — single-click overwrite of <basename>.png.
+    this.pngBtn = document.createElement("button");
+    this.pngBtn.type = "button";
+    this.pngBtn.className = "structure-editor-png-btn";
+    this.pngBtn.textContent = "PNG";
+    this.pngBtn.title = "Export as PNG next to source";
+    this.pngBtn.hidden = true;
+    this.pngBtn.addEventListener("click", () => {
+      void this.handleExportPng();
+    });
+    this.headerEl.appendChild(this.pngBtn);
 
     // Preview/Source toggle — only shown when the open file has a
     // preview kind registered (md/svg). Hidden for plain code files
@@ -434,14 +486,58 @@ export class StructureEditor {
   private refreshPreviewButton(): void {
     if (!this.previewKind) {
       this.previewBtn.hidden = true;
-      return;
+    } else {
+      this.previewBtn.hidden = false;
+      const inPreview = this.viewMode === "preview";
+      this.previewBtn.textContent = inPreview ? "source" : "preview";
+      this.previewBtn.title = inPreview
+        ? "Show source (⌘⇧P)"
+        : "Show preview (⌘⇧P)";
     }
-    this.previewBtn.hidden = false;
-    const inPreview = this.viewMode === "preview";
-    this.previewBtn.textContent = inPreview ? "source" : "preview";
-    this.previewBtn.title = inPreview
-      ? "Show source (⌘⇧P)"
-      : "Show preview (⌘⇧P)";
+
+    // PNG controls — visible only for SVG files, regardless of
+    // source/preview view mode.
+    const isSvg = this.previewKind === "svg";
+    this.pngBtn.hidden = !isSvg;
+    this.pngScaleSelect.hidden = !isSvg;
+  }
+
+  /// Rasterize the open SVG to <basename>.png next to the source.
+  /// Uses the live in-memory text so unsaved edits are reflected.
+  /// Overwrites the destination without prompting (the spec calls
+  /// this out — re-export to update is the common case). Disables
+  /// the button during the async work so a frantic double-click
+  /// can't fire two writes against the same file.
+  private async handleExportPng(): Promise<void> {
+    if (!this.currentPath) return;
+    if (this.previewKind !== "svg") return;
+
+    const svgText = this.getCurrentSvgText();
+    const outPath = pngPathFor(this.currentPath);
+
+    this.pngBtn.disabled = true;
+    try {
+      const result = await svgToPng(svgText, this.pngScale);
+      await structureWriteBinaryFile(outPath, result.bytes);
+      const baseName = outPath.split("/").pop() ?? outPath;
+      this.callbacks.toast?.(
+        `Exported ${baseName} (${this.pngScale}x, ${result.width}×${result.height})`,
+        "info",
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.callbacks.toast?.(`PNG export failed: ${msg}`, "error");
+    } finally {
+      this.pngBtn.disabled = false;
+    }
+  }
+
+  /// Return the current SVG text — CM6 doc when in source mode,
+  /// `liveContent` (last edit snapshot) when in preview mode.
+  private getCurrentSvgText(): string {
+    return this.viewMode === "source" && this.view
+      ? this.view.state.doc.toString()
+      : this.liveContent;
   }
 
   /// Move caret + scroll to `line` (1-based) in the active doc. Used
@@ -524,6 +620,8 @@ export class StructureEditor {
       this.currentPreview = null;
     }
     this.previewBtn.hidden = true;
+    this.pngBtn.hidden = true;
+    this.pngScaleSelect.hidden = true;
     this.callbacks.onClose?.();
   }
 
@@ -540,6 +638,8 @@ export class StructureEditor {
     this.previewHostEl.hidden = true;
     this.previewKind = null;
     this.previewBtn.hidden = true;
+    this.pngBtn.hidden = true;
+    this.pngScaleSelect.hidden = true;
     this.placeholderEl.hidden = false;
     this.placeholderEl.textContent = message;
     this.originalContent = null;
@@ -607,4 +707,15 @@ function extensionOf(path: string): string | null {
   const ext = base.slice(dot + 1).toLowerCase();
   if (!ext || ext.length > 8) return null;
   return ext;
+}
+
+/// Map `foo/bar.svg` → `foo/bar.png`. Always replaces the final
+/// extension; for files without a dot we just append `.png`.
+function pngPathFor(svgPath: string): string {
+  const slash = svgPath.lastIndexOf("/");
+  const base = slash >= 0 ? svgPath.slice(slash + 1) : svgPath;
+  const dir = slash >= 0 ? svgPath.slice(0, slash + 1) : "";
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  return `${dir}${stem}.png`;
 }

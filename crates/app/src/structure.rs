@@ -135,6 +135,22 @@ pub fn write_file_text(path: &Path, content: &str) -> Result<(), String> {
         .map_err(|e| format!("write: {e}"))
 }
 
+/// Write `bytes` to `path` verbatim. Mirrors `write_file_text` but
+/// for binary payloads (PNG export, future image dumps, …). Same
+/// parent-dir guard so a typo path fails loudly instead of silently
+/// dropping bytes into the cwd.
+pub fn write_file_binary(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            return Err(format!(
+                "parent dir does not exist: {}",
+                parent.display()
+            ));
+        }
+    }
+    std::fs::write(path, bytes).map_err(|e| format!("write: {e}"))
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SearchHit {
     pub path: String,
@@ -537,5 +553,25 @@ mod tests {
         let chars: Vec<char> = s.chars().collect();
         let slice: String = chars[a..b].iter().collect();
         assert_eq!(slice, "needle");
+    }
+
+    #[test]
+    fn write_file_binary_round_trips_bytes() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("out.png");
+        let payload: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xFF];
+
+        write_file_binary(&path, payload).expect("write ok");
+
+        let read_back = std::fs::read(&path).expect("read ok");
+        assert_eq!(read_back, payload);
+    }
+
+    #[test]
+    fn write_file_binary_rejects_missing_parent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("missing/sub/out.png");
+        let err = write_file_binary(&path, b"x").expect_err("should fail");
+        assert!(err.contains("parent dir"));
     }
 }
