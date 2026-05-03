@@ -187,6 +187,44 @@ pub fn parse_published_spec_heading(line: &str) -> Option<(String, String)> {
     Some((id_part.to_string(), title.to_string()))
 }
 
+/// Extract the first non-empty paragraph under "## Goal" in the spec body.
+/// Returns at most `max_chars` characters; appends "…" if truncated. Empty if
+/// "## Goal" is missing or the section has no body.
+pub fn extract_goal_paragraph(body: &str, max_chars: usize) -> String {
+    let mut in_goal = false;
+    let mut buf: Vec<&str> = Vec::new();
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("## ") {
+            if in_goal {
+                break; // hit next section
+            }
+            if trimmed == "## Goal" {
+                in_goal = true;
+            }
+            continue;
+        }
+        if !in_goal {
+            continue;
+        }
+        // Skip blank lines until we find content; stop at blank line after content.
+        if line.trim().is_empty() {
+            if !buf.is_empty() {
+                break;
+            }
+            continue;
+        }
+        buf.push(line.trim());
+    }
+    let joined = buf.join(" ");
+    if joined.chars().count() <= max_chars {
+        return joined;
+    }
+    let mut out: String = joined.chars().take(max_chars).collect();
+    out.push('…');
+    out
+}
+
 fn drafts_dir(repo_root: &Path) -> PathBuf {
     repo_root.join("docs/specs/drafts")
 }
@@ -533,6 +571,38 @@ mod tests {
         let m = build_suggest_user_message(SuggestSection::OutOfScope, "draft body");
         assert!(m.contains("Out of scope"));
         assert!(m.contains("draft body"));
+    }
+
+    #[test]
+    fn extract_goal_basic() {
+        let body = "# 3.10 — X\n\n## Goal\nThe one-sentence goal.\n\n## Out of scope\n- y\n";
+        assert_eq!(extract_goal_paragraph(body, 200), "The one-sentence goal.");
+    }
+
+    #[test]
+    fn extract_goal_multiline_paragraph() {
+        let body = "## Goal\nLine one\nLine two.\n\n## Next\n";
+        assert_eq!(extract_goal_paragraph(body, 200), "Line one Line two.");
+    }
+
+    #[test]
+    fn extract_goal_skips_leading_blanks() {
+        let body = "## Goal\n\n\nReal goal here.\n";
+        assert_eq!(extract_goal_paragraph(body, 200), "Real goal here.");
+    }
+
+    #[test]
+    fn extract_goal_truncates() {
+        let body = format!("## Goal\n{}\n", "a".repeat(300));
+        let r = extract_goal_paragraph(&body, 200);
+        assert_eq!(r.chars().count(), 201); // 200 + "…"
+        assert!(r.ends_with('…'));
+    }
+
+    #[test]
+    fn extract_goal_missing() {
+        assert_eq!(extract_goal_paragraph("## Out of scope\n- x\n", 200), "");
+        assert_eq!(extract_goal_paragraph("# Title only\n", 200), "");
     }
 
     #[test]
