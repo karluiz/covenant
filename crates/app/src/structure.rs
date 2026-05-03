@@ -84,6 +84,44 @@ pub fn list_dir(cwd: &Path) -> Result<Vec<DirEntry>, String> {
     Ok(out)
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadKind {
+    Text,
+    Binary,
+    TooLarge,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ReadResult {
+    pub kind: ReadKind,
+    pub content: Option<String>,
+    pub size_bytes: u64,
+}
+
+pub fn read_file_text(path: &Path, max_bytes: u64) -> Result<ReadResult, String> {
+    let metadata = std::fs::metadata(path).map_err(|e| format!("stat: {e}"))?;
+    if !metadata.is_file() {
+        return Err(format!("not a file: {}", path.display()));
+    }
+    let size = metadata.len();
+    if size > max_bytes {
+        return Ok(ReadResult { kind: ReadKind::TooLarge, content: None, size_bytes: size });
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
+    if bytes.contains(&0u8) {
+        return Ok(ReadResult { kind: ReadKind::Binary, content: None, size_bytes: size });
+    }
+    match std::str::from_utf8(&bytes) {
+        Ok(s) => Ok(ReadResult {
+            kind: ReadKind::Text,
+            content: Some(s.to_string()),
+            size_bytes: size,
+        }),
+        Err(_) => Ok(ReadResult { kind: ReadKind::Binary, content: None, size_bytes: size }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +199,44 @@ mod tests {
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"foo.log"));
         assert!(names.contains(&"bar.txt"));
+    }
+
+    #[test]
+    fn read_small_text_file() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("hello.txt");
+        fs::write(&f, "hello world\n").unwrap();
+        let result = read_file_text(&f, 1024 * 1024).unwrap();
+        assert_eq!(result.kind, ReadKind::Text);
+        assert_eq!(result.content.as_deref(), Some("hello world\n"));
+    }
+
+    #[test]
+    fn read_too_large_returns_size_marker() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("big.bin");
+        fs::write(&f, vec![0u8; 2048]).unwrap();
+        let result = read_file_text(&f, 1024).unwrap();
+        assert_eq!(result.kind, ReadKind::TooLarge);
+        assert!(result.content.is_none());
+        assert_eq!(result.size_bytes, 2048);
+    }
+
+    #[test]
+    fn read_binary_returns_binary_marker() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("a.bin");
+        // Bytes including a NUL — our heuristic treats this as binary.
+        fs::write(&f, b"abc\x00def").unwrap();
+        let result = read_file_text(&f, 1024 * 1024).unwrap();
+        assert_eq!(result.kind, ReadKind::Binary);
+        assert!(result.content.is_none());
+    }
+
+    #[test]
+    fn read_missing_file_errors() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("nope.txt");
+        assert!(read_file_text(&f, 1024).is_err());
     }
 }
