@@ -3873,3 +3873,221 @@ button.status-segment.status-mission:focus-visible {
 .structure-editor-placeholder[hidden] {
     display: none;
 }
+
+/* ---- AOM AFK ("Battery Mode") overlay ---- */
+
+.afk-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    background: var(--bg-overlay);
+    color: inherit;
+    font-family: inherit;
+    animation: afk-fade-in 0.15s ease-out;
+}
+
+@keyframes afk-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.afk-header {
+    display: flex;
+    justify-content: center;
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+}
+
+.afk-header-stats {
+    display: flex;
+    gap: 32px;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+}
+
+.afk-stat {
+    font-size: 18px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+}
+
+.afk-stat-cost {
+    color: inherit;
+    font-weight: 500;
+}
+
+.afk-stat-warn {
+    color: #d6a16a;
+}
+
+.afk-feed-wrap {
+    position: relative;
+    overflow: hidden;
+}
+
+.afk-feed {
+    height: 100%;
+    overflow-y: auto;
+    padding: 24px 32px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.afk-feed-empty {
+    margin: auto;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.afk-card {
+    display: grid;
+    grid-template-columns: auto auto auto 1fr;
+    gap: 12px;
+    align-items: baseline;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    transition: border-color 0.12s ease;
+}
+
+.afk-card:hover {
+    border-color: var(--accent);
+}
+
+.afk-card-seeded {
+    cursor: default;
+    opacity: 0.85;
+}
+
+.afk-card-seeded:hover {
+    border-color: var(--border);
+}
+
+.afk-card-time {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+}
+
+.afk-card-tab {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.afk-card-action {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+}
+
+.afk-card-ok .afk-card-action {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.afk-card-warn .afk-card-action {
+    color: #d6a16a;
+    border-color: color-mix(in srgb, #d6a16a 50%, transparent);
+}
+
+.afk-card-muted .afk-card-action {
+    color: var(--muted);
+}
+
+.afk-card-body {
+    color: inherit;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afk-live-pill {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--bg-overlay);
+    color: var(--accent);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.afk-live-pill:hover {
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-overlay));
+}
+
+.afk-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 20px 32px;
+    border-top: 1px solid var(--border);
+}
+
+.afk-wakeup,
+.afk-open-report {
+    padding: 8px 18px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.afk-wakeup:hover,
+.afk-open-report:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.afk-hint {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.afk-complete-msg {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+/* ---- AOM banner: AFK button ---- */
+
+.aom-banner-afk {
+    padding: 4px 10px;
+    margin-left: 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.aom-banner-afk:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
