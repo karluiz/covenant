@@ -218,6 +218,7 @@ export class OperatorsPane {
                ${this.editing.hard_constraints.trim().length > 0 ? "open" : ""}>
         <summary>Hard constraints <span class="muted">(optional — extra ALWAYS-ASK-ME, one per line)</span></summary>
         <textarea data-bind="hard_constraints" rows="5"
+          placeholder="One rule per line. Examples:&#10;always ask before touching ~/.aws or ~/.ssh&#10;never auto-merge to main&#10;ask before npm install of new packages&#10;skip auto-formatting on *.lock"
           >${escapeHtml(this.editing.hard_constraints)}</textarea>
       </details>
 
