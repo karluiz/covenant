@@ -239,6 +239,7 @@ async function boot(): Promise<void> {
   const aomReportPanel = new AomReportPanel(document.body);
   const afk = new AfkOverlay(document.body, {
     manager,
+    openReport: () => void aomReportPanel.open(),
     onExit: () => manager.refitActive(),
   });
   const docsPage = requireEl<HTMLElement>("docs-page");

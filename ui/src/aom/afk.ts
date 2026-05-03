@@ -31,6 +31,9 @@ interface DecisionEvent {
 
 export interface AfkOverlayDeps {
   manager: TabManager;
+  /// Open the morning report panel (⌘⇧R surface). AFK calls this when
+  /// the user clicks "Run complete — open report?" after AOM ends.
+  openReport: () => void;
   /// Called when AFK exits — main.ts uses this to refit the active
   /// terminal so xterm cell metrics are accurate after the overlay
   /// goes away.
@@ -152,6 +155,31 @@ export class AfkOverlay {
       const n = this.deps.manager.aomActiveTabCount();
       tabsEl.textContent = `${n} tab${n === 1 ? "" : "s"}`;
     }
+    if (this.status && !this.status.enabled) {
+      this.renderRunComplete();
+    }
+  }
+
+  private renderRunComplete(): void {
+    if (!this.root) return;
+    const footer = this.root.querySelector<HTMLElement>(".afk-footer");
+    if (!footer || footer.classList.contains("afk-footer-complete")) return;
+    footer.classList.add("afk-footer-complete");
+    footer.innerHTML = `
+      <span class="afk-complete-msg">Run complete.</span>
+      <button type="button" class="afk-open-report">Open report</button>
+      <button type="button" class="afk-wakeup">Wake up</button>
+      <span class="afk-hint">Esc to exit</span>
+    `;
+    footer
+      .querySelector<HTMLButtonElement>(".afk-open-report")!
+      .addEventListener("click", () => {
+        this.deps.openReport();
+        this.close();
+      });
+    footer
+      .querySelector<HTMLButtonElement>(".afk-wakeup")!
+      .addEventListener("click", () => this.close());
   }
 
   private pushDecision(d: DecisionEvent): void {
