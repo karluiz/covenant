@@ -190,7 +190,7 @@ export class SettingsPanel {
       <a href="#sec-models" data-target="sec-models">Models</a>
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
-      <a href="#sec-operator" data-target="sec-operator">Operator</a>
+      <a href="#sec-operators" data-target="sec-operators">Operators</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
     `;
     body.appendChild(nav);
@@ -348,39 +348,13 @@ export class SettingsPanel {
             <small class="settings-hint">Multiplier on cell height. 1.2 is the default.</small>
           </label>
         </section>
-        <section class="settings-section" id="sec-operator">
-          <h3 class="settings-section-title">Operator</h3>
-          <p class="settings-hint" style="margin: 0 0 6px;">
-            When an executor agent (claude code, copilot, opencode, aider…)
-            pauses to ask you a routine question, the Operator can answer
-            on your behalf — within the constraints below. Enable per-tab
-            from the tab right-click menu. Currently in
-            <strong>dry-run</strong>: proposed answers are logged, never
-            typed.
+        <section class="settings-section" id="sec-operators">
+          <h3 class="settings-section-title">Operators</h3>
+          <p class="settings-section-desc">
+            Roster of personas the autonomous orchestrator can use. One operator
+            is marked default and is used for any tab without an explicit pin.
           </p>
-          <label class="settings-field">
-            <span class="settings-label">Persona / authorization charter</span>
-            <textarea
-              name="operator_persona"
-              rows="22"
-              spellcheck="false"
-              autocomplete="off"
-            ></textarea>
-            <small class="settings-hint">
-              Plain English. Concatenated with the hard blocklist
-              (rm&nbsp;-rf, sudo, force-push, secrets, …) which you cannot
-              override. The Operator escalates when it isn't confident.
-            </small>
-          </label>
-          <label class="settings-field">
-            <span class="settings-label">Idle threshold (seconds)</span>
-            <input type="number" name="op_idle" min="1" max="60" />
-            <small class="settings-hint">Byte silence during a matching command before checking.</small>
-          </label>
-          <label class="settings-field">
-            <span class="settings-label">Max decisions / minute / session</span>
-            <input type="number" name="op_rate" min="1" max="60" />
-          </label>
+          <div id="operators-pane" class="operators-pane"></div>
           <h4 class="settings-subsection-title">Autonomous Operator Mode (AOM)</h4>
           <p class="settings-hint" style="margin: 0 0 6px;">
             Press <kbd>⌘⇧A</kbd> to enter AOM. Every tab is auto-enabled
