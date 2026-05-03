@@ -955,8 +955,19 @@ export class TabManager {
     navStructure.setAttribute("aria-label", "Files");
     navStructure.innerHTML = `${Icons.folder({ size: 13 })}<span>Files</span>`;
 
+    const navDrafts = document.createElement("button");
+    navDrafts.type = "button";
+    navDrafts.className = "sidebar-nav-btn";
+    navDrafts.title = "Drafts";
+    navDrafts.setAttribute("aria-label", "Drafts");
+    navDrafts.innerHTML = `${Icons.filePen({ size: 13 })}<span>Drafts</span>`;
+    navDrafts.addEventListener("click", () => {
+      window.dispatchEvent(new CustomEvent("drafts:toggle"));
+    });
+
     navEl.appendChild(navBlocks);
     navEl.appendChild(navStructure);
+    navEl.appendChild(navDrafts);
     blocksHost.insertBefore(navEl, blocksHost.firstChild);
 
     // Editor splitter: when the editor is open, the pane uses a 4-col
