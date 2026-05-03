@@ -113,6 +113,11 @@ export class AfkOverlay {
     this.root.remove();
     this.root = null;
     this.status = null;
+    // Reset to "live" so a re-open after the user scrolled up
+    // doesn't strand the next session at an arbitrary offset with no
+    // pill visible (the pill only re-appears via the live-card path,
+    // not on seed).
+    this.autoScroll = true;
     this.deps.onExit?.();
   }
 
@@ -218,9 +223,8 @@ export class AfkOverlay {
     for (const r of scoped) {
       feed.appendChild(renderSeededCard(r));
     }
-    if (this.autoScroll && this.root) {
-      const feedEl = this.root.querySelector<HTMLElement>(".afk-feed");
-      if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    if (this.autoScroll) {
+      feed.scrollTop = feed.scrollHeight;
     }
   }
 }
