@@ -302,6 +302,7 @@ async function boot(): Promise<void> {
 
   const draftsPage = requireEl<HTMLElement>("drafts-page");
   const draftsPanel = new DraftsPanel(draftsPage, workspace);
+  draftsPanel.getRepoRoot = () => manager.activeCwd() ?? ".";
   draftsPanel.onClosed = () => {
     manager.refitActive();
   };
