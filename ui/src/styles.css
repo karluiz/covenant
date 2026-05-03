@@ -5980,7 +5980,8 @@ body.tabbar-left #tabbar-host {
 
 body.tabbar-left #workspace,
 body.tabbar-left #settings-page,
-body.tabbar-left #docs-page {
+body.tabbar-left #docs-page,
+body.tabbar-left #drafts-page {
     grid-column: 2;
     grid-row: 1;
 }
