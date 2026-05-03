@@ -6810,12 +6810,15 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 /* ── Avatar picker grid (settings/operators.ts) ───────────────────── */
 .operators-pane__avatar-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   gap: 6px;
   padding: 6px;
   background: var(--bg-overlay);
   border: 1px solid var(--border);
   border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 .operators-pane__avatar-cell {
   aspect-ratio: 1;
@@ -6823,9 +6826,15 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   border: 2px solid transparent;
   border-radius: 6px;
   cursor: pointer;
-  padding: 4px;
+  padding: 2px;
   display: flex; align-items: center; justify-content: center;
   transition: border-color 0.1s;
+  min-width: 0;
+}
+.operators-pane__avatar-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .operators-pane__avatar-cell:hover { border-color: var(--border); }
 .operators-pane__avatar-cell.is-selected { border-color: var(--accent); }
