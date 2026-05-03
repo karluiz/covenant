@@ -242,6 +242,7 @@ async function boot(): Promise<void> {
     openReport: () => void aomReportPanel.open(),
     onExit: () => manager.refitActive(),
   });
+  aomBanner.setEnterAfkHandler(() => afk.open());
   const docsPage = requireEl<HTMLElement>("docs-page");
   const docsPanel = new DocsPanel(docsPage, workspace);
   docsPanel.onClosed = () => {

@@ -21,6 +21,7 @@ export class AomBanner {
   private timeEl: HTMLElement | null = null;
   private countEl: HTMLElement | null = null;
   private costEl: HTMLElement | null = null;
+  private onEnterAfk: (() => void) | null = null;
   private status: AomStatus = {
     enabled: false,
     started_at_unix_ms: 0,
@@ -54,6 +55,10 @@ export class AomBanner {
 
   isOn(): boolean {
     return this.status.enabled;
+  }
+
+  setEnterAfkHandler(fn: () => void): void {
+    this.onEnterAfk = fn;
   }
 
   /// Subscribe to AOM state transitions (toggle on, toggle off,
@@ -114,7 +119,10 @@ export class AomBanner {
       <span class="aom-banner-count" aria-label="decisions made"></span>
       <span class="aom-banner-sep">·</span>
       <span class="aom-banner-cost" aria-label="cost vs budget"></span>
-      <button type="button" class="aom-banner-stop" title="Stop AOM (⌘⇧A)">
+      <button type="button" class="aom-banner-afk" title="Enter AFK mode (⌘⇧A)">
+        AFK
+      </button>
+      <button type="button" class="aom-banner-stop" title="Stop AOM">
         Stop
       </button>
     `;
@@ -125,6 +133,11 @@ export class AomBanner {
       .querySelector<HTMLButtonElement>(".aom-banner-stop")!
       .addEventListener("click", () => {
         void this.toggle();
+      });
+    this.root
+      .querySelector<HTMLButtonElement>(".aom-banner-afk")!
+      .addEventListener("click", () => {
+        if (this.onEnterAfk) this.onEnterAfk();
       });
     this.refreshDisplay();
   }
