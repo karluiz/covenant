@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -104,6 +104,102 @@ pub fn next_spec_id(repo_root: &Path) -> Result<String, DraftError> {
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DraftSummary {
+    pub slug: String,
+    pub title: String,
+    pub updated_at: String,
+}
+
+fn drafts_dir(repo_root: &Path) -> PathBuf {
+    repo_root.join("docs/specs/drafts")
+}
+
+fn draft_path(repo_root: &Path, slug: &str) -> PathBuf {
+    drafts_dir(repo_root).join(format!("{slug}.md"))
+}
+
+pub fn list_drafts_sync(repo_root: &Path) -> Result<Vec<DraftSummary>, DraftError> {
+    let dir = drafts_dir(repo_root);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.ends_with(".md") || name.starts_with('.') {
+            continue;
+        }
+        let text = std::fs::read_to_string(entry.path())?;
+        let doc = parse_draft(&text)?;
+        out.push(DraftSummary {
+            slug: doc.frontmatter.slug,
+            title: doc.frontmatter.title,
+            updated_at: doc.frontmatter.updated_at,
+        });
+    }
+    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(out)
+}
+
+pub fn read_draft_sync(repo_root: &Path, slug: &str) -> Result<DraftDocument, DraftError> {
+    let path = draft_path(repo_root, slug);
+    if !path.exists() {
+        return Err(DraftError::NotFound(slug.into()));
+    }
+    let text = std::fs::read_to_string(path)?;
+    parse_draft(&text)
+}
+
+/// Atomic write: write to `<slug>.md.tmp` then rename. Updates
+/// `updated_at` to now (RFC3339 UTC). Creates the drafts directory
+/// if missing.
+pub fn save_draft_sync(
+    repo_root: &Path,
+    slug: &str,
+    title: &str,
+    body: &str,
+) -> Result<DraftDocument, DraftError> {
+    let dir = drafts_dir(repo_root);
+    std::fs::create_dir_all(&dir)?;
+    let path = draft_path(repo_root, slug);
+    let now = chrono::Utc::now().to_rfc3339();
+    let frontmatter = if path.exists() {
+        let existing = parse_draft(&std::fs::read_to_string(&path)?)?.frontmatter;
+        DraftFrontmatter {
+            updated_at: now,
+            title: title.into(),
+            ..existing
+        }
+    } else {
+        DraftFrontmatter {
+            status: "draft".into(),
+            title: title.into(),
+            slug: slug.into(),
+            created_at: now.clone(),
+            updated_at: now,
+            llm_calls: 0,
+        }
+    };
+    let doc = DraftDocument { frontmatter, body: body.into() };
+    let text = serialize_draft(&doc)?;
+    let tmp = path.with_extension("md.tmp");
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(doc)
+}
+
+pub fn delete_draft_sync(repo_root: &Path, slug: &str) -> Result<(), DraftError> {
+    let path = draft_path(repo_root, slug);
+    if !path.exists() {
+        return Err(DraftError::NotFound(slug.into()));
+    }
+    std::fs::remove_file(path)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +261,57 @@ mod tests {
     fn next_spec_id_empty_dir() {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(next_spec_id(tmp.path()).unwrap(), "1.0");
+    }
+
+    #[test]
+    fn save_then_read_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let doc = save_draft_sync(tmp.path(), "foo", "Foo Title", "## Goal\nbar\n").unwrap();
+        assert_eq!(doc.frontmatter.slug, "foo");
+        assert_eq!(doc.frontmatter.title, "Foo Title");
+        let read = read_draft_sync(tmp.path(), "foo").unwrap();
+        assert_eq!(read.body, "## Goal\nbar\n");
+        assert_eq!(read.frontmatter.created_at, doc.frontmatter.created_at);
+    }
+
+    #[test]
+    fn save_preserves_created_at_and_llm_calls() {
+        let tmp = tempfile::tempdir().unwrap();
+        let first = save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let mut doc = read_draft_sync(tmp.path(), "a").unwrap();
+        doc.frontmatter.llm_calls = 5;
+        let text = serialize_draft(&doc).unwrap();
+        std::fs::write(tmp.path().join("docs/specs/drafts/a.md"), text).unwrap();
+        let second = save_draft_sync(tmp.path(), "a", "A", "y").unwrap();
+        assert_eq!(first.frontmatter.created_at, second.frontmatter.created_at);
+        assert_eq!(second.frontmatter.llm_calls, 5);
+        assert_ne!(first.frontmatter.updated_at, second.frontmatter.updated_at);
+    }
+
+    #[test]
+    fn list_drafts_sorted_desc() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        save_draft_sync(tmp.path(), "b", "B", "x").unwrap();
+        let list = list_drafts_sync(tmp.path()).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].slug, "b");
+        assert_eq!(list[1].slug, "a");
+    }
+
+    #[test]
+    fn delete_then_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
+        delete_draft_sync(tmp.path(), "a").unwrap();
+        assert!(matches!(read_draft_sync(tmp.path(), "a"), Err(DraftError::NotFound(_))));
+    }
+
+    #[test]
+    fn delete_missing_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(matches!(delete_draft_sync(tmp.path(), "x"), Err(DraftError::NotFound(_))));
     }
 }
