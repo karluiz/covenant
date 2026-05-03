@@ -51,6 +51,7 @@ import {
   previewKindForPath,
   SvgPreview,
 } from "./preview";
+import { loadSvgScale, type PngScale, saveSvgScale } from "./png-export";
 import { editorHighlight, editorTheme } from "./theme";
 
 export interface EditorCallbacks {
@@ -129,6 +130,13 @@ export class StructureEditor {
   private readonly previewHostEl: HTMLElement;
   private readonly previewBtn: HTMLButtonElement;
 
+  /// PNG export controls — sibling pair to `previewBtn`. Only shown
+  /// when `previewKind === "svg"`; hidden for markdown/code so the
+  /// header stays uncluttered.
+  private readonly pngBtn: HTMLButtonElement;
+  private readonly pngScaleSelect: HTMLSelectElement;
+  private pngScale: PngScale = 2;
+
   constructor(
     private readonly host: HTMLElement,
     private readonly callbacks: EditorCallbacks,
@@ -153,6 +161,41 @@ export class StructureEditor {
     this.statusEl = document.createElement("span");
     this.statusEl.className = "structure-editor-status";
     this.headerEl.appendChild(this.statusEl);
+
+    // Scale dropdown — sits left of the PNG button. Persisted choice
+    // applies across restarts; default 2× covers the retina case.
+    this.pngScale = loadSvgScale();
+    this.pngScaleSelect = document.createElement("select");
+    this.pngScaleSelect.className = "structure-editor-png-scale";
+    this.pngScaleSelect.title = "PNG export scale";
+    this.pngScaleSelect.hidden = true;
+    for (const s of [1, 2, 3] as const) {
+      const opt = document.createElement("option");
+      opt.value = String(s);
+      opt.textContent = `${s}x`;
+      if (s === this.pngScale) opt.selected = true;
+      this.pngScaleSelect.appendChild(opt);
+    }
+    this.pngScaleSelect.addEventListener("change", () => {
+      const v = Number(this.pngScaleSelect.value);
+      if (v === 1 || v === 2 || v === 3) {
+        this.pngScale = v;
+        saveSvgScale(v);
+      }
+    });
+    this.headerEl.appendChild(this.pngScaleSelect);
+
+    // PNG export button — single-click overwrite of <basename>.png.
+    this.pngBtn = document.createElement("button");
+    this.pngBtn.type = "button";
+    this.pngBtn.className = "structure-editor-png-btn";
+    this.pngBtn.textContent = "PNG";
+    this.pngBtn.title = "Export as PNG next to source";
+    this.pngBtn.hidden = true;
+    this.pngBtn.addEventListener("click", () => {
+      void this.handleExportPng();
+    });
+    this.headerEl.appendChild(this.pngBtn);
 
     // Preview/Source toggle — only shown when the open file has a
     // preview kind registered (md/svg). Hidden for plain code files
@@ -434,14 +477,26 @@ export class StructureEditor {
   private refreshPreviewButton(): void {
     if (!this.previewKind) {
       this.previewBtn.hidden = true;
-      return;
+    } else {
+      this.previewBtn.hidden = false;
+      const inPreview = this.viewMode === "preview";
+      this.previewBtn.textContent = inPreview ? "source" : "preview";
+      this.previewBtn.title = inPreview
+        ? "Show source (⌘⇧P)"
+        : "Show preview (⌘⇧P)";
     }
-    this.previewBtn.hidden = false;
-    const inPreview = this.viewMode === "preview";
-    this.previewBtn.textContent = inPreview ? "source" : "preview";
-    this.previewBtn.title = inPreview
-      ? "Show source (⌘⇧P)"
-      : "Show preview (⌘⇧P)";
+
+    // PNG controls — visible only for SVG files, regardless of
+    // source/preview view mode.
+    const isSvg = this.previewKind === "svg";
+    this.pngBtn.hidden = !isSvg;
+    this.pngScaleSelect.hidden = !isSvg;
+  }
+
+  /// Real export logic lives here in Task 5. The stub keeps the
+  /// click handler wiring valid for now.
+  private async handleExportPng(): Promise<void> {
+    this.callbacks.toast?.("PNG export not yet wired", "error");
   }
 
   /// Move caret + scroll to `line` (1-based) in the active doc. Used

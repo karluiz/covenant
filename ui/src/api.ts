@@ -483,6 +483,16 @@ export async function structureWriteFile(path: string, content: string): Promise
   return invoke<void>("structure_write_file", { path, content });
 }
 
+export async function structureWriteBinaryFile(
+  path: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  // Tauri serializes Uint8Array → number[] for the IPC bridge,
+  // which the Rust side picks up as `Vec<u8>`. We pass `bytes`
+  // directly; do NOT wrap in Array.from, the plugin handles it.
+  return invoke<void>("structure_write_binary_file", { path, bytes });
+}
+
 /// One match from a global search. `match_start`/`match_end` are CHAR
 /// offsets within `line_text` (already truncated server-side if the
 /// source line was very long), suitable for highlighting in the UI.
