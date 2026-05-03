@@ -11,6 +11,7 @@
 
 mod aom;
 mod context;
+mod drafts;
 pub mod convergence;
 mod cost;
 mod cross_session;
