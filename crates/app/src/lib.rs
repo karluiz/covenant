@@ -20,6 +20,7 @@ mod operator;
 mod safety;
 mod settings;
 mod storage;
+mod structure;
 mod summarizer;
 mod tab_manifest;
 mod world;
