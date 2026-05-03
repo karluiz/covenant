@@ -6217,7 +6217,7 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 #drafts-page {
   display: grid;
   grid-template-rows: 56px 1fr;
-  background: var(--bg);
+  background: rgb(11 13 16 / 0.92);
   color: var(--fg);
   overflow: hidden;
   animation: settings-fade 0.12s ease-out;
