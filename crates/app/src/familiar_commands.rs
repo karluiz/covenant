@@ -1,11 +1,21 @@
 //! Tauri commands for Familiars.
 //!
-//! These are thin glue around `karl_familiar::FamiliarManager`. The
-//! Familiar memory layer holds a rusqlite `Connection` (which is
-//! `!Sync`); operations that span an `await` while holding the memory
-//! lock are therefore not `Send`. Where that bites tauri's
-//! Send-requiring command futures we offload to `spawn_blocking` and
-//! drive a current-thread runtime inside.
+//! Approval flow:
+//!   1. UI calls `familiar_chat` → may return `directive_*`.
+//!   2. UI shows directive card. On approve, UI calls
+//!      `familiar_approve_directive(familiar_id, directive_id)`.
+//!   3. The returned string is the synthetic user message; UI calls
+//!      the existing operator input command — in covenant this is
+//!      `write_to_session` — with `session_id` + that string. The
+//!      operator picks it up next cycle.
+//!   4. Once executed, UI calls `familiar_mark_executed`.
+//!
+//! Implementation note: these are thin glue around
+//! `karl_familiar::FamiliarManager`. The Familiar memory layer holds a
+//! rusqlite `Connection` (which is `!Sync`); operations that span an
+//! `await` while holding the memory lock are therefore not `Send`.
+//! Where that bites tauri's Send-requiring command futures we offload
+//! to `spawn_blocking` and drive a current-thread runtime inside.
 
 use karl_familiar::agent::ChatAgent;
 use karl_familiar::directive::DefaultSafety;
@@ -338,6 +348,30 @@ pub async fn familiar_audit(
                     })
                     .collect(),
             )
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn familiar_mark_executed(
+    familiar_id: String,
+    directive_id: String,
+    mgr: State<'_, Arc<FamiliarManager>>,
+) -> Result<(), String> {
+    let id = parse_id(&familiar_id)?;
+    let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("runtime build: {e}"))?;
+        rt.block_on(async move {
+            mgr_arc
+                .mark_executed(id, &directive_id, now_ms())
+                .await
+                .map_err(|e| e.to_string())
         })
     })
     .await

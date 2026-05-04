@@ -2032,6 +2032,7 @@ pub fn run() {
             familiar_commands::familiar_reject_directive,
             familiar_commands::familiar_snapshot,
             familiar_commands::familiar_audit,
+            familiar_commands::familiar_mark_executed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
