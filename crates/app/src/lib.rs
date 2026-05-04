@@ -96,23 +96,30 @@ pub(crate) struct AppState {
     /// 3.13 operator learning — local embedding model, lazy-loaded on
     /// first use (model download ~30 MB). Wrapped in `OnceCell` so app
     /// startup stays cheap; resolved on a blocking task by `get_embedder`.
-    embedder: tokio::sync::OnceCell<Arc<embedder::Embedder>>,
+    embedder: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
+}
+
+/// Lazy-init the shared embedder cell. Called by both `get_embedder`
+/// (Tauri-command path) and the operator tick loop (which doesn't have
+/// `AppState` directly — it holds a clone of the same `Arc<OnceCell>`).
+pub(crate) async fn get_embedder_from_cell(
+    cell: &tokio::sync::OnceCell<Arc<embedder::Embedder>>,
+) -> Result<Arc<embedder::Embedder>, String> {
+    cell.get_or_try_init(|| async {
+        tokio::task::spawn_blocking(|| {
+            embedder::Embedder::new().map(Arc::new)
+        })
+        .await
+        .map_err(|e| format!("embedder init join: {e}"))?
+        .map_err(|e| format!("embedder init: {e}"))
+    })
+    .await
+    .cloned()
 }
 
 #[allow(dead_code)] // wired up in 3.13 follow-up tasks
 async fn get_embedder(state: &AppState) -> Result<Arc<embedder::Embedder>, String> {
-    state
-        .embedder
-        .get_or_try_init(|| async {
-            tokio::task::spawn_blocking(|| {
-                embedder::Embedder::new().map(Arc::new)
-            })
-            .await
-            .map_err(|e| format!("embedder init join: {e}"))?
-            .map_err(|e| format!("embedder init: {e}"))
-        })
-        .await
-        .cloned()
+    get_embedder_from_cell(&state.embedder).await
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -1625,6 +1632,8 @@ pub fn run() {
             request_notification_permission_async(notifier.clone());
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
             let mission_store = dir.join("session_missions.json");
+            let embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>> =
+                Arc::new(tokio::sync::OnceCell::new());
             let operator_watcher = OperatorWatcher::spawn(
                 app.handle().clone(),
                 settings_arc.clone(),
@@ -1633,6 +1642,7 @@ pub fn run() {
                 mission_store,
                 notifier.clone(),
                 registry_arc.clone(),
+                embedder_cell.clone(),
             );
 
             // One-shot Recall seeding: on first launch, import the
@@ -1658,7 +1668,7 @@ pub fn run() {
                 tab_manifest_path,
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
-                embedder: tokio::sync::OnceCell::new(),
+                embedder: embedder_cell,
             });
             Ok(())
         })
