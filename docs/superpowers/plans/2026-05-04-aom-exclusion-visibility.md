@@ -61,7 +61,7 @@ Find that exact 4-line block (3 comment lines + 1 call line) inside `aom_start`.
 
 - [ ] **Step 3: Verify the project still builds**
 
-Run: `cargo check -p covenant-app`
+Run: `cargo check -p covenant`
 Expected: PASS (no errors).
 
 - [ ] **Step 4: Commit**
@@ -152,7 +152,7 @@ Replace the inner loop body so the function reads:
 
 - [ ] **Step 4: Verify the project still builds**
 
-Run: `cargo check -p covenant-app`
+Run: `cargo check -p covenant`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -1217,7 +1217,7 @@ Update the popover wiring inside `openAomPopover` to drop the optional-chaining 
 - [ ] **Step 8: Verify TS + Rust compile**
 
 Run: `npx tsc --noEmit -p .` (no errors)
-Run: `cargo check -p covenant-app` (no errors)
+Run: `cargo check -p covenant` (no errors)
 
 - [ ] **Step 9: Manual verification end-to-end**
 
