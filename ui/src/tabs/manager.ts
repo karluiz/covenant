@@ -1476,6 +1476,22 @@ export class TabManager {
     tabRef.current = tab;
 
     this.tabs.push(tab);
+    // If spawned into an existing group, splice the tab next to the
+    // group's last member so grouped tabs stay contiguous in `tabs[]`.
+    // Without this, renderTabbar opens a second shell for the new tab
+    // and the group renders as two chips sharing one id — deleting
+    // either removes both.
+    if (tab.groupId) {
+      const myIdx = this.tabs.length - 1;
+      let lastGroupIdx = -1;
+      for (let i = 0; i < myIdx; i++) {
+        if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
+      }
+      if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
+        const [moved] = this.tabs.splice(myIdx, 1);
+        this.tabs.splice(lastGroupIdx + 1, 0, moved);
+      }
+    }
     this.rememberSessionName(sessionId, tabDisplayName(tab));
     // Route through activate() so the StatusBar callbacks
     // (onActiveContextChange, emitActiveMission, …) fire on the new
