@@ -47,6 +47,67 @@ pub fn classify_spec(repo_root: &Path, path: &Path) -> Option<SpecSource> {
     None
 }
 
+/// Extract the H1 title (e.g. "3.16 — Foo") from a spec markdown body.
+/// Returns the trimmed text after the first `# ` line, or None.
+pub fn extract_title(md: &str) -> Option<String> {
+    for line in md.lines() {
+        if let Some(rest) = line.strip_prefix("# ") {
+            let t = rest.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract a flat one-paragraph snippet from the `## Goal` section,
+/// truncated to `max_chars` (with a trailing "…" if truncated).
+/// Returns "" if no Goal section is present.
+pub fn extract_goal_snippet(md: &str, max_chars: usize) -> String {
+    let mut in_goal = false;
+    let mut buf = String::new();
+
+    for line in md.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") {
+            if in_goal {
+                break; // next section ends Goal
+            }
+            let heading = trimmed.trim_start_matches("## ").trim();
+            if heading.eq_ignore_ascii_case("goal")
+                || heading.to_ascii_lowercase().starts_with("goal ")
+            {
+                in_goal = true;
+            }
+            continue;
+        }
+        if !in_goal {
+            continue;
+        }
+        if trimmed.starts_with('>') {
+            continue; // skip blockquotes (template comments)
+        }
+        if trimmed.is_empty() {
+            if !buf.is_empty() {
+                buf.push(' ');
+            }
+            continue;
+        }
+        if !buf.is_empty() && !buf.ends_with(' ') {
+            buf.push(' ');
+        }
+        buf.push_str(trimmed);
+    }
+
+    let flat = buf.trim().to_string();
+    if flat.chars().count() <= max_chars {
+        return flat;
+    }
+    let truncated: String = flat.chars().take(max_chars).collect();
+    format!("{}…", truncated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +163,41 @@ mod tests {
     fn unrelated_path_ignored() {
         let p = root().join("README.md");
         assert_eq!(classify_spec(&root(), &p), None);
+    }
+
+    #[test]
+    fn extracts_goal_under_h2() {
+        let md = "# 3.16 — Foo\n\n## Goal\n\nDoes the thing.\nMore detail.\n\n## Out of scope\n";
+        assert_eq!(
+            extract_goal_snippet(md, 200),
+            "Does the thing. More detail."
+        );
+    }
+
+    #[test]
+    fn truncates_at_limit_with_ellipsis() {
+        let md = format!("## Goal\n\n{}", "a".repeat(300));
+        let out = extract_goal_snippet(&md, 50);
+        assert!(out.ends_with('…'));
+        // 50 ASCII chars + "…" — but len() counts bytes; check char count instead
+        assert_eq!(out.chars().count(), 51);
+    }
+
+    #[test]
+    fn returns_empty_when_no_goal_section() {
+        let md = "# Title\n\nSome text without a goal heading.";
+        assert_eq!(extract_goal_snippet(md, 200), "");
+    }
+
+    #[test]
+    fn extract_title_from_h1() {
+        let md = "# 3.16 — Foo Bar\n\n## Goal\n";
+        assert_eq!(extract_title(md), Some("3.16 — Foo Bar".to_string()));
+    }
+
+    #[test]
+    fn extract_title_returns_none_without_h1() {
+        let md = "## Goal\n";
+        assert_eq!(extract_title(md), None);
     }
 }
