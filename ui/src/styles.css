@@ -1151,13 +1151,15 @@ body:not(.tabbar-left) #new-group {
         color 0.12s ease-out;
 }
 
-#new-tab .new-tab-plus {
+.new-tab-plus {
     font-size: 18px;
     font-weight: 300;
     line-height: 1;
+    display: inline-flex;
+    align-items: center;
 }
 
-#new-tab .new-tab-kbd {
+.new-tab-kbd {
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 10px;
