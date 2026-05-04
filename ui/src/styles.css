@@ -7861,3 +7861,60 @@ button.mission-picker-plan-missing:hover {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.status-aom-pop-excluded {
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.status-aom-pop-excluded-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.status-aom-pop-excluded-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.status-aom-pop-excluded-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.status-aom-pop-excluded-name {
+  font-weight: 500;
+}
+.status-aom-pop-excluded-cwd {
+  display: block;
+  grid-column: 1 / 2;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.status-aom-pop-excluded-btn,
+.status-aom-pop-include-all {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: inherit;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.status-aom-pop-excluded-btn:hover,
+.status-aom-pop-include-all:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.status-aom-pop-include-all {
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 4px;
+}

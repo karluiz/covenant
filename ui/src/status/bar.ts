@@ -276,10 +276,20 @@ export class StatusBar {
   /// — on AOM start/stop transitions, on individual toggles, and on
   /// manifest restore. The chip suffix and popover read from this list.
   setExcludedTabs(tabs: ExcludedTabInfo[]): void {
-    // Cheap identity check: same length AND same ids in same order.
+    // Cheap identity check on length + per-tab sessionId/name/cwdShort.
+    // sessionId-only would skip a popover refresh after a tab rename
+    // — covered here so the popover stays accurate.
     const same =
       this.excludedTabs.length === tabs.length &&
-      this.excludedTabs.every((t, i) => t.sessionId === tabs[i]?.sessionId);
+      this.excludedTabs.every((t, i) => {
+        const o = tabs[i];
+        return (
+          o !== undefined &&
+          t.sessionId === o.sessionId &&
+          t.name === o.name &&
+          t.cwdShort === o.cwdShort
+        );
+      });
     if (same) return;
     this.excludedTabs = tabs;
     // If popover is open, re-render its body so the list stays live.
@@ -290,7 +300,10 @@ export class StatusBar {
   }
 
   private refreshExcludedListInPopover(): void {
-    // Concrete render comes in Task 10. Stub for now.
+    if (!this.aomPopover) return;
+    const anchor = this.host.querySelector<HTMLElement>(".status-aom");
+    this.closeAomPopover();
+    if (anchor) this.openAomPopover(anchor);
   }
 
   private refreshAomTimeInPlace(): void {
@@ -333,6 +346,33 @@ export class StatusBar {
         <div class="status-aom-pop-label">Cost</div>
         <div class="status-aom-pop-value${warnClass}">$${aom.accumulated_cost_usd.toFixed(3)} / $${aom.budget_usd.toFixed(2)}</div>
       </div>
+      ${
+        this.excludedTabs.length > 0
+          ? `
+        <div class="status-aom-pop-excluded">
+          <div class="status-aom-pop-excluded-title">Excluded from AOM (${this.excludedTabs.length})</div>
+          <ul class="status-aom-pop-excluded-list">
+            ${this.excludedTabs
+              .map(
+                (t) => `
+              <li>
+                <span class="status-aom-pop-excluded-name">${escapeHtml(t.name)}</span>
+                ${t.cwdShort ? `<span class="status-aom-pop-excluded-cwd">${escapeHtml(t.cwdShort)}</span>` : ""}
+                <button type="button" class="status-aom-pop-excluded-btn" data-session-id="${t.sessionId}">Include</button>
+              </li>
+            `,
+              )
+              .join("")}
+          </ul>
+          ${
+            this.excludedTabs.length >= 2
+              ? `<button type="button" class="status-aom-pop-include-all">Include all in AOM</button>`
+              : ""
+          }
+        </div>
+      `
+          : ""
+      }
       <div class="status-aom-pop-actions">
         <button type="button" class="status-aom-pop-btn status-aom-pop-afk">AFK mode</button>
         <button type="button" class="status-aom-pop-btn status-aom-pop-stop">Stop AOM</button>
@@ -358,6 +398,23 @@ export class StatusBar {
       "click",
       () => {
         this.aomActions?.onAfk();
+        this.closeAomPopover();
+      },
+    );
+    pop.querySelectorAll<HTMLButtonElement>(".status-aom-pop-excluded-btn").forEach(
+      (btn) => {
+        btn.addEventListener("click", () => {
+          const sid = btn.dataset.sessionId;
+          if (!sid) return;
+          this.aomActions?.onIncludeTab?.(sid as SessionId);
+          this.closeAomPopover();
+        });
+      },
+    );
+    pop.querySelector<HTMLButtonElement>(".status-aom-pop-include-all")?.addEventListener(
+      "click",
+      () => {
+        this.aomActions?.onIncludeAll?.();
         this.closeAomPopover();
       },
     );
