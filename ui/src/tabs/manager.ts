@@ -1761,6 +1761,11 @@ export class TabManager {
   async includeAllInAom(): Promise<void> {
     try {
       await clearAllAomExcluded();
+      // The local sync MUST stay synchronous (no awaits in the loop)
+      // — otherwise a mid-loop throw would leave backend & local
+      // state diverged. Today the assignment can't throw, so the
+      // catch below correctly captures only `clearAllAomExcluded`
+      // failure where backend AND local are unchanged.
       for (const t of this.tabs) {
         t.aomExcluded = false;
       }
@@ -1774,8 +1779,12 @@ export class TabManager {
   }
 
   /// Recompute the StatusBar exclusion list from current tab state and
-  /// push. Called whenever the set could have changed (toggle, restore,
-  /// AOM transition).
+  /// push. Three call sites — keep them in sync if the set can change
+  /// from a new path:
+  ///   1. `toggleAomExcluded` — user-initiated toggle (badge / ⌘⇧E /
+  ///      right-click / setAomExcludedFor / includeAllInAom).
+  ///   2. `refreshAllOperatorState` — AOM banner transitions on/off.
+  ///   3. `restoreFromManifest` — app launch with persisted exclusions.
   private pushExcludedToStatusBar(): void {
     const aomOn = this.aomBanner?.isOn() ?? false;
     if (!aomOn) {
@@ -1786,7 +1795,6 @@ export class TabManager {
       .filter((t) => t.operatorEnabled && t.aomExcluded)
       .map((t) => ({
         sessionId: t.sessionId,
-        tabId: t.id,
         name: tabDisplayName(t),
         cwdShort: shortCwd(t.cwd),
       }));
@@ -2843,7 +2851,8 @@ function shortCwd(cwd: string | null): string {
   if (!cwd) return "";
   // /Users/<name>/ → ~/  (Linux: /home/<name>/ → ~/). Cheap regex,
   // no need for an env round-trip — process.env.HOME isn't available
-  // in the Tauri webview anyway.
+  // in the Tauri webview anyway. Windows path normalization is
+  // deferred per CLAUDE.md M8 (Windows is post-M5 work).
   let p = cwd.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
   if (p.length > 30) p = "…" + p.slice(p.length - 29);
   return p;

@@ -59,7 +59,6 @@ export interface AomActions {
 /// Lightweight per-tab descriptor for the excluded-list popover.
 export interface ExcludedTabInfo {
   sessionId: SessionId;
-  tabId: string;
   name: string;
   /// Trimmed cwd for display. Empty string when no cwd.
   cwdShort: string;
