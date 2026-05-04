@@ -18,6 +18,7 @@ mod cross_session;
 mod embedder;
 mod fix_proposer;
 mod history_import;
+mod memory;
 mod mission_persistence;
 mod notify;
 mod operator;
