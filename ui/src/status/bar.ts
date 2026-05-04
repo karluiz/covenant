@@ -43,10 +43,28 @@ const GIT_BRANCH_SVG =
 const CPU_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>';
 
-/// Callbacks the AOM popover wires to its action buttons.
+/// Callbacks the AOM popover wires to its action buttons. Stop and
+/// Afk are required; Include callbacks are optional during the
+/// staggered Task 8 → Task 11 rollout (TabManager binds them in
+/// Task 11; until then the popover treats them as no-ops).
 export interface AomActions {
   onStop: () => void;
   onAfk: () => void;
+  /// Re-include a single excluded tab. Implementer (TabManager)
+  /// should call setAomExcluded(sessionId, false) and refresh state.
+  onIncludeTab?: (sessionId: SessionId) => void;
+  /// Re-include every excluded tab in one click. Implementer should
+  /// call clear_all_aom_excluded().
+  onIncludeAll?: () => void;
+}
+
+/// Lightweight per-tab descriptor for the excluded-list popover.
+export interface ExcludedTabInfo {
+  sessionId: SessionId;
+  tabId: string;
+  name: string;
+  /// Trimmed cwd for display. Empty string when no cwd.
+  cwdShort: string;
 }
 
 /// Lightweight active-tab descriptor — just enough for the leading
@@ -71,6 +89,10 @@ export class StatusBar {
   /// `live` is meaningful only when `enabled: true` (backend invariant).
   private currentOperator: { enabled: boolean; live: boolean } | null = null;
   private currentAom: AomStatus | null = null;
+  /// Tabs currently excluded from AOM. Pushed by TabManager whenever
+  /// the set changes (toggle, AOM transition, restore). Empty when
+  /// AOM is off OR no exclusions exist — both collapse the suffix.
+  private excludedTabs: ExcludedTabInfo[] = [];
   private aomActions: AomActions | null = null;
   private aomPopover: HTMLElement | null = null;
   /// Pinned Operator entity for the active tab. Set via setOperatorEntity;
@@ -248,6 +270,27 @@ export class StatusBar {
     this.currentAom = next;
     if (next === null) this.closeAomPopover();
     this.render(this.lastDirCtx);
+  }
+
+  /// Pushed by TabManager whenever the per-tab exclusion set changes
+  /// — on AOM start/stop transitions, on individual toggles, and on
+  /// manifest restore. The chip suffix and popover read from this list.
+  setExcludedTabs(tabs: ExcludedTabInfo[]): void {
+    // Cheap identity check: same length AND same ids in same order.
+    const same =
+      this.excludedTabs.length === tabs.length &&
+      this.excludedTabs.every((t, i) => t.sessionId === tabs[i]?.sessionId);
+    if (same) return;
+    this.excludedTabs = tabs;
+    // If popover is open, re-render its body so the list stays live.
+    if (this.aomPopover) {
+      this.refreshExcludedListInPopover();
+    }
+    this.render(this.lastDirCtx);
+  }
+
+  private refreshExcludedListInPopover(): void {
+    // Concrete render comes in Task 10. Stub for now.
   }
 
   private refreshAomTimeInPlace(): void {
