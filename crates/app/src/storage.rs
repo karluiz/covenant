@@ -1421,6 +1421,35 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// 3.13 perf: cheap COUNT(*) over `operator_memories` filtered by
+    /// `scopes`. Used as a short-circuit guard before doing an embed +
+    /// vector search on every operator tick. Indexed by
+    /// `idx_operator_memories_scope`, so this runs in microseconds.
+    pub async fn count_memories(&self, scopes: &[&str]) -> Result<u64, StorageError> {
+        if scopes.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.inner.clone();
+        let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || -> Result<u64, StorageError> {
+            let c = conn.blocking_lock();
+            let placeholders = (1..=scopes.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT COUNT(*) FROM operator_memories WHERE scope IN ({placeholders})",
+            );
+            let mut stmt = c.prepare(&sql)?;
+            let params_dyn: Vec<&dyn rusqlite::ToSql> =
+                scopes.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+            let n: i64 = stmt.query_row(rusqlite::params_from_iter(params_dyn), |r| r.get(0))?;
+            Ok(n.max(0) as u64)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// 3.13: top-k vector search over `operator_memory_vec`, filtered to
     /// `scopes`. Returns (row, distance) pairs ordered by ascending
     /// distance. Embedding length must be exactly 384.
@@ -2236,6 +2265,40 @@ mod tests {
         let none: &[&str] = &[];
         let empty = s.list_memories(none, 10).await.unwrap();
         assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn count_memories_returns_zero_for_empty_scope_list() {
+        let (s, _g) = fresh();
+        let e = dummy_embedding(0.1);
+        s.insert_memory("g1", "x", None, "global", "", 100, &e)
+            .await
+            .unwrap();
+        let none: &[&str] = &[];
+        assert_eq!(s.count_memories(none).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn count_memories_returns_count_filtered_by_scope() {
+        let (s, _g) = fresh();
+        let e = dummy_embedding(0.1);
+        s.insert_memory("g1", "x", None, "global", "", 100, &e)
+            .await
+            .unwrap();
+        s.insert_memory("g2", "x", None, "global", "", 110, &e)
+            .await
+            .unwrap();
+        s.insert_memory("m1", "x", None, "mission:foo", "", 200, &e)
+            .await
+            .unwrap();
+
+        assert_eq!(s.count_memories(&["global"]).await.unwrap(), 2);
+        assert_eq!(s.count_memories(&["mission:foo"]).await.unwrap(), 1);
+        assert_eq!(
+            s.count_memories(&["global", "mission:foo"]).await.unwrap(),
+            3
+        );
+        assert_eq!(s.count_memories(&["mission:nope"]).await.unwrap(), 0);
     }
 
     #[tokio::test]
