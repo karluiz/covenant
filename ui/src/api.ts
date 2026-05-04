@@ -626,6 +626,8 @@ export type TileStatus =
   | "blocked"
   | "operator-thinking";
 
+export type Vendor = "claude" | "copilot" | "opencode" | "aider" | "codex" | "unknown";
+
 export interface ConvergenceTileState {
   session_id: string;
   title: string;        // backend leaves empty; overlay fills from TabManager
@@ -637,6 +639,8 @@ export interface ConvergenceTileState {
   last_output_line: string | null;
   cost_usd: number | null;
   budget_usd: number | null;
+  vendor: Vendor;
+  raw_command_label: string | null;
 }
 
 export interface ConvergenceSnapshot {

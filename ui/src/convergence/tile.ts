@@ -52,13 +52,23 @@ export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElem
   title.textContent = truncate(state.title || "untitled", 40);
   head.append(stripe, avatar, title);
 
-  // (2) Status pill
+  // (2) Vendor badge
+  const vendorBadge = document.createElement("span");
+  vendorBadge.className = "convergence-tile__vendor";
+  vendorBadge.dataset.vendor = state.vendor;
+  if (state.vendor === "unknown") {
+    vendorBadge.textContent = state.raw_command_label ?? "unknown";
+  } else {
+    vendorBadge.textContent = state.vendor;
+  }
+
+  // (3) Status pill
   const pill = document.createElement("span");
   pill.className = "convergence-tile__pill";
   pill.dataset.status = state.status;
   pill.textContent = STATUS_LABEL[state.status];
 
-  // (3) Last decision (action + rationale, 2-line clamp via CSS)
+  // (4) Last decision (action + rationale, 2-line clamp via CSS)
   const decision = document.createElement("div");
   decision.className = "convergence-tile__decision";
   if (state.last_decision_action) {
@@ -74,7 +84,7 @@ export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElem
     decision.textContent = "no decisions yet";
   }
 
-  // (4) Last command + output preview
+  // (5) Last command + output preview
   const activity = document.createElement("div");
   activity.className = "convergence-tile__activity";
   const cmd = document.createElement("div");
@@ -85,9 +95,9 @@ export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElem
   out.textContent = truncate(state.last_output_line, 100);
   activity.append(cmd, out);
 
-  tile.append(head, pill, decision, activity);
+  tile.append(head, vendorBadge, pill, decision, activity);
 
-  // (5) Cost footer ONLY when enrolled in AOM
+  // (6) Cost footer ONLY when enrolled in AOM
   if (state.cost_usd !== null && state.budget_usd !== null) {
     const cost = document.createElement("div");
     cost.className = "convergence-tile__cost";

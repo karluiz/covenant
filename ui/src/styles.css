@@ -5700,6 +5700,25 @@ button.status-segment.status-aom.status-aom-warn:hover {
 }
 .convergence-tile__cmd { color: inherit; }
 
+.convergence-tile__vendor {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.convergence-tile__vendor[data-vendor="claude"],
+.convergence-tile__vendor[data-vendor="copilot"],
+.convergence-tile__vendor[data-vendor="opencode"],
+.convergence-tile__vendor[data-vendor="aider"],
+.convergence-tile__vendor[data-vendor="codex"] {
+  border-color: var(--accent);
+  color: var(--fg, var(--muted));
+}
+
 .convergence-tile__cost {
   margin-top: auto;
   font-size: 11px;
