@@ -753,6 +753,137 @@ async fn get_convergence_snapshot(
     .await)
 }
 
+/// 3.13 Task 3 — pure scope-resolution helper. UI sends literal
+/// `"one-shot" | "mission" | "global"`; backend resolves to the
+/// stored `scope` column on `operator_memories`. Returns `None` to
+/// mean "skip persistence". Pulled out for unit testing.
+fn resolve_scope(ui_scope: &str, mission_path: Option<&str>) -> Option<String> {
+    match ui_scope {
+        "one-shot" => None,
+        "global" => Some("global".into()),
+        "mission" => match mission_path {
+            Some(p) => Some(format!("mission:{p}")),
+            None => {
+                tracing::warn!(
+                    "convergence reply scope=mission but no mission attached; falling back to global"
+                );
+                Some("global".into())
+            }
+        },
+        other => {
+            tracing::warn!(scope = %other, "unknown convergence reply scope; skipping persistence");
+            None
+        }
+    }
+}
+
+/// 3.13 Task 3 — best-effort persistence of a convergence reply as
+/// an `operator_memories` row. NEVER returns an error: every failure
+/// path logs and falls through. The caller's command must succeed
+/// regardless so the user's reply unblocks the session.
+async fn persist_convergence_memory(
+    state: &AppState,
+    session_id: &SessionId,
+    text: &str,
+    ui_scope: &str,
+) {
+    // Recent decisions for this session, used for both mission lookup
+    // and pattern-context. Cap at 50 — convergence happens close in
+    // time to the decision that triggered it.
+    let session_short = {
+        let s = session_id.0.to_string();
+        if s.len() > 6 { s[s.len() - 6..].to_string() } else { s }
+    };
+    let recent = match state.storage.list_operator_decisions(50).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "list_operator_decisions failed; persisting without context");
+            Vec::new()
+        }
+    };
+
+    // Mission path: most recent decision row for this session that has
+    // one attached. Reusing the column we already snapshot per row
+    // avoids widening OperatorWatcher's surface.
+    let mission_path: Option<String> = recent
+        .iter()
+        .find(|r| r.session_id_short == session_short && r.mission_path.is_some())
+        .and_then(|r| r.mission_path.clone());
+
+    let resolved_scope = match resolve_scope(ui_scope, mission_path.as_deref()) {
+        Some(s) => s,
+        None => return, // one-shot or unknown — nothing to persist
+    };
+
+    // Pattern: last decision for this session within 5 min →
+    // rationale + in_flight_command. Else most-recent for this session
+    // (rationale only). Else empty.
+    let now_ms = now_unix_ms();
+    let five_min_ms: u64 = 5 * 60 * 1000;
+    let pattern: String = {
+        let recent_for_session: Vec<&OperatorDecisionRow> = recent
+            .iter()
+            .filter(|r| r.session_id_short == session_short)
+            .collect();
+        if let Some(r) = recent_for_session
+            .iter()
+            .find(|r| now_ms.saturating_sub(r.timestamp_unix_ms) <= five_min_ms)
+        {
+            format!(
+                "{} | {}",
+                r.rationale.as_deref().unwrap_or(""),
+                r.in_flight_command.as_deref().unwrap_or("")
+            )
+        } else if let Some(r) = recent_for_session.first() {
+            r.rationale.clone().unwrap_or_default()
+        } else {
+            String::new()
+        }
+    };
+
+    // Tags from combined pattern + reply text.
+    let combined = format!("{pattern} {text}");
+    let tags = memory::extract_tags(&combined).join(" ");
+
+    // Embedding — runs on a blocking task because fastembed is sync.
+    let embedder = match get_embedder(state).await {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(error = %e, "embedder init failed; skipping memory persist");
+            return;
+        }
+    };
+    let embed_input = format!("{pattern}\n{text}");
+    let embedding = match tokio::task::spawn_blocking(move || embedder.embed(&embed_input)).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "embedding failed; skipping memory persist");
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "embed join failed; skipping memory persist");
+            return;
+        }
+    };
+
+    match state
+        .storage
+        .insert_memory(
+            &pattern,
+            text,
+            None,
+            &resolved_scope,
+            &tags,
+            now_ms,
+            &embedding,
+        )
+        .await
+    {
+        Ok(id) => tracing::info!(memory_id = id, scope = %resolved_scope, "convergence memory saved"),
+        Err(e) => tracing::warn!(error = %e, "failed to persist convergence memory; continuing"),
+    }
+}
+
 /// 3.8 Convergence Mode reply pipe. Pushes a resolution onto the
 /// operator's internal channel; tick_loop drains it and injects into
 /// the matching session's PTY. Emits `convergence_reply_submitted`
@@ -770,6 +901,13 @@ async fn submit_convergence_reply(
     use std::hash::{Hash, Hasher};
 
     let id = parse_id(&session_id)?;
+
+    // 3.13 Task 3 — persist convergence reply as a learned memory
+    // BEFORE the resolution channel send, so the next operator tick
+    // can already see the new memory in DB. Persistence failures NEVER
+    // fail the command: they log and continue.
+    persist_convergence_memory(&state, &id, &text, &scope).await;
+
     state
         .operator
         .resolution_sender()
@@ -1585,4 +1723,39 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_scope;
+
+    #[test]
+    fn one_shot_skips_persistence() {
+        assert_eq!(resolve_scope("one-shot", None), None);
+        assert_eq!(resolve_scope("one-shot", Some("/foo")), None);
+    }
+
+    #[test]
+    fn global_persists_as_global() {
+        assert_eq!(resolve_scope("global", None), Some("global".into()));
+    }
+
+    #[test]
+    fn mission_with_path_uses_mission_scope() {
+        assert_eq!(
+            resolve_scope("mission", Some("/foo/bar")),
+            Some("mission:/foo/bar".into())
+        );
+    }
+
+    #[test]
+    fn mission_without_path_falls_back_to_global() {
+        assert_eq!(resolve_scope("mission", None), Some("global".into()));
+    }
+
+    #[test]
+    fn unknown_scope_skips_persistence() {
+        assert_eq!(resolve_scope("gibberish", None), None);
+        assert_eq!(resolve_scope("", Some("/foo")), None);
+    }
 }
