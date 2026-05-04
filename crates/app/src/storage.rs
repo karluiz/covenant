@@ -131,6 +131,16 @@ CREATE INDEX IF NOT EXISTS idx_operator_memories_created
 CREATE VIRTUAL TABLE IF NOT EXISTS operator_memory_vec USING vec0(
     embedding float[384]
 );
+
+CREATE TABLE IF NOT EXISTS seen_specs (
+    repo_root          TEXT NOT NULL,
+    path               TEXT NOT NULL,
+    first_seen_at      INTEGER NOT NULL,
+    PRIMARY KEY (repo_root, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seen_specs_repo
+    ON seen_specs(repo_root);
 ";
 
 #[derive(Debug, Error)]
@@ -2391,5 +2401,32 @@ mod tests {
         // ORDER BY id DESC — newest first.
         assert_eq!(rows[0].applied_memory_id, None);
         assert_eq!(rows[1].applied_memory_id, Some(42));
+    }
+
+    #[test]
+    fn seen_specs_table_exists_and_supports_upsert() {
+        use rusqlite::Connection;
+        ensure_sqlite_vec_loaded();
+        let conn = Connection::open_in_memory().expect("open");
+        conn.execute_batch(super::SCHEMA).expect("apply schema");
+
+        conn.execute(
+            "INSERT INTO seen_specs (repo_root, path, first_seen_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["/tmp/repo", "docs/specs/3.1-foo.md", 1234_i64],
+        )
+        .expect("insert");
+
+        let inserted: usize = conn
+            .execute(
+                "INSERT OR IGNORE INTO seen_specs (repo_root, path, first_seen_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["/tmp/repo", "docs/specs/3.1-foo.md", 9999_i64],
+            )
+            .expect("upsert");
+        assert_eq!(inserted, 0, "should ignore duplicate");
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM seen_specs", [], |r| r.get(0))
+            .expect("count");
+        assert_eq!(count, 1);
     }
 }
