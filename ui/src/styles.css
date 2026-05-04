@@ -905,17 +905,32 @@ body.tab-drag-active * {
     cursor: grabbing;
 }
 
-/* Top accent stripe — matches the .tab-grouped::after of member tabs
-   so the chip + tabs read as one continuous group region. */
-.group-chip::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -1px;
-    right: -1px;
-    height: 3px;
+/* ── Tab group shell — lateral stripe + body container ── */
+.tab-group-shell {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 0 0 6px 0;
+}
+
+.tab-group-shell-colored .tab-group-stripe {
     background: var(--group-color, var(--accent));
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+}
+
+.tab-group-stripe {
+    width: 3px;
+    border-radius: 2px;
+    background: var(--muted);
+    flex-shrink: 0;
+    align-self: stretch;
+}
+
+.tab-group-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .group-chip-colored {
@@ -1066,37 +1081,11 @@ body.tab-drag-active * {
     display: none; /* group ::after stripe owns the top edge */
 }
 
-.tab-grouped::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -1px;
-    right: -1px;
-    height: 3px;
-    background: var(--group-color, transparent);
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
-    pointer-events: none;
-    z-index: 1;
-}
-
 /* Chip + first member fusion. The chip's right edge bleeds into the
    first member's left edge, forming one continuous silhouette. */
 .group-chip-has-members {
     border-top-right-radius: 0;
     border-right-color: transparent;
-}
-
-.tab-grouped-first {
-    border-top-left-radius: 0;
-    border-left-color: transparent;
-    margin-left: -4px;
-}
-
-/* Subsequent contiguous group members share borders too. */
-.tab-grouped + .tab-grouped {
-    margin-left: -4px;
-    border-top-left-radius: 0;
-    border-left-color: transparent;
 }
 
 .tab-label {
@@ -6412,28 +6401,6 @@ body.tabbar-left .tab-grouped {
     padding-left: 22px;
 }
 
-body.tabbar-left .tab-grouped::after {
-    /* The group-color stripe lives on the chip in vertical mode;
-       drop the per-member top accent — it would overlap awkwardly. */
-    display: none;
-}
-
-body.tabbar-left .tab-grouped-first,
-body.tabbar-left .tab-grouped + .tab-grouped {
-    margin-left: 0;
-    border-top-left-radius: 6px;
-    border-left-color: var(--tab-border-rest);
-}
-
-/* Cancel the parent flex `gap: 4px` within a group so the chip and
-   its members read as one fused block. The chip already drops its
-   bottom border + radius via `group-chip-has-members`; the negative
-   margin closes the visual seam the gap would otherwise reopen. */
-body.tabbar-left .tab-grouped-first,
-body.tabbar-left .tab-grouped + .tab-grouped {
-    margin-top: -4px;
-}
-
 /* Group chip — full-width row, left-stripe colored. */
 body.tabbar-left .group-chip {
     width: 100%;
@@ -6454,17 +6421,6 @@ body.tabbar-left .group-chip-has-members {
     border-bottom-right-radius: 0;
     border-bottom-color: transparent;
     margin-bottom: 0;
-}
-
-body.tabbar-left .group-chip::before {
-    /* Move the colored stripe from top to left edge. */
-    top: 4px;
-    bottom: 4px;
-    left: -1px;
-    right: auto;
-    width: 2px;
-    height: auto;
-    border-radius: 2px;
 }
 
 /* + New tab button as a full-width row at the top of the sidebar. */
