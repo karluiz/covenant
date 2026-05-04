@@ -5911,7 +5911,9 @@ button.status-segment.status-aom.status-aom-warn:hover {
   color: var(--muted);
 }
 
-.convergence-overlay__exit {
+/* Generic modal cancel button + keycap. Used by Convergence overlay
+   and the Persona Composer modal so they share visual language. */
+.modal-cancel-btn {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   color: var(--fg, inherit);
@@ -5923,12 +5925,13 @@ button.status-segment.status-aom.status-aom-warn:hover {
   align-items: center;
   gap: 8px;
 }
-.convergence-overlay__exit:hover { border-color: var(--accent); }
-.convergence-overlay__exit:hover .convergence-overlay__exit-kbd {
+.modal-cancel-btn:hover { border-color: var(--accent); }
+.modal-cancel-btn:hover .modal-kbd {
   color: #c8ccd2;
   border-color: rgba(255, 255, 255, 0.12);
 }
-.convergence-overlay__exit-kbd {
+
+.modal-kbd {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 10px;
   letter-spacing: 0.02em;
