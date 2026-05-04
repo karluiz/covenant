@@ -89,18 +89,33 @@ Otherwise just reply normally.");
     }
 }
 
+const OPEN_MARKER: &str = "<<DIRECTIVE>>";
+const CLOSE_MARKER: &str = "<</DIRECTIVE>>";
+
+fn strip_residual_markers(s: &str) -> String {
+    s.replace(OPEN_MARKER, "").replace(CLOSE_MARKER, "").trim().to_string()
+}
+
 fn extract_directive(text: &str) -> (String, Option<DirectivePayload>) {
-    if let (Some(start), Some(end)) = (text.find("<<DIRECTIVE>>"), text.find("<</DIRECTIVE>>")) {
-        if end > start {
-            let json_part = &text[start + "<<DIRECTIVE>>".len() .. end];
-            let visible = format!("{}{}", &text[..start], &text[end + "<</DIRECTIVE>>".len()..])
-                .trim().to_string();
+    // Find first opening marker, then first closing marker after it.
+    if let Some(start) = text.find(OPEN_MARKER) {
+        let after_open = start + OPEN_MARKER.len();
+        if let Some(rel_end) = text[after_open..].find(CLOSE_MARKER) {
+            let end = after_open + rel_end;
+            let json_part = &text[after_open..end];
+            let close_end = end + CLOSE_MARKER.len();
+            let visible_raw = format!("{}{}", &text[..start], &text[close_end..]);
+            let visible = strip_residual_markers(&visible_raw);
             if let Ok(p) = serde_json::from_str::<DirectivePayload>(json_part.trim()) {
                 return (visible, Some(p));
             }
+            // Malformed JSON inside an otherwise well-formed block: still
+            // strip markers from the visible text; do not return raw text.
+            return (visible, None);
         }
     }
-    (text.to_string(), None)
+    // No matched pair: strip any stray markers from visible text.
+    (strip_residual_markers(text), None)
 }
 
 #[cfg(test)]
@@ -144,6 +159,46 @@ mod tests {
         assert!(turn.proposed_directive.is_some());
         assert!(turn.assistant_text.contains("Sure"));
         assert!(!turn.assistant_text.contains("DIRECTIVE"));
+    }
+
+    #[test]
+    fn extract_two_blocks_only_first_parsed_second_stripped() {
+        let text = "intro\n<<DIRECTIVE>>{\"kind\":\"stop\",\"payload\":\"a\",\"rationale\":\"b\"}<</DIRECTIVE>>\nmiddle\n<<DIRECTIVE>>not json<</DIRECTIVE>>\ntail";
+        let (visible, parsed) = extract_directive(text);
+        assert!(parsed.is_some(), "first block should parse");
+        assert!(!visible.contains("<<DIRECTIVE>>"));
+        assert!(!visible.contains("<</DIRECTIVE>>"));
+        assert!(visible.contains("intro"));
+        assert!(visible.contains("middle"));
+        assert!(visible.contains("tail"));
+    }
+
+    #[test]
+    fn extract_unmatched_open_marker_is_stripped() {
+        let text = "hello <<DIRECTIVE>> oops";
+        let (visible, parsed) = extract_directive(text);
+        assert!(parsed.is_none());
+        assert!(!visible.contains("<<DIRECTIVE>>"));
+        assert!(visible.contains("hello"));
+    }
+
+    #[test]
+    fn extract_unmatched_close_marker_is_stripped() {
+        let text = "hello <</DIRECTIVE>> oops";
+        let (visible, parsed) = extract_directive(text);
+        assert!(parsed.is_none());
+        assert!(!visible.contains("<</DIRECTIVE>>"));
+        assert!(visible.contains("hello"));
+    }
+
+    #[test]
+    fn extract_malformed_json_strips_markers_returns_none() {
+        let text = "pre\n<<DIRECTIVE>>{not valid json}<</DIRECTIVE>>\npost";
+        let (visible, parsed) = extract_directive(text);
+        assert!(parsed.is_none());
+        assert!(!visible.contains("DIRECTIVE"));
+        assert!(visible.contains("pre"));
+        assert!(visible.contains("post"));
     }
 
     #[tokio::test]
