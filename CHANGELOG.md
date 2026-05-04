@@ -6,6 +6,63 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.4 — 2026-05-04
+
+Per-tab AOM exclusion visibility. The existing `aom_excluded` per-tab
+opt-out (M-OP5) was invisible — no shortcut, no badge on the tab, no
+status-bar surface — and got reset on every `aom_start` so users had
+to re-mark their manual tabs each time. This release surfaces the
+feature with a discoverable badge, a keyboard shortcut, an aggregated
+status-bar suffix with a popover, and persistent storage across both
+AOM cycles and app restarts.
+
+### Added
+
+- **Per-tab `bot` / `bot-off` badge** on every Operator-enabled tab
+  pill. Decorative when AOM is off; click during AOM toggles
+  exclusion. Slashed (`bot-off`) variant signals "AOM is running on
+  the rest, this tab is staying manual".
+- **`⌘⇧E` shortcut** — toggle AOM exclusion for the active tab.
+  Silent no-op when AOM is off, no active tab, or active tab has
+  Operator disabled.
+- **AOM status-bar suffix** — when ≥1 tab is excluded, the AOM chip
+  reads `· N excluded`. Click opens a popover listing each excluded
+  tab (name + short cwd) with a per-tab Include button, plus an
+  "Include all in AOM" bulk action when ≥2 are excluded.
+- **Manifest persistence** — `aom_excluded` survives app restarts via
+  an additive `aom_excluded?: boolean` field on `TabManifestV1` (no
+  schema bump). Restore always calls `setAomExcluded` with the
+  persisted value.
+- **`clear_all_aom_excluded` Tauri command** — backs the popover's
+  "Include all" action.
+
+### Changed
+
+- **`aom_start` no longer resets `aom_excluded`** — exclusion is now
+  a persistent property of the tab, surviving AOM stop/start cycles.
+- **`enable_all_for_aom` skips excluded tabs** — AOM doesn't
+  auto-claim Operator on a tab the user marked manual.
+- **`set_aom_excluded(true)` clears `enabled_by_aom`** — claiming a
+  tab mid-AOM survives `aom_stop`'s auto-revert (the tab keeps its
+  Operator state per the user's explicit choice).
+
+### Fixed
+
+- Stale doc comments on `Attached.aom_excluded`, `set_aom_excluded`,
+  `clear_all_aom_excluded`, `Tab.aomExcluded`, the `attach()` block,
+  and `setAomExcluded` (api.ts) — all referenced the removed
+  per-`aom_start` reset.
+- Tab rename + Operator-toggle paths now refresh the AOM popover so
+  excluded-list labels stay current without waiting for the next AOM
+  transition.
+
+### Internal
+
+- Spec at `docs/superpowers/specs/2026-05-04-aom-exclusion-visibility-design.md`,
+  plan at `docs/superpowers/plans/2026-05-04-aom-exclusion-visibility.md`.
+- 21 commits on `feat/aom-exclusion-visibility`. Includes one revert
+  + plan correction where Task 5 misidentified its target.
+
 ## 0.2.3 — 2026-05-04
 
 Persona composer release. Editing an operator's authorization charter
