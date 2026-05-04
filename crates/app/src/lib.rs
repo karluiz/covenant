@@ -123,6 +123,73 @@ async fn get_embedder(state: &AppState) -> Result<Arc<embedder::Embedder>, Strin
     get_embedder_from_cell(&state.embedder).await
 }
 
+/// Wrapper around the Anthropic API key, mounted as Tauri state so
+/// Familiar commands can resolve it without re-reading settings on every
+/// call. Sourced from `ANTHROPIC_API_KEY` at startup; falls back to
+/// empty string when unset (commands surface a usable error then).
+pub struct AnthropicKey(pub String);
+
+/// Spawn a Familiar observer task bound to a specific session's
+/// `SessionEvent` bus. The observer drains the bus, filters to events
+/// for `session_id`, and persists rolling summaries into the Familiar's
+/// memory via Haiku.
+///
+/// The caller is responsible for matching the lifetime of this task to
+/// the underlying session — when the bus sender drops, `obs.run`
+/// returns and the spawned task ends.
+pub fn spawn_familiar_observer_for(
+    manager: Arc<karl_familiar::FamiliarManager>,
+    bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
+    session_id: String,
+    familiar_id: karl_familiar::FamiliarId,
+    api_key: String,
+) {
+    // The Familiar observer holds a `MutexGuard<Memory>` across awaits,
+    // and `Memory` wraps a rusqlite `Connection` which is `!Sync` — so
+    // the observer future is not `Send` and can't run on the shared
+    // multi-thread runtime. Park it on a dedicated OS thread with its
+    // own current-thread runtime; the bus subscription keeps it alive
+    // until the sender drops.
+    std::thread::Builder::new()
+        .name(format!("familiar-observer-{}", session_id))
+        .spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    tracing::warn!(error = %e, "familiar observer runtime build failed");
+                    return;
+                }
+            };
+            rt.block_on(async move {
+                let mem = match manager.memory_of(familiar_id).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "spawn_familiar_observer_for: memory_of failed");
+                        return;
+                    }
+                };
+                let llm = Arc::new(karl_familiar::summarizer::AnthropicLlm::haiku(api_key));
+                let obs = karl_familiar::observer::Observer {
+                    memory: mem,
+                    llm,
+                    session_filter: session_id,
+                    flush_every: 5,
+                    flush_after: Duration::from_secs(60),
+                };
+                if let Err(e) = obs.run(bus_tx.subscribe()).await {
+                    tracing::warn!(error = %e, "familiar observer exited with error");
+                }
+            });
+        })
+        .map(|_| ())
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "spawn familiar observer thread failed");
+        });
+}
+
 /// Per-session sliding-window call counter. Resets every 60s.
 #[derive(Default)]
 struct RateLimiter {
@@ -1821,6 +1888,27 @@ pub fn run() {
             let registry_arc = Arc::new(registry);
             app.manage(registry_arc.clone());
             app.manage(Arc::new(storage.clone()));
+
+            // Familiars: per-session AI companion with persistent
+            // SQLite-backed memory. Storage root is under the user's
+            // home; falls back to a relative dir on exotic systems
+            // where home_dir() returns None.
+            let familiars_root = dirs::home_dir()
+                .map(|p| p.join(".karlTerminal").join("familiars"))
+                .unwrap_or_else(|| PathBuf::from("./.familiars"));
+            if let Err(e) = std::fs::create_dir_all(&familiars_root) {
+                tracing::warn!(error = %e, "create familiars root failed; continuing");
+            }
+            let familiar_manager = Arc::new(
+                karl_familiar::FamiliarManager::new(familiars_root),
+            );
+            app.manage(familiar_manager.clone());
+
+            // Anthropic key for Familiar commands. Sourced from env;
+            // empty when unset — commands surface that as a usable
+            // error rather than panicking.
+            let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+            app.manage(AnthropicKey(anthropic_key));
 
             let aom_handle = aom::new_handle();
             let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());
