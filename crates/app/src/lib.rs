@@ -75,7 +75,7 @@ pub(crate) struct AppState {
     pub(crate) sessions: Mutex<HashMap<SessionId, ManagedSession>>,
     /// Wrapped in Arc so the per-session summarizer task can hold a
     /// long-lived reference without keeping AppState alive on its own.
-    settings: Arc<Mutex<Settings>>,
+    pub(crate) settings: Arc<Mutex<Settings>>,
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,

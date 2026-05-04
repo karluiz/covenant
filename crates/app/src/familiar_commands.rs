@@ -25,6 +25,19 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
 
+use crate::AppState;
+
+/// Defense-in-depth gate at the command boundary. The UI is responsible
+/// for hiding the feature when inactive; this rejects any sneak-by call
+/// from a stale renderer or a malicious caller.
+async fn require_active(state: &State<'_, AppState>) -> Result<(), String> {
+    let s = state.settings.lock().await;
+    if !s.familiars_active() {
+        return Err("Familiars not enabled (premium feature).".into());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct FamiliarSummary {
     pub id: String,
@@ -75,8 +88,10 @@ fn parse_style(s: &str) -> Style {
 
 #[tauri::command]
 pub async fn familiar_list(
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<Vec<FamiliarSummary>, String> {
+    require_active(&state).await?;
     let list = mgr.list().await;
     Ok(list
         .into_iter()
@@ -96,8 +111,10 @@ pub async fn familiar_spawn(
     name: String,
     style: String,
     daily_cap_usd: f64,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<String, String> {
+    require_active(&state).await?;
     let cfg = FamiliarConfig {
         name,
         style: parse_style(&style),
@@ -116,8 +133,10 @@ pub async fn familiar_update_config(
     name: String,
     style: String,
     daily_cap_usd: f64,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<(), String> {
+    require_active(&state).await?;
     let id = parse_id(&familiar_id)?;
     let cfg = FamiliarConfig {
         name,
@@ -132,9 +151,11 @@ pub async fn familiar_update_config(
 #[tauri::command]
 pub async fn familiar_chat(
     input: ChatInput,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
     api_key: State<'_, crate::AnthropicKey>,
 ) -> Result<ChatOutput, String> {
+    require_active(&state).await?;
     let id = parse_id(&input.familiar_id)?;
     let key = api_key.0.clone();
     if key.trim().is_empty() {
@@ -225,8 +246,10 @@ pub struct DirectiveOut {
 pub async fn familiar_approve_directive(
     familiar_id: String,
     directive_id: String,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<String, String> {
+    require_active(&state).await?;
     let id = parse_id(&familiar_id)?;
     // The caller (UI) is responsible for delivering `rendered` into
     // the operator's input queue. We return it so the UI can show
@@ -252,8 +275,10 @@ pub async fn familiar_approve_directive(
 pub async fn familiar_reject_directive(
     familiar_id: String,
     directive_id: String,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<(), String> {
+    require_active(&state).await?;
     let id = parse_id(&familiar_id)?;
     let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
     tokio::task::spawn_blocking(move || {
@@ -275,8 +300,10 @@ pub async fn familiar_reject_directive(
 #[tauri::command]
 pub async fn familiar_snapshot(
     familiar_id: String,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<SnapshotOut, String> {
+    require_active(&state).await?;
     let id = parse_id(&familiar_id)?;
     let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
     tokio::task::spawn_blocking(move || {
@@ -321,8 +348,10 @@ pub async fn familiar_snapshot(
 pub async fn familiar_audit(
     familiar_id: String,
     since_ms: i64,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<Vec<DirectiveOut>, String> {
+    require_active(&state).await?;
     let id = parse_id(&familiar_id)?;
     let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
     tokio::task::spawn_blocking(move || {
@@ -358,8 +387,10 @@ pub async fn familiar_audit(
 pub async fn familiar_mark_executed(
     familiar_id: String,
     directive_id: String,
+    state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
 ) -> Result<(), String> {
+    require_active(&state).await?;
     let id = parse_id(&familiar_id)?;
     let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
     tokio::task::spawn_blocking(move || {
