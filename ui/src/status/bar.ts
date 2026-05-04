@@ -292,11 +292,15 @@ export class StatusBar {
       });
     if (same) return;
     this.excludedTabs = tabs;
-    // If popover is open, re-render its body so the list stays live.
+    // Render the chip FIRST so the popover anchor is positioned
+    // against the post-update chip width (the "(N excluded)" segment
+    // grows/shrinks with N, shifting layout). If we refreshed the
+    // popover first, its bounding-rect computation would use the
+    // old chip and the popover could appear misaligned for one frame.
+    this.render(this.lastDirCtx);
     if (this.aomPopover) {
       this.refreshExcludedListInPopover();
     }
-    this.render(this.lastDirCtx);
   }
 
   private refreshExcludedListInPopover(): void {
