@@ -7777,3 +7777,13 @@ button.mission-picker-plan-missing:hover {
   white-space: pre-wrap; max-height: 200px; overflow: auto; }
 .snap-missions { list-style: disc inside; margin: 0; padding: 0; }
 .snap-spend.frozen { color: #f87171; font-weight: bold; }
+
+/* Familiar status indicator (status bar) */
+.familiar-status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-left: 6px; cursor: pointer; vertical-align: middle;
+}
+.familiar-status-dot.ok { background: #34d399; }
+.familiar-status-dot.pending { background: #fbbf24; }
+.familiar-status-dot.lost { background: #ef4444; }
+.familiar-status-dot.off { background: #4b5563; }
