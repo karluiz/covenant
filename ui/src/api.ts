@@ -654,6 +654,12 @@ export async function getConvergenceSnapshot(): Promise<ConvergenceSnapshot> {
   return invoke<ConvergenceSnapshot>("get_convergence_snapshot");
 }
 
+/// 3.14 — light 1 Hz poll surface for the tab strip. Returns the ids
+/// of sessions currently in the convergence `blocked` state.
+export async function getBlockedSessionIds(): Promise<string[]> {
+  return invoke<string[]>("get_blocked_session_ids");
+}
+
 export { draftsApi } from "./drafts/api";
 export type {
   DraftFrontmatter,
