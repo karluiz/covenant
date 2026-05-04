@@ -25,6 +25,44 @@ impl Memory {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct EventRow {
+    pub id: i64,
+    pub ts_ms: i64,
+    pub kind: String,
+    pub session_id: String,
+    pub payload_json: String,
+}
+
+impl Memory {
+    pub fn append_event(&self, ts_ms: i64, kind: &str, session_id: &str,
+                        payload_json: &str) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO familiar_events(ts_ms, kind, session_id, payload_json)
+             VALUES (?1,?2,?3,?4)",
+            (ts_ms, kind, session_id, payload_json),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn events_since(&self, after_id: i64) -> Result<Vec<EventRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, ts_ms, kind, session_id, payload_json
+             FROM familiar_events WHERE id > ?1 ORDER BY id ASC")?;
+        let rows = stmt.query_map([after_id], |r| Ok(EventRow {
+            id: r.get(0)?, ts_ms: r.get(1)?, kind: r.get(2)?,
+            session_id: r.get(3)?, payload_json: r.get(4)?,
+        }))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn last_event_id(&self) -> Result<i64> {
+        let id: i64 = self.conn
+            .query_row("SELECT COALESCE(MAX(id),0) FROM familiar_events", [], |r| r.get(0))?;
+        Ok(id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,6 +82,29 @@ mod tests {
                          "familiar_summaries"] {
             assert!(names.contains(&expected.to_string()), "missing {expected}");
         }
+    }
+
+    #[test]
+    fn append_and_read_events() {
+        let m = Memory::open_in_memory().unwrap();
+        m.append_event(1_700_000_000_000, "BlockFinished", "sess-A",
+                       r#"{"exit":0}"#).unwrap();
+        m.append_event(1_700_000_001_000, "CwdChanged", "sess-A",
+                       r#"{"cwd":"/tmp"}"#).unwrap();
+        let events = m.events_since(0).unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "BlockFinished");
+        assert_eq!(events[1].session_id, "sess-A");
+    }
+
+    #[test]
+    fn events_since_filters_by_id() {
+        let m = Memory::open_in_memory().unwrap();
+        for i in 0..5 {
+            m.append_event(1000 + i, "X", "S", "{}").unwrap();
+        }
+        let from_3 = m.events_since(3).unwrap();
+        assert_eq!(from_3.len(), 2);
     }
 
     #[test]
