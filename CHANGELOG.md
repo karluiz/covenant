@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.6 — 2026-05-04
+
+Mission picker polish: the **Superpowers** section is no longer
+overwhelming. Each entry is now a single compact row with a
+humanized title (e.g. "Persona composer modal" instead of
+`2026-05-04-persona-composer-modal-design.md`), a tiny `MM-DD` date
+on the right, and the redundant `spec ✓ / plan ✓` badges collapsed
+into one subtle check. Missing plans still surface a red `no plan`
+action button. The original filename is preserved in the hover
+tooltip.
+
+### Changed
+
+- **Superpowers list rows** — humanized title + dim date + collapsed
+  status indicator; ~3× more entries fit on screen.
+
 ## 0.2.5 — 2026-05-04
 
 Mission picker promoted to a full page, plus several quality-of-life

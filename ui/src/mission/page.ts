@@ -323,19 +323,24 @@ export class MissionPage {
     const s = this.state;
     if (s.loading || s.superpowers.length === 0) return "";
     const items = s.superpowers.map((e) => {
-      const planBadge = e.plan_path
-        ? `<span class="mission-page-badge mission-page-badge--ok">plan ✓</span>`
-        : `<button type="button" class="mission-page-badge mission-page-badge--missing mission-page-plan-missing"
+      const { title, date } = humanizeSpecFilename(e.spec_filename);
+      const planMissing = !e.plan_path;
+      const statusBadge = planMissing
+        ? `<button type="button" class="mission-page-badge mission-page-badge--missing mission-page-plan-missing"
                    data-spec="${escapeAttr(e.spec_path)}"
-                   title="Generate plan with writing-plans skill">plan ✗</button>`;
+                   title="Generate plan with writing-plans skill">no plan</button>`
+        : `<span class="mission-page-status-ok" title="spec ✓ · plan ✓" aria-label="ready">✓</span>`;
       return `
         <button type="button" class="mission-page-sp-row"
                 data-spec="${escapeAttr(e.spec_path)}"
-                data-plan="${escapeAttr(e.plan_path ?? "")}">
-          <span class="mission-page-spec-title">${escapeHtml(e.spec_filename)}</span>
-          <span class="mission-page-spec-goal">${escapeHtml(e.goal_preview)}</span>
-          <span class="mission-page-badge mission-page-badge--ok">spec ✓</span>
-          ${planBadge}
+                data-plan="${escapeAttr(e.plan_path ?? "")}"
+                title="${escapeAttr(e.spec_filename)}">
+          <span class="mission-page-sp-main">
+            <span class="mission-page-spec-title">${escapeHtml(title)}</span>
+            ${e.goal_preview ? `<span class="mission-page-spec-goal">— ${escapeHtml(e.goal_preview)}</span>` : ""}
+          </span>
+          ${date ? `<span class="mission-page-sp-date">${escapeHtml(date)}</span>` : ""}
+          ${statusBadge}
         </button>
       `;
     }).join("");
@@ -548,6 +553,23 @@ function escapeHtml(s: string): string {
 }
 
 function escapeAttr(s: string): string { return escapeHtml(s); }
+
+export function humanizeSpecFilename(filename: string): { title: string; date: string } {
+  // Strip extension
+  let base = filename.replace(/\.md$/i, "");
+  // Extract leading YYYY-MM-DD
+  const dateMatch = base.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
+  let date = "";
+  if (dateMatch) {
+    date = dateMatch[1]!.slice(5); // MM-DD
+    base = dateMatch[2]!;
+  }
+  // Strip trailing -design / -plan / -spec
+  base = base.replace(/-(design|plan|spec)$/i, "");
+  // dashes → spaces, capitalize first
+  const title = base.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+  return { title, date };
+}
 
 export function openNewSuperpowersTopicModal(): Promise<string | null> {
   return new Promise((resolve) => {

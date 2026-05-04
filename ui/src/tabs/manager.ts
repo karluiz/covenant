@@ -2639,7 +2639,6 @@ export class TabManager {
     pill.tabIndex = 0;
     pill.className = `tab-btn ${tab.id === this.activeId ? "active" : ""}`;
     pill.dataset.tabId = tab.id;
-    pill.title = tabDisplayName(tab);
     // Both the property AND the attribute — some webkit builds only
     // honor one or the other for div elements.
     // No native HTML5 draggable — we use pointer events instead
