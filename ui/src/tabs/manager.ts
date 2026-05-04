@@ -1751,6 +1751,14 @@ export class TabManager {
     }));
   }
 
+  /** 3.16 — read-only view of the active tab's id + mission state. */
+  activeTabSnapshot(): { id: string; hasMission: boolean } | null {
+    if (!this.activeId) return null;
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return null;
+    return { id: tab.id, hasMission: !!tab.mission?.path };
+  }
+
   /**
    * 3.16 — set mission for a specific tab id (not necessarily active).
    * Used by the spec-prompt toast: each open toast belongs to a specific
