@@ -72,11 +72,20 @@ export class ConvergenceOverlay {
     root.setAttribute("role", "dialog");
     root.setAttribute("aria-label", "Convergence Mode");
 
+    const header = document.createElement("div");
+    header.className = "convergence-overlay__header";
+
+    const title = document.createElement("h1");
+    title.className = "convergence-overlay__title";
+    title.textContent = "CONVERGENCE";
+
     const exit = document.createElement("button");
     exit.type = "button";
     exit.className = "convergence-overlay__exit";
     exit.textContent = "Exit";
     exit.addEventListener("click", () => this.close());
+
+    header.append(title, exit);
 
     const grid = document.createElement("div");
     grid.className = "convergence-overlay__grid";
@@ -95,7 +104,7 @@ export class ConvergenceOverlay {
     empty.textContent = "No sessions";
     empty.hidden = true;
 
-    root.append(exit, grid, empty);
+    root.append(header, grid, empty);
     document.body.append(root);
     this.root = root;
     this.grid = grid;
