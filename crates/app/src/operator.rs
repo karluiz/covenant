@@ -407,12 +407,13 @@ impl Drop for ThinkingGuard<'_> {
 /// on the next decision automatically.
 #[derive(Debug, Clone)]
 pub struct MissionDoc {
+    pub kind: crate::mission_pair::MissionKind,
     pub path: PathBuf,
     pub content: String,
     pub loaded_at_unix_ms: u64,
-    /// File modification time in Unix-ms. Used by the watcher to
-    /// detect changes without re-reading the file every tick.
     pub mtime_unix_ms: u64,
+    /// Present only when `kind == Superpowers` AND a plan was found.
+    pub plan: Option<crate::mission_pair::PlanDoc>,
 }
 
 /// Status payload returned to the UI for `get_session_mission`.
@@ -425,10 +426,20 @@ pub struct MissionDoc {
 /// the backend can detect "file changed in another editor" conflicts.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MissionInfo {
+    pub kind: crate::mission_pair::MissionKind,
     pub path: String,
     pub content_preview: String,
     pub loaded_at_unix_ms: u64,
     pub mtime_unix_ms: u64,
+    pub plan: Option<MissionPlanInfo>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MissionPlanInfo {
+    pub path: String,
+    pub mtime_unix_ms: u64,
+    pub tasks_total: usize,
+    pub tasks_done: usize,
 }
 
 /// Outcome of `set_mission_content`. Serialized to the UI as a tagged
@@ -641,15 +652,10 @@ impl OperatorWatcher {
     pub async fn set_mission(
         &self,
         session_id: SessionId,
-        path: PathBuf,
+        mref: crate::mission_pair::MissionRef,
     ) -> Result<MissionInfo, String> {
-        let doc = load_mission_doc(&path).await?;
-        let info = MissionInfo {
-            path: doc.path.display().to_string(),
-            content_preview: take_preview(&doc.content, 240),
-            loaded_at_unix_ms: doc.loaded_at_unix_ms,
-            mtime_unix_ms: doc.mtime_unix_ms,
-        };
+        let doc = load_mission_doc(&mref).await?;
+        let info = mission_info_from_doc(&doc);
         // Read the session's cwd while holding the inner lock, then
         // attach the mission. Persist outside the lock — disk I/O
         // shouldn't keep other sessions waiting.
@@ -668,11 +674,7 @@ impl OperatorWatcher {
         // Cwd-keyed persistence: lets the mission survive close-tab /
         // app restart. New sessions in the same cwd auto-restore via
         // notify_cwd_changed.
-        mission_persistence::record(
-            &self.mission_store,
-            cwd,
-            doc.path.display().to_string(),
-        );
+        mission_persistence::record(&self.mission_store, cwd, &mref);
         Ok(info)
     }
 
@@ -721,14 +723,7 @@ impl OperatorWatcher {
             .await
             .sessions
             .get(&session_id)
-            .and_then(|a| {
-                a.mission.as_ref().map(|m| MissionInfo {
-                    path: m.path.display().to_string(),
-                    content_preview: take_preview(&m.content, 240),
-                    loaded_at_unix_ms: m.loaded_at_unix_ms,
-                    mtime_unix_ms: m.mtime_unix_ms,
-                })
-            })
+            .and_then(|a| a.mission.as_ref().map(mission_info_from_doc))
     }
 
     /// Full mission spec content for the viewer modal. The in-memory
@@ -741,6 +736,20 @@ impl OperatorWatcher {
             .sessions
             .get(&session_id)
             .and_then(|a| a.mission.as_ref().map(|m| m.content.clone()))
+    }
+
+    /// Full plan body for the mission overlay's read-only progress strip.
+    /// Returns None when the session has no mission attached, or the
+    /// mission is a Covenant spec without a paired plan.
+    pub async fn get_plan_content(&self, session_id: SessionId) -> Option<String> {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|a| a.mission.as_ref())
+            .and_then(|m| m.plan.as_ref())
+            .map(|p| p.content.clone())
     }
 
     /// Persist a new mission spec body from the viewer modal.
@@ -759,8 +768,10 @@ impl OperatorWatcher {
         new_content: String,
         expected_mtime_unix_ms: u64,
     ) -> Result<MissionSaveResult, String> {
-        // Snap the path under the lock; release before disk I/O.
-        let path = {
+        // Snap the path + kind + plan_path under the lock; release before
+        // disk I/O. We reconstruct a MissionRef for the reload so that
+        // after-save we don't lose the Superpowers pairing or the kind.
+        let (path, mref) = {
             let inner = self.inner.lock().await;
             let Some(att) = inner.sessions.get(&session_id) else {
                 return Ok(MissionSaveResult::NoMission);
@@ -768,7 +779,13 @@ impl OperatorWatcher {
             let Some(m) = att.mission.as_ref() else {
                 return Ok(MissionSaveResult::NoMission);
             };
-            m.path.clone()
+            let plan_path = m.plan.as_ref().map(|p| p.path.clone());
+            let mref = crate::mission_pair::MissionRef {
+                kind: m.kind,
+                spec_path: m.path.clone(),
+                plan_path,
+            };
+            (m.path.clone(), mref)
         };
 
         // Mtime conflict check. Skipped when caller passes 0 (Overwrite).
@@ -790,17 +807,100 @@ impl OperatorWatcher {
             .await
             .map_err(|e| format!("write mission file {}: {e}", path.display()))?;
 
-        let doc = load_mission_doc(&path).await?;
-        let info = MissionInfo {
-            path: doc.path.display().to_string(),
-            content_preview: take_preview(&doc.content, 240),
-            loaded_at_unix_ms: doc.loaded_at_unix_ms,
-            mtime_unix_ms: doc.mtime_unix_ms,
-        };
+        let doc = load_mission_doc(&mref).await?;
+        let info = mission_info_from_doc(&doc);
         if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
             att.mission = Some(doc);
         }
         Ok(MissionSaveResult::Saved { info })
+    }
+
+    /// Flip the Nth top-level checkbox of the attached plan. Mtime
+    /// conflict detection: pass the mtime the UI / operator last saw;
+    /// pass 0 to bypass (overwrite). Returns the refreshed plan summary.
+    pub async fn mark_plan_task(
+        &self,
+        session_id: SessionId,
+        task_index: usize,
+        done: bool,
+        expected_mtime_unix_ms: u64,
+    ) -> Result<MissionPlanInfo, String> {
+        self.mutate_plan(session_id, expected_mtime_unix_ms, |body| {
+            crate::mission_pair::mark_plan_task_in_body(body, task_index, done)
+        })
+        .await
+    }
+
+    /// Append a `> note: <text>` line under the Nth top-level task.
+    /// Same mtime conflict semantics as `mark_plan_task`. Multi-line
+    /// notes are rejected by `mission_pair::append_plan_note_in_body`.
+    pub async fn append_plan_note(
+        &self,
+        session_id: SessionId,
+        task_index: usize,
+        note: String,
+        expected_mtime_unix_ms: u64,
+    ) -> Result<MissionPlanInfo, String> {
+        self.mutate_plan(session_id, expected_mtime_unix_ms, |body| {
+            crate::mission_pair::append_plan_note_in_body(body, task_index, &note)
+        })
+        .await
+    }
+
+    /// Shared body for plan mutations: snapshot the plan path, read the
+    /// file, check mtime, apply `transform`, write back, refresh in-memory
+    /// `PlanDoc`, and return a fresh `MissionPlanInfo`.
+    async fn mutate_plan<F>(
+        &self,
+        session_id: SessionId,
+        expected_mtime_unix_ms: u64,
+        transform: F,
+    ) -> Result<MissionPlanInfo, String>
+    where
+        F: FnOnce(&str) -> Result<String, String>,
+    {
+        let plan_path = {
+            let inner = self.inner.lock().await;
+            let att = inner.sessions.get(&session_id).ok_or("no session")?;
+            let mission = att.mission.as_ref().ok_or("no mission attached")?;
+            let plan = mission.plan.as_ref().ok_or("mission has no plan")?;
+            plan.path.clone()
+        };
+        let body = tokio::fs::read_to_string(&plan_path)
+            .await
+            .map_err(|e| format!("read plan file {}: {e}", plan_path.display()))?;
+        if expected_mtime_unix_ms != 0 {
+            let actual = mtime_unix_ms(&plan_path)
+                .ok_or_else(|| format!("could not stat plan file {}", plan_path.display()))?;
+            if actual != expected_mtime_unix_ms {
+                return Err(format!(
+                    "plan changed on disk (mtime {actual} != expected {expected_mtime_unix_ms})"
+                ));
+            }
+        }
+        let new_body = transform(&body)?;
+        tokio::fs::write(&plan_path, new_body.as_bytes())
+            .await
+            .map_err(|e| format!("write plan file {}: {e}", plan_path.display()))?;
+        let new_mtime = mtime_unix_ms(&plan_path).unwrap_or(0);
+        let (total, done_count) = crate::mission_pair::count_top_level_tasks(&new_body);
+        {
+            let mut inner = self.inner.lock().await;
+            if let Some(att) = inner.sessions.get_mut(&session_id) {
+                if let Some(m) = att.mission.as_mut() {
+                    if let Some(p) = m.plan.as_mut() {
+                        p.content = new_body;
+                        p.mtime_unix_ms = new_mtime;
+                    }
+                }
+            }
+        }
+        Ok(MissionPlanInfo {
+            path: plan_path.display().to_string(),
+            mtime_unix_ms: new_mtime,
+            tasks_total: total,
+            tasks_done: done_count,
+        })
     }
 
     /// AOM auto-enable: flip Operator on for every currently-disabled
@@ -926,47 +1026,114 @@ async fn refresh_changed_missions(
     inner: &Arc<AsyncMutex<Inner>>,
     app: &AppHandle,
 ) -> Result<(), String> {
-    // Snap (session_id, path, current mtime) under the lock; release
-    // before doing any disk I/O.
-    let to_check: Vec<(SessionId, PathBuf, u64)> = {
+    // Snap (session_id, mref, current spec mtime, current plan mtime)
+    // under the lock; release before doing any disk I/O.
+    let to_check: Vec<(
+        SessionId,
+        crate::mission_pair::MissionRef,
+        u64,
+        Option<u64>,
+    )> = {
         let i = inner.lock().await;
         i.sessions
             .iter()
             .filter_map(|(id, att)| {
-                att.mission
-                    .as_ref()
-                    .map(|m| (*id, m.path.clone(), m.mtime_unix_ms))
+                att.mission.as_ref().map(|m| {
+                    let mref = crate::mission_pair::MissionRef {
+                        kind: m.kind,
+                        spec_path: m.path.clone(),
+                        plan_path: m.plan.as_ref().map(|p| p.path.clone()),
+                    };
+                    let plan_mtime = m.plan.as_ref().map(|p| p.mtime_unix_ms);
+                    (*id, mref, m.mtime_unix_ms, plan_mtime)
+                })
             })
             .collect()
     };
 
-    for (id, path, prev_mtime) in to_check {
+    for (id, mref, prev_spec_mtime, prev_plan_mtime) in to_check {
+        let path = mref.spec_path.clone();
         let Some(mt) = mtime_unix_ms(&path) else {
             continue; // file gone / unreadable — leave the cached doc
         };
-        if mt == prev_mtime {
+        if mt != prev_spec_mtime {
+            // Spec changed → reload the whole doc (also refreshes the
+            // paired plan; no need to do the plan-only path below).
+            match load_mission_doc(&mref).await {
+                Ok(doc) => {
+                    if let Some(att) = inner.lock().await.sessions.get_mut(&id) {
+                        att.mission = Some(doc);
+                    }
+                    tracing::info!(
+                        session = %id,
+                        path = %path.display(),
+                        "mission spec reloaded after on-disk change"
+                    );
+                    let _ = app.emit(
+                        "mission-changed",
+                        serde_json::json!({
+                            "session_id": id.to_string(),
+                            "path": path.display().to_string(),
+                        }),
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %path.display(), "mission reload failed");
+                }
+            }
             continue;
         }
-        match load_mission_doc(&path).await {
-            Ok(doc) => {
-                if let Some(att) = inner.lock().await.sessions.get_mut(&id) {
-                    att.mission = Some(doc);
+
+        // Spec unchanged — check the paired plan independently so an
+        // external edit to the plan file (without touching the spec)
+        // still invalidates the cached PlanDoc.
+        let (Some(plan_path), Some(prev_plan)) = (mref.plan_path.as_ref(), prev_plan_mtime)
+        else {
+            continue;
+        };
+        let Some(new_plan_mtime) = mtime_unix_ms(plan_path) else {
+            continue; // plan gone / unreadable — keep cached
+        };
+        if new_plan_mtime == prev_plan {
+            continue;
+        }
+        match tokio::fs::read_to_string(plan_path).await {
+            Ok(new_body) => {
+                let mut emit = false;
+                {
+                    let mut i = inner.lock().await;
+                    if let Some(att) = i.sessions.get_mut(&id) {
+                        if let Some(m) = att.mission.as_mut() {
+                            if let Some(p) = m.plan.as_mut() {
+                                p.content = new_body;
+                                p.mtime_unix_ms = new_plan_mtime;
+                                emit = true;
+                            }
+                        }
+                    }
                 }
-                tracing::info!(
-                    session = %id,
-                    path = %path.display(),
-                    "mission spec reloaded after on-disk change"
-                );
-                let _ = app.emit(
-                    "mission-changed",
-                    serde_json::json!({
-                        "session_id": id.to_string(),
-                        "path": path.display().to_string(),
-                    }),
-                );
+                if emit {
+                    tracing::info!(
+                        session = %id,
+                        path = %plan_path.display(),
+                        "mission plan reloaded after on-disk change"
+                    );
+                    let _ = app.emit(
+                        "mission-changed",
+                        serde_json::json!({
+                            "session_id": id.to_string(),
+                            "path": path.display().to_string(),
+                            "plan_path": plan_path.display().to_string(),
+                        }),
+                    );
+                }
             }
             Err(e) => {
-                tracing::warn!(error = %e, path = %path.display(), "mission reload failed");
+                tracing::warn!(
+                    error = %e,
+                    path = %plan_path.display(),
+                    "mission plan reload failed"
+                );
             }
         }
     }
@@ -2043,11 +2210,30 @@ fn build_system_prompt(
     };
     let mission_block = mission
         .map(|m| {
-            format!(
-                "# {prefix}\n\n{content}\n\n# END MISSION SPEC\n\n",
-                prefix = MISSION_DIRECTIVE,
+            let kind = match m.kind {
+                crate::mission_pair::MissionKind::Covenant => "covenant",
+                crate::mission_pair::MissionKind::Superpowers => "superpowers",
+            };
+            let spec = format!(
+                "<mission-spec kind=\"{kind}\" path=\"{path}\">\n{content}\n</mission-spec>\n\n",
+                path = m.path.display(),
                 content = m.content.trim(),
-            )
+            );
+            let plan = match (&m.plan, m.kind) {
+                (Some(p), _) => {
+                    let (total, done) = crate::mission_pair::count_top_level_tasks(&p.content);
+                    format!(
+                        "<mission-plan status=\"{done}/{total}\" path=\"{path}\">\n{content}\n</mission-plan>\n\n",
+                        path = p.path.display(),
+                        content = p.content.trim(),
+                    )
+                }
+                (None, crate::mission_pair::MissionKind::Superpowers) => {
+                    "<!-- no plan attached; ESCALATE before executing TDD steps -->\n\n".to_string()
+                }
+                (None, crate::mission_pair::MissionKind::Covenant) => String::new(),
+            };
+            format!("{spec}{plan}")
         })
         .unwrap_or_default();
     // 3.13 Task 4: learned-decisions block. CRITICAL: when `learned` is
@@ -2230,22 +2416,6 @@ OVERRIDE the default ONLY when:
 DO NOT escalate just because YOU would have picked differently in isolation. Your local preference is weaker than the executor's contextualized recommendation. Disagreeing with a sound recommendation isn't escalation-worthy — it's second-guessing.
 
 DO NOT escalate because the recommendation is 'opinionated' or 'has tradeoffs'. Most recommendations have tradeoffs — the executor weighed them and picked. That's the value-add you're ratifying.";
-
-const MISSION_DIRECTIVE: &str = "ACTIVE MISSION — the user has set a focused spec for this session.
-
-Treat the spec below as the source-of-truth for what the executor is supposed to be doing in this PTY. The spec PRECEDES the persona's general examples; conflicts resolve in favor of the spec.
-
-Specifically:
-
-- The 'Out of scope' list = additional ESCALATE triggers. If the executor is about to do something on that list (refactor an unrelated module, add a search feature when search is out of scope, etc.), ESCALATE with notification 'mission scope violation: <which item>'.
-- The 'File boundaries' = additional constraints. If the executor proposes touching files outside the listed paths, or exceeding the line budgets, ESCALATE with notification 'mission file boundary exceeded: <path>'.
-- The 'Acceptance criteria' tells you when the work is DONE. If the executor proposes additional polish / refactors / docs beyond the listed criteria, ESCALATE with notification 'mission already complete — proposed extra work'.
-- The 'Open questions' section MUST NEVER be decided by you. Always ESCALATE those with notification 'open question requires user input: <which question>'.
-- If the executor's current activity doesn't match the mission AT ALL (wrong feature, accidental refactor, exploratory work outside scope), ESCALATE with notification 'mission drift detected'.
-
-Otherwise — for in-scope routine confirmations (yes/no on running tests, accepting suggested approach within scope, etc.) — apply your normal posture (the persona, plus AOM directive if active).
-
-# MISSION SPEC";
 
 const AOM_DIRECTIVE: &str = "AUTONOMOUS OPERATOR MODE (AOM) — ACTIVE.
 
@@ -2578,17 +2748,57 @@ fn truncate(s: &str, max: usize) -> String {
 
 /// Read a mission spec from disk + stat for its mtime. Used by both
 /// `set_mission` (initial load) and the watcher (reload on change).
-async fn load_mission_doc(path: &std::path::Path) -> Result<MissionDoc, String> {
-    let content = tokio::fs::read_to_string(path)
+/// For a Superpowers mission with a paired plan, also loads the plan.
+async fn load_mission_doc(
+    mref: &crate::mission_pair::MissionRef,
+) -> Result<MissionDoc, String> {
+    let spec_path = &mref.spec_path;
+    let content = tokio::fs::read_to_string(spec_path)
         .await
-        .map_err(|e| format!("read mission file {}: {e}", path.display()))?;
-    let mtime = mtime_unix_ms(path).unwrap_or(0);
+        .map_err(|e| format!("read mission file {}: {e}", spec_path.display()))?;
+    let mtime = mtime_unix_ms(spec_path).unwrap_or(0);
+    let plan = if let Some(plan_path) = &mref.plan_path {
+        let plan_content = tokio::fs::read_to_string(plan_path)
+            .await
+            .map_err(|e| format!("read plan file {}: {e}", plan_path.display()))?;
+        let plan_mtime = mtime_unix_ms(plan_path).unwrap_or(0);
+        Some(crate::mission_pair::PlanDoc {
+            path: plan_path.clone(),
+            content: plan_content,
+            mtime_unix_ms: plan_mtime,
+        })
+    } else {
+        None
+    };
     Ok(MissionDoc {
-        path: path.to_path_buf(),
+        kind: mref.kind,
+        path: spec_path.clone(),
         content,
         loaded_at_unix_ms: now_unix_ms(),
         mtime_unix_ms: mtime,
+        plan,
     })
+}
+
+/// Build a `MissionInfo` (UI payload) from an in-memory `MissionDoc`.
+fn mission_info_from_doc(doc: &MissionDoc) -> MissionInfo {
+    let plan = doc.plan.as_ref().map(|p| {
+        let (total, done) = crate::mission_pair::count_top_level_tasks(&p.content);
+        MissionPlanInfo {
+            path: p.path.display().to_string(),
+            mtime_unix_ms: p.mtime_unix_ms,
+            tasks_total: total,
+            tasks_done: done,
+        }
+    });
+    MissionInfo {
+        kind: doc.kind,
+        path: doc.path.display().to_string(),
+        content_preview: take_preview(&doc.content, 240),
+        loaded_at_unix_ms: doc.loaded_at_unix_ms,
+        mtime_unix_ms: doc.mtime_unix_ms,
+        plan,
+    }
 }
 
 /// Modification time of `path` in Unix-ms. Returns `None` if the file
@@ -3079,6 +3289,59 @@ What would you like to do?
         let learned_idx = got.find("## Learned decisions").unwrap();
         let persona_idx = got.find("# PERSONA").unwrap();
         assert!(learned_idx < persona_idx);
+    }
+
+    #[test]
+    fn build_system_prompt_emits_covenant_mission_block() {
+        let mref = crate::mission_pair::MissionRef::covenant("/tmp/spec.md".into());
+        let doc = MissionDoc {
+            kind: mref.kind,
+            path: mref.spec_path.clone(),
+            content: "Goal: do X".into(),
+            loaded_at_unix_ms: 0,
+            mtime_unix_ms: 0,
+            plan: None,
+        };
+        let out = build_system_prompt("persona", false, Some(&doc), &[]);
+        assert!(out.contains("<mission-spec kind=\"covenant\""), "out was: {out}");
+        assert!(out.contains("Goal: do X"));
+        assert!(!out.contains("<mission-plan"));
+    }
+
+    #[test]
+    fn build_system_prompt_emits_superpowers_with_plan_block() {
+        let plan = crate::mission_pair::PlanDoc {
+            path: "/tmp/plan.md".into(),
+            content: "- [x] one\n- [ ] two\n".into(),
+            mtime_unix_ms: 0,
+        };
+        let doc = MissionDoc {
+            kind: crate::mission_pair::MissionKind::Superpowers,
+            path: "/tmp/spec.md".into(),
+            content: "spec body".into(),
+            loaded_at_unix_ms: 0,
+            mtime_unix_ms: 0,
+            plan: Some(plan),
+        };
+        let out = build_system_prompt("persona", false, Some(&doc), &[]);
+        assert!(out.contains("<mission-spec kind=\"superpowers\""), "out was: {out}");
+        assert!(out.contains("spec body"));
+        assert!(out.contains("<mission-plan status=\"1/2\""), "out was: {out}");
+        assert!(out.contains("- [x] one"));
+    }
+
+    #[test]
+    fn build_system_prompt_emits_no_plan_hint_when_superpowers_without_plan() {
+        let doc = MissionDoc {
+            kind: crate::mission_pair::MissionKind::Superpowers,
+            path: "/tmp/spec.md".into(),
+            content: "spec body".into(),
+            loaded_at_unix_ms: 0,
+            mtime_unix_ms: 0,
+            plan: None,
+        };
+        let out = build_system_prompt("persona", false, Some(&doc), &[]);
+        assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");
     }
 
     #[test]

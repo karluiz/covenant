@@ -4118,6 +4118,69 @@ button.status-segment.status-mission:focus-visible {
     border-color: var(--accent, #b794f4);
 }
 
+/* Kind variants — Covenant keeps the default --accent (cool blue); Superpowers
+   uses --accent-alt (purple) so the two read distinctly at a glance even when
+   side-by-side in the convergence grid. */
+:root {
+    --accent-alt: #b06aff;
+}
+button.status-segment.status-mission--superpowers .status-icon {
+    color: var(--accent-alt);
+}
+button.status-segment.status-mission--superpowers:hover {
+    background: color-mix(in srgb, var(--accent-alt) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent-alt) 40%, transparent);
+}
+button.status-segment.status-mission--superpowers:focus-visible {
+    border-color: var(--accent-alt);
+}
+
+/* Plan-progress strip in the mission viewer modal. Read-only; one row
+   per `- [ ]` / `- [x]` line in the paired plan file. */
+.mission-overlay-plan {
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+}
+.mission-overlay-plan h4 {
+    margin: 0 0 4px 0;
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.mission-overlay-plan-path {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    word-break: break-all;
+}
+.mission-overlay-plan-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+}
+.mission-overlay-plan-list li {
+    padding: 2px 0;
+    line-height: 1.4;
+}
+.mission-overlay-plan-list li.done {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: rgba(255, 255, 255, 0.25);
+}
+.mission-overlay-plan-list li.pending {
+    color: inherit;
+}
+.mission-overlay-plan-list li.mission-overlay-plan-empty,
+.mission-overlay-plan-list li.mission-overlay-plan-loading {
+    color: var(--muted);
+    font-style: italic;
+}
+
 /* Version chip — sits at the trailing edge of the status bar. Pure
    informational + click-to-open-release-log. Visually quieter than
    the mission/AOM chips so it doesn't compete with active state. */
@@ -7547,3 +7610,90 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   pointer-events: none;
   z-index: 2;
 }
+
+/* Superpowers section in mission picker. Mirrors .mission-picker-specs
+   so it slots into the existing modal without restyling the surround. */
+.mission-picker-superpowers {
+  margin: 12px 0 8px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mission-picker-superpowers h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mission-picker-sp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.mission-picker-sp-row + .mission-picker-sp-row { margin-top: 4px; }
+.mission-picker-sp-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--accent);
+}
+.mission-picker-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.mission-picker-badge--ok {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.mission-picker-badge--missing {
+  color: var(--muted);
+  border: 1px dashed var(--muted);
+}
+button.mission-picker-plan-missing {
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+button.mission-picker-plan-missing:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.mission-picker-sp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mission-picker-sp-header h4 { margin: 0; }
+.mission-picker-sp-new {
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  border-radius: 4px;
+}
+.mission-picker-sp-new:hover { border-color: var(--accent); }
+.mission-picker-newmodal {
+  position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+  background: var(--bg-overlay); border: 1px solid var(--border);
+  padding: 16px 20px; border-radius: 6px; z-index: 100;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  min-width: 380px;
+}
+.mission-picker-newmodal h4 { margin: 0 0 12px 0; font-size: 13px; }
+.mission-picker-newmodal label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.mission-picker-newmodal input { padding: 6px 8px; font-size: 13px; background: var(--bg-panel); border: 1px solid var(--border); color: inherit; border-radius: 4px; }
+.mission-picker-newmodal input:focus { outline: 1px solid var(--accent); }
+.mission-picker-newmodal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.mission-picker-newmodal-actions button { padding: 4px 12px; font-size: 12px; cursor: pointer; }

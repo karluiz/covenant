@@ -21,6 +21,7 @@ import type {
   AomStatus,
   DirContext,
   MissionInfo,
+  MissionPlanInfo,
   MissionSaveResult,
   Operator,
   SessionId,
@@ -29,6 +30,7 @@ import {
   aomStatus,
   getDirContext,
   getSessionMissionContent,
+  getSessionPlanContent,
   setSessionMissionContent,
 } from "../api";
 import { Icons } from "../icons";
@@ -745,13 +747,27 @@ function executorSegment(name: string): HTMLElement {
 function missionSegment(mission: MissionInfo, onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
-  el.className = "status-segment status-mission";
-  el.title = `Mission: ${mission.path}\n\n${mission.content_preview}\n\nClick to view full spec`;
-  el.setAttribute("aria-label", `Mission: ${mission.path}. Click to view full spec.`);
+  // Kind-aware modifier so Superpowers missions read distinctly from
+  // Covenant ones at a glance (different accent + icon).
+  el.className = `status-segment status-mission status-mission--${mission.kind}`;
+  const planSummary = mission.plan
+    ? `\n${mission.plan.tasks_done}/${mission.plan.tasks_total} tasks done`
+    : mission.kind === "superpowers"
+      ? "\n(no plan attached)"
+      : "";
+  const kindLabel = mission.kind === "superpowers" ? "Superpowers" : "Covenant";
+  el.title = `${kindLabel} mission: ${mission.path}${planSummary}\n\n${mission.content_preview}\n\nClick to view full spec`;
+  el.setAttribute(
+    "aria-label",
+    `${kindLabel} mission: ${mission.path}. Click to view full spec.`,
+  );
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
-  icon.innerHTML = Icons.target({ size: 12 });
+  icon.innerHTML =
+    mission.kind === "superpowers"
+      ? Icons.sparkles({ size: 12 })
+      : Icons.target({ size: 12 });
   el.appendChild(icon);
 
   const text = document.createElement("span");
@@ -828,6 +844,66 @@ function addOperatorSegment(onClick: () => void): HTMLElement {
 function basename(p: string): string {
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+/// Build the plan-progress section skeleton (heading + empty list). The
+/// list is filled in by `fillPlanSection` once the plan body resolves.
+function renderPlanSection(plan: MissionPlanInfo): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "mission-overlay-plan";
+
+  const heading = document.createElement("h4");
+  heading.textContent = `Plan progress (${plan.tasks_done}/${plan.tasks_total})`;
+  section.appendChild(heading);
+
+  const path = document.createElement("code");
+  path.className = "mission-overlay-plan-path";
+  path.textContent = plan.path;
+  section.appendChild(path);
+
+  const list = document.createElement("ul");
+  list.className = "mission-overlay-plan-list";
+  const loading = document.createElement("li");
+  loading.className = "mission-overlay-plan-loading";
+  loading.textContent = "Loading plan…";
+  list.appendChild(loading);
+  section.appendChild(list);
+  return section;
+}
+
+/// Replace the placeholder list with one `<li>` per `- [ ]` / `- [x]`
+/// line in the plan body. Lines outside that pattern are skipped — we
+/// want a tight progress strip, not a full markdown render.
+function fillPlanSection(section: HTMLElement, body: string | null): void {
+  const list = section.querySelector<HTMLElement>(".mission-overlay-plan-list");
+  if (!list) return;
+  list.innerHTML = "";
+  if (body === null) {
+    const li = document.createElement("li");
+    li.className = "mission-overlay-plan-empty";
+    li.textContent = "(plan unavailable)";
+    list.appendChild(li);
+    return;
+  }
+  let appended = 0;
+  for (const rawLine of body.split("\n")) {
+    const line = rawLine.replace(/^\s+/, "");
+    const done = line.startsWith("- [x] ") || line.startsWith("- [X] ");
+    const pending = line.startsWith("- [ ] ");
+    if (!done && !pending) continue;
+    const text = line.slice(6);
+    const li = document.createElement("li");
+    li.className = done ? "done" : "pending";
+    li.textContent = (done ? "✓ " : "○ ") + text;
+    list.appendChild(li);
+    appended += 1;
+  }
+  if (appended === 0) {
+    const li = document.createElement("li");
+    li.className = "mission-overlay-plan-empty";
+    li.textContent = "(no checklist tasks found)";
+    list.appendChild(li);
+  }
 }
 
 /// Modal that shows the full mission spec. Default mode is read-only;
@@ -1031,12 +1107,13 @@ class MissionViewerModal {
   }
 
   private renderViewBody(body: HTMLElement): void {
-    if (this.content.trim() === "") {
-      body.innerHTML = `<div class="mission-viewer-empty">spec file is empty</div>`;
-      return;
-    }
     body.innerHTML = "";
-    if (this.viewKind === "rendered") {
+    if (this.content.trim() === "") {
+      const empty = document.createElement("div");
+      empty.className = "mission-viewer-empty";
+      empty.textContent = "spec file is empty";
+      body.appendChild(empty);
+    } else if (this.viewKind === "rendered") {
       const wrap = document.createElement("div");
       wrap.className = "mission-viewer-content mission-viewer-rendered markdown-body";
       wrap.innerHTML = renderMarkdown(this.content);
@@ -1046,6 +1123,30 @@ class MissionViewerModal {
       pre.className = "mission-viewer-content";
       pre.textContent = this.content;
       body.appendChild(pre);
+    }
+
+    // Plan progress strip — read-only summary appended below the spec
+    // body when the mission has a paired plan file. Fetched lazily; we
+    // render a placeholder section synchronously so layout doesn't shift
+    // when the body resolves.
+    if (this.mission?.plan && this.sessionId) {
+      const section = renderPlanSection(this.mission.plan);
+      body.appendChild(section);
+      const sessionId = this.sessionId;
+      const expectedMissionPath = this.mission.path;
+      void getSessionPlanContent(sessionId)
+        .then((planBody) => {
+          // Bail if the modal has moved on (mission swapped or closed)
+          // — we'd be writing into a stale node otherwise.
+          if (!this.overlay || this.mission?.path !== expectedMissionPath) {
+            return;
+          }
+          fillPlanSection(section, planBody);
+        })
+        .catch((err) => {
+          console.error("get_session_plan_content failed", err);
+          fillPlanSection(section, null);
+        });
     }
   }
 

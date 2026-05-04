@@ -14,37 +14,65 @@
 //! emitted by the shell on every directory change via OSC 7.
 //!
 //! Storage format: a flat JSON map at `<app_config_dir>/session_missions.json`
-//! mapping `cwd → spec_path`. Both are absolute paths. Atomic writes
-//! (tmp file + rename) so a crash mid-write leaves the prior version.
+//! mapping `cwd → MissionRef`. New writes use the structured form
+//! `{"kind":"covenant","spec_path":"...","plan_path":null}`. Legacy
+//! reads accept a bare string (the previous on-disk shape) and treat
+//! it as a Covenant mission. Atomic writes (tmp file + rename) so a
+//! crash mid-write leaves the prior version.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-pub type MissionMap = HashMap<String, String>;
+use crate::mission_pair::{MissionKind, MissionRef};
+
+pub type MissionMap = HashMap<String, MissionRef>;
+
+/// On-disk entry: either the structured `MissionRef` (current shape) or
+/// a bare string (legacy shape — pre-Superpowers, treated as Covenant).
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredEntry {
+    Structured(MissionRef),
+    Legacy(String),
+}
+
+impl From<StoredEntry> for MissionRef {
+    fn from(s: StoredEntry) -> Self {
+        match s {
+            StoredEntry::Structured(r) => r,
+            StoredEntry::Legacy(p) => MissionRef::covenant(PathBuf::from(p)),
+        }
+    }
+}
 
 /// Read the mapping from disk. Missing file → empty map (first run).
 /// Malformed file → empty map + a warn log; we never overwrite a
 /// broken file silently (mirrors `settings::load`).
 pub fn load(path: &Path) -> MissionMap {
-    match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            tracing::warn!(
-                error = ?e,
-                path = %path.display(),
-                "session_missions file unparseable, starting empty"
-            );
-            MissionMap::new()
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => MissionMap::new(),
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return MissionMap::new(),
         Err(e) => {
             tracing::warn!(
                 error = ?e,
                 path = %path.display(),
                 "session_missions read failed, starting empty"
             );
-            MissionMap::new()
+            return MissionMap::new();
         }
-    }
+    };
+    let raw: HashMap<String, StoredEntry> = match serde_json::from_str(&text) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(
+                error = ?e,
+                path = %path.display(),
+                "session_missions file unparseable, starting empty"
+            );
+            return MissionMap::new();
+        }
+    };
+    raw.into_iter().map(|(k, v)| (k, v.into())).collect()
 }
 
 /// Atomic write. Creates parent dir if missing.
@@ -60,13 +88,13 @@ pub fn save(path: &Path, map: &MissionMap) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Convenience: set mapping[cwd] = spec_path and persist.
-pub fn record(path: &Path, cwd: String, spec_path: String) {
+/// Convenience: set mapping[cwd] = mref and persist.
+pub fn record(path: &Path, cwd: String, mref: &MissionRef) {
     if cwd.is_empty() {
         return;
     }
     let mut map = load(path);
-    map.insert(cwd, spec_path);
+    map.insert(cwd, mref.clone());
     if let Err(e) = save(path, &map) {
         tracing::warn!(error = %e, "session_missions save failed");
     }
@@ -85,13 +113,13 @@ pub fn forget(path: &Path, cwd: &str) {
     }
 }
 
-/// Lookup helper used by the cwd-restore path. Returns the spec path
+/// Lookup helper used by the cwd-restore path. Returns the `MissionRef`
 /// the user previously associated with `cwd`, if any.
-pub fn lookup(path: &Path, cwd: &str) -> Option<PathBuf> {
+pub fn lookup(path: &Path, cwd: &str) -> Option<MissionRef> {
     if cwd.is_empty() {
         return None;
     }
-    load(path).get(cwd).map(PathBuf::from)
+    load(path).remove(cwd)
 }
 
 #[cfg(test)]
@@ -109,19 +137,35 @@ mod tests {
     fn round_trip_record_lookup() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missions.json");
-        record(&path, "/Users/me/proj".to_string(), "/Users/me/proj/spec.md".to_string());
-        assert_eq!(
-            lookup(&path, "/Users/me/proj"),
-            Some(PathBuf::from("/Users/me/proj/spec.md"))
+        let mref = MissionRef::covenant(PathBuf::from("/Users/me/proj/spec.md"));
+        record(&path, "/Users/me/proj".to_string(), &mref);
+        let got = lookup(&path, "/Users/me/proj").unwrap();
+        assert_eq!(got.kind, MissionKind::Covenant);
+        assert_eq!(got.spec_path, PathBuf::from("/Users/me/proj/spec.md"));
+        assert!(got.plan_path.is_none());
+        assert!(lookup(&path, "/Users/me/other").is_none());
+    }
+
+    #[test]
+    fn round_trip_superpowers_with_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missions.json");
+        let mref = MissionRef::superpowers(
+            PathBuf::from("/p/spec.md"),
+            Some(PathBuf::from("/p/plan.md")),
         );
-        assert_eq!(lookup(&path, "/Users/me/other"), None);
+        record(&path, "/p".to_string(), &mref);
+        let got = lookup(&path, "/p").unwrap();
+        assert_eq!(got.kind, MissionKind::Superpowers);
+        assert_eq!(got.plan_path, Some(PathBuf::from("/p/plan.md")));
     }
 
     #[test]
     fn forget_removes_entry() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missions.json");
-        record(&path, "/p".to_string(), "/p/s.md".to_string());
+        let mref = MissionRef::covenant(PathBuf::from("/p/s.md"));
+        record(&path, "/p".to_string(), &mref);
         forget(&path, "/p");
         assert!(load(&path).is_empty());
     }
@@ -130,7 +174,8 @@ mod tests {
     fn record_with_empty_cwd_is_noop() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missions.json");
-        record(&path, "".to_string(), "/p/s.md".to_string());
+        let mref = MissionRef::covenant(PathBuf::from("/p/s.md"));
+        record(&path, "".to_string(), &mref);
         assert!(load(&path).is_empty());
     }
 
@@ -144,5 +189,16 @@ mod tests {
         // Source file untouched.
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(raw.contains("broken"));
+    }
+
+    #[test]
+    fn reads_legacy_bare_string_as_covenant_mission() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("missions.json");
+        std::fs::write(&store, r#"{"/some/cwd":"/path/to/spec.md"}"#).unwrap();
+        let got = lookup(&store, "/some/cwd").expect("legacy entry should load");
+        assert_eq!(got.kind, MissionKind::Covenant);
+        assert_eq!(got.spec_path, PathBuf::from("/path/to/spec.md"));
+        assert!(got.plan_path.is_none());
     }
 }

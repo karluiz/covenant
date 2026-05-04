@@ -1,4 +1,10 @@
 import { draftsApi, type DraftSummary, type PublishedSpec } from "../drafts/api";
+import {
+  listSuperpowersMissions,
+  type MissionRef,
+  type SuperpowersMissionEntry,
+} from "../api";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type SelectedRef =
   | { source: "card"; path: string }
@@ -8,6 +14,7 @@ export type SelectedRef =
 export interface PickerState {
   specs: PublishedSpec[];
   drafts: DraftSummary[];
+  superpowers: SuperpowersMissionEntry[];
   selected: SelectedRef;
   inputValue: string;
   loading: boolean;
@@ -16,7 +23,9 @@ export interface PickerState {
 
 export type PickerResult =
   | { kind: "set"; path: string }
+  | { kind: "setRef"; mref: MissionRef }
   | { kind: "publishDraft"; slug: string }
+  | { kind: "spawnTab"; initialCommand: string }
   | null;
 
 export interface MissionPickerOpts {
@@ -60,6 +69,7 @@ export function initialState(currentMissionPath: string | null): PickerState {
   return {
     specs: [],
     drafts: [],
+    superpowers: [],
     selected: currentMissionPath ? { source: "card", path: currentMissionPath } : null,
     inputValue: "",
     loading: true,
@@ -80,9 +90,11 @@ export function openMissionPicker(opts: MissionPickerOpts): Promise<PickerResult
     overlay.appendChild(card);
     document.body.appendChild(overlay);
 
+    let unlistenSp: UnlistenFn | null = null;
     const cleanup = (result: PickerResult): void => {
       overlay.remove();
       window.removeEventListener("keydown", onKey);
+      if (unlistenSp) { unlistenSp(); unlistenSp = null; }
       resolve(result);
     };
 
@@ -97,6 +109,8 @@ export function openMissionPicker(opts: MissionPickerOpts): Promise<PickerResult
         },
         onCancel: () => cleanup(null),
         onPublishDraft: (slug) => cleanup({ kind: "publishDraft", slug }),
+        onSelectSuperpowers: (mref) => cleanup({ kind: "setRef", mref }),
+        onSpawnTab: (initialCommand) => cleanup({ kind: "spawnTab", initialCommand }),
       });
     };
 
@@ -123,14 +137,25 @@ export function openMissionPicker(opts: MissionPickerOpts): Promise<PickerResult
     Promise.all([
       draftsApi.listPublishedSpecs(opts.repoRoot),
       draftsApi.list(opts.repoRoot),
-    ]).then(([specs, drafts]) => {
-      state = { ...state, specs, drafts, loading: false, error: null };
+      listSuperpowersMissions().catch(() => [] as SuperpowersMissionEntry[]),
+    ]).then(([specs, drafts, superpowers]) => {
+      state = { ...state, specs, drafts, superpowers, loading: false, error: null };
       // If the current mission path matches a card, keep it selected.
       render();
     }).catch((err) => {
       state = { ...state, loading: false, error: String(err) };
       render();
     });
+
+    // Refresh the superpowers section when the backend signals a change.
+    listen("superpowers-missions-changed", () => {
+      listSuperpowersMissions()
+        .then((superpowers) => {
+          state = { ...state, superpowers };
+          render();
+        })
+        .catch((err) => console.warn("superpowers refresh failed", err));
+    }).then((u) => { unlistenSp = u; }).catch(() => {});
   });
 }
 
@@ -151,6 +176,7 @@ function renderCard(s: PickerState): string {
     </header>
     ${renderError(s)}
     ${renderSpecsSection(s)}
+    ${renderSuperpowersSection(s)}
     ${renderDraftsSection(s)}
     ${renderPathRow(s)}
     <div class="mission-picker-actions">
@@ -204,6 +230,44 @@ function renderSpecsSection(s: PickerState): string {
   </section>`;
 }
 
+function renderSuperpowersHeader(count: number): string {
+  return `<div class="mission-picker-sp-header">
+    <h4>Superpowers (${count})</h4>
+    <button type="button" class="mission-picker-sp-new" data-action="sp-new">+ New Superpowers mission</button>
+  </div>`;
+}
+
+function renderSuperpowersSection(s: PickerState): string {
+  if (s.loading) return "";
+  if (s.superpowers.length === 0) {
+    return `<section class="mission-picker-superpowers">
+      ${renderSuperpowersHeader(0)}
+      <div class="mission-picker-empty">No Superpowers specs yet.</div>
+    </section>`;
+  }
+  const items = s.superpowers.map((e) => {
+    const planBadge = e.plan_path
+      ? `<span class="mission-picker-badge mission-picker-badge--ok">plan ✓</span>`
+      : `<button type="button" class="mission-picker-badge mission-picker-badge--missing mission-picker-plan-missing"
+                 data-spec="${escapeAttr(e.spec_path)}"
+                 title="Generate plan with writing-plans skill">plan ✗</button>`;
+    return `
+      <button type="button" class="mission-picker-sp-row"
+              data-spec="${escapeAttr(e.spec_path)}"
+              data-plan="${escapeAttr(e.plan_path ?? "")}">
+        <span class="mission-picker-title">${escapeHtml(e.spec_filename)}</span>
+        <span class="mission-picker-goal">${escapeHtml(e.goal_preview)}</span>
+        <span class="mission-picker-badge mission-picker-badge--ok">spec ✓</span>
+        ${planBadge}
+      </button>
+    `;
+  }).join("");
+  return `<section class="mission-picker-superpowers">
+    ${renderSuperpowersHeader(s.superpowers.length)}
+    <div class="mission-picker-list">${items}</div>
+  </section>`;
+}
+
 function renderDraftsSection(s: PickerState): string {
   if (s.drafts.length === 0) return "";
   const items = s.drafts.map(d => `
@@ -236,6 +300,8 @@ interface BindCallbacks {
   onSubmit: () => void;
   onCancel: () => void;
   onPublishDraft: (slug: string) => void;
+  onSelectSuperpowers: (mref: MissionRef) => void;
+  onSpawnTab: (initialCommand: string) => void;
 }
 
 function bindCard(
@@ -265,6 +331,37 @@ function bindCard(
       cb.onSubmit();
     });
   });
+  card.querySelectorAll<HTMLButtonElement>(".mission-picker-sp-row").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const specPath = btn.dataset.spec ?? "";
+      const planPath = btn.dataset.plan ?? "";
+      if (!specPath) return;
+      cb.onSelectSuperpowers({
+        kind: "superpowers",
+        spec_path: specPath,
+        plan_path: planPath.length > 0 ? planPath : null,
+      });
+    });
+  });
+  // plan ✗ badges spawn a tab that runs the writing-plans skill.
+  // stopPropagation so the row's click handler (select mission) doesn't fire.
+  card.querySelectorAll<HTMLButtonElement>(".mission-picker-plan-missing").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const specPath = btn.dataset.spec ?? "";
+      if (!specPath) return;
+      cb.onSpawnTab(`Use the writing-plans skill to create the plan for ${specPath}`);
+    });
+  });
+  // "+ New Superpowers mission" header button. Opens a small topic
+  // prompt then spawns a fresh tab whose initial command runs the
+  // brainstorming skill on that topic.
+  card.querySelector<HTMLButtonElement>('[data-action="sp-new"]')?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const topic = await openNewSuperpowersTopicModal();
+    if (!topic) return;
+    cb.onSpawnTab(`Use the brainstorming skill to design: ${topic}`);
+  });
   card.querySelectorAll<HTMLButtonElement>(".mission-picker-publish").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -282,6 +379,43 @@ function bindCard(
   card.querySelector('[data-action="open-drafts"]')?.addEventListener("click", () => {
     cb.onCancel();
     window.dispatchEvent(new CustomEvent("drafts:toggle"));
+  });
+}
+
+function openNewSuperpowersTopicModal(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const modal = document.createElement("div");
+    modal.className = "mission-picker-newmodal";
+    modal.innerHTML = `
+      <h4>New Superpowers mission</h4>
+      <label>Topic <input type="text" id="sp-topic" placeholder="what do you want to brainstorm?" /></label>
+      <div class="mission-picker-newmodal-actions">
+        <button type="button" id="sp-cancel">Cancel</button>
+        <button type="button" id="sp-create">Create tab</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const input = modal.querySelector<HTMLInputElement>("#sp-topic")!;
+    input.focus();
+    const close = (val: string | null): void => {
+      modal.remove();
+      resolve(val);
+    };
+    modal.querySelector<HTMLButtonElement>("#sp-cancel")!.addEventListener("click", () => close(null));
+    modal.querySelector<HTMLButtonElement>("#sp-create")!.addEventListener("click", () => {
+      const v = input.value.trim();
+      close(v || null);
+    });
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        const v = input.value.trim();
+        close(v || null);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        close(null);
+      }
+    });
   });
 }
 

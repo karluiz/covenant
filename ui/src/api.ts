@@ -199,7 +199,23 @@ export async function operatorSetDefault(id: string): Promise<void> {
 /// as authoritative scope (Out of scope → escalate, File boundaries
 /// → constraints, Open questions → auto-escalate). Pass an absolute
 /// path or one resolvable from the backend's CWD.
+export type MissionKind = "covenant" | "superpowers";
+
+export interface MissionRef {
+  kind: MissionKind;
+  spec_path: string;
+  plan_path: string | null;
+}
+
+export interface MissionPlanInfo {
+  path: string;
+  mtime_unix_ms: number;
+  tasks_total: number;
+  tasks_done: number;
+}
+
 export interface MissionInfo {
+  kind: MissionKind;
   path: string;
   /// Single-line preview of the spec content (≤ 240 chars).
   content_preview: string;
@@ -208,6 +224,14 @@ export interface MissionInfo {
   /// so the backend can detect "file changed in another editor"
   /// conflicts.
   mtime_unix_ms: number;
+  plan: MissionPlanInfo | null;
+}
+
+export interface SuperpowersMissionEntry {
+  spec_path: string;
+  spec_filename: string;
+  plan_path: string | null;
+  goal_preview: string;
 }
 
 /// Result of `set_session_mission_content`. Discriminated union: the
@@ -224,12 +248,44 @@ export type MissionSaveResult =
 
 export async function setSessionMission(
   sessionId: SessionId,
-  specPath: string,
+  mref: MissionRef,
 ): Promise<MissionInfo> {
   return invoke<MissionInfo>("set_session_mission", {
     sessionId,
-    specPath,
+    mref,
   });
+}
+
+export async function markPlanTask(
+  sessionId: SessionId,
+  taskIndex: number,
+  done: boolean,
+  expectedMtimeUnixMs: number,
+): Promise<MissionPlanInfo> {
+  return invoke<MissionPlanInfo>("operator_mark_plan_task", {
+    sessionId,
+    taskIndex,
+    done,
+    expectedMtimeUnixMs,
+  });
+}
+
+export async function appendPlanNote(
+  sessionId: SessionId,
+  taskIndex: number,
+  note: string,
+  expectedMtimeUnixMs: number,
+): Promise<MissionPlanInfo> {
+  return invoke<MissionPlanInfo>("operator_append_plan_note", {
+    sessionId,
+    taskIndex,
+    note,
+    expectedMtimeUnixMs,
+  });
+}
+
+export async function listSuperpowersMissions(): Promise<SuperpowersMissionEntry[]> {
+  return invoke<SuperpowersMissionEntry[]>("list_superpowers_missions");
 }
 
 export async function clearSessionMission(sessionId: SessionId): Promise<void> {
@@ -248,6 +304,15 @@ export async function getSessionMissionContent(
   sessionId: SessionId,
 ): Promise<string | null> {
   return invoke<string | null>("get_session_mission_content", { sessionId });
+}
+
+/// Full plan-file body for the mission overlay's read-only plan-progress
+/// strip. Returns null when the session has no mission, or the mission
+/// is a Covenant spec with no paired plan.
+export async function getSessionPlanContent(
+  sessionId: SessionId,
+): Promise<string | null> {
+  return invoke<string | null>("get_session_plan_content", { sessionId });
 }
 
 /// Persist a new mission spec body. Backend rejects with the string

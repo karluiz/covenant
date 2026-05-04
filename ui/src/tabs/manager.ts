@@ -934,6 +934,7 @@ export class TabManager {
     color?: string | null;
     groupId?: string | null;
     cwd?: string | null;
+    initialCommand?: string | null;
   }): Promise<void> {
     const id = crypto.randomUUID();
     const seq = this.nextSeq++;
@@ -991,6 +992,10 @@ export class TabManager {
     // can update the tab's cwd as `cwd_changed` events arrive.
     const tabRef: { current: Tab | null } = { current: null };
     let sessionId: SessionId;
+    // Closure flag for the optional initial-command injection. We
+    // write the command on the FIRST prompt_start (i.e. once the
+    // shell has finished its rc-file work and shown a usable prompt).
+    let initialCmdPending: string | null = opts?.initialCommand ?? null;
     try {
       sessionId = await spawnSession(
         {
@@ -1004,6 +1009,14 @@ export class TabManager {
             //     backend can apply its cwd bonus.
             if (event.kind === "prompt_start") {
               recall?.notifyPromptStart();
+              if (initialCmdPending !== null) {
+                const cmd = initialCmdPending;
+                initialCmdPending = null;
+                const enc = new TextEncoder();
+                void writeToSession(sessionId, enc.encode(`${cmd}\n`)).catch(
+                  (err) => console.error("initial command write failed", err),
+                );
+              }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) tabRef.current.cwd = event.cwd;
               recall?.setCwd(event.cwd);
@@ -1493,7 +1506,11 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
     try {
-      const info = await setSessionMission(tab.sessionId, path);
+      const info = await setSessionMission(tab.sessionId, {
+        kind: "covenant",
+        spec_path: path,
+        plan_path: null,
+      });
       tab.mission = info;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveMission();
@@ -1540,9 +1557,25 @@ export class TabManager {
       return;
     }
 
-    // result.kind === "set"
+    if (result.kind === "spawnTab") {
+      // "+ New Superpowers mission" or "plan ✗" → spawn a fresh tab
+      // whose first prompt receives the relevant skill-invocation
+      // command. We don't auto-execute anything else; user owns the
+      // session from there.
+      await this.createTab({
+        cwd: tab.cwd ?? null,
+        initialCommand: result.initialCommand,
+      });
+      return;
+    }
+
+    // result.kind === "set" | "setRef"
     try {
-      const info = await setSessionMission(tab.sessionId, result.path);
+      const mref =
+        result.kind === "setRef"
+          ? result.mref
+          : { kind: "covenant" as const, spec_path: result.path, plan_path: null };
+      const info = await setSessionMission(tab.sessionId, mref);
       tab.mission = info;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveMission();
@@ -1682,7 +1715,11 @@ export class TabManager {
       const created = this.tabs[this.tabs.length - 1];
       if (created && t.mission_path) {
         try {
-          const info = await setSessionMission(created.sessionId, t.mission_path);
+          const info = await setSessionMission(created.sessionId, {
+            kind: "covenant",
+            spec_path: t.mission_path,
+            plan_path: null,
+          });
           created.mission = info;
         } catch (err) {
           // Spec file may have moved/been deleted since save — restore

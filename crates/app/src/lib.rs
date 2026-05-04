@@ -19,6 +19,7 @@ mod embedder;
 mod fix_proposer;
 mod history_import;
 mod memory;
+mod mission_pair;
 mod mission_persistence;
 mod notify;
 mod operator;
@@ -518,11 +519,118 @@ async fn is_operator_live(
 async fn set_session_mission(
     state: State<'_, AppState>,
     session_id: String,
-    spec_path: String,
+    mref: mission_pair::MissionRef,
 ) -> Result<operator::MissionInfo, String> {
     let id = parse_id(&session_id)?;
-    let path = PathBuf::from(spec_path);
-    state.operator.set_mission(id, path).await
+    state.operator.set_mission(id, mref).await
+}
+
+#[derive(serde::Serialize)]
+struct SuperpowersMissionEntry {
+    spec_path: String,
+    spec_filename: String,
+    plan_path: Option<String>,
+    goal_preview: String,
+}
+
+/// Background poller that emits `superpowers-missions-changed` whenever
+/// any markdown file under `docs/superpowers/specs/` or
+/// `docs/superpowers/plans/` is added, removed, or modified. Polling
+/// (2s) avoids pulling in the `notify` crate just for two directories.
+fn spawn_superpowers_watcher(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let root = match std::env::current_dir() {
+            Ok(r) => r,
+            Err(err) => {
+                tracing::warn!(?err, "superpowers watcher could not resolve cwd; disabled");
+                return;
+            }
+        };
+        let dirs = [
+            root.join("docs/superpowers/specs"),
+            root.join("docs/superpowers/plans"),
+        ];
+        tracing::info!(
+            specs = %dirs[0].display(),
+            plans = %dirs[1].display(),
+            "superpowers watcher started"
+        );
+        let snapshot = |dirs: &[std::path::PathBuf; 2]| -> std::collections::BTreeMap<std::path::PathBuf, u64> {
+            let mut out = std::collections::BTreeMap::new();
+            for d in dirs {
+                if let Ok(rd) = std::fs::read_dir(d) {
+                    for entry in rd.flatten() {
+                        let p = entry.path();
+                        if p.extension().and_then(|s| s.to_str()) == Some("md") {
+                            if let Ok(meta) = entry.metadata() {
+                                if let Ok(m) = meta.modified() {
+                                    if let Ok(dur) = m.duration_since(std::time::UNIX_EPOCH) {
+                                        out.insert(p, dur.as_millis() as u64);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            out
+        };
+        let mut last = snapshot(&dirs);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+            let now = snapshot(&dirs);
+            if now != last {
+                let _ = app.emit("superpowers-missions-changed", ());
+                last = now;
+            }
+        }
+    });
+}
+
+/// Discover Superpowers spec/plan pairs under the project's
+/// `docs/superpowers/specs/` directory. Used by the mission picker
+/// to surface paired plans alongside Covenant specs.
+#[tauri::command]
+async fn list_superpowers_missions(
+    state: State<'_, AppState>,
+) -> Result<Vec<SuperpowersMissionEntry>, String> {
+    let _ = state;
+    let root = std::env::current_dir().map_err(|e| e.to_string())?;
+    let specs_dir = root.join("docs/superpowers/specs");
+    let plans_dir = root.join("docs/superpowers/plans");
+    let mut out = Vec::new();
+    if !specs_dir.exists() {
+        return Ok(out);
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&specs_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"))
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let body = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let plan = mission_pair::resolve_plan_for_spec(&path, &plans_dir)
+            .map_err(|e| e.to_string())?;
+        let goal = body
+            .lines()
+            .find(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect::<String>();
+        out.push(SuperpowersMissionEntry {
+            spec_filename: path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            spec_path: path.display().to_string(),
+            plan_path: plan.map(|p| p.display().to_string()),
+            goal_preview: goal,
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -553,6 +661,18 @@ async fn get_session_mission_content(
 ) -> Result<Option<String>, String> {
     let id = parse_id(&session_id)?;
     Ok(state.operator.get_mission_content(id).await)
+}
+
+/// Full plan body for the mission overlay's plan-progress strip. Returns
+/// null when the session has no mission, or the mission is Covenant
+/// without a paired plan file.
+#[tauri::command]
+async fn get_session_plan_content(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Option<String>, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.get_plan_content(id).await)
 }
 
 /// Persist a new mission spec body from the viewer modal. Refuses
@@ -586,6 +706,39 @@ async fn set_session_mission_content(
         );
     }
     Ok(result)
+}
+
+/// Flip the Nth top-level checkbox of the session's attached plan.
+/// `expected_mtime_unix_ms == 0` bypasses the mtime conflict check.
+#[tauri::command]
+async fn operator_mark_plan_task(
+    state: State<'_, AppState>,
+    session_id: String,
+    task_index: usize,
+    done: bool,
+    expected_mtime_unix_ms: u64,
+) -> Result<operator::MissionPlanInfo, String> {
+    let id = parse_id(&session_id)?;
+    state
+        .operator
+        .mark_plan_task(id, task_index, done, expected_mtime_unix_ms)
+        .await
+}
+
+/// Append a `> note: <text>` line under the Nth top-level plan task.
+#[tauri::command]
+async fn operator_append_plan_note(
+    state: State<'_, AppState>,
+    session_id: String,
+    task_index: usize,
+    note: String,
+    expected_mtime_unix_ms: u64,
+) -> Result<operator::MissionPlanInfo, String> {
+    let id = parse_id(&session_id)?;
+    state
+        .operator
+        .append_plan_note(id, task_index, note, expected_mtime_unix_ms)
+        .await
 }
 
 /// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
@@ -1690,6 +1843,8 @@ pub fn run() {
                 embedder_cell.clone(),
             );
 
+            spawn_superpowers_watcher(app.handle().clone());
+
             // One-shot Recall seeding: on first launch, import the
             // user's existing ~/.zsh_history so Recall isn't empty.
             // Runs in the background — startup must not block on
@@ -1735,10 +1890,14 @@ pub fn run() {
             set_aom_excluded,
             is_aom_excluded,
             set_session_mission,
+            list_superpowers_missions,
             clear_session_mission,
             get_session_mission,
             get_session_mission_content,
+            get_session_plan_content,
             set_session_mission_content,
+            operator_mark_plan_task,
+            operator_append_plan_note,
             aom_status,
             aom_start,
             aom_stop,
