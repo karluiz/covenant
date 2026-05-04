@@ -2100,6 +2100,20 @@ async fn retrieve_learned_for_decision(
     }
     let scope_refs: Vec<&str> = scopes.iter().map(|s| s.as_str()).collect();
 
+    // 3.13 perf: cheap COUNT(*) guard. Skip embed + vector search when
+    // no memories exist for these scopes — common on fresh installs and
+    // for sessions with no mission attached. The COUNT query is indexed
+    // (idx_operator_memories_scope) and runs in microseconds; embed +
+    // vec search take milliseconds. Net win on every empty-scope tick.
+    match storage.count_memories(&scope_refs).await {
+        Ok(0) => return (Vec::new(), Vec::new()),
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, "operator memory: count_memories failed");
+            return (Vec::new(), Vec::new());
+        }
+    }
+
     let embedder = match crate::get_embedder_from_cell(embedder_cell.as_ref()).await {
         Ok(e) => e,
         Err(e) => {
