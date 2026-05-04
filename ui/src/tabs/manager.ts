@@ -1420,7 +1420,10 @@ export class TabManager {
     // settings.operator.enabled_default at attach() time). Live always
     // starts off — even if enabled_default flipped on, the user must
     // explicitly opt into live before any byte gets typed. AOM excluded
-    // also defaults to false (each AOM session resets exclusions).
+    // is read fresh: backend defaults a new tab to `aom_active_now`
+    // (true if AOM is running, so the new tab is born manual) and the
+    // manifest restore path (later, in restoreFromManifest) overwrites
+    // with the persisted value for tabs being re-spawned at boot.
     const operatorEnabled = await isOperatorEnabled(sessionId).catch(() => false);
     const operatorLive = await isOperatorLive(sessionId).catch(() => false);
     const aomExcluded = await isAomExcluded(sessionId).catch(() => false);
@@ -1697,6 +1700,11 @@ export class TabManager {
       await setAomExcluded(tab.sessionId, next);
       tab.aomExcluded = next;
       this.renderTabbar();
+      // Persist so the exclusion survives app restarts. Without this
+      // the new aom_excluded field in TabManifestV1 would only see
+      // values written by an unrelated tab op (rename, color, group)
+      // that incidentally triggered scheduleSave.
+      this.scheduleSave();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_aom_excluded failed", err);

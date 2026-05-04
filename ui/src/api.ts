@@ -117,8 +117,8 @@ export async function isOperatorLive(sessionId: SessionId): Promise<boolean> {
 
 /// Per-tab AOM opt-out toggle. When AOM is on globally, an excluded
 /// tab keeps its individual live setting + normal persona instead of
-/// inheriting the AOM act-by-default posture. Reset to false on every
-/// AOM start (each AOM session begins with all tabs included).
+/// inheriting the AOM act-by-default posture. Persistent across AOM
+/// cycles AND app restarts (UI manifest restores the value at boot).
 export async function setAomExcluded(
   sessionId: SessionId,
   excluded: boolean,
