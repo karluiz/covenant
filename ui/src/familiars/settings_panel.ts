@@ -1,15 +1,20 @@
 // Familiars settings section. Rendered inside the existing settings page
-// host. Premium-gated: when `is_premium = false`, only a note is shown.
-// When premium, exposes the master enable toggle plus per-Familiar config
-// rows (name, style, daily cost cap).
+// host. Always shows the section so the sidebar anchor lands here.
+// Premium gates the per-Familiar config; until billing ships, the premium
+// flag is a manual toggle for testing.
 
 import { Familiars, type Style, type FamiliarSummary } from "./api";
 
+export interface FamiliarsSettingsHooks {
+  isPremium: boolean;
+  enabled: boolean;
+  setPremium: (v: boolean) => void;
+  setEnabled: (v: boolean) => void;
+}
+
 export function renderFamiliarsSettings(
   parent: HTMLElement,
-  isPremium: boolean,
-  enabled: boolean,
-  setEnabled: (v: boolean) => Promise<void>,
+  hooks: FamiliarsSettingsHooks,
 ): void {
   parent.innerHTML = "";
   const wrap = document.createElement("section");
@@ -21,40 +26,67 @@ export function renderFamiliarsSettings(
   head.textContent = "Familiars";
   wrap.appendChild(head);
 
-  if (!isPremium) {
-    const note = document.createElement("p");
-    note.className = "settings-note";
-    note.textContent = "Familiars is a premium feature.";
-    wrap.appendChild(note);
-    parent.appendChild(wrap);
-    return;
-  }
+  const intro = document.createElement("p");
+  intro.className = "settings-hint";
+  intro.textContent =
+    "Per-operator AI companion with persistent memory. Phase 1 MVP — premium gating is on the honor system until billing ships; flip it manually below to enable for testing.";
+  wrap.appendChild(intro);
 
-  const toggleRow = document.createElement("label");
-  toggleRow.className = "settings-field";
-  const cbRow = document.createElement("span");
-  cbRow.className = "settings-checkbox-row";
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox";
-  toggle.checked = enabled;
-  toggle.addEventListener("change", () => {
-    void setEnabled(toggle.checked);
+  // Premium toggle (dev/testing — replace with billing flow later).
+  const premiumRow = document.createElement("label");
+  premiumRow.className = "settings-field";
+  const premiumCb = document.createElement("span");
+  premiumCb.className = "settings-checkbox-row";
+  const premiumInput = document.createElement("input");
+  premiumInput.type = "checkbox";
+  premiumInput.checked = hooks.isPremium;
+  const premiumLabel = document.createElement("span");
+  premiumLabel.textContent = "Premium (manual override)";
+  premiumCb.append(premiumInput, premiumLabel);
+  premiumRow.appendChild(premiumCb);
+  wrap.appendChild(premiumRow);
+
+  // Enable toggle (gated by premium — disabled visually but always present).
+  const enableRow = document.createElement("label");
+  enableRow.className = "settings-field";
+  const enableCb = document.createElement("span");
+  enableCb.className = "settings-checkbox-row";
+  const enableInput = document.createElement("input");
+  enableInput.type = "checkbox";
+  enableInput.checked = hooks.enabled;
+  enableInput.disabled = !hooks.isPremium;
+  const enableLabel = document.createElement("span");
+  enableLabel.textContent = "Enable Familiars";
+  enableCb.append(enableInput, enableLabel);
+  enableRow.appendChild(enableCb);
+  wrap.appendChild(enableRow);
+
+  premiumInput.addEventListener("change", () => {
+    hooks.setPremium(premiumInput.checked);
+    enableInput.disabled = !premiumInput.checked;
+    if (!premiumInput.checked && enableInput.checked) {
+      enableInput.checked = false;
+      hooks.setEnabled(false);
+    }
   });
-  const label = document.createElement("span");
-  label.textContent = "Enable Familiars";
-  cbRow.append(toggle, label);
-  toggleRow.appendChild(cbRow);
-  wrap.appendChild(toggleRow);
+  enableInput.addEventListener("change", () => {
+    hooks.setEnabled(enableInput.checked);
+  });
 
   const list = document.createElement("div");
   list.className = "settings-familiars-list";
   wrap.appendChild(list);
 
-  Familiars.list()
-    .then((items) => renderList(list, items))
-    .catch(() => {
-      list.textContent = "(could not load Familiars)";
-    });
+  if (hooks.isPremium) {
+    Familiars.list()
+      .then((items) => renderList(list, items))
+      .catch(() => {
+        list.textContent = "(could not load Familiars)";
+      });
+  } else {
+    list.textContent =
+      "(enable premium above to manage per-Familiar config)";
+  }
 
   parent.appendChild(wrap);
 }

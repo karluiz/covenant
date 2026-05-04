@@ -221,6 +221,22 @@ export class MissionPage {
   private render(): void {
     const s = this.state;
     const visible = filterSpecs(s.specs, s.query);
+
+    // Preserve focus + caret across innerHTML wipe (search/path inputs).
+    const active = document.activeElement as HTMLElement | null;
+    let restoreClass: string | null = null;
+    let caretStart: number | null = null;
+    let caretEnd: number | null = null;
+    if (active && this.pageHost.contains(active)) {
+      if (active.classList.contains("mission-page-search")) restoreClass = "mission-page-search";
+      else if (active.classList.contains("mission-page-input")) restoreClass = "mission-page-input";
+      if (restoreClass) {
+        const inp = active as HTMLInputElement;
+        caretStart = inp.selectionStart;
+        caretEnd = inp.selectionEnd;
+      }
+    }
+
     this.pageHost.innerHTML = "";
 
     const header = document.createElement("header");
@@ -247,6 +263,16 @@ export class MissionPage {
     this.pageHost.appendChild(footer);
 
     this.bindEvents(visible);
+
+    if (restoreClass) {
+      const next = this.pageHost.querySelector<HTMLInputElement>("." + restoreClass);
+      if (next) {
+        next.focus();
+        if (caretStart != null) {
+          try { next.setSelectionRange(caretStart, caretEnd ?? caretStart); } catch { /* ignore */ }
+        }
+      }
+    }
   }
 
   private renderSidebar(visible: PublishedSpec[]): HTMLElement {
@@ -324,6 +350,7 @@ export class MissionPage {
     if (s.loading || s.superpowers.length === 0) return "";
     const items = s.superpowers.map((e) => {
       const { title, date } = humanizeSpecFilename(e.spec_filename);
+      const goal = cleanGoalPreview(e.goal_preview ?? "");
       const planMissing = !e.plan_path;
       const statusBadge = planMissing
         ? `<span class="mission-page-badge mission-page-badge--missing mission-page-plan-missing"
@@ -332,15 +359,15 @@ export class MissionPage {
                    title="Generate plan with writing-plans skill">no plan</span>`
         : `<span class="mission-page-status-ok" title="spec ✓ · plan ✓" aria-label="ready">✓</span>`;
       return `
-        <button type="button" class="mission-page-sp-row"
+        <button type="button" class="mission-page-spec mission-page-sp-row"
                 data-spec="${escapeAttr(e.spec_path)}"
                 data-plan="${escapeAttr(e.plan_path ?? "")}"
                 title="${escapeAttr(e.spec_filename)}">
-          <span class="mission-page-sp-main">
+          <span class="mission-page-id">${escapeHtml(date)}</span>
+          <span class="mission-page-spec-body">
             <span class="mission-page-spec-title">${escapeHtml(title)}</span>
-            ${e.goal_preview ? `<span class="mission-page-spec-goal">— ${escapeHtml(e.goal_preview)}</span>` : ""}
+            ${goal ? `<span class="mission-page-spec-goal">${escapeHtml(goal)}</span>` : ""}
           </span>
-          ${date ? `<span class="mission-page-sp-date">${escapeHtml(date)}</span>` : ""}
           ${statusBadge}
         </button>
       `;
@@ -558,6 +585,15 @@ function escapeHtml(s: string): string {
 }
 
 function escapeAttr(s: string): string { return escapeHtml(s); }
+
+function cleanGoalPreview(raw: string): string {
+  let s = raw.trim();
+  s = s.replace(/^>\s*/, "");
+  s = s.replace(/^\*\*Date:\*\*\s*\d{4}-\d{2}-\d{2}\s*/i, "");
+  s = s.replace(/^Date:\s*\d{4}-\d{2}-\d{2}\s*/i, "");
+  s = s.replace(/\*\*/g, "");
+  return s.trim();
+}
 
 export function humanizeSpecFilename(filename: string): { title: string; date: string } {
   // Strip extension

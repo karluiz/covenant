@@ -509,18 +509,29 @@ export class SettingsPanel {
 
     const familiarsHost = form.querySelector<HTMLElement>("#familiars-host");
     if (familiarsHost) {
-      renderFamiliarsSettings(
-        familiarsHost,
-        this.current.is_premium,
-        this.current.familiars_enabled,
-        async (v) => {
-          if (this.current) {
+      const persistFamiliars = async (): Promise<void> => {
+        if (!this.current) return;
+        await setSettings(this.current);
+        if (this.onSaved) this.onSaved(this.current);
+      };
+      const renderFam = (): void => {
+        if (!this.current) return;
+        renderFamiliarsSettings(familiarsHost, {
+          isPremium: this.current.is_premium,
+          enabled: this.current.familiars_enabled,
+          setPremium: (v) => {
+            if (!this.current) return;
+            this.current.is_premium = v;
+            void persistFamiliars().then(() => renderFam());
+          },
+          setEnabled: (v) => {
+            if (!this.current) return;
             this.current.familiars_enabled = v;
-            await setSettings(this.current);
-            if (this.onSaved) this.onSaved(this.current);
-          }
-        },
-      );
+            void persistFamiliars();
+          },
+        });
+      };
+      renderFam();
     }
 
     form
