@@ -26,6 +26,7 @@ mod operator;
 pub mod operator_registry;
 mod safety;
 pub mod settings;
+mod spec_detector;
 pub mod storage;
 mod structure;
 mod summarizer;
