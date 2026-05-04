@@ -305,7 +305,10 @@ struct Attached {
     /// per-tab `live` semantics even while AOM is on globally — useful
     /// when the user wants to leave certain tabs strictly manual
     /// (e.g. an exploratory shell) without having to disable Operator
-    /// entirely. Reset to false on every `aom_start` (fresh session).
+    /// entirely. Persistent across AOM cycles AND app restarts (UI
+    /// stores it in the tab manifest); the user opts tabs in/out via
+    /// the per-tab badge, ⌘⇧E, the right-click menu, or "Include all"
+    /// in the AOM popover.
     aom_excluded: bool,
     /// True when this tab's `enabled` was flipped on by the AOM
     /// auto-enable path (vs the user manually right-clicking Enable
@@ -604,6 +607,15 @@ impl OperatorWatcher {
     pub async fn set_aom_excluded(&self, session_id: SessionId, excluded: bool) {
         if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
             att.aom_excluded = excluded;
+            // When the user excludes a tab mid-AOM, they're claiming
+            // ownership of it. Clear `enabled_by_aom` so AOM stop's
+            // auto-revert (`disable_aom_auto_enabled`) leaves the
+            // tab's current Operator state alone — mirroring the
+            // existing invariant that user-manually-enabled tabs
+            // survive AOM stop.
+            if excluded {
+                att.enabled_by_aom = false;
+            }
         }
     }
 
@@ -632,10 +644,11 @@ impl OperatorWatcher {
             .unwrap_or(false)
     }
 
-    /// Reset all per-tab AOM exclusions. Called on `aom_start` so each
-    /// new AOM session begins with every Operator-enabled tab included
-    /// — the user opts tabs out fresh each time, avoiding the "I forgot
-    /// I excluded this last week" foot-gun.
+    /// Reset every tab's `aom_excluded` to false. No longer called on
+    /// `aom_start` — exclusion is persistent across AOM cycles. Reused
+    /// here as the backend for the AOM popover's "Include all in AOM"
+    /// explicit user action: when the user wants to undo every prior
+    /// exclusion in one click. UI surface lives in `ui/src/status/bar.ts`.
     pub async fn clear_all_aom_excluded(&self) {
         let mut inner = self.inner.lock().await;
         for att in inner.sessions.values_mut() {
@@ -904,13 +917,21 @@ impl OperatorWatcher {
     }
 
     /// AOM auto-enable: flip Operator on for every currently-disabled
-    /// tab and remember which ones we touched so `disable_aom_auto_enabled`
-    /// can revert them on stop. Returns the affected session IDs so the
-    /// UI can refresh those tabs' badges without polling everyone.
+    /// tab that is NOT marked `aom_excluded`, and remember which ones
+    /// we touched so `disable_aom_auto_enabled` can revert them on
+    /// stop. Returns the affected session IDs so the UI can refresh
+    /// those tabs' badges without polling everyone.
     pub async fn enable_all_for_aom(&self) -> Vec<SessionId> {
         let mut inner = self.inner.lock().await;
         let mut touched = Vec::new();
         for (id, att) in inner.sessions.iter_mut() {
+            // Skip tabs the user marked manual — AOM does not auto-
+            // claim them. Includes tabs born excluded by default
+            // (new tabs spawned WHILE AOM was already running, see
+            // `lib.rs` attach default).
+            if att.aom_excluded {
+                continue;
+            }
             if !att.enabled {
                 att.enabled = true;
                 att.enabled_by_aom = true;

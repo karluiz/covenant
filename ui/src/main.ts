@@ -334,6 +334,8 @@ async function boot(): Promise<void> {
   // the budget-hit auto-stop) so the tab bar refreshes per-tab badges
   // for tabs AOM auto-enabled or auto-reverted.
   const aomBanner = new AomBanner(document.body);
+  manager.setAomBanner(aomBanner);
+  manager.setStatusBar(statusBar);
   // Headless: the banner owns state + polling, but the chip in the
   // status bar handles all rendering. Without this we'd get both
   // the floating pill AND the chip on screen at once.
@@ -374,6 +376,12 @@ async function boot(): Promise<void> {
   statusBar.bindAomActions({
     onStop: () => void aomBanner.toggle(),
     onAfk: () => afk.open(),
+    onIncludeTab: (sessionId) => {
+      void manager.setAomExcludedFor(sessionId, false);
+    },
+    onIncludeAll: () => {
+      void manager.includeAllInAom();
+    },
   });
   const docsPage = requireEl<HTMLElement>("docs-page");
   const docsPanel = new DocsPanel(docsPage, workspace);
@@ -618,6 +626,14 @@ async function boot(): Promise<void> {
           }
         });
       }
+      return;
+    }
+    // ⌘⇧E — toggle AOM exclusion for the active tab. Silent no-op
+    // when AOM is off; the badge is the discoverable affordance and
+    // the shortcut just shaves a click for users who know it exists.
+    if (e.metaKey && e.shiftKey && (e.key === "E" || e.key === "e")) {
+      e.preventDefault();
+      void manager.toggleAomExcludedActive();
       return;
     }
     // ⌘⇧R → AOM morning report. Read-only digest of the most recent

@@ -8149,5 +8149,105 @@ button.mission-picker-plan-missing:hover {
 }
 .operators-pane__persona-expand svg {
   display: block;
+}
 
+/* Per-tab Operator badge — see TabManager.renderTabPill. Compact
+   leading-edge button. Inherits color from the tab's text. */
+.tab-bot-badge {
+  appearance: none;
+  background: transparent;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-right: 4px;
+  width: 16px;
+  height: 16px;
+  color: var(--accent, currentColor);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.tab-bot-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.tab-bot-badge--excluded {
+  color: var(--muted);
+}
+.tab-bot-badge--inert {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.7;
+}
+.status-aom-excluded {
+  /* Slightly muted to read as supplementary info, not as primary
+     warning. The popover carries the actionable detail. */
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.status-aom-pop-excluded {
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.status-aom-pop-excluded-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.status-aom-pop-excluded-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.status-aom-pop-excluded-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.status-aom-pop-excluded-name {
+  font-weight: 500;
+}
+.status-aom-pop-excluded-cwd {
+  display: block;
+  grid-column: 1 / 2;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.status-aom-pop-excluded-btn,
+.status-aom-pop-include-all {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: inherit;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.status-aom-pop-excluded-btn:hover,
+.status-aom-pop-include-all:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.status-aom-pop-include-all {
+  width: 100%;
+  padding: 6px 8px;
+  margin-top: 4px;
+}
+/* Span both text rows when a cwd is rendered below the name, so the
+   button vertically centers against the two-line cell instead of
+   sitting on row 1 with row 2 col 2 empty. */
+.status-aom-pop-excluded-btn {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
 }

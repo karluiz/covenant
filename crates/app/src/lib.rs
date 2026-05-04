@@ -348,9 +348,10 @@ async fn spawn_session(
     // already running, the new tab is for fresh manual work — not for
     // AOM to start typing into. Default `aom_excluded = true` so the
     // tab joins AOM only if the user explicitly toggles it via the
-    // context menu. Tabs spawned BEFORE AOM started keep their
-    // included-by-default posture (they were swept by `aom_start` →
-    // `enable_all_for_aom` and `clear_all_aom_excluded`).
+    // tab badge, ⌘⇧E, or the context menu. Tabs spawned BEFORE AOM
+    // started keep their included-by-default posture (they were swept
+    // by `aom_start` → `enable_all_for_aom`, which now also respects
+    // any pre-existing `aom_excluded` flag).
     let aom_active_now = state.aom.read().await.enabled;
     state
         .operator
@@ -783,7 +784,8 @@ async fn operator_append_plan_note(
 
 /// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
 /// per-tab live setting + normal persona instead of inheriting the
-/// AOM act-by-default posture. Reset to false on every aom_start.
+/// AOM act-by-default posture. Persistent across AOM cycles — use
+/// the "Include all" action in the AOM popover to reset in bulk.
 #[tauri::command]
 async fn set_aom_excluded(
     state: State<'_, AppState>,
@@ -802,6 +804,12 @@ async fn is_aom_excluded(
 ) -> Result<bool, String> {
     let id = parse_id(&session_id)?;
     Ok(state.operator.is_aom_excluded(id).await)
+}
+
+#[tauri::command]
+async fn clear_all_aom_excluded(state: State<'_, AppState>) -> Result<(), String> {
+    state.operator.clear_all_aom_excluded().await;
+    Ok(())
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -879,10 +887,11 @@ async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // Read budget from settings ONCE at start time so a mid-session
     // settings change doesn't shift the cap underneath the user.
     let budget = state.settings.lock().await.aom.default_budget_usd;
-    // Fresh AOM session = fresh per-tab exclusions. Saves the user
-    // from the "I don't remember which tabs I excluded last time"
-    // foot-gun on a new sleep period.
-    state.operator.clear_all_aom_excluded().await;
+    // M-OP5+: per-tab `aom_excluded` is persistent across AOM cycles.
+    // The user opts tabs IN/OUT explicitly via the tab badge, ⌘⇧E, the
+    // tab context menu, or the "Include all" action in the AOM popover.
+    // We deliberately do NOT reset here — the previous reset surprised
+    // users who marked a tab manual and lost it the next time AOM ran.
     // M-OP5 UX fix: AOM is "one button does it all". Auto-enable
     // Operator on every tab that doesn't already have it. We track
     // which tabs we touched so `aom_stop` reverts exactly them
@@ -1954,6 +1963,7 @@ pub fn run() {
             is_operator_live,
             set_aom_excluded,
             is_aom_excluded,
+            clear_all_aom_excluded,
             set_session_mission,
             list_superpowers_missions,
             clear_session_mission,

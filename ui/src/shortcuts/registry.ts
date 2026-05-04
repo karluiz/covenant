@@ -41,6 +41,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   // AOM
   { category: "AOM", keys: ["⌘", "⇧", "A"], label: "Toggle AOM", description: "Start or stop autonomous overnight mode." },
   { category: "AOM", keys: ["⌘", "⇧", "R"], label: "AOM morning report", description: "Read-only digest of the most recent AOM run." },
+  { category: "AOM", keys: ["⌘", "⇧", "E"], label: "Toggle AOM for active tab", description: "Include/exclude the active tab from AOM. Visible feedback via the tab's bot badge (slashed = excluded)." },
 
   // Navigation / view
   { category: "Navigation", keys: ["⌘", "+"], label: "Zoom in", description: "Increase UI zoom." },

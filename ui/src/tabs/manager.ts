@@ -18,6 +18,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
   aomStatus,
+  clearAllAomExcluded,
   clearSessionMission,
   closeSession,
   getBlockedSessionIds,
@@ -43,6 +44,7 @@ import {
   type TerminalConfig,
 } from "../api";
 import { BlockManager } from "../blocks/manager";
+import type { StatusBar } from "../status/bar";
 import { RecallManager } from "../recall/manager";
 import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
@@ -51,6 +53,7 @@ import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 import { openMissionPicker, openNewSuperpowersTopicModal } from "./mission-picker";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
+import type { AomBanner } from "../aom/banner";
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -108,8 +111,10 @@ interface Tab {
   operatorLive: boolean;
   /// M-OP5 per-tab AOM opt-out. Only meaningful while AOM is on
   /// globally — when true, this tab is invisible to the AOM banner
-  /// and keeps its per-tab live setting + normal persona. Reset by
-  /// the backend on every aom_start.
+  /// and keeps its per-tab live setting + normal persona. Persistent
+  /// across AOM cycles AND app restarts (UI stores it in the tab
+  /// manifest; restore path always calls setAomExcluded with the
+  /// persisted value).
   aomExcluded: boolean;
   /// M-OP6 mission spec attached to this tab. When set, the Operator
   /// uses the spec content as authoritative scope — Out of scope →
@@ -176,6 +181,9 @@ interface SerializedTab {
   mission_path: string | null;
   /// Operator pinned to this tab at save time. Null = default operator.
   operator_id: string | null;
+  /// AOM exclusion persisted for this tab. Optional for backward compat
+  /// — old manifests that lack the field default to false on restore.
+  aom_excluded?: boolean;
 }
 
 interface SerializedGroup {
@@ -277,6 +285,24 @@ export class TabManager {
   /// Updated on every name-affecting mutation; consulted by panels
   /// that need to label closed tabs.
   private sessionNameCache: Map<string, CachedSessionName> = loadSessionNameCache();
+
+  /// Held so the per-tab Operator badge knows whether AOM is on (toggle
+  /// is active only during AOM). Wired by main.ts after both classes
+  /// are constructed.
+  private aomBanner: AomBanner | null = null;
+
+  setAomBanner(banner: AomBanner): void {
+    this.aomBanner = banner;
+  }
+
+  /// Held so TabManager can push the per-tab AOM exclusion list to
+  /// the status bar's chip + popover. Wired by main.ts after both
+  /// classes are constructed.
+  private statusBar: StatusBar | null = null;
+
+  setStatusBar(sb: StatusBar): void {
+    this.statusBar = sb;
+  }
 
   /// 3.7 — fired whenever the *active* tab's cwd context changes:
   ///   - tab switched (new active tab → its cwd)
@@ -668,7 +694,12 @@ export class TabManager {
       tab.customName = slug;
       touched = true;
     }
-    if (touched) this.renderTabbar();
+    if (touched) {
+      this.renderTabbar();
+      // Names that just changed may belong to AOM-excluded tabs; the
+      // popover keys on `name` so push to keep its labels current.
+      this.pushExcludedToStatusBar();
+    }
   }
 
   /// Re-sync every tab's per-session Operator + mission state from
@@ -696,6 +727,7 @@ export class TabManager {
       tab.mission = mission;
     }
     this.renderTabbar();
+    this.pushExcludedToStatusBar();
     // Re-push the active tab's mission + operator state too — file
     // watcher / AOM auto-enable cycles can change either without a
     // tab activation.
@@ -1405,7 +1437,10 @@ export class TabManager {
     // settings.operator.enabled_default at attach() time). Live always
     // starts off — even if enabled_default flipped on, the user must
     // explicitly opt into live before any byte gets typed. AOM excluded
-    // also defaults to false (each AOM session resets exclusions).
+    // is read fresh: backend defaults a new tab to `aom_active_now`
+    // (true if AOM is running, so the new tab is born manual) and the
+    // manifest restore path (later, in restoreFromManifest) overwrites
+    // with the persisted value for tabs being re-spawned at boot.
     const operatorEnabled = await isOperatorEnabled(sessionId).catch(() => false);
     const operatorLive = await isOperatorLive(sessionId).catch(() => false);
     const aomExcluded = await isAomExcluded(sessionId).catch(() => false);
@@ -1502,6 +1537,11 @@ export class TabManager {
       // enabled/live state and the entity callback in one place.
       this.emitActiveOperator();
     }
+    // Operator-off removes the tab from the AOM excluded list (the
+    // pushExcludedToStatusBar filter requires operatorEnabled), and
+    // operator-on while still aom_excluded re-adds it. Either way,
+    // the chip count + popover need a refresh.
+    this.pushExcludedToStatusBar();
   }
 
   /// Look up a tab by its backend session id. Used by the OperatorPicker
@@ -1671,10 +1711,93 @@ export class TabManager {
       await setAomExcluded(tab.sessionId, next);
       tab.aomExcluded = next;
       this.renderTabbar();
+      // Persist so the exclusion survives app restarts. Without this
+      // the new aom_excluded field in TabManifestV1 would only see
+      // values written by an unrelated tab op (rename, color, group)
+      // that incidentally triggered scheduleSave.
+      this.scheduleSave();
+      this.pushExcludedToStatusBar();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_aom_excluded failed", err);
     }
+  }
+
+  /// Wrapper around toggleAomExcluded keyed off the currently active
+  /// tab. Used by the ⌘⇧E global shortcut. Silent no-op when AOM is
+  /// off, no active tab, or the active tab is not Operator-enabled.
+  async toggleAomExcludedActive(): Promise<void> {
+    if (!this.aomBanner?.isOn()) return;
+    if (!this.activeId) return;
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || !tab.operatorEnabled) return;
+    await this.toggleAomExcluded(tab.id);
+  }
+
+  /// Set exclusion explicitly for a session (used by the AOM popover's
+  /// per-tab Include action). Wraps backend + local state + tabbar
+  /// render + StatusBar push. Idempotent — bails if state already
+  /// matches.
+  async setAomExcludedFor(sessionId: SessionId, excluded: boolean): Promise<void> {
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    if (!tab) return;
+    if (tab.aomExcluded === excluded) return;
+    try {
+      await setAomExcluded(sessionId, excluded);
+      tab.aomExcluded = excluded;
+      this.renderTabbar();
+      this.scheduleSave();
+      this.pushExcludedToStatusBar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("setAomExcludedFor failed", err);
+    }
+  }
+
+  /// "Include all" — invokes the bulk backend command, then refreshes
+  /// every per-tab cache and re-renders. Used by the AOM popover when
+  /// ≥2 tabs are excluded.
+  async includeAllInAom(): Promise<void> {
+    try {
+      await clearAllAomExcluded();
+      // The local sync MUST stay synchronous (no awaits in the loop)
+      // — otherwise a mid-loop throw would leave backend & local
+      // state diverged. Today the assignment can't throw, so the
+      // catch below correctly captures only `clearAllAomExcluded`
+      // failure where backend AND local are unchanged.
+      for (const t of this.tabs) {
+        t.aomExcluded = false;
+      }
+      this.renderTabbar();
+      this.scheduleSave();
+      this.pushExcludedToStatusBar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("clearAllAomExcluded failed", err);
+    }
+  }
+
+  /// Recompute the StatusBar exclusion list from current tab state and
+  /// push. Three call sites — keep them in sync if the set can change
+  /// from a new path:
+  ///   1. `toggleAomExcluded` — user-initiated toggle (badge / ⌘⇧E /
+  ///      right-click / setAomExcludedFor / includeAllInAom).
+  ///   2. `refreshAllOperatorState` — AOM banner transitions on/off.
+  ///   3. `restoreFromManifest` — app launch with persisted exclusions.
+  private pushExcludedToStatusBar(): void {
+    const aomOn = this.aomBanner?.isOn() ?? false;
+    if (!aomOn) {
+      this.statusBar?.setExcludedTabs([]);
+      return;
+    }
+    const list = this.tabs
+      .filter((t) => t.operatorEnabled && t.aomExcluded)
+      .map((t) => ({
+        sessionId: t.sessionId,
+        name: tabDisplayName(t),
+        cwdShort: shortCwd(t.cwd),
+      }));
+    this.statusBar?.setExcludedTabs(list);
   }
 
   /// Persist current tab + group state to disk. Debounced so a burst
@@ -1713,6 +1836,7 @@ export class TabManager {
         group_id: t.groupId,
         mission_path: t.mission?.path ?? null,
         operator_id: t.operator_id,
+        aom_excluded: t.aomExcluded,
       })),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
@@ -1781,12 +1905,27 @@ export class TabManager {
           }
         }
       }
+      if (created) {
+        // Always call setAomExcluded with the persisted value (defaulting
+        // to false if missing) — the backend's default at attach time
+        // depends on whether AOM is currently running, so explicitly
+        // pinning the value avoids subtle drift across restarts.
+        const persistedExcluded = t.aom_excluded ?? false;
+        try {
+          await setAomExcluded(created.sessionId, persistedExcluded);
+          created.aomExcluded = persistedExcluded;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("aom_excluded restore failed", err);
+        }
+      }
     }
     // Restore active selection.
     const idx = Math.min(m.active_index ?? 0, this.tabs.length - 1);
     if (this.tabs[idx]) {
       this.activate(this.tabs[idx].id, { skipIfSame: false });
     }
+    this.pushExcludedToStatusBar();
   }
 
   closeTab(id: string): void {
@@ -1910,6 +2049,9 @@ export class TabManager {
     this.renderTabbar();
     if (id === this.activeId) this.emitActiveTab();
     this.scheduleSave();
+    // If this tab is in the AOM excluded list, the popover's name
+    // field would otherwise stay stale until the next AOM transition.
+    this.pushExcludedToStatusBar();
   }
 
   private commitGroupRename(id: string, value: string): void {
@@ -2373,12 +2515,45 @@ export class TabManager {
       }
     }
 
-    // Operator + mission badges used to live here as leading icons on
-    // every tab pill. Moved to the status bar (active tab only) for a
-    // simpler, less noisy tab strip — see StatusBar.setMission and
-    // setOperator. Tradeoff: you can no longer see at a glance which
-    // INACTIVE tabs have Operator/mission on, but the right-click
-    // context menu still surfaces both per tab.
+    // Per-tab Operator badge. Reintroduced after the spec
+    // 2026-05-04-aom-exclusion-visibility — during AOM the user needs
+    // an at-a-glance view of which tabs are getting hijacked vs which
+    // are kept manual. The badge is interactive (toggles exclusion)
+    // only while AOM is running; otherwise it's decorative.
+    if (tab.operatorEnabled) {
+      const aomOn = this.aomBanner?.isOn() ?? false;
+      const excluded = tab.aomExcluded;
+      const showOff = aomOn && excluded;
+      const iconHtml = showOff
+        ? Icons.botOff({ size: 12 })
+        : Icons.bot({ size: 12 });
+      const badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "tab-bot-badge";
+      if (showOff) badge.classList.add("tab-bot-badge--excluded");
+      if (!aomOn) badge.classList.add("tab-bot-badge--inert");
+      badge.innerHTML = iconHtml;
+      badge.title = aomOn
+        ? showOff
+          ? "Excluded from AOM (manual). Click or ⌘⇧E to include."
+          : "AOM is driving this tab. Click or ⌘⇧E to exclude."
+        : "Operator enabled";
+      badge.setAttribute(
+        "aria-label",
+        aomOn
+          ? showOff
+            ? "Excluded from AOM"
+            : "AOM driving this tab"
+          : "Operator enabled",
+      );
+      badge.addEventListener("mousedown", (e) => e.stopPropagation());
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!aomOn) return; // inert when AOM is off
+        void this.toggleAomExcluded(tab.id);
+      });
+      pill.appendChild(badge);
+    }
 
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");
@@ -2672,4 +2847,15 @@ function slugFromMissionPath(path: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
   return slug;
+}
+
+function shortCwd(cwd: string | null): string {
+  if (!cwd) return "";
+  // /Users/<name>/ → ~/  (Linux: /home/<name>/ → ~/). Cheap regex,
+  // no need for an env round-trip — process.env.HOME isn't available
+  // in the Tauri webview anyway. Windows path normalization is
+  // deferred per CLAUDE.md M8 (Windows is post-M5 work).
+  let p = cwd.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
+  if (p.length > 30) p = "…" + p.slice(p.length - 29);
+  return p;
 }

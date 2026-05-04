@@ -30,6 +30,14 @@ export const Icons = {
       o,
     ),
 
+  /** Robot with slash — operator excluded from AOM. Used on tab pills
+   * to indicate "AOM is on globally but this tab is staying manual". */
+  botOff: (o?: IconOptions): string =>
+    svg(
+      `<path d="M22 22 2 2"/><path d="M9 13v2"/><path d="M14 17H7a2 2 0 0 1-2-2v-5"/><path d="M19 14a2 2 0 0 0 2-2V8H10"/><path d="M11 4H8V2"/><path d="M12 4h4v4"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/>`,
+      o,
+    ),
+
   /** Lightbulb — fix / suggestion. */
   lightbulb: (o?: IconOptions): string =>
     svg(

@@ -61,7 +61,7 @@ Find that exact 4-line block (3 comment lines + 1 call line) inside `aom_start`.
 
 - [ ] **Step 3: Verify the project still builds**
 
-Run: `cargo check -p covenant-app`
+Run: `cargo check -p covenant`
 Expected: PASS (no errors).
 
 - [ ] **Step 4: Commit**
@@ -152,7 +152,7 @@ Replace the inner loop body so the function reads:
 
 - [ ] **Step 4: Verify the project still builds**
 
-Run: `cargo check -p covenant-app`
+Run: `cargo check -p covenant`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -358,7 +358,7 @@ Append to `ui/src/styles.css`:
   background: rgba(255, 255, 255, 0.06);
 }
 .tab-bot-badge--excluded {
-  color: var(--fg-muted, rgba(255, 255, 255, 0.45));
+  color: var(--muted);
 }
 .tab-bot-badge--inert {
   cursor: default;
@@ -413,59 +413,18 @@ EOF
 
 ## Task 5: Re-render tab badges on AOM transitions
 
-**Files:**
-- Modify: `ui/src/tabs/manager.ts` (look at the existing `aomBanner.onChange` registration, around `:628-673`)
+**Status: NO-OP after verification.** `TabManager.refreshAllOperatorState` (the function wired to `aomBanner.onChange` from `main.ts:342`) ALREADY calls `this.renderTabbar()` unconditionally at the end of its body. The plan misidentified an `if (touched)` gate in a SIBLING function (`applyMissionTabNames`) which is unrelated to the AOM transition path. No code change needed.
 
-The badge variant depends on `aomBanner.isOn()`. When AOM toggles on/off, the tabbar must re-render so badge variants update. The existing `refreshAllOperatorState` is wired to `aomBanner.onChange`; we just need to ensure `renderTabbar` is called from that path.
+**Verification path (no code modification):**
 
-- [ ] **Step 1: Read the current onChange wiring**
+1. AOM toggle → `aomBanner.apply(s)` updates `this.status` BEFORE firing listeners.
+2. `aomBanner.onChange` fires → `main.ts:342` listener invokes `manager.refreshAllOperatorState()`.
+3. `refreshAllOperatorState` re-fetches per-tab Operator/excluded/mission state, then calls `this.renderTabbar()` unconditionally.
+4. Each tab pill re-renders, reading the now-up-to-date `aomBanner.isOn()` and selecting `bot` vs `botOff`.
 
-Run: `grep -n "aomBanner.onChange\|refreshAllOperatorState\|renderTabbar" /Users/carlosgallardoarenas/Sources/karlTerminal/ui/src/tabs/manager.ts | head -15`
+**Files:** none. Skip to Task 6.
 
-- [ ] **Step 2: Confirm `refreshAllOperatorState` calls `renderTabbar`**
-
-Read the function:
-
-```
-sed -n '670,700p' /Users/carlosgallardoarenas/Sources/karlTerminal/ui/src/tabs/manager.ts
-```
-
-If `renderTabbar()` is already called inside the function (it is — line 671 in the audit output: `if (touched) this.renderTabbar();`), you only need to ensure the `touched` boolean accounts for AOM transitions even when no per-tab `enabled` actually flipped. Since icon variant flips on every AOM transition for every Operator-enabled tab, force a re-render unconditionally on transition.
-
-Find the `if (touched) this.renderTabbar();` line inside `refreshAllOperatorState` and replace with:
-
-```typescript
-    // Always re-render on AOM transitions: the bot badge variant
-    // (bot vs botOff) depends on aomBanner.isOn(), and a transition
-    // flips that for every Operator-enabled tab even if none of their
-    // per-tab `enabled` flags changed.
-    this.renderTabbar();
-```
-
-- [ ] **Step 3: Manual verification**
-
-`npm run tauri dev`. Steps:
-1. Open 2 tabs. Enable Operator on both.
-2. Exclude one via right-click while AOM is OFF — verify nothing changes (badge inert, no variant flip).
-3. Start AOM → verify the excluded tab's badge swaps to `botOff` *immediately* (no delay).
-4. Stop AOM → verify both tabs show plain `bot` (inert).
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add ui/src/tabs/manager.ts
-git commit -m "$(cat <<'EOF'
-fix(tabs): force tabbar re-render on AOM transitions
-
-Bot badge variant (bot vs botOff) depends on aomBanner.isOn(), so a
-transition flips the icon for every Operator-enabled tab even if no
-per-tab enabled flag changed. The previous touched-only re-render
-missed this case.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-```
+(History note: an earlier attempt edited the wrong function (`applyMissionTabNames`) and added a `@ts-expect-error` to mask an unused variable. That commit was reverted.)
 
 ---
 
@@ -833,7 +792,7 @@ Append to `ui/src/styles.css`:
 .status-aom-excluded {
   /* Slightly muted to read as supplementary info, not as primary
      warning. The popover carries the actionable detail. */
-  color: var(--fg-muted, rgba(255, 255, 255, 0.55));
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 ```
@@ -956,7 +915,7 @@ Append to `ui/src/styles.css`:
 }
 .status-aom-pop-excluded-title {
   font-size: 11px;
-  color: var(--fg-muted, rgba(255, 255, 255, 0.55));
+  color: var(--muted);
   margin-bottom: 6px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -983,7 +942,7 @@ Append to `ui/src/styles.css`:
   display: block;
   grid-column: 1 / 2;
   font-size: 11px;
-  color: var(--fg-muted, rgba(255, 255, 255, 0.45));
+  color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .status-aom-pop-excluded-btn,
@@ -1217,7 +1176,7 @@ Update the popover wiring inside `openAomPopover` to drop the optional-chaining 
 - [ ] **Step 8: Verify TS + Rust compile**
 
 Run: `npx tsc --noEmit -p .` (no errors)
-Run: `cargo check -p covenant-app` (no errors)
+Run: `cargo check -p covenant` (no errors)
 
 - [ ] **Step 9: Manual verification end-to-end**
 
