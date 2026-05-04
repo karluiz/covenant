@@ -2028,6 +2028,10 @@ pub fn run() {
             familiar_commands::familiar_spawn,
             familiar_commands::familiar_update_config,
             familiar_commands::familiar_chat,
+            familiar_commands::familiar_approve_directive,
+            familiar_commands::familiar_reject_directive,
+            familiar_commands::familiar_snapshot,
+            familiar_commands::familiar_audit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

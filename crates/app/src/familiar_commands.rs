@@ -180,3 +180,166 @@ pub async fn familiar_chat(
     .map_err(|e| format!("join: {e}"))?;
     result
 }
+
+#[derive(Debug, Serialize)]
+pub struct SnapshotOut {
+    pub rolling_summary: String,
+    pub last_event_ms: i64,
+    pub recent_missions: Vec<MissionOut>,
+    pub spend_today_usd: f64,
+    pub frozen: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MissionOut {
+    pub mission_id: String,
+    pub objective: String,
+    pub digest: String,
+    pub started_ms: i64,
+    pub finished_ms: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectiveOut {
+    pub id: String,
+    pub state: String,
+    pub kind: String,
+    pub payload: String,
+    pub rationale: String,
+    pub proposed_ms: i64,
+    pub decided_ms: Option<i64>,
+    pub block_reason: Option<String>,
+}
+
+#[tauri::command]
+pub async fn familiar_approve_directive(
+    familiar_id: String,
+    directive_id: String,
+    mgr: State<'_, Arc<FamiliarManager>>,
+) -> Result<String, String> {
+    let id = parse_id(&familiar_id)?;
+    // The caller (UI) is responsible for delivering `rendered` into
+    // the operator's input queue. We return it so the UI can show
+    // preview + dispatch in one step.
+    let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("runtime build: {e}"))?;
+        rt.block_on(async move {
+            mgr_arc
+                .approve_directive(id, &directive_id, now_ms())
+                .await
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn familiar_reject_directive(
+    familiar_id: String,
+    directive_id: String,
+    mgr: State<'_, Arc<FamiliarManager>>,
+) -> Result<(), String> {
+    let id = parse_id(&familiar_id)?;
+    let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("runtime build: {e}"))?;
+        rt.block_on(async move {
+            mgr_arc
+                .reject_directive(id, &directive_id, now_ms())
+                .await
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn familiar_snapshot(
+    familiar_id: String,
+    mgr: State<'_, Arc<FamiliarManager>>,
+) -> Result<SnapshotOut, String> {
+    let id = parse_id(&familiar_id)?;
+    let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("runtime build: {e}"))?;
+        rt.block_on(async move {
+            let mem = mgr_arc.memory_of(id).await.map_err(|e| e.to_string())?;
+            let cfg = mgr_arc.config_of(id).await.map_err(|e| e.to_string())?;
+            let mem = mem.lock().await;
+            let summary = mem.latest_summary().map_err(|e| e.to_string())?;
+            let missions = mem.recent_missions(5).map_err(|e| e.to_string())?;
+            let day = karl_familiar::cost::CostGate::current_day(now_ms());
+            let spend = mem.spend_for_day(&day).map_err(|e| e.to_string())?;
+            Ok::<SnapshotOut, String>(SnapshotOut {
+                rolling_summary: summary
+                    .as_ref()
+                    .map(|s| s.summary.clone())
+                    .unwrap_or_default(),
+                last_event_ms: summary.map(|s| s.ts_ms).unwrap_or(0),
+                recent_missions: missions
+                    .into_iter()
+                    .map(|m| MissionOut {
+                        mission_id: m.mission_id,
+                        objective: m.objective,
+                        digest: m.digest,
+                        started_ms: m.started_ms,
+                        finished_ms: m.finished_ms,
+                    })
+                    .collect(),
+                spend_today_usd: spend,
+                frozen: spend >= cfg.daily_cap_usd,
+            })
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn familiar_audit(
+    familiar_id: String,
+    since_ms: i64,
+    mgr: State<'_, Arc<FamiliarManager>>,
+) -> Result<Vec<DirectiveOut>, String> {
+    let id = parse_id(&familiar_id)?;
+    let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("runtime build: {e}"))?;
+        rt.block_on(async move {
+            let mem = mgr_arc.memory_of(id).await.map_err(|e| e.to_string())?;
+            let mem = mem.lock().await;
+            let rows = mem.directives_since(since_ms).map_err(|e| e.to_string())?;
+            Ok::<Vec<DirectiveOut>, String>(
+                rows.into_iter()
+                    .map(|r| DirectiveOut {
+                        id: r.id,
+                        state: r.state,
+                        kind: r.kind,
+                        payload: r.payload,
+                        rationale: r.rationale,
+                        proposed_ms: r.proposed_ms,
+                        decided_ms: r.decided_ms,
+                        block_reason: r.block_reason,
+                    })
+                    .collect(),
+            )
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
