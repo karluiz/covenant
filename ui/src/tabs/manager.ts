@@ -669,7 +669,6 @@ export class TabManager {
   /// readable ("docs-hub", "mission-tracking") instead of a wall of
   /// "zsh 1, zsh 2, zsh 3". User-set names are NEVER overwritten.
   applyMissionTabNames(): void {
-    // @ts-expect-error — kept for future logic (may conditionally render again)
     let touched = false;
     for (const tab of this.tabs) {
       if (!tab.mission) continue;
@@ -679,11 +678,7 @@ export class TabManager {
       tab.customName = slug;
       touched = true;
     }
-    // Always re-render on AOM transitions: the bot badge variant
-    // (bot vs botOff) depends on aomBanner.isOn(), and a transition
-    // flips that for every Operator-enabled tab even if none of their
-    // per-tab `enabled` flags changed.
-    this.renderTabbar();
+    if (touched) this.renderTabbar();
   }
 
   /// Re-sync every tab's per-session Operator + mission state from
