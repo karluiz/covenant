@@ -928,9 +928,15 @@ body.tab-drag-active * {
 .tab-group-body {
     display: flex;
     flex-direction: column;
-    gap: 2px;
     flex: 1 1 auto;
     min-width: 0;
+}
+
+/* Use margin-top instead of `gap` so folded members (which already
+   reset their own margin to 0) don't inject phantom space when the
+   group is collapsed. */
+.tab-group-body > * + * {
+    margin-top: 2px;
 }
 
 .group-chip-colored {
