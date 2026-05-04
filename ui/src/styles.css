@@ -7787,3 +7787,11 @@ button.mission-picker-plan-missing:hover {
 .familiar-status-dot.pending { background: #fbbf24; }
 .familiar-status-dot.lost { background: #ef4444; }
 .familiar-status-dot.off { background: #4b5563; }
+
+/* Familiars settings section */
+.settings-familiars-list { margin-top: 12px; display: grid; gap: 8px; }
+.settings-familiar-row {
+  display: grid; grid-template-columns: 1fr 140px 100px 80px;
+  gap: 8px; align-items: center;
+}
+.settings-note { color: #9ca3af; font-style: italic; }

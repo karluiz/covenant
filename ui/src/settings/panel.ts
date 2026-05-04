@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
+import { renderFamiliarsSettings } from "../familiars/settings_panel";
 import { OperatorsPane } from "./operators";
 
 interface AgentConfig {
@@ -67,6 +68,8 @@ interface Settings {
   status_bar_enabled: boolean;
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
+  familiars_enabled: boolean;
+  is_premium: boolean;
 }
 
 type TabbarPosition = "top" | "left";
@@ -151,6 +154,8 @@ export class SettingsPanel {
         status_bar_enabled: true,
         tabbar_position: "top",
         ui_font_family: null,
+        familiars_enabled: false,
+        is_premium: false,
       };
     }
     this.workspace.hidden = true;
@@ -195,6 +200,7 @@ export class SettingsPanel {
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
+      <a href="#sec-familiars" data-target="sec-familiars">Familiars</a>
     `;
     body.appendChild(nav);
 
@@ -418,6 +424,7 @@ export class SettingsPanel {
             </small>
           </label>
         </section>
+        <div id="familiars-host"></div>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
@@ -498,6 +505,22 @@ export class SettingsPanel {
     if (opMount) {
       this.operatorsPane = new OperatorsPane(opMount);
       await this.operatorsPane.open();
+    }
+
+    const familiarsHost = form.querySelector<HTMLElement>("#familiars-host");
+    if (familiarsHost) {
+      renderFamiliarsSettings(
+        familiarsHost,
+        this.current.is_premium,
+        this.current.familiars_enabled,
+        async (v) => {
+          if (this.current) {
+            this.current.familiars_enabled = v;
+            await setSettings(this.current);
+            if (this.onSaved) this.onSaved(this.current);
+          }
+        },
+      );
     }
 
     form
@@ -605,6 +628,8 @@ export class SettingsPanel {
           (Array.from(tabbarPosRadios).find((r) => r.checked)
             ?.value as TabbarPosition) || "top",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
+        familiars_enabled: this.current!.familiars_enabled,
+        is_premium: this.current!.is_premium,
       };
       try {
         await setSettings(next);
