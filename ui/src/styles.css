@@ -2478,6 +2478,7 @@ body.tab-drag-active * {
 
 .ctx-swatch-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     padding: 6px 12px;
     align-items: center;
