@@ -6,6 +6,45 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.3 — 2026-05-04
+
+Persona composer release. Editing an operator's authorization charter
+now happens in a generous fullscreen-ish modal instead of a 14-row
+textarea, with six shipped templates one click away.
+
+### Added
+
+- **Persona composer modal** — click the new expand icon in
+  `Settings → Operators` next to the persona textarea to open an
+  85vw × 85vh editor. Backdrop click is intentionally inert (prevents
+  accidental data loss); Esc and the `Cancel ⎋` button discard, ⌘S
+  saves and closes. Save writes back through the existing textarea
+  via an `input` event so dirty-tracking activates unchanged.
+- **Six operator persona templates** (Cautious senior, YOLO autopilot,
+  Spec-driven, Read-only auditor, Junior pair, Debugger). Loading a
+  template into a non-empty editor prompts a single `confirm()` —
+  no second-modal-on-modal.
+- **`Icons.maximize`** — Lucide `maximize-2` SVG, used as the
+  composer trigger.
+
+### Changed
+
+- **Convergence overlay's Exit button** uses the new shared
+  `.modal-cancel-btn` + `.modal-kbd` classes (extracted from the
+  former `.convergence-overlay__exit*` rules). The Persona composer's
+  Cancel button reuses the same styling so future modals land
+  homogenized for free.
+
+### Internal
+
+- New tests: `persona-templates.test.ts` (4) and `persona-composer.test.ts`
+  (10) covering DOM structure, template loading with/without confirm,
+  Save/Esc/⌘S keyboard paths, backdrop inertness, and listener cleanup
+  on close.
+- Spec: `docs/superpowers/specs/2026-05-04-persona-composer-modal-design.md`
+- Plan: `docs/superpowers/plans/2026-05-04-persona-composer-modal.md`
+- Phase 2 (AI compose/refine) intentionally deferred to a separate spec.
+
 ## 0.2.2 — 2026-05-04
 
 Polish + premium-feel release. Boot now runs through a branded splash
