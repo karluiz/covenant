@@ -6,6 +6,79 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.9 — 2026-05-04
+
+Spec **3.16 — auto-detect spec → propose mission** lands as the
+headline. Whenever a new spec file appears in the repo (Drafts
+publish into `docs/specs/`, or `superpowers:brainstorming` writes
+into `docs/superpowers/specs/`), Covenant detects it and shows a
+floating toast asking *"Set as mission?"* on every tab in the repo
+that has no mission and an Operator assigned. Press ⌘⇧A on a tab
+without a mission and a recent candidate will trigger a "last-call"
+modal with `Use it / Engage without mission / Cancel` so you don't
+sleep AOM without a target by mistake.
+
+Detection is scoped to "new since the app saw it": at first launch
+in a repo, every existing spec is recorded in a new `seen_specs`
+SQLite table; only files that appear after that snapshot fire a
+toast. Edits to known specs are silent. Dedupe is per-path, so the
+toast never repeats within a session.
+
+A behavior change to AOM auto-engage rides along: AOM no longer
+auto-enables Operator on tabs you didn't already turn it on. Tabs
+without Operator now stay manual when AOM starts — AOM only drives
+tabs you've explicitly opted in.
+
+Terminal links got an upgrade too: the renderer now opens schemed
+URLs in the system browser via `tauri-plugin-opener`, and a custom
+matcher makes bare `localhost:port` / `127.0.0.1:port` strings
+clickable. The active executor (claude / copilot / opencode / …) is
+also detected from the in-flight command and surfaces in the status
+bar's brand chip.
+
+### Added
+
+- **3.16 spec auto-detect → mission** — `notify`-based FS watcher
+  per repo, path-based classifier (Covenant vs Superpowers),
+  `seen_specs` SQLite dedupe table, snapshot scan on first run,
+  Tauri event `spec:candidate`, floating toast UI with
+  Set/Dismiss + 30 s auto-dismiss, last-call modal at ⌘⇧A.
+- **Clickable bare host:port links** in the terminal
+  (`localhost`, `127.0.0.1`, `0.0.0.0`, `[::1]`).
+- **Executor detection** per tab — surfaces the running agentic
+  CLI in the status-bar brand chip.
+
+### Changed
+
+- **AOM start** no longer auto-enables Operator on tabs that had
+  it off. AOM drives only the tabs you opted in manually
+  (`OperatorWatcher::enable_all_for_aom`).
+- Terminal URL handling switched to `tauri-plugin-opener` so links
+  open in the system browser instead of inside the webview.
+
+## 0.2.8 — 2026-05-04
+
+Layout fix for the **horizontal tab group shell**. The
+`.tab-group-shell` flex direction was column by default — fine for
+the vertical sidebar, but in horizontal mode it stacked the group
+chip and member pills vertically inside a height-constrained tab
+bar, clipping everything except the colored stripe. The default is
+now `flex-direction: row`, with a `body.tabbar-left` override that
+restores column-flex for the sidebar layout. The group chip carries
+a full radius + bottom border in horizontal mode and fuses its
+right edge with the first member tab so the group reads as a
+single unit.
+
+Bundled with the **drafts page grid fix**: the topbar now lives in
+its own grid wrapper and the empty state centers correctly inside
+the panel instead of clinging to the top edge.
+
+### Fixed
+
+- Horizontal tab-group-shell clipping (default flex direction +
+  `body.tabbar-left` override).
+- Drafts page topbar wrapper + empty-state centering.
+
 ## 0.2.7 — 2026-05-04
 
 Drag-and-drop reordering of tab groups now works in the **vertical
