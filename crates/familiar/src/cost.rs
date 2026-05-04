@@ -24,9 +24,19 @@ impl<'a> CostGate<'a> {
         Ok(spend >= self.cap_usd)
     }
 
+    /// Records cost unconditionally (post-call accounting). Prefer `try_reserve` for
+    /// pre-call gating to avoid TOCTOU races.
     pub fn record(&self, now_ms: i64, usd: f64) -> Result<()> {
         let day = Self::current_day(now_ms);
         self.memory.add_spend(&day, usd)
+    }
+
+    /// Atomic: try to reserve `usd` against today's cap.
+    /// Returns Ok(true) if reserved (caller may proceed), Ok(false) if cap would be exceeded.
+    /// Integration into summarizer/agent callers is follow-up #1a.
+    pub fn try_reserve(&self, now_ms: i64, usd: f64) -> Result<bool> {
+        let day = Self::current_day(now_ms);
+        self.memory.try_reserve_spend(&day, usd, self.cap_usd)
     }
 }
 
@@ -51,6 +61,16 @@ mod tests {
     #[test]
     fn day_format_is_iso() {
         assert_eq!(CostGate::current_day(1777867200000), "2026-05-04");
+    }
+
+    #[test]
+    fn try_reserve_round_trip() {
+        let m = Memory::open_in_memory().unwrap();
+        let g = CostGate::new(&m, 1.0);
+        assert!(g.try_reserve(1777867200000, 0.5).unwrap());
+        assert!(g.try_reserve(1777867200000, 0.4).unwrap());
+        // 0.9 + 0.2 = 1.1 > 1.0 → false
+        assert!(!g.try_reserve(1777867200000, 0.2).unwrap());
     }
 
     #[test]

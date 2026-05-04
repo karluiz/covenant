@@ -225,6 +225,28 @@ impl Memory {
         Ok(())
     }
 
+    /// Atomically: if `current_spend + delta_usd <= cap_usd`, increment and return true.
+    /// Otherwise return false without changing state.
+    /// Prefer this over separate `spend_for_day` + `add_spend` calls to avoid TOCTOU races.
+    pub fn try_reserve_spend(&self, day: &str, delta_usd: f64, cap_usd: f64) -> Result<bool> {
+        let tx = self.conn.unchecked_transaction()?;
+        let current: f64 = tx.query_row(
+            "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
+            [day], |r| r.get(0),
+        ).unwrap_or(0.0);
+        if current + delta_usd > cap_usd {
+            tx.commit()?;
+            return Ok(false);
+        }
+        tx.execute(
+            "INSERT INTO familiar_costs(day, spend_usd) VALUES (?1, ?2)
+             ON CONFLICT(day) DO UPDATE SET spend_usd = spend_usd + ?2",
+            (day, delta_usd),
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     pub fn spend_for_day(&self, day: &str) -> Result<f64> {
         let v: f64 = self.conn.query_row(
             "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
@@ -288,6 +310,31 @@ mod tests {
         }
         let from_3 = m.events_since(3).unwrap();
         assert_eq!(from_3.len(), 2);
+    }
+
+    #[test]
+    fn try_reserve_below_cap_succeeds() {
+        let m = Memory::open_in_memory().unwrap();
+        assert!(m.try_reserve_spend("2026-05-04", 0.5, 1.0).unwrap());
+        assert!((m.spend_for_day("2026-05-04").unwrap() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn try_reserve_at_cap_blocks() {
+        let m = Memory::open_in_memory().unwrap();
+        m.add_spend("2026-05-04", 0.9).unwrap();
+        // 0.9 + 0.2 = 1.1 > 1.0 → blocked
+        assert!(!m.try_reserve_spend("2026-05-04", 0.2, 1.0).unwrap());
+        // unchanged
+        assert!((m.spend_for_day("2026-05-04").unwrap() - 0.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn try_reserve_exactly_at_cap_succeeds() {
+        let m = Memory::open_in_memory().unwrap();
+        m.add_spend("2026-05-04", 0.5).unwrap();
+        // 0.5 + 0.5 = 1.0 == cap → allowed (boundary)
+        assert!(m.try_reserve_spend("2026-05-04", 0.5, 1.0).unwrap());
     }
 
     #[test]
