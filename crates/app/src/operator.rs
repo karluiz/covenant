@@ -1606,6 +1606,7 @@ async fn run_tick(
                 detect_executor(&cmd),
                 Some(op.id.to_string()),
                 Some(op.name.clone()),
+                None, // 3.13: applied_memory_id wired in Task 3
             )
             .await
         {

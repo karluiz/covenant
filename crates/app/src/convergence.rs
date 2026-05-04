@@ -259,6 +259,7 @@ mod tests {
             output_excerpt: String::new(), action: "reply".into(), reply_text: None,
             rationale: None, executed: false, mission_path: None, executor_name: None,
             operator_id: None, operator_name: None, cost_usd: c,
+            applied_memory_id: None,
         };
         let rows = vec![r("aaaaaa",1000,0.10), r("aaaaaa",2000,0.25), r("aaaaaa",500,0.99), r("bbbbbb",1500,0.50)];
         assert!((sum_cost_for_short(&rows, "aaaaaa", 1000) - 0.35).abs() < 1e-9);

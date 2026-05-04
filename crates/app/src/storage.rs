@@ -112,6 +112,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS operators_default_unique
     ON operators(is_default) WHERE is_default = 1;
 CREATE UNIQUE INDEX IF NOT EXISTS operators_name_ci
     ON operators(LOWER(name));
+
+CREATE TABLE IF NOT EXISTS operator_memories (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern              TEXT NOT NULL,
+    decision             TEXT NOT NULL,
+    rationale            TEXT,
+    scope                TEXT NOT NULL,
+    tags                 TEXT NOT NULL DEFAULT '',
+    created_at_unix_ms   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_operator_memories_scope
+    ON operator_memories(scope);
+CREATE INDEX IF NOT EXISTS idx_operator_memories_created
+    ON operator_memories(created_at_unix_ms DESC);
+
+-- Vector index (sqlite-vec). Mirrors operator_memories.id as rowid.
+CREATE VIRTUAL TABLE IF NOT EXISTS operator_memory_vec USING vec0(
+    embedding float[384]
+);
 ";
 
 #[derive(Debug, Error)]
@@ -244,6 +263,26 @@ pub struct OperatorDecisionRow {
     /// Estimated cost in USD for this decision (M-OP5 Phase B). 0.0 for
     /// rows predating the column or when no cost was computed.
     pub cost_usd: f64,
+    /// 3.13: Memory row that informed this decision (NULL when no
+    /// memory was retrieved or applied).
+    pub applied_memory_id: Option<i64>,
+}
+
+/// 3.13 Operator Learning: a persisted operator memory.
+///
+/// `pattern` is the natural-language situation description. `decision`
+/// is the action template the operator should take when matched.
+/// `scope` is `global` or `mission:<path>` (free-form). `tags` is a
+/// CSV string for cheap filtering — embeddings handle real similarity.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OperatorMemoryRow {
+    pub id: i64,
+    pub pattern: String,
+    pub decision: String,
+    pub rationale: Option<String>,
+    pub scope: String,
+    pub tags: String,
+    pub created_at_unix_ms: u64,
 }
 
 fn shorten(id: &str) -> String {
@@ -304,6 +343,12 @@ impl Storage {
         // 100 XP per level. Computed on the UI.
         let _ = conn.execute(
             "ALTER TABLE operators ADD COLUMN xp INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // 3.13 Operator Learning: link a decision back to the memory
+        // that informed it (NULL when no memory was applied).
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN applied_memory_id INTEGER",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
@@ -725,6 +770,7 @@ impl Storage {
         executor_name: Option<String>,
         operator_id: Option<String>,
         operator_name: Option<String>,
+        applied_memory_id: Option<i64>,
     ) -> Result<i64, StorageError> {
         let conn = self.inner.clone();
         let session_str = session_id.to_string();
@@ -734,8 +780,9 @@ impl Storage {
                 "INSERT INTO operator_decisions
                  (session_id, timestamp_unix_ms, in_flight_command,
                   output_excerpt, action, reply_text, rationale, executed,
-                  cost_usd, mission_path, executor_name, operator_id, operator_name)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                  cost_usd, mission_path, executor_name, operator_id, operator_name,
+                  applied_memory_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     session_str,
                     timestamp_unix_ms as i64,
@@ -750,6 +797,7 @@ impl Storage {
                     executor_name,
                     operator_id,
                     operator_name,
+                    applied_memory_id,
                 ],
             )?;
             Ok(c.last_insert_rowid())
@@ -1017,7 +1065,7 @@ impl Storage {
                     "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
                             mission_path, executor_name, operator_id, operator_name,
-                            cost_usd
+                            cost_usd, applied_memory_id
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -1038,6 +1086,7 @@ impl Storage {
                         operator_id: r.get(11)?,
                         operator_name: r.get(12)?,
                         cost_usd: r.get::<_, f64>(13)?,
+                        applied_memory_id: r.get::<_, Option<i64>>(14)?,
                     })
                 })?;
                 let mut out = Vec::new();
@@ -1251,6 +1300,218 @@ impl Storage {
                 params![default_id, default_name],
             )?;
             Ok(n)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// 3.13 Operator Learning: insert one memory + its embedding into
+    /// `operator_memories` and `operator_memory_vec` (rowids kept in
+    /// sync). Wrapped in a transaction so a vec0 failure rolls back the
+    /// row insert. Embedding length must be exactly 384.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_memory(
+        &self,
+        pattern: &str,
+        decision: &str,
+        rationale: Option<&str>,
+        scope: &str,
+        tags: &str,
+        created_at_unix_ms: u64,
+        embedding: &[f32],
+    ) -> Result<i64, StorageError> {
+        if embedding.len() != 384 {
+            return Err(StorageError::Other(format!(
+                "embedding length must be 384, got {}",
+                embedding.len()
+            )));
+        }
+        let conn = self.inner.clone();
+        let pattern = pattern.to_string();
+        let decision = decision.to_string();
+        let rationale = rationale.map(|s| s.to_string());
+        let scope = scope.to_string();
+        let tags = tags.to_string();
+        // sqlite-vec accepts the raw little-endian f32 byte representation
+        // of the vector as a BLOB. Build it once here so the blocking
+        // closure doesn't borrow the &[f32].
+        let mut bytes: Vec<u8> = Vec::with_capacity(embedding.len() * 4);
+        for f in embedding {
+            bytes.extend_from_slice(&f.to_le_bytes());
+        }
+        tokio::task::spawn_blocking(move || -> Result<i64, StorageError> {
+            let mut c = conn.blocking_lock();
+            let tx = c.transaction()?;
+            tx.execute(
+                "INSERT INTO operator_memories
+                 (pattern, decision, rationale, scope, tags, created_at_unix_ms)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    pattern,
+                    decision,
+                    rationale,
+                    scope,
+                    tags,
+                    created_at_unix_ms as i64,
+                ],
+            )?;
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO operator_memory_vec (rowid, embedding) VALUES (?1, ?2)",
+                params![id, bytes],
+            )?;
+            tx.commit()?;
+            Ok(id)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// 3.13: list memories whose `scope` is in `scopes`, newest first.
+    /// Empty `scopes` returns an empty Vec (no SQL issued).
+    pub async fn list_memories(
+        &self,
+        scopes: &[&str],
+        limit: usize,
+    ) -> Result<Vec<OperatorMemoryRow>, StorageError> {
+        if scopes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.inner.clone();
+        let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(
+            move || -> Result<Vec<OperatorMemoryRow>, StorageError> {
+                let c = conn.blocking_lock();
+                let placeholders =
+                    (1..=scopes.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
+                let sql = format!(
+                    "SELECT id, pattern, decision, rationale, scope, tags, created_at_unix_ms
+                     FROM operator_memories
+                     WHERE scope IN ({placeholders})
+                     ORDER BY created_at_unix_ms DESC
+                     LIMIT ?{limit_idx}",
+                    limit_idx = scopes.len() + 1,
+                );
+                let mut stmt = c.prepare(&sql)?;
+                let mut params_dyn: Vec<&dyn rusqlite::ToSql> = scopes
+                    .iter()
+                    .map(|s| s as &dyn rusqlite::ToSql)
+                    .collect();
+                let limit_i64 = limit as i64;
+                params_dyn.push(&limit_i64);
+                let rows = stmt.query_map(rusqlite::params_from_iter(params_dyn), |r| {
+                    Ok(OperatorMemoryRow {
+                        id: r.get(0)?,
+                        pattern: r.get(1)?,
+                        decision: r.get(2)?,
+                        rationale: r.get(3)?,
+                        scope: r.get(4)?,
+                        tags: r.get(5)?,
+                        created_at_unix_ms: r.get::<_, i64>(6)? as u64,
+                    })
+                })?;
+                let mut out = Vec::new();
+                for row in rows {
+                    out.push(row?);
+                }
+                Ok(out)
+            },
+        )
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// 3.13: top-k vector search over `operator_memory_vec`, filtered to
+    /// `scopes`. Returns (row, distance) pairs ordered by ascending
+    /// distance. Embedding length must be exactly 384.
+    pub async fn vector_search_memories(
+        &self,
+        scopes: &[&str],
+        query_embedding: &[f32],
+        k: usize,
+    ) -> Result<Vec<(OperatorMemoryRow, f32)>, StorageError> {
+        if query_embedding.len() != 384 {
+            return Err(StorageError::Other(format!(
+                "embedding length must be 384, got {}",
+                query_embedding.len()
+            )));
+        }
+        if scopes.is_empty() || k == 0 {
+            return Ok(Vec::new());
+        }
+        let conn = self.inner.clone();
+        let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+        let mut bytes: Vec<u8> = Vec::with_capacity(query_embedding.len() * 4);
+        for f in query_embedding {
+            bytes.extend_from_slice(&f.to_le_bytes());
+        }
+        tokio::task::spawn_blocking(
+            move || -> Result<Vec<(OperatorMemoryRow, f32)>, StorageError> {
+                let c = conn.blocking_lock();
+                // sqlite-vec MATCH + KNN. The `k = ?` constraint is how
+                // sqlite-vec receives the desired neighbor count. We
+                // post-filter by scope on the join because vec0's WHERE
+                // can only reference the embedding column / k / rowid.
+                let placeholders = (3..3 + scopes.len())
+                    .map(|i| format!("?{i}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!(
+                    "SELECT m.id, m.pattern, m.decision, m.rationale, m.scope, m.tags,
+                            m.created_at_unix_ms, v.distance
+                     FROM operator_memory_vec v
+                     JOIN operator_memories m ON m.id = v.rowid
+                     WHERE v.embedding MATCH ?1 AND k = ?2
+                       AND m.scope IN ({placeholders})
+                     ORDER BY v.distance",
+                );
+                let mut stmt = c.prepare(&sql)?;
+                let k_i64 = k as i64;
+                let mut params_dyn: Vec<&dyn rusqlite::ToSql> = vec![
+                    &bytes as &dyn rusqlite::ToSql,
+                    &k_i64 as &dyn rusqlite::ToSql,
+                ];
+                for s in &scopes {
+                    params_dyn.push(s as &dyn rusqlite::ToSql);
+                }
+                let rows = stmt.query_map(rusqlite::params_from_iter(params_dyn), |r| {
+                    let row = OperatorMemoryRow {
+                        id: r.get(0)?,
+                        pattern: r.get(1)?,
+                        decision: r.get(2)?,
+                        rationale: r.get(3)?,
+                        scope: r.get(4)?,
+                        tags: r.get(5)?,
+                        created_at_unix_ms: r.get::<_, i64>(6)? as u64,
+                    };
+                    let dist: f64 = r.get(7)?;
+                    Ok((row, dist as f32))
+                })?;
+                let mut out = Vec::new();
+                for row in rows {
+                    out.push(row?);
+                }
+                Ok(out)
+            },
+        )
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// 3.13: delete a memory + its vector index entry. Idempotent — a
+    /// missing id is not an error.
+    pub async fn delete_memory(&self, id: i64) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let mut c = conn.blocking_lock();
+            let tx = c.transaction()?;
+            tx.execute("DELETE FROM operator_memories WHERE id = ?1", params![id])?;
+            tx.execute(
+                "DELETE FROM operator_memory_vec WHERE rowid = ?1",
+                params![id],
+            )?;
+            tx.commit()?;
+            Ok(())
         })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
@@ -1780,6 +2041,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1794,6 +2056,7 @@ mod tests {
             Some("ALWAYS-YES tests".to_string()),
             true,
             0.012,
+            None,
             None,
             None,
             None,
@@ -1816,6 +2079,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1830,6 +2094,7 @@ mod tests {
             Some("ALWAYS-YES commit".to_string()),
             true,
             0.015,
+            None,
             None,
             None,
             None,
@@ -1854,6 +2119,7 @@ mod tests {
             Some("post-aom".to_string()),
             true,
             0.005,
+            None,
             None,
             None,
             None,
@@ -1912,5 +2178,155 @@ mod tests {
             )
             .unwrap();
         assert_eq!(closed, Some(200));
+    }
+
+    // ---- 3.13 Operator Learning: memory CRUD + applied_memory_id ----
+
+    fn dummy_embedding(seed: f32) -> Vec<f32> {
+        // 384-dim, all the same value. Querying with the same vector
+        // exercises the round-trip plumbing — exact semantic similarity
+        // is not the property under test.
+        vec![seed; 384]
+    }
+
+    #[tokio::test]
+    async fn memory_insert_and_list_orders_desc() {
+        let (s, _g) = fresh();
+        let e = dummy_embedding(0.1);
+        let id_a = s
+            .insert_memory("a", "do a", None, "global", "", 1_000, &e)
+            .await
+            .unwrap();
+        let id_b = s
+            .insert_memory("b", "do b", None, "global", "", 2_000, &e)
+            .await
+            .unwrap();
+        let id_c = s
+            .insert_memory("c", "do c", None, "global", "", 3_000, &e)
+            .await
+            .unwrap();
+        assert!(id_a < id_b && id_b < id_c);
+
+        let rows = s.list_memories(&["global"], 10).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].pattern, "c");
+        assert_eq!(rows[1].pattern, "b");
+        assert_eq!(rows[2].pattern, "a");
+    }
+
+    #[tokio::test]
+    async fn memory_list_filters_by_scope() {
+        let (s, _g) = fresh();
+        let e = dummy_embedding(0.1);
+        s.insert_memory("g1", "x", None, "global", "", 100, &e)
+            .await
+            .unwrap();
+        s.insert_memory("m1", "x", None, "mission:foo", "", 200, &e)
+            .await
+            .unwrap();
+        s.insert_memory("m2", "x", None, "mission:foo", "", 300, &e)
+            .await
+            .unwrap();
+
+        let rows = s.list_memories(&["mission:foo"], 10).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.scope == "mission:foo"));
+
+        // Empty scopes → empty Vec, no SQL.
+        let none: &[&str] = &[];
+        let empty = s.list_memories(none, 10).await.unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn memory_vector_search_returns_self_with_low_distance() {
+        let (s, _g) = fresh();
+        let e = dummy_embedding(0.1);
+        let id = s
+            .insert_memory("p", "d", None, "global", "", 100, &e)
+            .await
+            .unwrap();
+
+        let hits = s
+            .vector_search_memories(&["global"], &e, 5)
+            .await
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0.id, id);
+        assert!(hits[0].1.abs() < 1e-3, "distance should be ~0, got {}", hits[0].1);
+    }
+
+    #[tokio::test]
+    async fn memory_delete_removes_from_both_tables() {
+        let (s, _g) = fresh();
+        let e = dummy_embedding(0.1);
+        let id = s
+            .insert_memory("p", "d", None, "global", "", 100, &e)
+            .await
+            .unwrap();
+
+        s.delete_memory(id).await.unwrap();
+
+        let rows = s.list_memories(&["global"], 10).await.unwrap();
+        assert!(rows.is_empty());
+        let hits = s
+            .vector_search_memories(&["global"], &e, 5)
+            .await
+            .unwrap();
+        assert!(hits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn decision_row_round_trips_applied_memory_id() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1).await.unwrap();
+
+        // With Some(memory_id).
+        let _row_id = s
+            .save_operator_decision(
+                session,
+                10,
+                Some("cmd".to_string()),
+                "out".to_string(),
+                "reply".to_string(),
+                Some("y\n".to_string()),
+                Some("because".to_string()),
+                true,
+                0.001,
+                None,
+                None,
+                None,
+                None,
+                Some(42),
+            )
+            .await
+            .unwrap();
+
+        // And with None.
+        s.save_operator_decision(
+            session,
+            20,
+            Some("cmd2".to_string()),
+            "out2".to_string(),
+            "reply".to_string(),
+            None,
+            None,
+            false,
+            0.0,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let rows = s.list_operator_decisions(10).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        // ORDER BY id DESC — newest first.
+        assert_eq!(rows[0].applied_memory_id, None);
+        assert_eq!(rows[1].applied_memory_id, Some(42));
     }
 }
