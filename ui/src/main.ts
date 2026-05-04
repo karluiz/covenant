@@ -614,6 +614,14 @@ async function boot(): Promise<void> {
       }
       return;
     }
+    // ⌘⇧E — toggle AOM exclusion for the active tab. Silent no-op
+    // when AOM is off; the badge is the discoverable affordance and
+    // the shortcut just shaves a click for users who know it exists.
+    if (e.metaKey && e.shiftKey && (e.key === "E" || e.key === "e")) {
+      e.preventDefault();
+      void manager.toggleAomExcludedActive();
+      return;
+    }
     // ⌘⇧R → AOM morning report. Read-only digest of the most recent
     // AOM session. Doesn't depend on AOM being active.
     if (e.metaKey && e.shiftKey && (e.key === "R" || e.key === "r")) {

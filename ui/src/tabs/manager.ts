@@ -1698,6 +1698,17 @@ export class TabManager {
     }
   }
 
+  /// Wrapper around toggleAomExcluded keyed off the currently active
+  /// tab. Used by the ⌘⇧E global shortcut. Silent no-op when AOM is
+  /// off, no active tab, or the active tab is not Operator-enabled.
+  async toggleAomExcludedActive(): Promise<void> {
+    if (!this.aomBanner?.isOn()) return;
+    if (!this.activeId) return;
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || !tab.operatorEnabled) return;
+    await this.toggleAomExcluded(tab.id);
+  }
+
   /// Persist current tab + group state to disk. Debounced so a burst
   /// of changes (drag reorder fires many tiny mutations) only writes
   /// once. Backend stores the JSON blob opaquely; schema lives here.
