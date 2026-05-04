@@ -1,0 +1,20 @@
+//! Familiars — per-operator companion AI with persistent memory.
+//!
+//! See `docs/superpowers/specs/2026-05-04-familiars-design.md`.
+
+pub mod agent;
+pub mod cost;
+pub mod directive;
+pub mod error;
+pub mod identity;
+pub mod manager;
+pub mod memory;
+pub mod observer;
+pub mod prompts;
+pub mod summarizer;
+
+pub use error::{FamiliarError, Result};
+// TODO(Task 2): uncomment once identity module defines these types
+// pub use identity::{Familiar, FamiliarConfig, FamiliarId, Style};
+// TODO(Task 17): uncomment once manager module defines FamiliarManager
+// pub use manager::FamiliarManager;

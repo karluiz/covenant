@@ -1,0 +1,25 @@
+[package]
+name = "familiar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+karl-agent = { path = "../agent" }
+karl-session = { path = "../session" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+rusqlite = { workspace = true }
+strip-ansi-escapes = { workspace = true }
+regex = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
+tempfile = "3"
