@@ -333,6 +333,7 @@ async function boot(): Promise<void> {
   // the budget-hit auto-stop) so the tab bar refreshes per-tab badges
   // for tabs AOM auto-enabled or auto-reverted.
   const aomBanner = new AomBanner(document.body);
+  manager.setAomBanner(aomBanner);
   // Headless: the banner owns state + polling, but the chip in the
   // status bar handles all rendering. Without this we'd get both
   // the floating pill AND the chip on screen at once.

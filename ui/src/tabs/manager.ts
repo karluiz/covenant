@@ -51,6 +51,7 @@ import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 import { openMissionPicker, openNewSuperpowersTopicModal } from "./mission-picker";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
+import type { AomBanner } from "../aom/banner";
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -277,6 +278,15 @@ export class TabManager {
   /// Updated on every name-affecting mutation; consulted by panels
   /// that need to label closed tabs.
   private sessionNameCache: Map<string, CachedSessionName> = loadSessionNameCache();
+
+  /// Held so the per-tab Operator badge knows whether AOM is on (toggle
+  /// is active only during AOM). Wired by main.ts after both classes
+  /// are constructed.
+  private aomBanner: AomBanner | null = null;
+
+  setAomBanner(banner: AomBanner): void {
+    this.aomBanner = banner;
+  }
 
   /// 3.7 — fired whenever the *active* tab's cwd context changes:
   ///   - tab switched (new active tab → its cwd)
@@ -2384,12 +2394,45 @@ export class TabManager {
       }
     }
 
-    // Operator + mission badges used to live here as leading icons on
-    // every tab pill. Moved to the status bar (active tab only) for a
-    // simpler, less noisy tab strip — see StatusBar.setMission and
-    // setOperator. Tradeoff: you can no longer see at a glance which
-    // INACTIVE tabs have Operator/mission on, but the right-click
-    // context menu still surfaces both per tab.
+    // Per-tab Operator badge. Reintroduced after the spec
+    // 2026-05-04-aom-exclusion-visibility — during AOM the user needs
+    // an at-a-glance view of which tabs are getting hijacked vs which
+    // are kept manual. The badge is interactive (toggles exclusion)
+    // only while AOM is running; otherwise it's decorative.
+    if (tab.operatorEnabled) {
+      const aomOn = this.aomBanner?.isOn() ?? false;
+      const excluded = tab.aomExcluded;
+      const showOff = aomOn && excluded;
+      const iconHtml = showOff
+        ? Icons.botOff({ size: 12 })
+        : Icons.bot({ size: 12 });
+      const badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "tab-bot-badge";
+      if (showOff) badge.classList.add("tab-bot-badge--excluded");
+      if (!aomOn) badge.classList.add("tab-bot-badge--inert");
+      badge.innerHTML = iconHtml;
+      badge.title = aomOn
+        ? showOff
+          ? "Excluded from AOM (manual). Click or ⌘⇧E to include."
+          : "AOM is driving this tab. Click or ⌘⇧E to exclude."
+        : "Operator enabled";
+      badge.setAttribute(
+        "aria-label",
+        aomOn
+          ? showOff
+            ? "Excluded from AOM"
+            : "AOM driving this tab"
+          : "Operator enabled",
+      );
+      badge.addEventListener("mousedown", (e) => e.stopPropagation());
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!aomOn) return; // inert when AOM is off
+        void this.toggleAomExcluded(tab.id);
+      });
+      pill.appendChild(badge);
+    }
 
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");

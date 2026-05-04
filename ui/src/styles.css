@@ -7825,3 +7825,33 @@ button.mission-picker-plan-missing:hover {
 .mission-picker-newmodal input:focus { outline: 1px solid var(--accent); }
 .mission-picker-newmodal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 .mission-picker-newmodal-actions button { padding: 4px 12px; font-size: 12px; cursor: pointer; }
+
+/* Per-tab Operator badge — see TabManager.renderTabPill. Compact
+   leading-edge button. Inherits color from the tab's text. */
+.tab-bot-badge {
+  appearance: none;
+  background: transparent;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-right: 4px;
+  width: 16px;
+  height: 16px;
+  color: var(--accent, currentColor);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.tab-bot-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.tab-bot-badge--excluded {
+  color: var(--fg-muted, rgba(255, 255, 255, 0.45));
+}
+.tab-bot-badge--inert {
+  cursor: default;
+  pointer-events: none;
+  opacity: 0.7;
+}
