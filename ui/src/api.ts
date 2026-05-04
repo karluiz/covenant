@@ -755,6 +755,40 @@ export async function getBlockedSessionIds(): Promise<string[]> {
   return invoke<string[]>("get_blocked_session_ids");
 }
 
+// === 3.16 spec auto-detect ===
+
+export type SpecSource = "covenant" | "superpowers";
+
+export interface SpecCandidate {
+  repo_root: string;
+  path: string;
+  source: SpecSource;
+  title: string | null;
+  goal_snippet: string;
+}
+
+export const specDetectorApi = {
+  start: (repoRoot: string): Promise<void> =>
+    invoke("start_spec_detector", { repoRoot }),
+
+  markSeen: (repoRoot: string, path: string): Promise<void> =>
+    invoke("mark_spec_seen", { repoRoot, path }),
+};
+
+/**
+ * Subscribe to spec candidates emitted by the detector. The handler is
+ * called once per new spec. Returns an unsubscribe function.
+ */
+export async function subscribeSpecCandidates(
+  handler: (cand: SpecCandidate) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<SpecCandidate>("spec:candidate", (e) => {
+    handler(e.payload);
+  });
+  return unlisten;
+}
+
 export { draftsApi } from "./drafts/api";
 export type {
   DraftFrontmatter,
