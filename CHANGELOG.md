@@ -6,6 +6,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.1 — 2026-05-04
+
+Sidebar polish release. Tab groups get a clearer visual identity, the
+color palette doubles, and a dedicated "new group" button joins the
+sidebar footer.
+
+### Added
+
+- **New-group button** in the sidebar footer alongside `+ ⌘T` —
+  creates an empty tab group via `⌘⇧G` (no member tab needed).
+- **6 new color swatches** for tabs and groups: lime, teal, cyan,
+  indigo, magenta, slate (palette grew from 8 to 14). Picker row
+  wraps to a second line when needed.
+
+### Changed
+
+- **Tab group visual identity** — replaced the per-tab left-edge color
+  line and the chip top-stripe with a single 3px lateral stripe per
+  group. The stripe stretches over header + members when expanded and
+  shrinks to header height when collapsed. Each group is wrapped in a
+  `.tab-group-shell` flex container (`createGroupShell` helper) so the
+  rendering is testable in isolation.
+- **New-tab button** uses the terminal icon instead of a `+`, paired
+  with the `⌘T` kbd hint.
+
+### Fixed
+
+- `.new-tab-kbd` and `.new-tab-plus` styles were scoped to `#new-tab`
+  only, so the new-group button rendered an unstyled `kbd`. Unscoped
+  to apply to both buttons.
+
+### Internal
+
+- Added `vitest.config.ts` with jsdom environment + `jsdom` dev dep so
+  DOM helpers can be unit-tested. New `ui/src/tabs/group-shell.test.ts`
+  covers the shell helper. Test count: 86 passing (was 30).
+- Removed dead CSS: `.group-chip::before`, `.tab-grouped::after`,
+  `.tab-grouped-first`, and the matching `body.tabbar-left` overrides.
+- `.superpowers/` brainstorm artifacts now ignored.
+
 ## 0.2.0 — 2026-05-03
 
 Convergence-centric release. The overlay matures into the primary
