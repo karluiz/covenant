@@ -49,6 +49,7 @@ import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 import { openMissionPicker, openNewSuperpowersTopicModal } from "./mission-picker";
+import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 
 const DEFAULT_FONT_FAMILY =
@@ -2159,63 +2160,77 @@ export class TabManager {
 
   private renderTabbar(): void {
     this.tabbarHost.innerHTML = "";
-    let prevGroupId: string | null | undefined = undefined;
-    let pendingFirstGroupId: string | null = null;
-    /// Pills whose group toggled fold/unfold this render. We paint
-    /// them with the *previous* state, then flip to the new state on
-    /// the next animation frame so the CSS transition has a "from".
     const transitions: Array<{ el: HTMLElement; collapsing: boolean }> = [];
-    for (const tab of this.tabs) {
-      const isNewGroupRun = tab.groupId !== prevGroupId && tab.groupId !== null;
 
-      if (isNewGroupRun) {
-        const group = this.groups.get(tab.groupId!);
-        if (group) {
-          const memberCount = this.memberIndices(group.id).length;
-          const chipEl = this.renderGroupChip(group, memberCount);
-          // Mark chip as having visible members → CSS fuses the seam
-          // between chip and the first member tab.
-          if (memberCount > 0 && !group.collapsed) {
-            chipEl.classList.add("group-chip-has-members");
-            pendingFirstGroupId = group.id;
-          }
-          this.tabbarHost.appendChild(chipEl);
-        }
+    // Track open shell while iterating tabs.
+    let currentShellGroupId: string | null = null;
+    let currentShellBody: HTMLElement | null = null;
+
+    const openShell = (group: TabGroup): HTMLElement => {
+      const { shell, body } = createGroupShell({
+        groupId: group.id,
+        color: group.color ?? null,
+        collapsed: group.collapsed,
+      });
+      this.tabbarHost.appendChild(shell);
+      currentShellGroupId = group.id;
+      currentShellBody = body;
+      return body;
+    };
+
+    const closeShell = (): void => {
+      currentShellGroupId = null;
+      currentShellBody = null;
+    };
+
+    for (const tab of this.tabs) {
+      // Ungrouped tab: close any open shell, append directly to host.
+      if (!tab.groupId) {
+        closeShell();
+        const pillEl = this.renderTabPill(tab);
+        this.tabbarHost.appendChild(pillEl);
+        continue;
       }
 
-      const group = tab.groupId ? this.groups.get(tab.groupId) : null;
-      const folded = group?.collapsed ?? false;
-      const wasCollapsed = group ? this.lastCollapsed.get(group.id) : undefined;
-      const transitioning = group != null && wasCollapsed !== undefined && wasCollapsed !== folded;
+      // Grouped tab: open a new shell if the group changed.
+      if (tab.groupId !== currentShellGroupId) {
+        closeShell();
+        const group = this.groups.get(tab.groupId);
+        if (!group) continue;
+        const body = openShell(group);
+        const memberCount = this.memberIndices(group.id).length;
+        const chipEl = this.renderGroupChip(group, memberCount);
+        body.appendChild(chipEl);
+      }
+
+      // Append member pill into current shell body.
+      const group = this.groups.get(tab.groupId)!;
+      const folded = group.collapsed;
+      const wasCollapsed = this.lastCollapsed.get(group.id);
+      const transitioning = wasCollapsed !== undefined && wasCollapsed !== folded;
       const pillEl = this.renderTabPill(tab);
-      // Paint with the *previous* fold state when transitioning, so
-      // CSS has a starting frame to animate from. We flip to the new
-      // state on the next rAF below.
       const initiallyFolded = transitioning ? wasCollapsed! : folded;
       if (initiallyFolded) pillEl.classList.add("tab-pill-folded");
       if (transitioning) {
         transitions.push({ el: pillEl, collapsing: folded });
       }
-      if (
-        !folded &&
-        pendingFirstGroupId !== null &&
-        tab.groupId === pendingFirstGroupId
-      ) {
-        pillEl.classList.add("tab-grouped-first");
-        pendingFirstGroupId = null;
-      }
-      this.tabbarHost.appendChild(pillEl);
-      prevGroupId = tab.groupId;
+      currentShellBody!.appendChild(pillEl);
     }
+    closeShell();
 
-    // Empty groups (no members) render at the end as standalone chips.
-    // They're valid drop targets — dragging a tab onto one joins it.
+    // Empty groups (no members) render at the end as standalone shells
+    // containing only the chip. Still valid drop targets.
     const usedGroupIds = new Set<string>();
     for (const t of this.tabs) if (t.groupId) usedGroupIds.add(t.groupId);
     for (const g of this.groups.values()) {
       if (usedGroupIds.has(g.id)) continue;
-      const chipEl = this.renderGroupChip(g, 0);
-      this.tabbarHost.appendChild(chipEl);
+      const { shell, body } = createGroupShell({
+        groupId: g.id,
+        color: g.color ?? null,
+        collapsed: g.collapsed,
+      });
+      body.appendChild(this.renderGroupChip(g, 0));
+      this.tabbarHost.appendChild(shell);
     }
 
     // Sync the snapshot now that we've captured the prev state above.
