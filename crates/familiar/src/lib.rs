@@ -15,5 +15,4 @@ pub mod summarizer;
 
 pub use error::{FamiliarError, Result};
 pub use identity::{Familiar, FamiliarConfig, FamiliarId, Style};
-// TODO(Task 17): uncomment once manager module defines FamiliarManager
-// pub use manager::FamiliarManager;
+pub use manager::FamiliarManager;
