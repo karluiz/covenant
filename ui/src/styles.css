@@ -7855,3 +7855,9 @@ button.mission-picker-plan-missing:hover {
   pointer-events: none;
   opacity: 0.7;
 }
+.status-aom-excluded {
+  /* Slightly muted to read as supplementary info, not as primary
+     warning. The popover carries the actionable detail. */
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

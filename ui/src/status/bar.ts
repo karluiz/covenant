@@ -501,7 +501,11 @@ export class StatusBar {
     }
     if (this.currentAom) {
       this.host.appendChild(
-        aomSegment(this.currentAom, (anchor) => this.openAomPopover(anchor)),
+        aomSegment(
+          this.currentAom,
+          this.excludedTabs.length,
+          (anchor) => this.openAomPopover(anchor),
+        ),
       );
     }
     // Version chip lives at the trailing edge — informational, click
@@ -606,6 +610,7 @@ function segment(iconSvg: string, primary: string, secondary: string | null): HT
 
 function aomSegment(
   aom: AomStatus,
+  excludedCount: number,
   onClick: (anchor: HTMLElement) => void,
 ): HTMLElement {
   const el = document.createElement("button");
@@ -636,6 +641,18 @@ function aomSegment(
   cost.className = "status-secondary";
   cost.textContent = `$${aom.accumulated_cost_usd.toFixed(3)}`;
   el.appendChild(cost);
+
+  if (excludedCount > 0) {
+    const sep = document.createElement("span");
+    sep.className = "status-segment-sep";
+    sep.textContent = "·";
+    el.appendChild(sep);
+
+    const excl = document.createElement("span");
+    excl.className = "status-secondary status-aom-excluded";
+    excl.textContent = `${excludedCount} excluded`;
+    el.appendChild(excl);
+  }
 
   el.addEventListener("click", (e) => {
     e.preventDefault();
