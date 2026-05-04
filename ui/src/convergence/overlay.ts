@@ -28,6 +28,7 @@ export class ConvergenceOverlay {
   private empty: HTMLElement | null = null;
   private pollHandle: number | null = null;
   private visible = false;
+  private escHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -54,6 +55,10 @@ export class ConvergenceOverlay {
     if (this.pollHandle !== null) {
       window.clearInterval(this.pollHandle);
       this.pollHandle = null;
+    }
+    if (this.escHandler !== null) {
+      document.removeEventListener("keydown", this.escHandler, { capture: true });
+      this.escHandler = null;
     }
     this.root?.remove();
     this.root = null;
@@ -95,6 +100,20 @@ export class ConvergenceOverlay {
     this.root = root;
     this.grid = grid;
     this.empty = empty;
+
+    // Two-step Esc on reply form: first Esc blurs the focused input/select,
+    // second Esc (when nothing in reply is focused) closes the overlay.
+    this.escHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest(".convergence-tile__reply")) {
+        e.preventDefault();
+        e.stopPropagation();
+        active.blur();
+        return;
+      }
+    };
+    document.addEventListener("keydown", this.escHandler, { capture: true });
   }
 
   private async refresh(): Promise<void> {

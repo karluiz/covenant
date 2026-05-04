@@ -5569,7 +5569,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
 .convergence-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: 1400;
   background: var(--bg-overlay);
   padding: 24px;
   overflow: auto;
