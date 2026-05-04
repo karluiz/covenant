@@ -10,6 +10,13 @@ const STATUS_LABEL: Record<TileStatus, string> = {
   "operator-thinking": "operator thinking",
 };
 
+export type ReplyScope = "one-shot" | "mission" | "global";
+export type ReplySubmit = (
+  sessionId: string,
+  text: string,
+  scope: ReplyScope,
+) => void | Promise<void>;
+
 function truncate(s: string | null, max: number): string {
   if (!s) return "";
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
@@ -19,7 +26,68 @@ function fmtUsd(v: number): string {
   return `$${v.toFixed(2)}`;
 }
 
-export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElement {
+function buildReplyForm(
+  sessionId: string,
+  onReplySubmit: ReplySubmit,
+): HTMLElement {
+  const form = document.createElement("div");
+  form.className = "convergence-tile__reply";
+  form.dataset.noTileClick = "1";
+  // Block bubbling so the outer tile click handler does not activate the tab.
+  const stop = (e: Event) => e.stopPropagation();
+  form.addEventListener("click", stop);
+  form.addEventListener("mousedown", stop);
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "convergence-tile__reply-input";
+  input.placeholder = "Reply…";
+
+  const scope = document.createElement("select");
+  scope.className = "convergence-tile__reply-scope";
+  for (const v of ["one-shot", "mission", "global"] as ReplyScope[]) {
+    const opt = document.createElement("option");
+    opt.value = v;
+    opt.textContent = v;
+    if (v === "one-shot") opt.selected = true;
+    scope.append(opt);
+  }
+
+  const send = document.createElement("button");
+  send.type = "button";
+  send.className = "convergence-tile__reply-send";
+  send.textContent = "Send";
+
+  const submit = async () => {
+    const text = input.value.trim();
+    if (!text || send.disabled) return;
+    send.disabled = true;
+    try {
+      await onReplySubmit(sessionId, text, scope.value as ReplyScope);
+      input.value = "";
+      input.blur();
+    } finally {
+      send.disabled = false;
+    }
+  };
+
+  send.addEventListener("click", () => void submit());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void submit();
+    }
+  });
+
+  form.append(input, scope, send);
+  return form;
+}
+
+export function renderTile(
+  state: ConvergenceTileState,
+  tab?: TabMeta,
+  onReplySubmit?: ReplySubmit,
+): HTMLElement {
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "convergence-tile";
@@ -37,13 +105,10 @@ export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElem
   avatar.className = "convergence-tile__avatar";
   avatar.title = tab?.operatorName ?? "no operator";
   if (tab?.operatorAvatar) {
-    // Reuse the operator avatar helper (parses `pack:` prefix → <img>,
-    // otherwise emits an emoji span). Helper escapes content.
     avatar.innerHTML = renderAvatarHtml(tab.operatorAvatar, 24);
   } else if (tab?.operatorName) {
     avatar.textContent = tab.operatorName.slice(0, 2).toUpperCase();
   } else {
-    // Empty placeholder slot to avoid layout shift when cache fills.
     avatar.classList.add("convergence-tile__avatar--empty");
   }
 
@@ -68,7 +133,7 @@ export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElem
   pill.dataset.status = state.status;
   pill.textContent = STATUS_LABEL[state.status];
 
-  // (4) Last decision (action + rationale, 2-line clamp via CSS)
+  // (4) Last decision
   const decision = document.createElement("div");
   decision.className = "convergence-tile__decision";
   if (state.last_decision_action) {
@@ -103,6 +168,11 @@ export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElem
     cost.className = "convergence-tile__cost";
     cost.textContent = `${fmtUsd(state.cost_usd)} / ${fmtUsd(state.budget_usd)} budget`;
     tile.append(cost);
+  }
+
+  // (7) Reply form when blocked
+  if (state.status === "blocked" && onReplySubmit) {
+    tile.append(buildReplyForm(state.session_id, onReplySubmit));
   }
 
   return tile;

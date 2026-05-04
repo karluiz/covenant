@@ -72,7 +72,10 @@ export class ConvergenceOverlay {
     const grid = document.createElement("div");
     grid.className = "convergence-overlay__grid";
     grid.addEventListener("click", (e) => {
-      const tile = (e.target as HTMLElement).closest<HTMLElement>(".convergence-tile");
+      const target = e.target as HTMLElement;
+      // Skip if the click landed inside a tile's reply form.
+      if (target.closest(".convergence-tile__reply")) return;
+      const tile = target.closest<HTMLElement>(".convergence-tile");
       if (!tile?.dataset.sessionId) return;
       const ok = this.bridge.activateBySessionId(tile.dataset.sessionId);
       if (ok) this.close();
@@ -119,7 +122,19 @@ export class ConvergenceOverlay {
     }
     this.empty.hidden = true;
     const frag = document.createDocumentFragment();
-    for (const { state, tab } of ordered) frag.append(renderTile(state, tab));
+    const submit = this.submitReply.bind(this);
+    for (const { state, tab } of ordered) frag.append(renderTile(state, tab, submit));
     this.grid.replaceChildren(frag);
+  }
+
+  /**
+   * Stub: Task 8 will replace this with a real Tauri call.
+   */
+  async submitReply(
+    sessionId: string,
+    text: string,
+    scope: "one-shot" | "mission" | "global",
+  ): Promise<void> {
+    console.log("[convergence] submitReply (stub)", { sessionId, text, scope });
   }
 }
