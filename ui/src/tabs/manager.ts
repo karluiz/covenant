@@ -109,8 +109,10 @@ interface Tab {
   operatorLive: boolean;
   /// M-OP5 per-tab AOM opt-out. Only meaningful while AOM is on
   /// globally — when true, this tab is invisible to the AOM banner
-  /// and keeps its per-tab live setting + normal persona. Reset by
-  /// the backend on every aom_start.
+  /// and keeps its per-tab live setting + normal persona. Persistent
+  /// across AOM cycles AND app restarts (UI stores it in the tab
+  /// manifest; restore path always calls setAomExcluded with the
+  /// persisted value).
   aomExcluded: boolean;
   /// M-OP6 mission spec attached to this tab. When set, the Operator
   /// uses the spec content as authoritative scope — Out of scope →
@@ -177,6 +179,9 @@ interface SerializedTab {
   mission_path: string | null;
   /// Operator pinned to this tab at save time. Null = default operator.
   operator_id: string | null;
+  /// AOM exclusion persisted for this tab. Optional for backward compat
+  /// — old manifests that lack the field default to false on restore.
+  aom_excluded?: boolean;
 }
 
 interface SerializedGroup {
@@ -1745,6 +1750,7 @@ export class TabManager {
         group_id: t.groupId,
         mission_path: t.mission?.path ?? null,
         operator_id: t.operator_id,
+        aom_excluded: t.aomExcluded,
       })),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
@@ -1811,6 +1817,20 @@ export class TabManager {
           } catch (e) {
             console.warn("session_set_operator failed on restore", e);
           }
+        }
+      }
+      if (created) {
+        // Always call setAomExcluded with the persisted value (defaulting
+        // to false if missing) — the backend's default at attach time
+        // depends on whether AOM is currently running, so explicitly
+        // pinning the value avoids subtle drift across restarts.
+        const persistedExcluded = t.aom_excluded ?? false;
+        try {
+          await setAomExcluded(created.sessionId, persistedExcluded);
+          created.aomExcluded = persistedExcluded;
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("aom_excluded restore failed", err);
         }
       }
     }
