@@ -125,11 +125,29 @@ Five surgical changes:
 
 ## § 6 — Testing
 
-**Backend (`operator.rs` unit tests)**:
+**Backend testing strategy**:
+
+The async `OperatorWatcher` methods (`enable_all_for_aom`,
+`set_aom_excluded`, `clear_all_aom_excluded`) require a Tauri
+`AppHandle` + `Storage` + `Notifier` to construct, and the codebase
+does not yet have an async test fixture for them — existing
+`operator.rs` tests are sync tests of pure parsing functions. Building
+that fixture is out of scope for this small change.
+
+Backend changes are verified by:
+- `cargo check -p covenant` after each commit (signature + type
+  enforcement).
+- The existing decision-time gate (`effective_aom = aom_active &&
+  !aom_excluded` at `operator.rs:1272`) is unchanged, so the
+  behavior contract remains intact.
+- Manual UI verification (below) covers the end-to-end paths.
+
+If the codebase later adds an async test fixture for
+`OperatorWatcher`, the obvious unit tests to add are:
 - `enable_all_for_aom` skips tabs with `aom_excluded=true`.
 - `aom_start` does not mutate `aom_excluded` on any session.
-- `disable_aom_auto_enabled` is unaffected by exclusion (only touches
-  `enabled_by_aom=true` tabs, which excluded tabs cannot be).
+- `set_aom_excluded(true)` clears `enabled_by_aom` so AOM stop does
+  not revert a tab the user claimed mid-AOM.
 
 **UI (manual — no UI test framework in repo per CLAUDE.md)**:
 1. Start AOM → every Operator-enabled tab shows `bot` icon.

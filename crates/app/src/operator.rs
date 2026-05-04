@@ -607,6 +607,15 @@ impl OperatorWatcher {
     pub async fn set_aom_excluded(&self, session_id: SessionId, excluded: bool) {
         if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
             att.aom_excluded = excluded;
+            // When the user excludes a tab mid-AOM, they're claiming
+            // ownership of it. Clear `enabled_by_aom` so AOM stop's
+            // auto-revert (`disable_aom_auto_enabled`) leaves the
+            // tab's current Operator state alone — mirroring the
+            // existing invariant that user-manually-enabled tabs
+            // survive AOM stop.
+            if excluded {
+                att.enabled_by_aom = false;
+            }
         }
     }
 
@@ -908,9 +917,10 @@ impl OperatorWatcher {
     }
 
     /// AOM auto-enable: flip Operator on for every currently-disabled
-    /// tab and remember which ones we touched so `disable_aom_auto_enabled`
-    /// can revert them on stop. Returns the affected session IDs so the
-    /// UI can refresh those tabs' badges without polling everyone.
+    /// tab that is NOT marked `aom_excluded`, and remember which ones
+    /// we touched so `disable_aom_auto_enabled` can revert them on
+    /// stop. Returns the affected session IDs so the UI can refresh
+    /// those tabs' badges without polling everyone.
     pub async fn enable_all_for_aom(&self) -> Vec<SessionId> {
         let mut inner = self.inner.lock().await;
         let mut touched = Vec::new();
