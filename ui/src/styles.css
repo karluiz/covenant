@@ -6506,10 +6506,11 @@ body.tabbar-left #tabbar-brand-row {
 
 body.tabbar-left #tabbar-brand {
     font-family: var(--ui-font);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    letter-spacing: 0.02em;
-    color: color-mix(in srgb, var(--accent, #d6d8db) 70%, #fff 30%);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
     user-select: none;
     overflow: hidden;
     text-overflow: ellipsis;
