@@ -59,6 +59,21 @@ pub struct ConvergenceTileState {
     pub budget_usd: Option<f64>,
     pub vendor: Vendor,
     pub raw_command_label: Option<String>,
+    /// 3.14 — basename of the most recent decision row's `mission_path`,
+    /// stripped of `.md` and truncated to 40 chars. `None` when the
+    /// session has no decisions yet OR no mission was attached.
+    pub mission_name: Option<String>,
+}
+
+/// Derive the displayed mission name from a stored `mission_path`.
+/// Strips `.md` (via `Path::file_stem`) and truncates to 40 chars.
+pub fn mission_name_from_path(path: Option<&str>) -> Option<String> {
+    let p = path?;
+    let stem = std::path::Path::new(p).file_stem()?.to_string_lossy().to_string();
+    if stem.is_empty() {
+        return None;
+    }
+    Some(stem.chars().take(40).collect())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -201,6 +216,7 @@ pub async fn build_convergence_snapshot(
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
             vendor, raw_command_label,
+            mission_name: mission_name_from_path(last.and_then(|d| d.mission_path.as_deref())),
         });
     }
 
@@ -302,6 +318,18 @@ mod tests {
         let rows = vec![r("aaaaaa",1000,0.10), r("aaaaaa",2000,0.25), r("aaaaaa",500,0.99), r("bbbbbb",1500,0.50)];
         assert!((sum_cost_for_short(&rows, "aaaaaa", 1000) - 0.35).abs() < 1e-9);
         assert_eq!(sum_cost_for_short(&rows, "zzzzzz", 0), 0.0);
+    }
+
+    #[test]
+    fn mission_name_from_path_table() {
+        assert_eq!(mission_name_from_path(Some("/foo/3.12.md")).as_deref(), Some("3.12"));
+        assert_eq!(mission_name_from_path(Some("bar.md")).as_deref(), Some("bar"));
+        assert_eq!(mission_name_from_path(Some("noext")).as_deref(), Some("noext"));
+        assert_eq!(mission_name_from_path(None), None);
+        let long = format!("/x/{}.md", "a".repeat(100));
+        let got = mission_name_from_path(Some(&long)).expect("some");
+        assert_eq!(got.chars().count(), 40);
+        assert!(got.chars().all(|c| c == 'a'));
     }
 
     #[test]

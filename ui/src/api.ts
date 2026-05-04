@@ -641,6 +641,9 @@ export interface ConvergenceTileState {
   budget_usd: number | null;
   vendor: Vendor;
   raw_command_label: string | null;
+  /// 3.14 — short mission name (basename of mission_path, no `.md`,
+  /// truncated to 40 chars). Null when the session has no mission.
+  mission_name: string | null;
 }
 
 export interface ConvergenceSnapshot {

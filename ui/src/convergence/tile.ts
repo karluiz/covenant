@@ -160,7 +160,18 @@ export function renderTile(
   out.textContent = truncate(state.last_output_line, 100);
   activity.append(cmd, out);
 
-  tile.append(head, vendorBadge, pill, decision, activity);
+  tile.append(head);
+
+  // (1b) Mission line — between header and vendor/status pill. Hidden
+  // entirely when no mission is attached; no placeholder, no shift.
+  if (state.mission_name) {
+    const mission = document.createElement("div");
+    mission.className = "convergence-tile__mission";
+    mission.textContent = `📍 ${state.mission_name}`;
+    tile.append(mission);
+  }
+
+  tile.append(vendorBadge, pill, decision, activity);
 
   // (6) Cost footer ONLY when enrolled in AOM
   if (state.cost_usd !== null && state.budget_usd !== null) {

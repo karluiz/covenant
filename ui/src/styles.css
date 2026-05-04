@@ -7179,3 +7179,13 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* 3.14 — Escalation visibility (mission line) */
+.convergence-tile__mission {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
