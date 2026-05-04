@@ -1612,6 +1612,15 @@ async fn run_tick(
             };
         let _ = final_action; // surfaced via action_str/reply_text below
 
+        // Parse applied_memory: <id> out of the rationale (Task 5).
+        let (cleaned_rationale, applied_memory_id) = match &rationale {
+            Some(r) => {
+                let (text, id) = memory::parse_applied_memory(r);
+                (Some(text), id)
+            }
+            None => (None, None),
+        };
+
         let row_id = match storage
             .save_operator_decision(
                 session_id,
@@ -1620,14 +1629,14 @@ async fn run_tick(
                 truncate(&excerpt, 4000),
                 action_str.clone(),
                 reply_text.clone(),
-                rationale.clone(),
+                cleaned_rationale,
                 executed,
                 call_cost_usd,
                 mission.as_ref().map(|m| m.path.display().to_string()),
                 detect_executor(&cmd),
                 Some(op.id.to_string()),
                 Some(op.name.clone()),
-                None, // 3.13: applied_memory_id wired in Task 3
+                applied_memory_id,
             )
             .await
         {

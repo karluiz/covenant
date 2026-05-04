@@ -2,6 +2,8 @@
 //! Storage I/O lives in `storage.rs`; this module only ranks loaded rows.
 
 use crate::storage::OperatorMemoryRow;
+use regex::Regex;
+use std::sync::OnceLock;
 
 const STOPWORDS: &[&str] = &[
     "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at",
@@ -9,6 +11,36 @@ const STOPWORDS: &[&str] = &[
     "this", "that", "these", "those", "it", "its", "for", "with", "from",
     "as", "by", "do", "does", "did", "done", "doing", "yes", "no", "ok",
 ];
+
+fn applied_memory_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)applied_memory:\s*(\d+)").expect("valid regex"))
+}
+
+/// Parses `applied_memory: <id>` out of a rationale string. Returns the
+/// stripped rationale and the parsed id (if any). The marker can appear
+/// on its own line OR mid-sentence; we accept both. The entire line
+/// containing the marker is removed from the output.
+pub fn parse_applied_memory(rationale: &str) -> (String, Option<i64>) {
+    let re = applied_memory_regex();
+    let mut id: Option<i64> = None;
+    let mut kept = Vec::new();
+
+    for line in rationale.lines() {
+        if let Some(caps) = re.captures(line) {
+            if let Some(id_match) = caps.get(1) {
+                if let Ok(parsed) = id_match.as_str().parse::<i64>() {
+                    id = Some(parsed);
+                    continue; // drop this line from kept
+                }
+            }
+        }
+        kept.push(line);
+    }
+
+    let stripped = kept.join("\n").trim().to_string();
+    (stripped, id)
+}
 
 /// Extract normalized tags: lowercase, deduplicate, drop stopwords/short
 /// tokens, cap at 12. Preserves first-occurrence order.
@@ -89,6 +121,46 @@ pub fn retrieve_hybrid(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_applied_memory_extracts_id_on_own_line() {
+        let input = "Reason text.\napplied_memory: 42";
+        let (text, id) = parse_applied_memory(input);
+        assert_eq!(text, "Reason text.");
+        assert_eq!(id, Some(42));
+    }
+
+    #[test]
+    fn parse_applied_memory_inline() {
+        let input = "Reason text.\napplied_memory: 7 on same line";
+        let (text, id) = parse_applied_memory(input);
+        assert_eq!(text, "Reason text.");
+        assert_eq!(id, Some(7));
+    }
+
+    #[test]
+    fn parse_applied_memory_none_when_missing() {
+        let input = "Plain rationale.";
+        let (text, id) = parse_applied_memory(input);
+        assert_eq!(text, "Plain rationale.");
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn parse_applied_memory_invalid_id_keeps_line() {
+        let input = "applied_memory: not-a-number";
+        let (text, id) = parse_applied_memory(input);
+        assert_eq!(text, "applied_memory: not-a-number");
+        assert_eq!(id, None);
+    }
+
+    #[test]
+    fn parse_applied_memory_case_insensitive() {
+        let input = "Applied_Memory: 99";
+        let (text, id) = parse_applied_memory(input);
+        assert_eq!(text, "");
+        assert_eq!(id, Some(99));
+    }
 
     fn fixture_row(
         id: i64,
