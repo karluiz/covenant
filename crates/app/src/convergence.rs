@@ -15,6 +15,34 @@ pub enum TileStatus {
     OperatorThinking,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Vendor { Claude, Copilot, Opencode, Aider, Codex, Unknown }
+
+/// Heuristic vendor detection from a foreground command string.
+/// `npx <pkg>` is unwrapped one level; `@scope/name` packages map by
+/// the trailing name segment (e.g. `@anthropic-ai/claude-code` → claude).
+/// Unknown is a first-class result, never an error.
+pub fn detect_vendor(cmd: Option<&str>) -> Vendor {
+    let s = match cmd {
+        Some(s) if !s.trim().is_empty() => s.trim(),
+        _ => return Vendor::Unknown,
+    };
+    let mut head = s.split_whitespace().next().unwrap_or("");
+    if head == "npx" {
+        head = s.trim_start_matches("npx").trim_start().split_whitespace().next().unwrap_or("");
+    }
+    let key = head.rsplit('/').next().unwrap_or(head);
+    match key {
+        h if h.starts_with("claude") => Vendor::Claude,
+        h if h.starts_with("copilot") => Vendor::Copilot,
+        h if h.starts_with("opencode") => Vendor::Opencode,
+        h if h.starts_with("aider") => Vendor::Aider,
+        h if h.starts_with("codex") => Vendor::Codex,
+        _ => Vendor::Unknown,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConvergenceTileState {
     pub session_id: String,
@@ -29,6 +57,8 @@ pub struct ConvergenceTileState {
     /// tab is enrolled in AOM (operator-enabled, AOM on, not excluded).
     pub cost_usd: Option<f64>,
     pub budget_usd: Option<f64>,
+    pub vendor: Vendor,
+    pub raw_command_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,6 +193,8 @@ pub async fn build_convergence_snapshot(
             last_output_line: last_non_empty_line(&tail_bytes, 160),
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
+            vendor: Vendor::Unknown,
+            raw_command_label: None,
         });
     }
 
@@ -190,75 +222,59 @@ mod tests {
         now - Duration::from_millis(ms_ago)
     }
 
+    fn si(now: Instant, ms_ago: u64, bt: u64, ldb: u64, act: Option<&'static str>) -> StatusInputs<'static> {
+        StatusInputs { last_byte_at: at(now, ms_ago), bytes_total: bt, last_decision_at_bytes_total: ldb, last_decision_action: act, now }
+    }
+
     #[test]
     fn working_when_bytes_recent() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 200),
-            bytes_total: 100,
-            last_decision_at_bytes_total: 50,
-            last_decision_action: Some("reply"),
-            now,
-        });
-        assert_eq!(s, TileStatus::Working);
+        let n = Instant::now();
+        assert_eq!(classify_status(&si(n, 200, 100, 50, Some("reply"))), TileStatus::Working);
     }
 
     #[test]
     fn blocked_when_last_decision_escalate_and_no_new_bytes() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 5_000),
-            bytes_total: 200,
-            last_decision_at_bytes_total: 200,
-            last_decision_action: Some("escalate"),
-            now,
-        });
-        assert_eq!(s, TileStatus::Blocked);
+        let n = Instant::now();
+        assert_eq!(classify_status(&si(n, 5_000, 200, 200, Some("escalate"))), TileStatus::Blocked);
     }
 
     #[test]
     fn awaiting_input_when_idle_with_new_bytes_since_decision() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 3_000),
-            bytes_total: 500,
-            last_decision_at_bytes_total: 200,
-            last_decision_action: Some("reply"),
-            now,
-        });
-        assert_eq!(s, TileStatus::AwaitingInput);
+        let n = Instant::now();
+        assert_eq!(classify_status(&si(n, 3_000, 500, 200, Some("reply"))), TileStatus::AwaitingInput);
     }
 
     #[test]
     fn idle_default() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 10_000),
-            bytes_total: 100,
-            last_decision_at_bytes_total: 100,
-            last_decision_action: None,
-            now,
-        });
-        assert_eq!(s, TileStatus::Idle);
+        let n = Instant::now();
+        assert_eq!(classify_status(&si(n, 10_000, 100, 100, None)), TileStatus::Idle);
     }
 
     #[test]
     fn last_non_empty_line_strips_ansi_and_skips_blanks() {
-        let raw = b"foo\n\x1b[31mbar\x1b[0m\n   \n";
-        let got = last_non_empty_line(raw, 200);
-        assert_eq!(got.as_deref(), Some("bar"));
+        assert_eq!(last_non_empty_line(b"foo\n\x1b[31mbar\x1b[0m\n   \n", 200).as_deref(), Some("bar"));
     }
 
     #[test]
     fn last_non_empty_line_truncates() {
-        let raw = b"hello world this is a long tail line";
-        let got = last_non_empty_line(raw, 10);
-        assert_eq!(got.as_deref(), Some("hello worl"));
+        assert_eq!(last_non_empty_line(b"hello world this is a long tail line", 10).as_deref(), Some("hello worl"));
     }
 
     #[test]
     fn last_non_empty_line_returns_none_when_all_blank() {
-        let raw = b"\n   \n\t\n";
-        assert!(last_non_empty_line(raw, 200).is_none());
+        assert!(last_non_empty_line(b"\n   \n\t\n", 200).is_none());
     }
+
+    #[test] fn dv_claude() { assert_eq!(detect_vendor(Some("claude")), Vendor::Claude); }
+    #[test] fn dv_claude_flags() { assert_eq!(detect_vendor(Some("claude --dangerously-skip-permissions")), Vendor::Claude); }
+    #[test] fn dv_claude_code() { assert_eq!(detect_vendor(Some("claude-code")), Vendor::Claude); }
+    #[test] fn dv_copilot() { assert_eq!(detect_vendor(Some("copilot --yolo")), Vendor::Copilot); }
+    #[test] fn dv_opencode() { assert_eq!(detect_vendor(Some("opencode")), Vendor::Opencode); }
+    #[test] fn dv_aider() { assert_eq!(detect_vendor(Some("aider --model gpt-4")), Vendor::Aider); }
+    #[test] fn dv_codex() { assert_eq!(detect_vendor(Some("codex")), Vendor::Codex); }
+    #[test] fn dv_npx_aider() { assert_eq!(detect_vendor(Some("npx aider")), Vendor::Aider); }
+    #[test] fn dv_npx_scoped_claude() { assert_eq!(detect_vendor(Some("npx @anthropic-ai/claude-code")), Vendor::Claude); }
+    #[test] fn dv_unknown_editor() { assert_eq!(detect_vendor(Some("vim foo.rs")), Vendor::Unknown); }
+    #[test] fn dv_none() { assert_eq!(detect_vendor(None), Vendor::Unknown); }
+    #[test] fn dv_empty() { assert_eq!(detect_vendor(Some("")), Vendor::Unknown); }
 }
