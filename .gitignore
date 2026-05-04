@@ -39,3 +39,4 @@ crates/app/gen/schemas/
 # Claude Code transient
 .claude/scheduled_tasks.lock
 .worktrees/
+.fastembed_cache/
