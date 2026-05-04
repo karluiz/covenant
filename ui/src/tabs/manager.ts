@@ -57,6 +57,24 @@ import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
 import type { AomBanner } from "../aom/banner";
+import { Familiars } from "../familiars/api";
+import { setFamiliarFor } from "../familiars/registry";
+
+/// Ensure a Familiar exists for the given session. If one is already
+/// registered backend-side (e.g. survived a relaunch), reuse it;
+/// otherwise spawn a fresh "Familiar" with conversational defaults.
+/// Always populates the session->familiar registry.
+async function ensureFamiliarFor(sessionId: string): Promise<string> {
+  const list = await Familiars.list();
+  const existing = list.find((f) => f.session_id === sessionId);
+  if (existing) {
+    setFamiliarFor(sessionId, existing.id);
+    return existing.id;
+  }
+  const id = await Familiars.spawn(sessionId, "Familiar", "conversational", 5.0);
+  setFamiliarFor(sessionId, id);
+  return id;
+}
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -737,10 +755,25 @@ export class TabManager {
       const mission = await getSessionMission(tab.sessionId).catch(
         () => tab.mission,
       );
+      const wasEnabled = tab.operatorEnabled;
       tab.operatorEnabled = enabled;
       tab.operatorLive = live;
       tab.aomExcluded = excluded;
       tab.mission = mission;
+      // Auto-spawn a Familiar when the operator transitions OFF→ON,
+      // gated on the user's premium + familiars-enabled settings.
+      // Failures are non-fatal — the operator stays enabled either way.
+      if (!wasEnabled && enabled) {
+        try {
+          const s = await getSettings();
+          if (s.familiars_enabled && s.is_premium) {
+            await ensureFamiliarFor(tab.sessionId);
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("ensureFamiliarFor failed", err);
+        }
+      }
     }
     this.renderTabbar();
     this.pushExcludedToStatusBar();

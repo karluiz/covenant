@@ -6,6 +6,7 @@ members = [
     "crates/blocks",
     "crates/session",
     "crates/agent",
+    "crates/familiar",
 ]
 
 [workspace.package]

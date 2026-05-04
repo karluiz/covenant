@@ -37,6 +37,9 @@ import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { StatusBar } from "./status/bar";
+import { Roster } from "./familiars/roster";
+import { FamiliarStatusIndicator } from "./familiars/status_indicator";
+import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager } from "./tabs/manager";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
@@ -289,13 +292,28 @@ async function boot(): Promise<void> {
   // 3.7 status bar — bottom of #layout. Hidden when status_bar_enabled
   // is false (collapses the third grid row). TabManager pushes the
   // active-tab cwd on activation + cwd_changed.
-  const statusBar = new StatusBar(requireEl<HTMLElement>("status-bar"));
+  const statusBarHost = requireEl<HTMLElement>("status-bar");
+  const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
+  // Familiar status dot — single instance, mounted on the status-bar
+  // host. Rebound whenever the active tab changes (or the registry
+  // updates for the currently-active session).
+  const familiarIndicator = new FamiliarStatusIndicator(statusBarHost);
+  const rebindFamiliarIndicator = (): void => {
+    const sid = manager.activeSessionId();
+    familiarIndicator.bind(sid ? familiarFor(sid) : null);
+  };
+  onFamiliarRegistryChange((sessionId) => {
+    if (sessionId === manager.activeSessionId()) rebindFamiliarIndicator();
+  });
   manager.onActiveContextChange = (cwd) => {
     statusBar.setCwd(cwd);
     if (cwd) void ensureDetectorForRepo(cwd);
   };
-  manager.onActiveTabChange = (info) => statusBar.setActiveTab(info);
+  manager.onActiveTabChange = (info) => {
+    statusBar.setActiveTab(info);
+    rebindFamiliarIndicator();
+  };
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
   // Mirror the active tab's Operator state into the status bar — the
@@ -875,6 +893,26 @@ async function boot(): Promise<void> {
     }
   });
 }
+
+const roster = new Roster();
+// Hook to deliver an approved directive into the operator session. The
+// project's operator-input command is `write_to_session`, which accepts
+// raw bytes; encode the rendered string as UTF-8.
+roster.onDeliverDirective = async (sessionId, rendered) => {
+  const bytes = new TextEncoder().encode(rendered);
+  await invoke("write_to_session", { id: sessionId, data: Array.from(bytes) });
+};
+
+window.addEventListener("keydown", (e) => {
+  if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "m") {
+    e.preventDefault();
+    roster.toggle();
+  }
+});
+
+// Status-bar Familiar dot dispatches this on click — same affordance
+// as ⌘⇧M, but contextual to the active tab's bound Familiar.
+document.addEventListener("familiars:open", () => roster.show());
 
 void boot().catch((err) => {
   // eslint-disable-next-line no-console
