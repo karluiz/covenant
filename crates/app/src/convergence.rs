@@ -167,6 +167,10 @@ pub async fn build_convergence_snapshot(
 
         let last = by_short.get(short.as_str()).copied();
         let last_action = last.map(|d| d.action.as_str());
+        let cmd_for_vendor = last.and_then(|d| d.in_flight_command.as_deref());
+        let vendor = detect_vendor(cmd_for_vendor);
+        let raw_command_label = matches!(vendor, Vendor::Unknown)
+            .then(|| cmd_for_vendor.map(|c| c.chars().take(40).collect::<String>())).flatten();
 
         let status = classify_status(&StatusInputs {
             last_byte_at,
@@ -193,8 +197,8 @@ pub async fn build_convergence_snapshot(
             last_output_line: last_non_empty_line(&tail_bytes, 160),
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
-            vendor: Vendor::Unknown,
-            raw_command_label: None,
+            vendor,
+            raw_command_label,
         });
     }
 
@@ -227,54 +231,49 @@ mod tests {
     }
 
     #[test]
-    fn working_when_bytes_recent() {
+    fn classify_status_table() {
         let n = Instant::now();
         assert_eq!(classify_status(&si(n, 200, 100, 50, Some("reply"))), TileStatus::Working);
-    }
-
-    #[test]
-    fn blocked_when_last_decision_escalate_and_no_new_bytes() {
-        let n = Instant::now();
         assert_eq!(classify_status(&si(n, 5_000, 200, 200, Some("escalate"))), TileStatus::Blocked);
-    }
-
-    #[test]
-    fn awaiting_input_when_idle_with_new_bytes_since_decision() {
-        let n = Instant::now();
         assert_eq!(classify_status(&si(n, 3_000, 500, 200, Some("reply"))), TileStatus::AwaitingInput);
-    }
-
-    #[test]
-    fn idle_default() {
-        let n = Instant::now();
         assert_eq!(classify_status(&si(n, 10_000, 100, 100, None)), TileStatus::Idle);
     }
 
     #[test]
-    fn last_non_empty_line_strips_ansi_and_skips_blanks() {
+    fn last_non_empty_line_behavior() {
         assert_eq!(last_non_empty_line(b"foo\n\x1b[31mbar\x1b[0m\n   \n", 200).as_deref(), Some("bar"));
-    }
-
-    #[test]
-    fn last_non_empty_line_truncates() {
         assert_eq!(last_non_empty_line(b"hello world this is a long tail line", 10).as_deref(), Some("hello worl"));
-    }
-
-    #[test]
-    fn last_non_empty_line_returns_none_when_all_blank() {
         assert!(last_non_empty_line(b"\n   \n\t\n", 200).is_none());
     }
 
-    #[test] fn dv_claude() { assert_eq!(detect_vendor(Some("claude")), Vendor::Claude); }
-    #[test] fn dv_claude_flags() { assert_eq!(detect_vendor(Some("claude --dangerously-skip-permissions")), Vendor::Claude); }
-    #[test] fn dv_claude_code() { assert_eq!(detect_vendor(Some("claude-code")), Vendor::Claude); }
-    #[test] fn dv_copilot() { assert_eq!(detect_vendor(Some("copilot --yolo")), Vendor::Copilot); }
-    #[test] fn dv_opencode() { assert_eq!(detect_vendor(Some("opencode")), Vendor::Opencode); }
-    #[test] fn dv_aider() { assert_eq!(detect_vendor(Some("aider --model gpt-4")), Vendor::Aider); }
-    #[test] fn dv_codex() { assert_eq!(detect_vendor(Some("codex")), Vendor::Codex); }
-    #[test] fn dv_npx_aider() { assert_eq!(detect_vendor(Some("npx aider")), Vendor::Aider); }
-    #[test] fn dv_npx_scoped_claude() { assert_eq!(detect_vendor(Some("npx @anthropic-ai/claude-code")), Vendor::Claude); }
-    #[test] fn dv_unknown_editor() { assert_eq!(detect_vendor(Some("vim foo.rs")), Vendor::Unknown); }
-    #[test] fn dv_none() { assert_eq!(detect_vendor(None), Vendor::Unknown); }
-    #[test] fn dv_empty() { assert_eq!(detect_vendor(Some("")), Vendor::Unknown); }
+    #[test]
+    fn detect_vendor_table() {
+        let cases: &[(Option<&str>, Vendor)] = &[
+            (Some("claude"), Vendor::Claude),
+            (Some("claude --dangerously-skip-permissions"), Vendor::Claude),
+            (Some("claude-code"), Vendor::Claude),
+            (Some("copilot --yolo"), Vendor::Copilot),
+            (Some("opencode"), Vendor::Opencode),
+            (Some("aider --model gpt-4"), Vendor::Aider),
+            (Some("codex"), Vendor::Codex),
+            (Some("npx aider"), Vendor::Aider),
+            (Some("npx @anthropic-ai/claude-code"), Vendor::Claude),
+            (Some("vim foo.rs"), Vendor::Unknown),
+            (None, Vendor::Unknown),
+            (Some(""), Vendor::Unknown),
+        ];
+        for (i, e) in cases { assert_eq!(detect_vendor(*i), *e, "{:?}", i); }
+    }
+
+    #[test]
+    fn vendor_wired_from_decision_command() {
+        for (cmd, want_v, want_label) in [
+            (Some("claude --dangerously-skip-permissions x"), Vendor::Claude, None),
+            (Some("vim foo.rs"), Vendor::Unknown, Some("vim foo.rs".to_string())),
+        ] {
+            let v = detect_vendor(cmd);
+            let label = matches!(v, Vendor::Unknown).then(|| cmd.map(|c| c.chars().take(40).collect::<String>())).flatten();
+            assert_eq!((v, label), (want_v, want_label));
+        }
+    }
 }
