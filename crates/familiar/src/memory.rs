@@ -63,6 +63,36 @@ impl Memory {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SummaryRow {
+    pub id: i64,
+    pub ts_ms: i64,
+    pub summary: String,
+    pub last_event_id: i64,
+}
+
+impl Memory {
+    pub fn write_summary(&self, ts_ms: i64, summary: &str, last_event_id: i64,
+                         tokens_in: i64, tokens_out: i64) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO familiar_summaries(ts_ms, summary, last_event_id, tokens_in, tokens_out)
+             VALUES (?1,?2,?3,?4,?5)",
+            (ts_ms, summary, last_event_id, tokens_in, tokens_out),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn latest_summary(&self) -> Result<Option<SummaryRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, ts_ms, summary, last_event_id
+             FROM familiar_summaries ORDER BY id DESC LIMIT 1")?;
+        let mut rows = stmt.query_map([], |r| Ok(SummaryRow {
+            id: r.get(0)?, ts_ms: r.get(1)?, summary: r.get(2)?, last_event_id: r.get(3)?,
+        }))?;
+        Ok(rows.next().transpose()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +135,17 @@ mod tests {
         }
         let from_3 = m.events_since(3).unwrap();
         assert_eq!(from_3.len(), 2);
+    }
+
+    #[test]
+    fn write_and_read_latest_summary() {
+        let m = Memory::open_in_memory().unwrap();
+        assert!(m.latest_summary().unwrap().is_none());
+        m.write_summary(1_700_000_000_000, "running tests", 42, 100, 50).unwrap();
+        m.write_summary(1_700_000_500_000, "tests green", 99, 110, 55).unwrap();
+        let s = m.latest_summary().unwrap().unwrap();
+        assert_eq!(s.summary, "tests green");
+        assert_eq!(s.last_event_id, 99);
     }
 
     #[test]
