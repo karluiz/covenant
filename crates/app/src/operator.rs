@@ -1221,7 +1221,7 @@ async fn run_tick(
         // plus one local embedding pass (~few ms on CPU). The deliberate
         // freshness means the user's just-saved correction takes effect
         // on the very next decision without invalidation logic.
-        let learned: Vec<memory::MemoryHit> = retrieve_learned_for_decision(
+        let (learned, shadowed) = retrieve_learned_for_decision(
             embedder_cell,
             storage,
             &cmd,
@@ -1621,6 +1621,38 @@ async fn run_tick(
             None => (None, None),
         };
 
+        // Task 6: Append shadow audit when an ID was applied and there were
+        // shadowed entries. Format: "applied_memory: X (shadowed: Y, Z)"
+        let final_rationale = match (applied_memory_id, shadowed.is_empty()) {
+            (Some(id), false) => {
+                let shadows_str = shadowed
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Some(format!(
+                    "{}\napplied_memory: {} (shadowed: {})",
+                    cleaned_rationale
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id,
+                    shadows_str
+                ))
+            }
+            (Some(id), true) => {
+                Some(format!(
+                    "{}\napplied_memory: {}",
+                    cleaned_rationale
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id
+                ))
+            }
+            (None, _) => cleaned_rationale,
+        };
+
         let row_id = match storage
             .save_operator_decision(
                 session_id,
@@ -1629,7 +1661,7 @@ async fn run_tick(
                 truncate(&excerpt, 4000),
                 action_str.clone(),
                 reply_text.clone(),
-                cleaned_rationale,
+                final_rationale,
                 executed,
                 call_cost_usd,
                 mission.as_ref().map(|m| m.path.display().to_string()),
@@ -2035,7 +2067,8 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
 }
 
 /// Embed the current decision context, run a hybrid vector + keyword
-/// retrieval against `operator_memories`, return the top-k winners.
+/// retrieval against `operator_memories`, return the top-k winners and
+/// any shadowed memory IDs (older entries with same decision, close score).
 /// Failures (embedder init, embedding, SQL) are downgraded to a warn
 /// log + empty list — memory retrieval NEVER fails the decision.
 async fn retrieve_learned_for_decision(
@@ -2044,7 +2077,7 @@ async fn retrieve_learned_for_decision(
     cmd: &str,
     tail: &[u8],
     mission_path: Option<&str>,
-) -> Vec<memory::MemoryHit> {
+) -> (Vec<memory::MemoryHit>, Vec<i64>) {
     // Build query text from current decision context. Tail-last-line
     // captures the prompt the executor is sitting on; cmd anchors which
     // executor it is. Strip ANSI defensively (tail is raw bytes).
@@ -2071,7 +2104,7 @@ async fn retrieve_learned_for_decision(
         Ok(e) => e,
         Err(e) => {
             tracing::warn!(error = %e, "operator memory: embedder init failed");
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
     };
     let qt = query_text.clone();
@@ -2080,11 +2113,11 @@ async fn retrieve_learned_for_decision(
             Ok(Ok(v)) => v,
             Ok(Err(e)) => {
                 tracing::warn!(error = %e, "operator memory: query embed failed");
-                return Vec::new();
+                return (Vec::new(), Vec::new());
             }
             Err(e) => {
                 tracing::warn!(error = %e, "operator memory: embed join failed");
-                return Vec::new();
+                return (Vec::new(), Vec::new());
             }
         };
     let candidates = match storage
@@ -2094,14 +2127,11 @@ async fn retrieve_learned_for_decision(
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "operator memory: vector search failed");
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
     };
-    // `_shadowed` is dropped here — Task 6 will pipe these ids through
-    // so the UI can show "n shadowed by newer memories". The let-binding
-    // stays so the channel survives this commit.
-    let (winners, _shadowed) = memory::retrieve_hybrid(candidates, &query_tags, 8);
-    winners
+    let (winners, shadowed) = memory::retrieve_hybrid(candidates, &query_tags, 8);
+    (winners, shadowed)
 }
 
 /// Always-on guidance: when the executor explicitly presents its own
@@ -3000,5 +3030,92 @@ What would you like to do?
         assert!(!block.contains(&"x".repeat(121)));
         assert!(block.contains(&"y".repeat(200)));
         assert!(!block.contains(&"y".repeat(201)));
+    }
+
+    #[test]
+    fn rationale_with_shadow_audit_formats_correctly() {
+        // Test the shadow audit format: "applied_memory: X (shadowed: Y, Z)"
+        let cleaned = Some("We did the thing.".to_string());
+        let applied_id = Some(42i64);
+        let shadowed = vec![17i64, 23i64];
+
+        // Case: applied_id present, shadowed non-empty
+        let final_rationale = match (applied_id, shadowed.is_empty()) {
+            (Some(id), false) => {
+                let shadows_str = shadowed
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Some(format!(
+                    "{}\napplied_memory: {} (shadowed: {})",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id,
+                    shadows_str
+                ))
+            }
+            (Some(id), true) => {
+                Some(format!(
+                    "{}\napplied_memory: {}",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id
+                ))
+            }
+            (None, _) => cleaned.clone(),
+        };
+
+        assert_eq!(
+            final_rationale,
+            Some("We did the thing.\napplied_memory: 42 (shadowed: 17, 23)".to_string())
+        );
+    }
+
+    #[test]
+    fn rationale_with_applied_but_no_shadow_formats_correctly() {
+        // Test simple case: "applied_memory: X" without shadow list
+        let cleaned = Some("We made a decision.".to_string());
+        let applied_id = Some(99i64);
+        let shadowed: Vec<i64> = vec![];
+
+        let final_rationale = match (applied_id, shadowed.is_empty()) {
+            (Some(id), false) => {
+                let shadows_str = shadowed
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Some(format!(
+                    "{}\napplied_memory: {} (shadowed: {})",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id,
+                    shadows_str
+                ))
+            }
+            (Some(id), true) => {
+                Some(format!(
+                    "{}\napplied_memory: {}",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id
+                ))
+            }
+            (None, _) => cleaned.clone(),
+        };
+
+        assert_eq!(
+            final_rationale,
+            Some("We made a decision.\napplied_memory: 99".to_string())
+        );
     }
 }
