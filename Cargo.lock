@@ -770,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "covenant"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2638,7 +2638,7 @@ dependencies = [
 
 [[package]]
 name = "karl-agent"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "futures-util",
  "reqwest 0.12.28",
@@ -2651,7 +2651,7 @@ dependencies = [
 
 [[package]]
 name = "karl-blocks"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "karl-pty",
@@ -2667,7 +2667,7 @@ dependencies = [
 
 [[package]]
 name = "karl-pty"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2680,7 +2680,7 @@ dependencies = [
 
 [[package]]
 name = "karl-session"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "karl-blocks",

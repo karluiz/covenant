@@ -2551,7 +2551,7 @@ export class TabManager {
     }
     items.push({ divider: true });
     items.push({
-      label: tab.operatorEnabled ? "Disable operator" : "Enable operator",
+      label: tab.operatorEnabled ? "Disable operator" : "Set operator",
       icon: Icons.bot(),
       onClick: () => this.toggleOperator(tab.id),
     });
