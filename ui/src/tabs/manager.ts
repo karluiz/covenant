@@ -1455,15 +1455,22 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     const next = !tab.operatorEnabled;
+    // Optimistic update: flip the flag and re-render BEFORE awaiting
+    // the backend so the icon disappears immediately on disable.
+    const prevEnabled = tab.operatorEnabled;
+    const prevLive = tab.operatorLive;
+    tab.operatorEnabled = next;
+    if (!next) tab.operatorLive = false;
+    this.renderTabbar();
+    if (tab.id === this.activeId) this.emitActiveOperator();
     try {
       await setOperatorEnabled(tab.sessionId, next);
-      tab.operatorEnabled = next;
-      // Backend invariant: disabling the operator also clears live.
-      // Mirror it here so the UI doesn't claim live until next render.
-      if (!next) tab.operatorLive = false;
+    } catch (err) {
+      // Roll back on failure.
+      tab.operatorEnabled = prevEnabled;
+      tab.operatorLive = prevLive;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveOperator();
-    } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_enabled failed", err);
     }
@@ -1654,6 +1661,13 @@ export class TabManager {
   /// status bar.
   public onMissionViewRequested:
     | ((mission: MissionInfo, sessionId: SessionId) => void)
+    | null = null;
+
+  /// Wired by main.ts to open the OperatorPicker for the given session.
+  /// Used by the context-menu "Set operator" entry so the user can pick
+  /// an operator instead of getting silently enabled with the default.
+  public onSetOperatorRequested:
+    | ((sessionId: SessionId) => void)
     | null = null;
 
   /// Per-tab AOM opt-out toggle. M-OP5: while AOM is on, an excluded
@@ -2553,7 +2567,15 @@ export class TabManager {
     items.push({
       label: tab.operatorEnabled ? "Disable operator" : "Set operator",
       icon: Icons.bot(),
-      onClick: () => this.toggleOperator(tab.id),
+      onClick: () => {
+        if (tab.operatorEnabled) {
+          void this.toggleOperator(tab.id);
+        } else {
+          // Open the picker so the user picks a specific operator
+          // rather than silently enabling the default.
+          this.onSetOperatorRequested?.(tab.sessionId);
+        }
+      },
     });
     if (tab.operatorEnabled) {
       if (aomOn) {

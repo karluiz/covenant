@@ -480,6 +480,7 @@ async function boot(): Promise<void> {
   // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
   operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
   statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
+  manager.onSetOperatorRequested = (sid) => { void operatorPicker.open(sid); };
 
   // ⌘⇧O → open operator picker for the active session.
   window.addEventListener("keydown", (e) => {
