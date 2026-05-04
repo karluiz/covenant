@@ -326,9 +326,10 @@ export class MissionPage {
       const { title, date } = humanizeSpecFilename(e.spec_filename);
       const planMissing = !e.plan_path;
       const statusBadge = planMissing
-        ? `<button type="button" class="mission-page-badge mission-page-badge--missing mission-page-plan-missing"
+        ? `<span class="mission-page-badge mission-page-badge--missing mission-page-plan-missing"
+                   role="button" tabindex="0"
                    data-spec="${escapeAttr(e.spec_path)}"
-                   title="Generate plan with writing-plans skill">no plan</button>`
+                   title="Generate plan with writing-plans skill">no plan</span>`
         : `<span class="mission-page-status-ok" title="spec ✓ · plan ✓" aria-label="ready">✓</span>`;
       return `
         <button type="button" class="mission-page-sp-row"
@@ -456,8 +457,8 @@ export class MissionPage {
       });
     });
 
-    host.querySelectorAll<HTMLButtonElement>(".mission-page-plan-missing").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
+    host.querySelectorAll<HTMLElement>(".mission-page-plan-missing").forEach((btn) => {
+      const trigger = (e: Event) => {
         e.stopPropagation();
         const specPath = btn.dataset.spec ?? "";
         if (!specPath) return;
@@ -465,6 +466,10 @@ export class MissionPage {
           kind: "spawnTab",
           initialCommand: `Use the writing-plans skill to create the plan for ${specPath}`,
         });
+      };
+      btn.addEventListener("click", trigger);
+      btn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") trigger(e);
       });
     });
 

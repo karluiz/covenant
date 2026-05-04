@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.7 — 2026-05-04
+
+Drag-and-drop reordering of tab groups now works in the **vertical
+sidebar** (`tabbar-left`) layout. Previously the drop-side detection
+only considered the X axis, so dragging a group chip up or down in
+the sidebar produced no visible drop target. The indicator now flips
+to a horizontal bar above/below the destination group so the landing
+spot is unambiguous.
+
+Bundled with two small fixes:
+
+- **Convergence overlay** — `Esc` now reliably closes the overlay
+  even when an xterm pane has focus (capture-phase handler beats
+  the terminal's own keydown).
+- **Mission picker "no plan" badge** — switched from `<button>` to
+  `<span role="button">` so it nests legally inside the parent row
+  button; keyboard activation (Enter/Space) preserved.
+
+### Changed
+
+- **Tab group drag-reorder** — vertical-axis drop detection + new
+  horizontal drop-indicator styles for `body.tabbar-left`.
+
+### Fixed
+
+- Convergence overlay swallows Escape via capture-phase listener.
+- Mission picker "no plan" action no longer produces invalid nested
+  `<button>` HTML.
+
 ## 0.2.6 — 2026-05-04
 
 Mission picker polish: the **Superpowers** section is no longer

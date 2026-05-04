@@ -580,6 +580,16 @@ export class TabManager {
           el.querySelector(".tab-drop-anchor")?.remove();
         });
 
+      const vertical = document.body.classList.contains("tabbar-left");
+      const sideOf = (rect: DOMRect): "left" | "right" =>
+        vertical
+          ? clientY < rect.top + rect.height / 2
+            ? "left"
+            : "right"
+          : clientX < rect.left + rect.width / 2
+            ? "left"
+            : "right";
+
       const target = document.elementFromPoint(clientX, clientY) as
         | HTMLElement
         | null;
@@ -593,11 +603,10 @@ export class TabManager {
             this.tabs.find((t) => t.id === src.id)?.groupId === groupId)
         ) {
           chip.classList.add("group-chip-drop");
-          const rect = chip.getBoundingClientRect();
           return {
             kind: "chip",
             el: chip,
-            side: clientX < rect.left + rect.width / 2 ? "left" : "right",
+            side: sideOf(chip.getBoundingClientRect()),
           };
         }
       }
@@ -614,9 +623,7 @@ export class TabManager {
         if (src.kind === "group" && tab.groupId === src.id) {
           return { kind: null, el: null, side: "left" };
         }
-        const rect = pill.getBoundingClientRect();
-        const side: "left" | "right" =
-          clientX < rect.left + rect.width / 2 ? "left" : "right";
+        const side = sideOf(pill.getBoundingClientRect());
         pill.classList.add(side === "left" ? "tab-drop-left" : "tab-drop-right");
         // Anchor dot at top of the indicator — visual cue for landing point.
         const anchor = document.createElement("span");

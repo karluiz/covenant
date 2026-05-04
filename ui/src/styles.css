@@ -840,6 +840,44 @@ body.tab-drag-active * {
     right: -6px;
 }
 
+/* Vertical-mode (sidebar) drop indicators: horizontal bars on top/bottom
+   instead of vertical stripes on left/right. "left" = above, "right" = below. */
+body.tabbar-left .tab-drop-left::after,
+body.tabbar-left .tab-drop-right::after {
+    top: auto;
+    bottom: auto;
+    left: 4px;
+    right: 4px;
+    width: auto;
+    height: 3px;
+}
+
+body.tabbar-left .tab-drop-left::after {
+    top: -4px;
+}
+
+body.tabbar-left .tab-drop-right::after {
+    bottom: -4px;
+}
+
+body.tabbar-left .tab-drop-anchor {
+    top: auto;
+    width: 7px;
+    height: 7px;
+}
+
+body.tabbar-left .tab-drop-left > .tab-drop-anchor {
+    left: -3px;
+    top: -6px;
+}
+
+body.tabbar-left .tab-drop-right > .tab-drop-anchor {
+    left: -3px;
+    right: auto;
+    bottom: -6px;
+    top: auto;
+}
+
 .tab-label-input {
     font-family:
         ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;

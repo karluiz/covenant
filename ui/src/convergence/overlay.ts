@@ -125,6 +125,9 @@ export class ConvergenceOverlay {
 
     // Two-step Esc on reply form: first Esc blurs the focused input/select,
     // second Esc (when nothing in reply is focused) closes the overlay.
+    // Capture-phase so we run before xterm's textarea swallows Escape and
+    // sends it to the PTY — otherwise the window-level Esc handler in
+    // main.ts never fires while a terminal has focus.
     this.escHandler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const active = document.activeElement as HTMLElement | null;
@@ -134,6 +137,9 @@ export class ConvergenceOverlay {
         active.blur();
         return;
       }
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
     };
     document.addEventListener("keydown", this.escHandler, { capture: true });
   }
