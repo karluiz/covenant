@@ -28,6 +28,7 @@ import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { StatusBar } from "./status/bar";
+import { Roster } from "./familiars/roster";
 import { TabManager } from "./tabs/manager";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
@@ -726,6 +727,22 @@ async function boot(): Promise<void> {
     }
   });
 }
+
+const roster = new Roster();
+// Hook to deliver an approved directive into the operator session. The
+// project's operator-input command is `write_to_session`, which accepts
+// raw bytes; encode the rendered string as UTF-8.
+roster.onDeliverDirective = async (sessionId, rendered) => {
+  const bytes = new TextEncoder().encode(rendered);
+  await invoke("write_to_session", { id: sessionId, data: Array.from(bytes) });
+};
+
+window.addEventListener("keydown", (e) => {
+  if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "m") {
+    e.preventDefault();
+    roster.toggle();
+  }
+});
 
 void boot().catch((err) => {
   // eslint-disable-next-line no-console
