@@ -100,8 +100,11 @@ Five surgical changes:
   additive, default `false` for old manifests.
 - `serializeManifest()`: include `aom_excluded: t.aomExcluded`.
 - `restoreFromManifest()`: after `createTab` and after restoring
-  `mission_path` / `operator_id`, if persisted `aom_excluded === true`,
-  call `setAomExcluded(created.sessionId, true)`.
+  `mission_path` / `operator_id`, always call
+  `setAomExcluded(created.sessionId, persisted ?? false)`. Calling
+  unconditionally (instead of only when `true`) costs one extra IPC
+  per tab and stays correct if the backend default ever changes —
+  e.g., if AOM state becomes persistent across app restarts.
 - New tab during AOM active: existing default at `lib.rs:354`
   (`aom_excluded = aom_active_now`) is correct — new tabs born during
   AOM start excluded. No change.
