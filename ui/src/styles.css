@@ -913,8 +913,7 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
             var(--group-color, var(--border)) 22%,
             var(--tab-border-hover)
         );
-    border-bottom: none;
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    border-radius: var(--tab-radius);
     color: color-mix(in srgb, var(--group-color, var(--muted)) 80%, #fff 20%);
     font-family:
         var(--ui-font);
@@ -943,12 +942,17 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     cursor: grabbing;
 }
 
-/* ── Tab group shell — lateral stripe + body container ── */
+/* ── Tab group shell — lateral stripe + body container ──
+   Default is horizontal mode (top tab bar): shell is a row, body is a
+   row, stripe is a thin vertical bar to the left of the chip+tabs.
+   `body.tabbar-left` overrides further down switch the body back to a
+   column for the vertical sidebar. */
 .tab-group-shell {
     display: flex;
+    flex-direction: row;
     align-items: stretch;
-    gap: 8px;
-    margin: 0 0 6px 0;
+    gap: 4px;
+    margin: 0 6px 0 0;
 }
 
 .tab-group-shell-colored .tab-group-stripe {
@@ -956,25 +960,25 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
 }
 
 .tab-group-stripe {
-    width: 3px;
+    width: 2px;
     border-radius: 2px;
-    background: var(--muted);
+    background: color-mix(in srgb, var(--muted) 50%, transparent);
     flex-shrink: 0;
     align-self: stretch;
+    margin: 4px 0;
 }
 
 .tab-group-body {
     display: flex;
-    flex-direction: column;
-    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: center;
+    flex: 0 1 auto;
     min-width: 0;
+    gap: 0;
 }
 
-/* Use margin-top instead of `gap` so folded members (which already
-   reset their own margin to 0) don't inject phantom space when the
-   group is collapsed. */
 .tab-group-body > * + * {
-    margin-top: 2px;
+    margin-left: 0;
 }
 
 .group-chip-colored {
@@ -1125,11 +1129,19 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     display: none; /* group ::after stripe owns the top edge */
 }
 
-/* Chip + first member fusion. The chip's right edge bleeds into the
-   first member's left edge, forming one continuous silhouette. */
+/* Chip + first member fusion. In horizontal mode the chip's right edge
+   bleeds into the first member tab's left edge. In vertical mode the
+   bottom edge fuses with the first member below (handled in the
+   `body.tabbar-left` block). */
 .group-chip-has-members {
     border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
     border-right-color: transparent;
+}
+
+body.tabbar-left .group-chip-has-members {
+    border-top-right-radius: 6px;
+    border-right-color: inherit;
 }
 
 .tab-label {
@@ -6472,6 +6484,28 @@ body.tabbar-left .tab-btn.active::before {
 /* Group member indent so the hierarchy reads at a glance. */
 body.tabbar-left .tab-grouped {
     padding-left: 22px;
+}
+
+/* Restore vertical-stack body for sidebar (horizontal default uses row). */
+body.tabbar-left .tab-group-shell {
+    margin: 0 0 6px 0;
+    gap: 8px;
+}
+body.tabbar-left .tab-group-stripe {
+    width: 3px;
+    margin: 0;
+    background: var(--muted);
+}
+body.tabbar-left .tab-group-shell-colored .tab-group-stripe {
+    background: var(--group-color, var(--accent));
+}
+body.tabbar-left .tab-group-body {
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 auto;
+}
+body.tabbar-left .tab-group-body > * + * {
+    margin-top: 2px;
 }
 
 /* Group chip — full-width row, left-stripe colored. */
