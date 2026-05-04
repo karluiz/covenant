@@ -35,7 +35,7 @@ use tokio::sync::Mutex;
 
 use crate::history_import::ZshHistoryEntry;
 
-const SCHEMA: &str = "\
+pub(crate) const SCHEMA: &str = "\
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA synchronous = NORMAL;

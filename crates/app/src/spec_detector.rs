@@ -7,7 +7,8 @@
 //! - `docs/superpowers/specs/*-design.md` → Superpowers
 //! - anything else → not a candidate (returns None)
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use rusqlite::Connection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -108,6 +109,45 @@ pub fn extract_goal_snippet(md: &str, max_chars: usize) -> String {
     format!("{}…", truncated)
 }
 
+/// Recursively walk the spec directories under `repo_root` and insert
+/// every recognized spec into `seen_specs`. Returns the number of new
+/// rows inserted (existing rows are ignored — idempotent).
+pub fn snapshot_existing(
+    conn: &Connection,
+    repo_root: &Path,
+    now_unix_ms: i64,
+) -> rusqlite::Result<usize> {
+    let mut inserted = 0usize;
+    for sub in ["docs/specs", "docs/superpowers/specs"] {
+        let dir = repo_root.join(sub);
+        if !dir.is_dir() {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if classify_spec(repo_root, &path).is_none() {
+                continue;
+            }
+            let path_str = path.to_string_lossy().into_owned();
+            let root_str = repo_root.to_string_lossy().into_owned();
+            let n = conn.execute(
+                "INSERT OR IGNORE INTO seen_specs (repo_root, path, first_seen_at) \
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![root_str, path_str, now_unix_ms],
+            )?;
+            inserted += n;
+        }
+    }
+    Ok(inserted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +239,80 @@ mod tests {
     fn extract_title_returns_none_without_h1() {
         let md = "## Goal\n";
         assert_eq!(extract_title(md), None);
+    }
+
+    #[test]
+    fn snapshot_inserts_existing_specs_and_skips_unrelated() {
+        use rusqlite::Connection;
+        use std::fs;
+        use tempfile::TempDir;
+        use std::sync::Once;
+
+        static INIT: Once = Once::new();
+        INIT.call_once(|| unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        });
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("docs/specs/drafts")).unwrap();
+        fs::create_dir_all(root.join("docs/superpowers/specs")).unwrap();
+        fs::write(root.join("docs/specs/3.1-foo.md"), "# 3.1 — Foo\n".as_bytes()).unwrap();
+        fs::write(root.join("docs/specs/_template.md"), b"# template\n").unwrap();
+        fs::write(root.join("docs/specs/drafts/wip.md"), b"# wip\n").unwrap();
+        fs::write(
+            root.join("docs/superpowers/specs/2026-05-04-bar-design.md"),
+            b"# bar\n",
+        )
+        .unwrap();
+        fs::write(root.join("README.md"), b"# readme").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(crate::storage::SCHEMA).unwrap();
+
+        let inserted = snapshot_existing(&conn, root, 1234).unwrap();
+        assert_eq!(inserted, 2, "only 2 valid specs counted");
+
+        let rows: Vec<String> = conn
+            .prepare("SELECT path FROM seen_specs ORDER BY path")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        assert!(rows.iter().any(|p| p.ends_with("3.1-foo.md")));
+        assert!(rows
+            .iter()
+            .any(|p| p.ends_with("2026-05-04-bar-design.md")));
+    }
+
+    #[test]
+    fn snapshot_is_idempotent() {
+        use rusqlite::Connection;
+        use std::fs;
+        use tempfile::TempDir;
+        use std::sync::Once;
+
+        static INIT: Once = Once::new();
+        INIT.call_once(|| unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        });
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("docs/specs")).unwrap();
+        fs::write(root.join("docs/specs/3.1-foo.md"), b"# 3.1\n").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(crate::storage::SCHEMA).unwrap();
+
+        let first = snapshot_existing(&conn, root, 100).unwrap();
+        let second = snapshot_existing(&conn, root, 200).unwrap();
+        assert_eq!(first, 1);
+        assert_eq!(second, 0, "second snapshot inserts nothing");
     }
 }
