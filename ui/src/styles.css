@@ -5578,8 +5578,23 @@ button.status-segment.status-aom.status-aom-warn:hover {
   gap: 16px;
 }
 
+.convergence-overlay__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.convergence-overlay__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .convergence-overlay__exit {
-  align-self: flex-end;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   color: var(--fg, inherit);
@@ -5603,6 +5618,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
   color: var(--muted);
   font-size: 14px;
 }
+.convergence-overlay__empty[hidden] { display: none; }
 
 .convergence-tile {
   background: var(--bg-panel);
