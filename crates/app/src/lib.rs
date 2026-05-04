@@ -789,7 +789,8 @@ fn resolve_scope(ui_scope: &str, mission_path: Option<&str>) -> Option<String> {
 /// path logs and falls through. The caller's command must succeed
 /// regardless so the user's reply unblocks the session.
 async fn persist_convergence_memory(
-    state: &AppState,
+    storage: &Storage,
+    embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     session_id: &SessionId,
     text: &str,
     ui_scope: &str,
@@ -801,7 +802,7 @@ async fn persist_convergence_memory(
         let s = session_id.0.to_string();
         if s.len() > 6 { s[s.len() - 6..].to_string() } else { s }
     };
-    let recent = match state.storage.list_operator_decisions(50).await {
+    let recent = match storage.list_operator_decisions(50).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "list_operator_decisions failed; persisting without context");
@@ -853,7 +854,7 @@ async fn persist_convergence_memory(
     let tags = memory::extract_tags(&combined).join(" ");
 
     // Embedding — runs on a blocking task because fastembed is sync.
-    let embedder = match get_embedder(state).await {
+    let embedder = match get_embedder_from_cell(embedder_cell.as_ref()).await {
         Ok(e) => e,
         Err(e) => {
             tracing::warn!(error = %e, "embedder init failed; skipping memory persist");
@@ -873,8 +874,7 @@ async fn persist_convergence_memory(
         }
     };
 
-    match state
-        .storage
+    match storage
         .insert_memory(
             &pattern,
             text,
@@ -909,12 +909,13 @@ async fn submit_convergence_reply(
 
     let id = parse_id(&session_id)?;
 
-    // 3.13 Task 3 — persist convergence reply as a learned memory
-    // BEFORE the resolution channel send, so the next operator tick
-    // can already see the new memory in DB. Persistence failures NEVER
-    // fail the command: they log and continue.
-    persist_convergence_memory(&state, &id, &text, &scope).await;
-
+    // 3.13 perf: unblock the user's session FIRST. Send resolution and
+    // emit the event synchronously, then persist the learned memory in
+    // a detached task. Persistence can take seconds on first reply
+    // post-boot (fastembed model cold start) — the user's session must
+    // not wait on it. The next operator tick (≥500ms later in practice)
+    // will see the new memory once the detached task lands; if not,
+    // the pattern simply won't match yet. Acceptable.
     state
         .operator
         .resolution_sender()
@@ -936,6 +937,16 @@ async fn submit_convergence_reply(
             "text_hash": text_hash,
         }),
     );
+
+    // Detached persistence — errors logged, never fail the command.
+    let storage = state.storage.clone();
+    let embedder_cell = state.embedder.clone();
+    let scope_owned = scope.clone();
+    let text_owned = text.clone();
+    tokio::spawn(async move {
+        persist_convergence_memory(&storage, &embedder_cell, &id, &text_owned, &scope_owned).await;
+    });
+
     Ok(())
 }
 
