@@ -879,10 +879,11 @@ async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // Read budget from settings ONCE at start time so a mid-session
     // settings change doesn't shift the cap underneath the user.
     let budget = state.settings.lock().await.aom.default_budget_usd;
-    // Fresh AOM session = fresh per-tab exclusions. Saves the user
-    // from the "I don't remember which tabs I excluded last time"
-    // foot-gun on a new sleep period.
-    state.operator.clear_all_aom_excluded().await;
+    // M-OP5+: per-tab `aom_excluded` is persistent across AOM cycles.
+    // The user opts tabs IN/OUT explicitly via the tab badge, ⌘⇧E, the
+    // tab context menu, or the "Include all" action in the AOM popover.
+    // We deliberately do NOT reset here — the previous reset surprised
+    // users who marked a tab manual and lost it the next time AOM ran.
     // M-OP5 UX fix: AOM is "one button does it all". Auto-enable
     // Operator on every tab that doesn't already have it. We track
     // which tabs we touched so `aom_stop` reverts exactly them
