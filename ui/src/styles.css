@@ -6651,11 +6651,16 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
 /* ---- Drafts page ---- */
 #drafts-page {
   display: grid;
-  grid-template-rows: 56px 1fr;
+  grid-template-rows: auto 1fr;
   background: rgb(11 13 16 / 0.92);
   color: var(--fg);
   overflow: hidden;
   animation: settings-fade 0.12s ease-out;
+}
+.drafts-topbar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-tabbar);
 }
 #drafts-page[hidden] {
   display: none;
@@ -6667,6 +6672,7 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
   display: flex;
   align-items: center;
   gap: 12px;
+  height: 56px;
   padding: 0 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-tabbar);
@@ -6685,6 +6691,7 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
 }
 .drafts-close:hover, .drafts-back:hover { color: var(--fg); }
 .drafts-list { list-style: none; margin: 0; padding: 8px 24px; overflow-y: auto; min-height: 0; }
+.drafts-list--empty { display: flex; align-items: center; justify-content: center; padding: 24px; }
 .drafts-row {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 0; border-bottom: 1px solid var(--border);

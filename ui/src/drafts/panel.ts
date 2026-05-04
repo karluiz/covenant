@@ -80,14 +80,16 @@ export class DraftsPanel {
       </nav>
     `;
     const headerHtml = (newButton: boolean): string => `
-      <header class="drafts-header">
-        <h1>${this.tab === "drafts" ? "Drafts" : "Published specs"}</h1>
-        <div class="drafts-actions">
-          ${newButton ? `<button id="drafts-new" type="button" class="drafts-primary">+ New draft</button>` : ""}
-          <button id="drafts-close" type="button" class="drafts-close" aria-label="Close">×</button>
-        </div>
-      </header>
-      ${tabsHtml}
+      <div class="drafts-topbar">
+        <header class="drafts-header">
+          <h1>${this.tab === "drafts" ? "Drafts" : "Published specs"}</h1>
+          <div class="drafts-actions">
+            ${newButton ? `<button id="drafts-new" type="button" class="drafts-primary">+ New draft</button>` : ""}
+            <button id="drafts-close" type="button" class="drafts-close" aria-label="Close">×</button>
+          </div>
+        </header>
+        ${tabsHtml}
+      </div>
     `;
 
     if (this.tab === "drafts") {
@@ -114,7 +116,7 @@ export class DraftsPanel {
         .join("");
       this.pageHost.innerHTML = `
         ${headerHtml(true)}
-        <ul class="drafts-list">
+        <ul class="drafts-list${rows ? "" : " drafts-list--empty"}">
           ${rows || `<li class="drafts-empty">No drafts yet. Click <strong>+ New draft</strong> to start.</li>`}
         </ul>
       `;
@@ -167,7 +169,7 @@ export class DraftsPanel {
       .join("");
     this.pageHost.innerHTML = `
       ${headerHtml(false)}
-      <ul class="drafts-list">
+      <ul class="drafts-list${rows ? "" : " drafts-list--empty"}">
         ${rows || `<li class="drafts-empty">No published specs yet.</li>`}
       </ul>
     `;
