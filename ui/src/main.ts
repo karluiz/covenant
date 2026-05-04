@@ -543,9 +543,8 @@ async function boot(): Promise<void> {
       searchPalette.toggle();
       return;
     }
-    // ⌘⌥O → Convergence Mode overlay (spec 3.8). Toggles full-window.
-    // (Was ⌘⇧O; clashed with Octoclip's global shortcut.)
-    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "O" || e.key === "o" || e.key === "ø")) {
+    // ⌘⇧M → Convergence Mode overlay (spec 3.8). Toggles full-window.
+    if (e.metaKey && e.shiftKey && (e.key === "M" || e.key === "m")) {
       e.preventDefault();
       convergence.toggle();
       return;
