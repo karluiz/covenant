@@ -3,7 +3,7 @@ import {
   submitConvergenceReply,
   type ConvergenceTileState,
 } from "../api";
-import { renderTile } from "./tile";
+import { renderTile, updateTile } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -29,6 +29,7 @@ export class ConvergenceOverlay {
   private pollHandle: number | null = null;
   private visible = false;
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
+  private tiles = new Map<string, HTMLElement>();
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -64,6 +65,7 @@ export class ConvergenceOverlay {
     this.root = null;
     this.grid = null;
     this.empty = null;
+    this.tiles.clear();
   }
 
   private mount(): void {
@@ -149,14 +151,53 @@ export class ConvergenceOverlay {
 
     if (ordered.length === 0) {
       this.grid.replaceChildren();
+      this.tiles.clear();
       this.empty.hidden = false;
       return;
     }
     this.empty.hidden = true;
-    const frag = document.createDocumentFragment();
     const submit = this.submitReply.bind(this);
-    for (const { state, tab } of ordered) frag.append(renderTile(state, tab, submit));
-    this.grid.replaceChildren(frag);
+
+    // Build/update tiles, tracking which session ids are still present.
+    const present = new Set<string>();
+    for (const { state, tab } of ordered) {
+      present.add(state.session_id);
+      let el = this.tiles.get(state.session_id);
+      if (el && el.parentNode === this.grid) {
+        updateTile(el, state, tab, submit);
+      } else {
+        el = renderTile(state, tab, submit);
+        this.tiles.set(state.session_id, el);
+        this.grid.append(el);
+      }
+    }
+
+    // Drop tiles whose session vanished.
+    for (const [id, el] of this.tiles) {
+      if (!present.has(id)) {
+        el.remove();
+        this.tiles.delete(id);
+      }
+    }
+
+    // Reorder only if the current DOM order differs from the desired order.
+    // Avoids touching the DOM on the common steady-state tick.
+    const children = this.grid.children;
+    let needsReorder = children.length !== ordered.length;
+    if (!needsReorder) {
+      for (let i = 0; i < ordered.length; i++) {
+        if (children[i] !== this.tiles.get(ordered[i].state.session_id)) {
+          needsReorder = true;
+          break;
+        }
+      }
+    }
+    if (needsReorder) {
+      for (const { state } of ordered) {
+        const el = this.tiles.get(state.session_id);
+        if (el) this.grid.append(el);
+      }
+    }
   }
 
   /**
