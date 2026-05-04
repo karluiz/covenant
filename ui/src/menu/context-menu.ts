@@ -20,6 +20,8 @@ export interface MenuItem {
   }>;
   danger?: boolean;
   disabled?: boolean;
+  /// Optional keyboard-shortcut hint shown right-aligned (e.g. "⌘T").
+  shortcut?: string;
 }
 
 export class ContextMenu {
@@ -139,6 +141,13 @@ export class ContextMenu {
     labelEl.className = "ctx-item-label";
     labelEl.textContent = item.label ?? "";
     btn.appendChild(labelEl);
+
+    if (item.shortcut) {
+      const kbd = document.createElement("span");
+      kbd.className = "ctx-item-shortcut";
+      kbd.textContent = item.shortcut;
+      btn.appendChild(kbd);
+    }
 
     if (item.onClick && !item.disabled) {
       btn.addEventListener("click", async () => {

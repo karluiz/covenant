@@ -549,6 +549,12 @@ async function boot(): Promise<void> {
       convergence.toggle();
       return;
     }
+    // ⌘⇧G → create a new empty tab group (no member tab needed).
+    if (e.metaKey && e.shiftKey && (e.key === "G" || e.key === "g")) {
+      e.preventDefault();
+      manager.createEmptyGroup();
+      return;
+    }
     // ⌘⇧K → Keyboard shortcuts modal (read-only list).
     if (e.metaKey && e.shiftKey && (e.key === "K" || e.key === "k")) {
       e.preventDefault();

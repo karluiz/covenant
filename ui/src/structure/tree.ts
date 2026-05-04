@@ -7,6 +7,7 @@
 
 import { Icons } from "../icons";
 import {
+  structureCreatePath,
   structureListDir,
   structureRenamePath,
   structureTrashPath,
@@ -33,6 +34,7 @@ interface NodeState {
 }
 
 const LS_KEY_PREFIX = "covenant.structure.expanded.";
+const LS_KEY_SHOW_IGNORED = "covenant.structure.showIgnored";
 
 function loadExpanded(cwd: string): Set<string> {
   try {
@@ -54,6 +56,22 @@ function saveExpanded(cwd: string, paths: Set<string>): void {
   }
 }
 
+function loadShowIgnored(): boolean {
+  try {
+    return localStorage.getItem(LS_KEY_SHOW_IGNORED) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveShowIgnored(value: boolean): void {
+  try {
+    localStorage.setItem(LS_KEY_SHOW_IGNORED, value ? "1" : "0");
+  } catch {
+    /* quota — non-fatal */
+  }
+}
+
 export class StructureTree {
   private readonly root: HTMLElement;
   private readonly listEl: HTMLUListElement;
@@ -63,6 +81,16 @@ export class StructureTree {
   private nodes: NodeState[] = [];
   private expandedPaths: Set<string> = new Set();
   private visible = false;
+  /// User toggle for surfacing gitignored files (e.g. `.env`). Persisted
+  /// globally — once a user opts in we keep it on across cwds.
+  private showIgnored: boolean = loadShowIgnored();
+  /// Monotonic generation counter. Each `refreshRoot` captures the
+  /// current value and re-checks after its `await structureListDir(…)`
+  /// — if a newer refresh has started in the meantime (cwd flip,
+  /// toggle, manual button) the older callback bails before touching
+  /// the DOM. Without this, two interleaved refreshes both clear
+  /// `listEl` and then both append, doubling every entry.
+  private refreshGen = 0;
 
   constructor(
     private readonly host: HTMLElement,
@@ -130,6 +158,42 @@ export class StructureTree {
     label.textContent = shortenCwd(cwd);
     this.headerEl.appendChild(label);
 
+    const newFile = document.createElement("button");
+    newFile.type = "button";
+    newFile.className = "structure-action";
+    newFile.title = "New file";
+    newFile.innerHTML = Icons.filePen({ size: 12 });
+    newFile.addEventListener("click", () => {
+      this.startCreateAtRoot("file");
+    });
+    this.headerEl.appendChild(newFile);
+
+    const newFolder = document.createElement("button");
+    newFolder.type = "button";
+    newFolder.className = "structure-action";
+    newFolder.title = "New folder";
+    newFolder.innerHTML = Icons.folder({ size: 12 });
+    newFolder.addEventListener("click", () => {
+      this.startCreateAtRoot("dir");
+    });
+    this.headerEl.appendChild(newFolder);
+
+    const showIgnored = document.createElement("button");
+    showIgnored.type = "button";
+    showIgnored.className = "structure-action structure-toggle-ignored";
+    showIgnored.title = this.showIgnored
+      ? "Hide gitignored files (.env, build artifacts, …)"
+      : "Show gitignored files (.env, build artifacts, …)";
+    if (this.showIgnored) showIgnored.classList.add("structure-action-active");
+    showIgnored.innerHTML = Icons.eye({ size: 12 });
+    showIgnored.addEventListener("click", () => {
+      this.showIgnored = !this.showIgnored;
+      saveShowIgnored(this.showIgnored);
+      this.renderHeader(cwd);
+      void this.refresh();
+    });
+    this.headerEl.appendChild(showIgnored);
+
     const refresh = document.createElement("button");
     refresh.type = "button";
     refresh.className = "structure-refresh";
@@ -143,15 +207,21 @@ export class StructureTree {
 
   private async refreshRoot(): Promise<void> {
     if (!this.cwd) return;
+    const gen = ++this.refreshGen;
+    const cwd = this.cwd;
     this.listEl.innerHTML = "";
     this.nodes = [];
     let entries: DirEntry[];
     try {
-      entries = await structureListDir(this.cwd);
+      entries = await structureListDir(cwd, this.showIgnored);
     } catch (err) {
+      if (gen !== this.refreshGen) return;
       this.showError(String(err));
       return;
     }
+    // A newer refresh ran while we were awaiting — drop our result so
+    // we don't double-append into the list the newer call cleared.
+    if (gen !== this.refreshGen) return;
     if (entries.length === 0) {
       this.emptyEl.hidden = false;
       return;
@@ -161,9 +231,12 @@ export class StructureTree {
       const node = this.makeNode(entry, 0);
       this.nodes.push(node);
       this.listEl.appendChild(node.el);
-      // Restore expanded state (depth-first).
+      // Restore expanded state (depth-first). Bail if a newer refresh
+      // started — `expand` runs more awaits and would otherwise append
+      // children into a stale tree.
       if (this.expandedPaths.has(entry.path) && entry.kind === "dir") {
         await this.expand(node);
+        if (gen !== this.refreshGen) return;
       }
     }
   }
@@ -235,6 +308,24 @@ export class StructureTree {
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
     menu.dataset.kind = "structure-context-menu";
+
+    // For directories, offer creating new entries inside them. We
+    // skip this for files (parent is implicit) and for symlinked
+    // dirs (we don't traverse those).
+    if (node.entry.kind === "dir" && !node.entry.is_symlink) {
+      menu.appendChild(
+        makeMenuItem("New File", () => {
+          closeAnyContextMenu();
+          void this.startCreateInDir(node, "file");
+        }),
+      );
+      menu.appendChild(
+        makeMenuItem("New Folder", () => {
+          closeAnyContextMenu();
+          void this.startCreateInDir(node, "dir");
+        }),
+      );
+    }
 
     const rename = makeMenuItem("Rename", () => {
       closeAnyContextMenu();
@@ -341,6 +432,130 @@ export class StructureTree {
     await this.refresh();
   }
 
+  /// Inline-create at the tree root. Adds a placeholder `<li>` with an
+  /// input at the top of the list; Enter commits, Escape/blur cancels.
+  /// We deliberately don't pre-mutate the data model: only after the
+  /// backend confirms creation do we re-list, which keeps the row in
+  /// the correct sort position.
+  private startCreateAtRoot(kind: "file" | "dir"): void {
+    if (!this.cwd) return;
+    this.startInlineCreate(this.cwd, kind, this.listEl, 0, null);
+  }
+
+  /// Inline-create inside an expanded directory node. Expands the dir
+  /// first if it isn't already (so the input shows up where the new
+  /// child will land).
+  private async startCreateInDir(
+    node: NodeState,
+    kind: "file" | "dir",
+  ): Promise<void> {
+    if (node.entry.kind !== "dir" || node.entry.is_symlink) return;
+    if (!node.expanded) await this.expand(node);
+    let childList = node.el.querySelector<HTMLUListElement>(".structure-children");
+    if (!childList) {
+      childList = document.createElement("ul");
+      childList.className = "structure-children";
+      node.el.appendChild(childList);
+    }
+    childList.hidden = false;
+    this.startInlineCreate(node.entry.path, kind, childList, node.depth + 1, node);
+  }
+
+  private startInlineCreate(
+    parentPath: string,
+    kind: "file" | "dir",
+    container: HTMLUListElement,
+    depth: number,
+    parentNode: NodeState | null,
+  ): void {
+    // If a creation row is already open, focus it instead of stacking.
+    const existing = container.querySelector(".structure-create-row");
+    if (existing instanceof HTMLElement) {
+      const input = existing.querySelector("input");
+      if (input instanceof HTMLInputElement) input.focus();
+      return;
+    }
+
+    const li = document.createElement("li");
+    li.className = "structure-node structure-create-row";
+    li.dataset.kind = kind === "dir" ? "dir" : "file";
+    li.style.setProperty("--depth", String(depth));
+
+    const row = document.createElement("div");
+    row.className = "structure-row";
+    li.appendChild(row);
+
+    const chevron = document.createElement("span");
+    chevron.className = "structure-chevron";
+    if (kind === "dir") chevron.innerHTML = Icons.chevronRight({ size: 11 });
+    row.appendChild(chevron);
+
+    const icon = document.createElement("span");
+    icon.className = "structure-icon";
+    icon.innerHTML =
+      kind === "dir"
+        ? Icons.folder({ size: 13 })
+        : Icons.fileText({ size: 13 });
+    row.appendChild(icon);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "structure-rename-input";
+    input.placeholder = kind === "dir" ? "new-folder" : "new-file";
+    input.spellcheck = false;
+    row.appendChild(input);
+
+    container.insertBefore(li, container.firstChild);
+    input.focus();
+
+    let done = false;
+    const finish = (commit: boolean): void => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      li.remove();
+      if (!commit || name.length === 0 || name.includes("/")) return;
+      const sep = parentPath.endsWith("/") ? "" : "/";
+      const newPath = `${parentPath}${sep}${name}`;
+      void this.applyCreate(newPath, kind, parentNode);
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  private async applyCreate(
+    path: string,
+    kind: "file" | "dir",
+    parentNode: NodeState | null,
+  ): Promise<void> {
+    try {
+      await structureCreatePath(path, kind);
+    } catch (err) {
+      this.showError(`Create failed: ${err}`);
+      await this.refresh();
+      return;
+    }
+    // Persist the parent's expanded state so the post-refresh tree
+    // doesn't snap closed and hide the just-created entry.
+    if (parentNode && this.cwd) {
+      this.expandedPaths.add(parentNode.entry.path);
+      saveExpanded(this.cwd, this.expandedPaths);
+    }
+    await this.refresh();
+    // For files, jump straight into editing it — matches what the
+    // user wanted when they clicked "New File".
+    if (kind === "file") this.onFileClick(path);
+  }
+
   private async confirmAndTrash(node: NodeState): Promise<void> {
     const ok = await confirmTrash(node.entry.name, node.entry.kind);
     if (!ok) return;
@@ -371,7 +586,7 @@ export class StructureTree {
     }
     let entries: DirEntry[];
     try {
-      entries = await structureListDir(node.entry.path);
+      entries = await structureListDir(node.entry.path, this.showIgnored);
     } catch (err) {
       const errEl = document.createElement("div");
       errEl.className = "structure-error";

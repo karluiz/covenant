@@ -587,17 +587,57 @@ fn spawn_superpowers_watcher(app: tauri::AppHandle) {
     });
 }
 
-/// Discover Superpowers spec/plan pairs under the project's
-/// `docs/superpowers/specs/` directory. Used by the mission picker
-/// to surface paired plans alongside Covenant specs.
+/// Walk up from `cwd` (and then process cwd) looking for a directory
+/// that contains `docs/superpowers/specs/`. Returns the first match.
+fn resolve_superpowers_root(cwd: Option<&str>) -> Option<std::path::PathBuf> {
+    fn walk(start: std::path::PathBuf) -> Option<std::path::PathBuf> {
+        let needle = std::path::Path::new("docs/superpowers/specs");
+        let mut cur = start;
+        loop {
+            if cur.join(needle).exists() {
+                return Some(cur);
+            }
+            match cur.parent() {
+                Some(p) => cur = p.to_path_buf(),
+                None => return None,
+            }
+        }
+    }
+    if let Some(c) = cwd {
+        if let Some(found) = walk(std::path::PathBuf::from(c)) {
+            return Some(found);
+        }
+    }
+    if let Ok(p) = std::env::current_dir() {
+        if let Some(found) = walk(p) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Discover Superpowers spec/plan pairs under a project's
+/// `docs/superpowers/specs/` directory.
+///
+/// Resolution order for the project root:
+///   1. The provided `cwd` (typically the active tab's cwd), walking
+///      up parent directories until one contains `docs/superpowers/specs/`.
+///   2. If `cwd` is `None` or no ancestor matches, fall back to the
+///      process's `current_dir()`.
+///
+/// Returning `Ok(vec![])` when nothing is found is intentional — the
+/// picker just shows "No Superpowers specs yet."
 #[tauri::command]
 async fn list_superpowers_missions(
     state: State<'_, AppState>,
+    cwd: Option<String>,
 ) -> Result<Vec<SuperpowersMissionEntry>, String> {
     let _ = state;
-    let root = std::env::current_dir().map_err(|e| e.to_string())?;
+    let root = resolve_superpowers_root(cwd.as_deref())
+        .ok_or_else(|| "could not resolve a docs/superpowers root".to_string())?;
     let specs_dir = root.join("docs/superpowers/specs");
     let plans_dir = root.join("docs/superpowers/plans");
+    tracing::debug!(?specs_dir, ?plans_dir, "list_superpowers_missions resolved");
     let mut out = Vec::new();
     if !specs_dir.exists() {
         return Ok(out);
@@ -1602,11 +1642,36 @@ async fn ask_agent(
 }
 
 #[tauri::command]
-async fn structure_list_dir(cwd: String) -> Result<Vec<structure::DirEntry>, String> {
+async fn structure_list_dir(
+    cwd: String,
+    show_ignored: Option<bool>,
+) -> Result<Vec<structure::DirEntry>, String> {
     let path = PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || structure::list_dir(&path))
+    let show_ignored = show_ignored.unwrap_or(false);
+    tokio::task::spawn_blocking(move || structure::list_dir(&path, show_ignored))
         .await
         .map_err(|e| format!("list_dir join: {e}"))?
+}
+
+/// Create an empty file or directory at `path`. The frontend
+/// resolves the user-typed name into an absolute path before calling
+/// us so we never have to interpret relative segments here. `kind`
+/// is "file" or "dir"; anything else is rejected.
+#[tauri::command]
+async fn structure_create_path(
+    path: String,
+    kind: String,
+) -> Result<String, String> {
+    let p = PathBuf::from(path);
+    match kind.as_str() {
+        "file" => tokio::task::spawn_blocking(move || structure::create_file(&p))
+            .await
+            .map_err(|e| format!("create_file join: {e}"))?,
+        "dir" => tokio::task::spawn_blocking(move || structure::create_dir(&p))
+            .await
+            .map_err(|e| format!("create_dir join: {e}"))?,
+        other => Err(format!("unknown create kind: {other}")),
+    }
 }
 
 /// Hard cap on the per-file read size to keep memory bounded. The
@@ -1912,6 +1977,7 @@ pub fn run() {
             recent_blocks_by_cwd,
             get_dir_context,
             structure_list_dir,
+            structure_create_path,
             structure_read_file,
             structure_write_file,
             structure_write_binary_file,

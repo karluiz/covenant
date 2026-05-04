@@ -26,6 +26,7 @@ export type PickerResult =
   | { kind: "setRef"; mref: MissionRef }
   | { kind: "publishDraft"; slug: string }
   | { kind: "spawnTab"; initialCommand: string }
+  | { kind: "newSuperpowersMission" }
   | null;
 
 export interface MissionPickerOpts {
@@ -111,6 +112,7 @@ export function openMissionPicker(opts: MissionPickerOpts): Promise<PickerResult
         onPublishDraft: (slug) => cleanup({ kind: "publishDraft", slug }),
         onSelectSuperpowers: (mref) => cleanup({ kind: "setRef", mref }),
         onSpawnTab: (initialCommand) => cleanup({ kind: "spawnTab", initialCommand }),
+        onNewSuperpowers: () => cleanup({ kind: "newSuperpowersMission" }),
       });
     };
 
@@ -137,7 +139,7 @@ export function openMissionPicker(opts: MissionPickerOpts): Promise<PickerResult
     Promise.all([
       draftsApi.listPublishedSpecs(opts.repoRoot),
       draftsApi.list(opts.repoRoot),
-      listSuperpowersMissions().catch(() => [] as SuperpowersMissionEntry[]),
+      listSuperpowersMissions(opts.repoRoot).catch(() => [] as SuperpowersMissionEntry[]),
     ]).then(([specs, drafts, superpowers]) => {
       state = { ...state, specs, drafts, superpowers, loading: false, error: null };
       // If the current mission path matches a card, keep it selected.
@@ -149,7 +151,7 @@ export function openMissionPicker(opts: MissionPickerOpts): Promise<PickerResult
 
     // Refresh the superpowers section when the backend signals a change.
     listen("superpowers-missions-changed", () => {
-      listSuperpowersMissions()
+      listSuperpowersMissions(opts.repoRoot)
         .then((superpowers) => {
           state = { ...state, superpowers };
           render();
@@ -302,6 +304,7 @@ interface BindCallbacks {
   onPublishDraft: (slug: string) => void;
   onSelectSuperpowers: (mref: MissionRef) => void;
   onSpawnTab: (initialCommand: string) => void;
+  onNewSuperpowers: () => void;
 }
 
 function bindCard(
@@ -353,14 +356,14 @@ function bindCard(
       cb.onSpawnTab(`Use the writing-plans skill to create the plan for ${specPath}`);
     });
   });
-  // "+ New Superpowers mission" header button. Opens a small topic
-  // prompt then spawns a fresh tab whose initial command runs the
-  // brainstorming skill on that topic.
-  card.querySelector<HTMLButtonElement>('[data-action="sp-new"]')?.addEventListener("click", async (e) => {
+  // "+ New Superpowers mission" header button. Closes this picker
+  // first; the topic prompt + spawn happen in the caller (see
+  // `manager.ts`'s handling of `newSuperpowersMission`). This avoids
+  // stacking the topic modal on top of the still-visible picker,
+  // which broke the visual flow.
+  card.querySelector<HTMLButtonElement>('[data-action="sp-new"]')?.addEventListener("click", (e) => {
     e.stopPropagation();
-    const topic = await openNewSuperpowersTopicModal();
-    if (!topic) return;
-    cb.onSpawnTab(`Use the brainstorming skill to design: ${topic}`);
+    cb.onNewSuperpowers();
   });
   card.querySelectorAll<HTMLButtonElement>(".mission-picker-publish").forEach(btn => {
     btn.addEventListener("click", (e) => {
@@ -382,7 +385,7 @@ function bindCard(
   });
 }
 
-function openNewSuperpowersTopicModal(): Promise<string | null> {
+export function openNewSuperpowersTopicModal(): Promise<string | null> {
   return new Promise((resolve) => {
     const modal = document.createElement("div");
     modal.className = "mission-picker-newmodal";

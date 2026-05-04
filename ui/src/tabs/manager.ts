@@ -48,7 +48,7 @@ import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
-import { openMissionPicker } from "./mission-picker";
+import { openMissionPicker, openNewSuperpowersTopicModal } from "./mission-picker";
 import { renderAvatarHtml } from "../operator/avatars";
 
 const DEFAULT_FONT_FAMILY =
@@ -335,6 +335,32 @@ export class TabManager {
     this.menu = new ContextMenu(document.body);
     newTabBtn.addEventListener("click", () => {
       void this.createTab();
+    });
+    // Right-click on empty tabbar area → "New group" menu. We only
+    // catch the event when it isn't on a tab pill or a group chip;
+    // those have their own contextmenu handlers that stop here.
+    this.tabbarHost.addEventListener("contextmenu", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".tab-btn, .group-chip")) return;
+      e.preventDefault();
+      this.menu.show(e.clientX, e.clientY, [
+        {
+          label: "New tab",
+          icon: Icons.plus(),
+          shortcut: "⌘T",
+          onClick: () => {
+            void this.createTab();
+          },
+        },
+        {
+          label: "New group",
+          icon: Icons.folderPlus(),
+          shortcut: "⌘⇧G",
+          onClick: () => {
+            this.createEmptyGroup();
+          },
+        },
+      ]);
     });
     window.addEventListener("resize", () => this.refitActive());
     window.addEventListener("beforeunload", () => {
@@ -1558,13 +1584,23 @@ export class TabManager {
     }
 
     if (result.kind === "spawnTab") {
-      // "+ New Superpowers mission" or "plan ✗" → spawn a fresh tab
-      // whose first prompt receives the relevant skill-invocation
-      // command. We don't auto-execute anything else; user owns the
-      // session from there.
+      // "plan ✗" → spawn a fresh tab whose first prompt receives the
+      // writing-plans skill-invocation. User owns the session from there.
       await this.createTab({
         cwd: tab.cwd ?? null,
         initialCommand: result.initialCommand,
+      });
+      return;
+    }
+
+    if (result.kind === "newSuperpowersMission") {
+      // Picker closed first; now prompt for the topic at body-level so
+      // the modal isn't stacked behind the (already-gone) picker.
+      const topic = await openNewSuperpowersTopicModal();
+      if (!topic) return;
+      await this.createTab({
+        cwd: tab.cwd ?? null,
+        initialCommand: `Use the brainstorming skill to design: ${topic}`,
       });
       return;
     }
@@ -2053,9 +2089,10 @@ export class TabManager {
   private removeTabFromGroup(tabId: string): void {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const oldGroupId = tab.groupId;
     tab.groupId = null;
-    if (oldGroupId) this.cleanupEmptyGroup(oldGroupId);
+    // Empty groups persist intentionally — they're first-class containers
+    // the user can drag tabs back into. Explicit removal happens via the
+    // chip's context-menu "Delete group" / "Ungroup" actions.
     this.renderTabbar();
     this.scheduleSave();
   }
@@ -2069,9 +2106,22 @@ export class TabManager {
     this.scheduleSave();
   }
 
-  private cleanupEmptyGroup(groupId: string): void {
-    const stillUsed = this.tabs.some((t) => t.groupId === groupId);
-    if (!stillUsed) this.groups.delete(groupId);
+  /// Create a brand-new empty group and immediately enter rename mode.
+  /// Returns the new group id. Used by the ⌘⇧G shortcut and the empty-
+  /// area "New group" context-menu entry on the tabbar.
+  createEmptyGroup(): string {
+    const id = crypto.randomUUID();
+    const seq = this.nextGroupSeq++;
+    this.groups.set(id, {
+      id,
+      name: `group ${seq}`,
+      color: null,
+      collapsed: false,
+    });
+    this.renaming = { kind: "group", id };
+    this.renderTabbar();
+    this.scheduleSave();
+    return id;
   }
 
   // ─── Drag reorder ───────────────────────────────────
@@ -2094,9 +2144,7 @@ export class TabManager {
     if (side === "right") insertAt += 1;
     this.tabs.splice(insertAt, 0, moved);
 
-    if (oldGroupId && oldGroupId !== moved.groupId) {
-      this.cleanupEmptyGroup(oldGroupId);
-    }
+    void oldGroupId;
     this.renderTabbar();
     this.scheduleSave();
   }
@@ -2158,6 +2206,16 @@ export class TabManager {
       }
       this.tabbarHost.appendChild(pillEl);
       prevGroupId = tab.groupId;
+    }
+
+    // Empty groups (no members) render at the end as standalone chips.
+    // They're valid drop targets — dragging a tab onto one joins it.
+    const usedGroupIds = new Set<string>();
+    for (const t of this.tabs) if (t.groupId) usedGroupIds.add(t.groupId);
+    for (const g of this.groups.values()) {
+      if (usedGroupIds.has(g.id)) continue;
+      const chipEl = this.renderGroupChip(g, 0);
+      this.tabbarHost.appendChild(chipEl);
     }
 
     // Sync the snapshot now that we've captured the prev state above.
@@ -2532,6 +2590,15 @@ export class TabManager {
   private openGroupContextMenu(group: TabGroup, x: number, y: number): void {
     this.menu.show(x, y, [
       {
+        label: "New tab in group",
+        icon: Icons.plus(),
+        onClick: () => {
+          if (group.collapsed) this.toggleGroupCollapsed(group.id);
+          void this.createTab({ groupId: group.id, color: group.color });
+        },
+      },
+      { divider: true },
+      {
         label: "Rename group",
         icon: Icons.pencil(),
         onClick: () => this.startGroupRename(group.id),
@@ -2551,7 +2618,7 @@ export class TabManager {
       },
       { divider: true },
       {
-        label: "Ungroup",
+        label: this.memberIndices(group.id).length === 0 ? "Delete group" : "Ungroup",
         icon: Icons.folderMinus(),
         danger: true,
         onClick: () => this.ungroup(group.id),

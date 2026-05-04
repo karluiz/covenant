@@ -74,6 +74,13 @@ export const Icons = {
   plus: (o?: IconOptions): string =>
     svg(`<path d="M5 12h14"/><path d="M12 5v14"/>`, o),
 
+  /** Eye — toggle visibility of hidden / gitignored items. */
+  eye: (o?: IconOptions): string =>
+    svg(
+      `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
+      o,
+    ),
+
   /** Sparkles — AI-assisted suggestion / help. */
   sparkles: (o?: IconOptions): string =>
     svg(
@@ -124,6 +131,13 @@ export const Icons = {
   folderMinus: (o?: IconOptions): string =>
     svg(
       `<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M9 13h6"/>`,
+      o,
+    ),
+
+  /** Folder plus — new group. */
+  folderPlus: (o?: IconOptions): string =>
+    svg(
+      `<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/>`,
       o,
     ),
 

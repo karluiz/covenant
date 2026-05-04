@@ -25,6 +25,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Tabs", keys: ["⌘", "1–9"], label: "Jump to tab N", description: "Activate the Nth tab (1-indexed)." },
   { category: "Tabs", keys: ["⌘", "⇧", "{"], label: "Previous tab", description: "Cycle to the tab on the left." },
   { category: "Tabs", keys: ["⌘", "⇧", "}"], label: "Next tab", description: "Cycle to the tab on the right." },
+  { category: "Tabs", keys: ["⌘", "⇧", "G"], label: "New tab group", description: "Create an empty group; drag tabs into it." },
 
   // Panels
   { category: "Panels", keys: ["⌘", ","], label: "Settings", description: "Open or toggle the settings page." },

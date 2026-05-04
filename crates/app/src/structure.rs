@@ -35,7 +35,15 @@ const HARDCODED_IGNORES: &[&str] = &[
     "__pycache__",
 ];
 
-pub fn list_dir(cwd: &Path) -> Result<Vec<DirEntry>, String> {
+/// List a directory's immediate children. When `show_ignored` is
+/// false we apply `.gitignore` rules (and the hardcoded ignore set)
+/// so build artifacts and secrets stay out of view. When true, the
+/// .gitignore filter is bypassed so the user can find dotfiles like
+/// `.env` that the project deliberately keeps out of version control.
+/// Hardcoded ignores (`node_modules`, `.git`, `target`, …) still
+/// apply either way — those exist for performance and are never
+/// useful to surface.
+pub fn list_dir(cwd: &Path, show_ignored: bool) -> Result<Vec<DirEntry>, String> {
     if !cwd.is_dir() {
         return Err(format!("not a directory: {}", cwd.display()));
     }
@@ -66,7 +74,9 @@ pub fn list_dir(cwd: &Path) -> Result<Vec<DirEntry>, String> {
             continue;
         };
         let abs = entry.path();
-        if matcher.matched(&abs, matches!(kind, EntryKind::Dir)).is_ignore() {
+        if !show_ignored
+            && matcher.matched(&abs, matches!(kind, EntryKind::Dir)).is_ignore()
+        {
             continue;
         }
         out.push(DirEntry {
@@ -172,6 +182,47 @@ pub fn read_file_binary(path: &Path, max_bytes: u64) -> Result<BinaryReadResult,
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     Ok(BinaryReadResult::Found { bytes, size_bytes: size })
+}
+
+/// Create an empty file at `path`. Refuses if the path already
+/// exists (no clobber) or if the parent directory is missing — the
+/// tree UI never asks for nested-create, so a typo path should fail
+/// loudly instead of silently materializing the parent. Returns the
+/// canonical path string the frontend can use to refresh the tree.
+pub fn create_file(path: &Path) -> Result<String, String> {
+    if path.exists() {
+        return Err(format!("path already exists: {}", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            return Err(format!(
+                "parent dir does not exist: {}",
+                parent.display()
+            ));
+        }
+    }
+    std::fs::File::create(path).map_err(|e| format!("create_file: {e}"))?;
+    Ok(path.display().to_string())
+}
+
+/// Create an empty directory at `path`. Same guard rails as
+/// `create_file` — no clobber, parent must exist. We use
+/// `create_dir` (single level) rather than `create_dir_all` so a
+/// typo'd intermediate component surfaces as an error.
+pub fn create_dir(path: &Path) -> Result<String, String> {
+    if path.exists() {
+        return Err(format!("path already exists: {}", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            return Err(format!(
+                "parent dir does not exist: {}",
+                parent.display()
+            ));
+        }
+    }
+    std::fs::create_dir(path).map_err(|e| format!("create_dir: {e}"))?;
+    Ok(path.display().to_string())
 }
 
 /// Rename `from` to `to`. Refuses if `from` doesn't exist, if `to`
@@ -393,7 +444,7 @@ mod tests {
     fn skips_hardcoded_ignores() {
         let tmp = TempDir::new().unwrap();
         make_tree(&tmp, &["src/", "node_modules/", ".git/", "target/", "README.md"]);
-        let entries = list_dir(tmp.path()).unwrap();
+        let entries = list_dir(tmp.path(), false).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["src", "README.md"]);
     }
@@ -402,7 +453,7 @@ mod tests {
     fn folders_first_then_alpha() {
         let tmp = TempDir::new().unwrap();
         make_tree(&tmp, &["b.txt", "a.txt", "z_dir/", "a_dir/"]);
-        let entries = list_dir(tmp.path()).unwrap();
+        let entries = list_dir(tmp.path(), false).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["a_dir", "z_dir", "a.txt", "b.txt"]);
     }
@@ -412,7 +463,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let f = tmp.path().join("file.txt");
         fs::write(&f, b"").unwrap();
-        assert!(list_dir(&f).is_err());
+        assert!(list_dir(&f, false).is_err());
     }
 
     #[test]
@@ -426,7 +477,7 @@ mod tests {
             ".gitignore",
         ]);
         fs::write(tmp.path().join(".gitignore"), "build/\n*.env\n").unwrap();
-        let entries = list_dir(tmp.path()).unwrap();
+        let entries = list_dir(tmp.path(), false).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         // .gitignore itself is shown (gitignore patterns don't hide it),
         // but build/ and secret.env are filtered.
@@ -438,11 +489,83 @@ mod tests {
     }
 
     #[test]
+    fn show_ignored_bypasses_gitignore_but_keeps_hardcoded() {
+        let tmp = TempDir::new().unwrap();
+        make_tree(&tmp, &[
+            "src/main.rs",
+            "node_modules/foo/",
+            ".env",
+            "README.md",
+            ".gitignore",
+        ]);
+        fs::write(tmp.path().join(".gitignore"), ".env\n").unwrap();
+        let entries = list_dir(tmp.path(), true).unwrap();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        // .env (gitignored) now appears…
+        assert!(names.contains(&".env"));
+        assert!(names.contains(&"src"));
+        assert!(names.contains(&"README.md"));
+        // …but node_modules (hardcoded) still doesn't.
+        assert!(!names.contains(&"node_modules"));
+    }
+
+    #[test]
+    fn create_file_makes_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("new.txt");
+        let returned = create_file(&p).unwrap();
+        assert_eq!(returned, p.display().to_string());
+        assert!(p.is_file());
+        assert_eq!(fs::read(&p).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn create_file_refuses_clobber() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("a.txt");
+        fs::write(&p, "existing").unwrap();
+        assert!(create_file(&p).is_err());
+        // Original content untouched.
+        assert_eq!(fs::read_to_string(&p).unwrap(), "existing");
+    }
+
+    #[test]
+    fn create_file_requires_existing_parent() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("nope/inside.txt");
+        assert!(create_file(&p).is_err());
+    }
+
+    #[test]
+    fn create_dir_makes_empty_directory() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("mod");
+        let returned = create_dir(&p).unwrap();
+        assert_eq!(returned, p.display().to_string());
+        assert!(p.is_dir());
+    }
+
+    #[test]
+    fn create_dir_refuses_clobber() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("d");
+        fs::create_dir(&p).unwrap();
+        assert!(create_dir(&p).is_err());
+    }
+
+    #[test]
+    fn create_dir_requires_existing_parent() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("missing/sub/d");
+        assert!(create_dir(&p).is_err());
+    }
+
+    #[test]
     fn gitignore_only_applies_inside_repo_or_with_root() {
         // No .gitignore = nothing extra is filtered (only hardcoded set).
         let tmp = TempDir::new().unwrap();
         make_tree(&tmp, &["foo.log", "bar.txt"]);
-        let entries = list_dir(tmp.path()).unwrap();
+        let entries = list_dir(tmp.path(), false).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"foo.log"));
         assert!(names.contains(&"bar.txt"));

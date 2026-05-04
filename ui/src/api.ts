@@ -284,8 +284,8 @@ export async function appendPlanNote(
   });
 }
 
-export async function listSuperpowersMissions(): Promise<SuperpowersMissionEntry[]> {
-  return invoke<SuperpowersMissionEntry[]>("list_superpowers_missions");
+export async function listSuperpowersMissions(cwd?: string | null): Promise<SuperpowersMissionEntry[]> {
+  return invoke<SuperpowersMissionEntry[]>("list_superpowers_missions", { cwd: cwd ?? null });
 }
 
 export async function clearSessionMission(sessionId: SessionId): Promise<void> {
@@ -608,8 +608,21 @@ export interface ReadResult {
   size_bytes: number;
 }
 
-export async function structureListDir(cwd: string): Promise<DirEntry[]> {
-  return invoke<DirEntry[]>("structure_list_dir", { cwd });
+export async function structureListDir(
+  cwd: string,
+  showIgnored = false,
+): Promise<DirEntry[]> {
+  return invoke<DirEntry[]>("structure_list_dir", { cwd, showIgnored });
+}
+
+/// Create an empty file or empty folder at `path`. Backend refuses
+/// to clobber existing entries, and the parent directory must exist —
+/// the tree always passes an absolute path inside the current cwd.
+export async function structureCreatePath(
+  path: string,
+  kind: "file" | "dir",
+): Promise<string> {
+  return invoke<string>("structure_create_path", { path, kind });
 }
 
 export async function structureReadFile(

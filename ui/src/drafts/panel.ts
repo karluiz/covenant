@@ -3,14 +3,16 @@
 // #settings-page, and #docs-page; when open it replaces the workspace.
 // Closing requires Esc or the × button (wired in main.ts).
 
-import { draftsApi, type DraftSummary } from "./api";
+import { draftsApi, type DraftSummary, type PublishedSpec } from "./api";
 import { DraftWizard } from "./wizard";
 
 type View = "list" | "wizard";
+type Tab = "drafts" | "published";
 
 export class DraftsPanel {
   private isOpenState = false;
   private view: View = "list";
+  private tab: Tab = "drafts";
   private currentSlug: string | null = null;
   private wizard: DraftWizard | null = null;
   private wizardOpts: { autoPublish?: boolean } = {};
@@ -67,60 +69,124 @@ export class DraftsPanel {
 
   private async renderList(): Promise<void> {
     const root = this.getRepoRoot();
-    let drafts: DraftSummary[] = [];
-    try {
-      drafts = await draftsApi.list(root);
-    } catch (e) {
-      this.pageHost.innerHTML = `<div class="drafts-empty">Failed to list drafts: ${escapeHtml(String(e))}</div>`;
+    const tabsHtml = `
+      <nav class="drafts-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="drafts"
+          aria-selected="${this.tab === "drafts"}"
+          class="drafts-tab${this.tab === "drafts" ? " is-active" : ""}">Drafts</button>
+        <button type="button" role="tab" data-tab="published"
+          aria-selected="${this.tab === "published"}"
+          class="drafts-tab${this.tab === "published" ? " is-active" : ""}">Published</button>
+      </nav>
+    `;
+    const headerHtml = (newButton: boolean): string => `
+      <header class="drafts-header">
+        <h1>${this.tab === "drafts" ? "Drafts" : "Published specs"}</h1>
+        <div class="drafts-actions">
+          ${newButton ? `<button id="drafts-new" type="button" class="drafts-primary">+ New draft</button>` : ""}
+          <button id="drafts-close" type="button" class="drafts-close" aria-label="Close">×</button>
+        </div>
+      </header>
+      ${tabsHtml}
+    `;
+
+    if (this.tab === "drafts") {
+      let drafts: DraftSummary[] = [];
+      try {
+        drafts = await draftsApi.list(root);
+      } catch (e) {
+        this.pageHost.innerHTML = `${headerHtml(true)}<div class="drafts-empty">Failed to list drafts: ${escapeHtml(String(e))}</div>`;
+        this.bindCommonHeader();
+        return;
+      }
+      const rows = drafts
+        .map(
+          (d) => `
+        <li class="drafts-row" data-slug="${escapeAttr(d.slug)}">
+          <button class="drafts-row-open" type="button" data-action="open">
+            <span class="drafts-row-title">${escapeHtml(d.title)}</span>
+            <span class="drafts-row-meta">${escapeHtml(formatDate(d.updated_at))}</span>
+          </button>
+          <button class="drafts-row-delete" type="button" data-action="delete" title="Delete">×</button>
+        </li>
+      `,
+        )
+        .join("");
+      this.pageHost.innerHTML = `
+        ${headerHtml(true)}
+        <ul class="drafts-list">
+          ${rows || `<li class="drafts-empty">No drafts yet. Click <strong>+ New draft</strong> to start.</li>`}
+        </ul>
+      `;
+      this.bindCommonHeader();
+      this.pageHost
+        .querySelector("#drafts-new")
+        ?.addEventListener("click", () => this.openWizard(null));
+      this.pageHost
+        .querySelectorAll<HTMLLIElement>(".drafts-row")
+        .forEach((row) => {
+          const slug = row.dataset["slug"]!;
+          row
+            .querySelector('[data-action="open"]')
+            ?.addEventListener("click", () => this.openWizard(slug));
+          row
+            .querySelector('[data-action="delete"]')
+            ?.addEventListener("click", async (e) => {
+              e.stopPropagation();
+              if (!confirm(`Delete draft "${slug}"? Git history is preserved.`))
+                return;
+              await draftsApi.delete(this.getRepoRoot(), slug);
+              await this.renderList();
+            });
+        });
       return;
     }
-    const rows = drafts
+
+    // tab === "published"
+    let published: PublishedSpec[] = [];
+    try {
+      published = await draftsApi.listPublishedSpecs(root);
+    } catch (e) {
+      this.pageHost.innerHTML = `${headerHtml(false)}<div class="drafts-empty">Failed to list published specs: ${escapeHtml(String(e))}</div>`;
+      this.bindCommonHeader();
+      return;
+    }
+    const rows = published
       .map(
-        (d) => `
-      <li class="drafts-row" data-slug="${escapeAttr(d.slug)}">
-        <button class="drafts-row-open" type="button" data-action="open">
-          <span class="drafts-row-title">${escapeHtml(d.title)}</span>
-          <span class="drafts-row-meta">${escapeHtml(formatDate(d.updated_at))}</span>
-        </button>
-        <button class="drafts-row-delete" type="button" data-action="delete" title="Delete">×</button>
+        (p) => `
+      <li class="drafts-row drafts-row--published" title="${escapeAttr(p.path)}">
+        <div class="drafts-row-published-body">
+          <span class="drafts-row-id">${escapeHtml(p.id)}</span>
+          <span class="drafts-row-title">${escapeHtml(p.title)}</span>
+          <span class="drafts-row-goal">${escapeHtml(p.goal)}</span>
+          <span class="drafts-row-meta">${escapeHtml(formatDate(p.updated_at))}</span>
+        </div>
       </li>
     `,
       )
       .join("");
     this.pageHost.innerHTML = `
-      <header class="drafts-header">
-        <h1>Drafts</h1>
-        <div class="drafts-actions">
-          <button id="drafts-new" type="button" class="drafts-primary">+ New draft</button>
-          <button id="drafts-close" type="button" class="drafts-close" aria-label="Close">×</button>
-        </div>
-      </header>
+      ${headerHtml(false)}
       <ul class="drafts-list">
-        ${rows || `<li class="drafts-empty">No drafts yet. Click <strong>+ New draft</strong> to start.</li>`}
+        ${rows || `<li class="drafts-empty">No published specs yet.</li>`}
       </ul>
     `;
-    this.pageHost
-      .querySelector("#drafts-new")
-      ?.addEventListener("click", () => this.openWizard(null));
+    this.bindCommonHeader();
+  }
+
+  private bindCommonHeader(): void {
     this.pageHost
       .querySelector("#drafts-close")
       ?.addEventListener("click", () => this.close());
     this.pageHost
-      .querySelectorAll<HTMLLIElement>(".drafts-row")
-      .forEach((row) => {
-        const slug = row.dataset["slug"]!;
-        row
-          .querySelector('[data-action="open"]')
-          ?.addEventListener("click", () => this.openWizard(slug));
-        row
-          .querySelector('[data-action="delete"]')
-          ?.addEventListener("click", async (e) => {
-            e.stopPropagation();
-            if (!confirm(`Delete draft "${slug}"? Git history is preserved.`))
-              return;
-            await draftsApi.delete(this.getRepoRoot(), slug);
-            await this.renderList();
-          });
+      .querySelectorAll<HTMLButtonElement>(".drafts-tab")
+      .forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const next = btn.dataset["tab"] as Tab | undefined;
+          if (!next || next === this.tab) return;
+          this.tab = next;
+          void this.renderList();
+        });
       });
   }
 
