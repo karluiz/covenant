@@ -109,6 +109,51 @@ pub fn extract_goal_snippet(md: &str, max_chars: usize) -> String {
     format!("{}…", truncated)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpecCandidate {
+    pub repo_root: String,
+    pub path: String,
+    pub source: SpecSource,
+    pub title: Option<String>,
+    pub goal_snippet: String,
+}
+
+/// If `path` classifies as a spec AND the path is not yet in `seen_specs`,
+/// insert it and return a `SpecCandidate` to emit. Otherwise return None.
+pub fn maybe_emit_candidate(
+    conn: &Connection,
+    repo_root: &Path,
+    path: &Path,
+    now_unix_ms: i64,
+) -> rusqlite::Result<Option<SpecCandidate>> {
+    let Some(source) = classify_spec(repo_root, path) else {
+        return Ok(None);
+    };
+    let path_str = path.to_string_lossy().into_owned();
+    let root_str = repo_root.to_string_lossy().into_owned();
+
+    let inserted = conn.execute(
+        "INSERT OR IGNORE INTO seen_specs (repo_root, path, first_seen_at) \
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![&root_str, &path_str, now_unix_ms],
+    )?;
+    if inserted == 0 {
+        return Ok(None);
+    }
+
+    let body = std::fs::read_to_string(path).unwrap_or_default();
+    let title = extract_title(&body);
+    let goal_snippet = extract_goal_snippet(&body, 200);
+
+    Ok(Some(SpecCandidate {
+        repo_root: root_str,
+        path: path_str,
+        source,
+        title,
+        goal_snippet,
+    }))
+}
+
 /// Recursively walk the spec directories under `repo_root` and insert
 /// every recognized spec into `seen_specs`. Returns the number of new
 /// rows inserted (existing rows are ignored — idempotent).
@@ -314,5 +359,51 @@ mod tests {
         let second = snapshot_existing(&conn, root, 200).unwrap();
         assert_eq!(first, 1);
         assert_eq!(second, 0, "second snapshot inserts nothing");
+    }
+
+    #[test]
+    fn new_spec_decides_emit_and_records() {
+        use rusqlite::Connection;
+        use std::fs;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("docs/specs")).unwrap();
+        let path = root.join("docs/specs/3.16-foo.md");
+        fs::write(
+            &path,
+            "# 3.16 — Foo\n\n## Goal\n\nDo the foo thing.\n\n## Out\n".as_bytes(),
+        )
+        .unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(crate::storage::SCHEMA).unwrap();
+
+        let cand = maybe_emit_candidate(&conn, root, &path, 1234)
+            .unwrap()
+            .expect("should emit");
+        assert_eq!(cand.source, SpecSource::Covenant);
+        assert_eq!(cand.title.as_deref(), Some("3.16 — Foo"));
+        assert_eq!(cand.goal_snippet, "Do the foo thing.");
+
+        // Second call: row exists, no emit.
+        let cand2 = maybe_emit_candidate(&conn, root, &path, 5678).unwrap();
+        assert!(cand2.is_none());
+    }
+
+    #[test]
+    fn unrecognized_path_does_not_emit() {
+        use rusqlite::Connection;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(crate::storage::SCHEMA).unwrap();
+
+        let path = root.join("README.md");
+        let out = maybe_emit_candidate(&conn, root, &path, 0).unwrap();
+        assert!(out.is_none());
     }
 }
