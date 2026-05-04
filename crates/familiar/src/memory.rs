@@ -145,6 +145,90 @@ impl Memory {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ChatRow {
+    pub ts_ms: i64,
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DirectiveRow {
+    pub id: String,
+    pub proposed_ms: i64,
+    pub decided_ms: Option<i64>,
+    pub state: String,
+    pub kind: String,
+    pub payload: String,
+    pub rationale: String,
+    pub block_reason: Option<String>,
+}
+
+impl Memory {
+    pub fn append_chat(&self, ts_ms: i64, role: &str, content: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO familiar_chat(ts_ms, role, content) VALUES (?1,?2,?3)",
+            (ts_ms, role, content),
+        )?;
+        Ok(())
+    }
+
+    pub fn chat_history(&self, limit: i64) -> Result<Vec<ChatRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT ts_ms, role, content FROM familiar_chat ORDER BY id DESC LIMIT ?1")?;
+        let rows = stmt.query_map([limit], |r| Ok(ChatRow {
+            ts_ms: r.get(0)?, role: r.get(1)?, content: r.get(2)?,
+        }))?;
+        let mut v: Vec<_> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        v.reverse();
+        Ok(v)
+    }
+
+    pub fn log_directive(&self, id: &str, proposed_ms: i64, state: &str,
+                         kind: &str, payload: &str, rationale: &str,
+                         block_reason: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO familiar_directives(id, proposed_ms, state, kind, payload, rationale, block_reason)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            (id, proposed_ms, state, kind, payload, rationale, block_reason),
+        )?;
+        Ok(())
+    }
+
+    pub fn update_directive_state(&self, id: &str, decided_ms: i64,
+                                   state: &str, block_reason: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE familiar_directives SET decided_ms=?1, state=?2, block_reason=?3 WHERE id=?4",
+            (decided_ms, state, block_reason, id),
+        )?;
+        Ok(())
+    }
+
+    pub fn directive(&self, id: &str) -> Result<Option<DirectiveRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
+             FROM familiar_directives WHERE id=?1")?;
+        let mut rows = stmt.query_map([id], |r| Ok(DirectiveRow {
+            id: r.get(0)?, proposed_ms: r.get(1)?, decided_ms: r.get(2)?,
+            state: r.get(3)?, kind: r.get(4)?, payload: r.get(5)?,
+            rationale: r.get(6)?, block_reason: r.get(7)?,
+        }))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn directives_since(&self, since_ms: i64) -> Result<Vec<DirectiveRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
+             FROM familiar_directives WHERE proposed_ms >= ?1 ORDER BY proposed_ms DESC")?;
+        let rows = stmt.query_map([since_ms], |r| Ok(DirectiveRow {
+            id: r.get(0)?, proposed_ms: r.get(1)?, decided_ms: r.get(2)?,
+            state: r.get(3)?, kind: r.get(4)?, payload: r.get(5)?,
+            rationale: r.get(6)?, block_reason: r.get(7)?,
+        }))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +271,27 @@ mod tests {
         }
         let from_3 = m.events_since(3).unwrap();
         assert_eq!(from_3.len(), 2);
+    }
+
+    #[test]
+    fn chat_round_trip() {
+        let m = Memory::open_in_memory().unwrap();
+        m.append_chat(100, "user", "hi").unwrap();
+        m.append_chat(101, "assistant", "hello").unwrap();
+        let hist = m.chat_history(10).unwrap();
+        assert_eq!(hist.len(), 2);
+        assert_eq!(hist[0].role, "user");
+        assert_eq!(hist[1].content, "hello");
+    }
+
+    #[test]
+    fn directive_log_round_trip() {
+        let m = Memory::open_in_memory().unwrap();
+        m.log_directive("01H...", 100, "proposed", "Stop", "stop X", "rationale", None).unwrap();
+        m.update_directive_state("01H...", 200, "approved", None).unwrap();
+        let row = m.directive("01H...").unwrap().unwrap();
+        assert_eq!(row.state, "approved");
+        assert_eq!(row.decided_ms, Some(200));
     }
 
     #[test]
