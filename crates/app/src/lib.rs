@@ -15,6 +15,7 @@ mod drafts;
 pub mod convergence;
 mod cost;
 mod cross_session;
+mod embedder;
 mod fix_proposer;
 mod history_import;
 mod mission_persistence;
@@ -91,6 +92,26 @@ pub(crate) struct AppState {
     /// gating. Cloned into the operator watcher so its tick can emit
     /// without reaching back through AppState.
     notifier: Notifier,
+    /// 3.13 operator learning — local embedding model, lazy-loaded on
+    /// first use (model download ~30 MB). Wrapped in `OnceCell` so app
+    /// startup stays cheap; resolved on a blocking task by `get_embedder`.
+    embedder: tokio::sync::OnceCell<Arc<embedder::Embedder>>,
+}
+
+#[allow(dead_code)] // wired up in 3.13 follow-up tasks
+async fn get_embedder(state: &AppState) -> Result<Arc<embedder::Embedder>, String> {
+    state
+        .embedder
+        .get_or_try_init(|| async {
+            tokio::task::spawn_blocking(|| {
+                embedder::Embedder::new().map(Arc::new)
+            })
+            .await
+            .map_err(|e| format!("embedder init join: {e}"))?
+            .map_err(|e| format!("embedder init: {e}"))
+        })
+        .await
+        .cloned()
 }
 
 /// Per-session sliding-window call counter. Resets every 60s.
@@ -1498,6 +1519,7 @@ pub fn run() {
                 tab_manifest_path,
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
+                embedder: tokio::sync::OnceCell::new(),
             });
             Ok(())
         })

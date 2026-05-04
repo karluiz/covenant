@@ -12,11 +12,24 @@
 //! in `tokio::task::spawn_blocking` so they don't stall the executor.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 
 use karl_blocks::BlockId;
 use karl_session::SessionId;
 use rusqlite::{params, Connection};
+
+/// Register sqlite-vec as a SQLite auto-extension exactly once per process.
+/// After registration, every subsequent `Connection::open` automatically
+/// loads `vec0` so `vec_version()` and `vec0` virtual tables are usable
+/// without per-connection setup.
+fn ensure_sqlite_vec_loaded() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
+}
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -253,7 +266,12 @@ impl Storage {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        ensure_sqlite_vec_loaded();
         let conn = Connection::open(path)?;
+        // Smoke-check the extension is live; this surfaces wiring breakage
+        // immediately rather than letting later vec0 queries fail mysteriously.
+        let _vec_version: String =
+            conn.query_row("SELECT vec_version()", [], |r| r.get(0))?;
         conn.execute_batch(SCHEMA)?;
         // Idempotent migration: add cost_usd to operator_decisions
         // for older DBs created before M-OP5 Phase B. Errors mean the
