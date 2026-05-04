@@ -5666,6 +5666,11 @@ button.status-segment.status-aom.status-aom-warn:hover {
   border-color: var(--danger, var(--accent));
   font-weight: 600;
 }
+.convergence-tile__pill[data-status="operator-thinking"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  font-style: italic;
+}
 
 .convergence-tile__decision {
   font-size: 12px;

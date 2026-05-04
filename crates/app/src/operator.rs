@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
@@ -374,6 +375,29 @@ struct Attached {
     /// produced output but is now waiting again" (the latter resets
     /// the counter — that's progress).
     bytes_total_at_last_wait: u64,
+    /// True while an Anthropic Messages API call is in flight for this
+    /// session. Set by `ThinkingGuard` around the `karl_agent::ask_*`
+    /// call site in `run_tick`; consumed by `OperatorWatcher::is_thinking`
+    /// to drive the `operator-thinking` convergence tile status. The
+    /// guard's `Drop` ensures the flag clears on success, error, or
+    /// panic — a stuck `true` would otherwise wedge the tile.
+    thinking: Arc<AtomicBool>,
+}
+
+/// RAII guard that flips `thinking` true on construction and false on
+/// drop. Wraps the LLM call site so any exit path (Ok, Err, panic,
+/// early `continue`) releases the flag.
+struct ThinkingGuard<'a>(&'a AtomicBool);
+impl<'a> ThinkingGuard<'a> {
+    fn new(flag: &'a AtomicBool) -> Self {
+        flag.store(true, Ordering::Relaxed);
+        Self(flag)
+    }
+}
+impl Drop for ThinkingGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Mission spec attached to a session. Loaded from disk; content
@@ -500,6 +524,7 @@ impl OperatorWatcher {
                 loop_cooldown_until: None,
                 consecutive_idle_waits: 0,
                 bytes_total_at_last_wait: 0,
+                thinking: Arc::new(AtomicBool::new(false)),
             },
         );
     }
@@ -578,6 +603,21 @@ impl OperatorWatcher {
             .sessions
             .get(&session_id)
             .map(|a| a.aom_excluded)
+            .unwrap_or(false)
+    }
+
+    /// True while an LLM call for this session is in flight. Drives the
+    /// `operator-thinking` convergence tile status (spec 3.8). Set by
+    /// `ThinkingGuard` in `run_tick` around the `karl_agent::ask_*` call.
+    /// The guard's Drop covers panic / error / early-return paths so
+    /// the flag is always cleared.
+    pub async fn is_thinking(&self, session_id: SessionId) -> bool {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .map(|a| a.thinking.load(Ordering::Relaxed))
             .unwrap_or(false)
     }
 
@@ -960,6 +1000,7 @@ async fn run_tick(
         bool,
         bool,
         Option<MissionDoc>,
+        Arc<AtomicBool>,
     )> = {
         let mut i = inner.lock().await;
         let mut out = Vec::new();
@@ -994,6 +1035,7 @@ async fn run_tick(
                 att.live,
                 att.aom_excluded,
                 att.mission.clone(),
+                att.thinking.clone(),
             ));
         }
         out
@@ -1030,7 +1072,7 @@ async fn run_tick(
     }
 
     let now = Instant::now();
-    for (session_id, state_arc, world_arc, per_tab_live, aom_excluded, mission) in candidates {
+    for (session_id, state_arc, world_arc, per_tab_live, aom_excluded, mission, thinking_flag) in candidates {
         // Resolve per-session operator from the registry. Falls back to
         // the Default operator if no assignment exists for this session.
         let op = registry.effective_for(session_id);
@@ -1250,15 +1292,21 @@ async fn run_tick(
         }
 
         let started = Instant::now();
-        let ask_response = match karl_agent::ask_oneshot_with_usage(karl_agent::AskRequest {
-            api_key: api_key.clone(),
-            model: model.clone(),
-            system_prompt,
-            user_message,
-            max_tokens: max_tokens_for_call,
-        })
-        .await
-        {
+        let ask_response = {
+            // Marks the session as `operator-thinking` for the
+            // convergence tile while the HTTP call is in flight. Drop
+            // covers Ok, Err, and panic — the flag never leaks.
+            let _thinking = ThinkingGuard::new(&thinking_flag);
+            karl_agent::ask_oneshot_with_usage(karl_agent::AskRequest {
+                api_key: api_key.clone(),
+                model: model.clone(),
+                system_prompt,
+                user_message,
+                max_tokens: max_tokens_for_call,
+            })
+            .await
+        };
+        let ask_response = match ask_response {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(error = %e, session = %session_id, "operator ask failed");

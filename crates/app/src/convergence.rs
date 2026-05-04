@@ -101,6 +101,19 @@ pub fn classify_status(inp: &StatusInputs) -> TileStatus {
     TileStatus::Idle
 }
 
+/// Snapshot-builder layer override. When the operator has an LLM call
+/// in flight for this session, the tile shows `OperatorThinking`
+/// regardless of byte activity; otherwise we fall through to the pure
+/// 4-state classifier. Kept out of `classify_status` to preserve its
+/// existing invariants and unit tests.
+pub fn decide_status(is_thinking: bool, inp: &StatusInputs) -> TileStatus {
+    if is_thinking {
+        TileStatus::OperatorThinking
+    } else {
+        classify_status(inp)
+    }
+}
+
 /// ANSI-strips the byte slice and returns the last non-empty line,
 /// truncated to `max_chars` (chars, not bytes — emoji-safe).
 pub fn last_non_empty_line(bytes: &[u8], max_chars: usize) -> Option<String> {
@@ -168,7 +181,11 @@ pub async fn build_convergence_snapshot(
         let raw_command_label = matches!(vendor, Vendor::Unknown)
             .then(|| cmd_for_vendor.map(|c| c.chars().take(40).collect::<String>())).flatten();
 
-        let status = classify_status(&StatusInputs { last_byte_at, bytes_total, last_decision_at_bytes_total, last_decision_action: last_action, now });
+        let is_thinking = operator.is_thinking(s.session_id).await;
+        let status = decide_status(
+            is_thinking,
+            &StatusInputs { last_byte_at, bytes_total, last_decision_at_bytes_total, last_decision_action: last_action, now },
+        );
 
         let op_enabled = operator.is_enabled(s.session_id).await;
         let aom_excluded = operator.is_aom_excluded(s.session_id).await;
@@ -224,6 +241,27 @@ mod tests {
         assert_eq!(classify_status(&si(n, 5_000, 200, 200, Some("escalate"))), TileStatus::Blocked);
         assert_eq!(classify_status(&si(n, 3_000, 500, 200, Some("reply"))), TileStatus::AwaitingInput);
         assert_eq!(classify_status(&si(n, 10_000, 100, 100, None)), TileStatus::Idle);
+    }
+
+    #[test]
+    fn decide_status_thinking_overrides_classifier() {
+        let n = Instant::now();
+        // Working-shaped inputs: bytes just arrived. Without the
+        // override the classifier returns Working.
+        let working = si(n, 200, 100, 50, Some("reply"));
+        assert_eq!(decide_status(false, &working), TileStatus::Working);
+        assert_eq!(decide_status(true, &working), TileStatus::OperatorThinking);
+
+        // Idle-shaped inputs: long since any bytes, no decision.
+        let idle = si(n, 10_000, 100, 100, None);
+        assert_eq!(decide_status(false, &idle), TileStatus::Idle);
+        assert_eq!(decide_status(true, &idle), TileStatus::OperatorThinking);
+
+        // Blocked-shaped inputs: the override still wins while the
+        // operator is thinking — the next decision may unblock it.
+        let blocked = si(n, 5_000, 200, 200, Some("escalate"));
+        assert_eq!(decide_status(false, &blocked), TileStatus::Blocked);
+        assert_eq!(decide_status(true, &blocked), TileStatus::OperatorThinking);
     }
 
     #[test]
