@@ -216,6 +216,23 @@ impl Memory {
         Ok(rows.next().transpose()?)
     }
 
+    pub fn add_spend(&self, day: &str, usd: f64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO familiar_costs(day, spend_usd) VALUES (?1, ?2)
+             ON CONFLICT(day) DO UPDATE SET spend_usd = spend_usd + ?2",
+            (day, usd),
+        )?;
+        Ok(())
+    }
+
+    pub fn spend_for_day(&self, day: &str) -> Result<f64> {
+        let v: f64 = self.conn.query_row(
+            "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
+            [day], |r| r.get(0),
+        ).unwrap_or(0.0);
+        Ok(v)
+    }
+
     pub fn directives_since(&self, since_ms: i64) -> Result<Vec<DirectiveRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
@@ -271,6 +288,16 @@ mod tests {
         }
         let from_3 = m.events_since(3).unwrap();
         assert_eq!(from_3.len(), 2);
+    }
+
+    #[test]
+    fn cost_accumulates_per_day() {
+        let m = Memory::open_in_memory().unwrap();
+        m.add_spend("2026-05-04", 0.10).unwrap();
+        m.add_spend("2026-05-04", 0.05).unwrap();
+        m.add_spend("2026-05-05", 0.20).unwrap();
+        assert!((m.spend_for_day("2026-05-04").unwrap() - 0.15).abs() < 1e-9);
+        assert!((m.spend_for_day("2026-05-05").unwrap() - 0.20).abs() < 1e-9);
     }
 
     #[test]
