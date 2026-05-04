@@ -193,6 +193,149 @@ pub fn snapshot_existing(
     Ok(inserted)
 }
 
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::mpsc;
+
+/// Owns the FS watcher for one repo_root. Dropping this stops the watcher.
+pub struct SpecDetector {
+    _watcher: RecommendedWatcher,
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+impl SpecDetector {
+    /// Start a detector for `repo_root`. Performs the initial snapshot
+    /// (so existing specs do not generate retroactive events), then
+    /// watches `docs/specs` and `docs/superpowers/specs` for new files.
+    /// On a hit, emits a `spec:candidate` Tauri event with payload
+    /// `SpecCandidate`.
+    ///
+    /// `db_path` is the absolute path to the covenant SQLite file; the
+    /// detector opens its own connection so the watcher thread does not
+    /// share `AppState`'s storage mutex.
+    pub fn start(
+        app: AppHandle,
+        repo_root: PathBuf,
+        db_path: PathBuf,
+    ) -> Result<Self, String> {
+        // Snapshot existing on startup so we don't fire for preexisting files.
+        {
+            let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+            snapshot_existing(&conn, &repo_root, now_ms()).map_err(|e| e.to_string())?;
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<PathBuf>();
+
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+            let Ok(event) = res else { return };
+            // Fire on file create or move-into-place (rename "to" event).
+            let interesting = matches!(
+                event.kind,
+                EventKind::Create(_)
+                    | EventKind::Modify(notify::event::ModifyKind::Name(_))
+            );
+            if !interesting {
+                return;
+            }
+            for path in event.paths {
+                let _ = tx.send(path);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+
+        for sub in ["docs/specs", "docs/superpowers/specs"] {
+            let dir = repo_root.join(sub);
+            if !dir.is_dir() {
+                continue;
+            }
+            if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+                tracing::warn!(dir = %dir.display(), %e, "spec_detector: failed to watch dir");
+            } else {
+                tracing::info!(dir = %dir.display(), "spec_detector: watching");
+            }
+        }
+
+        let app_clone = app.clone();
+        let root_clone = repo_root.clone();
+        let db_clone = db_path.clone();
+        tokio::spawn(async move {
+            let conn = match Connection::open(&db_clone) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(%e, "spec_detector: open conn failed");
+                    return;
+                }
+            };
+            while let Some(path) = rx.recv().await {
+                if !path.is_file() {
+                    continue;
+                }
+                let cand = match maybe_emit_candidate(&conn, &root_clone, &path, now_ms()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!(%e, path = %path.display(), "spec_detector: decide failed");
+                        continue;
+                    }
+                };
+                if let Some(cand) = cand {
+                    if let Err(e) = app_clone.emit("spec:candidate", &cand) {
+                        tracing::warn!(%e, "spec_detector: emit failed");
+                    } else {
+                        tracing::info!(path = %cand.path, source = ?cand.source, "spec_detector: emitted candidate");
+                    }
+                }
+            }
+        });
+
+        Ok(Self { _watcher: watcher })
+    }
+}
+
+#[tauri::command]
+pub async fn start_spec_detector(
+    state: tauri::State<'_, crate::AppState>,
+    app: AppHandle,
+    repo_root: String,
+) -> Result<(), String> {
+    let path = PathBuf::from(&repo_root);
+    let db_path = state.storage.path().to_path_buf();
+    let mut reg = state.spec_detectors.lock().await;
+    if reg.contains_key(&path) {
+        return Ok(());
+    }
+    let det = SpecDetector::start(app, path.clone(), db_path)?;
+    reg.insert(path, det);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mark_spec_seen(
+    state: tauri::State<'_, crate::AppState>,
+    repo_root: String,
+    path: String,
+) -> Result<(), String> {
+    let db_path = state.storage.path().to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO seen_specs (repo_root, path, first_seen_at) \
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![repo_root, path, now_ms()],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

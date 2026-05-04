@@ -99,6 +99,9 @@ pub(crate) struct AppState {
     /// first use (model download ~30 MB). Wrapped in `OnceCell` so app
     /// startup stays cheap; resolved on a blocking task by `get_embedder`.
     embedder: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
+    /// 3.16 spec auto-detect — one watcher per opened repo. Inserted on
+    /// `start_spec_detector`; dropping the entry stops the watcher.
+    spec_detectors: Mutex<HashMap<PathBuf, spec_detector::SpecDetector>>,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -1972,6 +1975,7 @@ pub fn run() {
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
                 embedder: embedder_cell,
+                spec_detectors: Mutex::new(HashMap::new()),
             });
             Ok(())
         })
@@ -2042,6 +2046,8 @@ pub fn run() {
             operator_registry::commands::operator_set_default,
             operator_registry::commands::session_set_operator,
             operator_registry::commands::session_get_operator,
+            spec_detector::start_spec_detector,
+            spec_detector::mark_spec_seen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
