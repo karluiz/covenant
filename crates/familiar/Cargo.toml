@@ -19,6 +19,7 @@ strip-ansi-escapes = { workspace = true }
 regex = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
+async-trait = "0.1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
