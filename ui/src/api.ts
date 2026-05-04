@@ -760,3 +760,8 @@ export async function submitConvergenceReply(
 ): Promise<void> {
   await invoke<void>("submit_convergence_reply", { sessionId, text, scope });
 }
+
+export { Familiars } from "./familiars/api";
+export type {
+  FamiliarSummary, ChatOutput, MissionOut, SnapshotOut, DirectiveOut, Style,
+} from "./familiars/api";
