@@ -16,6 +16,7 @@ pub mod convergence;
 mod cost;
 mod cross_session;
 mod embedder;
+mod familiar_commands;
 mod fix_proposer;
 mod history_import;
 mod memory;
@@ -2023,6 +2024,10 @@ pub fn run() {
             operator_registry::commands::operator_set_default,
             operator_registry::commands::session_set_operator,
             operator_registry::commands::session_get_operator,
+            familiar_commands::familiar_list,
+            familiar_commands::familiar_spawn,
+            familiar_commands::familiar_update_config,
+            familiar_commands::familiar_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
