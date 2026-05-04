@@ -39,6 +39,8 @@ export const draftsApi = {
     invoke<string[]>("suggest_draft_section", { repoRoot, slug, section }),
   listPublishedSpecs: (repoRoot: string) =>
     invoke<PublishedSpec[]>("list_published_specs", { repoRoot }),
+  readSpecBody: (path: string, maxBytes?: number) =>
+    invoke<SpecBody>("read_spec_body", { path, maxBytes: maxBytes ?? null }),
 };
 
 export interface PublishedSpec {
@@ -47,4 +49,9 @@ export interface PublishedSpec {
   goal: string;
   path: string;
   updated_at: string;
+}
+
+export interface SpecBody {
+  body: string;
+  truncated: boolean;
 }

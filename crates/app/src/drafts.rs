@@ -437,6 +437,34 @@ pub fn publish_draft_sync(
     Ok(dest)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpecBody {
+    pub body: String,
+    pub truncated: bool,
+}
+
+/// Read a spec/plan markdown file with a hard byte cap so the preview
+/// pane can't lock the UI on a pathological file. `max_bytes = 0` means
+/// "use default" (200 KB).
+pub fn read_spec_body_sync(path: &std::path::Path, max_bytes: usize) -> std::io::Result<SpecBody> {
+    let cap = if max_bytes == 0 { 200 * 1024 } else { max_bytes };
+    let bytes = std::fs::read(path)?;
+    let truncated = bytes.len() > cap;
+    let slice = if truncated { &bytes[..cap] } else { &bytes[..] };
+    let body = String::from_utf8_lossy(slice).into_owned();
+    Ok(SpecBody { body, truncated })
+}
+
+#[tauri::command]
+pub async fn read_spec_body(path: String, max_bytes: Option<usize>) -> Result<SpecBody, String> {
+    let p = std::path::PathBuf::from(&path);
+    let path_for_err = path.clone();
+    tokio::task::spawn_blocking(move || read_spec_body_sync(&p, max_bytes.unwrap_or(0)))
+        .await
+        .map_err(|e| format!("{path_for_err}: join error: {e}"))?
+        .map_err(|e| format!("{path_for_err}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -726,6 +754,26 @@ mod tests {
     fn list_published_empty_when_no_specs_dir() {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(list_published_specs_sync(tmp.path()).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn read_spec_body_returns_full_content_under_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("x.md");
+        std::fs::write(&p, b"# Hello\n\nbody").unwrap();
+        let r = super::read_spec_body_sync(&p, 0).unwrap();
+        assert_eq!(r.body, "# Hello\n\nbody");
+        assert!(!r.truncated);
+    }
+
+    #[test]
+    fn read_spec_body_truncates_over_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("big.md");
+        std::fs::write(&p, vec![b'a'; 1024]).unwrap();
+        let r = super::read_spec_body_sync(&p, 100).unwrap();
+        assert_eq!(r.body.len(), 100);
+        assert!(r.truncated);
     }
 }
 

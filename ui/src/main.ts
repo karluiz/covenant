@@ -21,6 +21,7 @@ import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api"
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
+import { MissionPage } from "./mission/page";
 import { setSharedToastHost, ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
@@ -395,6 +396,11 @@ async function boot(): Promise<void> {
   draftsPanel.onClosed = () => {
     manager.refitActive();
   };
+  const missionPageHost = requireEl<HTMLElement>("mission-page");
+  const missionPanel = new MissionPage(missionPageHost, workspace);
+  missionPanel.onClosed = () => { manager.refitActive(); };
+  manager.setMissionPicker((opts) => missionPanel.open(opts));
+
   window.addEventListener("drafts:toggle", () => draftsPanel.toggle());
   window.addEventListener("drafts:open", (e: Event) => {
     const detail = (e as CustomEvent<{ slug: string; autoPublish?: boolean }>).detail;
@@ -568,6 +574,19 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.shiftKey && (e.key === "F" || e.key === "f")) {
       e.preventDefault();
       searchPalette.toggle();
+      return;
+    }
+    // ⌘M → mission picker page (toggle).
+    if (e.metaKey && !e.shiftKey && (e.key === "M" || e.key === "m")) {
+      e.preventDefault();
+      if (missionPanel.isOpen()) {
+        missionPanel.close();
+      } else {
+        if (settings.isOpen()) settings.close();
+        if (docsPanel.isOpen()) docsPanel.close();
+        if (draftsPanel.isOpen()) draftsPanel.close();
+        void manager.openMissionForActive();
+      }
       return;
     }
     // ⌘⇧M → Convergence Mode overlay (spec 3.8). Toggles full-window.
