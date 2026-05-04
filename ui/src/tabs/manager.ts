@@ -1447,10 +1447,6 @@ export class TabManager {
     }
   }
 
-  /// Callback fired when the active tab's operator pin changes (e.g.
-  /// via `setTabOperator`). Tasks 3–4 wire the statusbar chip here.
-  public onActiveOperatorChanged: ((tab: Tab) => void) | null = null;
-
   /// Pin (or unpin) an operator to a tab. Propagates to the backend,
   /// persists to the manifest, and re-renders the tab strip.
   public async setTabOperator(tabId: string, operatorId: string | null): Promise<void> {
@@ -1465,7 +1461,10 @@ export class TabManager {
     await this.refreshOperatorCache();
     this.renderTabbar();
     if (tab.id === this.activeId) {
-      this.onActiveOperatorChanged?.(tab);
+      // Push the new pinned-entity to the status bar (and any other
+      // wired listeners). emitActiveOperator drives both the
+      // enabled/live state and the entity callback in one place.
+      this.emitActiveOperator();
     }
   }
 
@@ -1900,6 +1899,8 @@ export class TabManager {
         chev.title = title;
         chev.setAttribute("aria-label", title);
       }
+      const countEl = chip.querySelector<HTMLElement>(".group-chip-count");
+      if (countEl) countEl.textContent = String(memberCount);
     }
     for (const idx of this.memberIndices(groupId)) {
       const tab = this.tabs[idx];
@@ -2204,12 +2205,14 @@ export class TabManager {
       label.className = "group-chip-label";
       label.textContent = group.name;
       chip.appendChild(label);
-      if (group.collapsed) {
-        const count = document.createElement("span");
-        count.className = "group-chip-count";
-        count.textContent = String(memberCount);
-        chip.appendChild(count);
-      }
+      // Always render the count span; visibility is driven by the
+      // `group-chip-collapsed` class via CSS. Rendering unconditionally
+      // means in-place collapse/expand toggles (which don't re-render
+      // the chip) keep the badge consistent.
+      const count = document.createElement("span");
+      count.className = "group-chip-count";
+      count.textContent = String(memberCount);
+      chip.appendChild(count);
     }
 
     chip.addEventListener("dblclick", (e) => {
@@ -2308,8 +2311,10 @@ export class TabManager {
         const level = operatorLevelFromXp(op.xp ?? 0);
         opChip.title = `${op.name} — Lv ${level} · ${op.xp ?? 0} XP`;
         opChip.innerHTML =
-          `${renderAvatarHtml(op.emoji, 18)}` +
-          `<span class="tab-op-level" data-operator-id="${op.id}">Lv ${level}</span>`;
+          `<span class="tab-op-avatar-wrap">` +
+            `${renderAvatarHtml(op.emoji, 18)}` +
+            `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
+          `</span>`;
         pill.appendChild(opChip);
       }
     }

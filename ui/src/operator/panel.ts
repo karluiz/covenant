@@ -73,6 +73,10 @@ export class OperatorPanel {
   /// localStorage — expansion is a transient view state.
   private expandedGroups: Set<number> = new Set();
   private operatorCache: Map<string, Operator> = new Map();
+  /// Custom combobox mounted in place of the operator <select>. Native
+  /// <option> is text-only — pack-avatar PNGs can't render inside it —
+  /// so we use a button + popover that supports avatars.
+  private operatorCombo: AvatarCombobox | null = null;
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -140,6 +144,10 @@ export class OperatorPanel {
     if (this.unlistenXp) {
       this.unlistenXp();
       this.unlistenXp = null;
+    }
+    if (this.operatorCombo) {
+      this.operatorCombo.destroy();
+      this.operatorCombo = null;
     }
     if (this.modal) {
       this.modal.remove();
@@ -251,15 +259,7 @@ export class OperatorPanel {
         </label>
         <label class="operator-filter-label">
           Operator
-          <select class="operator-operator-select" data-role="filter-operator">
-            <option value="all">All operators</option>
-            ${Array.from(this.operatorCache.values())
-              .map((op) => {
-                const sel = this.filter.operatorFilter === op.id ? " selected" : "";
-                return `<option value="${escapeAttr(op.id)}"${sel}>${escapeHtml(op.emoji + " " + op.name)}</option>`;
-              })
-              .join("")}
-          </select>
+          <span class="operator-operator-combo" data-role="operator-combo"></span>
         </label>
         <label class="operator-filter-toggle">
           <input type="checkbox" class="operator-executed-only"${this.filter.executedOnly ? " checked" : ""}>
@@ -288,13 +288,34 @@ export class OperatorPanel {
         this.renderList();
       });
 
-    this.filtersEl
-      .querySelector<HTMLSelectElement>(".operator-operator-select")!
-      .addEventListener("change", (e) => {
-        this.filter.operatorFilter = (e.target as HTMLSelectElement).value;
-        savePrefs(this.filter);
-        this.renderList();
-      });
+    // Custom operator combobox — supports avatar PNGs in both the
+    // closed-state button and the popover list (native <option> can't).
+    // Re-mounted on every renderFilters; the prior instance is destroyed
+    // first so any open popover doesn't get orphaned on document.body.
+    this.operatorCombo?.destroy();
+    const comboHost = this.filtersEl.querySelector<HTMLElement>(
+      '[data-role="operator-combo"]',
+    );
+    if (comboHost) {
+      const opts: ComboOption[] = [
+        { value: "all", label: "All operators", avatar: null },
+        ...Array.from(this.operatorCache.values()).map((op) => ({
+          value: op.id,
+          label: op.name,
+          avatar: op.emoji,
+        })),
+      ];
+      this.operatorCombo = new AvatarCombobox(
+        comboHost,
+        opts,
+        this.filter.operatorFilter,
+        (value) => {
+          this.filter.operatorFilter = value;
+          savePrefs(this.filter);
+          this.renderList();
+        },
+      );
+    }
 
     this.filtersEl
       .querySelector<HTMLInputElement>(".operator-executed-only")!
@@ -700,4 +721,232 @@ function escapeHtml(s: string): string {
 
 function escapeAttr(s: string): string {
   return escapeHtml(s);
+}
+
+interface ComboOption {
+  value: string;
+  label: string;
+  /// Raw avatar string from `Operator.emoji` — emoji char or `pack:<id>`.
+  /// Null for synthetic options like "All operators" that have no avatar.
+  avatar: string | null;
+}
+
+/// Lightweight combobox that supports avatar imagery (pack PNGs) in both
+/// the closed-state button and the dropdown list. Drop-in replacement for
+/// a native <select> when options carry visual identity beyond plain text.
+///
+/// Lifetime: caller mounts into a host element and is responsible for
+/// calling destroy() when the host is being torn down — the popover is
+/// attached to document.body and won't be removed by host innerHTML.
+class AvatarCombobox {
+  private button: HTMLButtonElement;
+  private popover: HTMLElement | null = null;
+  private highlighted = 0;
+  /// Bound handlers — kept on the instance so we can detach them on
+  /// close without keeping reference juggling at every call site.
+  private outsideClick: ((e: MouseEvent) => void) | null = null;
+  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private repositionHandler: (() => void) | null = null;
+
+  constructor(
+    private readonly host: HTMLElement,
+    private options: ComboOption[],
+    private value: string,
+    private readonly onChange: (value: string) => void,
+  ) {
+    this.host.classList.add("avatar-combo");
+    this.button = document.createElement("button");
+    this.button.type = "button";
+    this.button.className = "avatar-combo__button";
+    this.button.setAttribute("aria-haspopup", "listbox");
+    this.button.setAttribute("aria-expanded", "false");
+    this.button.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggle();
+    });
+    this.button.addEventListener("keydown", (e) => {
+      // ArrowDown opens the popover and lands on the current value —
+      // matches native <select> behavior so keyboard users don't lose
+      // muscle memory.
+      if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (!this.popover) this.open();
+      }
+    });
+    this.host.appendChild(this.button);
+    this.renderButton();
+  }
+
+  destroy(): void {
+    this.close();
+    this.button.remove();
+    this.host.classList.remove("avatar-combo");
+  }
+
+  private currentOption(): ComboOption {
+    return (
+      this.options.find((o) => o.value === this.value) ?? this.options[0]!
+    );
+  }
+
+  private renderButton(): void {
+    const sel = this.currentOption();
+    const avatarHtml =
+      sel.avatar !== null
+        ? renderAvatarHtml(sel.avatar, 16, "avatar-combo__avatar")
+        : "";
+    this.button.innerHTML =
+      `${avatarHtml}` +
+      `<span class="avatar-combo__label">${escapeHtml(sel.label)}</span>` +
+      `<span class="avatar-combo__caret" aria-hidden="true">▾</span>`;
+  }
+
+  private toggle(): void {
+    if (this.popover) this.close();
+    else this.open();
+  }
+
+  private open(): void {
+    if (this.popover) return;
+    this.highlighted = Math.max(
+      0,
+      this.options.findIndex((o) => o.value === this.value),
+    );
+
+    const pop = document.createElement("div");
+    pop.className = "avatar-combo__popover";
+    pop.setAttribute("role", "listbox");
+    document.body.appendChild(pop);
+    this.popover = pop;
+    this.renderPopover();
+    this.position();
+
+    this.button.setAttribute("aria-expanded", "true");
+
+    this.outsideClick = (e: MouseEvent): void => {
+      if (!this.popover) return;
+      const target = e.target as Node;
+      if (this.popover.contains(target)) return;
+      if (this.button.contains(target)) return;
+      this.close();
+    };
+    this.keyHandler = (e: KeyboardEvent): void => {
+      if (!this.popover) return;
+      switch (e.key) {
+        case "Escape":
+          e.preventDefault();
+          this.close();
+          this.button.focus();
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          this.highlighted = Math.min(
+            this.options.length - 1,
+            this.highlighted + 1,
+          );
+          this.renderPopover();
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          this.highlighted = Math.max(0, this.highlighted - 1);
+          this.renderPopover();
+          break;
+        case "Enter": {
+          e.preventDefault();
+          const opt = this.options[this.highlighted];
+          if (opt) this.select(opt.value);
+          break;
+        }
+      }
+    };
+    this.repositionHandler = (): void => this.position();
+
+    // Defer attach so the click that opened us doesn't immediately close
+    // via the document-level handler (same-tick bubble).
+    setTimeout(() => {
+      if (!this.popover) return;
+      document.addEventListener("click", this.outsideClick!);
+      document.addEventListener("keydown", this.keyHandler!);
+      window.addEventListener("resize", this.repositionHandler!);
+      window.addEventListener("scroll", this.repositionHandler!, true);
+    }, 0);
+  }
+
+  private renderPopover(): void {
+    if (!this.popover) return;
+    this.popover.innerHTML = this.options
+      .map((o, i) => {
+        const cls =
+          "avatar-combo__option" +
+          (i === this.highlighted ? " is-highlighted" : "") +
+          (o.value === this.value ? " is-selected" : "");
+        const avatarHtml =
+          o.avatar !== null
+            ? renderAvatarHtml(o.avatar, 18, "avatar-combo__avatar")
+            : `<span class="avatar-combo__avatar avatar-combo__avatar--blank" aria-hidden="true"></span>`;
+        return (
+          `<button type="button" class="${cls}" role="option" data-value="${escapeAttr(o.value)}" aria-selected="${o.value === this.value}">` +
+          avatarHtml +
+          `<span class="avatar-combo__label">${escapeHtml(o.label)}</span>` +
+          `</button>`
+        );
+      })
+      .join("");
+    this.popover
+      .querySelectorAll<HTMLButtonElement>("button.avatar-combo__option")
+      .forEach((btn, i) => {
+        btn.addEventListener("click", () => {
+          this.highlighted = i;
+          this.select(btn.dataset.value!);
+        });
+        btn.addEventListener("mouseenter", () => {
+          this.highlighted = i;
+          this.renderPopover();
+        });
+      });
+  }
+
+  private position(): void {
+    if (!this.popover) return;
+    const rect = this.button.getBoundingClientRect();
+    // Default: drop down. Flip up when there's not enough room below.
+    const popHeight = this.popover.offsetHeight;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const dropUp = spaceBelow < popHeight + 8 && rect.top > popHeight + 8;
+    this.popover.style.left = `${Math.max(8, rect.left)}px`;
+    this.popover.style.top = dropUp
+      ? `${rect.top - popHeight - 4}px`
+      : `${rect.bottom + 4}px`;
+    this.popover.style.minWidth = `${Math.max(rect.width, 160)}px`;
+  }
+
+  private close(): void {
+    if (!this.popover) return;
+    this.popover.remove();
+    this.popover = null;
+    this.button.setAttribute("aria-expanded", "false");
+    if (this.outsideClick) {
+      document.removeEventListener("click", this.outsideClick);
+      this.outsideClick = null;
+    }
+    if (this.keyHandler) {
+      document.removeEventListener("keydown", this.keyHandler);
+      this.keyHandler = null;
+    }
+    if (this.repositionHandler) {
+      window.removeEventListener("resize", this.repositionHandler);
+      window.removeEventListener("scroll", this.repositionHandler, true);
+      this.repositionHandler = null;
+    }
+  }
+
+  private select(value: string): void {
+    if (this.value !== value) {
+      this.value = value;
+      this.renderButton();
+      this.onChange(value);
+    }
+    this.close();
+  }
 }

@@ -979,7 +979,7 @@ body.tab-drag-active * {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-left: 4px;
+    margin-left: auto;
     padding: 2px 7px;
     background: rgba(255, 255, 255, 0.08);
     border-radius: 9px;
@@ -990,6 +990,10 @@ body.tab-drag-active * {
     font-variant-numeric: tabular-nums;
     color: color-mix(in srgb, var(--group-color, #fff) 60%, #fff 40%);
     min-width: 16px;
+}
+
+.group-chip:not(.group-chip-collapsed) .group-chip-count {
+    display: none;
 }
 
 .group-chip-input {
@@ -2165,6 +2169,109 @@ body.tab-drag-active * {
     padding: 2px 6px;
     font-size: 11px;
     max-width: 160px;
+}
+
+/* ── Avatar combobox ──────────────────────────────────────────────────
+   Custom dropdown used in place of <select> when options carry an
+   avatar (PNG or emoji). Closed state: a button matching the visual
+   weight of .operator-session-select. Open state: a floating popover
+   anchored on document.body so it can escape any overflow:hidden
+   ancestors. */
+.avatar-combo {
+    display: inline-flex;
+    align-items: center;
+}
+.avatar-combo__button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg);
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    height: 22px;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    max-width: 220px;
+    transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.avatar-combo__button:hover {
+    border-color: color-mix(in srgb, var(--accent, #b794f4) 50%, var(--border));
+}
+.avatar-combo__button[aria-expanded="true"] {
+    border-color: var(--accent, #b794f4);
+}
+.avatar-combo__avatar {
+    flex: 0 0 auto;
+    border-radius: 3px;
+    image-rendering: pixelated;
+}
+.avatar-combo__avatar--blank {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+}
+.avatar-combo__label {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+.avatar-combo__caret {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 10px;
+    margin-left: 2px;
+}
+
+.avatar-combo__popover {
+    position: fixed;
+    z-index: 2000;
+    background: var(--bg-overlay, #1a1b22);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    max-height: 280px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.avatar-combo__option {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: transparent;
+    border: none;
+    color: var(--fg, #d6d8db);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    text-align: left;
+}
+.avatar-combo__option .avatar-combo__avatar {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+}
+.avatar-combo__option .avatar-combo__avatar--blank {
+    width: 18px;
+    height: 18px;
+}
+.avatar-combo__option.is-highlighted {
+    background: color-mix(in srgb, var(--accent, #b794f4) 18%, transparent);
+}
+.avatar-combo__option.is-selected {
+    color: color-mix(in srgb, var(--accent, #b794f4) 75%, var(--fg, #d6d8db));
+}
+.avatar-combo__option.is-selected.is-highlighted {
+    background: color-mix(in srgb, var(--accent, #b794f4) 28%, transparent);
 }
 
 .operator-filter-toggle input {
@@ -4080,10 +4187,52 @@ button.status-segment.status-add-mission:focus-visible {
     border-color: var(--accent, #b794f4);
 }
 
+/* "Set operator" affordance — same chip metrics as status-add-mission
+   so the bar stays visually consistent. Distinct accent color (cyan,
+   matching the operator/bot visual language elsewhere) so the two
+   add-pills aren't easily confused at a glance. */
+button.status-segment.status-add-operator {
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    font: inherit;
+    padding: 0 6px;
+    height: 18px;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.55;
+    transition:
+        opacity 0.12s ease,
+        background-color 0.12s ease,
+        border-color 0.12s ease;
+}
+
+button.status-segment.status-add-operator .status-icon {
+    color: var(--operator-accent, #7dcfff);
+}
+
+button.status-segment.status-add-operator .status-text {
+    color: color-mix(in srgb, var(--fg, #d6d8db) 80%, transparent);
+    font-style: italic;
+}
+
+button.status-segment.status-add-operator:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--operator-accent, #7dcfff) 14%, transparent);
+    border-color: color-mix(in srgb, var(--operator-accent, #7dcfff) 35%, transparent);
+}
+
+button.status-segment.status-add-operator:focus-visible {
+    outline: none;
+    opacity: 1;
+    border-color: var(--operator-accent, #7dcfff);
+}
+
 /* Executor chip — shown when a known agent (claude/aider/opencode/...)
-   is running in the active tab. Tinted with the running color so the
-   user notices "yes, an agent is on" at a glance, with a soft pulse
-   on the icon to imply liveness. */
+   is running in the active tab. Default form (unknown agent) uses the
+   warm `--running` orange + bot icon. Known brands get the
+   `.status-executor-brand` modifier which paints the chip in their
+   signature color via the `--executor-brand` custom property. */
 .status-segment.status-executor {
   color: color-mix(in srgb, var(--running, #e0af68) 80%, var(--fg, #d6d8db));
 }
@@ -4100,6 +4249,67 @@ button.status-segment.status-add-mission:focus-visible {
 @keyframes status-executor-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
+}
+
+/* Branded executor chip — per-vendor color via --executor-brand.
+   Pill-shaped with a tinted background + colored leading dot so the
+   running agent reads as a distinct "active" element of the bar. */
+.status-segment.status-executor-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 18px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--executor-brand) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--executor-brand) 35%, transparent);
+}
+.status-segment.status-executor-brand .status-text {
+  color: color-mix(in srgb, var(--executor-brand) 85%, var(--fg, #d6d8db));
+  text-transform: none;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.status-executor__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--executor-brand);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 6px color-mix(in srgb, var(--executor-brand) 60%, transparent);
+  animation: status-executor-dot-pulse 1.6s ease-in-out infinite;
+}
+/* Vendor SVG glyph variant — same horizontal slot as the dot. The
+   inline SVG inherits color from --executor-brand via currentColor;
+   we add a soft drop-shadow in the same brand color so it picks up
+   the same "alive" feel as the dot pulse without animating the icon
+   itself (animating a 12px detailed glyph reads as flicker). */
+.status-executor__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  color: var(--executor-brand);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--executor-brand) 55%, transparent));
+}
+.status-executor__icon svg {
+  display: block;
+}
+@keyframes status-executor-dot-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 4px color-mix(in srgb, var(--executor-brand) 50%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 10px color-mix(in srgb, var(--executor-brand) 80%, transparent);
+  }
 }
 
 /* Operator chip — surfaces the active tab's Operator state in place
@@ -6111,6 +6321,15 @@ body.tabbar-left .tab-grouped + .tab-grouped {
     border-left-color: var(--tab-border-rest);
 }
 
+/* Cancel the parent flex `gap: 4px` within a group so the chip and
+   its members read as one fused block. The chip already drops its
+   bottom border + radius via `group-chip-has-members`; the negative
+   margin closes the visual seam the gap would otherwise reopen. */
+body.tabbar-left .tab-grouped-first,
+body.tabbar-left .tab-grouped + .tab-grouped {
+    margin-top: -4px;
+}
+
 /* Group chip — full-width row, left-stripe colored. */
 body.tabbar-left .group-chip {
     width: 100%;
@@ -6843,8 +7062,33 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   gap: 3px;
 }
 
-/* 3.12 — operator level badge inside the tab op chip + decision chip. */
-.tab-op-level,
+/* 3.12 — operator level badge.
+   In the tab strip the badge is overlaid on the avatar's bottom-right
+   corner so it adds zero horizontal space (tab name keeps priority).
+   Decision chip in the operator panel still uses the inline pill form. */
+.tab-op-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  line-height: 0;
+}
+.tab-op-level {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  min-width: 9px;
+  height: 9px;
+  padding: 0 1.5px;
+  border-radius: 5px;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 7px;
+  text-align: center;
+  letter-spacing: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
 .op-level {
   font-size: 9px;
   font-weight: 700;
@@ -6860,40 +7104,56 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 }
 
 /* ── Status bar operator chip ─────────────────────────────────────────
-   Single source of truth for the active tab's Operator — entity name +
-   color in one chip, with the LIVE/dry-run/off state inlined as a
-   badge or visual modifier. Replaces the old (Mibli + OP) pair. */
+   Sits flat alongside the other status segments. The operator's color
+   is carried by a leading dot (same pattern as the active-tab chip)
+   instead of a saturated chip background — keeps the bar readable and
+   prevents the operator from visually dominating the strip. */
 .status-chip-operator {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: none;
-  color: #fff;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: filter 0.12s ease, opacity 0.12s ease, box-shadow 0.18s ease;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease,
+    box-shadow 0.18s ease;
 }
-.status-chip-operator:hover { filter: brightness(1.1); }
+.status-chip-operator:hover {
+  background: color-mix(in srgb, var(--fg, #d6d8db) 8%, transparent);
+  border-color: color-mix(in srgb, var(--fg, #d6d8db) 18%, transparent);
+}
+.status-chip-operator__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
 .status-chip-operator__name {
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.01em;
 }
-/* Operator pinned but disabled — dim the chip so it reads as
-   "configured, not running" rather than competing with active chips. */
+/* Operator pinned but disabled — dim so it reads as "configured, not
+   running" without competing with active chips. */
 .status-chip-operator.is-off {
   opacity: 0.55;
-  filter: saturate(0.7);
 }
-.status-chip-operator.is-off:hover { opacity: 0.85; filter: saturate(0.9) brightness(1.05); }
-/* Live mode — bytes can be typed into the tab. Same coral semantic
-   the AOM chip uses for "risk acknowledged". Badge sits to the right
-   of the entity name; the whole chip pulses subtly so peripheral
-   vision catches it. */
+.status-chip-operator.is-off:hover { opacity: 0.85; }
+/* Live mode — bytes can be typed into the tab. Coral pulse on the
+   chip border so peripheral vision catches it; LIVE badge inlined
+   after the name. */
 .status-chip-operator.is-live {
-  box-shadow: 0 0 0 1px rgba(247, 118, 142, 0.55), 0 0 8px rgba(247, 118, 142, 0.35);
+  border-color: rgba(247, 118, 142, 0.55);
+  box-shadow: 0 0 6px rgba(247, 118, 142, 0.30);
   animation: status-chip-operator-live-pulse 1.8s ease-in-out infinite;
 }
 .status-chip-operator__live {
@@ -6902,13 +7162,18 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   letter-spacing: 0.1em;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  background: rgba(247, 118, 142, 0.18);
+  color: #f7768e;
 }
 @keyframes status-chip-operator-live-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(247, 118, 142, 0.55), 0 0 6px rgba(247, 118, 142, 0.30); }
-  50%      { box-shadow: 0 0 0 1px rgba(247, 118, 142, 0.85), 0 0 12px rgba(247, 118, 142, 0.55); }
+  0%, 100% {
+    border-color: rgba(247, 118, 142, 0.45);
+    box-shadow: 0 0 4px rgba(247, 118, 142, 0.22);
+  }
+  50% {
+    border-color: rgba(247, 118, 142, 0.85);
+    box-shadow: 0 0 10px rgba(247, 118, 142, 0.50);
+  }
 }
 
 /* ── Operator Picker (⌘⇧O) ─────────────────────────────────────────── */
@@ -7112,10 +7377,69 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   margin: 0 0 8px 0;
 }
 .operator-picker__preview-head h4 { margin: 0; }
+.operator-picker__preview-head-text {
+  display: flex; flex-direction: column; gap: 6px;
+  min-width: 0; flex: 1;
+}
 
 /* ── Operator picker list avatar column ──────────────────────────── */
 .operator-picker__list li {
-  grid-template-columns: 36px 1fr 16px;
+  grid-template-columns: 36px 1fr auto;
+}
+
+/* ── "default" chip replacing the ⭐ in the operator list ─────────── */
+.operator-picker__default-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+.operator-picker__list li.is-highlighted .operator-picker__default-chip {
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+}
+
+/* ── XP bar in operator picker preview ────────────────────────────── */
+.operator-picker__xp {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px;
+}
+.operator-picker__xp-level {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+  white-space: nowrap;
+}
+.operator-picker__xp-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-panel);
+  overflow: hidden;
+  min-width: 60px;
+}
+.operator-picker__xp-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: linear-gradient(90deg, #7aa2f7, #bb9af7);
+  border-radius: 3px;
+  transition: width 0.18s ease;
+}
+.operator-picker__xp-num {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ── Decision chip flex ───────────────────────────────────────────── */

@@ -298,6 +298,15 @@ Implement all four policies. `Allowlist` ships first. `FullAuto` requires a sand
 ### M7+ — Persistence, search, replay
 SQLite-backed history. Embeddings over past blocks. "What did I do last Tuesday to fix this?" works.
 
+### M8 — Windows support *(deferred)*
+Architecture is already cross-platform: Tauri 2 (WebView2), `portable-pty` (ConPTY on Win10 1809+), xterm.js, Rust/Tokio. Work required:
+- **Shell integration for PowerShell**: emit OSC 133 from the `prompt` function (same approach as VSCode/WezTerm/Warp). Add `shell-integration/osc133.ps1`.
+- **Default shell detection**: prefer `pwsh` > `powershell` > `cmd`, with WSL bash as opt-in (reuses existing zsh/bash snippets verbatim).
+- **Build pipeline**: Windows runners for code signing and `.msi` packaging via Tauri.
+- **Platform details**: ConPTY resize semantics (no SIGWINCH), font/chrome differences in WebView2, path separators already handled via `PathBuf`.
+
+Do not start until M1–M5 are solid. Keep the macOS path canonical; Windows is additive.
+
 ---
 
 ## What to do FIRST when starting fresh

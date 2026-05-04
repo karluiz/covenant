@@ -32,6 +32,7 @@ import {
   setSessionMissionContent,
 } from "../api";
 import { Icons } from "../icons";
+import { brandIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
 
 const GIT_BRANCH_SVG =
@@ -393,18 +394,33 @@ export class StatusBar {
       btn.className = "status-chip status-chip-operator";
       if (live) btn.classList.add("is-live");
       else if (!enabled) btn.classList.add("is-off");
-      btn.style.background = opEntity.color;
       btn.title = live
         ? `Operator: ${opEntity.name} — LIVE (replies typed into this tab). Click to switch.`
         : enabled
           ? `Operator: ${opEntity.name} — dry-run (replies proposed, not typed). Click to switch.`
           : `Operator: ${opEntity.name} — off. Click to switch.`;
       const liveBadge = live ? `<span class="status-chip-operator__live">LIVE</span>` : "";
-      btn.innerHTML = `<span class="status-chip-operator__name">${escapeHtml(opEntity.name)}</span>${liveBadge}`;
+      // Color lives in a leading dot — same pattern the active-tab chip
+      // uses — so the chip itself sits flat alongside the other status
+      // segments instead of competing with a saturated background.
+      btn.innerHTML =
+        `<span class="status-chip-operator__dot" style="background:${opEntity.color}"></span>` +
+        `<span class="status-chip-operator__name">${escapeHtml(opEntity.name)}</span>` +
+        liveBadge;
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);
       });
       this.host.appendChild(btn);
+    } else if (this.currentSessionId) {
+      // Mirror "Set mission" — surface a subtle affordance to pin an
+      // Operator to this tab. Same opacity/italic treatment so the two
+      // add-pills read as a consistent vocabulary. Always shown when a
+      // session is active and nothing is pinned (operators aren't
+      // project-scoped, so no git/runtime gate).
+      const sid = this.currentSessionId;
+      this.host.appendChild(
+        addOperatorSegment(() => this.onOperatorChipClick?.(sid)),
+      );
     }
     if (this.currentMission && this.currentSessionId) {
       this.host.appendChild(
@@ -648,22 +664,81 @@ function operatorSegment(state: { enabled: boolean; live: boolean }): HTMLElemen
   return el;
 }
 
+/// Per-brand color + display label for known executor agents.
+/// Detection is upstream (Rust `detect_executor`); we only style here.
+/// Unknown agents fall back to the muted/default treatment so a new
+/// CLI doesn't show up uncolored — it just shows up neutral.
+function executorBrand(name: string): { color: string; label: string } | null {
+  // Brand colors sourced from each vendor's primary mark on dark UI:
+  //   Claude    — Anthropic "kraft" terracotta used across claude.ai
+  //   Copilot   — GitHub primary blue (the same one used on github.com)
+  //   opencode  — SST signature orange (opencode.ai / sst.dev palette)
+  //   aider     — terminal lime, no official brand — picked to read as
+  //               "shell-native" without colliding with codex green
+  //   Cursor    — monochrome white (their brand is grayscale)
+  //   Codex     — OpenAI teal-green (chatgpt.com / openai.com primary)
+  switch (name.toLowerCase()) {
+    case "claude":
+      return { color: "#cc785c", label: "Claude" };
+    case "copilot":
+      return { color: "#0969da", label: "Copilot" };
+    case "opencode":
+      return { color: "#fb923c", label: "opencode" };
+    case "aider":
+      return { color: "#84cc16", label: "aider" };
+    case "cursor":
+      return { color: "#e5e7eb", label: "Cursor" };
+    case "codex":
+      return { color: "#10a37f", label: "Codex" };
+    default:
+      return null;
+  }
+}
+
 function executorSegment(name: string): HTMLElement {
   const el = document.createElement("span");
-  el.className = "status-segment status-executor";
-  el.title = `Running ${name} in this tab`;
-  el.setAttribute("aria-label", `Executor: ${name}`);
+  const brand = executorBrand(name);
+  el.className = brand
+    ? "status-segment status-executor status-executor-brand"
+    : "status-segment status-executor";
+  el.title = `Running ${brand?.label ?? name} in this tab`;
+  el.setAttribute("aria-label", `Executor: ${brand?.label ?? name}`);
+  if (brand) {
+    el.style.setProperty("--executor-brand", brand.color);
+  }
 
-  const icon = document.createElement("span");
-  icon.className = "status-icon";
-  icon.innerHTML = Icons.bot({ size: 12 });
-  el.appendChild(icon);
+  if (brand) {
+    // Branded form: vendor SVG (or a pulsing color dot fallback if we
+    // don't ship a glyph for this vendor) + brand-tinted name. The
+    // SVG inherits color from --executor-brand via currentColor.
+    const svg = brandIconSvg(name, 12);
+    if (svg) {
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "status-executor__icon";
+      iconWrap.innerHTML = svg;
+      el.appendChild(iconWrap);
+    } else {
+      const dot = document.createElement("span");
+      dot.className = "status-executor__dot";
+      el.appendChild(dot);
+    }
 
-  const text = document.createElement("span");
-  text.className = "status-text";
-  text.textContent = name;
-  el.appendChild(text);
+    const text = document.createElement("span");
+    text.className = "status-text";
+    text.textContent = brand.label;
+    el.appendChild(text);
+  } else {
+    // Fallback: keep the original bot+name treatment for unknown agents.
+    const icon = document.createElement("span");
+    icon.className = "status-icon";
+    icon.innerHTML = Icons.bot({ size: 12 });
+    el.appendChild(icon);
 
+    const text = document.createElement("span");
+    text.className = "status-text";
+    text.textContent = name;
+    el.appendChild(text);
+  }
   return el;
 }
 
@@ -711,6 +786,35 @@ function addMissionSegment(onClick: () => void): HTMLElement {
   const text = document.createElement("span");
   text.className = "status-text";
   text.textContent = "Set mission";
+  el.appendChild(text);
+
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return el;
+}
+
+/// Subtle "Set operator" affordance — sibling of addMissionSegment.
+/// Shown when the active tab has no pinned Operator entity. Click
+/// opens the OperatorPicker (⌘⇧O). Uses the bot icon to match the
+/// operator visual vocabulary used elsewhere.
+function addOperatorSegment(onClick: () => void): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "status-segment status-add-operator";
+  el.title = "Pin an Operator to this tab";
+  el.setAttribute("aria-label", "Set operator");
+
+  const icon = document.createElement("span");
+  icon.className = "status-icon";
+  icon.innerHTML = Icons.bot({ size: 12 });
+  el.appendChild(icon);
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = "Set operator";
   el.appendChild(text);
 
   el.addEventListener("click", (e) => {

@@ -7,6 +7,7 @@
 // Esc / backdrop-click → close.
 
 import {
+  operatorLevelFromXp,
   operatorList,
   sessionSetOperator,
   type Operator,
@@ -97,7 +98,7 @@ export class OperatorPicker {
             data-id="${o.id}">
           ${renderAvatarHtml(o.emoji, 32)}
           <span class="name">${escapeHtml(o.name)}</span>
-          ${o.is_default ? '<span class="star">⭐</span>' : ""}
+          ${o.is_default ? '<span class="operator-picker__default-chip">default</span>' : ""}
         </li>`,
       )
       .join("");
@@ -113,7 +114,10 @@ export class OperatorPicker {
     this.preview.innerHTML = sel
       ? `<header class="operator-picker__preview-head">
            ${renderAvatarHtml(sel.emoji, 64)}
-           <h4>${escapeHtml(sel.name)}</h4>
+           <div class="operator-picker__preview-head-text">
+             <h4>${escapeHtml(sel.name)}</h4>
+             ${renderXpBar(sel.xp ?? 0)}
+           </div>
          </header>
          <p class="muted">${sel.tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join(" ")}</p>
          <dl>
@@ -187,4 +191,20 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function renderXpBar(xp: number): string {
+  const safeXp = Math.max(0, Math.floor(xp));
+  const level = operatorLevelFromXp(safeXp);
+  const intoLevel = safeXp % 100;
+  const pct = Math.min(100, Math.max(0, intoLevel));
+  return `
+    <div class="operator-picker__xp" title="${safeXp} XP total">
+      <span class="operator-picker__xp-level">Lv ${level}</span>
+      <div class="operator-picker__xp-bar" role="progressbar"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}">
+        <div class="operator-picker__xp-fill" style="width:${pct}%"></div>
+      </div>
+      <span class="operator-picker__xp-num">${intoLevel} / 100</span>
+    </div>`;
 }
