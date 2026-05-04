@@ -7918,3 +7918,11 @@ button.mission-picker-plan-missing:hover {
   padding: 6px 8px;
   margin-top: 4px;
 }
+/* Span both text rows when a cwd is rendered below the name, so the
+   button vertically centers against the two-line cell instead of
+   sitting on row 1 with row 2 col 2 empty. */
+.status-aom-pop-excluded-btn {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+}
