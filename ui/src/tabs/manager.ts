@@ -14,7 +14,9 @@
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 import {
   aomStatus,
@@ -33,7 +35,6 @@ import {
   resolveExistingPath,
   setAomExcluded,
   sessionSetOperator,
-  setOperatorEnabled,
   setOperatorLive,
   setSessionMission,
   spawnSession,
@@ -54,6 +55,7 @@ import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
+import { detectExecutor } from "../executor";
 import type { AomBanner } from "../aom/banner";
 
 const DEFAULT_FONT_FAMILY =
@@ -149,6 +151,11 @@ interface Tab {
   /// Operator pinned to this tab. Null = backend default (first operator
   /// in the registry). Persisted in the tab manifest; replayed on restore.
   operator_id: string | null;
+  /// Currently-running agentic executor (claude/copilot/opencode/…)
+  /// detected from the in-flight command. Null when shell is idle or
+  /// the running command isn't a known agent. Drives the status-bar
+  /// brand chip when this tab is active.
+  executor: string | null;
   disposers: IDisposable[];
 }
 
@@ -1046,6 +1053,35 @@ export class TabManager {
     const term = new Terminal(buildTerminalOptions(termCfg));
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const handleLinkClick = (uri: string): void => {
+      const target = /^[a-z][a-z0-9+.-]*:\/\//i.test(uri) ? uri : `http://${uri}`;
+      void openUrl(target).catch((err) => console.error("openUrl failed", err));
+    };
+    term.loadAddon(new WebLinksAddon((_e, uri) => handleLinkClick(uri)));
+    // Bare host:port (e.g. `localhost:54725`, `127.0.0.1:3000`) — the
+    // default addon only catches schemed URLs, so register a second
+    // matcher and prepend http:// at click time.
+    const bareHostPortRe =
+      /\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d{2,5}(?:\/[^\s)<>"']*)?/g;
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const line = term.buffer.active.getLine(y - 1)?.translateToString(true);
+        if (!line) return callback(undefined);
+        const links: { range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: () => void }[] = [];
+        let m: RegExpExecArray | null;
+        bareHostPortRe.lastIndex = 0;
+        while ((m = bareHostPortRe.exec(line)) !== null) {
+          const start = m.index + 1;
+          const end = m.index + m[0].length;
+          links.push({
+            range: { start: { x: start, y }, end: { x: end, y } },
+            text: m[0],
+            activate: () => handleLinkClick(m![0]),
+          });
+        }
+        callback(links);
+      },
+    });
     term.open(termHost);
     // WebGL addon disabled temporarily — its glyph atlas doesn't pick
     // up font changes from term.options.fontFamily reliably. DOM/canvas
@@ -1070,6 +1106,26 @@ export class TabManager {
           onOutput: (chunk) => term.write(chunk),
           onSessionEvent: (event) => {
             blocks?.handleEvent(event);
+            // Track which agentic executor (if any) is running in this
+            // tab — the status-bar brand chip reads it for the active
+            // tab. Detection mirrors the Rust `detect_executor` so the
+            // operator panel and the bar agree on the name.
+            if (event.kind === "block_started") {
+              const next = detectExecutor(event.command);
+              if (tabRef.current && tabRef.current.executor !== next) {
+                tabRef.current.executor = next;
+                if (tabRef.current.id === this.activeId) {
+                  this.statusBar?.setExecutor(next);
+                }
+              }
+            } else if (event.kind === "block_finished") {
+              if (tabRef.current && tabRef.current.executor !== null) {
+                tabRef.current.executor = null;
+                if (tabRef.current.id === this.activeId) {
+                  this.statusBar?.setExecutor(null);
+                }
+              }
+            }
             // Recall reacts to two flavors of session event:
             //   - prompt_start: shell drew a fresh prompt → reset
             //     our shadow input buffer.
@@ -1530,6 +1586,7 @@ export class TabManager {
       sidebarView: "blocks",
       cwd: null,
       operator_id: null,
+      executor: null,
       disposers: [dataDispose, resizeDispose, roDispose],
     };
     tabRef.current = tab;
@@ -1652,20 +1709,6 @@ export class TabManager {
     tab.operator_id = operatorId;
     if (tab.sessionId) {
       await sessionSetOperator(tab.sessionId, operatorId);
-      // Pinning an operator is the user's intent to *use* it on this
-      // tab — flip the enabled flag to match. Unpinning (null) likewise
-      // disables the watcher and clears live, mirroring toggleOperator.
-      const shouldEnable = operatorId !== null;
-      if (tab.operatorEnabled !== shouldEnable) {
-        tab.operatorEnabled = shouldEnable;
-        if (!shouldEnable) tab.operatorLive = false;
-        try {
-          await setOperatorEnabled(tab.sessionId, shouldEnable);
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error("set_operator_enabled failed", err);
-        }
-      }
     }
     this.scheduleSave();
     // Refresh operator cache so the chip picks up any name/color updates.
@@ -2136,6 +2179,7 @@ export class TabManager {
     this.emitActiveMission();
     this.emitActiveOperator();
     this.emitActiveTab();
+    this.statusBar?.setExecutor(tab.executor);
 
     requestAnimationFrame(() => {
       try {
