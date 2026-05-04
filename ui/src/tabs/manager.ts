@@ -1733,6 +1733,46 @@ export class TabManager {
     }
   }
 
+  /**
+   * 3.16 — flat snapshot of every tab's mission/operator state, used by
+   * the spec-prompt module to filter candidates.
+   */
+  listTabSnapshots(): {
+    id: string;
+    cwd: string;
+    hasMission: boolean;
+    hasOperator: boolean;
+  }[] {
+    return this.tabs.map((t) => ({
+      id: t.id,
+      cwd: t.cwd ?? "",
+      hasMission: !!t.mission?.path,
+      hasOperator: !!t.operator_id,
+    }));
+  }
+
+  /**
+   * 3.16 — set mission for a specific tab id (not necessarily active).
+   * Used by the spec-prompt toast: each open toast belongs to a specific
+   * tab and must set the mission on THAT tab regardless of the user's
+   * current focus.
+   */
+  async setMissionPathForTab(tabId: string, path: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const prevActive = this.activeId;
+    if (this.activeId !== tabId) {
+      this.activate(tabId);
+    }
+    try {
+      await this.setMissionPathForActiveTab(path);
+    } finally {
+      if (prevActive && prevActive !== tabId) {
+        this.activate(prevActive);
+      }
+    }
+  }
+
   /// Open an inline modal that asks for a spec path, then attach
   /// the mission to the session. The user can either type a path or
   /// click "Browse…" for a native file picker. Errors (file not

@@ -15,6 +15,7 @@ import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
 import { playAomEntrySplash, playAomExitSplash } from "./aom/entry-splash";
 import { AomReportPanel } from "./aom/report";
+import { ensureDetectorForRepo, startSpecPrompts } from "./aom/spec-prompt";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
@@ -238,7 +239,10 @@ async function boot(): Promise<void> {
   // active-tab cwd on activation + cwd_changed.
   const statusBar = new StatusBar(requireEl<HTMLElement>("status-bar"));
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
-  manager.onActiveContextChange = (cwd) => statusBar.setCwd(cwd);
+  manager.onActiveContextChange = (cwd) => {
+    statusBar.setCwd(cwd);
+    if (cwd) void ensureDetectorForRepo(cwd);
+  };
   manager.onActiveTabChange = (info) => statusBar.setActiveTab(info);
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
@@ -266,6 +270,16 @@ async function boot(): Promise<void> {
     const detail = (e as CustomEvent<{ path: string }>).detail;
     void manager.setMissionPathForActiveTab(detail.path);
   });
+
+  // 3.16 — spec auto-detect → propose mission. Subscribe to backend
+  // `spec:candidate` events and render a floating toast for tabs whose
+  // cwd matches the candidate's repo root and which have no mission yet.
+  void startSpecPrompts({
+    listTabs: () => manager.listTabSnapshots(),
+    setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
+  });
+  const initialCwd = manager.activeCwd();
+  if (initialCwd) void ensureDetectorForRepo(initialCwd);
 
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
