@@ -123,20 +123,33 @@ fn read_version_file(language: &str, cwd: &Path) -> Option<String> {
 /// Tier-3 fallback: ask the runtime binary itself. Short, blocking call;
 /// the caller is already on a worker thread and the result is cached.
 fn query_runtime_binary(language: &str) -> Option<String> {
-    let (bin, args) = match language {
-        "node" => ("node", &["-v"][..]),
-        "python" => ("python3", &["--version"][..]),
-        "rust" => ("rustc", &["--version"][..]),
-        "go" => ("go", &["version"][..]),
-        "ruby" => ("ruby", &["--version"][..]),
+    let cmd = match language {
+        "node" => "node -v",
+        "python" => "python3 --version 2>&1",
+        "rust" => "rustc --version",
+        "go" => "go version",
+        "ruby" => "ruby --version",
         _ => return None,
     };
-    let out = Command::new(bin).args(args).output().ok()?;
+    // GUI apps on macOS launched from Finder/.app inherit a minimal PATH
+    // (no nvm, pyenv, asdf, or Homebrew shims). Run through the user's
+    // login+interactive shell so PATH-mutating rc files (~/.zshrc, ~/.bash_profile)
+    // run first. Slower than a direct exec, but the LRU caches the answer
+    // per cwd, so this only happens on first detection of an unknown cwd.
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // Marker isolates our output from any chatter rc files print on
+    // interactive startup (banners, MOTDs, plugin manager status lines).
+    let wrapped = format!("printf '__KT_V_START__\\n'; {cmd}");
+    let out = Command::new(&shell).args(["-ilc", &wrapped]).output().ok()?;
     if !out.status.success() {
         return None;
     }
-    let s = String::from_utf8(out.stdout).ok()?;
-    let s = s.trim();
+    let raw = String::from_utf8(out.stdout).ok()?;
+    let s = raw
+        .split("__KT_V_START__")
+        .nth(1)
+        .unwrap_or(raw.as_str())
+        .trim();
     // Pluck the first dotted version-looking token from the output.
     // Examples: "v20.11.0" → "20.11.0"; "Python 3.12.1" → "3.12.1";
     // "rustc 1.84.0 (...)" → "1.84.0"; "go version go1.22 darwin/arm64".

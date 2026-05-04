@@ -30,6 +30,7 @@ import {
   operatorLevelFromXp,
   operatorList,
   resizeSession,
+  resolveExistingPath,
   setAomExcluded,
   sessionSetOperator,
   setOperatorEnabled,
@@ -1427,12 +1428,62 @@ export class TabManager {
       );
       recall?.notifyInput(data);
     });
+    // Shift+Enter → Alt+Enter (`\x1b\r`). xterm.js's default for
+    // Shift+Enter is the same as Enter (just `\r`), which submits in
+    // CLI agents like Claude Code / Codex. Sending ESC+CR is the
+    // widely-accepted "newline without submit" sequence those agents
+    // recognize. Returning false stops xterm from also sending `\r`.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (
+        ev.type === "keydown" &&
+        ev.key === "Enter" &&
+        ev.shiftKey &&
+        !ev.ctrlKey &&
+        !ev.metaKey &&
+        !ev.altKey
+      ) {
+        void writeToSession(sessionId, encoder.encode("\x1b\r")).catch((e) =>
+          // eslint-disable-next-line no-console
+          console.error("shift-enter write failed", e),
+        );
+        ev.preventDefault();
+        return false;
+      }
+      return true;
+    });
+
     const resizeDispose = term.onResize(({ cols, rows }) => {
       void resizeSession(sessionId, cols, rows).catch((e) =>
         // eslint-disable-next-line no-console
         console.error("resize failed", e),
       );
     });
+
+    // Refit when the terminal container itself resizes — not just the
+    // window. Status bar / AOM banner / sidebar / docs overlay all change
+    // termHost's size without firing window `resize`. Without this, xterm
+    // keeps stale rows and the viewport stops short of the bottom (user
+    // can't scroll to last line). rAF-debounced to coalesce bursts.
+    let rafId: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (termHost.offsetWidth === 0 || termHost.offsetHeight === 0) return;
+        try {
+          fit.fit();
+        } catch {
+          /* ignore — tab may be hidden or disposing */
+        }
+      });
+    });
+    ro.observe(termHost);
+    const roDispose = {
+      dispose: () => {
+        ro.disconnect();
+        if (rafId !== null) cancelAnimationFrame(rafId);
+      },
+    };
 
     // Pick up the backend's per-session enabled state (driven by
     // settings.operator.enabled_default at attach() time). Live always
@@ -1472,9 +1523,74 @@ export class TabManager {
       sidebarView: "blocks",
       cwd: null,
       operator_id: null,
-      disposers: [dataDispose, resizeDispose],
+      disposers: [dataDispose, resizeDispose, roDispose],
     };
     tabRef.current = tab;
+
+    // Cmd+Click on file paths in terminal output → open in the tab's
+    // editor split. Path detection is local to the visible line; we
+    // resolve against the tab's *current* cwd (read at click time so
+    // the user can `cd` and click into a path printed earlier).
+    //
+    // Only paths with at least one `/` separator (or a `./` / `../` /
+    // absolute prefix) are matched, plus an optional trailing `:line`
+    // or `:line:col`. Bare filenames like `README.md` are intentionally
+    // skipped — too many false positives in agent prose.
+    const PATH_RE =
+      /(?:\.{0,2}\/)?[A-Za-z0-9_@.\-]+(?:\/[A-Za-z0-9_@.\-]+)+(?::\d+(?::\d+)?)?/g;
+    const linkDispose = term.registerLinkProvider({
+      provideLinks(y, callback) {
+        const buf = term.buffer.active;
+        const line = buf.getLine(y - 1);
+        if (!line) {
+          callback(undefined);
+          return;
+        }
+        const text = line.translateToString(true);
+        const links = [] as Parameters<typeof callback>[0] extends
+          | infer L
+          | undefined
+          ? L
+          : never;
+        const out: NonNullable<typeof links> = [];
+        for (const m of text.matchAll(PATH_RE)) {
+          const raw = m[0];
+          // Trim trailing punctuation that often abuts a path in prose.
+          const trimmed = raw.replace(/[.,;:)\]}>'"]+$/g, "");
+          if (trimmed.length < 3) continue;
+          const startCol = m.index ?? 0;
+          out.push({
+            range: {
+              start: { x: startCol + 1, y },
+              end: { x: startCol + trimmed.length, y },
+            },
+            text: trimmed,
+            activate: (event) => {
+              // Require Cmd (mac) / Ctrl to open — otherwise plain
+              // clicks would steal terminal selection from the user.
+              if (!event.metaKey && !event.ctrlKey) return;
+              const colonSplit = trimmed.match(/^(.*?)(?::(\d+)(?::\d+)?)?$/);
+              const pathPart = colonSplit?.[1] ?? trimmed;
+              const lineNum = colonSplit?.[2] ? Number(colonSplit[2]) : undefined;
+              const cwd = tabRef.current?.cwd ?? null;
+              void resolveExistingPath(pathPart, cwd)
+                .then((abs) => {
+                  if (!abs) return;
+                  tabRef.current?.openEditor(
+                    abs,
+                    lineNum !== undefined ? { line: lineNum } : undefined,
+                  );
+                })
+                .catch(() => {
+                  /* ignore — path didn't resolve */
+                });
+            },
+          });
+        }
+        callback(out);
+      },
+    });
+    tab.disposers.push(linkDispose);
 
     this.tabs.push(tab);
     // If spawned into an existing group, splice the tab next to the
@@ -2587,6 +2703,13 @@ export class TabManager {
       const input = document.createElement("input");
       input.type = "text";
       input.className = "tab-label-input";
+      // The webview otherwise auto-capitalizes / autocorrects tab names
+      // like a regular text field — undesirable for identifiers like
+      // "ui", "engatel-cargo", branch names, etc.
+      input.autocapitalize = "off";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.setAttribute("autocorrect", "off");
       input.value = tab.customName ?? tab.defaultTitle;
       input.addEventListener("keydown", (e) => {
         e.stopPropagation();

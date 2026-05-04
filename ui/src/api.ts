@@ -632,6 +632,16 @@ export async function structureCreatePath(
   return invoke<string>("structure_create_path", { path, kind });
 }
 
+/// Resolve a path-like token (relative or absolute) against `cwd` and
+/// return the canonical absolute path iff it points to an existing
+/// regular file. Used by the xterm Cmd+Click link provider.
+export async function resolveExistingPath(
+  path: string,
+  cwd: string | null,
+): Promise<string | null> {
+  return invoke<string | null>("resolve_existing_path", { path, cwd });
+}
+
 export async function structureReadFile(
   path: string,
   maxBytes?: number,

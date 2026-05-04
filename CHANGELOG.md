@@ -6,7 +6,73 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## 0.2.4 — 2026-05-04
+## 0.2.5 — 2026-05-04
+
+Mission picker promoted to a full page, plus several quality-of-life
+fixes around the terminal: Cmd+Click on path-like tokens opens the
+file, Shift+Enter sends a newline without submitting in CLI agents,
+the Convergence Mode reply form stops leaking keystrokes to the
+terminal underneath, and runtime-version detection now works when the
+app is launched from Finder.
+
+### Added
+
+- **Mission picker full page (spec 3.15)** — `⌘M` opens
+  `#mission-page`, an overlay full-screen panel mirroring Drafts and
+  Docs Hub. Sidebar with search across published specs (matches
+  `id`/`title`/`goal`), Superpowers and Drafts sections, and a
+  preview pane that renders the selected spec's markdown via a small
+  inline renderer. Keyboard nav: `↑/↓/Enter` select+confirm, `Esc`
+  cancels, `⌘F` focuses search, `Tab` jumps to the path input. The
+  old "Set mission spec" modal is removed.
+- **`read_spec_body` Tauri command** — lazy-reads a `.md` body for
+  the preview pane with a 200 KB hard cap (anything bigger is
+  truncated with a notice), via `spawn_blocking` so the async
+  executor never blocks on disk I/O.
+- **Cmd+Click opens path tokens in the editor** — xterm link
+  provider detects path-like tokens in command output, asks the new
+  `resolve_existing_path` Tauri command to canonicalize them
+  relative to the active tab's `cwd`, and opens the result in the
+  editor when it points to a real file. Hovering a resolvable token
+  highlights it.
+- **Shift+Enter sends Alt+Enter** (`\x1b\r`) inside the terminal —
+  the widely-accepted "newline without submit" sequence that Claude
+  Code, Codex, and other CLI agents recognize. xterm.js's default
+  was identical to plain Enter, which auto-submits.
+- **Keyboard activation on Convergence tiles** — pressing
+  `Enter`/`Space` while a tile has focus activates that tab (same
+  effect as a click). Tiles now expose `role="button"` + `tabIndex`
+  for proper a11y.
+
+### Changed
+
+- **Runtime version detection runs through the user's login+
+  interactive shell** (`$SHELL -ilc …`). GUI apps launched from
+  Finder/Spotlight inherit a minimal `PATH` and miss `nvm`, `pyenv`,
+  `asdf`, and Homebrew shims, so the Tier-3 fallback (`node -v`,
+  `python3 --version`, `rustc --version`, `go version`,
+  `ruby --version`) silently returned `None`. We now wrap the call
+  through the user's rc-loaded shell with an output marker so banners
+  and MOTDs from rc files don't pollute the parsed version. Slower
+  on first hit per cwd, but the LRU cache absorbs subsequent calls.
+- **Convergence tile is a `<div role="button">`** instead of a
+  `<button>` — nesting `<input>`, `<select>`, and `<button>` inside a
+  `<button>` is invalid HTML and produced erratic focus/drag
+  behavior (typing into the reply input bubbled stray events to the
+  terminal underneath the overlay).
+- **Convergence reply form layout** — the input now spans the full
+  tile width on its own row; the scope picker and Send button sit on
+  a second row, right-aligned. Previously they competed for one row
+  and the input got squeezed.
+
+### Fixed
+
+- **Convergence reply form keystrokes no longer reach the terminal
+  underneath** — `keydown` and `pointerdown` are now caught with
+  `stopPropagation`. Before, typing into the reply form could leak
+  through to xterm and corrupt the running command.
+
+
 
 Per-tab AOM exclusion visibility. The existing `aom_excluded` per-tab
 opt-out (M-OP5) was invisible — no shortcut, no badge on the tab, no

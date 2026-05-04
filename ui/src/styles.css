@@ -7522,14 +7522,20 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
 
 .convergence-tile__reply {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  align-items: center;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
+.convergence-tile__reply-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
 .convergence-tile__reply-input {
-  flex: 1;
+  width: 100%;
   background: var(--bg-panel);
   border: 1px solid var(--border);
   color: inherit;

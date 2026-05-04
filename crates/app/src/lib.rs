@@ -1689,6 +1689,34 @@ async fn structure_create_path(
 /// that would stall the IPC bridge.
 const MAX_READ_BYTES_HARD_CAP: u64 = 4 * 1024 * 1024;
 
+/// Cheap file/dir existence probe used by the xterm link provider to
+/// decide whether a path-like token in terminal output is actually a
+/// real file we can open in the editor on Cmd+Click. Resolves the
+/// path relative to `cwd` when not absolute. Returns the canonical
+/// absolute path on hit, `None` otherwise.
+#[tauri::command]
+async fn resolve_existing_path(
+    path: String,
+    cwd: Option<String>,
+) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        let candidate = if p.is_absolute() {
+            p.to_path_buf()
+        } else if let Some(c) = cwd.as_deref() {
+            std::path::Path::new(c).join(p)
+        } else {
+            return Ok(None);
+        };
+        match candidate.canonicalize() {
+            Ok(canon) if canon.is_file() => Ok(Some(canon.to_string_lossy().into_owned())),
+            _ => Ok(None),
+        }
+    })
+    .await
+    .map_err(|e| format!("resolve_existing_path join: {e}"))?
+}
+
 #[tauri::command]
 async fn structure_read_file(
     path: String,
@@ -1986,6 +2014,7 @@ pub fn run() {
             tab_manifest_save,
             recent_blocks_by_cwd,
             get_dir_context,
+            resolve_existing_path,
             structure_list_dir,
             structure_create_path,
             structure_read_file,

@@ -101,6 +101,16 @@ export class ConvergenceOverlay {
       const ok = this.bridge.activateBySessionId(tile.dataset.sessionId);
       if (ok) this.close();
     });
+    grid.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const target = e.target as HTMLElement;
+      if (target.closest(".convergence-tile__reply")) return;
+      const tile = target.closest<HTMLElement>(".convergence-tile");
+      if (!tile?.dataset.sessionId) return;
+      e.preventDefault();
+      const ok = this.bridge.activateBySessionId(tile.dataset.sessionId);
+      if (ok) this.close();
+    });
 
     const empty = document.createElement("div");
     empty.className = "convergence-overlay__empty";

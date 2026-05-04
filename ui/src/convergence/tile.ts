@@ -47,10 +47,13 @@ function buildReplyForm(
   const form = document.createElement("div");
   form.className = "convergence-tile__reply";
   form.dataset.noTileClick = "1";
-  // Block bubbling so the outer tile click handler does not activate the tab.
+  // Block bubbling so the outer tile click handler does not activate the tab,
+  // and so keystrokes/pointer events do not reach the terminal underneath.
   const stop = (e: Event) => e.stopPropagation();
   form.addEventListener("click", stop);
   form.addEventListener("mousedown", stop);
+  form.addEventListener("pointerdown", stop);
+  form.addEventListener("keydown", (e) => e.stopPropagation());
 
   const input = document.createElement("input");
   input.type = "text";
@@ -93,7 +96,10 @@ function buildReplyForm(
     }
   });
 
-  form.append(input, scope, send);
+  const controls = document.createElement("div");
+  controls.className = "convergence-tile__reply-controls";
+  controls.append(scope, send);
+  form.append(input, controls);
   return form;
 }
 
@@ -132,9 +138,13 @@ export function renderTile(
   tab?: TabMeta,
   onReplySubmit?: ReplySubmit,
 ): HTMLElement {
-  const tile = document.createElement("button");
-  tile.type = "button";
+  // Use a div (not button) — nesting inputs/select/buttons inside a <button>
+  // is invalid HTML and produces erratic focus/drag behavior (typing in the
+  // reply input would bubble strange events to the terminal underneath).
+  const tile = document.createElement("div");
   tile.className = "convergence-tile";
+  tile.setAttribute("role", "button");
+  tile.tabIndex = 0;
   tile.dataset.sessionId = state.session_id;
 
   const head = document.createElement("div");
