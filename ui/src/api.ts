@@ -641,6 +641,9 @@ export interface ConvergenceTileState {
   budget_usd: number | null;
   vendor: Vendor;
   raw_command_label: string | null;
+  /// 3.14 — short mission name (basename of mission_path, no `.md`,
+  /// truncated to 40 chars). Null when the session has no mission.
+  mission_name: string | null;
 }
 
 export interface ConvergenceSnapshot {
@@ -649,6 +652,12 @@ export interface ConvergenceSnapshot {
 
 export async function getConvergenceSnapshot(): Promise<ConvergenceSnapshot> {
   return invoke<ConvergenceSnapshot>("get_convergence_snapshot");
+}
+
+/// 3.14 — light 1 Hz poll surface for the tab strip. Returns the ids
+/// of sessions currently in the convergence `blocked` state.
+export async function getBlockedSessionIds(): Promise<string[]> {
+  return invoke<string[]>("get_blocked_session_ids");
 }
 
 export { draftsApi } from "./drafts/api";

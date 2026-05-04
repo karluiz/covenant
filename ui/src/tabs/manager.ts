@@ -20,6 +20,7 @@ import {
   aomStatus,
   clearSessionMission,
   closeSession,
+  getBlockedSessionIds,
   getSessionMission,
   getSettings,
   isAomExcluded,
@@ -264,6 +265,13 @@ export class TabManager {
   /// disk write 200ms later.
   private saveTimer: number | null = null;
 
+  /// 3.14 — set of sessionIds currently in convergence `blocked` state.
+  /// Refreshed at 1 Hz by `blockedPollTimer`; drives the per-tab
+  /// escalation dot. Diff-based updates avoid DOM churn for tabs whose
+  /// state did not change.
+  private blockedSessionIds: Set<string> = new Set();
+  private blockedPollTimer: number | null = null;
+
   /// short-id → display name cache (see `SESSION_NAME_CACHE_KEY`).
   /// Updated on every name-affecting mutation; consulted by panels
   /// that need to label closed tabs.
@@ -333,7 +341,51 @@ export class TabManager {
       for (const tab of this.tabs) {
         void closeSession(tab.sessionId).catch(() => {});
       }
+      if (this.blockedPollTimer !== null) {
+        window.clearInterval(this.blockedPollTimer);
+        this.blockedPollTimer = null;
+      }
     });
+    // 3.14 — 1 Hz poll for the per-tab escalation dot. Independent of
+    // the convergence overlay's open/closed lifecycle.
+    this.blockedPollTimer = window.setInterval(() => {
+      void this.pollBlockedSessions();
+    }, 1000);
+  }
+
+  /// 3.14 — fetch blocked-session ids and reconcile dots on changed tabs.
+  private async pollBlockedSessions(): Promise<void> {
+    let ids: string[];
+    try {
+      ids = await getBlockedSessionIds();
+    } catch {
+      return;
+    }
+    const next = new Set(ids);
+    const changed = new Set<string>();
+    for (const id of next) if (!this.blockedSessionIds.has(id)) changed.add(id);
+    for (const id of this.blockedSessionIds) if (!next.has(id)) changed.add(id);
+    if (changed.size === 0) return;
+    this.blockedSessionIds = next;
+    for (const tab of this.tabs) {
+      if (!changed.has(tab.sessionId)) continue;
+      const pill = this.tabbarHost.querySelector<HTMLElement>(
+        `.tab-btn[data-tab-id="${tab.id}"]`,
+      );
+      if (pill) this.applyEscalationDot(pill, next.has(tab.sessionId));
+    }
+  }
+
+  private applyEscalationDot(pill: HTMLElement, blocked: boolean): void {
+    const existing = pill.querySelector(".tab-chip__escalation-dot");
+    if (blocked && !existing) {
+      const dot = document.createElement("span");
+      dot.className = "tab-chip__escalation-dot";
+      dot.title = "Operator escalated — needs your input";
+      pill.appendChild(dot);
+    } else if (!blocked && existing) {
+      existing.remove();
+    }
   }
 
   /// Refresh the in-memory operator cache from the backend. Should be
@@ -2291,6 +2343,12 @@ export class TabManager {
 
     // ── Drag and drop ──
     this.installTabPointerDrag(pill, tab.id);
+
+    // 3.14 — re-apply escalation dot on (re)render so a strip rebuild
+    // doesn't drop it while the session is still blocked.
+    if (this.blockedSessionIds.has(tab.sessionId)) {
+      this.applyEscalationDot(pill, true);
+    }
 
     return pill;
   }

@@ -760,6 +760,40 @@ async fn get_convergence_snapshot(
     .await)
 }
 
+/// 3.14 — light poll surface for the tab strip. Returns session ids
+/// (as strings) whose convergence status would resolve to `Blocked`,
+/// so the tab chip can render its escalation dot independent of the
+/// convergence overlay's lifecycle. Reuses `build_convergence_snapshot`
+/// — at 1 Hz the cost is negligible and we get the exact same logic.
+#[tauri::command]
+async fn get_blocked_session_ids(
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let inputs: Vec<convergence::SessionInput> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .iter()
+            .map(|(id, ms)| convergence::SessionInput {
+                session_id: *id,
+                op_state: ms.op_state.clone(),
+            })
+            .collect()
+    };
+    let snap = convergence::build_convergence_snapshot(
+        inputs,
+        &state.operator,
+        &state.storage,
+        &state.aom,
+    )
+    .await;
+    Ok(snap
+        .tiles
+        .into_iter()
+        .filter(|t| matches!(t.status, convergence::TileStatus::Blocked))
+        .map(|t| t.session_id)
+        .collect())
+}
+
 /// 3.13 Task 3 — pure scope-resolution helper. UI sends literal
 /// `"one-shot" | "mission" | "global"`; backend resolves to the
 /// stored `scope` column on `operator_memories`. Returns `None` to
@@ -1710,6 +1744,7 @@ pub fn run() {
             aom_stop,
             aom_report,
             get_convergence_snapshot,
+            get_blocked_session_ids,
             submit_convergence_reply,
             recall_search,
             zsh_autosuggestions_status,

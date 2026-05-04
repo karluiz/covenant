@@ -7179,3 +7179,31 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* 3.14 — Escalation visibility */
+.convergence-tile__mission {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+@keyframes tab-escalation-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+.tab-chip__escalation-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger, var(--accent));
+  animation: tab-escalation-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
