@@ -209,7 +209,7 @@ async function boot(): Promise<void> {
   // Render the new-tab button with its keyboard hint visible inline,
   // adapted to the host platform's modifier symbol.
   newTabBtn.innerHTML = `
-    <span class="new-tab-plus">+</span>
+    <span class="new-tab-plus">${Icons.terminal({ size: 14 })}</span>
     <kbd class="new-tab-kbd">${MOD_KEY}T</kbd>
   `;
   newTabBtn.title = `New tab (${MOD_KEY}T)`;
