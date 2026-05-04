@@ -6438,17 +6438,48 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 .wiz-editor-flash { background: rgba(122, 162, 247, 0.12); transition: background 0.6s ease-out; }
 
 /* ── Publish modal (AC6) ──────────────────────────────────────────────── */
-.wiz-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.wiz-modal { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 20px; min-width: 420px; max-width: 90vw; }
-.wiz-modal h3 { margin: 0 0 12px; font-size: 14px; }
-.wiz-modal label { display: block; font-size: 11px; color: var(--muted); margin: 8px 0 4px; }
-.wiz-modal input { width: 100%; background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
+.wiz-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+}
+.wiz-modal {
+  background: rgb(17 20 26 / 0.98);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  min-width: 460px;
+  max-width: 90vw;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wiz-modal h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.wiz-modal label { display: block; font-size: 11px; color: var(--muted); margin: 0 0 4px; }
+.wiz-modal input { width: 100%; background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
 .wiz-modal input.invalid { border-color: #e44; }
-.wiz-modal-preview { margin: 12px 0; padding: 6px 8px; background: var(--bg-overlay); border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
-.wiz-modal-error { color: #e44; font-size: 11px; margin-top: 4px; }
-.wiz-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.wiz-modal-preview {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+.wiz-modal-error { color: #e44; font-size: 11px; margin: 0; }
+.wiz-modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
 .wiz-modal-actions button { padding: 6px 14px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; font-size: 13px; }
 .wiz-modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wiz-modal-actions button.primary:hover:not(:disabled) { filter: brightness(1.1); }
 .wiz-modal-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Post-publish toast (AC7) ─────────────────────────────────────────── */
