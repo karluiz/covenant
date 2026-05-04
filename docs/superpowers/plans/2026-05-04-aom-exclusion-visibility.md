@@ -358,7 +358,7 @@ Append to `ui/src/styles.css`:
   background: rgba(255, 255, 255, 0.06);
 }
 .tab-bot-badge--excluded {
-  color: var(--fg-muted, rgba(255, 255, 255, 0.45));
+  color: var(--muted);
 }
 .tab-bot-badge--inert {
   cursor: default;
@@ -833,7 +833,7 @@ Append to `ui/src/styles.css`:
 .status-aom-excluded {
   /* Slightly muted to read as supplementary info, not as primary
      warning. The popover carries the actionable detail. */
-  color: var(--fg-muted, rgba(255, 255, 255, 0.55));
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 ```
@@ -956,7 +956,7 @@ Append to `ui/src/styles.css`:
 }
 .status-aom-pop-excluded-title {
   font-size: 11px;
-  color: var(--fg-muted, rgba(255, 255, 255, 0.55));
+  color: var(--muted);
   margin-bottom: 6px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -983,7 +983,7 @@ Append to `ui/src/styles.css`:
   display: block;
   grid-column: 1 / 2;
   font-size: 11px;
-  color: var(--fg-muted, rgba(255, 255, 255, 0.45));
+  color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .status-aom-pop-excluded-btn,
