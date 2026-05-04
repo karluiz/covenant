@@ -694,7 +694,12 @@ export class TabManager {
       tab.customName = slug;
       touched = true;
     }
-    if (touched) this.renderTabbar();
+    if (touched) {
+      this.renderTabbar();
+      // Names that just changed may belong to AOM-excluded tabs; the
+      // popover keys on `name` so push to keep its labels current.
+      this.pushExcludedToStatusBar();
+    }
   }
 
   /// Re-sync every tab's per-session Operator + mission state from
@@ -1493,6 +1498,11 @@ export class TabManager {
     if (!next) tab.operatorLive = false;
     this.renderTabbar();
     if (tab.id === this.activeId) this.emitActiveOperator();
+    // Operator-off removes the tab from the AOM excluded list (the
+    // pushExcludedToStatusBar filter requires operatorEnabled), and
+    // operator-on while still aom_excluded re-adds it. Either way,
+    // the chip count + popover need a refresh.
+    this.pushExcludedToStatusBar();
     try {
       await setOperatorEnabled(tab.sessionId, next);
     } catch (err) {
@@ -1501,6 +1511,7 @@ export class TabManager {
       tab.operatorLive = prevLive;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveOperator();
+      this.pushExcludedToStatusBar();
       // eslint-disable-next-line no-console
       console.error("set_operator_enabled failed", err);
     }
@@ -2050,6 +2061,9 @@ export class TabManager {
     this.renderTabbar();
     if (id === this.activeId) this.emitActiveTab();
     this.scheduleSave();
+    // If this tab is in the AOM excluded list, the popover's name
+    // field would otherwise stay stale until the next AOM transition.
+    this.pushExcludedToStatusBar();
   }
 
   private commitGroupRename(id: string, value: string): void {
