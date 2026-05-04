@@ -147,6 +147,7 @@ pub async fn build_convergence_snapshot(
     let aom_state = aom.read().await;
     let aom_enabled = aom_state.enabled;
     let aom_budget = aom_state.budget_usd;
+    let aom_started_ms = aom_state.started_at_unix_ms;
     drop(aom_state);
 
     let now = Instant::now();
@@ -157,12 +158,7 @@ pub async fn build_convergence_snapshot(
 
         let (last_byte_at, bytes_total, last_decision_at_bytes_total, tail_bytes) = {
             let st = s.op_state.lock().expect("op_state poisoned");
-            (
-                st.last_byte_at,
-                st.bytes_total,
-                st.last_decision_at_bytes_total,
-                st.snapshot_tail(8 * 1024),
-            )
+            (st.last_byte_at, st.bytes_total, st.last_decision_at_bytes_total, st.snapshot_tail(8 * 1024))
         };
 
         let last = by_short.get(short.as_str()).copied();
@@ -172,33 +168,22 @@ pub async fn build_convergence_snapshot(
         let raw_command_label = matches!(vendor, Vendor::Unknown)
             .then(|| cmd_for_vendor.map(|c| c.chars().take(40).collect::<String>())).flatten();
 
-        let status = classify_status(&StatusInputs {
-            last_byte_at,
-            bytes_total,
-            last_decision_at_bytes_total,
-            last_decision_action: last_action,
-            now,
-        });
+        let status = classify_status(&StatusInputs { last_byte_at, bytes_total, last_decision_at_bytes_total, last_decision_action: last_action, now });
 
         let op_enabled = operator.is_enabled(s.session_id).await;
         let aom_excluded = operator.is_aom_excluded(s.session_id).await;
         let enrolled = aom_enabled && op_enabled && !aom_excluded;
-
-        let cost_usd = if enrolled { Some(0.0) } else { None };
+        let cost_usd = if enrolled { Some(sum_cost_for_short(&recent, &short, aom_started_ms)) } else { None };
 
         tiles.push(ConvergenceTileState {
-            session_id: id_str,
-            title: String::new(),
-            color: None,
-            status,
+            session_id: id_str, title: String::new(), color: None, status,
             last_decision_action: last.map(|d| d.action.clone()),
             last_decision_rationale: last.and_then(|d| d.rationale.clone()),
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
-            vendor,
-            raw_command_label,
+            vendor, raw_command_label,
         });
     }
 
@@ -210,11 +195,13 @@ fn shorten6(id: &str) -> String {
     if n > 6 { id[n - 6..].to_string() } else { id.to_string() }
 }
 
+fn sum_cost_for_short(rows: &[OperatorDecisionRow], short: &str, since_ms: u64) -> f64 {
+    rows.iter().filter(|r| r.session_id_short == short && r.timestamp_unix_ms >= since_ms).map(|r| r.cost_usd).sum()
+}
+
 fn index_decisions_by_short_id(rows: &[OperatorDecisionRow]) -> HashMap<&str, &OperatorDecisionRow> {
     let mut out = HashMap::new();
-    for r in rows {
-        out.entry(r.session_id_short.as_str()).or_insert(r);
-    }
+    for r in rows { out.entry(r.session_id_short.as_str()).or_insert(r); }
     out
 }
 
@@ -263,6 +250,19 @@ mod tests {
             (Some(""), Vendor::Unknown),
         ];
         for (i, e) in cases { assert_eq!(detect_vendor(*i), *e, "{:?}", i); }
+    }
+
+    #[test]
+    fn sum_cost_for_short_window() {
+        let r = |s: &str, ts: u64, c: f64| OperatorDecisionRow {
+            id: 0, session_id_short: s.into(), timestamp_unix_ms: ts, in_flight_command: None,
+            output_excerpt: String::new(), action: "reply".into(), reply_text: None,
+            rationale: None, executed: false, mission_path: None, executor_name: None,
+            operator_id: None, operator_name: None, cost_usd: c,
+        };
+        let rows = vec![r("aaaaaa",1000,0.10), r("aaaaaa",2000,0.25), r("aaaaaa",500,0.99), r("bbbbbb",1500,0.50)];
+        assert!((sum_cost_for_short(&rows, "aaaaaa", 1000) - 0.35).abs() < 1e-9);
+        assert_eq!(sum_cost_for_short(&rows, "zzzzzz", 0), 0.0);
     }
 
     #[test]
