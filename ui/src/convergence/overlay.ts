@@ -84,7 +84,8 @@ export class ConvergenceOverlay {
     const exit = document.createElement("button");
     exit.type = "button";
     exit.className = "convergence-overlay__exit";
-    exit.textContent = "Exit";
+    exit.title = "Close (Esc)";
+    exit.innerHTML = `<span>Exit</span><kbd class="convergence-overlay__exit-kbd">Esc</kbd>`;
     exit.addEventListener("click", () => this.close());
 
     header.append(title, exit);
