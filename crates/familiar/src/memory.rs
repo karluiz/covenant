@@ -93,6 +93,58 @@ impl Memory {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MissionRow {
+    pub mission_id: String,
+    pub started_ms: i64,
+    pub finished_ms: Option<i64>,
+    pub objective: String,
+    pub digest: String,
+}
+
+impl Memory {
+    pub fn start_mission(&self, mission_id: &str, started_ms: i64,
+                         objective: &str) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO familiar_missions(mission_id, started_ms, objective)
+             VALUES (?1,?2,?3)",
+            (mission_id, started_ms, objective),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn finish_mission(&self, mission_id: &str, finished_ms: i64,
+                          digest: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE familiar_missions SET finished_ms=?1, digest=?2 WHERE mission_id=?3",
+            (finished_ms, digest, mission_id),
+        )?;
+        Ok(())
+    }
+
+    pub fn mission(&self, mission_id: &str) -> Result<Option<MissionRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT mission_id, started_ms, finished_ms, objective, digest
+             FROM familiar_missions WHERE mission_id=?1")?;
+        let mut rows = stmt.query_map([mission_id], |r| Ok(MissionRow {
+            mission_id: r.get(0)?, started_ms: r.get(1)?,
+            finished_ms: r.get(2)?, objective: r.get(3)?, digest: r.get(4)?,
+        }))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn recent_missions(&self, limit: i64) -> Result<Vec<MissionRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT mission_id, started_ms, finished_ms, objective, digest
+             FROM familiar_missions ORDER BY started_ms DESC LIMIT ?1")?;
+        let rows = stmt.query_map([limit], |r| Ok(MissionRow {
+            mission_id: r.get(0)?, started_ms: r.get(1)?,
+            finished_ms: r.get(2)?, objective: r.get(3)?, digest: r.get(4)?,
+        }))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +187,18 @@ mod tests {
         }
         let from_3 = m.events_since(3).unwrap();
         assert_eq!(from_3.len(), 2);
+    }
+
+    #[test]
+    fn mission_lifecycle() {
+        let m = Memory::open_in_memory().unwrap();
+        let id = m.start_mission("mission-1", 1000, "ship feature X").unwrap();
+        assert!(id > 0);
+        m.finish_mission("mission-1", 2000, "shipped: X merged in PR 42").unwrap();
+        let row = m.mission("mission-1").unwrap().unwrap();
+        assert_eq!(row.objective, "ship feature X");
+        assert!(row.digest.starts_with("shipped"));
+        assert_eq!(row.finished_ms, Some(2000));
     }
 
     #[test]
