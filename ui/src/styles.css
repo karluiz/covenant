@@ -7697,3 +7697,83 @@ button.mission-picker-plan-missing:hover {
 .mission-picker-newmodal input:focus { outline: 1px solid var(--accent); }
 .mission-picker-newmodal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
 .mission-picker-newmodal-actions button { padding: 4px 12px; font-size: 12px; cursor: pointer; }
+
+.hidden { display: none !important; }
+
+#familiars-roster.roster {
+  position: fixed; inset: 0; z-index: 1000;
+  display: grid;
+  grid-template-columns: 220px 1fr 320px;
+  background: rgba(20, 20, 24, 0.97);
+  color: #e5e7eb;
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.roster-left, .roster-center, .roster-right {
+  border-left: 1px solid #2a2a2f;
+  overflow: auto; padding: 12px;
+}
+.roster-left { border-left: none; }
+.roster-close {
+  position: absolute; top: 8px; right: 12px;
+  background: transparent; color: #9ca3af; border: none;
+  cursor: pointer; font-size: 16px;
+}
+
+.familiar-list-empty { color: #6b7280; padding: 8px; }
+.familiar-row {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid transparent;
+  color: #e5e7eb; padding: 6px 8px; border-radius: 6px;
+  margin-bottom: 4px;
+}
+.familiar-row.selected { background: #1f2937; border-color: #374151; }
+.familiar-row:hover { background: #1a2230; }
+.familiar-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #34d399;
+}
+.familiar-name { flex: 1; }
+.familiar-session { color: #6b7280; font-size: 11px; }
+
+.chat-panel { display: flex; flex-direction: column; height: 100%; }
+.chat-log { flex: 1; overflow: auto; padding-right: 6px; }
+.chat-msg { padding: 6px 10px; border-radius: 6px; margin: 4px 0;
+            white-space: pre-wrap; }
+.chat-msg-user { background: #1e293b; align-self: flex-end; }
+.chat-msg-assistant { background: #111827; }
+.chat-empty { color: #6b7280; text-align: center; margin-top: 40px; }
+.chat-input {
+  margin-top: 8px; resize: none; padding: 8px;
+  background: #0b1220; color: #e5e7eb; border: 1px solid #1f2937;
+  border-radius: 6px; font: inherit;
+}
+
+.directive-card {
+  border: 1px solid #6366f1; background: #1e1b4b;
+  border-radius: 8px; padding: 10px; margin: 8px 0;
+}
+.directive-card.approved { border-color: #10b981; }
+.directive-card.rejected { border-color: #ef4444; opacity: 0.6; }
+.directive-head { display: flex; justify-content: space-between;
+  font-size: 11px; color: #c7d2fe; margin-bottom: 6px; }
+.directive-payload {
+  background: #0f172a; border-radius: 4px; padding: 8px;
+  font: inherit; white-space: pre-wrap; margin: 4px 0;
+}
+.directive-rationale { color: #9ca3af; font-size: 12px; margin: 6px 0; }
+.directive-actions { display: flex; gap: 6px; }
+.directive-actions button {
+  padding: 4px 10px; cursor: pointer; border-radius: 4px;
+  background: #312e81; color: #e0e7ff; border: 1px solid #4338ca;
+}
+.btn-approve { background: #065f46 !important; border-color: #10b981 !important; }
+.btn-reject { background: #7f1d1d !important; border-color: #ef4444 !important; }
+
+.snapshot-panel .snap-section { margin-bottom: 16px; }
+.snapshot-panel h4 { font-size: 11px; text-transform: uppercase;
+  color: #9ca3af; margin: 0 0 6px; letter-spacing: 0.05em; }
+.snap-summary { background: #0f172a; padding: 8px; border-radius: 4px;
+  white-space: pre-wrap; max-height: 200px; overflow: auto; }
+.snap-missions { list-style: disc inside; margin: 0; padding: 0; }
+.snap-spend.frozen { color: #f87171; font-weight: bold; }
