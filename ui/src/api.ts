@@ -543,6 +543,11 @@ export interface Settings {
   /// labels). `null` = built-in system sans default. Terminal and
   /// editor fonts are configured separately.
   ui_font_family: string | null;
+  /// Familiars feature flag. Both this AND `is_premium` must be true
+  /// for the auto-spawn-on-operator-start flow to fire.
+  familiars_enabled: boolean;
+  /// Premium gate for Familiars (and any other premium-only features).
+  is_premium: boolean;
 }
 
 export type TabbarPosition = "top" | "left";

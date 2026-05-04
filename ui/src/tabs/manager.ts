@@ -50,6 +50,24 @@ import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
 import { openMissionPicker } from "./mission-picker";
 import { renderAvatarHtml } from "../operator/avatars";
+import { Familiars } from "../familiars/api";
+import { setFamiliarFor } from "../familiars/registry";
+
+/// Ensure a Familiar exists for the given session. If one is already
+/// registered backend-side (e.g. survived a relaunch), reuse it;
+/// otherwise spawn a fresh "Familiar" with conversational defaults.
+/// Always populates the session->familiar registry.
+async function ensureFamiliarFor(sessionId: string): Promise<string> {
+  const list = await Familiars.list();
+  const existing = list.find((f) => f.session_id === sessionId);
+  if (existing) {
+    setFamiliarFor(sessionId, existing.id);
+    return existing.id;
+  }
+  const id = await Familiars.spawn(sessionId, "Familiar", "conversational", 5.0);
+  setFamiliarFor(sessionId, id);
+  return id;
+}
 
 const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
@@ -1436,6 +1454,20 @@ export class TabManager {
       if (!next) tab.operatorLive = false;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveOperator();
+      // Auto-spawn a Familiar when the operator goes ON, gated on the
+      // user's premium + familiars-enabled settings. Failures are
+      // non-fatal — the operator stays enabled either way.
+      if (next) {
+        try {
+          const s = await getSettings();
+          if (s.familiars_enabled && s.is_premium) {
+            await ensureFamiliarFor(tab.sessionId);
+          }
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("ensureFamiliarFor failed", err);
+        }
+      }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_enabled failed", err);
