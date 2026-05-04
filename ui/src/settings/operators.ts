@@ -10,6 +10,8 @@ import {
 } from "../api";
 import { AVATAR_PACK, parseAvatar, renderAvatarHtml } from "../operator/avatars";
 import { pushInfoToast } from "../notifications/toast";
+import { Icons } from "../icons";
+import { PersonaComposerModal } from "../operator/persona-composer";
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
@@ -27,6 +29,7 @@ export class OperatorsPane {
   private selectedId: string | null = null;
   private dirty = false;
   private editing: OperatorDraft = { ...DEFAULT_DRAFT };
+  private composer = new PersonaComposerModal();
 
   constructor(private mount: HTMLElement) {
     this.mount.innerHTML = `
@@ -180,8 +183,14 @@ export class OperatorsPane {
                value="${escapeHtml(this.editing.tags.join(", "))}" />
       </div>
 
-      <div class="operators-pane__field">
-        <label>Persona / authorization charter</label>
+      <div class="operators-pane__field operators-pane__field--persona">
+        <label>
+          Persona / authorization charter
+          <button type="button" class="operators-pane__persona-expand"
+                  data-role="persona-expand" title="Expand editor">
+            ${Icons.maximize({ size: 14 })}
+          </button>
+        </label>
         <textarea data-bind="persona" rows="14">${escapeHtml(this.editing.persona)}</textarea>
       </div>
 
@@ -272,6 +281,23 @@ export class OperatorsPane {
     bind("escalate_threshold", (v) => Number.parseFloat(v));
     bind("model", (v) => v);
     bind("hard_constraints", (v) => v);
+
+    const expandBtn = root.querySelector<HTMLButtonElement>(
+      '[data-role="persona-expand"]',
+    );
+    const personaTextarea = root.querySelector<HTMLTextAreaElement>(
+      'textarea[data-bind="persona"]',
+    );
+    if (expandBtn && personaTextarea) {
+      expandBtn.addEventListener("click", () => {
+        this.composer.open(personaTextarea.value, (next) => {
+          personaTextarea.value = next;
+          // Fire 'input' so the existing data-bind plumbing picks up
+          // the change and marks the form dirty.
+          personaTextarea.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      });
+    }
 
     root.querySelector<HTMLButtonElement>('[data-act="cancel"]')!
       .addEventListener("click", () => {
