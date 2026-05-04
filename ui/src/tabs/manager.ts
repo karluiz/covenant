@@ -2336,6 +2336,15 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Collapse every group at once. No-op if all groups are already
+  /// collapsed (or there are no groups). Mutates DOM in place via the
+  /// same path as the per-chip toggle so transitions stay smooth.
+  collapseAllGroups(): void {
+    for (const [id, g] of this.groups) {
+      if (!g.collapsed) this.toggleGroupCollapsed(id);
+    }
+  }
+
   private toggleGroupCollapsed(groupId: string): void {
     const g = this.groups.get(groupId);
     if (!g) return;

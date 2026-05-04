@@ -4392,11 +4392,9 @@ button.status-segment.status-add-operator:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
-  height: 18px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--executor-brand) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--executor-brand) 35%, transparent);
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 .status-segment.status-executor-brand .status-text {
   color: color-mix(in srgb, var(--executor-brand) 85%, var(--fg, #d6d8db));
@@ -6589,7 +6587,46 @@ body.tabbar-left #tabbar-actions > button {
    the chevron itself (rotated 180° to point left = "expand"). */
 
 #tabbar-fold,
+#tabbar-collapse-all,
 #tabbar-brand-row {
+    display: none;
+}
+
+body.tabbar-left #tabbar-brand-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+body.tabbar-left #tabbar-collapse-all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0.55;
+    transition:
+        opacity 0.12s ease-out,
+        background 0.12s ease-out;
+}
+
+body.tabbar-left #tabbar-collapse-all:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+body.tabbar-left #tabbar-collapse-all svg {
+    width: 14px;
+    height: 14px;
+}
+
+body.tabbar-left.tabbar-left-collapsed #tabbar-collapse-all {
     display: none;
 }
 

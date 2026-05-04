@@ -178,6 +178,10 @@ export const Icons = {
   chevronRight: (o?: IconOptions): string =>
     svg(`<path d="m9 18 6-6-6-6"/>`, o),
 
+  /** Chevrons-down-up — collapse-all affordance. */
+  chevronsDownUp: (o?: IconOptions): string =>
+    svg(`<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>`, o),
+
   /** File — generic file. Used by the Structure tree for non-dir entries. */
   fileText: (o?: IconOptions): string =>
     svg(

@@ -255,6 +255,12 @@ async function boot(): Promise<void> {
     setTimeout(() => manager.refitActive(), 320);
   });
 
+  const collapseAllBtn = requireEl<HTMLButtonElement>("tabbar-collapse-all");
+  collapseAllBtn.innerHTML = Icons.chevronsDownUp({ size: 14 });
+  collapseAllBtn.addEventListener("click", () => {
+    manager.collapseAllGroups();
+  });
+
   // Render the new-tab button with its keyboard hint visible inline,
   // adapted to the host platform's modifier symbol.
   newTabBtn.innerHTML = `
