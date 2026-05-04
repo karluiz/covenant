@@ -806,6 +806,12 @@ async fn is_aom_excluded(
     Ok(state.operator.is_aom_excluded(id).await)
 }
 
+#[tauri::command]
+async fn clear_all_aom_excluded(state: State<'_, AppState>) -> Result<(), String> {
+    state.operator.clear_all_aom_excluded().await;
+    Ok(())
+}
+
 #[derive(Debug, serde::Serialize)]
 struct AutosuggestStatus {
     /// True when the plugin is present at one of the well-known
@@ -1957,6 +1963,7 @@ pub fn run() {
             is_operator_live,
             set_aom_excluded,
             is_aom_excluded,
+            clear_all_aom_excluded,
             set_session_mission,
             list_superpowers_missions,
             clear_session_mission,

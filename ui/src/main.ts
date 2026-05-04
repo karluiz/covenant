@@ -334,6 +334,7 @@ async function boot(): Promise<void> {
   // for tabs AOM auto-enabled or auto-reverted.
   const aomBanner = new AomBanner(document.body);
   manager.setAomBanner(aomBanner);
+  manager.setStatusBar(statusBar);
   // Headless: the banner owns state + polling, but the chip in the
   // status bar handles all rendering. Without this we'd get both
   // the floating pill AND the chip on screen at once.
@@ -374,6 +375,12 @@ async function boot(): Promise<void> {
   statusBar.bindAomActions({
     onStop: () => void aomBanner.toggle(),
     onAfk: () => afk.open(),
+    onIncludeTab: (sessionId) => {
+      void manager.setAomExcludedFor(sessionId, false);
+    },
+    onIncludeAll: () => {
+      void manager.includeAllInAom();
+    },
   });
   const docsPage = requireEl<HTMLElement>("docs-page");
   const docsPanel = new DocsPanel(docsPage, workspace);

@@ -130,6 +130,13 @@ export async function isAomExcluded(sessionId: SessionId): Promise<boolean> {
   return invoke<boolean>("is_aom_excluded", { sessionId });
 }
 
+/// "Include all" backend hook — flips every tab's `aom_excluded` to
+/// false in one call. Surfaced in the AOM popover when ≥1 tabs are
+/// excluded. Use sparingly; the per-tab toggle is the daily affordance.
+export async function clearAllAomExcluded(): Promise<void> {
+  return invoke<void>("clear_all_aom_excluded");
+}
+
 export interface Operator {
   id: string;
   name: string;

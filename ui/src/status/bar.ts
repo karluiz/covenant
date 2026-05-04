@@ -43,19 +43,17 @@ const GIT_BRANCH_SVG =
 const CPU_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>';
 
-/// Callbacks the AOM popover wires to its action buttons. Stop and
-/// Afk are required; Include callbacks are optional during the
-/// staggered Task 8 → Task 11 rollout (TabManager binds them in
-/// Task 11; until then the popover treats them as no-ops).
+/// Callbacks the AOM popover wires to its action buttons. All fields
+/// are required now that TabManager is fully wired (Task 11).
 export interface AomActions {
   onStop: () => void;
   onAfk: () => void;
   /// Re-include a single excluded tab. Implementer (TabManager)
-  /// should call setAomExcluded(sessionId, false) and refresh state.
-  onIncludeTab?: (sessionId: SessionId) => void;
-  /// Re-include every excluded tab in one click. Implementer should
-  /// call clear_all_aom_excluded().
-  onIncludeAll?: () => void;
+  /// calls setAomExcluded(sessionId, false) and refreshes state.
+  onIncludeTab: (sessionId: SessionId) => void;
+  /// Re-include every excluded tab in one click. Implementer calls
+  /// clear_all_aom_excluded.
+  onIncludeAll: () => void;
 }
 
 /// Lightweight per-tab descriptor for the excluded-list popover.
@@ -410,7 +408,7 @@ export class StatusBar {
         btn.addEventListener("click", () => {
           const sid = btn.dataset.sessionId;
           if (!sid) return;
-          this.aomActions?.onIncludeTab?.(sid as SessionId);
+          this.aomActions?.onIncludeTab(sid as SessionId);
           this.closeAomPopover();
         });
       },
@@ -418,7 +416,7 @@ export class StatusBar {
     pop.querySelector<HTMLButtonElement>(".status-aom-pop-include-all")?.addEventListener(
       "click",
       () => {
-        this.aomActions?.onIncludeAll?.();
+        this.aomActions?.onIncludeAll();
         this.closeAomPopover();
       },
     );

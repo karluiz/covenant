@@ -18,6 +18,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import {
   aomStatus,
+  clearAllAomExcluded,
   clearSessionMission,
   closeSession,
   getBlockedSessionIds,
@@ -43,6 +44,7 @@ import {
   type TerminalConfig,
 } from "../api";
 import { BlockManager } from "../blocks/manager";
+import type { StatusBar } from "../status/bar";
 import { RecallManager } from "../recall/manager";
 import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
@@ -291,6 +293,15 @@ export class TabManager {
 
   setAomBanner(banner: AomBanner): void {
     this.aomBanner = banner;
+  }
+
+  /// Held so TabManager can push the per-tab AOM exclusion list to
+  /// the status bar's chip + popover. Wired by main.ts after both
+  /// classes are constructed.
+  private statusBar: StatusBar | null = null;
+
+  setStatusBar(sb: StatusBar): void {
+    this.statusBar = sb;
   }
 
   /// 3.7 — fired whenever the *active* tab's cwd context changes:
@@ -711,6 +722,7 @@ export class TabManager {
       tab.mission = mission;
     }
     this.renderTabbar();
+    this.pushExcludedToStatusBar();
     // Re-push the active tab's mission + operator state too — file
     // watcher / AOM auto-enable cycles can change either without a
     // tab activation.
@@ -1705,6 +1717,7 @@ export class TabManager {
       // values written by an unrelated tab op (rename, color, group)
       // that incidentally triggered scheduleSave.
       this.scheduleSave();
+      this.pushExcludedToStatusBar();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_aom_excluded failed", err);
@@ -1720,6 +1733,64 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab || !tab.operatorEnabled) return;
     await this.toggleAomExcluded(tab.id);
+  }
+
+  /// Set exclusion explicitly for a session (used by the AOM popover's
+  /// per-tab Include action). Wraps backend + local state + tabbar
+  /// render + StatusBar push. Idempotent — bails if state already
+  /// matches.
+  async setAomExcludedFor(sessionId: SessionId, excluded: boolean): Promise<void> {
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    if (!tab) return;
+    if (tab.aomExcluded === excluded) return;
+    try {
+      await setAomExcluded(sessionId, excluded);
+      tab.aomExcluded = excluded;
+      this.renderTabbar();
+      this.scheduleSave();
+      this.pushExcludedToStatusBar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("setAomExcludedFor failed", err);
+    }
+  }
+
+  /// "Include all" — invokes the bulk backend command, then refreshes
+  /// every per-tab cache and re-renders. Used by the AOM popover when
+  /// ≥2 tabs are excluded.
+  async includeAllInAom(): Promise<void> {
+    try {
+      await clearAllAomExcluded();
+      for (const t of this.tabs) {
+        t.aomExcluded = false;
+      }
+      this.renderTabbar();
+      this.scheduleSave();
+      this.pushExcludedToStatusBar();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("clearAllAomExcluded failed", err);
+    }
+  }
+
+  /// Recompute the StatusBar exclusion list from current tab state and
+  /// push. Called whenever the set could have changed (toggle, restore,
+  /// AOM transition).
+  private pushExcludedToStatusBar(): void {
+    const aomOn = this.aomBanner?.isOn() ?? false;
+    if (!aomOn) {
+      this.statusBar?.setExcludedTabs([]);
+      return;
+    }
+    const list = this.tabs
+      .filter((t) => t.operatorEnabled && t.aomExcluded)
+      .map((t) => ({
+        sessionId: t.sessionId,
+        tabId: t.id,
+        name: tabDisplayName(t),
+        cwdShort: shortCwd(t.cwd),
+      }));
+    this.statusBar?.setExcludedTabs(list);
   }
 
   /// Persist current tab + group state to disk. Debounced so a burst
@@ -1847,6 +1918,7 @@ export class TabManager {
     if (this.tabs[idx]) {
       this.activate(this.tabs[idx].id, { skipIfSame: false });
     }
+    this.pushExcludedToStatusBar();
   }
 
   closeTab(id: string): void {
@@ -2765,4 +2837,14 @@ function slugFromMissionPath(path: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
   return slug;
+}
+
+function shortCwd(cwd: string | null): string {
+  if (!cwd) return "";
+  // /Users/<name>/ → ~/  (Linux: /home/<name>/ → ~/). Cheap regex,
+  // no need for an env round-trip — process.env.HOME isn't available
+  // in the Tauri webview anyway.
+  let p = cwd.replace(/^\/Users\/[^/]+/, "~").replace(/^\/home\/[^/]+/, "~");
+  if (p.length > 30) p = "…" + p.slice(p.length - 29);
+  return p;
 }
