@@ -173,12 +173,14 @@ pub fn spawn_familiar_observer_for(
                     }
                 };
                 let llm = Arc::new(karl_familiar::summarizer::AnthropicLlm::haiku(api_key));
+                let shutdown = manager.shutdown_signal(familiar_id).await.ok();
                 let obs = karl_familiar::observer::Observer {
                     memory: mem,
                     llm,
                     session_filter: session_id,
                     flush_every: 5,
                     flush_after: Duration::from_secs(60),
+                    shutdown,
                 };
                 if let Err(e) = obs.run(bus_tx.subscribe()).await {
                     tracing::warn!(error = %e, "familiar observer exited with error");

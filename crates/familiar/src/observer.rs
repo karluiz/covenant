@@ -4,7 +4,7 @@ use crate::summarizer::{Llm, Summarizer};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use karl_session::SessionEvent;
 
 pub struct Observer<L: Llm + 'static> {
@@ -13,6 +13,10 @@ pub struct Observer<L: Llm + 'static> {
     pub session_filter: String,
     pub flush_every: usize,
     pub flush_after: Duration,
+    /// Optional shutdown signal. When `notify_waiters` is called on it,
+    /// the observer's run loop exits cleanly. If `None`, the observer
+    /// only exits when the broadcast sender drops (legacy behavior).
+    pub shutdown: Option<Arc<Notify>>,
 }
 
 impl<L: Llm + 'static> Observer<L> {
@@ -22,12 +26,22 @@ impl<L: Llm + 'static> Observer<L> {
     pub async fn run(self, mut rx: broadcast::Receiver<SessionEvent>) -> Result<()> {
         let mut pending: usize = 0;
         let mut last_flush = tokio::time::Instant::now();
+        // Use a sentinel Notify when none provided; it's never triggered.
+        let shutdown = self.shutdown.clone().unwrap_or_else(|| Arc::new(Notify::new()));
         loop {
-            let event = match tokio::time::timeout(self.flush_after, rx.recv()).await {
-                Ok(Ok(ev)) => Some(ev),
-                Ok(Err(broadcast::error::RecvError::Closed)) => break,
-                Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
-                Err(_) => None, // timeout
+            enum Step { Event(std::result::Result<SessionEvent, broadcast::error::RecvError>), Timeout, Shutdown }
+            let step = tokio::select! {
+                biased;
+                _ = shutdown.notified() => Step::Shutdown,
+                res = rx.recv() => Step::Event(res),
+                _ = tokio::time::sleep(self.flush_after) => Step::Timeout,
+            };
+            let event = match step {
+                Step::Shutdown => break,
+                Step::Event(Ok(ev)) => Some(ev),
+                Step::Event(Err(broadcast::error::RecvError::Closed)) => break,
+                Step::Event(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+                Step::Timeout => None,
             };
             if let Some(ev) = event {
                 if event_session_id(&ev) != self.session_filter {

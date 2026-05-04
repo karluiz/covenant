@@ -5,11 +5,14 @@ use crate::memory::Memory;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 pub struct FamiliarHandle {
     pub familiar: Familiar,
     pub memory: Arc<Mutex<Memory>>,
+    /// Shutdown signal for the observer task bound to this familiar.
+    /// `notify_waiters` is called on despawn so the observer exits cleanly.
+    pub shutdown: Arc<Notify>,
 }
 
 pub struct FamiliarManager {
@@ -35,9 +38,32 @@ impl FamiliarManager {
         };
         self.map.lock().await.insert(id, FamiliarHandle {
             familiar: f, memory: mem,
+            shutdown: Arc::new(Notify::new()),
         });
         self.by_session.lock().await.insert(session_id, id);
         Ok(id)
+    }
+
+    /// Tear down a Familiar: remove from the registry, drop its memory
+    /// handle, and signal its observer (if any) to exit. Safe to call
+    /// when no observer is attached.
+    pub async fn despawn(&self, id: FamiliarId) -> Result<()> {
+        let handle = {
+            let mut map = self.map.lock().await;
+            map.remove(&id).ok_or_else(|| FamiliarError::NotFound(id.to_string()))?
+        };
+        handle.shutdown.notify_waiters();
+        drop(handle);
+        let mut by_sess = self.by_session.lock().await;
+        by_sess.retain(|_, fid| *fid != id);
+        Ok(())
+    }
+
+    /// Returns the shutdown notify handle for an observer to subscribe to.
+    pub async fn shutdown_signal(&self, id: FamiliarId) -> Result<Arc<Notify>> {
+        self.map.lock().await.get(&id)
+            .map(|h| h.shutdown.clone())
+            .ok_or_else(|| FamiliarError::NotFound(id.to_string()))
     }
 
     pub async fn list(&self) -> Vec<Familiar> {
@@ -155,6 +181,38 @@ mod tests {
         let mem = mgr.memory_of(id).await.unwrap();
         let mem = mem.lock().await;
         assert_eq!(mem.directive("D1").unwrap().unwrap().state, "approved");
+    }
+
+    #[tokio::test]
+    async fn despawn_removes_handle() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = FamiliarManager::new(dir.path().to_path_buf());
+        let id = mgr.spawn("S3".into(), FamiliarConfig::default()).await.unwrap();
+        assert_eq!(mgr.list().await.len(), 1);
+        mgr.despawn(id).await.unwrap();
+        assert_eq!(mgr.list().await.len(), 0);
+        assert!(mgr.for_session("S3").await.is_none());
+        assert!(mgr.memory_of(id).await.is_err());
+        // Despawn of unknown id is an error.
+        assert!(mgr.despawn(id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_wakes_waiters() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = FamiliarManager::new(dir.path().to_path_buf());
+        let id = mgr.spawn("S4".into(), FamiliarConfig::default()).await.unwrap();
+        let notify = mgr.shutdown_signal(id).await.unwrap();
+        let waiter = tokio::spawn(async move {
+            notify.notified().await;
+            "woke"
+        });
+        // Give the waiter a moment to register.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        mgr.despawn(id).await.unwrap();
+        let res = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await.expect("waiter did not wake within timeout").unwrap();
+        assert_eq!(res, "woke");
     }
 
     #[tokio::test]
