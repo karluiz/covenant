@@ -6,6 +6,91 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.0 — 2026-05-03
+
+Convergence-centric release. The overlay matures into the primary
+multi-session command room and gains a memory loop: when you reply to
+an escalated operator from convergence, the answer is captured as a
+learned decision so the operator stops asking the same question twice.
+
+### Added
+
+- **Operator XP & level (spec 3.12)**: each completed decision awards
+  XP, operators level up linearly, and a `Lv N` badge renders on the
+  tab chip and operator panel. Persisted in SQLite; AFK-friendly
+  visible progress across long autonomous runs.
+- **Convergence Mode 2.0 (spec 3.8)**:
+  - Rebound to **⌘⇧M** (`⌘⇧O` is now the operator picker).
+  - **CONVERGENCE** header at the top of the overlay.
+  - **Operator avatar** on every tile (per-tab assignment).
+  - **Vendor badge** per tile — heuristic detection of the foreground
+    AI CLI in each tab (`claude`, `copilot`, `opencode`, `aider`,
+    `codex`, with `npx` unwrap; falls back to the truncated raw
+    command when unknown).
+  - **Mission line** on tiles (`📍 <mission-name>`) when a mission is
+    attached; hidden otherwise.
+  - **Reply box** on `blocked` tiles — single-line input + scope
+    selector (`one-shot` / `mission` / `global`) + Send. Submitting
+    unblocks the escalated session immediately and (for non-one-shot
+    scopes) persists the answer as a memory.
+  - **Real per-tab AOM cost** in the footer when the tab is enrolled
+    (was a `$0.00` placeholder).
+  - **`operator-thinking` 5th status** — tile flips to italic blue
+    while an LLM call is in flight for that session.
+  - **Two-step Esc** on the reply form: first Esc blurs the input,
+    second Esc closes the overlay.
+- **Operator Learning (spec 3.13)**: convergence replies become
+  reusable memories.
+  - Local SQLite store (`operator_memories` + `operator_memory_vec`)
+    with the **`sqlite-vec`** extension.
+  - Local **`fastembed-rs`** embedder (BGE-small, 384-dim) — no API
+    keys, no network at inference time. Model auto-downloads on first
+    use.
+  - Hybrid retrieval: vector cosine + tag/keyword rescore on top-20
+    candidates, then top-8 injected into the operator's system prompt
+    under `## Learned decisions` (empty list is byte-identical to
+    pre-3.13 prompt — prefix cache stays warm).
+  - When an applied memory matches, the operator replies instead of
+    escalating; the decision row records `applied_memory: <id>`
+    (with `(shadowed: <ids>)` audit trail when ties exist).
+  - Hand-edit acceptance: edit/delete rows directly in SQLite — the
+    operator picks up changes on the next decision (no in-process
+    cache, no restart).
+- **Escalation visibility (spec 3.14)**:
+  - Pulsing red dot on the tab chip whenever that session is in the
+    `blocked` state — visible without opening convergence.
+  - Backed by a lightweight `get_blocked_session_ids` Tauri command
+    polled at 1 Hz, independent of overlay visibility.
+
+### Changed
+
+- Convergence tiles update **in place** on each 1 Hz poll instead of
+  rebuilding the DOM — kills avatar flicker, preserves reply-box
+  focus and typed text across ticks.
+- AOM cost on tiles is now a real per-tab sum from
+  `operator_decisions.cost_usd` (windowed to the current AOM run).
+
+### Performance
+
+- Convergence reply unblock no longer waits on the embedder cold
+  start; persistence runs in a detached task while the resolution
+  channel sends immediately.
+- Operator decision tick short-circuits the retrieval embed + vector
+  search when no memories match the active scope.
+
+### Fixed
+
+- Convergence empty state ("No sessions") was showing alongside tiles
+  when present — `display: grid` was overriding the `[hidden]`
+  attribute.
+
+### Notes
+
+- `fastembed-rs` pulls in `ort` (ONNX Runtime). The pyke prebuilt is
+  **statically linked** in our build; no extra dylibs ship in the
+  bundle and standard codesign suffices for notarization. See
+  `docs/superpowers/notes/fastembed-notarization.md`.
+
 ## 0.1.0 — 2026-05-03
 
 First captured release. Snapshot of where the app is today; future
