@@ -7795,3 +7795,23 @@ button.mission-picker-plan-missing:hover {
   gap: 8px; align-items: center;
 }
 .settings-note { color: #9ca3af; font-style: italic; }
+
+/* Familiars audit log */
+.audit-log { margin-top: 12px; border-top: 1px solid #2a2a2f; padding-top: 8px; }
+.audit-log.hidden { display: none; }
+.audit-log ul { list-style: none; padding: 0; margin: 6px 0; }
+.audit-log li { padding: 4px 0; border-bottom: 1px solid #1f1f25; }
+.audit-state { display: inline-block; min-width: 80px; padding: 1px 6px;
+               border-radius: 3px; font-size: 11px; margin-right: 6px; }
+.audit-state.proposed { background: #1f2937; color: #93c5fd; }
+.audit-state.approved { background: #064e3b; color: #6ee7b7; }
+.audit-state.executed { background: #052e16; color: #34d399; }
+.audit-state.rejected { background: #4c1d1d; color: #fca5a5; }
+.audit-state.safety_blocked { background: #7c2d12; color: #fdba74; }
+.audit-when { color: #6b7280; font-size: 11px; margin-left: 6px; }
+.audit-block { color: #f87171; font-size: 11px; margin-top: 2px; }
+.audit-toggle {
+  margin-top: 8px; background: transparent; color: #9ca3af;
+  border: 1px solid #374151; padding: 3px 8px; border-radius: 4px;
+  cursor: pointer; font: inherit;
+}

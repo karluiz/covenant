@@ -1,12 +1,14 @@
 import { FamiliarList } from "./list";
 import { ChatPanel } from "./chat";
 import { SnapshotPanel } from "./snapshot";
+import { AuditLog } from "./audit_log";
 
 export class Roster {
   private root: HTMLElement;
   private list: FamiliarList;
   private chat: ChatPanel;
   private snap: SnapshotPanel;
+  private audit!: AuditLog;
   /** Host hook: deliver the approved directive into the operator session. */
   onDeliverDirective: (sessionId: string, rendered: string) => Promise<void> = async () => {};
 
@@ -22,6 +24,21 @@ export class Roster {
       (id) => this.select(id));
     this.chat = new ChatPanel(this.root.querySelector(".roster-center")!);
     this.snap = new SnapshotPanel(this.root.querySelector(".roster-right")!);
+
+    const right = this.root.querySelector(".roster-right") as HTMLElement;
+    const auditHost = document.createElement("div");
+    right.appendChild(auditHost);
+    this.audit = new AuditLog(auditHost);
+    const auditBtn = document.createElement("button");
+    auditBtn.type = "button";
+    auditBtn.className = "audit-toggle";
+    auditBtn.textContent = "Audit log";
+    auditBtn.addEventListener("click", () => {
+      if (this.audit.isHidden()) this.audit.show();
+      else this.audit.hide();
+    });
+    right.appendChild(auditBtn);
+
     this.root.querySelector(".roster-close")!.addEventListener(
       "click", () => this.hide());
     this.chat.onApprovedDirective = async (familiarId, rendered) => {
@@ -47,5 +64,6 @@ export class Roster {
     this.list.select(id);
     this.chat.setFamiliar(id);
     this.snap.setFamiliar(id);
+    this.audit.setFamiliar(id);
   }
 }
