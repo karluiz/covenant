@@ -1127,6 +1127,11 @@ body.tab-drag-active * {
     color: #fff;
 }
 
+/* Top-mode: hide new-group button (only meaningful in left sidebar). */
+body:not(.tabbar-left) #new-group {
+    display: none;
+}
+
 #new-tab {
     display: inline-flex;
     align-items: center;
@@ -6424,13 +6429,55 @@ body.tabbar-left .group-chip-has-members {
     margin-bottom: 0;
 }
 
-/* + New tab button as a full-width row at the top of the sidebar. */
-body.tabbar-left #new-tab {
-    width: 100%;
+/* + New tab + New group buttons as a side-by-side row at the bottom
+   of the sidebar. Both share the #new-tab styling via the actions row. */
+body.tabbar-left #tabbar-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+body.tabbar-left #tabbar-actions > button {
+    flex: 1 1 0;
     justify-content: center;
     height: 28px;
-    margin-bottom: 4px;
     border-radius: 6px;
+}
+
+#new-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    height: 28px;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 0 8px 0 6px;
+    line-height: 1;
+    transition:
+        background 0.12s ease-out,
+        color 0.12s ease-out;
+}
+
+#new-group:hover {
+    background: var(--tab-bg-hover);
+    color: #fff;
+}
+
+#new-group:hover .new-tab-kbd {
+    color: #c8ccd2;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+#new-group .new-tab-plus {
+    display: inline-flex;
+    align-items: center;
+}
+
+#new-group .new-tab-plus svg {
+    stroke-width: 2;
 }
 
 /* ─── Sidebar fold (left tabbar only) ─────────────────────────────
@@ -6525,7 +6572,7 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-brand {
 }
 
 body.tabbar-left.tabbar-left-collapsed #tabs,
-body.tabbar-left.tabbar-left-collapsed #new-tab {
+body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
     opacity: 0;
     pointer-events: none;
     visibility: hidden;

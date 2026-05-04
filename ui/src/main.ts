@@ -192,6 +192,7 @@ async function boot(): Promise<void> {
   const tabbar = requireEl<HTMLElement>("tabs");
   const workspace = requireEl<HTMLElement>("workspace");
   const newTabBtn = requireEl<HTMLElement>("new-tab");
+  const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
   const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
 
   // Lucide chevrons-left icon — flipped via CSS when the sidebar is
@@ -213,9 +214,19 @@ async function boot(): Promise<void> {
   `;
   newTabBtn.title = `New tab (${MOD_KEY}T)`;
 
+  newGroupBtn.innerHTML = `
+    <span class="new-tab-plus">${Icons.folderPlus({ size: 14 })}</span>
+    <kbd class="new-tab-kbd">${MOD_KEY}⇧G</kbd>
+  `;
+  newGroupBtn.title = `New group (${MOD_KEY}⇧G)`;
+
   const manager = new TabManager(tabbar, workspace, newTabBtn, () => {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
     void getCurrentWindow().close();
+  });
+
+  newGroupBtn.addEventListener("click", () => {
+    manager.createEmptyGroup();
   });
 
   const convergence = new ConvergenceOverlay(makeTabsBridge(manager));
