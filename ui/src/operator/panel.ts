@@ -15,7 +15,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { aomStatus, listOperatorDecisions, operatorList, type Operator, type OperatorDecisionRow } from "../api";
+import { aomStatus, listOperatorDecisions, operatorLevelFromXp, operatorList, type Operator, type OperatorDecisionRow } from "../api";
 import { renderAvatarHtml } from "./avatars";
 import { detectExecutor } from "../executor";
 import type { TabManager } from "../tabs/manager";
@@ -64,6 +64,7 @@ export class OperatorPanel {
   private countersEl: HTMLElement | null = null;
   private filtersEl: HTMLElement | null = null;
   private unlisten: UnlistenFn | null = null;
+  private unlistenXp: UnlistenFn | null = null;
   private rows: OperatorDecisionRow[] = [];
   private filter: FilterState = loadPrefs();
   /// Decision IDs (the head row of a collapsed group) the user has
@@ -116,12 +117,29 @@ export class OperatorPanel {
       void this.refresh();
       void this.refreshSubtitle();
     });
+    // 3.12 — patch the cached operator's XP in place so the per-row
+    // "Lv N" badge updates live after every decision without a full
+    // operatorList round-trip.
+    this.unlistenXp = await listen<{ operator_id: string; xp: number }>(
+      "operator-xp-updated",
+      (event) => {
+        const cached = this.operatorCache.get(event.payload.operator_id);
+        if (cached) {
+          cached.xp = event.payload.xp;
+          this.render();
+        }
+      },
+    );
   }
 
   close(): void {
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = null;
+    }
+    if (this.unlistenXp) {
+      this.unlistenXp();
+      this.unlistenXp = null;
     }
     if (this.modal) {
       this.modal.remove();
@@ -499,8 +517,13 @@ export class OperatorPanel {
     // was deleted — keeps audit visibility for orphaned decisions.
     const opName = opCached?.name ?? r.operator_name ?? null;
     const opAvatarHtml = opCached ? renderAvatarHtml(opCached.emoji, 16) : "";
+    const opXp = opCached?.xp ?? 0;
+    const opLevel = opCached ? operatorLevelFromXp(opXp) : null;
+    const opLevelChip = opLevel !== null
+      ? `<span class="op-level" title="${escapeAttr(`${opXp} XP`)}">Lv ${opLevel}</span>`
+      : "";
     const operatorChip = opName
-      ? `<span class="op-decision-chip" style="background:${escapeAttr(opColor)}" title="Operator: ${escapeAttr(opName)}">${opAvatarHtml}<span>${escapeHtml(opName)}</span></span>`
+      ? `<span class="op-decision-chip" style="background:${escapeAttr(opColor)}" title="Operator: ${escapeAttr(opName)} — Lv ${opLevel ?? "?"} · ${opXp} XP">${opAvatarHtml}<span>${escapeHtml(opName)}</span>${opLevelChip}</span>`
       : "";
 
     const replyLine = r.reply_text

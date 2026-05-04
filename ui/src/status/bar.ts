@@ -387,10 +387,20 @@ export class StatusBar {
     if (this.currentOperatorEntity) {
       const opEntity = this.currentOperatorEntity;
       const sid = this.currentSessionId;
+      const live = this.currentOperator?.live ?? false;
+      const enabled = this.currentOperator?.enabled ?? false;
       const btn = document.createElement("button");
       btn.className = "status-chip status-chip-operator";
+      if (live) btn.classList.add("is-live");
+      else if (!enabled) btn.classList.add("is-off");
       btn.style.background = opEntity.color;
-      btn.innerHTML = `<span>${escapeHtml(opEntity.name)}</span>`;
+      btn.title = live
+        ? `Operator: ${opEntity.name} — LIVE (replies typed into this tab). Click to switch.`
+        : enabled
+          ? `Operator: ${opEntity.name} — dry-run (replies proposed, not typed). Click to switch.`
+          : `Operator: ${opEntity.name} — off. Click to switch.`;
+      const liveBadge = live ? `<span class="status-chip-operator__live">LIVE</span>` : "";
+      btn.innerHTML = `<span class="status-chip-operator__name">${escapeHtml(opEntity.name)}</span>${liveBadge}`;
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);
       });
@@ -413,7 +423,14 @@ export class StatusBar {
         addMissionSegment(() => this.onMissionSetRequested?.(sid)),
       );
     }
-    if (this.currentOperator && this.currentOperator.enabled) {
+    // Fallback OP chip — only when no entity is pinned (default operator
+    // case). When an entity is shown above, its colored chip already
+    // carries the operator presence, with LIVE inlined as a badge.
+    if (
+      !this.currentOperatorEntity &&
+      this.currentOperator &&
+      this.currentOperator.enabled
+    ) {
       this.host.appendChild(
         operatorSegment(this.currentOperator),
       );

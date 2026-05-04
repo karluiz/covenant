@@ -143,6 +143,21 @@ export interface Operator {
   is_default: boolean;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
+  /// 3.12 — accumulated XP. Level = floor(xp / 100) + 1.
+  xp: number;
+}
+
+/// Payload of the `operator-xp-updated` event emitted after a decision
+/// awards XP. UI surfaces (tab chip, ⌘O panel) listen for this and
+/// patch their cached operator in place.
+export interface OperatorXpUpdate {
+  operator_id: string;
+  xp: number;
+  awarded: number;
+}
+
+export function operatorLevelFromXp(xp: number): number {
+  return Math.floor(Math.max(0, xp) / 100) + 1;
 }
 
 export interface OperatorDraft {

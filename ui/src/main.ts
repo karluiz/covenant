@@ -409,6 +409,18 @@ async function boot(): Promise<void> {
     void aomBanner.syncFromBackend();
   });
 
+  // 3.12 — operators-experience-and-level: live XP updates flow from
+  // the backend after each Operator decision. We patch the tab manager's
+  // operator cache in place so the tab chip's "Lv N" badge tracks
+  // progress without waiting for the next operatorList refresh.
+  void listen<{ operator_id: string; xp: number; awarded: number }>(
+    "operator-xp-updated",
+    (event) => {
+      const { operator_id, xp } = event.payload;
+      manager.applyOperatorXpUpdate(operator_id, xp);
+    },
+  );
+
   // Mission file watcher fires this when a spec file changes on disk
   // and the backend hot-reloads the content. Refresh tab tooltips so
   // the preview text matches the new content without a right-click.

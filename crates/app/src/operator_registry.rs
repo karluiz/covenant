@@ -39,6 +39,11 @@ pub struct Operator {
     pub is_default: bool,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
+    /// Accumulated experience points (3.12). Awarded per operator
+    /// decision: reply=10, escalate=25, wait=1. Level is computed on
+    /// the UI as `floor(xp / 100) + 1`.
+    #[serde(default)]
+    pub xp: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -227,6 +232,22 @@ impl OperatorRegistry {
             .expect("operator registry has no default — migration did not run")
     }
 
+    /// 3.12: bump an operator's XP by `amount`. Returns the new total.
+    /// Persists to SQLite and updates the in-memory cache atomically.
+    /// No-op (returns current xp, or 0 if unknown) on missing operator.
+    pub async fn award_xp(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        amount: u64,
+    ) -> Result<u64, RegistryError> {
+        let new_total = storage.operator_award_xp(id.to_string(), amount).await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.xp = new_total;
+        }
+        Ok(new_total)
+    }
+
     /// First-boot migration. If the registry already contains any
     /// operator row, this is a no-op (returns Ok(false)). Otherwise
     /// inserts a single `Default` row sourced from the legacy
@@ -259,6 +280,7 @@ impl OperatorRegistry {
             is_default: true,
             created_at_unix_ms: now,
             updated_at_unix_ms: now,
+            xp: 0,
         };
         let id = op.id;
         let name = op.name.clone();
@@ -368,6 +390,7 @@ pub mod commands {
             is_default: false,
             created_at_unix_ms: now,
             updated_at_unix_ms: now,
+            xp: 0,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -396,6 +419,7 @@ pub mod commands {
             is_default: existing.is_default,
             created_at_unix_ms: existing.created_at_unix_ms,
             updated_at_unix_ms: now_ms(),
+            xp: existing.xp,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }

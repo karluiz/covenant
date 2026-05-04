@@ -1585,6 +1585,31 @@ async fn run_tick(
             a.decisions_count = a.decisions_count.saturating_add(1);
         }
 
+        // 3.12 — gamification: award XP for this decision and emit a
+        // dedicated event so the tab chip + operator panel can update
+        // live. Errors here never block the decision flow.
+        let xp_amount: u64 = match action_str.as_str() {
+            "reply" => 10,
+            "escalate" => 25,
+            "wait" => 1,
+            _ => 0,
+        };
+        if xp_amount > 0 {
+            match registry.award_xp(storage, op.id, xp_amount).await {
+                Ok(new_total) => {
+                    let _ = app.emit(
+                        "operator-xp-updated",
+                        serde_json::json!({
+                            "operator_id": op.id.to_string(),
+                            "xp": new_total,
+                            "awarded": xp_amount,
+                        }),
+                    );
+                }
+                Err(e) => tracing::warn!(error = %e, "operator_award_xp failed"),
+            }
+        }
+
         // Notify the UI: if an escalation, surface as a toast (reusing
         // the cross-session-finding event channel for now). If a reply,
         // emit so the ⌘O panel can refresh — `executed` distinguishes

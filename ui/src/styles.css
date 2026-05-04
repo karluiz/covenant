@@ -6800,9 +6800,29 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   font-weight: 600;
   color: #fff;
   text-shadow: 0 1px 0 rgba(0,0,0,0.4);
+  gap: 3px;
 }
 
-/* ── Task 4: Status bar operator chip ──────────────────────────────── */
+/* 3.12 — operator level badge inside the tab op chip + decision chip. */
+.tab-op-level,
+.op-level {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  line-height: 1.4;
+}
+.op-decision-chip .op-level {
+  margin-left: 4px;
+}
+
+/* ── Status bar operator chip ─────────────────────────────────────────
+   Single source of truth for the active tab's Operator — entity name +
+   color in one chip, with the LIVE/dry-run/off state inlined as a
+   badge or visual modifier. Replaces the old (Mibli + OP) pair. */
 .status-chip-operator {
   display: inline-flex;
   align-items: center;
@@ -6814,8 +6834,42 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+  transition: filter 0.12s ease, opacity 0.12s ease, box-shadow 0.18s ease;
 }
 .status-chip-operator:hover { filter: brightness(1.1); }
+.status-chip-operator__name {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+/* Operator pinned but disabled — dim the chip so it reads as
+   "configured, not running" rather than competing with active chips. */
+.status-chip-operator.is-off {
+  opacity: 0.55;
+  filter: saturate(0.7);
+}
+.status-chip-operator.is-off:hover { opacity: 0.85; filter: saturate(0.9) brightness(1.05); }
+/* Live mode — bytes can be typed into the tab. Same coral semantic
+   the AOM chip uses for "risk acknowledged". Badge sits to the right
+   of the entity name; the whole chip pulses subtly so peripheral
+   vision catches it. */
+.status-chip-operator.is-live {
+  box-shadow: 0 0 0 1px rgba(247, 118, 142, 0.55), 0 0 8px rgba(247, 118, 142, 0.35);
+  animation: status-chip-operator-live-pulse 1.8s ease-in-out infinite;
+}
+.status-chip-operator__live {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+@keyframes status-chip-operator-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(247, 118, 142, 0.55), 0 0 6px rgba(247, 118, 142, 0.30); }
+  50%      { box-shadow: 0 0 0 1px rgba(247, 118, 142, 0.85), 0 0 12px rgba(247, 118, 142, 0.55); }
+}
 
 /* ── Operator Picker (⌘⇧O) ─────────────────────────────────────────── */
 .operator-picker[hidden] { display: none; }

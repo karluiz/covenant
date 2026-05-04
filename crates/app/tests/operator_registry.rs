@@ -31,6 +31,7 @@ fn sample(name: &str, is_default: bool) -> Operator {
         is_default,
         created_at_unix_ms: now_ms(),
         updated_at_unix_ms: now_ms(),
+        xp: 0,
     }
 }
 

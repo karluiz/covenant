@@ -279,6 +279,12 @@ impl Storage {
             "ALTER TABLE operator_decisions ADD COLUMN operator_name TEXT",
             [],
         );
+        // 3.12: gamification — accumulated XP per operator. Linear,
+        // 100 XP per level. Computed on the UI.
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN xp INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         tracing::info!(path = %path.display(), "storage opened");
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
@@ -1036,8 +1042,8 @@ impl Storage {
             c.execute(
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                 created_at_unix_ms, updated_at_unix_ms, xp) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1051,6 +1057,7 @@ impl Storage {
                     if op.is_default { 1_i64 } else { 0_i64 },
                     op.created_at_unix_ms as i64,
                     op.updated_at_unix_ms as i64,
+                    op.xp as i64,
                 ],
             )?;
             Ok(())
@@ -1133,7 +1140,7 @@ impl Storage {
             let mut stmt = c.prepare(
                 "SELECT id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms FROM operators \
+                 created_at_unix_ms, updated_at_unix_ms, xp FROM operators \
                  ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -1161,10 +1168,44 @@ impl Storage {
                         is_default: row.get::<_, i64>(9)? != 0,
                         created_at_unix_ms: row.get::<_, i64>(10)? as u64,
                         updated_at_unix_ms: row.get::<_, i64>(11)? as u64,
+                        xp: row.get::<_, i64>(12).unwrap_or(0).max(0) as u64,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// 3.12: atomically increment an operator's XP by `amount` and
+    /// return the new total. Returns 0 if the row no longer exists
+    /// (operator was deleted) without erroring — caller treats this as
+    /// a benign no-op.
+    pub async fn operator_award_xp(
+        &self,
+        id: String,
+        amount: u64,
+    ) -> Result<u64, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<u64, StorageError> {
+            let mut c = conn.blocking_lock();
+            let tx = c.transaction()?;
+            let n = tx.execute(
+                "UPDATE operators SET xp = xp + ?1 WHERE id = ?2",
+                params![amount as i64, id],
+            )?;
+            if n == 0 {
+                tx.commit()?;
+                return Ok(0);
+            }
+            let total: i64 = tx.query_row(
+                "SELECT xp FROM operators WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )?;
+            tx.commit()?;
+            Ok(total.max(0) as u64)
         })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?

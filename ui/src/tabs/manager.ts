@@ -25,6 +25,7 @@ import {
   isAomExcluded,
   isOperatorEnabled,
   isOperatorLive,
+  operatorLevelFromXp,
   operatorList,
   resizeSession,
   setAomExcluded,
@@ -347,6 +348,15 @@ export class TabManager {
       // eslint-disable-next-line no-console
       console.warn("refreshOperatorCache failed", err);
     }
+  }
+
+  /// 3.12 — patch the cached operator's XP in place and re-render the
+  /// tab strip. Avoids a full operatorList round-trip on every decision.
+  applyOperatorXpUpdate(operatorId: string, xp: number): void {
+    const op = this.operatorCache.get(operatorId);
+    if (!op) return;
+    op.xp = xp;
+    this.renderTabbar();
   }
 
   /// Pointer-event-based drag implementation.
@@ -2243,8 +2253,11 @@ export class TabManager {
       if (op) {
         const opChip = document.createElement("span");
         opChip.className = "tab-op-chip";
-        opChip.title = op.name;
-        opChip.innerHTML = renderAvatarHtml(op.emoji, 18);
+        const level = operatorLevelFromXp(op.xp ?? 0);
+        opChip.title = `${op.name} — Lv ${level} · ${op.xp ?? 0} XP`;
+        opChip.innerHTML =
+          `${renderAvatarHtml(op.emoji, 18)}` +
+          `<span class="tab-op-level" data-operator-id="${op.id}">Lv ${level}</span>`;
         pill.appendChild(opChip);
       }
     }
