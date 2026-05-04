@@ -15,6 +15,34 @@ pub enum TileStatus {
     OperatorThinking,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Vendor { Claude, Copilot, Opencode, Aider, Codex, Unknown }
+
+/// Heuristic vendor detection from a foreground command string.
+/// `npx <pkg>` is unwrapped one level; `@scope/name` packages map by
+/// the trailing name segment (e.g. `@anthropic-ai/claude-code` → claude).
+/// Unknown is a first-class result, never an error.
+pub fn detect_vendor(cmd: Option<&str>) -> Vendor {
+    let s = match cmd {
+        Some(s) if !s.trim().is_empty() => s.trim(),
+        _ => return Vendor::Unknown,
+    };
+    let mut head = s.split_whitespace().next().unwrap_or("");
+    if head == "npx" {
+        head = s.trim_start_matches("npx").trim_start().split_whitespace().next().unwrap_or("");
+    }
+    let key = head.rsplit('/').next().unwrap_or(head);
+    match key {
+        h if h.starts_with("claude") => Vendor::Claude,
+        h if h.starts_with("copilot") => Vendor::Copilot,
+        h if h.starts_with("opencode") => Vendor::Opencode,
+        h if h.starts_with("aider") => Vendor::Aider,
+        h if h.starts_with("codex") => Vendor::Codex,
+        _ => Vendor::Unknown,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConvergenceTileState {
     pub session_id: String,
@@ -29,6 +57,8 @@ pub struct ConvergenceTileState {
     /// tab is enrolled in AOM (operator-enabled, AOM on, not excluded).
     pub cost_usd: Option<f64>,
     pub budget_usd: Option<f64>,
+    pub vendor: Vendor,
+    pub raw_command_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -117,6 +147,7 @@ pub async fn build_convergence_snapshot(
     let aom_state = aom.read().await;
     let aom_enabled = aom_state.enabled;
     let aom_budget = aom_state.budget_usd;
+    let aom_started_ms = aom_state.started_at_unix_ms;
     drop(aom_state);
 
     let now = Instant::now();
@@ -127,42 +158,32 @@ pub async fn build_convergence_snapshot(
 
         let (last_byte_at, bytes_total, last_decision_at_bytes_total, tail_bytes) = {
             let st = s.op_state.lock().expect("op_state poisoned");
-            (
-                st.last_byte_at,
-                st.bytes_total,
-                st.last_decision_at_bytes_total,
-                st.snapshot_tail(8 * 1024),
-            )
+            (st.last_byte_at, st.bytes_total, st.last_decision_at_bytes_total, st.snapshot_tail(8 * 1024))
         };
 
         let last = by_short.get(short.as_str()).copied();
         let last_action = last.map(|d| d.action.as_str());
+        let cmd_for_vendor = last.and_then(|d| d.in_flight_command.as_deref());
+        let vendor = detect_vendor(cmd_for_vendor);
+        let raw_command_label = matches!(vendor, Vendor::Unknown)
+            .then(|| cmd_for_vendor.map(|c| c.chars().take(40).collect::<String>())).flatten();
 
-        let status = classify_status(&StatusInputs {
-            last_byte_at,
-            bytes_total,
-            last_decision_at_bytes_total,
-            last_decision_action: last_action,
-            now,
-        });
+        let status = classify_status(&StatusInputs { last_byte_at, bytes_total, last_decision_at_bytes_total, last_decision_action: last_action, now });
 
         let op_enabled = operator.is_enabled(s.session_id).await;
         let aom_excluded = operator.is_aom_excluded(s.session_id).await;
         let enrolled = aom_enabled && op_enabled && !aom_excluded;
-
-        let cost_usd = if enrolled { Some(0.0) } else { None };
+        let cost_usd = if enrolled { Some(sum_cost_for_short(&recent, &short, aom_started_ms)) } else { None };
 
         tiles.push(ConvergenceTileState {
-            session_id: id_str,
-            title: String::new(),
-            color: None,
-            status,
+            session_id: id_str, title: String::new(), color: None, status,
             last_decision_action: last.map(|d| d.action.clone()),
             last_decision_rationale: last.and_then(|d| d.rationale.clone()),
             last_command: last.and_then(|d| d.in_flight_command.clone()),
             last_output_line: last_non_empty_line(&tail_bytes, 160),
             cost_usd,
             budget_usd: if enrolled { Some(aom_budget) } else { None },
+            vendor, raw_command_label,
         });
     }
 
@@ -174,11 +195,13 @@ fn shorten6(id: &str) -> String {
     if n > 6 { id[n - 6..].to_string() } else { id.to_string() }
 }
 
+fn sum_cost_for_short(rows: &[OperatorDecisionRow], short: &str, since_ms: u64) -> f64 {
+    rows.iter().filter(|r| r.session_id_short == short && r.timestamp_unix_ms >= since_ms).map(|r| r.cost_usd).sum()
+}
+
 fn index_decisions_by_short_id(rows: &[OperatorDecisionRow]) -> HashMap<&str, &OperatorDecisionRow> {
     let mut out = HashMap::new();
-    for r in rows {
-        out.entry(r.session_id_short.as_str()).or_insert(r);
-    }
+    for r in rows { out.entry(r.session_id_short.as_str()).or_insert(r); }
     out
 }
 
@@ -190,75 +213,67 @@ mod tests {
         now - Duration::from_millis(ms_ago)
     }
 
-    #[test]
-    fn working_when_bytes_recent() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 200),
-            bytes_total: 100,
-            last_decision_at_bytes_total: 50,
-            last_decision_action: Some("reply"),
-            now,
-        });
-        assert_eq!(s, TileStatus::Working);
+    fn si(now: Instant, ms_ago: u64, bt: u64, ldb: u64, act: Option<&'static str>) -> StatusInputs<'static> {
+        StatusInputs { last_byte_at: at(now, ms_ago), bytes_total: bt, last_decision_at_bytes_total: ldb, last_decision_action: act, now }
     }
 
     #[test]
-    fn blocked_when_last_decision_escalate_and_no_new_bytes() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 5_000),
-            bytes_total: 200,
-            last_decision_at_bytes_total: 200,
-            last_decision_action: Some("escalate"),
-            now,
-        });
-        assert_eq!(s, TileStatus::Blocked);
+    fn classify_status_table() {
+        let n = Instant::now();
+        assert_eq!(classify_status(&si(n, 200, 100, 50, Some("reply"))), TileStatus::Working);
+        assert_eq!(classify_status(&si(n, 5_000, 200, 200, Some("escalate"))), TileStatus::Blocked);
+        assert_eq!(classify_status(&si(n, 3_000, 500, 200, Some("reply"))), TileStatus::AwaitingInput);
+        assert_eq!(classify_status(&si(n, 10_000, 100, 100, None)), TileStatus::Idle);
     }
 
     #[test]
-    fn awaiting_input_when_idle_with_new_bytes_since_decision() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 3_000),
-            bytes_total: 500,
-            last_decision_at_bytes_total: 200,
-            last_decision_action: Some("reply"),
-            now,
-        });
-        assert_eq!(s, TileStatus::AwaitingInput);
+    fn last_non_empty_line_behavior() {
+        assert_eq!(last_non_empty_line(b"foo\n\x1b[31mbar\x1b[0m\n   \n", 200).as_deref(), Some("bar"));
+        assert_eq!(last_non_empty_line(b"hello world this is a long tail line", 10).as_deref(), Some("hello worl"));
+        assert!(last_non_empty_line(b"\n   \n\t\n", 200).is_none());
     }
 
     #[test]
-    fn idle_default() {
-        let now = Instant::now();
-        let s = classify_status(&StatusInputs {
-            last_byte_at: at(now, 10_000),
-            bytes_total: 100,
-            last_decision_at_bytes_total: 100,
-            last_decision_action: None,
-            now,
-        });
-        assert_eq!(s, TileStatus::Idle);
+    fn detect_vendor_table() {
+        let cases: &[(Option<&str>, Vendor)] = &[
+            (Some("claude"), Vendor::Claude),
+            (Some("claude --dangerously-skip-permissions"), Vendor::Claude),
+            (Some("claude-code"), Vendor::Claude),
+            (Some("copilot --yolo"), Vendor::Copilot),
+            (Some("opencode"), Vendor::Opencode),
+            (Some("aider --model gpt-4"), Vendor::Aider),
+            (Some("codex"), Vendor::Codex),
+            (Some("npx aider"), Vendor::Aider),
+            (Some("npx @anthropic-ai/claude-code"), Vendor::Claude),
+            (Some("vim foo.rs"), Vendor::Unknown),
+            (None, Vendor::Unknown),
+            (Some(""), Vendor::Unknown),
+        ];
+        for (i, e) in cases { assert_eq!(detect_vendor(*i), *e, "{:?}", i); }
     }
 
     #[test]
-    fn last_non_empty_line_strips_ansi_and_skips_blanks() {
-        let raw = b"foo\n\x1b[31mbar\x1b[0m\n   \n";
-        let got = last_non_empty_line(raw, 200);
-        assert_eq!(got.as_deref(), Some("bar"));
+    fn sum_cost_for_short_window() {
+        let r = |s: &str, ts: u64, c: f64| OperatorDecisionRow {
+            id: 0, session_id_short: s.into(), timestamp_unix_ms: ts, in_flight_command: None,
+            output_excerpt: String::new(), action: "reply".into(), reply_text: None,
+            rationale: None, executed: false, mission_path: None, executor_name: None,
+            operator_id: None, operator_name: None, cost_usd: c,
+        };
+        let rows = vec![r("aaaaaa",1000,0.10), r("aaaaaa",2000,0.25), r("aaaaaa",500,0.99), r("bbbbbb",1500,0.50)];
+        assert!((sum_cost_for_short(&rows, "aaaaaa", 1000) - 0.35).abs() < 1e-9);
+        assert_eq!(sum_cost_for_short(&rows, "zzzzzz", 0), 0.0);
     }
 
     #[test]
-    fn last_non_empty_line_truncates() {
-        let raw = b"hello world this is a long tail line";
-        let got = last_non_empty_line(raw, 10);
-        assert_eq!(got.as_deref(), Some("hello worl"));
-    }
-
-    #[test]
-    fn last_non_empty_line_returns_none_when_all_blank() {
-        let raw = b"\n   \n\t\n";
-        assert!(last_non_empty_line(raw, 200).is_none());
+    fn vendor_wired_from_decision_command() {
+        for (cmd, want_v, want_label) in [
+            (Some("claude --dangerously-skip-permissions x"), Vendor::Claude, None),
+            (Some("vim foo.rs"), Vendor::Unknown, Some("vim foo.rs".to_string())),
+        ] {
+            let v = detect_vendor(cmd);
+            let label = matches!(v, Vendor::Unknown).then(|| cmd.map(|c| c.chars().take(40).collect::<String>())).flatten();
+            assert_eq!((v, label), (want_v, want_label));
+        }
     }
 }

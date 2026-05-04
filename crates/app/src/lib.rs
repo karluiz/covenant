@@ -731,6 +731,47 @@ async fn get_convergence_snapshot(
     .await)
 }
 
+/// 3.8 Convergence Mode reply pipe. Pushes a resolution onto the
+/// operator's internal channel; tick_loop drains it and injects into
+/// the matching session's PTY. Emits `convergence_reply_submitted`
+/// with a `text_hash` (NEVER raw text) so spec 3.13 can persist the
+/// learning signal without exposing user content on the bus.
+#[tauri::command]
+async fn submit_convergence_reply(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    session_id: String,
+    text: String,
+    scope: String,
+) -> Result<(), String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let id = parse_id(&session_id)?;
+    state
+        .operator
+        .resolution_sender()
+        .send(operator::ConvergenceResolution {
+            session_id: id,
+            text: text.clone(),
+            scope: scope.clone(),
+        })
+        .map_err(|e| format!("resolution channel closed: {e}"))?;
+
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    let text_hash = hasher.finish();
+    let _ = app.emit(
+        "convergence_reply_submitted",
+        serde_json::json!({
+            "session_id": session_id,
+            "scope": scope,
+            "text_hash": text_hash,
+        }),
+    );
+    Ok(())
+}
+
 #[tauri::command]
 async fn aom_stop(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // Snapshot the row id + final stats under the write lock, then
@@ -1487,6 +1528,7 @@ pub fn run() {
             aom_stop,
             aom_report,
             get_convergence_snapshot,
+            submit_convergence_reply,
             recall_search,
             zsh_autosuggestions_status,
             tab_manifest_load,

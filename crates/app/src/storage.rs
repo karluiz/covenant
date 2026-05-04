@@ -228,6 +228,9 @@ pub struct OperatorDecisionRow {
     /// Display name of the operator at decision time (snapshot so the
     /// chip still shows the right name even if the operator is renamed).
     pub operator_name: Option<String>,
+    /// Estimated cost in USD for this decision (M-OP5 Phase B). 0.0 for
+    /// rows predating the column or when no cost was computed.
+    pub cost_usd: f64,
 }
 
 fn shorten(id: &str) -> String {
@@ -995,7 +998,8 @@ impl Storage {
                 let mut stmt = c.prepare(
                     "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
-                            mission_path, executor_name, operator_id, operator_name
+                            mission_path, executor_name, operator_id, operator_name,
+                            cost_usd
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -1015,6 +1019,7 @@ impl Storage {
                         executor_name: r.get(10)?,
                         operator_id: r.get(11)?,
                         operator_name: r.get(12)?,
+                        cost_usd: r.get::<_, f64>(13)?,
                     })
                 })?;
                 let mut out = Vec::new();

@@ -1,10 +1,16 @@
-import { getConvergenceSnapshot, type ConvergenceTileState } from "../api";
+import {
+  getConvergenceSnapshot,
+  submitConvergenceReply,
+  type ConvergenceTileState,
+} from "../api";
 import { renderTile } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
   title: string;
   color: string | null;
+  operatorAvatar: string | null;
+  operatorName: string | null;
 }
 
 export interface ConvergenceTabBridge {
@@ -22,6 +28,7 @@ export class ConvergenceOverlay {
   private empty: HTMLElement | null = null;
   private pollHandle: number | null = null;
   private visible = false;
+  private escHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -49,6 +56,10 @@ export class ConvergenceOverlay {
       window.clearInterval(this.pollHandle);
       this.pollHandle = null;
     }
+    if (this.escHandler !== null) {
+      document.removeEventListener("keydown", this.escHandler, { capture: true });
+      this.escHandler = null;
+    }
     this.root?.remove();
     this.root = null;
     this.grid = null;
@@ -70,7 +81,10 @@ export class ConvergenceOverlay {
     const grid = document.createElement("div");
     grid.className = "convergence-overlay__grid";
     grid.addEventListener("click", (e) => {
-      const tile = (e.target as HTMLElement).closest<HTMLElement>(".convergence-tile");
+      const target = e.target as HTMLElement;
+      // Skip if the click landed inside a tile's reply form.
+      if (target.closest(".convergence-tile__reply")) return;
+      const tile = target.closest<HTMLElement>(".convergence-tile");
       if (!tile?.dataset.sessionId) return;
       const ok = this.bridge.activateBySessionId(tile.dataset.sessionId);
       if (ok) this.close();
@@ -86,6 +100,20 @@ export class ConvergenceOverlay {
     this.root = root;
     this.grid = grid;
     this.empty = empty;
+
+    // Two-step Esc on reply form: first Esc blurs the focused input/select,
+    // second Esc (when nothing in reply is focused) closes the overlay.
+    this.escHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest(".convergence-tile__reply")) {
+        e.preventDefault();
+        e.stopPropagation();
+        active.blur();
+        return;
+      }
+    };
+    document.addEventListener("keydown", this.escHandler, { capture: true });
   }
 
   private async refresh(): Promise<void> {
@@ -100,11 +128,14 @@ export class ConvergenceOverlay {
     const tabs = this.bridge.listTabs();
 
     // Order = tab order. Drop tiles whose session no longer has a tab.
-    const ordered: ConvergenceTileState[] = [];
+    const ordered: { state: ConvergenceTileState; tab: TabMeta }[] = [];
     for (const t of tabs) {
       const tile = snap.tiles.find((x) => x.session_id === t.sessionId);
       if (!tile) continue;
-      ordered.push({ ...tile, title: t.title, color: t.color });
+      ordered.push({
+        state: { ...tile, title: t.title, color: t.color },
+        tab: t,
+      });
     }
 
     if (ordered.length === 0) {
@@ -114,7 +145,25 @@ export class ConvergenceOverlay {
     }
     this.empty.hidden = true;
     const frag = document.createDocumentFragment();
-    for (const t of ordered) frag.append(renderTile(t));
+    const submit = this.submitReply.bind(this);
+    for (const { state, tab } of ordered) frag.append(renderTile(state, tab, submit));
     this.grid.replaceChildren(frag);
+  }
+
+  /**
+   * Forwards the resolution to the backend's operator resolution
+   * channel. Tile UX (clear + blur) is handled in the tile's submit
+   * handler; on error we log only — toasts arrive in a later task.
+   */
+  async submitReply(
+    sessionId: string,
+    text: string,
+    scope: "one-shot" | "mission" | "global",
+  ): Promise<void> {
+    try {
+      await submitConvergenceReply(sessionId, text, scope);
+    } catch (err) {
+      console.warn("[convergence] submitReply failed", err);
+    }
   }
 }
