@@ -672,3 +672,17 @@ export async function sessionSetOperator(
 export async function sessionGetOperator(sessionId: SessionId): Promise<Operator> {
   return invoke<Operator>("session_get_operator", { sessionId });
 }
+
+/**
+ * 3.8 Convergence Mode reply pipe. Sends `text` to the operator's
+ * internal resolution channel; the backend injects it into the
+ * matching session's PTY. `scope` is forwarded for spec 3.13 memory
+ * persistence — opaque to the operator decision loop.
+ */
+export async function submitConvergenceReply(
+  sessionId: string,
+  text: string,
+  scope: "one-shot" | "mission" | "global",
+): Promise<void> {
+  await invoke<void>("submit_convergence_reply", { sessionId, text, scope });
+}

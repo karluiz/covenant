@@ -31,6 +31,7 @@ use karl_session::SessionId;
 use regex::Regex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::mpsc;
 
 use crate::aom::AomHandle;
 use crate::cost;
@@ -240,6 +241,18 @@ impl OperatorState {
     }
 }
 
+/// Resolution submitted from Convergence Mode (spec 3.8). Routed to the
+/// per-session operator decision loop, which injects `text` into the
+/// PTY as if the user typed it interactively. Persistence to the
+/// learning store is owned by spec 3.13 and lives in lib.rs's event
+/// emit path; operator.rs only consumes the resolution.
+#[derive(Debug, Clone)]
+pub struct ConvergenceResolution {
+    pub session_id: SessionId,
+    pub text: String,
+    pub scope: String, // "one-shot" | "mission" | "global" — opaque here
+}
+
 #[derive(Clone)]
 pub struct OperatorWatcher {
     inner: Arc<AsyncMutex<Inner>>,
@@ -248,6 +261,9 @@ pub struct OperatorWatcher {
     /// the watcher rather than re-deriving from app_handle each call.
     mission_store: PathBuf,
     registry: Arc<OperatorRegistry>,
+    /// Sender side of the convergence resolution channel. The receiver
+    /// is held internally by `tick_loop` and drained each tick.
+    resolution_tx: mpsc::UnboundedSender<ConvergenceResolution>,
 }
 
 struct Inner {
@@ -425,6 +441,7 @@ impl OperatorWatcher {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
         }));
+        let (resolution_tx, resolution_rx) = mpsc::unbounded_channel::<ConvergenceResolution>();
         tauri::async_runtime::spawn(tick_loop(
             inner.clone(),
             settings,
@@ -433,12 +450,22 @@ impl OperatorWatcher {
             aom,
             notifier,
             registry.clone(),
+            resolution_rx,
         ));
         Self {
             inner,
             mission_store,
             registry,
+            resolution_tx,
         }
+    }
+
+    /// Sender for convergence resolutions submitted from the
+    /// Convergence Mode UI (spec 3.8). Each resolution is consumed by
+    /// `tick_loop` and injected into the matching session's PTY via
+    /// the existing `inject_operator_reply` path.
+    pub fn resolution_sender(&self) -> mpsc::UnboundedSender<ConvergenceResolution> {
+        self.resolution_tx.clone()
     }
 
     pub async fn attach(
@@ -805,6 +832,7 @@ async fn tick_loop(
     aom: AomHandle,
     notifier: crate::notify::Notifier,
     registry: Arc<OperatorRegistry>,
+    mut resolution_rx: mpsc::UnboundedReceiver<ConvergenceResolution>,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -813,6 +841,22 @@ async fn tick_loop(
     loop {
         ticker.tick().await;
         tick_counter = tick_counter.wrapping_add(1);
+
+        // Drain any convergence resolutions submitted since the last
+        // tick. Each one becomes a PTY injection on the matching
+        // session, mirroring the REPLY action's keystroke shape.
+        while let Ok(res) = resolution_rx.try_recv() {
+            let payload = format!("{}\n", res.text);
+            if let Err(e) =
+                inject_operator_reply(&app, res.session_id, payload.as_bytes()).await
+            {
+                tracing::warn!(
+                    session = %res.session_id,
+                    error = %e,
+                    "convergence resolution inject failed"
+                );
+            }
+        }
 
         // Periodic mission file watch — separate from run_tick because
         // it reads from disk; we don't want to block the main decision

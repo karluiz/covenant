@@ -1,4 +1,8 @@
-import { getConvergenceSnapshot, type ConvergenceTileState } from "../api";
+import {
+  getConvergenceSnapshot,
+  submitConvergenceReply,
+  type ConvergenceTileState,
+} from "../api";
 import { renderTile } from "./tile";
 
 export interface TabMeta {
@@ -128,13 +132,19 @@ export class ConvergenceOverlay {
   }
 
   /**
-   * Stub: Task 8 will replace this with a real Tauri call.
+   * Forwards the resolution to the backend's operator resolution
+   * channel. Tile UX (clear + blur) is handled in the tile's submit
+   * handler; on error we log only — toasts arrive in a later task.
    */
   async submitReply(
     sessionId: string,
     text: string,
     scope: "one-shot" | "mission" | "global",
   ): Promise<void> {
-    console.log("[convergence] submitReply (stub)", { sessionId, text, scope });
+    try {
+      await submitConvergenceReply(sessionId, text, scope);
+    } catch (err) {
+      console.warn("[convergence] submitReply failed", err);
+    }
   }
 }
