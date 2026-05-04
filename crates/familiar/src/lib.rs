@@ -14,7 +14,6 @@ pub mod prompts;
 pub mod summarizer;
 
 pub use error::{FamiliarError, Result};
-// TODO(Task 2): uncomment once identity module defines these types
-// pub use identity::{Familiar, FamiliarConfig, FamiliarId, Style};
+pub use identity::{Familiar, FamiliarConfig, FamiliarId, Style};
 // TODO(Task 17): uncomment once manager module defines FamiliarManager
 // pub use manager::FamiliarManager;
