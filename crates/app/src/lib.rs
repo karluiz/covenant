@@ -348,9 +348,10 @@ async fn spawn_session(
     // already running, the new tab is for fresh manual work — not for
     // AOM to start typing into. Default `aom_excluded = true` so the
     // tab joins AOM only if the user explicitly toggles it via the
-    // context menu. Tabs spawned BEFORE AOM started keep their
-    // included-by-default posture (they were swept by `aom_start` →
-    // `enable_all_for_aom` and `clear_all_aom_excluded`).
+    // tab badge, ⌘⇧E, or the context menu. Tabs spawned BEFORE AOM
+    // started keep their included-by-default posture (they were swept
+    // by `aom_start` → `enable_all_for_aom`, which now also respects
+    // any pre-existing `aom_excluded` flag).
     let aom_active_now = state.aom.read().await.enabled;
     state
         .operator
@@ -783,7 +784,8 @@ async fn operator_append_plan_note(
 
 /// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
 /// per-tab live setting + normal persona instead of inheriting the
-/// AOM act-by-default posture. Reset to false on every aom_start.
+/// AOM act-by-default posture. Persistent across AOM cycles — use
+/// the "Include all" action in the AOM popover to reset in bulk.
 #[tauri::command]
 async fn set_aom_excluded(
     state: State<'_, AppState>,
