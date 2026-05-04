@@ -15,6 +15,13 @@ import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
 import { playAomEntrySplash, playAomExitSplash } from "./aom/entry-splash";
 import { AomReportPanel } from "./aom/report";
+import {
+  startSpecPrompts,
+  ensureDetectorForRepo,
+  getPendingSpecCandidateForTab,
+  getSpecPromptState,
+} from "./aom/spec-prompt";
+import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
@@ -35,6 +42,46 @@ import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
+
+type LastCallChoice = "use" | "without" | "cancel";
+
+function showAomLastCallModal(cand: SpecCandidate): Promise<LastCallChoice> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "spec-lastcall-overlay";
+    const fileName = cand.path.split("/").pop() ?? cand.path;
+    const escape = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    overlay.innerHTML = `
+      <div class="spec-lastcall-modal">
+        <h3>Detectamos <code>${escape(fileName)}</code></h3>
+        <p>${escape(cand.goal_snippet)}</p>
+        <p>¿Usarlo como misión antes de dormir?</p>
+        <div class="spec-lastcall-actions">
+          <button data-choice="use">Use it</button>
+          <button data-choice="without">Engage without mission</button>
+          <button data-choice="cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    const close = (choice: LastCallChoice) => {
+      overlay.remove();
+      resolve(choice);
+    };
+    overlay.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(
+        "button[data-choice]",
+      );
+      if (!btn) return;
+      close(btn.dataset.choice as LastCallChoice);
+    });
+    document.body.appendChild(overlay);
+  });
+}
 
 /// Set body class controlling --surface-alpha. Adds `bg-{kind}` and
 /// removes the other two so toggling at runtime is idempotent.
@@ -238,7 +285,10 @@ async function boot(): Promise<void> {
   // active-tab cwd on activation + cwd_changed.
   const statusBar = new StatusBar(requireEl<HTMLElement>("status-bar"));
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
-  manager.onActiveContextChange = (cwd) => statusBar.setCwd(cwd);
+  manager.onActiveContextChange = (cwd) => {
+    statusBar.setCwd(cwd);
+    if (cwd) void ensureDetectorForRepo(cwd);
+  };
   manager.onActiveTabChange = (info) => statusBar.setActiveTab(info);
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
@@ -266,6 +316,16 @@ async function boot(): Promise<void> {
     const detail = (e as CustomEvent<{ path: string }>).detail;
     void manager.setMissionPathForActiveTab(detail.path);
   });
+
+  // 3.16 — spec auto-detect → propose mission. Subscribe to backend
+  // `spec:candidate` events and render a floating toast for tabs whose
+  // cwd matches the candidate's repo root and which have no mission yet.
+  void startSpecPrompts({
+    listTabs: () => manager.listTabSnapshots(),
+    setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
+  });
+  const initialCwd = manager.activeCwd();
+  if (initialCwd) void ensureDetectorForRepo(initialCwd);
 
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
@@ -513,7 +573,7 @@ async function boot(): Promise<void> {
     }
   });
 
-  window.addEventListener("keydown", (e) => {
+  window.addEventListener("keydown", async (e) => {
     // ⌘= / ⌘+ → zoom in, ⌘- → zoom out, ⌘0 → reset (browser convention).
     // Match both the unshifted (`=`, `-`, `0`) and the shifted (`+`)
     // variants so US and intl keyboards both work. Refits the active
@@ -634,16 +694,39 @@ async function boot(): Promise<void> {
           }
         });
       } else {
-        // OFF→ON: kick the entry splash AFTER the backend confirms
-        // the toggle, so the budget the splash displays is the value
-        // AOM actually started with (not whatever the UI cached). If
-        // the toggle errors or doesn't actually flip on (race), skip
-        // the splash entirely.
-        void aomBanner.toggle().then(() => {
-          if (aomBanner.isOn()) {
-            void playAomEntrySplash(aomBanner.getStatus());
+        // OFF→ON path. Spec 3.16 last-call: if active tab has no mission
+        // but the spec detector emitted a candidate for it within the last
+        // 10 minutes, ask before dropping into AOM. "Cancel" aborts the
+        // engage entirely; "Use it" sets the mission first; "Engage without
+        // mission" falls through unchanged.
+        const active = manager.activeTabSnapshot();
+        let proceed = true;
+        if (active && !active.hasMission) {
+          const cand = getPendingSpecCandidateForTab(active.id);
+          if (cand) {
+            const choice = await showAomLastCallModal(cand);
+            if (choice === "cancel") {
+              proceed = false;
+            } else if (choice === "use") {
+              try {
+                await manager.setMissionPathForTab(active.id, cand.path);
+                getSpecPromptState().acceptOnTab(active.id, cand.path);
+              } catch (err) {
+                console.error("setMissionPathForTab failed", err);
+              }
+            } else {
+              // "without" — record dismissal so we don't re-prompt this run.
+              getSpecPromptState().dismiss(active.id, cand.path);
+            }
           }
-        });
+        }
+        if (proceed) {
+          void aomBanner.toggle().then(() => {
+            if (aomBanner.isOn()) {
+              void playAomEntrySplash(aomBanner.getStatus());
+            }
+          });
+        }
       }
       return;
     }

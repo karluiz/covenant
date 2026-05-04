@@ -8299,3 +8299,129 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
 .mission-page-newmodal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .mission-page-newmodal-actions button { background: rgb(255 255 255 / 0.06); border: 1px solid rgb(255 255 255 / 0.1); color: var(--fg); padding: 6px 12px; border-radius: 4px; cursor: pointer; font: inherit; }
 .mission-page-newmodal-actions #sp-create { background: rgb(120 140 255); border-color: transparent; color: white; }
+
+/* === 3.16 spec-prompt toast === */
+#spec-prompt-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9000;
+  pointer-events: none;
+}
+#spec-prompt-stack > * {
+  pointer-events: auto;
+}
+.spec-prompt-toast {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-overlay, rgba(20, 20, 20, 0.92));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  font-size: 12px;
+  width: 340px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.spec-prompt-toast-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.spec-prompt-toast-label {
+  font-weight: 600;
+  color: var(--accent, #6ee7b7);
+}
+.spec-prompt-toast-file {
+  font-family: var(--font-mono, monospace);
+  color: var(--muted, #9aa0a6);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spec-prompt-toast-snippet {
+  color: var(--muted, #9aa0a6);
+  line-height: 1.4;
+}
+.spec-prompt-toast-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.spec-prompt-toast-actions button {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.spec-prompt-toast-actions .spec-prompt-toast-set {
+  background: var(--accent, #6ee7b7);
+  color: var(--bg, #0a0a0a);
+  border-color: var(--accent, #6ee7b7);
+}
+.spec-prompt-toast-actions button:hover {
+  filter: brightness(1.1);
+}
+
+/* === 3.16 spec-prompt last-call modal === */
+.spec-lastcall-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9500;
+}
+.spec-lastcall-modal {
+  background: var(--bg, #0a0a0a);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  padding: 20px 24px;
+  max-width: 480px;
+  font-size: 13px;
+  color: var(--fg, #e5e7eb);
+}
+.spec-lastcall-modal h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.spec-lastcall-modal code {
+  font-family: var(--font-mono, monospace);
+  color: var(--accent, #6ee7b7);
+}
+.spec-lastcall-modal p {
+  margin: 4px 0;
+  color: var(--muted, #9aa0a6);
+}
+.spec-lastcall-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  justify-content: flex-end;
+}
+.spec-lastcall-actions button {
+  padding: 6px 12px;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: inherit;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.spec-lastcall-actions button[data-choice="use"] {
+  background: var(--accent, #6ee7b7);
+  color: var(--bg, #0a0a0a);
+  border-color: var(--accent, #6ee7b7);
+}
+.spec-lastcall-actions button:hover {
+  filter: brightness(1.1);
+}
