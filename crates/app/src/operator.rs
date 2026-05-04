@@ -35,6 +35,8 @@ use tokio::sync::mpsc;
 
 use crate::aom::AomHandle;
 use crate::cost;
+use crate::embedder;
+use crate::memory;
 use crate::mission_persistence;
 use crate::operator_registry::OperatorRegistry;
 use crate::safety;
@@ -437,6 +439,7 @@ impl OperatorWatcher {
         mission_store: PathBuf,
         notifier: crate::notify::Notifier,
         registry: Arc<OperatorRegistry>,
+        embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -451,6 +454,7 @@ impl OperatorWatcher {
             notifier,
             registry.clone(),
             resolution_rx,
+            embedder_cell,
         ));
         Self {
             inner,
@@ -833,6 +837,7 @@ async fn tick_loop(
     notifier: crate::notify::Notifier,
     registry: Arc<OperatorRegistry>,
     mut resolution_rx: mpsc::UnboundedReceiver<ConvergenceResolution>,
+    embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -867,7 +872,7 @@ async fn tick_loop(
             }
         }
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &registry).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &registry, &embedder_cell).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -936,6 +941,7 @@ async fn run_tick(
     aom: &AomHandle,
     notifier: &crate::notify::Notifier,
     registry: &Arc<OperatorRegistry>,
+    embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
 ) -> Result<(), String> {
     // Snapshot AOM state once per tick. When on, every Operator-enabled
     // tab gets autonomous posture + forced live regardless of per-tab
@@ -1208,8 +1214,23 @@ async fn run_tick(
             w.cwd.display().to_string()
         };
         let user_message = render_user_message(&cmd, &cwd, idle, &tail);
+
+        // 3.13 Task 4: retrieve relevant operator memories at decision
+        // time. NO in-process cache — every tick re-queries the DB.
+        // Acceptable cost: small table, indexed scope, single SQL query
+        // plus one local embedding pass (~few ms on CPU). The deliberate
+        // freshness means the user's just-saved correction takes effect
+        // on the very next decision without invalidation logic.
+        let (learned, shadowed) = retrieve_learned_for_decision(
+            embedder_cell,
+            storage,
+            &cmd,
+            &tail,
+            mission.as_ref().map(|m| m.path.display().to_string()).as_deref(),
+        )
+        .await;
         let system_prompt =
-            build_system_prompt(&persona, effective_aom, mission.as_ref());
+            build_system_prompt(&persona, effective_aom, mission.as_ref(), &learned);
 
         // CRITICAL: mark dedup BEFORE the model call. If we marked
         // only on success, a failing call (bad API key, rate limit,
@@ -1591,6 +1612,47 @@ async fn run_tick(
             };
         let _ = final_action; // surfaced via action_str/reply_text below
 
+        // Parse applied_memory: <id> out of the rationale (Task 5).
+        let (cleaned_rationale, applied_memory_id) = match &rationale {
+            Some(r) => {
+                let (text, id) = memory::parse_applied_memory(r);
+                (Some(text), id)
+            }
+            None => (None, None),
+        };
+
+        // Task 6: Append shadow audit when an ID was applied and there were
+        // shadowed entries. Format: "applied_memory: X (shadowed: Y, Z)"
+        let final_rationale = match (applied_memory_id, shadowed.is_empty()) {
+            (Some(id), false) => {
+                let shadows_str = shadowed
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Some(format!(
+                    "{}\napplied_memory: {} (shadowed: {})",
+                    cleaned_rationale
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id,
+                    shadows_str
+                ))
+            }
+            (Some(id), true) => {
+                Some(format!(
+                    "{}\napplied_memory: {}",
+                    cleaned_rationale
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id
+                ))
+            }
+            (None, _) => cleaned_rationale,
+        };
+
         let row_id = match storage
             .save_operator_decision(
                 session_id,
@@ -1599,13 +1661,14 @@ async fn run_tick(
                 truncate(&excerpt, 4000),
                 action_str.clone(),
                 reply_text.clone(),
-                rationale.clone(),
+                final_rationale,
                 executed,
                 call_cost_usd,
                 mission.as_ref().map(|m| m.path.display().to_string()),
                 detect_executor(&cmd),
                 Some(op.id.to_string()),
                 Some(op.name.clone()),
+                applied_memory_id,
             )
             .await
         {
@@ -1923,6 +1986,7 @@ fn build_system_prompt(
     persona: &str,
     aom_active: bool,
     mission: Option<&MissionDoc>,
+    learned: &[memory::MemoryHit],
 ) -> String {
     let aom_block = if aom_active {
         format!("# {}\n\n", AOM_DIRECTIVE)
@@ -1938,6 +2002,11 @@ fn build_system_prompt(
             )
         })
         .unwrap_or_default();
+    // 3.13 Task 4: learned-decisions block. CRITICAL: when `learned` is
+    // empty, this MUST produce zero bytes — the prompt prefix has to be
+    // byte-identical to the pre-3.13 baseline so the LLM provider's
+    // prefix cache stays warm.
+    let learned_block = render_learned_block(learned);
     format!(
         "You are the Operator for Covenant — the user's coordinator that \
          watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -1945,6 +2014,7 @@ fn build_system_prompt(
          to answer routine questions on their behalf within the charter below.\n\n\
          {aom_block}\
          {mission_block}\
+         {learned_block}\
          # PERSONA (set by user — guides judgment for the routine cases)\n\
          {persona}\n\n\
          # {recommendation}\n\n\
@@ -1955,6 +2025,113 @@ fn build_system_prompt(
         hard = HARD_CONSTRAINTS,
         fmt = OUTPUT_FORMAT,
     )
+}
+
+/// Render the `## Learned decisions` block, or an empty string when
+/// `learned` is empty (byte-identity requirement, see caller).
+fn render_learned_block(learned: &[memory::MemoryHit]) -> String {
+    if learned.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "## Learned decisions\n\n\
+         The user has previously resolved similar situations. When one of these \
+         matches the current situation, REPLY with that decision and append \
+         `applied_memory: <id>` on its own line in your rationale. If none match \
+         naturally, ignore this section.\n\n",
+    );
+    for hit in learned {
+        let when = truncate_chars(hit.row.pattern.trim(), 120);
+        let decision = truncate_chars(hit.row.decision.trim(), 200);
+        out.push_str(&format!(
+            "- [id={id}] When: {when}\n  Decision: {decision}\n",
+            id = hit.row.id,
+            when = when,
+            decision = decision,
+        ));
+    }
+    out.push('\n');
+    out
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i >= max_chars {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Embed the current decision context, run a hybrid vector + keyword
+/// retrieval against `operator_memories`, return the top-k winners and
+/// any shadowed memory IDs (older entries with same decision, close score).
+/// Failures (embedder init, embedding, SQL) are downgraded to a warn
+/// log + empty list — memory retrieval NEVER fails the decision.
+async fn retrieve_learned_for_decision(
+    embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
+    storage: &Storage,
+    cmd: &str,
+    tail: &[u8],
+    mission_path: Option<&str>,
+) -> (Vec<memory::MemoryHit>, Vec<i64>) {
+    // Build query text from current decision context. Tail-last-line
+    // captures the prompt the executor is sitting on; cmd anchors which
+    // executor it is. Strip ANSI defensively (tail is raw bytes).
+    let tail_str = String::from_utf8_lossy(tail);
+    let stripped = strip_ansi_escapes::strip_str(tail_str.as_ref());
+    let tail_last_line = stripped
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .to_string();
+    let query_text = format!("{cmd}\n{tail_last_line}");
+    let query_tags = memory::extract_tags(&query_text);
+
+    // Scope filter: always include "global"; include "mission:<path>"
+    // if a mission is attached.
+    let mut scopes: Vec<String> = vec!["global".to_string()];
+    if let Some(p) = mission_path {
+        scopes.push(format!("mission:{}", p));
+    }
+    let scope_refs: Vec<&str> = scopes.iter().map(|s| s.as_str()).collect();
+
+    let embedder = match crate::get_embedder_from_cell(embedder_cell.as_ref()).await {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(error = %e, "operator memory: embedder init failed");
+            return (Vec::new(), Vec::new());
+        }
+    };
+    let qt = query_text.clone();
+    let query_emb =
+        match tokio::task::spawn_blocking(move || embedder.embed(&qt)).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "operator memory: query embed failed");
+                return (Vec::new(), Vec::new());
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "operator memory: embed join failed");
+                return (Vec::new(), Vec::new());
+            }
+        };
+    let candidates = match storage
+        .vector_search_memories(&scope_refs, &query_emb, 20)
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "operator memory: vector search failed");
+            return (Vec::new(), Vec::new());
+        }
+    };
+    let (winners, shadowed) = memory::retrieve_hybrid(candidates, &query_tags, 8);
+    (winners, shadowed)
 }
 
 /// Always-on guidance: when the executor explicitly presents its own
@@ -2779,5 +2956,166 @@ What would you like to do?
         assert_eq!(regexes.len(), 2);
         assert!(regexes[0].is_match("claude --help"));
         assert!(regexes[1].is_match("aider"));
+    }
+
+    fn mem_hit(id: i64, pattern: &str, decision: &str) -> memory::MemoryHit {
+        memory::MemoryHit {
+            row: crate::storage::OperatorMemoryRow {
+                id,
+                pattern: pattern.to_string(),
+                decision: decision.to_string(),
+                rationale: None,
+                scope: "global".to_string(),
+                tags: String::new(),
+                created_at_unix_ms: 0,
+            },
+            vector_distance: 0.1,
+            keyword_score: 0,
+        }
+    }
+
+    /// Empty `learned` MUST yield a byte-identical prompt to the
+    /// pre-3.13 baseline so the LLM provider's prefix cache stays warm.
+    /// Captured directly from the format! call as it stood before this
+    /// task — any change here means we broke the cache invariant.
+    #[test]
+    fn build_system_prompt_empty_learned_matches_baseline() {
+        let persona = "Always say yes to test runs.";
+        let got = build_system_prompt(persona, false, None, &[]);
+        let expected = format!(
+            "You are the Operator for Covenant — the user's coordinator that \
+             watches an executor agent (claude code, copilot, opencode, aider, …) \
+             running inside their PTY. The executor has paused; the user wants you \
+             to answer routine questions on their behalf within the charter below.\n\n\
+             # PERSONA (set by user — guides judgment for the routine cases)\n\
+             {persona}\n\n\
+             # {recommendation}\n\n\
+             # {hard}\n\n\
+             # {fmt}",
+            persona = persona.trim(),
+            recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
+            hard = HARD_CONSTRAINTS,
+            fmt = OUTPUT_FORMAT,
+        );
+        assert_eq!(got, expected);
+        assert!(!got.contains("Learned decisions"));
+    }
+
+    #[test]
+    fn build_system_prompt_with_learned_renders_block() {
+        let persona = "p";
+        let learned = vec![
+            mem_hit(42, "executor asks to run tests", "y\\n"),
+            mem_hit(43, "executor asks to push", "n\\n"),
+        ];
+        let got = build_system_prompt(persona, false, None, &learned);
+        assert_eq!(got.matches("## Learned decisions").count(), 1);
+        assert!(got.contains("[id=42]"));
+        assert!(got.contains("[id=43]"));
+        assert!(got.contains("executor asks to run tests"));
+        // Block sits between mission_block (absent) and PERSONA.
+        let learned_idx = got.find("## Learned decisions").unwrap();
+        let persona_idx = got.find("# PERSONA").unwrap();
+        assert!(learned_idx < persona_idx);
+    }
+
+    #[test]
+    fn render_learned_block_truncates_long_strings() {
+        let long_pattern = "x".repeat(300);
+        let long_decision = "y".repeat(400);
+        let hit = mem_hit(1, &long_pattern, &long_decision);
+        let block = render_learned_block(&[hit]);
+        // 120 chars of pattern + ellipsis; 200 chars of decision + ellipsis.
+        assert!(block.contains(&"x".repeat(120)));
+        assert!(!block.contains(&"x".repeat(121)));
+        assert!(block.contains(&"y".repeat(200)));
+        assert!(!block.contains(&"y".repeat(201)));
+    }
+
+    #[test]
+    fn rationale_with_shadow_audit_formats_correctly() {
+        // Test the shadow audit format: "applied_memory: X (shadowed: Y, Z)"
+        let cleaned = Some("We did the thing.".to_string());
+        let applied_id = Some(42i64);
+        let shadowed = vec![17i64, 23i64];
+
+        // Case: applied_id present, shadowed non-empty
+        let final_rationale = match (applied_id, shadowed.is_empty()) {
+            (Some(id), false) => {
+                let shadows_str = shadowed
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Some(format!(
+                    "{}\napplied_memory: {} (shadowed: {})",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id,
+                    shadows_str
+                ))
+            }
+            (Some(id), true) => {
+                Some(format!(
+                    "{}\napplied_memory: {}",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id
+                ))
+            }
+            (None, _) => cleaned.clone(),
+        };
+
+        assert_eq!(
+            final_rationale,
+            Some("We did the thing.\napplied_memory: 42 (shadowed: 17, 23)".to_string())
+        );
+    }
+
+    #[test]
+    fn rationale_with_applied_but_no_shadow_formats_correctly() {
+        // Test simple case: "applied_memory: X" without shadow list
+        let cleaned = Some("We made a decision.".to_string());
+        let applied_id = Some(99i64);
+        let shadowed: Vec<i64> = vec![];
+
+        let final_rationale = match (applied_id, shadowed.is_empty()) {
+            (Some(id), false) => {
+                let shadows_str = shadowed
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Some(format!(
+                    "{}\napplied_memory: {} (shadowed: {})",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id,
+                    shadows_str
+                ))
+            }
+            (Some(id), true) => {
+                Some(format!(
+                    "{}\napplied_memory: {}",
+                    cleaned
+                        .as_ref()
+                        .map(|r| r.trim_end())
+                        .unwrap_or(""),
+                    id
+                ))
+            }
+            (None, _) => cleaned.clone(),
+        };
+
+        assert_eq!(
+            final_rationale,
+            Some("We made a decision.\napplied_memory: 99".to_string())
+        );
     }
 }

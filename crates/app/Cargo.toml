@@ -31,6 +31,9 @@ tokio = { workspace = true }
 ulid = { workspace = true }
 tempfile = "3"
 rusqlite = { workspace = true }
+sqlite-vec = "0.1"
+zerocopy = "0.7"
+fastembed = "5"
 thiserror = { workspace = true }
 regex = { workspace = true }
 strip-ansi-escapes = { workspace = true }
