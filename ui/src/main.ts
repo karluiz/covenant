@@ -9,6 +9,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+import { dismissBootSplash } from "./boot-splash";
 import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
@@ -465,6 +466,12 @@ async function boot(): Promise<void> {
     await manager.createTab();
   }
 
+  // Tabs are mounted and the active terminal has its first paint
+  // queued — fade out the boot splash. Wait one frame so xterm has
+  // actually drawn before the splash leaves, otherwise on slow boots
+  // the user briefly sees the empty workspace under the fading overlay.
+  requestAnimationFrame(() => dismissBootSplash());
+
   // Populate operator cache once the backend is up and tabs are
   // restored — chips in the tab strip and status bar need this.
   void manager.refreshOperatorCache();
@@ -750,4 +757,6 @@ void boot().catch((err) => {
   console.error("covenant boot failed", err);
   const workspace = document.getElementById("workspace");
   if (workspace) workspace.textContent = `boot failed: ${String(err)}`;
+  // Clear the splash even on failure so the error message is visible.
+  dismissBootSplash();
 });

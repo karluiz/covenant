@@ -1451,31 +1451,6 @@ export class TabManager {
     this.scheduleSave();
   }
 
-  private async toggleOperator(tabId: string): Promise<void> {
-    const tab = this.tabs.find((t) => t.id === tabId);
-    if (!tab) return;
-    const next = !tab.operatorEnabled;
-    // Optimistic update: flip the flag and re-render BEFORE awaiting
-    // the backend so the icon disappears immediately on disable.
-    const prevEnabled = tab.operatorEnabled;
-    const prevLive = tab.operatorLive;
-    tab.operatorEnabled = next;
-    if (!next) tab.operatorLive = false;
-    this.renderTabbar();
-    if (tab.id === this.activeId) this.emitActiveOperator();
-    try {
-      await setOperatorEnabled(tab.sessionId, next);
-    } catch (err) {
-      // Roll back on failure.
-      tab.operatorEnabled = prevEnabled;
-      tab.operatorLive = prevLive;
-      this.renderTabbar();
-      if (tab.id === this.activeId) this.emitActiveOperator();
-      // eslint-disable-next-line no-console
-      console.error("set_operator_enabled failed", err);
-    }
-  }
-
   /// Flip the per-session live flag. M-OP3: when on AND operator is
   /// enabled, the Operator's REPLY actions actually inject keystrokes
   /// into the PTY (after passing the safety blocklist).
@@ -1502,6 +1477,20 @@ export class TabManager {
     tab.operator_id = operatorId;
     if (tab.sessionId) {
       await sessionSetOperator(tab.sessionId, operatorId);
+      // Pinning an operator is the user's intent to *use* it on this
+      // tab — flip the enabled flag to match. Unpinning (null) likewise
+      // disables the watcher and clears live, mirroring toggleOperator.
+      const shouldEnable = operatorId !== null;
+      if (tab.operatorEnabled !== shouldEnable) {
+        tab.operatorEnabled = shouldEnable;
+        if (!shouldEnable) tab.operatorLive = false;
+        try {
+          await setOperatorEnabled(tab.sessionId, shouldEnable);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("set_operator_enabled failed", err);
+        }
+      }
     }
     this.scheduleSave();
     // Refresh operator cache so the chip picks up any name/color updates.
@@ -2565,14 +2554,14 @@ export class TabManager {
     }
     items.push({ divider: true });
     items.push({
-      label: tab.operatorEnabled ? "Disable operator" : "Set operator",
+      label: (tab.operatorEnabled || tab.operator_id) ? "Remove operator" : "Set operator",
       icon: Icons.bot(),
       onClick: () => {
-        if (tab.operatorEnabled) {
-          void this.toggleOperator(tab.id);
+        if (tab.operatorEnabled || tab.operator_id) {
+          // Unpin + disable in one shot. setTabOperator(null) flips
+          // operatorEnabled off and clears the avatar chip.
+          void this.setTabOperator(tab.id, null);
         } else {
-          // Open the picker so the user picks a specific operator
-          // rather than silently enabling the default.
           this.onSetOperatorRequested?.(tab.sessionId);
         }
       },

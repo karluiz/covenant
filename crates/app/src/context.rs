@@ -63,11 +63,92 @@ pub fn detect_runtime(cwd: &Path) -> Option<RuntimeInfo> {
             continue;
         }
         let body = std::fs::read_to_string(&path).ok();
-        let version = body.as_deref().and_then(|b| extract_version(language, b));
+        let version = body
+            .as_deref()
+            .and_then(|b| extract_version(language, b))
+            .or_else(|| read_version_file(language, cwd))
+            .or_else(|| query_runtime_binary(language));
         return Some(RuntimeInfo {
             language: (*language).to_string(),
             version,
         });
+    }
+    None
+}
+
+/// Tier-2 fallback: read a sibling version file like `.nvmrc`,
+/// `.python-version`, `.ruby-version`, `rust-toolchain[.toml]`, or an
+/// asdf-style `.tool-versions`. File-only — no subprocess.
+fn read_version_file(language: &str, cwd: &Path) -> Option<String> {
+    // asdf / mise style: `<lang> <ver>` lines, applies to any runtime.
+    if let Ok(body) = std::fs::read_to_string(cwd.join(".tool-versions")) {
+        for line in body.lines() {
+            let t = line.trim();
+            if let Some(rest) = t.strip_prefix(&format!("{language} ")) {
+                let v = rest.split_whitespace().next()?.trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    let candidates: &[&str] = match language {
+        "node" => &[".nvmrc", ".node-version"],
+        "python" => &[".python-version"],
+        "ruby" => &[".ruby-version"],
+        "rust" => &["rust-toolchain.toml", "rust-toolchain"],
+        _ => &[],
+    };
+    for name in candidates {
+        let p = cwd.join(name);
+        let Ok(body) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        // rust-toolchain.toml: `[toolchain] channel = "1.84"`
+        if *name == "rust-toolchain.toml" {
+            if let Some(v) = extract_quoted_after(&body, "channel") {
+                return Some(v);
+            }
+            continue;
+        }
+        let first = body.lines().next().unwrap_or("").trim();
+        let v = first.trim_start_matches('v');
+        if !v.is_empty() {
+            return Some(v.to_string());
+        }
+    }
+    None
+}
+
+/// Tier-3 fallback: ask the runtime binary itself. Short, blocking call;
+/// the caller is already on a worker thread and the result is cached.
+fn query_runtime_binary(language: &str) -> Option<String> {
+    let (bin, args) = match language {
+        "node" => ("node", &["-v"][..]),
+        "python" => ("python3", &["--version"][..]),
+        "rust" => ("rustc", &["--version"][..]),
+        "go" => ("go", &["version"][..]),
+        "ruby" => ("ruby", &["--version"][..]),
+        _ => return None,
+    };
+    let out = Command::new(bin).args(args).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?;
+    let s = s.trim();
+    // Pluck the first dotted version-looking token from the output.
+    // Examples: "v20.11.0" → "20.11.0"; "Python 3.12.1" → "3.12.1";
+    // "rustc 1.84.0 (...)" → "1.84.0"; "go version go1.22 darwin/arm64".
+    for tok in s.split_whitespace() {
+        let t = tok.trim_start_matches('v').trim_start_matches("go");
+        if t.chars().next()?.is_ascii_digit() && t.contains('.') {
+            // Strip a trailing paren/comma/etc.
+            let end = t
+                .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c.is_alphabetic()))
+                .unwrap_or(t.len());
+            return Some(t[..end].to_string());
+        }
     }
     None
 }

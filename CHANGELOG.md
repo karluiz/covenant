@@ -6,6 +6,61 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.2 — 2026-05-04
+
+Polish + premium-feel release. Boot now runs through a branded splash
+so the cold-start beat reads "ready" instead of "blank window," the
+status bar surfaces the actual runtime version of the cwd, and the
+operator context menu finally lets you remove a pinned operator.
+
+### Added
+
+- **Boot splash screen** — branded `COVENANT` overlay with a pulsing
+  accent orb, expanding rings, and a `Booting…` ellipsis. Paints on
+  the first frame (inlined in `index.html`) and fades out once tabs
+  finish restoring. Honors `prefers-reduced-motion`. Reuses the
+  AOM-splash animation framework but in the cool/accent palette so
+  it never reads as the AOM danger splash.
+- **Runtime version in status bar** — the runtime segment now shows
+  a real version (`node 20.11.1`, `python 3.12.4`, …) even when the
+  manifest doesn't declare one. Detection chain: manifest →
+  version files (`.nvmrc`, `.node-version`, `.python-version`,
+  `.ruby-version`, `rust-toolchain[.toml]`, `.tool-versions`) →
+  binary lookup (`node -v`, `python3 --version`, `rustc --version`,
+  `go version`, `ruby --version`). Cached per-cwd so the subprocess
+  only runs once per directory per cache window.
+
+### Changed
+
+- **Tab context menu — operator entry**:
+  - "Enable operator" renamed to **Set operator**, matching the
+    status-bar chip and the `⌘⇧O` picker.
+  - When an operator is pinned, the entry becomes **Remove operator**
+    and unpins + disables the watcher in a single action (avatar
+    chip disappears, watcher stops).
+  - Picking an operator from the picker now also enables the watcher
+    — pinning IS the user's intent to use it.
+- **Disable operator render is now optimistic** — the agent icon
+  disappears from the tab immediately, before the backend round-trip
+  resolves.
+- **Sidebar "Covenant" brand** restyled to match the CONVERGENCE
+  header: uppercase, wide letter-spacing, muted color.
+- **Convergence overlay's Exit button** now shows an `Esc` kbd hint.
+
+### Fixed
+
+- **Collapsed tab groups no longer add phantom space** per folded
+  member. Replaced `.tab-group-body` `gap` with `margin-top` so the
+  existing `.tab-pill-folded` zero-margin rule actually wins.
+
+### Internal
+
+- Persona composer modal — design spec + implementation plan landed;
+  build pending.
+- Per-tab AOM exclusion visibility — implementation plan landed
+  (backend, icons, tab pill, `⌘⇧E`, manifest, status-bar popover);
+  build pending.
+
 ## 0.2.1 — 2026-05-04
 
 Sidebar polish release. Tab groups get a clearer visual identity, the
