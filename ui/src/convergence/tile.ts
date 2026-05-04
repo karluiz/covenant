@@ -1,4 +1,6 @@
 import type { ConvergenceTileState, TileStatus } from "../api";
+import { renderAvatarHtml } from "../operator/avatars";
+import type { TabMeta } from "./overlay";
 
 const STATUS_LABEL: Record<TileStatus, string> = {
   idle: "idle",
@@ -17,23 +19,38 @@ function fmtUsd(v: number): string {
   return `$${v.toFixed(2)}`;
 }
 
-export function renderTile(state: ConvergenceTileState): HTMLElement {
+export function renderTile(state: ConvergenceTileState, tab?: TabMeta): HTMLElement {
   const tile = document.createElement("button");
   tile.type = "button";
   tile.className = "convergence-tile";
   tile.dataset.sessionId = state.session_id;
   tile.dataset.status = state.status;
 
-  // (1) Title row + color stripe
+  // (1) Title row + color stripe + operator avatar
   const head = document.createElement("div");
   head.className = "convergence-tile__head";
   const stripe = document.createElement("span");
   stripe.className = "convergence-tile__stripe";
   if (state.color) stripe.style.background = state.color;
+
+  const avatar = document.createElement("span");
+  avatar.className = "convergence-tile__avatar";
+  avatar.title = tab?.operatorName ?? "no operator";
+  if (tab?.operatorAvatar) {
+    // Reuse the operator avatar helper (parses `pack:` prefix → <img>,
+    // otherwise emits an emoji span). Helper escapes content.
+    avatar.innerHTML = renderAvatarHtml(tab.operatorAvatar, 24);
+  } else if (tab?.operatorName) {
+    avatar.textContent = tab.operatorName.slice(0, 2).toUpperCase();
+  } else {
+    // Empty placeholder slot to avoid layout shift when cache fills.
+    avatar.classList.add("convergence-tile__avatar--empty");
+  }
+
   const title = document.createElement("span");
   title.className = "convergence-tile__title";
   title.textContent = truncate(state.title || "untitled", 40);
-  head.append(stripe, title);
+  head.append(stripe, avatar, title);
 
   // (2) Status pill
   const pill = document.createElement("span");

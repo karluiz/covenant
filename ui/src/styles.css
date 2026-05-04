@@ -7082,3 +7082,29 @@ body.tabbar-left.tabbar-left-collapsed #new-tab {
 .op-decision-chip {
   display: inline-flex; align-items: center; gap: 4px;
 }
+
+/* ── Convergence tile operator avatar ─────────────────────────────── */
+.convergence-tile__avatar {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+}
+.convergence-tile__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.convergence-tile__avatar--empty {
+  background: transparent;
+  border-color: transparent;
+}

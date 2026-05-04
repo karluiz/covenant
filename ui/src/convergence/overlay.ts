@@ -5,6 +5,8 @@ export interface TabMeta {
   sessionId: string;
   title: string;
   color: string | null;
+  operatorAvatar: string | null;
+  operatorName: string | null;
 }
 
 export interface ConvergenceTabBridge {
@@ -100,11 +102,14 @@ export class ConvergenceOverlay {
     const tabs = this.bridge.listTabs();
 
     // Order = tab order. Drop tiles whose session no longer has a tab.
-    const ordered: ConvergenceTileState[] = [];
+    const ordered: { state: ConvergenceTileState; tab: TabMeta }[] = [];
     for (const t of tabs) {
       const tile = snap.tiles.find((x) => x.session_id === t.sessionId);
       if (!tile) continue;
-      ordered.push({ ...tile, title: t.title, color: t.color });
+      ordered.push({
+        state: { ...tile, title: t.title, color: t.color },
+        tab: t,
+      });
     }
 
     if (ordered.length === 0) {
@@ -114,7 +119,7 @@ export class ConvergenceOverlay {
     }
     this.empty.hidden = true;
     const frag = document.createDocumentFragment();
-    for (const t of ordered) frag.append(renderTile(t));
+    for (const { state, tab } of ordered) frag.append(renderTile(state, tab));
     this.grid.replaceChildren(frag);
   }
 }
