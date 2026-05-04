@@ -50,7 +50,7 @@ import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
-import { openMissionPicker, openNewSuperpowersTopicModal } from "./mission-picker";
+import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import type { AomBanner } from "../aom/banner";
@@ -255,6 +255,7 @@ export class TabManager {
   private readonly tabs: Tab[] = [];
   private readonly groups: Map<string, TabGroup> = new Map();
   private activeId: string | null = null;
+  private missionPicker: ((opts: MissionPageOpts) => Promise<PageResult>) | null = null;
   private nextSeq = 1;
   private nextGroupSeq = 1;
   private readonly menu: ContextMenu;
@@ -1578,6 +1579,16 @@ export class TabManager {
     void this.promptAndSetMission(tab.id);
   }
 
+  setMissionPicker(fn: (opts: MissionPageOpts) => Promise<PageResult>): void {
+    this.missionPicker = fn;
+  }
+
+  /// Public entry point for ⌘M. Opens the mission page for the active tab.
+  async openMissionForActive(): Promise<void> {
+    if (!this.activeId) return;
+    await this.promptAndSetMission(this.activeId);
+  }
+
   /// Directly set a mission path on the currently active tab without
   /// prompting. Used by the post-publish toast "Open in Set Mission"
   /// action so the published spec is wired immediately.
@@ -1607,7 +1618,8 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     const repoRoot = tab.cwd ?? "."; // backend default; mission-picker handles "no specs dir"
-    const result = await openMissionPicker({
+    if (!this.missionPicker) return;
+    const result = await this.missionPicker({
       repoRoot,
       currentMissionPath: tab.mission?.path ?? null,
       onBrowse: async () => {

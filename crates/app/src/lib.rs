@@ -2003,6 +2003,7 @@ pub fn run() {
             drafts::next_draft_id,
             drafts::suggest_draft_section,
             drafts::list_published_specs,
+            drafts::read_spec_body,
             operator_registry::commands::operator_list,
             operator_registry::commands::operator_get,
             operator_registry::commands::operator_create,
