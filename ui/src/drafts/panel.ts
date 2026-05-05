@@ -4,6 +4,7 @@
 // Closing requires Esc or the × button (wired in main.ts).
 
 import { draftsApi, type DraftSummary, type PublishedSpec } from "./api";
+import { Icons } from "../icons";
 import { DraftWizard } from "./wizard";
 
 type View = "list" | "wizard";
@@ -84,7 +85,7 @@ export class DraftsPanel {
         <header class="drafts-header">
           <h1>${this.tab === "drafts" ? "Drafts" : "Published specs"}</h1>
           <div class="drafts-actions">
-            ${newButton ? `<button id="drafts-new" type="button" class="drafts-primary">+ New draft</button><button id="drafts-new-chat" type="button" class="drafts-primary drafts-primary--chat">+ New via chat</button>` : ""}
+            ${newButton ? `<button id="drafts-new-chat" type="button" class="drafts-secondary">${Icons.sparkles({ size: 12 })}<span>New via chat</span></button><button id="drafts-new" type="button" class="drafts-primary">${Icons.plus({ size: 13 })}<span>New draft</span></button>` : ""}
             <button id="drafts-close" type="button" class="drafts-close" aria-label="Close">×</button>
           </div>
         </header>

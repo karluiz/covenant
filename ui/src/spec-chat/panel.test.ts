@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SpecChatState, ChatMessage } from "./state";
 import type { SpecPhase } from "../api";
 import { mountSpecChatPanel } from "./panel";
@@ -59,6 +59,12 @@ describe("mountSpecChatPanel", () => {
     document.body.appendChild(host);
   });
 
+  afterEach(() => {
+    // Panel mounts on document.body, not host — clean up any leftovers.
+    document.body.querySelectorAll(".spec-chat-overlay").forEach((el) => el.remove());
+    host.remove();
+  });
+
   it("open() adds root to host; close() removes it", () => {
     const { state } = makeMockState();
     const panel = mountSpecChatPanel(host, state);
@@ -66,11 +72,11 @@ describe("mountSpecChatPanel", () => {
     expect(panel.isOpen()).toBe(false);
     panel.open();
     expect(panel.isOpen()).toBe(true);
-    expect(host.querySelector(".spec-chat-panel")).not.toBeNull();
+    expect(document.body.querySelector(".spec-chat-panel")).not.toBeNull();
 
     panel.close();
     expect(panel.isOpen()).toBe(false);
-    expect(host.querySelector(".spec-chat-panel")).toBeNull();
+    expect(document.body.querySelector(".spec-chat-panel")).toBeNull();
   });
 
   it("state onChange with a new assistant message → DOM contains message text", () => {
@@ -80,7 +86,7 @@ describe("mountSpecChatPanel", () => {
 
     set({ messages: [{ role: "assistant", content: "Hello from agent" }] });
 
-    const msgs = host.querySelectorAll(".spec-chat-msg-assistant");
+    const msgs = document.body.querySelectorAll(".spec-chat-msg-assistant");
     expect(msgs.length).toBe(1);
     expect((msgs[0] as HTMLElement).textContent).toBe("Hello from agent");
   });
@@ -92,7 +98,7 @@ describe("mountSpecChatPanel", () => {
 
     set({ awaiting: true });
 
-    const textarea = host.querySelector<HTMLTextAreaElement>(".spec-chat-input");
+    const textarea = document.body.querySelector<HTMLTextAreaElement>(".spec-chat-input");
     expect(textarea?.disabled).toBe(true);
   });
 
@@ -101,7 +107,7 @@ describe("mountSpecChatPanel", () => {
     const panel = mountSpecChatPanel(host, state);
     panel.open();
 
-    const textarea = host.querySelector<HTMLTextAreaElement>(".spec-chat-input")!;
+    const textarea = document.body.querySelector<HTMLTextAreaElement>(".spec-chat-input")!;
     textarea.value = "hello";
 
     // Shift+Enter — should NOT submit
@@ -133,12 +139,12 @@ describe("mountSpecChatPanel", () => {
 
     set({ finalMd: "# My spec", draftId: "draft-123" });
 
-    const inputRow = host.querySelector<HTMLElement>(".spec-chat-input-row");
-    const finalRow = host.querySelector<HTMLElement>(".spec-chat-final");
+    const inputRow = document.body.querySelector<HTMLElement>(".spec-chat-input-row");
+    const finalRow = document.body.querySelector<HTMLElement>(".spec-chat-final");
     expect(inputRow?.hidden).toBe(true);
     expect(finalRow?.hidden).toBe(false);
 
-    const publishBtn = host.querySelector<HTMLButtonElement>(".spec-chat-publish")!;
+    const publishBtn = document.body.querySelector<HTMLButtonElement>(".spec-chat-publish")!;
     publishBtn.click();
 
     expect(panel.onPublishRequest).toHaveBeenCalledWith("# My spec", "draft-123");
