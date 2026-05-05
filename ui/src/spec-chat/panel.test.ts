@@ -14,7 +14,7 @@ function makeMockState() {
     for (const cb of listeners) cb();
   };
 
-  const submitMock = vi.fn<[string], Promise<void>>().mockResolvedValue(undefined);
+  const submitMock = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
 
   const state: SpecChatState = {
     draftId: () => draftId,
@@ -23,7 +23,7 @@ function makeMockState() {
     finalMarkdown: () => finalMd,
     phase: () => phase,
     submit: submitMock,
-    restoreDraft: vi.fn<[string], Promise<void>>().mockResolvedValue(undefined),
+    restoreDraft: vi.fn<(id: string) => Promise<void>>().mockResolvedValue(undefined),
     reset: vi.fn(),
     onChange(cb: () => void) {
       listeners.add(cb);

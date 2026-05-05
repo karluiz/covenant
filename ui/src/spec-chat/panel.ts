@@ -21,7 +21,7 @@ export interface SpecChatPanel {
 }
 
 export function mountSpecChatPanel(
-  host: HTMLElement,
+  _host: HTMLElement,
   state: SpecChatState,
 ): SpecChatPanel {
   let root: HTMLElement | null = null;

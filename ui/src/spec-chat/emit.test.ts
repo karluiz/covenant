@@ -55,10 +55,6 @@ describe("parseSpecMarkdown", () => {
 
   // 3. Parse a spec where one section is present but empty → returned in the missing list.
   it("treats a present-but-empty section as missing", () => {
-    const md = FULL_SPEC.replace(
-      /^(## Goal\n)\nMake foo work across all supported platforms\.\n/m,
-      "$1\n",
-    );
     // Replace Goal content with blank to make it empty.
     const sections = parseSpecMarkdown(FULL_SPEC);
     sections.set("Goal", "   ");
