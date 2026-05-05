@@ -32,12 +32,22 @@ export class ChatPanel {
   setFamiliar(id: string | null) {
     this.familiarId = id;
     this.log.innerHTML = "";
+    this.input.placeholder = "Talk to your Familiar… (⌘↵ to send)";
     if (!id) {
       const note = document.createElement("div");
       note.className = "chat-empty";
       note.textContent = "Pick a Familiar.";
       this.log.appendChild(note);
+      return;
     }
+    // Spec 3.19 — surface `/summary` hint when the operator just came out of
+    // an AOM run (a mission closed in the last 24h). Fire-and-forget; falls
+    // back silently to the default placeholder on error.
+    Familiars.hasRecentClosedMission(id, 24).then((recent) => {
+      if (recent && this.familiarId === id) {
+        this.input.placeholder = "prueba: /summary  (⌘↵ to send)";
+      }
+    }).catch(() => {});
   }
 
   private append(role: "user" | "assistant", text: string): HTMLElement {

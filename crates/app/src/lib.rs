@@ -2360,6 +2360,7 @@ pub fn run() {
             familiar_commands::familiar_snapshot,
             familiar_commands::familiar_audit,
             familiar_commands::familiar_mark_executed,
+            familiar_commands::familiar_has_recent_closed_mission,
             spec_author_step,
             spec_author_load_draft,
             spec_author_list_drafts,

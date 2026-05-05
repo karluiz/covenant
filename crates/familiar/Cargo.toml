@@ -20,6 +20,7 @@ regex = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
 async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 karl-blocks = { path = "../blocks" }

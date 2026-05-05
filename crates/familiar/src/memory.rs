@@ -255,6 +255,57 @@ impl Memory {
         Ok(v)
     }
 
+    /// Events with `ts_ms >= since_ms`, ordered ASC by `ts_ms`, then by `id`.
+    /// Used by `/summary` (spec 3.19) to assemble session/mission/today windows.
+    pub fn events_in_window(&self, since_ms: i64) -> Result<Vec<EventRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, ts_ms, kind, session_id, payload_json
+             FROM familiar_events WHERE ts_ms >= ?1 ORDER BY ts_ms ASC, id ASC")?;
+        let rows = stmt.query_map([since_ms], |r| Ok(EventRow {
+            id: r.get(0)?, ts_ms: r.get(1)?, kind: r.get(2)?,
+            session_id: r.get(3)?, payload_json: r.get(4)?,
+        }))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Directives with `proposed_ms >= since_ms`, ordered ASC. Distinct from
+    /// `directives_since` (which orders DESC) — `/summary` reads chronologically.
+    pub fn directives_in_window(&self, since_ms: i64) -> Result<Vec<DirectiveRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
+             FROM familiar_directives WHERE proposed_ms >= ?1 ORDER BY proposed_ms ASC")?;
+        let rows = stmt.query_map([since_ms], |r| Ok(DirectiveRow {
+            id: r.get(0)?, proposed_ms: r.get(1)?, decided_ms: r.get(2)?,
+            state: r.get(3)?, kind: r.get(4)?, payload: r.get(5)?,
+            rationale: r.get(6)?, block_reason: r.get(7)?,
+        }))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// True iff there exists a mission whose `finished_ms >= since_ms`.
+    pub fn has_recent_closed_mission(&self, since_ms: i64) -> Result<bool> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM familiar_missions
+             WHERE finished_ms IS NOT NULL AND finished_ms >= ?1",
+            [since_ms], |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    /// Sum of `spend_usd` over days whose UTC midnight is on or after the day
+    /// containing `since_ms`. Whole-day inclusion: a partial day is counted in full.
+    pub fn costs_in_window(&self, since_ms: i64) -> Result<f64> {
+        use chrono::{DateTime, Utc};
+        let dt: DateTime<Utc> = DateTime::<Utc>::from_timestamp_millis(since_ms)
+            .unwrap_or_else(|| DateTime::<Utc>::from_timestamp_millis(0).unwrap());
+        let start_day = dt.format("%Y-%m-%d").to_string();
+        let total: f64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(spend_usd), 0) FROM familiar_costs WHERE day >= ?1",
+            [start_day], |r| r.get(0),
+        )?;
+        Ok(total)
+    }
+
     pub fn directives_since(&self, since_ms: i64) -> Result<Vec<DirectiveRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
