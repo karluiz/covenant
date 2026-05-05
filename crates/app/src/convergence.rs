@@ -43,27 +43,6 @@ pub fn detect_vendor(cmd: Option<&str>) -> Vendor {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ConvergenceTileState {
-    pub session_id: String,
-    pub title: String,
-    pub color: Option<String>,
-    pub status: TileStatus,
-    pub last_decision_action: Option<String>,
-    pub last_decision_rationale: Option<String>,
-    pub last_command: Option<String>,
-    pub last_output_line: Option<String>,
-    /// Hidden in the UI when `None`. Spec rule: only present when the
-    /// tab is enrolled in AOM (operator-enabled, AOM on, not excluded).
-    pub cost_usd: Option<f64>,
-    pub budget_usd: Option<f64>,
-    pub vendor: Vendor,
-    pub raw_command_label: Option<String>,
-    /// 3.14 — basename of the most recent decision row's `mission_path`,
-    /// stripped of `.md` and truncated to 40 chars. `None` when the
-    /// session has no decisions yet OR no mission was attached.
-    pub mission_name: Option<String>,
-}
 
 /// Derive the displayed mission name from a stored `mission_path`.
 /// Strips `.md` (via `Path::file_stem`) and truncates to 40 chars.
