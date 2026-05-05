@@ -20,6 +20,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import {
   aomStatus,
+  aomStop,
   clearAllAomExcluded,
   clearSessionMission,
   closeSession,
@@ -1806,6 +1807,17 @@ export class TabManager {
     // operator-on while still aom_excluded re-adds it. Either way,
     // the chip count + popover need a refresh.
     this.pushExcludedToStatusBar();
+
+    // If we just removed the operator and no other tabs have one, AOM
+    // has nothing left to drive — stop it so the global indicator and
+    // budget don't keep ticking against an empty fleet.
+    if (operatorId === null) {
+      const anyOperator = this.tabs.some((t) => t.operatorEnabled || t.operator_id);
+      if (!anyOperator) {
+        const aomOn = await aomStatus().then((s) => s.enabled).catch(() => false);
+        if (aomOn) await aomStop().catch(() => undefined);
+      }
+    }
   }
 
   /// Look up a tab by its backend session id. Used by the OperatorPicker
@@ -2921,6 +2933,12 @@ export class TabManager {
       // border on the pill itself (.tab-aom-active), not by the inner
       // glyph. The badge stays as the click-target for include/exclude.
       if (aomOn && !excluded) pill.classList.add("tab-aom-active");
+      // In AOM-driving mode the animated gradient border is the
+      // indicator; the inner bot glyph would be redundant. Only show
+      // the badge when AOM is off (decorative) or when this tab is
+      // explicitly excluded (zap-off click-target to re-include).
+      const showBadge = !aomOn || excluded;
+      if (showBadge) {
       const iconHtml = aomOn && excluded
         ? Icons.zapOff({ size: 12 })
         : Icons.bot({ size: 12 });
@@ -2950,6 +2968,7 @@ export class TabManager {
         void this.toggleAomExcluded(tab.id);
       });
       pill.appendChild(badge);
+      }
     }
 
     if (this.isRenamingTab(tab.id)) {

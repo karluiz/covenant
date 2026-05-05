@@ -2223,7 +2223,7 @@ pub fn run() {
                 };
                 let buf = email_notifier.buffer.clone();
                 let client = sg_client.clone();
-                tokio::spawn(crate::email::digest::spawn_flush_loop(
+                tauri::async_runtime::spawn(crate::email::digest::spawn_flush_loop(
                     buf,
                     client,
                     from,

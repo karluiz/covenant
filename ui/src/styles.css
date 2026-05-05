@@ -215,8 +215,8 @@ body.bg-translucent {
 .tab-btn.tab-aom-active::after {
     content: "";
     position: absolute;
-    inset: -1px -1px 0 -1px;
-    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    inset: -1px;
+    border-radius: var(--tab-radius);
     padding: 1.5px;
     background: linear-gradient(
         120deg,
@@ -2512,6 +2512,9 @@ body:not(.tabbar-left) #new-group {
     font-size: 12px;
     user-select: none;
     animation: ctx-pop 0.08s ease-out;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 @keyframes ctx-pop {
@@ -6407,6 +6410,8 @@ body.tabbar-left .tab-btn {
     height: 32px;
     padding: 0 24px 0 10px;
     border-radius: 6px;
+    /* AOM ring inherits this so the gradient border matches the pill. */
+    --tab-radius: 6px;
     border: 1px solid var(--tab-border-rest);
     border-bottom: 1px solid var(--tab-border-rest);
     /* Switch the fold animation axis from width → height. */

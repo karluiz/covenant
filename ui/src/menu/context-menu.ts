@@ -39,17 +39,31 @@ export class ContextMenu {
     menu.className = "ctx-menu";
     for (const item of items) menu.appendChild(this.renderItem(item));
 
+    // Reserve room at the bottom for the macOS Dock, which overlays the
+    // window and is invisible to the WebView (innerHeight includes the
+    // area covered by the Dock). Without this, the last items render
+    // behind the Dock with no visible scrollbar cue.
+    const SAFE_BOTTOM = 90;
+    const maxH = window.innerHeight - 16 - SAFE_BOTTOM;
+    menu.style.maxHeight = `${maxH}px`;
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
     this.host.appendChild(menu);
 
-    // Clamp inside viewport.
+    // Clamp inside viewport. If the menu is larger than the viewport,
+    // pin it to the top/left edge so the first items remain reachable
+    // (CSS provides max-height + scroll for vertical overflow).
     const rect = menu.getBoundingClientRect();
     if (rect.right > window.innerWidth - 4) {
-      menu.style.left = `${window.innerWidth - rect.width - 8}px`;
+      const left = Math.max(8, window.innerWidth - rect.width - 8);
+      menu.style.left = `${left}px`;
     }
-    if (rect.bottom > window.innerHeight - 4) {
-      menu.style.top = `${window.innerHeight - rect.height - 8}px`;
+    if (rect.bottom > window.innerHeight - SAFE_BOTTOM) {
+      const top = Math.max(
+        8,
+        window.innerHeight - rect.height - SAFE_BOTTOM,
+      );
+      menu.style.top = `${top}px`;
     }
 
     this.el = menu;
