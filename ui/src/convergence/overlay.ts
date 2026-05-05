@@ -3,6 +3,7 @@ import {
   submitConvergenceReply,
   type ConvergenceSnapshot,
 } from "../api";
+import { Icons } from "../icons";
 import { renderInboxCard, renderRosterRow } from "./tile";
 
 export interface TabMeta {
@@ -96,8 +97,16 @@ export class ConvergenceOverlay {
 
     const empty = document.createElement("div");
     empty.className = "convergence-overlay__empty";
-    empty.textContent = "No operators assigned";
     empty.hidden = true;
+    empty.innerHTML = `
+      <div class="convergence-overlay__empty-icon">${Icons.link2({ size: 56 })}</div>
+      <div class="convergence-overlay__empty-title">Nothing to converge</div>
+      <div class="convergence-overlay__empty-body">
+        Convergence aggregates escalations and operator status across every tab.<br/>
+        Enable an operator on a tab (⌘O) to populate this view.
+      </div>
+      <kbd class="convergence-overlay__empty-hint">⌘⇧M to toggle convergence</kbd>
+    `;
 
     root.append(header, grid, empty);
     document.body.append(root);
@@ -181,7 +190,11 @@ export class ConvergenceOverlay {
     if (list.length === 0) {
       const empty = document.createElement("div");
       empty.className = "cv-inbox__empty";
-      empty.textContent = "Nothing awaiting you";
+      empty.innerHTML = `
+        <div class="cv-inbox__empty-icon">${Icons.bot({ size: 32 })}</div>
+        <div class="cv-inbox__empty-title">All clear</div>
+        <div class="cv-inbox__empty-body">No operators are awaiting your input.</div>
+      `;
       this.inboxEl.append(empty);
       this.activeEscalationId = null;
       return;
@@ -237,6 +250,22 @@ export class ConvergenceOverlay {
       if (this.filter === "escalated") return entry.has_escalation;
       return entry.sessions.some((s) => s.status === this.filter);
     });
+
+    if (filtered.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "cv-roster__empty";
+      empty.innerHTML = `
+        No operators match <code>${this.filter}</code>.
+        <button type="button" class="cv-roster__empty-reset">Show all</button>
+      `;
+      const resetBtn = empty.querySelector<HTMLButtonElement>(".cv-roster__empty-reset");
+      resetBtn?.addEventListener("click", () => {
+        this.filter = "all";
+        this.renderRoster();
+      });
+      this.rosterEl.append(empty);
+      return;
+    }
 
     for (const entry of filtered) {
       const expanded = entry.has_escalation || this.expanded.has(entry.operator_id);

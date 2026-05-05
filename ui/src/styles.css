@@ -5999,12 +5999,44 @@ button.status-segment.status-aom.status-aom-warn:hover {
 
 .convergence-overlay__empty {
   flex: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   color: var(--muted);
-  font-size: 14px;
+  text-align: center;
+  padding: 32px;
 }
 .convergence-overlay__empty[hidden] { display: none; }
+.convergence-overlay__empty-icon {
+  opacity: 0.35;
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+.convergence-overlay__empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+.convergence-overlay__empty-body {
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 440px;
+  color: var(--muted);
+}
+.convergence-overlay__empty-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-family: inherit;
+}
 
 
 /* ─── Release log modal (⌘⇧V) ──────────────────────── */
@@ -8589,9 +8621,57 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
   align-items: baseline;
 }
 .cv-inbox__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+.cv-inbox__empty-icon {
+  opacity: 0.4;
+  margin-bottom: 4px;
+}
+.cv-inbox__empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cv-inbox__empty-body {
+  font-size: 12px;
+  color: var(--muted);
+}
+.cv-roster__empty {
+  padding: 18px 16px;
+  font-size: 12px;
   color: var(--muted);
   font-style: italic;
-  padding: 24px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cv-roster__empty code {
+  font-style: normal;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+}
+.cv-roster__empty-reset {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-style: normal;
+}
+.cv-roster__empty-reset:hover {
+  background: var(--bg-panel);
 }
 
 .cv-inbox-card {
