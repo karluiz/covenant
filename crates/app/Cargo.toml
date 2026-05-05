@@ -47,7 +47,7 @@ karl-blocks = { path = "../blocks" }
 karl-session = { path = "../session" }
 karl-agent = { path = "../agent" }
 karl-familiar = { path = "../familiar" }
-dirs = "5"
+dirs = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
