@@ -21,6 +21,7 @@ import {
   getPendingSpecCandidateForTab,
   getSpecPromptState,
 } from "./aom/spec-prompt";
+import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
@@ -41,6 +42,7 @@ import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager } from "./tabs/manager";
+import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
@@ -247,8 +249,9 @@ async function boot(): Promise<void> {
   const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
   const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
 
-  // Lucide chevrons-left icon — flipped via CSS when the sidebar is
-  // collapsed so a single SVG covers both states.
+  // chevron-right SVG; CSS flips it 180° when expanded so it points
+  // left ("click to collapse"). Collapsed state leaves it pointing
+  // right ("click to expand"). Single SVG covers both states.
   tabbarFoldBtn.innerHTML = Icons.chevronRight({ size: 14 });
   tabbarFoldBtn.addEventListener("click", () => {
     const next = !document.body.classList.contains("tabbar-left-collapsed");
@@ -285,6 +288,18 @@ async function boot(): Promise<void> {
 
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();
+  });
+
+  // Collapsed rail (variant 6). Active only in vertical-tabbar +
+  // collapsed mode; CSS handles visibility, the component just keeps
+  // its DOM in sync with the manager's render cycle.
+  const railHost = requireEl<HTMLElement>("tabbar-rail");
+  new CollapsedRail(railHost, {
+    snapshot: () => manager.getRailSnapshot(),
+    selectTab: (id) => manager.activate(id),
+    setOnAfterRender: (cb) => {
+      manager.onAfterRender = cb;
+    },
   });
 
   const convergence = new ConvergenceOverlay(makeTabsBridge(manager));
@@ -346,8 +361,32 @@ async function boot(): Promise<void> {
   // cwd matches the candidate's repo root and which have no mission yet.
   void startSpecPrompts({
     listTabs: () => manager.listTabSnapshots(),
+    getActiveTabId: () => manager.getActiveTabId(),
     setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
+    getTabLabel: (tabId) => manager.getTabLabel(tabId),
   });
+
+  installSpecLinkInterceptor({
+    getActiveTabId: () => manager.getActiveTabId(),
+    listTabsForRepo: (repoRoot) => {
+      const tabs = manager.listTabSnapshots();
+      return tabs
+        .filter((t) => !repoRoot || t.cwd.startsWith(repoRoot))
+        .map((t) => ({
+          id: t.id,
+          label: manager.getTabLabel(t.id),
+          cwd: t.cwd,
+          hasMission: t.hasMission,
+        }));
+    },
+    setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
+    openSpec: async (path) => { manager.openFileAtLine(path); },
+    revealInFinder: async (path) => {
+      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      await revealItemInDir(path);
+    },
+  });
+
   const initialCwd = manager.activeCwd();
   if (initialCwd) void ensureDetectorForRepo(initialCwd);
 

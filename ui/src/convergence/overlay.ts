@@ -1,46 +1,41 @@
 import {
   getConvergenceSnapshot,
   submitConvergenceReply,
-  type ConvergenceTileState,
+  type ConvergenceSnapshot,
 } from "../api";
-import { renderTile, updateTile } from "./tile";
+import { renderInboxCard, renderRosterRow } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
   title: string;
   color: string | null;
-  operatorAvatar: string | null;
-  operatorName: string | null;
 }
 
 export interface ConvergenceTabBridge {
-  /** Tab order (left→right). Used as the tile sort order. */
   listTabs(): TabMeta[];
-  /** Focus the tab whose session matches; returns true on success. */
-  activateBySessionId(sessionId: string): boolean;
+  activateBySessionId(sessionId: string, opts?: { keepOverlayOpen?: boolean }): boolean;
 }
 
 const POLL_MS = 1000;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
-  private grid: HTMLElement | null = null;
+  private inboxEl: HTMLElement | null = null;
+  private rosterEl: HTMLElement | null = null;
   private empty: HTMLElement | null = null;
   private pollHandle: number | null = null;
   private visible = false;
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
-  private tiles = new Map<string, HTMLElement>();
+  private snap: ConvergenceSnapshot | null = null;
+  private activeEscalationId: string | null = null;
+  private filter: "all" | "escalated" | "working" | "idle" = "all";
+  private expanded = new Set<string>();
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
-  isVisible(): boolean {
-    return this.visible;
-  }
+  isVisible(): boolean { return this.visible; }
 
-  toggle(): void {
-    if (this.visible) this.close();
-    else this.open();
-  }
+  toggle(): void { if (this.visible) this.close(); else this.open(); }
 
   open(): void {
     if (this.visible) return;
@@ -63,9 +58,13 @@ export class ConvergenceOverlay {
     }
     this.root?.remove();
     this.root = null;
-    this.grid = null;
+    this.inboxEl = null;
+    this.rosterEl = null;
     this.empty = null;
-    this.tiles.clear();
+    this.snap = null;
+    this.activeEscalationId = null;
+    this.filter = "all";
+    this.expanded.clear();
   }
 
   private mount(): void {
@@ -76,152 +75,187 @@ export class ConvergenceOverlay {
 
     const header = document.createElement("div");
     header.className = "convergence-overlay__header";
-
     const title = document.createElement("h1");
     title.className = "convergence-overlay__title";
     title.textContent = "CONVERGENCE";
-
     const exit = document.createElement("button");
     exit.type = "button";
     exit.className = "modal-cancel-btn";
     exit.title = "Close (Esc)";
     exit.innerHTML = `<span>Exit</span><kbd class="modal-kbd">Esc</kbd>`;
     exit.addEventListener("click", () => this.close());
-
     header.append(title, exit);
 
     const grid = document.createElement("div");
-    grid.className = "convergence-overlay__grid";
-    grid.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement;
-      // Skip if the click landed inside a tile's reply form.
-      if (target.closest(".convergence-tile__reply")) return;
-      const tile = target.closest<HTMLElement>(".convergence-tile");
-      if (!tile?.dataset.sessionId) return;
-      const ok = this.bridge.activateBySessionId(tile.dataset.sessionId);
-      if (ok) this.close();
-    });
-    grid.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter" && e.key !== " ") return;
-      const target = e.target as HTMLElement;
-      if (target.closest(".convergence-tile__reply")) return;
-      const tile = target.closest<HTMLElement>(".convergence-tile");
-      if (!tile?.dataset.sessionId) return;
-      e.preventDefault();
-      const ok = this.bridge.activateBySessionId(tile.dataset.sessionId);
-      if (ok) this.close();
-    });
+    grid.className = "cv-grid";
+    const inbox = document.createElement("section");
+    inbox.className = "cv-inbox";
+    const roster = document.createElement("section");
+    roster.className = "cv-roster";
+    grid.append(inbox, roster);
 
     const empty = document.createElement("div");
     empty.className = "convergence-overlay__empty";
-    empty.textContent = "No sessions";
+    empty.textContent = "No operators assigned";
     empty.hidden = true;
 
     root.append(header, grid, empty);
     document.body.append(root);
+
     this.root = root;
-    this.grid = grid;
+    this.inboxEl = inbox;
+    this.rosterEl = roster;
     this.empty = empty;
 
-    // Two-step Esc on reply form: first Esc blurs the focused input/select,
-    // second Esc (when nothing in reply is focused) closes the overlay.
-    // Capture-phase so we run before xterm's textarea swallows Escape and
-    // sends it to the PTY — otherwise the window-level Esc handler in
-    // main.ts never fires while a terminal has focus.
     this.escHandler = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const active = document.activeElement as HTMLElement | null;
-      if (active?.closest(".convergence-tile__reply")) {
+      if (e.key === "Escape") {
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.closest(".cv-reply")) {
+          e.preventDefault();
+          e.stopPropagation();
+          active.blur();
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
-        active.blur();
+        this.close();
         return;
       }
-      e.preventDefault();
-      e.stopPropagation();
-      this.close();
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.tagName === "TEXTAREA") {
+          const ta = active as HTMLTextAreaElement;
+          if (ta.value.length > 0) return; // let caret movement happen
+        }
+        e.preventDefault();
+        this.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      }
     };
     document.addEventListener("keydown", this.escHandler, { capture: true });
   }
 
+  private moveActive(delta: number): void {
+    const list = this.snap?.escalations ?? [];
+    if (list.length === 0) return;
+    const idx = list.findIndex((e) => e.session_id === this.activeEscalationId);
+    const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
+    this.activeEscalationId = list[next].session_id;
+    this.renderInbox();
+  }
+
   private async refresh(): Promise<void> {
-    if (!this.visible || !this.grid || !this.empty) return;
-    let snap;
+    if (!this.visible || !this.inboxEl || !this.rosterEl || !this.empty) return;
+    const tabs = this.bridge.listTabs().map((t) => ({
+      session_id: t.sessionId,
+      title: t.title,
+      color: t.color,
+    }));
     try {
-      snap = await getConvergenceSnapshot();
+      this.snap = await getConvergenceSnapshot(tabs);
     } catch (err) {
       console.warn("convergence snapshot failed", err);
       return;
     }
-    const tabs = this.bridge.listTabs();
-
-    // Order = tab order. Drop tiles whose session no longer has a tab.
-    const ordered: { state: ConvergenceTileState; tab: TabMeta }[] = [];
-    for (const t of tabs) {
-      const tile = snap.tiles.find((x) => x.session_id === t.sessionId);
-      if (!tile) continue;
-      ordered.push({
-        state: { ...tile, title: t.title, color: t.color },
-        tab: t,
-      });
-    }
-
-    if (ordered.length === 0) {
-      this.grid.replaceChildren();
-      this.tiles.clear();
+    if (this.snap.roster.length === 0 && this.snap.escalations.length === 0) {
+      this.inboxEl.replaceChildren();
+      this.rosterEl.replaceChildren();
       this.empty.hidden = false;
       return;
     }
     this.empty.hidden = true;
-    const submit = this.submitReply.bind(this);
+    this.renderInbox();
+    this.renderRoster();
+  }
 
-    // Build/update tiles, tracking which session ids are still present.
-    const present = new Set<string>();
-    for (const { state, tab } of ordered) {
-      present.add(state.session_id);
-      let el = this.tiles.get(state.session_id);
-      if (el && el.parentNode === this.grid) {
-        updateTile(el, state, tab, submit);
-      } else {
-        el = renderTile(state, tab, submit);
-        this.tiles.set(state.session_id, el);
-        this.grid.append(el);
-      }
+  private renderInbox(): void {
+    if (!this.inboxEl || !this.snap) return;
+    const list = this.snap.escalations;
+    this.inboxEl.replaceChildren();
+
+    const headerRow = document.createElement("div");
+    headerRow.className = "cv-inbox__header";
+    headerRow.textContent =
+      list.length > 0 ? `Inbox · ${list.length} awaiting you` : "Inbox";
+    this.inboxEl.append(headerRow);
+
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "cv-inbox__empty";
+      empty.textContent = "Nothing awaiting you";
+      this.inboxEl.append(empty);
+      this.activeEscalationId = null;
+      return;
     }
 
-    // Drop tiles whose session vanished.
-    for (const [id, el] of this.tiles) {
-      if (!present.has(id)) {
-        el.remove();
-        this.tiles.delete(id);
-      }
+    if (
+      !this.activeEscalationId ||
+      !list.some((e) => e.session_id === this.activeEscalationId)
+    ) {
+      this.activeEscalationId = list[0].session_id;
     }
 
-    // Reorder only if the current DOM order differs from the desired order.
-    // Avoids touching the DOM on the common steady-state tick.
-    const children = this.grid.children;
-    let needsReorder = children.length !== ordered.length;
-    if (!needsReorder) {
-      for (let i = 0; i < ordered.length; i++) {
-        if (children[i] !== this.tiles.get(ordered[i].state.session_id)) {
-          needsReorder = true;
-          break;
-        }
-      }
-    }
-    if (needsReorder) {
-      for (const { state } of ordered) {
-        const el = this.tiles.get(state.session_id);
-        if (el) this.grid.append(el);
-      }
+    for (const card of list) {
+      this.inboxEl.append(
+        renderInboxCard(card, card.session_id === this.activeEscalationId, {
+          onActivate: (sid) => {
+            this.activeEscalationId = sid;
+            this.renderInbox();
+          },
+          onSubmit: this.submitReply.bind(this),
+        }),
+      );
     }
   }
 
-  /**
-   * Forwards the resolution to the backend's operator resolution
-   * channel. Tile UX (clear + blur) is handled in the tile's submit
-   * handler; on error we log only — toasts arrive in a later task.
-   */
+  private renderRoster(): void {
+    if (!this.rosterEl || !this.snap) return;
+    this.rosterEl.replaceChildren();
+
+    const header = document.createElement("div");
+    header.className = "cv-roster__header";
+    const label = document.createElement("span");
+    label.className = "cv-roster__label";
+    label.textContent = `Roster · ${this.snap.roster.length} operators`;
+    const chips = document.createElement("div");
+    chips.className = "cv-roster__chips";
+    for (const v of ["all", "escalated", "working", "idle"] as const) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "cv-chip" + (this.filter === v ? " cv-chip--active" : "");
+      chip.textContent = v;
+      chip.addEventListener("click", () => {
+        this.filter = v;
+        this.renderRoster();
+      });
+      chips.append(chip);
+    }
+    header.append(label, chips);
+    this.rosterEl.append(header);
+
+    const filtered = this.snap.roster.filter((entry) => {
+      if (this.filter === "all") return true;
+      if (this.filter === "escalated") return entry.has_escalation;
+      return entry.sessions.some((s) => s.status === this.filter);
+    });
+
+    for (const entry of filtered) {
+      const expanded = entry.has_escalation || this.expanded.has(entry.operator_id);
+      this.rosterEl.append(
+        renderRosterRow(entry, expanded, {
+          onFocus: (sid, keepOpen) => {
+            const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
+            if (ok && !keepOpen) this.close();
+          },
+          onToggleExpand: (opId) => {
+            if (this.expanded.has(opId)) this.expanded.delete(opId);
+            else this.expanded.add(opId);
+            this.renderRoster();
+          },
+        }),
+      );
+    }
+  }
+
   async submitReply(
     sessionId: string,
     text: string,

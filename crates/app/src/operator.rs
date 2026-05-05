@@ -916,18 +916,30 @@ impl OperatorWatcher {
         })
     }
 
-    /// AOM start: AOM only drives tabs the user already activated
-    /// Operator on manually. Tabs without Operator stay manual — AOM
-    /// will not auto-claim them. Returns the already-enabled session
-    /// IDs (minus excluded) so the UI can refresh badges/banners.
+    /// AOM start: auto-enable Operator on every tab that has an
+    /// explicitly pinned Operator in the registry and is not marked
+    /// `aom_excluded`. Tabs without a pinned Operator (i.e. resolving
+    /// to the Default fallback) stay manual — AOM will not auto-claim
+    /// them. Tabs the user already enabled manually are kept as-is.
+    /// `enabled_by_aom` is set on tabs we flipped so `aom_stop` can
+    /// revert exactly those. Returns the affected session IDs.
     pub async fn enable_all_for_aom(&self) -> Vec<SessionId> {
-        let inner = self.inner.lock().await;
-        inner
-            .sessions
-            .iter()
-            .filter(|(_, att)| att.enabled && !att.aom_excluded)
-            .map(|(id, _)| *id)
-            .collect()
+        let mut inner = self.inner.lock().await;
+        let mut touched = Vec::new();
+        for (id, att) in inner.sessions.iter_mut() {
+            if att.aom_excluded {
+                continue;
+            }
+            if self.registry.pinned(*id).is_none() {
+                continue;
+            }
+            if !att.enabled {
+                att.enabled = true;
+                att.enabled_by_aom = true;
+            }
+            touched.push(*id);
+        }
+        touched
     }
 
     /// Inverse of `enable_all_for_aom`: turn Operator off again on

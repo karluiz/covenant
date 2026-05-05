@@ -1,271 +1,235 @@
-import type { ConvergenceTileState, TileStatus } from "../api";
-import { renderAvatarHtml } from "../operator/avatars";
-import type { TabMeta } from "./overlay";
+import type { EscalationCard, OperatorRosterEntry, SessionSummary } from "../api";
 
-const STATUS_LABEL: Record<TileStatus, string> = {
-  idle: "idle",
-  working: "working",
-  "awaiting-input": "awaiting input",
-  blocked: "blocked",
-  "operator-thinking": "operator thinking",
-};
-
-export type ReplyScope = "one-shot" | "mission" | "global";
-export type ReplySubmit = (
+type SubmitFn = (
   sessionId: string,
   text: string,
-  scope: ReplyScope,
-) => void | Promise<void>;
+  scope: "one-shot" | "mission" | "global",
+) => Promise<void>;
 
-const truncate = (s: string | null, max: number): string =>
-  !s ? "" : s.length > max ? s.slice(0, max - 1) + "…" : s;
+// =============== Inbox ===============
 
-const fmtUsd = (v: number): string => `$${v.toFixed(2)}`;
-
-const avatarKey = (tab?: TabMeta): string =>
-  `${tab?.operatorAvatar ?? ""}|${tab?.operatorName ?? ""}`;
-
-function paintAvatar(avatar: HTMLElement, tab?: TabMeta): void {
-  if (avatar.dataset.avatarKey === avatarKey(tab)) return;
-  avatar.title = tab?.operatorName ?? "no operator";
-  avatar.classList.remove("convergence-tile__avatar--empty");
-  if (tab?.operatorAvatar) {
-    avatar.innerHTML = renderAvatarHtml(tab.operatorAvatar, 24);
-  } else if (tab?.operatorName) {
-    avatar.textContent = tab.operatorName.slice(0, 2).toUpperCase();
-  } else {
-    avatar.textContent = "";
-    avatar.classList.add("convergence-tile__avatar--empty");
-  }
-  avatar.dataset.avatarKey = avatarKey(tab);
+export interface InboxCardCallbacks {
+  onActivate: (sessionId: string) => void;
+  onSubmit: SubmitFn;
 }
 
-function buildReplyForm(
-  sessionId: string,
-  onReplySubmit: ReplySubmit,
+export function renderInboxCard(
+  card: EscalationCard,
+  isActive: boolean,
+  cb: InboxCardCallbacks,
 ): HTMLElement {
-  const form = document.createElement("div");
-  form.className = "convergence-tile__reply";
-  form.dataset.noTileClick = "1";
-  // Block bubbling so the outer tile click handler does not activate the tab,
-  // and so keystrokes/pointer events do not reach the terminal underneath.
-  const stop = (e: Event) => e.stopPropagation();
-  form.addEventListener("click", stop);
-  form.addEventListener("mousedown", stop);
-  form.addEventListener("pointerdown", stop);
-  form.addEventListener("keydown", (e) => e.stopPropagation());
+  const root = document.createElement("article");
+  root.className = "cv-inbox-card";
+  root.dataset.sessionId = card.session_id;
+  if (isActive) root.classList.add("cv-inbox-card--active");
+  root.tabIndex = 0;
 
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "convergence-tile__reply-input";
-  input.placeholder = "Reply…";
+  const header = document.createElement("header");
+  header.className = "cv-inbox-card__header";
+  const avatar = document.createElement("span");
+  avatar.className = "cv-avatar";
+  avatar.textContent = card.operator_avatar ?? "👤";
+  const title = document.createElement("strong");
+  title.className = "cv-inbox-card__title";
+  title.textContent = `${card.operator_name} · ${card.tab_title}`;
+  const pill = document.createElement("span");
+  pill.className = "cv-pill cv-pill--escalated";
+  pill.textContent = "ESCALATED";
+  const meta = document.createElement("span");
+  meta.className = "cv-inbox-card__meta";
+  meta.textContent = formatAgo(card.escalated_at_unix_ms);
+  header.append(avatar, title, pill, meta);
 
-  const scope = document.createElement("select");
-  scope.className = "convergence-tile__reply-scope";
-  for (const v of ["one-shot", "mission", "global"] as ReplyScope[]) {
-    const opt = document.createElement("option");
-    opt.value = v;
-    opt.textContent = v;
-    if (v === "one-shot") opt.selected = true;
-    scope.append(opt);
+  const question = document.createElement("p");
+  question.className = "cv-inbox-card__question";
+  question.textContent = card.question ?? "(no question text)";
+
+  root.append(header, question);
+
+  if (isActive) {
+    root.append(renderReplyComposer(card.session_id, cb.onSubmit));
   }
 
+  root.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest(".cv-reply")) return;
+    cb.onActivate(card.session_id);
+  });
+
+  return root;
+}
+
+function renderReplyComposer(sessionId: string, onSubmit: SubmitFn): HTMLElement {
+  const wrap = document.createElement("form");
+  wrap.className = "cv-reply";
+  wrap.addEventListener("submit", (e) => e.preventDefault());
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "cv-reply__textarea";
+  textarea.placeholder = "Reply to operator…";
+  textarea.rows = 2;
+  textarea.addEventListener("input", () => autoGrow(textarea));
+
+  const controls = document.createElement("div");
+  controls.className = "cv-reply__controls";
+  const scope = document.createElement("select");
+  scope.className = "cv-reply__scope";
+  for (const v of ["one-shot", "mission", "global"]) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = v;
+    scope.append(o);
+  }
   const send = document.createElement("button");
   send.type = "button";
-  send.className = "convergence-tile__reply-send";
-  send.textContent = "Send";
+  send.className = "cv-reply__send";
+  send.textContent = "Send ⌘↵";
 
   const submit = async () => {
-    const text = input.value.trim();
-    if (!text || send.disabled) return;
-    send.disabled = true;
-    try {
-      await onReplySubmit(sessionId, text, scope.value as ReplyScope);
-      input.value = "";
-      input.blur();
-    } finally {
-      send.disabled = false;
-    }
+    const text = textarea.value.trim();
+    if (!text) return;
+    await onSubmit(
+      sessionId,
+      text,
+      scope.value as "one-shot" | "mission" | "global",
+    );
+    textarea.value = "";
+    autoGrow(textarea);
   };
 
   send.addEventListener("click", () => void submit());
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
+  textarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       void submit();
     }
   });
 
-  const controls = document.createElement("div");
-  controls.className = "convergence-tile__reply-controls";
   controls.append(scope, send);
-  form.append(input, controls);
-  return form;
+  wrap.append(textarea, controls);
+  // Auto-focus the textarea so the active card is immediately ready
+  // for typing — required by the spec's keyboard-first reply UX.
+  queueMicrotask(() => textarea.focus());
+  return wrap;
 }
 
-function paintDecision(el: HTMLElement, state: ConvergenceTileState): void {
-  if (state.last_decision_action) {
-    el.classList.remove("convergence-tile__decision--empty");
-    let action = el.querySelector<HTMLElement>(".convergence-tile__action");
-    let rationale = el.querySelector<HTMLElement>(
-      ".convergence-tile__rationale",
-    );
-    if (!action || !rationale) {
-      el.replaceChildren();
-      action = document.createElement("span");
-      action.className = "convergence-tile__action";
-      rationale = document.createElement("span");
-      rationale.className = "convergence-tile__rationale";
-      el.append(action, rationale);
-    }
-    action.textContent = state.last_decision_action;
-    rationale.textContent = state.last_decision_rationale ?? "";
-  } else {
-    el.classList.add("convergence-tile__decision--empty");
-    el.replaceChildren();
-    el.textContent = "no decisions yet";
-  }
+function autoGrow(ta: HTMLTextAreaElement): void {
+  ta.style.height = "auto";
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 18;
+  const max = lh * 8;
+  ta.style.height = Math.min(ta.scrollHeight, max) + "px";
+  ta.style.overflowY = ta.scrollHeight > max ? "auto" : "hidden";
 }
 
-/**
- * Builds the tile skeleton (stable nodes only). All data-bearing fields are
- * painted by `updateTile` so render and refresh share one code path. The
- * skeleton order matters: head, [mission], vendor, pill, decision, activity,
- * [cost], [reply].
- */
-export function renderTile(
-  state: ConvergenceTileState,
-  tab?: TabMeta,
-  onReplySubmit?: ReplySubmit,
+function formatAgo(unixMs: number): string {
+  if (!unixMs) return "just now";
+  const seconds = Math.max(0, Math.floor((Date.now() - unixMs) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+// =============== Roster (stubs filled in Task 5) ===============
+
+export interface RosterRowCallbacks {
+  onFocus: (sessionId: string, keepOpen: boolean) => void;
+  onToggleExpand: (operatorId: string) => void;
+}
+
+export function renderRosterRow(
+  entry: OperatorRosterEntry,
+  expanded: boolean,
+  cb: RosterRowCallbacks,
 ): HTMLElement {
-  // Use a div (not button) — nesting inputs/select/buttons inside a <button>
-  // is invalid HTML and produces erratic focus/drag behavior (typing in the
-  // reply input would bubble strange events to the terminal underneath).
-  const tile = document.createElement("div");
-  tile.className = "convergence-tile";
-  tile.setAttribute("role", "button");
-  tile.tabIndex = 0;
-  tile.dataset.sessionId = state.session_id;
+  const root = document.createElement("article");
+  root.className = "cv-roster-row";
+  if (entry.has_escalation) root.classList.add("cv-roster-row--escalated");
+  root.dataset.operatorId = entry.operator_id;
 
   const head = document.createElement("div");
-  head.className = "convergence-tile__head";
-  const stripe = document.createElement("span");
-  stripe.className = "convergence-tile__stripe";
+  head.className = "cv-roster-row__head";
   const avatar = document.createElement("span");
-  avatar.className = "convergence-tile__avatar";
-  const title = document.createElement("span");
-  title.className = "convergence-tile__title";
-  head.append(stripe, avatar, title);
+  avatar.className = "cv-avatar";
+  avatar.textContent = entry.operator_avatar ?? "👤";
+  const name = document.createElement("strong");
+  name.className = "cv-roster-row__name";
+  name.textContent = entry.operator_name;
+  const count = document.createElement("span");
+  count.className = "cv-roster-row__count";
+  count.textContent =
+    entry.sessions.length > 1 ? `${entry.sessions.length} sessions` : "";
+  const caret = document.createElement("button");
+  caret.type = "button";
+  caret.className = "cv-roster-row__caret";
+  caret.setAttribute("aria-label", expanded ? "Collapse" : "Expand");
+  caret.textContent = expanded ? "▾" : "▸";
+  if (entry.sessions.length <= 1) caret.style.visibility = "hidden";
+  caret.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cb.onToggleExpand(entry.operator_id);
+  });
+  head.append(avatar, name);
 
-  const vendor = document.createElement("span");
-  vendor.className = "convergence-tile__vendor";
-  const pill = document.createElement("span");
-  pill.className = "convergence-tile__pill";
-  const decision = document.createElement("div");
-  decision.className = "convergence-tile__decision";
+  if (entry.sessions.length === 1) {
+    const only = entry.sessions[0];
+    const status = document.createElement("span");
+    status.className = `cv-pill cv-pill--${only.status}`;
+    status.textContent = only.status;
+    head.append(status);
+    head.append(caret);
+    head.classList.add("cv-roster-row__head--clickable");
+    head.addEventListener("click", () => cb.onFocus(only.session_id, false));
+    head.addEventListener("dblclick", () => cb.onFocus(only.session_id, true));
+  } else {
+    head.append(count, caret);
+  }
 
-  const activity = document.createElement("div");
-  activity.className = "convergence-tile__activity";
-  const cmd = document.createElement("div");
-  cmd.className = "convergence-tile__cmd";
-  const out = document.createElement("div");
-  out.className = "convergence-tile__out";
-  activity.append(cmd, out);
+  root.append(head);
 
-  tile.append(head, vendor, pill, decision, activity);
-  updateTile(tile, state, tab, onReplySubmit);
-  return tile;
+  if (expanded && entry.sessions.length > 1) {
+    const sub = document.createElement("div");
+    sub.className = "cv-roster-row__sub";
+    for (const s of entry.sessions) sub.append(renderRosterSubRow(s, cb));
+    root.append(sub);
+  }
+  return root;
 }
 
-/**
- * Mutates an existing tile in place. Avatar IMG nodes are only swapped when
- * the operator id/avatar changes — that's the whole point: the 1Hz poll must
- * not flicker the avatar. Optional sections (mission, cost, reply) are
- * created/removed on demand; reply is preserved across ticks so a focused
- * input keeps focus and typed text.
- */
-export function updateTile(
-  tile: HTMLElement,
-  state: ConvergenceTileState,
-  tab?: TabMeta,
-  onReplySubmit?: ReplySubmit,
-): void {
-  tile.dataset.status = state.status;
+export function renderRosterSubRow(
+  summary: SessionSummary,
+  cb: RosterRowCallbacks,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "cv-roster-sub";
+  row.dataset.sessionId = summary.session_id;
 
-  const stripe = tile.querySelector<HTMLElement>(".convergence-tile__stripe");
-  if (stripe) stripe.style.background = state.color ?? "";
+  const dot = document.createElement("span");
+  dot.className = `cv-status-dot cv-status-dot--${summary.status}`;
+  const title = document.createElement("span");
+  title.className = "cv-roster-sub__title";
+  title.textContent = summary.tab_title;
+  const status = document.createElement("span");
+  status.className = "cv-roster-sub__status";
+  status.textContent =
+    summary.status === "blocked"
+      ? "escalated"
+      : summary.last_command
+      ? `${summary.status} · ${summary.last_command.slice(0, 40)}`
+      : summary.status;
 
-  const avatar = tile.querySelector<HTMLElement>(".convergence-tile__avatar");
-  if (avatar) paintAvatar(avatar, tab);
+  row.append(dot, title, status);
 
-  const title = tile.querySelector<HTMLElement>(".convergence-tile__title");
-  if (title) title.textContent = truncate(state.title || "untitled", 40);
-
-  // mission line: add/update/remove (between head and vendor)
-  const head = tile.querySelector(".convergence-tile__head");
-  let mission = tile.querySelector<HTMLElement>(".convergence-tile__mission");
-  if (state.mission_name) {
-    const text = `📍 ${state.mission_name}`;
-    if (!mission) {
-      mission = document.createElement("div");
-      mission.className = "convergence-tile__mission";
-      head?.after(mission);
-    }
-    if (mission.textContent !== text) mission.textContent = text;
-  } else if (mission) {
-    mission.remove();
+  // Cost footer (only when AOM-enrolled): inserted right of status.
+  if (summary.cost_usd != null && summary.budget_usd != null) {
+    const cost = document.createElement("span");
+    cost.className = "cv-roster-sub__cost";
+    cost.textContent = `$${summary.cost_usd.toFixed(2)} / $${summary.budget_usd.toFixed(2)}`;
+    row.append(cost);
   }
 
-  const vendor = tile.querySelector<HTMLElement>(".convergence-tile__vendor");
-  if (vendor) {
-    vendor.dataset.vendor = state.vendor;
-    vendor.textContent =
-      state.vendor === "unknown"
-        ? state.raw_command_label ?? "unknown"
-        : state.vendor;
-  }
-
-  const pill = tile.querySelector<HTMLElement>(".convergence-tile__pill");
-  if (pill) {
-    pill.dataset.status = state.status;
-    pill.textContent = STATUS_LABEL[state.status];
-  }
-
-  const decision = tile.querySelector<HTMLElement>(
-    ".convergence-tile__decision",
-  );
-  if (decision) paintDecision(decision, state);
-
-  const cmd = tile.querySelector<HTMLElement>(".convergence-tile__cmd");
-  if (cmd)
-    cmd.textContent = state.last_command
-      ? `$ ${truncate(state.last_command, 80)}`
-      : "—";
-  const out = tile.querySelector<HTMLElement>(".convergence-tile__out");
-  if (out) out.textContent = truncate(state.last_output_line, 100);
-
-  // cost footer: add/update/remove (before reply if present, else last)
-  let cost = tile.querySelector<HTMLElement>(".convergence-tile__cost");
-  if (state.cost_usd !== null && state.budget_usd !== null) {
-    const text = `${fmtUsd(state.cost_usd)} / ${fmtUsd(state.budget_usd)} budget`;
-    if (!cost) {
-      cost = document.createElement("div");
-      cost.className = "convergence-tile__cost";
-      const reply = tile.querySelector(".convergence-tile__reply");
-      if (reply) tile.insertBefore(cost, reply);
-      else tile.append(cost);
-    }
-    if (cost.textContent !== text) cost.textContent = text;
-  } else if (cost) {
-    cost.remove();
-  }
-
-  // reply form: present iff blocked. Never recreated when already present —
-  // that would lose focus and any typed value.
-  const reply = tile.querySelector<HTMLElement>(".convergence-tile__reply");
-  if (state.status === "blocked" && onReplySubmit) {
-    if (!reply) tile.append(buildReplyForm(state.session_id, onReplySubmit));
-  } else if (reply) {
-    reply.remove();
-  }
+  row.addEventListener("click", () => cb.onFocus(summary.session_id, false));
+  row.addEventListener("dblclick", () => cb.onFocus(summary.session_id, true));
+  return row;
 }
