@@ -6,6 +6,50 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.12 — 2026-05-05
+
+**Operator unstuck on spinning executors.** AOM no longer parks
+indefinitely on TUIs rendering Braille spinners ("Sautéed for 14s"
+forever). The idle-WAIT detector previously compared raw byte
+counts, but spinner frames emit new bytes every tick — the counter
+reset every check and the 5-WAIT escalation never fired. Decisions
+are now keyed off a *progress signature* that strips animated
+glyphs and elapsed-time tokens before hashing, so genuine no-
+progress states surface within ~5 polls and the tab is parked +
+notified instead of silently burning model calls.
+
+### Fixed
+
+- **AOM idle-WAIT detector** — new `compute_progress_signature` /
+  `strip_spinner_churn` strip Braille (`U+2800-28FF`),
+  block-elements (`U+2580-259F`), common spinner / dial glyphs,
+  and elapsed-time tokens (`14s`, `1:23`, `00:01:42`) before
+  hashing. Both the idle-WAIT counter and the general-loop hash
+  use the new signature.
+- **Activity feed** — consecutive WAIT cards with identical
+  rationale on the same session inside a 30s window are now
+  deduplicated. REPLY / ESCALATE cards are never deduped.
+
+### Changed
+
+- **Per-tab AOM badge** — during AOM, the per-tab badge mirrors
+  the status-bar zap glyph (active) or zap-with-slash (excluded)
+  so it reads as "AOM is driving this tab" instead of generic
+  operator presence. Outside AOM the badge keeps the bot glyph.
+- **Spec 3.4 (AFK Mode) deprecated** in favor of 3.8 (Convergence
+  Mode), which absorbs the idle/screensaver role with a denser,
+  more actionable surface (all sessions, cost, mission snapshots,
+  inline reply on escalations). The AOM engine is unchanged —
+  only the UI entry-point moved. Auto-engage-on-idle is tracked
+  as a follow-up under 3.8.
+
+### Internal
+
+- `spec-chat`: silence unused-host warning, modernize vitest mock
+  generics to vitest-1.x function-signature form.
+
+---
+
 ## 0.2.11 — 2026-05-05
 
 **Spec 3.18 — Agentic spec creation.** Creating a spec is no longer
