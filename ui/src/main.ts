@@ -778,6 +778,12 @@ async function boot(): Promise<void> {
       shortcutsPanel.toggle();
       return;
     }
+    // ⌘⇧L — toggle the Familiar roster (chat with the active tab's familiar).
+    if (e.metaKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
+      e.preventDefault();
+      roster.toggle();
+      return;
+    }
     // ⌘⇧A — pure AOM toggle: off ↔ on.
     //
     // Earlier this shortcut layered AFK in between (off→on→AFK→off),

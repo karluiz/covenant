@@ -69,4 +69,7 @@ export const Familiars = {
   audit: (familiar_id: string, since_ms: number) =>
     invoke<DirectiveOut[]>("familiar_audit",
       { familiarId: familiar_id, sinceMs: since_ms }),
+  hasRecentClosedMission: (familiar_id: string, since_hours: number) =>
+    invoke<boolean>("familiar_has_recent_closed_mission",
+      { familiarId: familiar_id, sinceHours: since_hours }),
 };

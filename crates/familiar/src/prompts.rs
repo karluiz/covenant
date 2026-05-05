@@ -1,3 +1,4 @@
+use crate::agent::SummaryScope;
 use crate::identity::{FamiliarConfig, Style};
 
 pub fn system_prompt(cfg: &FamiliarConfig, rolling_summary: &str,
@@ -51,6 +52,77 @@ Rules:
         rolling_summary = if rolling_summary.is_empty() { "(empty — operator has not run yet)" } else { rolling_summary },
         recent_missions = if recent_missions.is_empty() { "(none)" } else { recent_missions },
     )
+}
+
+/// Build the (system, user) prompt pair for the `/summary` slash command
+/// (spec 3.19). The system prompt enforces: language follows the operator's
+/// last messages, fixed section structure, plain markdown, never propose
+/// directives. The user payload carries the scoped data.
+pub fn summary_prompt(
+    scope: SummaryScope,
+    rolling_summary: &str,
+    missions_text: &str,
+    directives_text: &str,
+    costs_usd: f64,
+    last_user_msgs: &str,
+) -> (String, String) {
+    let scope_label = match scope {
+        SummaryScope::Session => "current session",
+        SummaryScope::Mission => "active mission",
+        SummaryScope::Today   => "rolling 24h",
+    };
+    let system = format!(
+"You are producing an executive summary of what the operator did, focused on \
+autonomous decisions taken on behalf of the coordinator while they were AFK.
+
+Language: detect the language of the coordinator's most recent messages and \
+respond in that same language. Do not switch.
+
+Output: plain GitHub-flavored markdown. No collapsible blocks, no HTML, no \
+code fences around the whole reply. Use these section headers, in this exact \
+order, omitting any section that has no data:
+
+## Decisiones autónomas
+## Costos
+## Bloqueos resueltos
+## Misiones
+## Open items pendientes
+
+Rules:
+- Be specific. Cite mission ids and timestamps when available.
+- Do NOT propose directives. This command never emits `<<DIRECTIVE>>` blocks.
+- If you have to invent to fill a section, omit the section instead.
+- Scope of this summary: {scope_label}.
+");
+    let user = format!(
+"COORDINATOR'S RECENT MESSAGES (for language detection — do not summarize them):
+---
+{last_user_msgs}
+---
+
+ROLLING SUMMARY:
+---
+{rolling}
+---
+
+MISSIONS (recent, most-recent-first):
+---
+{missions}
+---
+
+DIRECTIVES IN WINDOW (chronological):
+---
+{directives}
+---
+
+COSTS IN WINDOW: ${costs:.4} USD
+",
+        rolling = if rolling_summary.is_empty() { "(empty)" } else { rolling_summary },
+        missions = if missions_text.is_empty() { "(none)" } else { missions_text },
+        directives = if directives_text.is_empty() { "(none)" } else { directives_text },
+        costs = costs_usd,
+    );
+    (system, user)
 }
 
 #[cfg(test)]

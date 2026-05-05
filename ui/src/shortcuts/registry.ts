@@ -37,6 +37,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Show the version history / changelog." },
   { category: "Panels", keys: ["⌘", "/"], label: "Docs hub", description: "Open in-app documentation. ⌘? also works." },
   { category: "Panels", keys: ["⌘", "⇧", "K"], label: "Keyboard shortcuts", description: "Show this list." },
+  { category: "Panels", keys: ["⌘", "⇧", "L"], label: "Familiar roster", description: "Open the Familiar chat. Use /summary inside to recap a long session." },
 
   // AOM
   { category: "AOM", keys: ["⌘", "⇧", "A"], label: "Toggle AOM", description: "Start or stop autonomous overnight mode." },

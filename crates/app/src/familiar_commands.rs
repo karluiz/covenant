@@ -390,6 +390,37 @@ pub async fn familiar_audit(
     .map_err(|e| format!("join: {e}"))?
 }
 
+/// Spec 3.19 — UI hint signal. Returns true iff this familiar has at least
+/// one mission whose `finished_ms` falls within the last `since_hours`.
+/// The chat input uses this to surface a `prueba: /summary` placeholder when
+/// the operator just came out of an AOM run.
+#[tauri::command]
+pub async fn familiar_has_recent_closed_mission(
+    familiar_id: String,
+    since_hours: u32,
+    state: State<'_, AppState>,
+    mgr: State<'_, Arc<FamiliarManager>>,
+) -> Result<bool, String> {
+    require_active(&state).await?;
+    let id = parse_id(&familiar_id)?;
+    let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
+    let since_ms = now_ms() - (since_hours as i64) * 3600 * 1000;
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("runtime build: {e}"))?;
+        rt.block_on(async move {
+            let mem = mgr_arc.memory_of(id).await.map_err(|e| e.to_string())?;
+            let mem = mem.lock().await;
+            mem.has_recent_closed_mission(since_ms)
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
 #[tauri::command]
 pub async fn familiar_mark_executed(
     familiar_id: String,
