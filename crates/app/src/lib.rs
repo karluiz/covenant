@@ -499,6 +499,10 @@ async fn write_to_session(
     data: Vec<u8>,
 ) -> Result<(), String> {
     let id = parse_id(&id)?;
+    // User typed into a watched PTY → invalidate any pending WAIT/loop
+    // escalation. The prompt the operator might have been about to
+    // answer just got answered by the human. No-op when not attached.
+    state.operator.note_user_input(id).await;
     let mut sessions = state.sessions.lock().await;
     let managed = sessions.get_mut(&id).ok_or("session not found")?;
     managed.session.write(&data).map_err(|e| e.to_string())

@@ -273,6 +273,20 @@ struct Inner {
     sessions: HashMap<SessionId, Attached>,
 }
 
+impl Inner {
+    /// Reset the WAIT/loop counters for a session whose user just
+    /// typed into the PTY. Pulled out of `OperatorWatcher` so unit
+    /// tests can exercise the mutation without standing up the full
+    /// watcher (which needs an `AppHandle`, Storage, etc.).
+    fn note_user_input(&mut self, session_id: SessionId) {
+        if let Some(att) = self.sessions.get_mut(&session_id) {
+            att.consecutive_idle_waits = 0;
+            att.progress_sig_at_last_wait = 0;
+            att.loop_cooldown_until = None;
+        }
+    }
+}
+
 /// One-shot startup actions the Operator runs proactively when AOM
 /// transitions on, before its normal idle-decision flow. Each field
 /// represents a single action to fire ONCE per AOM cycle, then clear.
@@ -574,6 +588,18 @@ impl OperatorWatcher {
             att.consecutive_idle_waits = 0;
             att.progress_sig_at_last_wait = 0;
         }
+    }
+
+    /// Yield the operator on user input. When the user types into a
+    /// session's PTY while AOM is mid-WAIT cycle, the prompt the
+    /// operator was about to "answer" has been claimed by the human —
+    /// any pending escalation/loop counter is stale. We reset the
+    /// idle-WAIT state so the next tick re-evaluates from scratch
+    /// instead of charging toward `IDLE_WAIT_ESCALATE_THRESHOLD`.
+    ///
+    /// No-op when the session isn't attached (operator not watching).
+    pub async fn note_user_input(&self, session_id: SessionId) {
+        self.inner.lock().await.note_user_input(session_id);
     }
 
     pub async fn is_enabled(&self, session_id: SessionId) -> bool {
@@ -3128,6 +3154,67 @@ mod tests {
             slug_from_mission_path(&PathBuf::from("/x/.md")),
             ""
         );
+    }
+
+    /// Build an `Attached` with sensible defaults for tests. We only
+    /// care about the WAIT/loop-counter fields here; everything else
+    /// gets a benign zero/empty value.
+    fn test_attached() -> Attached {
+        Attached {
+            enabled: true,
+            live: true,
+            aom_excluded: false,
+            enabled_by_aom: false,
+            mission: None,
+            aom_startup: AomStartupPending::default(),
+            decision_point_stable_since: None,
+            decision_point_fired: false,
+            decision_pattern_lost_at: None,
+            state: Arc::new(StdMutex::new(OperatorState::new())),
+            world: Arc::new(AsyncMutex::new(SessionWorldModel::default())),
+            decisions_in_window: VecDeque::new(),
+            recent_decision_hashes: VecDeque::with_capacity(LOOP_WINDOW),
+            recent_reply_hashes: VecDeque::with_capacity(REPLY_REPEAT_THRESHOLD),
+            loop_cooldown_until: None,
+            consecutive_idle_waits: 0,
+            progress_sig_at_last_wait: 0,
+            thinking: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[test]
+    fn note_user_input_resets_wait_state() {
+        // Exercises the same mutation `OperatorWatcher::note_user_input`
+        // delegates to. Avoids spinning up the full watcher (which needs
+        // an `AppHandle`, Storage, Registry, etc.) by going straight to
+        // `Inner`.
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        let mut att = test_attached();
+        att.consecutive_idle_waits = 4;
+        att.progress_sig_at_last_wait = 0xDEAD_BEEF;
+        att.loop_cooldown_until = Some(Instant::now() + Duration::from_secs(60));
+        inner.sessions.insert(sid, att);
+
+        inner.note_user_input(sid);
+
+        let att = inner.sessions.get(&sid).expect("session present");
+        assert_eq!(att.consecutive_idle_waits, 0);
+        assert_eq!(att.progress_sig_at_last_wait, 0);
+        assert!(att.loop_cooldown_until.is_none());
+    }
+
+    #[test]
+    fn note_user_input_no_op_for_unattached_session() {
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        // Must not panic and must not insert a phantom entry.
+        inner.note_user_input(sid);
+        assert!(inner.sessions.is_empty());
     }
 
     #[test]
