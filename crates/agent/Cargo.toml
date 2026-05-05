@@ -18,6 +18,9 @@ tracing = { workspace = true }
 ulid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true }
+async-trait = { workspace = true }

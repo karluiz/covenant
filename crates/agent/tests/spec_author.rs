@@ -1,8 +1,11 @@
+use async_trait::async_trait;
 use chrono::Utc;
 use karl_agent::spec_author::{
-    list_drafts, load_draft, save_draft, DraftMessage, DraftStatus, MessageRole, Phase, SpecDraft,
-    SpecAuthorError,
+    list_drafts, load_draft, save_draft, step, validate_spec_markdown, Dispatcher, DraftMessage,
+    DraftStatus, MessageRole, Phase, SpecAuthorError, SpecDraft, StepOutput,
 };
+use std::collections::VecDeque;
+use std::sync::Mutex;
 use ulid::Ulid;
 
 fn make_draft(status: DraftStatus) -> SpecDraft {
@@ -119,4 +122,194 @@ fn list_drafts_capped_at_20() {
     }
     let results = list_drafts(dir.path());
     assert_eq!(results.len(), 20);
+}
+
+// ── Task 2 tests ──────────────────────────────────────────────────────────────
+
+/// Mock dispatcher that returns pre-canned responses in order.
+struct MockDispatcher {
+    responses: Mutex<VecDeque<String>>,
+}
+
+impl MockDispatcher {
+    fn new(responses: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            responses: Mutex::new(responses.into_iter().map(|s| s.into()).collect()),
+        }
+    }
+}
+
+#[async_trait]
+impl Dispatcher for MockDispatcher {
+    async fn dispatch(
+        &self,
+        _system: &str,
+        _messages: &[DraftMessage],
+    ) -> karl_agent::spec_author::Result<String> {
+        let mut q = self.responses.lock().unwrap();
+        Ok(q.pop_front().unwrap_or_default())
+    }
+}
+
+fn fresh_draft() -> SpecDraft {
+    SpecDraft {
+        id: Ulid::new(),
+        messages: vec![],
+        partial_md: None,
+        last_updated: Utc::now(),
+        status: DraftStatus::InProgress { phase: Phase::Goal },
+    }
+}
+
+const VALID_SPEC: &str = r#"# 3.99 — Test Feature
+
+## Goal
+
+A single sentence describing the user-visible problem.
+
+## Out of scope
+
+- Unrelated thing A
+- Unrelated thing B
+
+## Acceptance criteria
+
+- [ ] User can do X via Y
+- [ ] Command Z passes
+
+## File boundaries
+
+- **Create**: `src/foo.rs` (≤ 50 lines)
+- **DO NOT touch**: `src/bar.rs`
+
+## Complexity
+
+`small`
+
+## Open questions
+
+- None at this time
+"#;
+
+/// Step 2.4 — first call returns a Question; 6th (with valid spec) returns Final + Ready.
+#[tokio::test]
+async fn step_question_then_final() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut draft = fresh_draft();
+
+    let final_response = format!("<spec>\n{VALID_SPEC}</spec>");
+    let mock = MockDispatcher::new([
+        "What is the user-visible problem?",
+        "What should be out of scope?",
+        "What are the acceptance criteria?",
+        "Which files are in scope?",
+        "Is this small, medium, or large?",
+        final_response.as_str(),
+    ]);
+
+    // Turn 1: should return Question.
+    let out = step(&mock, &mut draft, "Start".to_string(), dir.path())
+        .await
+        .expect("step 1");
+    assert!(
+        matches!(out, StepOutput::Question { .. }),
+        "expected Question on turn 1"
+    );
+
+    // Turns 2–5: questions.
+    for i in 2..=5 {
+        let out = step(&mock, &mut draft, format!("Answer {i}"), dir.path())
+            .await
+            .unwrap_or_else(|e| panic!("step {i} failed: {e}"));
+        assert!(
+            matches!(out, StepOutput::Question { .. }),
+            "expected Question on turn {i}"
+        );
+    }
+
+    // Turn 6: should return Final.
+    let out = step(&mock, &mut draft, "No open questions".to_string(), dir.path())
+        .await
+        .expect("step 6");
+    assert!(
+        matches!(out, StepOutput::Final { .. }),
+        "expected Final on turn 6, got {out:?}"
+    );
+    assert_eq!(draft.status, DraftStatus::Ready);
+
+    // Verify draft was persisted.
+    let loaded = load_draft(dir.path(), draft.id).expect("load after Final");
+    assert_eq!(loaded.status, DraftStatus::Ready);
+}
+
+/// Step 2.5 — invalid spec (missing ## File boundaries) returns Err(InvalidSpec) and draft
+/// stays InProgress.
+#[tokio::test]
+async fn step_invalid_spec_keeps_in_progress() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut draft = fresh_draft();
+
+    let bad_spec = r#"# 3.X — Bad
+
+## Goal
+
+The goal.
+
+## Out of scope
+
+- nothing
+
+## Acceptance criteria
+
+- [ ] something passes
+
+## Complexity
+
+`small`
+
+## Open questions
+
+- none
+"#;
+
+    let mock = MockDispatcher::new([format!("<spec>\n{bad_spec}</spec>")]);
+
+    let err = step(&mock, &mut draft, "go".to_string(), dir.path())
+        .await
+        .expect_err("should have returned Err(InvalidSpec)");
+
+    match err {
+        SpecAuthorError::InvalidSpec { ref missing } => {
+            assert!(
+                missing.iter().any(|s| s.contains("File boundaries")),
+                "expected 'File boundaries' in missing sections, got {missing:?}"
+            );
+        }
+        other => panic!("expected InvalidSpec, got {other:?}"),
+    }
+
+    // Draft must remain InProgress.
+    assert!(
+        matches!(draft.status, DraftStatus::InProgress { .. }),
+        "draft should stay InProgress after InvalidSpec"
+    );
+}
+
+/// validate_spec_markdown passes on a complete spec.
+#[test]
+fn validate_passes_complete_spec() {
+    validate_spec_markdown(VALID_SPEC).expect("should be valid");
+}
+
+/// validate_spec_markdown fails when sections are missing.
+#[test]
+fn validate_detects_missing_sections() {
+    let no_complexity = VALID_SPEC.replace("## Complexity", "## Complexidad");
+    let err = validate_spec_markdown(&no_complexity).expect_err("should fail");
+    match err {
+        SpecAuthorError::InvalidSpec { missing } => {
+            assert!(missing.contains(&"## Complexity".to_string()));
+        }
+        other => panic!("expected InvalidSpec, got {other:?}"),
+    }
 }

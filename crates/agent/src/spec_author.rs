@@ -4,11 +4,14 @@
 //! The default `base_dir` is `~/.covenant/`; tests must inject an explicit
 //! temp directory and MUST NOT use the default helpers.
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use ulid::Ulid;
+
+const SYSTEM_PROMPT: &str = include_str!("spec_author/prompt.md");
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -22,6 +25,12 @@ pub enum SpecAuthorError {
     HomeDirNotFound,
     #[error("spec draft not found: {id}")]
     NotFound { id: Ulid },
+    #[error("http: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("anthropic api {status}: {body}")]
+    Api { status: u16, body: String },
+    #[error("invalid spec — missing sections: {missing:?}")]
+    InvalidSpec { missing: Vec<String> },
 }
 
 pub type Result<T> = std::result::Result<T, SpecAuthorError>;
@@ -47,6 +56,7 @@ pub enum Phase {
     Acceptance,
     FileBoundaries,
     Complexity,
+    OpenQuestions,
     Emit,
 }
 
@@ -150,4 +160,217 @@ pub fn load_draft_default(id: Ulid) -> Result<SpecDraft> {
 /// List drafts from the default `~/.covenant/spec-drafts/` directory.
 pub fn list_drafts_default() -> Result<Vec<SpecDraft>> {
     Ok(list_drafts(&home_covenant_dir()?))
+}
+
+// ── Step output ───────────────────────────────────────────────────────────────
+
+/// Returned by `step()` after each coordinator message.
+#[derive(Debug)]
+pub enum StepOutput {
+    /// The agent is still gathering information; `text` is its next question.
+    Question { phase: Phase, text: String },
+    /// The agent emitted a complete, valid spec. `markdown` is the inner content.
+    Final { markdown: String },
+}
+
+// ── Dispatcher trait ──────────────────────────────────────────────────────────
+
+/// Abstraction over the Anthropic Messages API (multi-turn).
+/// Defined locally so tests can inject a mock without touching `lib.rs`.
+#[async_trait]
+pub trait Dispatcher: Send + Sync {
+    async fn dispatch(
+        &self,
+        system: &str,
+        messages: &[DraftMessage],
+    ) -> Result<String>;
+}
+
+// ── Real Anthropic dispatcher ─────────────────────────────────────────────────
+
+/// Calls the Anthropic Messages API with the full conversation history.
+/// Constructed with an API key and model so the caller controls both.
+pub struct AnthropicDispatcher {
+    pub api_key: String,
+    pub model: String,
+}
+
+#[async_trait]
+impl Dispatcher for AnthropicDispatcher {
+    async fn dispatch(&self, system: &str, messages: &[DraftMessage]) -> Result<String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(180))
+            .build()?;
+
+        let api_messages: Vec<serde_json::Value> = messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                };
+                serde_json::json!({ "role": role, "content": m.content })
+            })
+            .collect();
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": 4096,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": { "type": "ephemeral" }
+                }
+            ],
+            "messages": api_messages,
+        });
+
+        tracing::debug!(
+            model = %self.model,
+            msg_count = messages.len(),
+            "dispatching spec_author conversation to Anthropic"
+        );
+
+        let response = client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body_text = response.text().await.unwrap_or_default();
+            return Err(SpecAuthorError::Api {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        let json: serde_json::Value = response.json().await?;
+        let text = json["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        Ok(text)
+    }
+}
+
+// ── Markdown validation ───────────────────────────────────────────────────────
+
+/// Required section headings in the emitted spec (case-sensitive, as in _template.md).
+const REQUIRED_SECTIONS: &[&str] = &[
+    "## Goal",
+    "## Out of scope",
+    "## Acceptance criteria",
+    "## File boundaries",
+    "## Complexity",
+    "## Open questions",
+];
+
+/// Validates that all six required section headings are present in `md`.
+pub fn validate_spec_markdown(md: &str) -> Result<()> {
+    let missing: Vec<String> = REQUIRED_SECTIONS
+        .iter()
+        .filter(|&&heading| !md.contains(heading))
+        .map(|&heading| heading.to_string())
+        .collect();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(SpecAuthorError::InvalidSpec { missing })
+    }
+}
+
+// ── Phase detection ───────────────────────────────────────────────────────────
+
+/// Heuristically derive the current phase from the assistant's response text.
+/// We keep an explicit Phase cursor in DraftStatus; this function is a fallback
+/// for when we need to label a Question response. The approach: we maintain
+/// the phase in `draft.status` and advance it after each successful turn.
+fn next_phase(current: &Phase) -> Phase {
+    match current {
+        Phase::Goal => Phase::OutOfScope,
+        Phase::OutOfScope => Phase::Acceptance,
+        Phase::Acceptance => Phase::FileBoundaries,
+        Phase::FileBoundaries => Phase::Complexity,
+        Phase::Complexity => Phase::OpenQuestions,
+        Phase::OpenQuestions => Phase::Emit,
+        Phase::Emit => Phase::Emit,
+    }
+}
+
+// ── Step function ─────────────────────────────────────────────────────────────
+
+/// Advance the spec-author conversation by one turn.
+///
+/// Design note on phase tracking: we store the current phase explicitly in
+/// `draft.status` (as `DraftStatus::InProgress { phase }`). This is simpler
+/// than parsing the phase from the assistant's prose and avoids false positives.
+/// The phase advances after each successful non-Final turn.
+pub async fn step<D: Dispatcher>(
+    dispatcher: &D,
+    draft: &mut SpecDraft,
+    user_msg: String,
+    base_dir: &std::path::Path,
+) -> Result<StepOutput> {
+    // 1. Append user message.
+    draft.messages.push(DraftMessage {
+        role: MessageRole::User,
+        content: user_msg,
+    });
+
+    // 2. Dispatch — pass full conversation history.
+    let response = dispatcher.dispatch(SYSTEM_PROMPT, &draft.messages).await?;
+
+    // 3. Append assistant response.
+    draft.messages.push(DraftMessage {
+        role: MessageRole::Assistant,
+        content: response.clone(),
+    });
+
+    // 4. Check for <spec>...</spec> emission.
+    if let Some(markdown) = extract_spec(&response) {
+        // Validate before transitioning.
+        validate_spec_markdown(&markdown)?;
+
+        draft.partial_md = Some(markdown.clone());
+        draft.status = DraftStatus::Ready;
+        draft.last_updated = Utc::now();
+        save_draft(base_dir, draft)?;
+
+        return Ok(StepOutput::Final { markdown });
+    }
+
+    // 5. Advance phase cursor and save.
+    let current_phase = match &draft.status {
+        DraftStatus::InProgress { phase } => phase.clone(),
+        // If somehow already Ready/Published and we're called again, stay in Emit.
+        _ => Phase::Emit,
+    };
+    let advanced_phase = next_phase(&current_phase);
+    draft.status = DraftStatus::InProgress { phase: advanced_phase.clone() };
+    draft.last_updated = Utc::now();
+    save_draft(base_dir, draft)?;
+
+    Ok(StepOutput::Question {
+        phase: advanced_phase,
+        text: response,
+    })
+}
+
+/// Extract the markdown between `<spec>` and `</spec>` tags.
+fn extract_spec(text: &str) -> Option<String> {
+    let start_tag = "<spec>";
+    let end_tag = "</spec>";
+    let start = text.find(start_tag)? + start_tag.len();
+    let end = text.find(end_tag)?;
+    if start > end {
+        return None;
+    }
+    Some(text[start..end].trim().to_string())
 }
