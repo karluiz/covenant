@@ -504,10 +504,32 @@ body.bg-translucent {
 
 /* AOM liveness Task 4 — offline state. When the browser reports no
    network, the operator tick is gated and the banner reflects that
-   in warn color so the user knows AOM is paused (not silently failing). */
+   in warn color so the user knows AOM is paused (not silently failing).
+   The class hook is also future-proofed for the AOM banner once it
+   integrates `subscribeOnline` directly. */
 .aom-banner--offline .aom-banner-phase {
     color: var(--running);
     font-weight: 500;
+}
+
+/* Free-standing offline pill mounted by `mountOfflinePill()`. Lives
+   alongside the AOM banner (which Task 3 is refactoring in parallel)
+   without depending on it. Only visible while OS reports no network. */
+.aom-offline-pill {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: var(--surface, rgba(35, 38, 44, 0.95));
+    color: var(--running);
+    border: 1px solid var(--running);
+    font: 500 12px/1.2 var(--ui-font, system-ui, sans-serif);
+    letter-spacing: 0.02em;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
 }
 
 
