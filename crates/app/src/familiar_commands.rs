@@ -33,7 +33,7 @@ use crate::AppState;
 async fn require_active(state: &State<'_, AppState>) -> Result<(), String> {
     let s = state.settings.lock().await;
     if !s.familiars_active() {
-        return Err("Familiars not enabled (premium feature).".into());
+        return Err("Familiars not enabled.".into());
     }
     Ok(())
 }
@@ -153,13 +153,20 @@ pub async fn familiar_chat(
     input: ChatInput,
     state: State<'_, AppState>,
     mgr: State<'_, Arc<FamiliarManager>>,
-    api_key: State<'_, crate::AnthropicKey>,
 ) -> Result<ChatOutput, String> {
     require_active(&state).await?;
     let id = parse_id(&input.familiar_id)?;
-    let key = api_key.0.clone();
+    let key = {
+        let s = state.settings.lock().await;
+        s.anthropic_api_key
+            .as_ref()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
+            .unwrap_or_default()
+    };
     if key.trim().is_empty() {
-        return Err("ANTHROPIC_API_KEY not set".to_string());
+        return Err("Anthropic API key not set (Settings → API key, or ANTHROPIC_API_KEY env)".to_string());
     }
     let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
     let user_text = input.user_text;

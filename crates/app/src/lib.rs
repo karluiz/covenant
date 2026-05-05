@@ -128,12 +128,6 @@ async fn get_embedder(state: &AppState) -> Result<Arc<embedder::Embedder>, Strin
     get_embedder_from_cell(&state.embedder).await
 }
 
-/// Wrapper around the Anthropic API key, mounted as Tauri state so
-/// Familiar commands can resolve it without re-reading settings on every
-/// call. Sourced from `ANTHROPIC_API_KEY` at startup; falls back to
-/// empty string when unset (commands surface a usable error then).
-pub struct AnthropicKey(pub String);
-
 /// Spawn a Familiar observer task bound to a specific session's
 /// `SessionEvent` bus. The observer drains the bus, filters to events
 /// for `session_id`, and persists rolling summaries into the Familiar's
@@ -2012,12 +2006,6 @@ pub fn run() {
                 karl_familiar::FamiliarManager::new(familiars_root),
             );
             app.manage(familiar_manager.clone());
-
-            // Anthropic key for Familiar commands. Sourced from env;
-            // empty when unset — commands surface that as a usable
-            // error rather than panicking.
-            let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
-            app.manage(AnthropicKey(anthropic_key));
 
             let aom_handle = aom::new_handle();
             let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());

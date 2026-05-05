@@ -1,14 +1,11 @@
-// Familiars settings section. Rendered inside the existing settings page
-// host. Always shows the section so the sidebar anchor lands here.
-// Premium gates the per-Familiar config; until billing ships, the premium
-// flag is a manual toggle for testing.
+// Familiars settings section. BYOK feature — the user's Anthropic API key
+// (configured in Settings → API key) pays for chat/summarization, so the
+// feature is opt-in without a premium gate.
 
 import { Familiars, type Style, type FamiliarSummary } from "./api";
 
 export interface FamiliarsSettingsHooks {
-  isPremium: boolean;
   enabled: boolean;
-  setPremium: (v: boolean) => void;
   setEnabled: (v: boolean) => void;
 }
 
@@ -29,24 +26,9 @@ export function renderFamiliarsSettings(
   const intro = document.createElement("p");
   intro.className = "settings-hint";
   intro.textContent =
-    "Per-operator AI companion with persistent memory. Phase 1 MVP — premium gating is on the honor system until billing ships; flip it manually below to enable for testing.";
+    "Per-operator AI companion with persistent memory. Uses your Anthropic API key (BYOK).";
   wrap.appendChild(intro);
 
-  // Premium toggle (dev/testing — replace with billing flow later).
-  const premiumRow = document.createElement("label");
-  premiumRow.className = "settings-field";
-  const premiumCb = document.createElement("span");
-  premiumCb.className = "settings-checkbox-row";
-  const premiumInput = document.createElement("input");
-  premiumInput.type = "checkbox";
-  premiumInput.checked = hooks.isPremium;
-  const premiumLabel = document.createElement("span");
-  premiumLabel.textContent = "Premium (manual override)";
-  premiumCb.append(premiumInput, premiumLabel);
-  premiumRow.appendChild(premiumCb);
-  wrap.appendChild(premiumRow);
-
-  // Enable toggle (gated by premium — disabled visually but always present).
   const enableRow = document.createElement("label");
   enableRow.className = "settings-field";
   const enableCb = document.createElement("span");
@@ -54,21 +36,12 @@ export function renderFamiliarsSettings(
   const enableInput = document.createElement("input");
   enableInput.type = "checkbox";
   enableInput.checked = hooks.enabled;
-  enableInput.disabled = !hooks.isPremium;
   const enableLabel = document.createElement("span");
   enableLabel.textContent = "Enable Familiars";
   enableCb.append(enableInput, enableLabel);
   enableRow.appendChild(enableCb);
   wrap.appendChild(enableRow);
 
-  premiumInput.addEventListener("change", () => {
-    hooks.setPremium(premiumInput.checked);
-    enableInput.disabled = !premiumInput.checked;
-    if (!premiumInput.checked && enableInput.checked) {
-      enableInput.checked = false;
-      hooks.setEnabled(false);
-    }
-  });
   enableInput.addEventListener("change", () => {
     hooks.setEnabled(enableInput.checked);
   });
@@ -77,15 +50,12 @@ export function renderFamiliarsSettings(
   list.className = "settings-familiars-list";
   wrap.appendChild(list);
 
-  if (hooks.isPremium) {
+  if (hooks.enabled) {
     Familiars.list()
       .then((items) => renderList(list, items))
       .catch(() => {
         list.textContent = "(could not load Familiars)";
       });
-  } else {
-    list.textContent =
-      "(enable premium above to manage per-Familiar config)";
   }
 
   parent.appendChild(wrap);

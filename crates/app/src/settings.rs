@@ -67,19 +67,15 @@ pub struct Settings {
     pub zsh_history_imported_at_unix_ms: Option<u64>,
 
     /// Familiars: per-session AI companion with its own memory.
-    /// Gated behind `is_premium`; both must be true for the feature
-    /// to activate (`familiars_active()`).
+    /// BYOK — the user pays Anthropic directly via their own API key,
+    /// so there is no premium gate; the feature is purely opt-in.
     #[serde(default)]
     pub familiars_enabled: bool,
-    #[serde(default)]
-    pub is_premium: bool,
 }
 
 impl Settings {
-    /// Familiars are only active when the user has both opted in and
-    /// is a premium subscriber. UI/agent code should gate on this.
     pub fn familiars_active(&self) -> bool {
-        self.familiars_enabled && self.is_premium
+        self.familiars_enabled
     }
 }
 
@@ -166,7 +162,6 @@ impl Default for Settings {
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
             familiars_enabled: false,
-            is_premium: false,
         }
     }
 }
@@ -176,18 +171,15 @@ mod familiars_tests {
     use super::*;
 
     #[test]
-    fn familiars_inactive_when_not_premium() {
-        let mut s = Settings::default();
-        s.familiars_enabled = true;
-        s.is_premium = false;
+    fn familiars_inactive_by_default() {
+        let s = Settings::default();
         assert!(!s.familiars_active());
     }
 
     #[test]
-    fn familiars_active_when_both() {
+    fn familiars_active_when_enabled() {
         let mut s = Settings::default();
         s.familiars_enabled = true;
-        s.is_premium = true;
         assert!(s.familiars_active());
     }
 }

@@ -69,7 +69,6 @@ interface Settings {
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
   familiars_enabled: boolean;
-  is_premium: boolean;
 }
 
 type TabbarPosition = "top" | "left";
@@ -155,7 +154,6 @@ export class SettingsPanel {
         tabbar_position: "top",
         ui_font_family: null,
         familiars_enabled: false,
-        is_premium: false,
       };
     }
     this.workspace.hidden = true;
@@ -517,17 +515,11 @@ export class SettingsPanel {
       const renderFam = (): void => {
         if (!this.current) return;
         renderFamiliarsSettings(familiarsHost, {
-          isPremium: this.current.is_premium,
           enabled: this.current.familiars_enabled,
-          setPremium: (v) => {
-            if (!this.current) return;
-            this.current.is_premium = v;
-            void persistFamiliars().then(() => renderFam());
-          },
           setEnabled: (v) => {
             if (!this.current) return;
             this.current.familiars_enabled = v;
-            void persistFamiliars();
+            void persistFamiliars().then(() => renderFam());
           },
         });
       };
@@ -640,7 +632,6 @@ export class SettingsPanel {
             ?.value as TabbarPosition) || "top",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
         familiars_enabled: this.current!.familiars_enabled,
-        is_premium: this.current!.is_premium,
       };
       try {
         await setSettings(next);
