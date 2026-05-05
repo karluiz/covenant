@@ -6,6 +6,72 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.11 — 2026-05-05
+
+**Spec 3.18 — Agentic spec creation.** Creating a spec is no longer
+a six-textarea exercise. `⌘N` (or "+ New via chat" in the Drafts
+header) opens a guided chat that walks through Goal → Out of scope
+→ Acceptance → File boundaries → Complexity → Open questions in
+3–5 directed questions, then emits markdown matching
+`_template.md`. The existing draft wizard takes over pre-populated
+for review and publish. Drafts persist in
+`~/.covenant/spec-drafts/<ulid>.json` so closing mid-flow lets
+you resume from any session.
+
+### Added
+
+- **3.18 chat-first spec authoring** — `mountSpecChat` controller
+  with chooser ("Resume / Start new / Blank draft"), injectable
+  APIs for tests, ⌘N keybinding, "+ New via chat" button in the
+  Drafts header.
+- **Backend `spec_author` module** in `karl-agent` — `Dispatcher`
+  trait with `AnthropicDispatcher` (Sonnet 4.6, prompt-cached
+  system block), 6-phase FSM, `validate_spec_markdown` enforcing
+  every required heading before transitioning to `Ready`,
+  `mark_published` flow.
+- **Tauri commands** — `spec_author_step`,
+  `spec_author_load_draft`, `spec_author_list_drafts`,
+  `spec_author_mark_published`, plus typed wrappers in
+  `ui/src/api.ts`.
+- **Convergence empty states** — global "Nothing to converge"
+  with link2 icon and ⌘⇧M hint, "All clear" inbox empty when
+  operators exist but none are blocked, "No operators match
+  &lt;filter&gt;" + "Show all" reset for the roster filter chips.
+
+### Changed
+
+- **Drafts header buttons** — "+ New via chat" is now a secondary
+  outline button with a sparkles icon; "+ New draft" stays as the
+  primary CTA. Both gain Lucide icons (sparkles, plus) for
+  consistency with the rest of the app.
+- **Spec-chat panel design** — neutral palette aligned with
+  `--bg-overlay/--bg-panel/--border/--text-primary/--muted` (no
+  more saturated green/blue on Send and Publish). Lucide icons
+  replace text-only buttons (arrow-right Send, x Close, refresh
+  spinner, sparkles title). Empty state guides the first message;
+  phase chip uses uppercase tracking with a neutral border.
+- **Spec-chat copy** — UI strings translated to English to match
+  the rest of the app.
+
+### Fixed
+
+- **`--text-primary` was undefined globally** — used in 19
+  places (mission badges, drafts buttons, the spec-chat panel)
+  but never declared in `:root`. Falling through to `transparent`
+  killed the "+ New draft" button background. Now set to
+  `#f5f6f7` matching `--tab-fg-active`.
+- **Spec-chat modal alignment** — the overlay was clipped to a
+  single CSS-grid cell because it mounted inside `#spec-chat-page`
+  with `position: fixed` (a transformed grid ancestor was acting
+  as the containing block). Now mounts on `document.body`.
+- **Spec-chat "Review & publish" always visible** — `[hidden]`
+  attribute was overridden by `display: flex` on
+  `.spec-chat-final`. Added `[hidden] !important` guard inside
+  `.spec-chat-panel`.
+- **Draft wizard** accepts an optional `initialBody` that
+  pre-populates the section textareas, used by the spec-chat
+  hand-off.
+
 ## 0.2.10 — 2026-05-05
 
 Three threads land together. **Spec 3.8.1 — convergence redesign**

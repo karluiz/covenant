@@ -51,7 +51,7 @@ function relativeTime(iso: string): string {
 
 function shortSummary(draft: SpecDraftSummary): string {
   const firstUser = draft.messages.find((m) => m.role === "User");
-  if (!firstUser) return "Sin mensajes";
+  if (!firstUser) return "No messages";
   return firstUser.content.length > 60
     ? firstUser.content.slice(0, 60) + "…"
     : firstUser.content;
@@ -113,7 +113,7 @@ export function mountSpecChat(
 
     const title = document.createElement("p");
     title.className = "spec-chat-chooser-title";
-    title.textContent = "¿Qué quieres hacer?";
+    title.textContent = "What do you want to do?";
     el.appendChild(title);
 
     // "Retomar" options (up to 3)
@@ -122,7 +122,7 @@ export function mountSpecChat(
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "spec-chat-chooser-btn";
-      btn.textContent = `Retomar "${shortSummary(draft)}" (última edición: ${relativeTime(draft.last_updated)})`;
+      btn.textContent = `Resume "${shortSummary(draft)}" (last edited: ${relativeTime(draft.last_updated)})`;
       btn.addEventListener("click", () => {
         removeChooser();
         const state = stateFactory();
@@ -137,7 +137,7 @@ export function mountSpecChat(
     const newBtn = document.createElement("button");
     newBtn.type = "button";
     newBtn.className = "spec-chat-chooser-btn spec-chat-chooser-btn--new";
-    newBtn.textContent = "Empezar uno nuevo";
+    newBtn.textContent = "Start a new one";
     newBtn.addEventListener("click", () => {
       removeChooser();
       const state = stateFactory();
@@ -149,7 +149,7 @@ export function mountSpecChat(
     const blankBtn = document.createElement("button");
     blankBtn.type = "button";
     blankBtn.className = "spec-chat-chooser-btn spec-chat-chooser-btn--blank";
-    blankBtn.textContent = "Borrador en blanco (sin chat)";
+    blankBtn.textContent = "Blank draft (no chat)";
     blankBtn.addEventListener("click", () => {
       controller.close();
       deps.openBlankWizard();

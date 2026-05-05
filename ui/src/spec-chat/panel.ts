@@ -79,10 +79,10 @@ export function mountSpecChatPanel(
       emptyState.className = "spec-chat-empty";
       emptyState.innerHTML = `
         <div class="spec-chat-empty-icon">${Icons.sparkles({ size: 40 })}</div>
-        <div class="spec-chat-empty-title">Describe el problema</div>
+        <div class="spec-chat-empty-title">Describe the problem</div>
         <div class="spec-chat-empty-body">
-          Una o dos frases sobre lo que quieres resolver. El agente te hará
-          3–5 preguntas dirigidas y emitirá un spec en el formato del repo.
+          One or two sentences about what you want to solve. The agent will
+          ask you 3–5 directed questions and emit a spec in the repo's format.
         </div>
       `;
 
@@ -93,7 +93,7 @@ export function mountSpecChatPanel(
       const textarea = document.createElement("textarea");
       textarea.className = "spec-chat-input";
       textarea.rows = 2;
-      textarea.placeholder = "Tu respuesta…";
+      textarea.placeholder = "Your answer…";
 
       const sendBtn = document.createElement("button");
       sendBtn.className = "spec-chat-send";
@@ -120,7 +120,7 @@ export function mountSpecChatPanel(
 
       const finalNote = document.createElement("span");
       finalNote.className = "spec-chat-final-note";
-      finalNote.textContent = "Spec listo. Revisa y publica en el editor.";
+      finalNote.textContent = "Spec ready. Review and publish in the editor.";
 
       const publishBtn = document.createElement("button");
       publishBtn.className = "spec-chat-publish";
@@ -161,7 +161,7 @@ export function mountSpecChatPanel(
           await state.submit(text);
         } catch (err) {
           errorDiv.textContent =
-            err instanceof Error ? err.message : "Error al enviar";
+            err instanceof Error ? err.message : "Failed to send";
           errorDiv.hidden = false;
         }
       };

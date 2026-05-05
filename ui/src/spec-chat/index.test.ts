@@ -104,7 +104,7 @@ describe("mountSpecChat — chooser logic", () => {
     expect(texts.some((t) => t.includes("Beta project spec"))).toBe(true);
   });
 
-  it("3. Clicking 'Retomar X' removes chooser and mounts the panel", async () => {
+  it("3. Clicking 'Resume X' removes chooser and mounts the panel", async () => {
     const draft = makeDraft({ id: "resume-me" });
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
@@ -137,7 +137,7 @@ describe("mountSpecChat — chooser logic", () => {
 
     const resumeBtn = Array.from(
       host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-btn"),
-    ).find((b) => b.textContent?.startsWith("Retomar"));
+    ).find((b) => b.textContent?.startsWith("Resume"));
 
     expect(resumeBtn).toBeDefined();
     resumeBtn!.click();
@@ -148,7 +148,7 @@ describe("mountSpecChat — chooser logic", () => {
     expect(ctrl.isOpen()).toBe(true);
   });
 
-  it("4. Clicking 'Borrador en blanco' calls deps.openBlankWizard and closes controller", async () => {
+  it("4. Clicking 'Blank draft' calls deps.openBlankWizard and closes controller", async () => {
     const draft = makeDraft();
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
@@ -160,7 +160,7 @@ describe("mountSpecChat — chooser logic", () => {
 
     const blankBtn = Array.from(
       host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-btn"),
-    ).find((b) => b.textContent?.includes("Borrador en blanco"));
+    ).find((b) => b.textContent?.includes("Blank draft"));
 
     expect(blankBtn).toBeDefined();
     blankBtn!.click();
