@@ -64,6 +64,15 @@ export const Icons = {
       o,
     ),
 
+  /** Zap with slash — tab excluded from AOM. Mirrors `botOff` but
+   * uses the zap glyph so AOM-scoped surfaces stay consistent with
+   * the status bar / banner. */
+  zapOff: (o?: IconOptions): string =>
+    svg(
+      `<path d="M22 22 2 2"/><polyline points="13 2 7 9.5"/><polyline points="11 22 12 15"/><path d="M9.5 9.5 3 14h6"/><path d="M14.5 14.5 21 10h-6"/>`,
+      o,
+    ),
+
   /** Link / chain — cross-session correlation. */
   link2: (o?: IconOptions): string =>
     svg(
