@@ -13,6 +13,7 @@ mod aom;
 mod context;
 mod drafts;
 pub mod convergence;
+pub mod email;
 mod cost;
 mod cross_session;
 mod embedder;
