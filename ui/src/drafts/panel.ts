@@ -15,7 +15,7 @@ export class DraftsPanel {
   private tab: Tab = "drafts";
   private currentSlug: string | null = null;
   private wizard: DraftWizard | null = null;
-  private wizardOpts: { autoPublish?: boolean } = {};
+  private wizardOpts: { autoPublish?: boolean; initialBody?: string } = {};
   public onClosed: (() => void) | null = null;
   public getRepoRoot: () => string = () => ".";
 
@@ -52,7 +52,7 @@ export class DraftsPanel {
     this.onClosed?.();
   }
 
-  openWizard(slug: string | null, opts?: { autoPublish?: boolean }): void {
+  openWizard(slug: string | null, opts?: { autoPublish?: boolean; initialBody?: string }): void {
     this.view = "wizard";
     this.currentSlug = slug;
     this.wizardOpts = opts ?? {};
@@ -84,7 +84,7 @@ export class DraftsPanel {
         <header class="drafts-header">
           <h1>${this.tab === "drafts" ? "Drafts" : "Published specs"}</h1>
           <div class="drafts-actions">
-            ${newButton ? `<button id="drafts-new" type="button" class="drafts-primary">+ New draft</button>` : ""}
+            ${newButton ? `<button id="drafts-new" type="button" class="drafts-primary">+ New draft</button><button id="drafts-new-chat" type="button" class="drafts-primary drafts-primary--chat">+ New via chat</button>` : ""}
             <button id="drafts-close" type="button" class="drafts-close" aria-label="Close">×</button>
           </div>
         </header>
@@ -124,6 +124,11 @@ export class DraftsPanel {
       this.pageHost
         .querySelector("#drafts-new")
         ?.addEventListener("click", () => this.openWizard(null));
+      this.pageHost
+        .querySelector("#drafts-new-chat")
+        ?.addEventListener("click", () => {
+          window.dispatchEvent(new CustomEvent("spec-chat:open"));
+        });
       this.pageHost
         .querySelectorAll<HTMLLIElement>(".drafts-row")
         .forEach((row) => {
@@ -199,6 +204,7 @@ export class DraftsPanel {
       repoRoot: this.getRepoRoot(),
       slug: this.currentSlug,
       autoPublish: this.wizardOpts.autoPublish,
+      initialBody: this.wizardOpts.initialBody,
       onBack: () => {
         this.view = "list";
         void this.render();

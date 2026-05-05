@@ -47,6 +47,7 @@ import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
+import { mountSpecChat } from "./spec-chat/index";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -524,6 +525,20 @@ async function boot(): Promise<void> {
   missionPanel.onClosed = () => { manager.refitActive(); };
   manager.setMissionPicker((opts) => missionPanel.open(opts));
 
+  const specChatPage = requireEl<HTMLElement>("spec-chat-page");
+  const specChat = mountSpecChat(specChatPage, {
+    openWizardWithBody: (body) => {
+      draftsPanel.open();
+      draftsPanel.openWizard(null, { initialBody: body });
+    },
+    openBlankWizard: () => {
+      draftsPanel.open();
+      draftsPanel.openWizard(null);
+    },
+  });
+
+  window.addEventListener("spec-chat:open", () => specChat.open());
+
   window.addEventListener("drafts:toggle", () => draftsPanel.toggle());
   window.addEventListener("drafts:open", (e: Event) => {
     const detail = (e as CustomEvent<{ slug: string; autoPublish?: boolean }>).detail;
@@ -697,6 +712,15 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.shiftKey && (e.key === "F" || e.key === "f")) {
       e.preventDefault();
       searchPalette.toggle();
+      return;
+    }
+    // ⌘N → spec-chat panel.
+    if (e.metaKey && !e.shiftKey && (e.key === "n" || e.key === "N")) {
+      e.preventDefault();
+      if (settings.isOpen()) settings.close();
+      if (docsPanel.isOpen()) docsPanel.close();
+      if (draftsPanel.isOpen()) draftsPanel.close();
+      specChat.open();
       return;
     }
     // ⌘M → mission picker page (toggle).
