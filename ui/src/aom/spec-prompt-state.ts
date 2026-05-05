@@ -25,11 +25,17 @@ export interface SpecPromptState {
     allTabs: TabSnapshot[],
     nowMs: number,
   ): SpecCandidate[];
+  onChange(cb: () => void): () => void;
+  getPendingByPath(path: string): SpecCandidate | null;
 }
 
 export function createSpecPromptState(): SpecPromptState {
   const pending = new Map<string, PendingEntry>();
   const consumed = new Map<string, Set<string>>();
+  const listeners = new Set<() => void>();
+  const fire = () => {
+    for (const cb of listeners) cb();
+  };
 
   const isUnder = (cwd: string, root: string): boolean => {
     const norm = (p: string) => p.replace(/\/+$/, "");
@@ -55,15 +61,18 @@ export function createSpecPromptState(): SpecPromptState {
     },
     recordCandidate(c, nowMs) {
       pending.set(c.path, { candidate: c, receivedAtMs: nowMs });
+      fire();
     },
     dismiss(tabId, path) {
       consume(tabId, path);
+      fire();
     },
     isDismissed(tabId, path) {
       return consumed.get(tabId)?.has(path) ?? false;
     },
     acceptOnTab(tabId, path) {
       consume(tabId, path);
+      fire();
     },
     getPendingForTab(tab, allTabs, nowMs) {
       const out: SpecCandidate[] = [];
@@ -77,6 +86,13 @@ export function createSpecPromptState(): SpecPromptState {
         out.push(entry.candidate);
       }
       return out;
+    },
+    onChange(cb) {
+      listeners.add(cb);
+      return () => { listeners.delete(cb); };
+    },
+    getPendingByPath(path) {
+      return pending.get(path)?.candidate ?? null;
     },
   };
   return state;
