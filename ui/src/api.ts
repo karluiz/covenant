@@ -370,6 +370,28 @@ export async function aomStop(): Promise<AomStatus> {
   return invoke<AomStatus>("aom_stop");
 }
 
+/// Liveness phase exposed by the operator (Task 3). The banner polls
+/// this every ~1s while AOM is on so the badge never sits frozen for
+/// >2s. The aggregate is "the most-active phase any attached session
+/// is currently in"; `since_unix_ms` is when that phase began so the
+/// UI can render "deciding 2s" without a separate timestamp call.
+export type OperatorPhase =
+  | "idle"
+  | "observing"
+  | "triaging"
+  | "deciding"
+  | "yielded"
+  | "offline";
+
+export interface OperatorPhaseSnapshot {
+  phase: OperatorPhase;
+  since_unix_ms: number;
+}
+
+export async function operatorPhaseOverview(): Promise<OperatorPhaseSnapshot> {
+  return invoke<OperatorPhaseSnapshot>("operator_phase_overview");
+}
+
 export interface ActionBreakdown {
   reply_count: number;
   executed_count: number;

@@ -10,6 +10,7 @@
 //! the user's behalf.
 
 mod aom;
+mod connectivity;
 mod context;
 mod drafts;
 pub mod convergence;
@@ -103,6 +104,13 @@ pub(crate) struct AppState {
     /// 3.16 spec auto-detect — one watcher per opened repo. Inserted on
     /// `start_spec_detector`; dropping the entry stops the watcher.
     spec_detectors: Mutex<HashMap<PathBuf, spec_detector::SpecDetector>>,
+    /// AOM liveness Task 4 — global online/offline state. Updated by
+    /// the frontend via `set_connectivity` (mirrors `navigator.onLine`
+    /// + `online`/`offline` events). The operator tick reads this on
+    /// every poll and short-circuits when offline; AOM banner mirrors
+    /// the state for UX. Backend heartbeat is a TODO — v0 trusts the
+    /// browser as the single source of truth.
+    connectivity: connectivity::ConnectivityHandle,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -952,6 +960,18 @@ fn zsh_autosuggestions_status() -> AutosuggestStatus {
 #[tauri::command]
 async fn aom_status(state: State<'_, AppState>) -> Result<AomStatus, String> {
     Ok(AomStatus::from(&*state.aom.read().await))
+}
+
+/// Liveness phase for the AOM banner. Returned aggregate is "the
+/// most-active phase any attached session is currently in", with a
+/// unix-ms wall clock timestamp for when that phase began. The banner
+/// polls this every ~1s while AOM is on so the badge never sits
+/// frozen for >2s. See `OperatorPhase` for the variant priorities.
+#[tauri::command]
+async fn operator_phase_overview(
+    state: State<'_, AppState>,
+) -> Result<operator::OperatorPhaseSnapshot, String> {
+    Ok(state.operator.phase_overview().await)
 }
 
 #[tauri::command]
@@ -2144,6 +2164,7 @@ pub fn run() {
             app.manage(familiar_manager.clone());
 
             let aom_handle = aom::new_handle();
+            let connectivity_handle = connectivity::new_handle();
             let notifier = Notifier::new(app.handle().clone(), settings_arc.clone());
             // Pre-warm macOS notification permission so the first real
             // trigger doesn't race the OS prompt. tauri-plugin-notification
@@ -2162,6 +2183,7 @@ pub fn run() {
                 notifier.clone(),
                 registry_arc.clone(),
                 embedder_cell.clone(),
+                connectivity_handle.clone(),
             );
 
             spawn_superpowers_watcher(app.handle().clone());
@@ -2191,6 +2213,7 @@ pub fn run() {
                 notifier,
                 embedder: embedder_cell,
                 spec_detectors: Mutex::new(HashMap::new()),
+                connectivity: connectivity_handle,
             });
             Ok(())
         })
@@ -2222,6 +2245,7 @@ pub fn run() {
             operator_mark_plan_task,
             operator_append_plan_note,
             aom_status,
+            operator_phase_overview,
             aom_start,
             aom_stop,
             aom_report,

@@ -6,10 +6,22 @@
 // reassurance signal. Without it, AOM would feel invisible — too
 // risky for a mode that types into PTYs autonomously.
 
-import { aomStart, aomStatus, aomStop, type AomStatus } from "../api";
+import {
+  aomStart,
+  aomStatus,
+  aomStop,
+  operatorPhaseOverview,
+  type AomStatus,
+  type OperatorPhase,
+  type OperatorPhaseSnapshot,
+} from "../api";
 import { Icons } from "../icons";
 
 const POLL_MS = 5_000;
+/// Liveness poll cadence. The badge must never look frozen for more
+/// than ~2s while AOM is active; 1s gives us a sub-2s worst case
+/// staleness even if a tick lands just before the previous render.
+const PHASE_POLL_MS = 1_000;
 
 /// Listener for AOM TRANSITIONS (off→on, on→off, budget-hit).
 /// `TabManager.refreshAllOperatorState()` uses this to refresh per-tab
@@ -41,6 +53,15 @@ export class AomBanner {
     cost_cap_hit_at_unix_ms: null,
   };
   private poll: number | null = null;
+  /// Liveness ticker — separate from the 5s status poll because it
+  /// runs at 1s cadence and re-paints the phase label / elapsed
+  /// counter only. Cheap (single Tauri RPC + a few text updates).
+  private phasePoll: number | null = null;
+  private phase: OperatorPhaseSnapshot = {
+    phase: "idle",
+    since_unix_ms: 0,
+  };
+  private phaseLabelEl: HTMLElement | null = null;
   private listeners: AomChangeListener[] = [];
   private updateListeners: AomUpdateListener[] = [];
 
@@ -159,9 +180,17 @@ export class AomBanner {
 
   private render(): void {
     this.root.hidden = false;
+    // Liveness Task 3: the primary readout is now `phase + elapsed`
+    // (e.g. "observing 4s", "deciding…"). Cost is no longer the
+    // headline metric — it lives in the tooltip on the cost element
+    // so a glance still reads "what is AOM doing right now?". The
+    // decision count sticks around because it's a useful "is anything
+    // happening at all" sanity check while a long Deciding stretches.
     this.root.innerHTML = `
       <span class="aom-banner-icon">${Icons.zap({ size: 14 })}</span>
       <span class="aom-banner-label">AOM</span>
+      <span class="aom-banner-phase" aria-label="operator phase"></span>
+      <span class="aom-banner-sep">·</span>
       <span class="aom-banner-time" aria-label="time elapsed"></span>
       <span class="aom-banner-sep">·</span>
       <span class="aom-banner-count" aria-label="decisions made"></span>
@@ -174,6 +203,7 @@ export class AomBanner {
         Stop
       </button>
     `;
+    this.phaseLabelEl = this.root.querySelector(".aom-banner-phase");
     this.timeEl = this.root.querySelector(".aom-banner-time");
     this.countEl = this.root.querySelector(".aom-banner-count");
     this.costEl = this.root.querySelector(".aom-banner-cost");
@@ -200,23 +230,46 @@ export class AomBanner {
       this.countEl.textContent = `${n} decision${n === 1 ? "" : "s"}`;
     }
     if (this.costEl) {
-      this.costEl.textContent = `$${this.status.accumulated_cost_usd.toFixed(
-        3,
-      )} / $${this.status.budget_usd.toFixed(2)}`;
+      // Liveness Task 3: cost is no longer the primary signal. The
+      // text is a compact "$X.XXX" so it doesn't visually compete
+      // with the phase readout; the full "spent / budget" string
+      // lives in the tooltip for users who want the detail.
+      const spent = this.status.accumulated_cost_usd;
+      const cap = this.status.budget_usd;
+      this.costEl.textContent = `$${spent.toFixed(3)}`;
+      this.costEl.title = `$${spent.toFixed(3)} / $${cap.toFixed(2)} budget`;
       // Color the cost cell when getting close to budget — gives the
       // user a visual cue without an extra alert. Threshold 80%.
-      const ratio =
-        this.status.budget_usd > 0
-          ? this.status.accumulated_cost_usd / this.status.budget_usd
-          : 0;
+      const ratio = cap > 0 ? spent / cap : 0;
       this.costEl.classList.toggle("aom-banner-cost-warn", ratio >= 0.8);
     }
+    this.refreshPhaseDisplay();
+  }
+
+  /// Repaint the phase label using the most recent overview snapshot.
+  /// Split out from `refreshDisplay` so the 1s phase ticker can update
+  /// without re-rendering cost / decisions count (those still come
+  /// from the 5s `aomStatus` poll).
+  private refreshPhaseDisplay(): void {
+    if (!this.phaseLabelEl) return;
+    const { phase, since_unix_ms } = this.phase;
+    const elapsed =
+      since_unix_ms > 0 ? Math.max(0, Date.now() - since_unix_ms) : 0;
+    this.phaseLabelEl.textContent = formatPhase(phase, elapsed);
+    this.phaseLabelEl.dataset.phase = phase;
   }
 
   /// 5s poll while active — pulls the latest decisions count from the
   /// backend so subscribers reflect what the Operator just did. Cheap;
   /// the cost is one Tauri RPC per poll.
   private startPolling(): void {
+    if (this.poll === null) {
+      // Kick off the phase ticker alongside the status poll so the
+      // first paint (right after `apply`) doesn't show stale "idle"
+      // until the first 1s tick lands. The ticker re-renders only
+      // the phase label / elapsed counter — cheap.
+      this.startPhasePolling();
+    }
     if (this.poll !== null) return;
     this.poll = window.setInterval(() => {
       void aomStatus()
@@ -248,6 +301,79 @@ export class AomBanner {
       window.clearInterval(this.poll);
       this.poll = null;
     }
+    this.stopPhasePolling();
+  }
+
+  /// 1s phase ticker — keeps the badge alive (phase label + elapsed
+  /// counter) even when nothing else has changed. Runs only while AOM
+  /// is on; stopped when AOM toggles off.
+  private startPhasePolling(): void {
+    if (this.phasePoll !== null) return;
+    // Fire once immediately so the first paint reflects current phase.
+    void this.tickPhase();
+    this.phasePoll = window.setInterval(() => {
+      void this.tickPhase();
+    }, PHASE_POLL_MS);
+  }
+
+  private stopPhasePolling(): void {
+    if (this.phasePoll !== null) {
+      window.clearInterval(this.phasePoll);
+      this.phasePoll = null;
+    }
+    // Reset to idle so a future re-enable doesn't flash a stale phase.
+    this.phase = { phase: "idle", since_unix_ms: 0 };
+    if (typeof document !== "undefined") {
+      delete document.body.dataset.aomPhase;
+    }
+  }
+
+  private async tickPhase(): Promise<void> {
+    try {
+      this.phase = await operatorPhaseOverview();
+    } catch {
+      /* transient — try again next tick */
+      return;
+    }
+    if (!this.headless) this.refreshPhaseDisplay();
+    // Mirror the global phase onto <body> as a data attribute so any
+    // surface (per-tab badges, status bar chip) can react via CSS
+    // without subscribing to a JS event. Cheap: one attribute write
+    // per second, only changes when the phase actually moves.
+    if (typeof document !== "undefined") {
+      document.body.dataset.aomPhase = this.phase.phase;
+    }
+  }
+
+  /// Latest phase snapshot — useful for non-poll consumers (per-tab
+  /// badge tooltip, status bar) that want the current value without
+  /// running their own ticker.
+  getPhase(): OperatorPhaseSnapshot {
+    return this.phase;
+  }
+}
+
+/// Render `phase + elapsed` for the AOM banner. The elapsed counter is
+/// dropped for transient phases (`deciding`, `triaging`) where the
+/// visible signal is the trailing ellipsis + the per-tab badge pulse —
+/// adding a counter there would invite "why is deciding taking 12s"
+/// anxiety on what is normally a sub-3s spike.
+function formatPhase(phase: OperatorPhase, elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  switch (phase) {
+    case "observing":
+      return `observing ${seconds}s`;
+    case "yielded":
+      return `yielded ${seconds}s`;
+    case "triaging":
+      return "triaging…";
+    case "deciding":
+      return "deciding…";
+    case "offline":
+      return "offline";
+    case "idle":
+    default:
+      return "idle";
   }
 }
 

@@ -502,6 +502,15 @@ body.bg-translucent {
     color: var(--muted);
 }
 
+/* AOM liveness Task 4 — offline state. When the browser reports no
+   network, the operator tick is gated and the banner reflects that
+   in warn color so the user knows AOM is paused (not silently failing). */
+.aom-banner--offline .aom-banner-phase {
+    color: var(--running);
+    font-weight: 500;
+}
+
+
 .aom-banner-stop {
     margin-left: 8px;
     background: transparent;
@@ -8100,6 +8109,55 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
   pointer-events: none;
   opacity: 0.7;
 }
+
+/* Liveness Task 3: pulse the per-tab AOM badge while the operator is
+   actively making a decision. Subtle — opacity-only — so it reads as
+   "thinking" without becoming a distraction. Triggered globally via
+   the body[data-aom-phase] attribute the AomBanner mirrors; per-tab
+   render code does not need to subscribe to phase events. The
+   `--inert` (excluded) and `--excluded` modifiers stay in their muted
+   state during a decision — that tab is not driving it. */
+@keyframes aom-badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+body[data-aom-phase="deciding"]
+  .tab-bot-badge:not(.tab-bot-badge--inert):not(.tab-bot-badge--excluded),
+body[data-aom-phase="triaging"]
+  .tab-bot-badge:not(.tab-bot-badge--inert):not(.tab-bot-badge--excluded) {
+  animation: aom-badge-pulse 1s ease-in-out infinite;
+}
+
+/* Liveness Task 3: pulse the per-tab AOM badge while the operator is
+   actively making a decision. Subtle — opacity-only — so it reads as
+   "thinking" without becoming a distraction. Triggered globally via
+   the body[data-aom-phase] attribute the AomBanner mirrors; per-tab
+   render code does not need to subscribe to phase events. The
+   `--inert` (excluded) and `--excluded` modifiers stay in their muted
+   state during a decision — that tab is not driving it. */
+@keyframes aom-badge-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+body[data-aom-phase="deciding"]
+  .tab-bot-badge:not(.tab-bot-badge--inert):not(.tab-bot-badge--excluded),
+body[data-aom-phase="triaging"]
+  .tab-bot-badge:not(.tab-bot-badge--inert):not(.tab-bot-badge--excluded) {
+  animation: aom-badge-pulse 1s ease-in-out infinite;
+}
+
 .status-aom-excluded {
   /* Slightly muted to read as supplementary info, not as primary
      warning. The popover carries the actionable detail. */
