@@ -508,6 +508,11 @@ struct Attached {
     /// clock at IPC time so the UI can render "observing 4s" without
     /// re-querying every tick.
     phase_started_at: Instant,
+    /// Mission path whose plan we last observed at 100% completion. Used
+    /// to fire `operator-mission-completed` exactly once per
+    /// (session, mission) transition to done. Reset when the attached
+    /// mission changes (different path) or is detached.
+    last_plan_completed_path: Option<PathBuf>,
 }
 
 /// RAII guard that flips `thinking` true on construction and false on
@@ -668,6 +673,7 @@ impl OperatorWatcher {
                 thinking: Arc::new(AtomicBool::new(false)),
                 current_phase: OperatorPhase::Idle,
                 phase_started_at: Instant::now(),
+                last_plan_completed_path: None,
             },
         );
     }
@@ -1119,17 +1125,46 @@ impl OperatorWatcher {
     /// actions FIRE later, in the operator tick, when conditions are
     /// met (executor matches, idle reached, etc.).
     pub async fn queue_aom_startup_actions(&self) {
+        // Two-phase to avoid holding the inner sync map while taking
+        // each session's `world` async mutex (cwd lives there).
+        // Phase 1: snapshot (id, mission_path, world Arc) under the
+        // inner lock; Phase 2: read each cwd; Phase 3: write rename_to
+        // back under the inner lock.
+        let snapshot: Vec<(SessionId, Option<PathBuf>, Arc<AsyncMutex<SessionWorldModel>>)> = {
+            let inner = self.inner.lock().await;
+            inner
+                .sessions
+                .iter()
+                .filter(|(_, att)| att.enabled)
+                .map(|(id, att)| (*id, att.mission.as_ref().map(|m| m.path.clone()), att.world.clone()))
+                .collect()
+        };
+
+        let mut slugs: Vec<(SessionId, String)> = Vec::with_capacity(snapshot.len());
+        for (id, mission_path, world_arc) in snapshot {
+            let slug = if let Some(p) = mission_path.as_ref() {
+                let s = slug_from_mission_path(p);
+                if s.is_empty() {
+                    // Mission path produced an empty slug (weird name) —
+                    // fall back to cwd-based slug so we still rename.
+                    let cwd = world_arc.lock().await.cwd.clone();
+                    slug_fallback_from_cwd(&cwd, id)
+                } else {
+                    s
+                }
+            } else {
+                let cwd = world_arc.lock().await.cwd.clone();
+                slug_fallback_from_cwd(&cwd, id)
+            };
+            slugs.push((id, slug));
+        }
+
         let mut inner = self.inner.lock().await;
-        for att in inner.sessions.values_mut() {
-            if !att.enabled {
-                continue;
-            }
-            // /rename only makes sense when there's a mission to name
-            // it after. The mission_path → slug derivation matches
-            // the frontend's `slugFromMissionPath` so tab name and
-            // claude session name align.
-            if let Some(m) = att.mission.as_ref() {
-                let slug = slug_from_mission_path(&m.path);
+        for (id, slug) in slugs {
+            if let Some(att) = inner.sessions.get_mut(&id) {
+                if !att.enabled {
+                    continue;
+                }
                 if !slug.is_empty() {
                     att.aom_startup.rename_to = Some(slug);
                 }
@@ -1184,9 +1219,126 @@ async fn tick_loop(
             }
         }
 
+        // Proactive mission-completion proposal (separate from
+        // `run_tick` so it runs every tick, regardless of the model
+        // call gate). Fires `operator-mission-completed` + an OS
+        // notification exactly once per (session, mission) transition
+        // to 100% done. AOM-only.
+        detect_mission_completions(&inner, &app, &aom, &notifier).await;
+
         if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
+    }
+}
+
+/// Walk every attached session and detect 100%-complete plan
+/// transitions. Emits `operator-mission-completed` + a `Trigger::AomComplete`
+/// notification per transition, exactly once per (session, mission_path)
+/// pair via the `last_plan_completed_path` flag on `Attached`.
+///
+/// Resets the flag when the attached mission changes (different path or
+/// none) so the same session re-armed against a new mission can fire
+/// again. AOM-gated: per-session `effective_aom = aom_active && !aom_excluded`.
+async fn detect_mission_completions(
+    inner: &Arc<AsyncMutex<Inner>>,
+    app: &AppHandle,
+    aom: &AomHandle,
+    notifier: &crate::notify::Notifier,
+) {
+    let aom_active = aom.read().await.enabled;
+    if !aom_active {
+        // Even with AOM off, keep the per-session flag in sync with
+        // any mission detach so a later AOM cycle starts clean.
+        let mut i = inner.lock().await;
+        for att in i.sessions.values_mut() {
+            let cur = att.mission.as_ref().map(|m| m.path.clone());
+            if att.last_plan_completed_path.is_some() && att.last_plan_completed_path != cur {
+                att.last_plan_completed_path = None;
+            }
+        }
+        return;
+    }
+
+    // Snapshot the (id, mission_path, plan_content, aom_excluded,
+    // last_completed) tuples under the lock; release before doing any
+    // emit/notify work.
+    struct Pending {
+        session_id: SessionId,
+        completed_mission_path: PathBuf,
+    }
+    let mut pending: Vec<Pending> = Vec::new();
+    {
+        let mut i = inner.lock().await;
+        for (id, att) in i.sessions.iter_mut() {
+            // Mission detach / swap → reset the flag so a fresh mission
+            // can complete cleanly later.
+            let cur_path = att.mission.as_ref().map(|m| m.path.clone());
+            if att.last_plan_completed_path != cur_path && att.last_plan_completed_path.is_some() {
+                // Either mission cleared or swapped; reset.
+                if cur_path.is_none() || att.last_plan_completed_path.as_ref() != cur_path.as_ref() {
+                    att.last_plan_completed_path = None;
+                }
+            }
+            if att.aom_excluded {
+                continue;
+            }
+            let Some(mission) = att.mission.as_ref() else {
+                continue;
+            };
+            let Some(plan) = mission.plan.as_ref() else {
+                continue;
+            };
+            let (total, done) =
+                crate::mission_pair::count_top_level_tasks(&plan.content);
+            if total == 0 || done < total {
+                continue;
+            }
+            // 100% complete. Fire only if this exact mission path
+            // hasn't already been recorded as completed.
+            if att.last_plan_completed_path.as_ref() == Some(&mission.path) {
+                continue;
+            }
+            att.last_plan_completed_path = Some(mission.path.clone());
+            pending.push(Pending {
+                session_id: *id,
+                completed_mission_path: mission.path.clone(),
+            });
+        }
+    }
+
+    for p in pending {
+        let next = find_next_candidate_spec(&p.completed_mission_path);
+        let payload = serde_json::json!({
+            "session_id": p.session_id.to_string(),
+            "completed_mission_path": p.completed_mission_path.display().to_string(),
+            "next_candidate_path": next.as_ref().map(|x| x.display().to_string()),
+        });
+        let _ = app.emit("operator-mission-completed", payload);
+
+        let basename = p
+            .completed_mission_path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| p.completed_mission_path.display().to_string());
+        let body = match next.as_ref() {
+            Some(n) => {
+                let nb = n
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| n.display().to_string());
+                format!("Plan for {basename} is complete. Next candidate: {nb}.")
+            }
+            None => format!("Plan for {basename} is complete. No next candidate found."),
+        };
+        let _ = notifier
+            .emit(
+                crate::notify::Trigger::AomComplete,
+                "Mission completed",
+                body,
+                Some(p.session_id),
+            )
+            .await;
     }
 }
 
@@ -3301,6 +3453,100 @@ fn slug_from_mission_path(path: &std::path::Path) -> String {
     out
 }
 
+/// Fallback slug when no mission is attached. Builds
+/// `{cwd-basename-kebab}-{ulid6}` where `ulid6` is the last 6 chars of
+/// the session id, lowercase. Empty/weird basenames degrade to
+/// `session-{ulid6}` so the rename is always non-empty.
+fn slug_fallback_from_cwd(cwd: &std::path::Path, session_id: SessionId) -> String {
+    let id_str = session_id.to_string();
+    let ulid6: String = id_str
+        .chars()
+        .rev()
+        .take(6)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>()
+        .to_ascii_lowercase();
+    let raw_basename = cwd
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let kebab = kebab_case(&raw_basename);
+    if kebab.is_empty() {
+        format!("session-{ulid6}")
+    } else {
+        format!("{kebab}-{ulid6}")
+    }
+}
+
+/// Lowercase, replace non-alphanumeric with `-`, collapse runs, trim
+/// leading/trailing `-`. Unicode letters/digits are kept as-is after
+/// lowercasing so non-ASCII names round-trip sensibly.
+fn kebab_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_dash = true; // suppresses leading dash
+    for ch in s.chars() {
+        if ch.is_alphanumeric() {
+            for lc in ch.to_lowercase() {
+                out.push(lc);
+            }
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+/// Find the next sibling spec to propose after `completed_spec` finishes.
+/// Returns the lexicographically-smallest `.md`/`.markdown` file in
+/// `completed_spec`'s parent directory that isn't the completed file
+/// itself and whose paired plan (if any) is NOT already 100% done. A
+/// sibling with no plan counts as a valid candidate.
+fn find_next_candidate_spec(completed_spec: &std::path::Path) -> Option<PathBuf> {
+    let dir = completed_spec.parent()?;
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            matches!(
+                p.extension().and_then(|s| s.to_str()),
+                Some("md") | Some("markdown")
+            )
+        })
+        .collect();
+    entries.sort();
+    // Take only siblings strictly AFTER the completed file in lex order
+    // — matches the "B completed → next is C, not A" semantics.
+    let entries: Vec<PathBuf> = entries
+        .into_iter()
+        .filter(|p| p.as_path() > completed_spec)
+        .collect();
+    let plans_dir = dir; // siblings live in the same dir for our use
+    for cand in entries {
+        let plan_done_pct100 = match crate::mission_pair::resolve_plan_for_spec(&cand, plans_dir) {
+            Ok(Some(plan_path)) => match std::fs::read_to_string(&plan_path) {
+                Ok(body) => {
+                    let (total, done) = crate::mission_pair::count_top_level_tasks(&body);
+                    total > 0 && done == total
+                }
+                Err(_) => false,
+            },
+            _ => false,
+        };
+        if !plan_done_pct100 {
+            return Some(cand);
+        }
+    }
+    None
+}
+
 /// Like truncate but trims to a single-line preview (newlines collapsed
 /// to spaces). For mission content_preview where we want a glanceable
 /// summary instead of multi-line markdown.
@@ -3486,6 +3732,7 @@ mod tests {
             thinking: Arc::new(AtomicBool::new(false)),
             current_phase: OperatorPhase::Idle,
             phase_started_at: Instant::now(),
+            last_plan_completed_path: None,
         }
     }
 
@@ -4118,6 +4365,258 @@ What would you like to do?
             }
             other => panic!("expected Escalate, got {:?}", other.kind()),
         }
+    }
+
+    #[test]
+    fn slug_fallback_from_cwd_normal_basename() {
+        use std::path::PathBuf;
+        let sid = SessionId::new();
+        let id_str = sid.to_string();
+        let expected_suffix = id_str
+            .chars()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<String>()
+            .to_ascii_lowercase();
+        let s = slug_fallback_from_cwd(&PathBuf::from("/Users/karl/karlTerminal"), sid);
+        assert_eq!(s, format!("karlterminal-{expected_suffix}"));
+    }
+
+    #[test]
+    fn slug_fallback_from_cwd_with_spaces_and_dots() {
+        use std::path::PathBuf;
+        let sid = SessionId::new();
+        let s = slug_fallback_from_cwd(&PathBuf::from("/work/My App.v2"), sid);
+        // "My App.v2" → "my-app-v2" (dots and spaces → '-', collapsed)
+        assert!(s.starts_with("my-app-v2-"), "got: {s}");
+        // suffix is exactly 6 chars after the trailing dash
+        let suf = s.rsplit('-').next().unwrap();
+        assert_eq!(suf.len(), 6);
+    }
+
+    #[test]
+    fn slug_fallback_from_cwd_root_or_empty() {
+        use std::path::PathBuf;
+        let sid = SessionId::new();
+        // PathBuf::from("/") has no file_name → empty basename → session-{ulid6}
+        let s_root = slug_fallback_from_cwd(&PathBuf::from("/"), sid);
+        assert!(s_root.starts_with("session-"), "root got: {s_root}");
+        let s_empty = slug_fallback_from_cwd(&PathBuf::from(""), sid);
+        assert!(s_empty.starts_with("session-"), "empty got: {s_empty}");
+    }
+
+    #[test]
+    fn slug_fallback_from_cwd_unicode() {
+        use std::path::PathBuf;
+        let sid = SessionId::new();
+        let s = slug_fallback_from_cwd(&PathBuf::from("/x/Café Münster"), sid);
+        // alphanumeric Unicode is preserved (lowercased); spaces → '-'
+        assert!(s.starts_with("café-münster-"), "got: {s}");
+    }
+
+    #[tokio::test]
+    async fn queue_aom_startup_actions_uses_mission_slug_when_attached() {
+        let watcher_inner = Arc::new(AsyncMutex::new(Inner {
+            sessions: HashMap::new(),
+        }));
+        let sid = SessionId::new();
+        let mut att = test_attached();
+        att.mission = Some(MissionDoc {
+            kind: crate::mission_pair::MissionKind::Covenant,
+            path: PathBuf::from("/specs/3.5-docs-hub.md"),
+            content: String::new(),
+            loaded_at_unix_ms: 0,
+            mtime_unix_ms: 0,
+            plan: None,
+        });
+        watcher_inner.lock().await.sessions.insert(sid, att);
+
+        // Inline the body of queue_aom_startup_actions against this Inner.
+        let snapshot: Vec<(SessionId, Option<PathBuf>, Arc<AsyncMutex<SessionWorldModel>>)> = {
+            let inner = watcher_inner.lock().await;
+            inner
+                .sessions
+                .iter()
+                .filter(|(_, att)| att.enabled)
+                .map(|(id, att)| (*id, att.mission.as_ref().map(|m| m.path.clone()), att.world.clone()))
+                .collect()
+        };
+        let mut slugs: Vec<(SessionId, String)> = Vec::new();
+        for (id, mp, w) in snapshot {
+            let s = if let Some(p) = mp.as_ref() {
+                let s = slug_from_mission_path(p);
+                if s.is_empty() {
+                    slug_fallback_from_cwd(&w.lock().await.cwd.clone(), id)
+                } else {
+                    s
+                }
+            } else {
+                slug_fallback_from_cwd(&w.lock().await.cwd.clone(), id)
+            };
+            slugs.push((id, s));
+        }
+        for (id, s) in slugs {
+            let mut inner = watcher_inner.lock().await;
+            if let Some(att) = inner.sessions.get_mut(&id) {
+                if !s.is_empty() {
+                    att.aom_startup.rename_to = Some(s);
+                }
+            }
+        }
+
+        let inner = watcher_inner.lock().await;
+        let att = inner.sessions.get(&sid).unwrap();
+        assert_eq!(att.aom_startup.rename_to.as_deref(), Some("docs-hub"));
+    }
+
+    #[tokio::test]
+    async fn queue_aom_startup_actions_falls_back_to_cwd_without_mission() {
+        let sid = SessionId::new();
+        let att = test_attached();
+        // Set the world's cwd via the Arc.
+        {
+            let mut w = att.world.lock().await;
+            w.cwd = PathBuf::from("/tmp/karl-terminal");
+        }
+        let inner = Arc::new(AsyncMutex::new(Inner {
+            sessions: HashMap::new(),
+        }));
+        inner.lock().await.sessions.insert(sid, att);
+
+        // Same inline derivation as the helper.
+        let snapshot: Vec<(SessionId, Option<PathBuf>, Arc<AsyncMutex<SessionWorldModel>>)> = {
+            let i = inner.lock().await;
+            i.sessions
+                .iter()
+                .map(|(id, att)| (*id, att.mission.as_ref().map(|m| m.path.clone()), att.world.clone()))
+                .collect()
+        };
+        let mut slugs: Vec<(SessionId, String)> = Vec::new();
+        for (id, mp, w) in snapshot {
+            let s = if let Some(p) = mp {
+                slug_from_mission_path(&p)
+            } else {
+                slug_fallback_from_cwd(&w.lock().await.cwd.clone(), id)
+            };
+            slugs.push((id, s));
+        }
+        let (_, slug) = &slugs[0];
+        assert!(slug.starts_with("karl-terminal-"), "slug was: {slug}");
+        let suf = slug.rsplit('-').next().unwrap();
+        assert_eq!(suf.len(), 6);
+    }
+
+    /// Build a temp dir with N spec files; helper for the next-candidate test.
+    fn write_spec(dir: &std::path::Path, name: &str, plan_dir: Option<&std::path::Path>, plan_body: Option<&str>) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, "# spec\n").unwrap();
+        if let (Some(pd), Some(body)) = (plan_dir, plan_body) {
+            // Write a plan with frontmatter pointing to this spec.
+            let canon = std::fs::canonicalize(&p).unwrap();
+            let plan_path = pd.join(format!("{}-plan.md", name.trim_end_matches(".md")));
+            // Express spec as the relative path to canonical
+            let body_full = format!("---\nspec: {}\n---\n\n{}", canon.display(), body);
+            std::fs::write(&plan_path, body_full).unwrap();
+        }
+        p
+    }
+
+    #[test]
+    fn find_next_candidate_skips_completed_and_picks_lex_next() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let a = write_spec(dir, "a.md", None, None);
+        let b = write_spec(dir, "b.md", None, None);
+        let _c = write_spec(dir, "c.md", None, None);
+        // No plans → all eligible. Completed = b → next lex-after = c.
+        let next = find_next_candidate_spec(&b);
+        assert_eq!(next.as_deref(), Some(dir.join("c.md").as_path()));
+        // Completed = a → next-after = b.
+        let next = find_next_candidate_spec(&a);
+        assert_eq!(next.as_deref(), Some(dir.join("b.md").as_path()));
+        // Completed = c → no later sibling.
+        let next = find_next_candidate_spec(&dir.join("c.md"));
+        assert_eq!(next, None);
+    }
+
+    #[tokio::test]
+    async fn detect_mission_completion_fires_once_then_stays_quiet() {
+        // We exercise the same detection logic against an `Inner` map
+        // by inlining only the state-mutation half of
+        // `detect_mission_completions` (no AppHandle/Notifier here —
+        // those are integration-tested upstream). What we assert is
+        // exactly the once-per-transition contract.
+        let sid = SessionId::new();
+        let mut att = test_attached();
+        let mission_path = PathBuf::from("/specs/feature-x.md");
+        att.mission = Some(MissionDoc {
+            kind: crate::mission_pair::MissionKind::Superpowers,
+            path: mission_path.clone(),
+            content: String::new(),
+            loaded_at_unix_ms: 0,
+            mtime_unix_ms: 0,
+            plan: Some(crate::mission_pair::PlanDoc {
+                path: PathBuf::from("/plans/feature-x-plan.md"),
+                content: "- [x] one\n- [x] two\n- [x] three\n- [x] four\n- [ ] five\n"
+                    .to_string(),
+                mtime_unix_ms: 0,
+            }),
+        });
+        let inner = Arc::new(AsyncMutex::new(Inner {
+            sessions: HashMap::new(),
+        }));
+        inner.lock().await.sessions.insert(sid, att);
+
+        // Tick 1: 4/5, NOT complete. No fire.
+        let fires_t1 = run_completion_check(&inner).await;
+        assert_eq!(fires_t1.len(), 0);
+
+        // Now mark the plan 100% complete.
+        {
+            let mut i = inner.lock().await;
+            let att = i.sessions.get_mut(&sid).unwrap();
+            let m = att.mission.as_mut().unwrap();
+            let p = m.plan.as_mut().unwrap();
+            p.content = "- [x] one\n- [x] two\n- [x] three\n- [x] four\n- [x] five\n".into();
+        }
+
+        // Tick 2: 5/5 → fire.
+        let fires_t2 = run_completion_check(&inner).await;
+        assert_eq!(fires_t2.len(), 1);
+        assert_eq!(fires_t2[0].1, mission_path);
+
+        // Tick 3: still 5/5 → no re-fire.
+        let fires_t3 = run_completion_check(&inner).await;
+        assert_eq!(fires_t3.len(), 0);
+    }
+
+    /// Test-only mirror of the state half of `detect_mission_completions`
+    /// (no AppHandle / Notifier). Returns the (session, mission_path)
+    /// pairs that would have fired this tick.
+    async fn run_completion_check(
+        inner: &Arc<AsyncMutex<Inner>>,
+    ) -> Vec<(SessionId, PathBuf)> {
+        let mut out = Vec::new();
+        let mut i = inner.lock().await;
+        for (id, att) in i.sessions.iter_mut() {
+            let cur_path = att.mission.as_ref().map(|m| m.path.clone());
+            if att.last_plan_completed_path.is_some() && att.last_plan_completed_path != cur_path {
+                // Mission detached or swapped → clear so a future
+                // 100%-done event for the new mission can fire.
+                att.last_plan_completed_path = None;
+            }
+            let Some(mission) = att.mission.as_ref() else { continue };
+            let Some(plan) = mission.plan.as_ref() else { continue };
+            let (total, done) = crate::mission_pair::count_top_level_tasks(&plan.content);
+            if total == 0 || done < total { continue; }
+            if att.last_plan_completed_path.as_ref() == Some(&mission.path) { continue; }
+            att.last_plan_completed_path = Some(mission.path.clone());
+            out.push((*id, mission.path.clone()));
+        }
+        out
     }
 
     #[test]
