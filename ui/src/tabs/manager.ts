@@ -219,6 +219,27 @@ interface SerializedGroup {
   collapsed: boolean;
 }
 
+export interface RailTabView {
+  id: string;
+  name: string;
+  color: string | null;
+  active: boolean;
+}
+
+export interface RailGroupView {
+  id: string;
+  name: string;
+  color: string | null;
+  tabs: RailTabView[];
+}
+
+export interface RailSnapshot {
+  items: Array<
+    | { kind: "group"; group: RailGroupView }
+    | { kind: "tab"; tab: RailTabView }
+  >;
+}
+
 type RenameTarget =
   | { kind: "tab"; id: string }
   | { kind: "group"; id: string }
@@ -380,6 +401,12 @@ export class TabManager {
       } | null) => void)
     | null = null;
 
+  /// Fires after every tabbar re-render so the collapsed-rail (the
+  /// thin sidebar shown in vertical mode when the user folds the
+  /// tabbar) can rebuild its dot/cell view from the same source of
+  /// truth. Single-listener — only the rail consumes this.
+  public onAfterRender: (() => void) | null = null;
+
   constructor(
     private readonly tabbarHost: HTMLElement,
     private readonly workspace: HTMLElement,
@@ -437,7 +464,10 @@ export class TabManager {
   private async pollBlockedSessions(): Promise<void> {
     let ids: string[];
     try {
-      ids = await getBlockedSessionIds();
+      // Pass [] — TabManager is the canonical tab metadata source but
+      // operator metadata now flows through the snapshot/registry, so the
+      // backend returns escalations correctly even without tab hints here.
+      ids = await getBlockedSessionIds([]);
     } catch {
       return;
     }
@@ -546,11 +576,19 @@ export class TabManager {
         ghost.remove();
         ghost = null;
       }
-      if (sourceEl) {
-        sourceEl.classList.remove("tab-dragging", "group-chip-dragging");
-        sourceEl = null;
-      }
+      // Clear dragging state BEFORE the live-DOM sweep — render() may
+      // have run during the drop (reorder/moveGroup* mutate state) and
+      // re-applied `group-chip-dragging`/`tab-dragging` to the freshly
+      // built nodes because `this.dragging` was still set. The cached
+      // `sourceEl` points at the now-detached pre-render node, so it
+      // can't clear the class from the new DOM. Sweep the live tree.
       this.dragging = null;
+      this.tabbarHost
+        .querySelectorAll(".tab-dragging, .group-chip-dragging")
+        .forEach((el) =>
+          el.classList.remove("tab-dragging", "group-chip-dragging"),
+        );
+      sourceEl = null;
     };
 
     const findSourceEl = (): HTMLElement | null => {
@@ -761,12 +799,12 @@ export class TabManager {
       tab.aomExcluded = excluded;
       tab.mission = mission;
       // Auto-spawn a Familiar when the operator transitions OFF→ON,
-      // gated on the user's premium + familiars-enabled settings.
+      // gated on the user's familiars-enabled setting (BYOK).
       // Failures are non-fatal — the operator stays enabled either way.
       if (!wasEnabled && enabled) {
         try {
           const s = await getSettings();
-          if (s.familiars_enabled && s.is_premium) {
+          if (s.familiars_enabled) {
             await ensureFamiliarFor(tab.sessionId);
           }
         } catch (err) {
@@ -1568,6 +1606,10 @@ export class TabManager {
         if (termHost.offsetWidth === 0 || termHost.offsetHeight === 0) return;
         try {
           fit.fit();
+          void resizeSession(sessionId, term.cols, term.rows).catch((e) =>
+            // eslint-disable-next-line no-console
+            console.error("resize failed (RO)", e),
+          );
         } catch {
           /* ignore — tab may be hidden or disposing */
         }
@@ -2684,6 +2726,49 @@ export class TabManager {
         });
       });
     }
+
+    this.onAfterRender?.();
+  }
+
+  /// Read-only snapshot of the tabbar's logical structure for the
+  /// collapsed rail. Walks `tabs[]` in display order, opening a "group"
+  /// item whenever the running groupId changes and emitting a "tab"
+  /// item for each ungrouped tab.
+  public getRailSnapshot(): RailSnapshot {
+    const items: RailSnapshot["items"] = [];
+    let currentGroupId: string | null = null;
+    let currentGroupView: RailGroupView | null = null;
+
+    for (const tab of this.tabs) {
+      const tabView: RailTabView = {
+        id: tab.id,
+        name: tabDisplayName(tab),
+        color: tab.color,
+        active: tab.id === this.activeId,
+      };
+
+      if (!tab.groupId) {
+        currentGroupId = null;
+        currentGroupView = null;
+        items.push({ kind: "tab", tab: tabView });
+        continue;
+      }
+
+      if (tab.groupId !== currentGroupId) {
+        const group = this.groups.get(tab.groupId);
+        if (!group) continue;
+        currentGroupId = group.id;
+        currentGroupView = {
+          id: group.id,
+          name: group.name,
+          color: group.color,
+          tabs: [],
+        };
+        items.push({ kind: "group", group: currentGroupView });
+      }
+      currentGroupView!.tabs.push(tabView);
+    }
+    return { items };
   }
 
   private renderGroupChip(group: TabGroup, memberCount: number): HTMLElement {

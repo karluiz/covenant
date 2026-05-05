@@ -728,36 +728,67 @@ export type TileStatus =
 
 export type Vendor = "claude" | "copilot" | "opencode" | "aider" | "codex" | "unknown";
 
-export interface ConvergenceTileState {
+export interface SessionSummary {
   session_id: string;
-  title: string;        // backend leaves empty; overlay fills from TabManager
-  color: string | null;
+  tab_title: string;
+  tab_color: string | null;
   status: TileStatus;
-  last_decision_action: string | null;
-  last_decision_rationale: string | null;
-  last_command: string | null;
-  last_output_line: string | null;
-  cost_usd: number | null;
-  budget_usd: number | null;
   vendor: Vendor;
   raw_command_label: string | null;
-  /// 3.14 — short mission name (basename of mission_path, no `.md`,
-  /// truncated to 40 chars). Null when the session has no mission.
+  last_command: string | null;
+  last_output_line: string | null;
+  last_decision_action: string | null;
+  last_decision_rationale: string | null;
   mission_name: string | null;
+  cost_usd: number | null;
+  budget_usd: number | null;
+}
+
+export interface OperatorRosterEntry {
+  operator_id: string;
+  operator_name: string;
+  operator_avatar: string | null;
+  sessions: SessionSummary[];
+  has_escalation: boolean;
+}
+
+export interface EscalationCard {
+  session_id: string;
+  tab_title: string;
+  tab_color: string | null;
+  operator_id: string;
+  operator_name: string;
+  operator_avatar: string | null;
+  vendor: Vendor;
+  raw_command_label: string | null;
+  question: string | null;
+  mission_name: string | null;
+  escalated_at_unix_ms: number;
 }
 
 export interface ConvergenceSnapshot {
-  tiles: ConvergenceTileState[];
+  roster: OperatorRosterEntry[];
+  escalations: EscalationCard[];
 }
 
-export async function getConvergenceSnapshot(): Promise<ConvergenceSnapshot> {
-  return invoke<ConvergenceSnapshot>("get_convergence_snapshot");
+export interface ConvergenceTabHint {
+  session_id: string;
+  title: string;
+  color: string | null;
+}
+
+export async function getConvergenceSnapshot(
+  tabs: ConvergenceTabHint[],
+): Promise<ConvergenceSnapshot> {
+  return invoke<ConvergenceSnapshot>("get_convergence_snapshot", { tabs });
 }
 
 /// 3.14 — light 1 Hz poll surface for the tab strip. Returns the ids
 /// of sessions currently in the convergence `blocked` state.
-export async function getBlockedSessionIds(): Promise<string[]> {
-  return invoke<string[]>("get_blocked_session_ids");
+export async function getBlockedSessionIds(
+  tabs: ConvergenceTabHint[],
+): Promise<string[]> {
+  return invoke<string[]>("get_blocked_session_ids", { tabs });
 }
 
 // === 3.16 spec auto-detect ===
