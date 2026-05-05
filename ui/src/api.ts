@@ -865,3 +865,60 @@ export { Familiars } from "./familiars/api";
 export type {
   FamiliarSummary, ChatOutput, MissionOut, SnapshotOut, DirectiveOut, Style,
 } from "./familiars/api";
+
+// 3.18 Agentic spec creation -----------------------------------------
+
+export type SpecPhase =
+  | "goal"
+  | "outofscope"
+  | "acceptance"
+  | "fileboundaries"
+  | "complexity"
+  | "openquestions"
+  | "emit";
+
+export type SpecStepOutput =
+  | { kind: "question"; phase: SpecPhase; text: string }
+  | { kind: "final"; markdown: string };
+
+export interface SpecStepResult {
+  draftId: string; // ulid
+  output: SpecStepOutput;
+}
+
+export interface SpecDraftMessage {
+  role: "User" | "Assistant";
+  content: string;
+}
+
+export type SpecDraftStatus =
+  | { InProgress: { phase: string } }
+  | "Ready"
+  | "Published";
+
+export interface SpecDraftSummary {
+  id: string;
+  messages: SpecDraftMessage[];
+  partial_md: string | null;
+  last_updated: string; // ISO from chrono DateTime<Utc>
+  status: SpecDraftStatus;
+}
+
+export async function specAuthorStep(
+  draftId: string | null,
+  userMsg: string,
+): Promise<SpecStepResult> {
+  return invoke<SpecStepResult>("spec_author_step", { draftId, userMsg });
+}
+
+export async function specAuthorLoadDraft(id: string): Promise<SpecDraftSummary> {
+  return invoke<SpecDraftSummary>("spec_author_load_draft", { id });
+}
+
+export async function specAuthorListDrafts(): Promise<SpecDraftSummary[]> {
+  return invoke<SpecDraftSummary[]>("spec_author_list_drafts");
+}
+
+export async function specAuthorMarkPublished(id: string): Promise<void> {
+  return invoke<void>("spec_author_mark_published", { id });
+}

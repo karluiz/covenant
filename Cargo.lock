@@ -770,7 +770,7 @@ dependencies = [
 
 [[package]]
 name = "covenant"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2702,20 +2702,25 @@ dependencies = [
 
 [[package]]
 name = "karl-agent"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs 5.0.1",
  "futures-util",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "ulid",
 ]
 
 [[package]]
 name = "karl-blocks"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "bytes",
  "karl-pty",
@@ -2731,7 +2736,7 @@ dependencies = [
 
 [[package]]
 name = "karl-familiar"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2753,7 +2758,7 @@ dependencies = [
 
 [[package]]
 name = "karl-pty"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2766,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "karl-session"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "bytes",
  "karl-blocks",
