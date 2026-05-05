@@ -8348,6 +8348,11 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.spec-prompt-toast-target {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  margin-top: 2px;
+}
 .spec-prompt-toast-snippet {
   color: var(--muted, #9aa0a6);
   line-height: 1.4;
@@ -8691,4 +8696,84 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--bg-card-active, var(--bg-panel));
   font-size: 13px; flex-shrink: 0;
+}
+
+/* Spec-pending badge (Task 4) */
+.spec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  height: 16px;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--accent, #3b82f6);
+  background: transparent;
+  border: 1px solid var(--accent, #3b82f6);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.spec-badge.hidden { display: none; }
+.spec-badge-count:empty { display: none; }
+.spec-badge-icon { font-size: 10px; line-height: 1; }
+.spec-badge-popover {
+  z-index: 9999;
+  background: var(--bg-overlay, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 6px;
+  min-width: 280px;
+  max-width: 380px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.spec-badge-item { padding: 6px; border-bottom: 1px solid var(--border, #2a2a2a); }
+.spec-badge-item:last-child { border-bottom: none; }
+.spec-badge-item-file { font-weight: 600; font-size: 12px; }
+.spec-badge-item-snippet { font-size: 11px; color: var(--text-muted, #888); margin: 4px 0; }
+.spec-badge-item-actions { display: flex; gap: 6px; }
+.spec-badge-item-actions button {
+  font-size: 11px; padding: 2px 8px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border, #444); color: inherit; border-radius: 3px;
+}
+.spec-badge-set { color: var(--accent, #3b82f6); border-color: var(--accent, #3b82f6) !important; }
+
+/* ── Spec-link contextual menu ── */
+.spec-link-menu {
+  z-index: 10000;
+  background: var(--bg-overlay, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 200px;
+  display: flex; flex-direction: column;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.spec-link-menu button {
+  background: transparent; border: none; color: inherit;
+  text-align: left; padding: 6px 10px; font-size: 12px; cursor: pointer; border-radius: 3px;
+}
+.spec-link-menu button:hover { background: var(--bg-hover, #2a2a2a); }
+
+.spec-link-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 10001;
+}
+.spec-link-modal {
+  background: var(--bg-overlay, #1a1a1a); border: 1px solid var(--border, #333);
+  border-radius: 8px; padding: 16px; min-width: 360px; max-width: 480px;
+}
+.spec-link-modal-title { font-weight: 600; margin-bottom: 12px; }
+.spec-link-modal-body { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.spec-link-modal-tab {
+  text-align: left; padding: 8px; background: transparent; border: 1px solid var(--border, #333);
+  border-radius: 4px; cursor: pointer; color: inherit;
+}
+.spec-link-modal-tab:hover { background: var(--bg-hover, #2a2a2a); }
+.spec-link-modal-tab-label { font-size: 12px; }
+.spec-link-modal-tab-cwd { font-size: 10px; color: var(--text-muted, #888); margin-top: 2px; }
+.spec-link-modal-empty { color: var(--text-muted, #888); padding: 12px; text-align: center; }
+.spec-link-modal-actions { margin-top: 12px; display: flex; justify-content: flex-end; }
+.spec-link-modal-cancel {
+  background: transparent; border: 1px solid var(--border, #444); color: inherit;
+  padding: 4px 12px; border-radius: 4px; cursor: pointer;
 }

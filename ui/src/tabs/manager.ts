@@ -57,6 +57,8 @@ import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
 import type { AomBanner } from "../aom/banner";
+import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
+import { getSpecPromptState } from "../aom/spec-prompt";
 import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 
@@ -175,6 +177,9 @@ interface Tab {
   /// brand chip when this tab is active.
   executor: string | null;
   disposers: IDisposable[];
+  /// Spec-pending badge handle. Destroyed on closeTab and recreated on
+  /// each renderTabPill call to keep subscriptions symmetric.
+  specBadge: SpecBadgeHandle | null;
 }
 
 interface TabGroup {
@@ -1663,6 +1668,7 @@ export class TabManager {
       operator_id: null,
       executor: null,
       disposers: [dataDispose, resizeDispose, roDispose],
+      specBadge: null,
     };
     tabRef.current = tab;
 
@@ -1867,6 +1873,18 @@ export class TabManager {
       hasMission: !!t.mission?.path,
       hasOperator: !!t.operator_id,
     }));
+  }
+
+  /** 3.17 — returns the id of the currently-active tab, or null. */
+  getActiveTabId(): string | null {
+    return this.activeId ?? null;
+  }
+
+  /** 3.17 — human-readable label for a tab (for toast display). */
+  getTabLabel(tabId: string): string {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return tabId;
+    return tabDisplayName(tab);
   }
 
   /** 3.16 — read-only view of the active tab's id + mission state. */
@@ -2258,6 +2276,8 @@ export class TabManager {
     if (tab.sessionId) {
       void sessionSetOperator(tab.sessionId, null).catch(() => {});
     }
+    tab.specBadge?.destroy();
+    tab.specBadge = null;
     for (const d of tab.disposers) d.dispose();
     void closeSession(tab.sessionId).catch(() => {});
     tab.term.dispose();
@@ -2858,6 +2878,10 @@ export class TabManager {
   }
 
   private renderTabPill(tab: Tab): HTMLElement {
+    // Destroy any previous badge subscription before rebuilding the pill.
+    tab.specBadge?.destroy();
+    tab.specBadge = null;
+
     // <div role=button> instead of <button> so we can nest <input> for
     // the inline rename (button > input is invalid HTML).
     const pill = document.createElement("div");
@@ -2982,6 +3006,18 @@ export class TabManager {
         pill.appendChild(opChip);
       }
     }
+
+    // Spec-pending badge. Mounted here so it sits before the close button.
+    tab.specBadge = mountSpecBadge(
+      pill,
+      tab.id,
+      getSpecPromptState(),
+      () => this.listTabSnapshots(),
+      {
+        setMissionForTab: (tabId, path) => this.setMissionPathForTab(tabId, path),
+        openSpec: async (path) => { this.openFileAtLine(path); },
+      },
+    );
 
     const close = document.createElement("span");
     close.className = "tab-close";
