@@ -41,6 +41,8 @@ strip-ansi-escapes = { workspace = true }
 ignore = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 trash = "5"
+async-trait = { workspace = true }
+reqwest = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }
@@ -51,3 +53,5 @@ dirs = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+wiremock = "0.6"
+tokio = { version = "1", features = ["full", "test-util"] }

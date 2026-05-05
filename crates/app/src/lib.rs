@@ -13,6 +13,8 @@ mod aom;
 mod context;
 mod drafts;
 pub mod convergence;
+pub mod email;
+pub mod notifications;
 mod cost;
 mod cross_session;
 mod embedder;
@@ -96,6 +98,9 @@ pub(crate) struct AppState {
     /// gating. Cloned into the operator watcher so its tick can emit
     /// without reaching back through AppState.
     notifier: Notifier,
+    /// Email fan-out channel (SendGrid). Paired with `notifier` so
+    /// every OS notification also optionally fires an email.
+    email_notifier: Arc<crate::email::EmailNotifier>,
     /// 3.13 operator learning — local embedding model, lazy-loaded on
     /// first use (model download ~30 MB). Wrapped in `OnceCell` so app
     /// startup stays cheap; resolved on a blocking task by `get_embedder`.
@@ -579,6 +584,23 @@ async fn is_operator_live(
 ) -> Result<bool, String> {
     let id = parse_id(&session_id)?;
     Ok(state.operator.is_live(id).await)
+}
+
+#[tauri::command]
+async fn validate_sendgrid_key(
+    app: tauri::AppHandle,
+    api_key: String,
+) -> Result<bool, String> {
+    use tauri::Emitter;
+    let base = "https://api.sendgrid.com";
+    match crate::email::client::check_key_via(base, &api_key).await {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            let _ = app.emit("sendgrid-key-invalid", ());
+            Ok(false)
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Mission spec attached to a session. The Operator reads the spec
@@ -1322,10 +1344,17 @@ async fn aom_stop(state: State<'_, AppState>) -> Result<AomStatus, String> {
         accum = accum,
         decisions = decisions,
     );
-    state
-        .notifier
-        .emit(Trigger::AomComplete, "AOM finished", body, None)
-        .await;
+    crate::notifications::dispatch(
+        &state.notifier,
+        &state.email_notifier,
+        crate::notifications::DispatchCtx {
+            trigger: Trigger::AomComplete,
+            title: "AOM finished".into(),
+            body,
+            session_id: None,
+        },
+    )
+    .await;
 
     tracing::info!(decisions, "AOM stopped");
     Ok(status)
@@ -2145,6 +2174,39 @@ pub fn run() {
             // trigger doesn't race the OS prompt. tauri-plugin-notification
             // no-ops when permission is already granted.
             request_notification_permission_async(notifier.clone());
+
+            let sendgrid_key = {
+                let s = settings_arc.blocking_lock();
+                s.sendgrid_api_key.clone().unwrap_or_default()
+            };
+            let sg_client: std::sync::Arc<dyn crate::email::client::SendGridClient> =
+                std::sync::Arc::new(crate::email::client::HttpSendGridClient::new(sendgrid_key));
+            let email_notifier = std::sync::Arc::new(crate::email::EmailNotifier::new(
+                sg_client.clone(),
+                settings_arc.clone(),
+            ));
+
+            // Spawn the digest flush loop. Pull from/to/window from settings at spawn
+            // time; if any are missing the buffer just stays empty and the loop is a no-op.
+            {
+                let (from, to, minutes) = {
+                    let s = settings_arc.blocking_lock();
+                    let from = s.notifications.email_from.clone().unwrap_or_default();
+                    let to = s.notifications.email_to.clone().unwrap_or_default();
+                    let minutes = s.notifications.email_digest_window_minutes.max(1);
+                    (from, to, minutes)
+                };
+                let buf = email_notifier.buffer.clone();
+                let client = sg_client.clone();
+                tokio::spawn(crate::email::digest::spawn_flush_loop(
+                    buf,
+                    client,
+                    from,
+                    to,
+                    std::time::Duration::from_secs((minutes as u64) * 60),
+                ));
+            }
+
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
             let mission_store = dir.join("session_missions.json");
             let embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>> =
@@ -2156,6 +2218,7 @@ pub fn run() {
                 aom_handle.clone(),
                 mission_store,
                 notifier.clone(),
+                email_notifier.clone(),
                 registry_arc.clone(),
                 embedder_cell.clone(),
             );
@@ -2185,6 +2248,7 @@ pub fn run() {
                 tab_manifest_path,
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
+                email_notifier,
                 embedder: embedder_cell,
                 spec_detectors: Mutex::new(HashMap::new()),
             });
@@ -2272,6 +2336,7 @@ pub fn run() {
             spec_author_load_draft,
             spec_author_list_drafts,
             spec_author_mark_published,
+            validate_sendgrid_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

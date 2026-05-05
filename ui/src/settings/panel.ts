@@ -54,10 +54,15 @@ interface NotificationConfig {
   on_aom_error: boolean;
   on_aom_complete: boolean;
   suppress_when_focused: boolean;
+  email_enabled: boolean;
+  email_from?: string | null;
+  email_to?: string | null;
+  email_digest_window_minutes: number;
 }
 
 interface Settings {
   anthropic_api_key: string | null;
+  sendgrid_api_key?: string | null;
   agent: AgentConfig;
   operator: OperatorConfig;
   terminal: TerminalConfig;
@@ -149,6 +154,10 @@ export class SettingsPanel {
           on_aom_error: true,
           on_aom_complete: true,
           suppress_when_focused: true,
+          email_enabled: false,
+          email_from: null,
+          email_to: null,
+          email_digest_window_minutes: 15,
         },
         status_bar_enabled: true,
         tabbar_position: "top",
@@ -421,6 +430,45 @@ export class SettingsPanel {
               you covered.
             </small>
           </label>
+          <h4 class="settings-subsection-title">Email (SendGrid)</h4>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notif_email_enabled" />
+              <span>Enable email notifications</span>
+            </span>
+          </label>
+          <div id="email-incomplete-warn" class="settings-inline-warn" hidden>
+            Email notifications need API key, from, and to.
+          </div>
+          <label class="settings-field">
+            <span class="settings-label">SendGrid API key</span>
+            <div class="settings-input-row">
+              <input
+                type="password"
+                name="sendgrid_api_key"
+                placeholder="SG...."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="button" class="settings-toggle" data-target="sendgrid_api_key">show</button>
+            </div>
+            <div id="sendgrid-key-warn" class="settings-inline-warn" hidden>
+              SendGrid rejected this API key — verify it on app.sendgrid.com.
+            </div>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">From email</span>
+            <input type="email" name="notif_email_from" autocomplete="off" spellcheck="false" placeholder="you@example.com" />
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">To email</span>
+            <input type="email" name="notif_email_to" autocomplete="off" spellcheck="false" placeholder="you@example.com" />
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Digest window: <span id="digest-window-label">15</span> min</span>
+            <input type="range" name="notif_email_digest" min="5" max="60" step="5" />
+            <small class="settings-hint">Batch notifications within this window to avoid email spam.</small>
+          </label>
         </section>
         <div id="familiars-host"></div>
         <div class="settings-actions">
@@ -467,6 +515,25 @@ export class SettingsPanel {
     const notifSuppressFocused = form.querySelector<HTMLInputElement>(
       'input[name="notif_suppress_focused"]',
     )!;
+    const notifEmailEnabled = form.querySelector<HTMLInputElement>(
+      'input[name="notif_email_enabled"]',
+    )!;
+    const sendgridKeyInput = form.querySelector<HTMLInputElement>(
+      'input[name="sendgrid_api_key"]',
+    )!;
+    const notifEmailFrom = form.querySelector<HTMLInputElement>(
+      'input[name="notif_email_from"]',
+    )!;
+    const notifEmailTo = form.querySelector<HTMLInputElement>(
+      'input[name="notif_email_to"]',
+    )!;
+    const notifEmailDigest = form.querySelector<HTMLInputElement>(
+      'input[name="notif_email_digest"]',
+    )!;
+    const digestWindowLabel = form.querySelector<HTMLElement>('#digest-window-label')!;
+    const emailIncompleteWarn = form.querySelector<HTMLElement>('#email-incomplete-warn')!;
+    const sendgridKeyWarn = form.querySelector<HTMLElement>('#sendgrid-key-warn')!;
+
     apiKey.value = this.current.anthropic_api_key ?? "";
     modelSummary.value = this.current.agent.model_summary;
     modelChat.value = this.current.agent.model_chat;
@@ -496,6 +563,61 @@ export class SettingsPanel {
     notifAomError.checked = n.on_aom_error;
     notifAomComplete.checked = n.on_aom_complete;
     notifSuppressFocused.checked = n.suppress_when_focused;
+    notifEmailEnabled.checked = n.email_enabled ?? false;
+    sendgridKeyInput.value = this.current.sendgrid_api_key ?? "";
+    notifEmailFrom.value = n.email_from ?? "";
+    notifEmailTo.value = n.email_to ?? "";
+    const digestVal = n.email_digest_window_minutes ?? 15;
+    notifEmailDigest.value = String(digestVal);
+    digestWindowLabel.textContent = String(digestVal);
+
+    const updateEmailIncompleteWarn = (): void => {
+      const incomplete =
+        notifEmailEnabled.checked &&
+        (sendgridKeyInput.value.trim() === "" ||
+          notifEmailFrom.value.trim() === "" ||
+          notifEmailTo.value.trim() === "");
+      emailIncompleteWarn.hidden = !incomplete;
+    };
+
+    notifEmailEnabled.addEventListener("change", updateEmailIncompleteWarn);
+    sendgridKeyInput.addEventListener("input", () => {
+      sendgridKeyWarn.hidden = true;
+      updateEmailIncompleteWarn();
+    });
+    notifEmailFrom.addEventListener("input", updateEmailIncompleteWarn);
+    notifEmailTo.addEventListener("input", updateEmailIncompleteWarn);
+
+    notifEmailDigest.addEventListener("input", () => {
+      digestWindowLabel.textContent = notifEmailDigest.value;
+    });
+
+    sendgridKeyInput.addEventListener("blur", () => {
+      const val = sendgridKeyInput.value.trim();
+      if (!val) return;
+      void invoke<boolean>('validate_sendgrid_key', { apiKey: val }).then((ok) => {
+        if (!ok) {
+          sendgridKeyWarn.hidden = false;
+        }
+      }).catch(() => {
+        // validation failure doesn't block save
+      });
+    });
+
+    // Subscribe to backend-emitted key-invalid event (e.g. first-use rejection).
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const unlisten = await listen<void>('sendgrid-key-invalid', () => {
+        sendgridKeyWarn.hidden = false;
+      });
+      // Unlisten when form submits or panel closes (one-shot cleanup).
+      const cleanup = (): void => { unlisten(); };
+      form.addEventListener('submit', cleanup, { once: true });
+      form.querySelector<HTMLButtonElement>('.settings-cancel')?.addEventListener('click', cleanup, { once: true });
+      form.querySelector<HTMLButtonElement>('.settings-close')?.addEventListener('click', cleanup, { once: true });
+    })();
+
+    updateEmailIncompleteWarn();
 
     apiKey.focus();
 
@@ -527,16 +649,18 @@ export class SettingsPanel {
     }
 
     form
-      .querySelector<HTMLButtonElement>(".settings-toggle")!
-      .addEventListener("click", (e) => {
-        const btn = e.currentTarget as HTMLButtonElement;
-        const target = btn.dataset.target;
-        if (!target) return;
-        const input = form.querySelector<HTMLInputElement>(`input[name="${target}"]`);
-        if (!input) return;
-        const showing = input.type === "text";
-        input.type = showing ? "password" : "text";
-        btn.textContent = showing ? "show" : "hide";
+      .querySelectorAll<HTMLButtonElement>(".settings-toggle")
+      .forEach((toggleBtn) => {
+        toggleBtn.addEventListener("click", (e) => {
+          const btn = e.currentTarget as HTMLButtonElement;
+          const target = btn.dataset.target;
+          if (!target) return;
+          const input = form.querySelector<HTMLInputElement>(`input[name="${target}"]`);
+          if (!input) return;
+          const showing = input.type === "text";
+          input.type = showing ? "password" : "text";
+          btn.textContent = showing ? "show" : "hide";
+        });
       });
 
     header
@@ -586,6 +710,7 @@ export class SettingsPanel {
       const prevOp = this.current!.operator;
       const next: Settings = {
         anthropic_api_key: apiKey.value.trim() === "" ? null : apiKey.value,
+        sendgrid_api_key: sendgridKeyInput.value.trim() === "" ? null : sendgridKeyInput.value,
         agent: {
           model_summary: modelSummary.value.trim() || "claude-sonnet-4-6",
           model_chat: modelChat.value.trim() || "claude-opus-4-7",
@@ -625,6 +750,10 @@ export class SettingsPanel {
           on_aom_error: notifAomError.checked,
           on_aom_complete: notifAomComplete.checked,
           suppress_when_focused: notifSuppressFocused.checked,
+          email_enabled: notifEmailEnabled.checked,
+          email_from: notifEmailFrom.value.trim() || null,
+          email_to: notifEmailTo.value.trim() || null,
+          email_digest_window_minutes: Math.max(5, Math.min(60, Number(notifEmailDigest.value) || 15)),
         },
         status_bar_enabled: statusBarEnabled.checked,
         tabbar_position:
