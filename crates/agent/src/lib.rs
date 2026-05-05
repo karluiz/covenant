@@ -238,6 +238,150 @@ where
     Ok(())
 }
 
+/// Default model for the cheap triage tier (Task 2 of the AOM
+/// liveness plan). Hardcoded as a fallback when the caller doesn't
+/// override via settings.
+pub const DEFAULT_TRIAGE_MODEL: &str = "claude-haiku-4-5-20251001";
+
+/// Triage classifier verdicts. The triage tier decides whether a tick
+/// is even worth handing to the bigger decision model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TriageAction {
+    /// Hand the tick to the configured Opus/Sonnet decision model.
+    Act,
+    /// Executor is busy / making progress — emit a Wait, accumulate cost,
+    /// move on without escalating.
+    Wait,
+    /// Nothing useful is going to come out of polling this session for
+    /// a while. Apply a short cooldown.
+    Yield,
+}
+
+/// Structured output of the triage call.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TriageVerdict {
+    pub action: TriageAction,
+    /// Confidence 0..=1; callers gate "Act" on a threshold.
+    pub confidence: f32,
+    pub rationale: String,
+}
+
+/// System-prompt fragment appended to whatever the caller passes.
+/// Forces the structured JSON shape we parse.
+pub const TRIAGE_OUTPUT_INSTRUCTIONS: &str = "\n\nYou are a fast triage classifier in front of a more expensive decision model. \
+Decide whether the candidate moment is worth escalating.\n\
+- act: there is a clear pending prompt or stuck state that warrants a real decision.\n\
+- wait: the executor is making progress (output churn, spinner, partial answers). Stay quiet.\n\
+- yield: nothing useful will happen for a while; back off polling this session.\n\
+Respond ONLY with one JSON object on a single line, no prose, no fences:\n\
+{\"action\": \"act|wait|yield\", \"confidence\": 0.0-1.0, \"rationale\": \"...\"}";
+
+/// Parse a triage model reply. Tolerant of leading/trailing prose or
+/// code fences — extracts the first balanced JSON object.
+pub fn parse_triage_reply(text: &str) -> Result<TriageVerdict, AgentError> {
+    let candidate = extract_first_json_object(text).unwrap_or_else(|| text.trim().to_string());
+    let value: serde_json::Value =
+        serde_json::from_str(&candidate).map_err(|e| AgentError::Api {
+            status: 0,
+            body: format!("triage reply not JSON: {e} — raw: {}", truncate_for_err(text)),
+        })?;
+    let action_str = value
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let action = match action_str.as_str() {
+        "act" => TriageAction::Act,
+        "wait" => TriageAction::Wait,
+        "yield" => TriageAction::Yield,
+        other => {
+            return Err(AgentError::Api {
+                status: 0,
+                body: format!("triage reply: unknown action {other:?}"),
+            });
+        }
+    };
+    let confidence = value
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .map(|f| f.clamp(0.0, 1.0) as f32)
+        .unwrap_or(0.0);
+    let rationale = value
+        .get("rationale")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(TriageVerdict {
+        action,
+        confidence,
+        rationale,
+    })
+}
+
+fn extract_first_json_object(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let start = bytes.iter().position(|b| *b == b'{')?;
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut esc = false;
+    for (i, b) in bytes.iter().enumerate().skip(start) {
+        let c = *b;
+        if in_str {
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            b'"' => in_str = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(text[start..=i].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn truncate_for_err(s: &str) -> String {
+    const MAX: usize = 240;
+    if s.len() <= MAX {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..MAX])
+    }
+}
+
+/// Triage variant of `ask_oneshot_with_usage`. Hardcoded JSON-only
+/// instructions appended to the caller's system prompt fragment so
+/// callers can keep the cached prefix identical between triage and
+/// decision calls (cache-hit friendly).
+///
+/// `req.max_tokens` is clamped to a small ceiling — the verdict is
+/// tiny and we don't want the model to ramble.
+pub async fn triage_oneshot(req: AskRequest) -> Result<(TriageVerdict, TokenUsage), AgentError> {
+    let mut req = req;
+    // Append the structured-output rules. Caller's system_prompt is
+    // the cached prefix; the triage instructions go AFTER so the
+    // cached bytes stay byte-identical with the big-model call.
+    req.system_prompt.push_str(TRIAGE_OUTPUT_INSTRUCTIONS);
+    if req.max_tokens == 0 || req.max_tokens > 128 {
+        req.max_tokens = 64;
+    }
+    let resp = ask_oneshot_with_usage(req).await?;
+    let verdict = parse_triage_reply(&resp.text)?;
+    Ok((verdict, resp.usage))
+}
+
 fn find_double_newline(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\n\n")
 }
@@ -258,4 +402,65 @@ fn parse_usage(v: &serde_json::Value) -> Option<TokenUsage> {
         cache_creation_input_tokens: get("cache_creation_input_tokens"),
         cache_read_input_tokens: get("cache_read_input_tokens"),
     })
+}
+
+#[cfg(test)]
+mod triage_tests {
+    use super::*;
+
+    #[test]
+    fn parses_canonical_act_reply() {
+        let raw = r#"{"action":"act","confidence":0.92,"rationale":"prompt awaiting answer"}"#;
+        let v = parse_triage_reply(raw).expect("parse");
+        assert_eq!(v.action, TriageAction::Act);
+        assert!((v.confidence - 0.92).abs() < 1e-4);
+        assert_eq!(v.rationale, "prompt awaiting answer");
+    }
+
+    #[test]
+    fn parses_wait_reply() {
+        let raw = r#"{"action": "wait", "confidence": 0.4, "rationale": "spinner churning"}"#;
+        let v = parse_triage_reply(raw).expect("parse");
+        assert_eq!(v.action, TriageAction::Wait);
+    }
+
+    #[test]
+    fn parses_yield_reply() {
+        let raw = r#"{"action":"yield","confidence":0.8,"rationale":"idle"}"#;
+        let v = parse_triage_reply(raw).expect("parse");
+        assert_eq!(v.action, TriageAction::Yield);
+    }
+
+    #[test]
+    fn tolerates_prose_around_json() {
+        let raw = "Sure thing! ```json\n{\"action\":\"act\",\"confidence\":0.7,\"rationale\":\"x\"}\n```";
+        let v = parse_triage_reply(raw).expect("parse");
+        assert_eq!(v.action, TriageAction::Act);
+    }
+
+    #[test]
+    fn clamps_confidence_to_unit_range() {
+        let raw = r#"{"action":"act","confidence":1.7,"rationale":""}"#;
+        let v = parse_triage_reply(raw).expect("parse");
+        assert!(v.confidence <= 1.0 && v.confidence >= 0.0);
+    }
+
+    #[test]
+    fn unknown_action_errors() {
+        let raw = r#"{"action":"sleep","confidence":0.1,"rationale":""}"#;
+        assert!(parse_triage_reply(raw).is_err());
+    }
+
+    #[test]
+    fn missing_confidence_defaults_zero() {
+        let raw = r#"{"action":"act","rationale":"no conf"}"#;
+        let v = parse_triage_reply(raw).expect("parse");
+        assert_eq!(v.action, TriageAction::Act);
+        assert_eq!(v.confidence, 0.0);
+    }
+
+    #[test]
+    fn non_json_errors() {
+        assert!(parse_triage_reply("definitely not json").is_err());
+    }
 }
