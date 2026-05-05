@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.13 — Email notifications via SendGrid
+
+- New: SendGrid email channel for Operator escalations, AOM errors (immediate)
+  and AOM completions (digest). Configure via Settings → Notifications → Email.
+- Email channel is gated by an API key + from/to addresses; defaults off.
+- Digest window configurable 5–60 minutes; default 15.
+
 ## 0.2.12 — 2026-05-05
 
 **Operator unstuck on spinning executors.** AOM no longer parks
