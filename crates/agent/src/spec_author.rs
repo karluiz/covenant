@@ -86,7 +86,7 @@ fn draft_path(base_dir: &Path, id: Ulid) -> PathBuf {
     drafts_dir(base_dir).join(format!("{}.json", id))
 }
 
-fn home_covenant_dir() -> Result<PathBuf> {
+pub fn home_covenant_dir() -> Result<PathBuf> {
     dirs::home_dir()
         .map(|h| h.join(".covenant"))
         .ok_or(SpecAuthorError::HomeDirNotFound)

@@ -1894,6 +1894,102 @@ async fn structure_search(
         .map_err(|e| format!("search join: {e}"))?
 }
 
+// ── 3.18 Spec Author — DTOs & Tauri commands ─────────────────────────────────
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StepResultDto {
+    draft_id: String,
+    output: StepOutputDto,
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum StepOutputDto {
+    Question { phase: String, text: String },
+    Final { markdown: String },
+}
+
+fn phase_to_str(phase: &karl_agent::spec_author::Phase) -> String {
+    match phase {
+        karl_agent::spec_author::Phase::Goal => "goal".into(),
+        karl_agent::spec_author::Phase::OutOfScope => "outofscope".into(),
+        karl_agent::spec_author::Phase::Acceptance => "acceptance".into(),
+        karl_agent::spec_author::Phase::FileBoundaries => "fileboundaries".into(),
+        karl_agent::spec_author::Phase::Complexity => "complexity".into(),
+        karl_agent::spec_author::Phase::OpenQuestions => "openquestions".into(),
+        karl_agent::spec_author::Phase::Emit => "emit".into(),
+    }
+}
+
+#[tauri::command]
+async fn spec_author_step(
+    state: State<'_, AppState>,
+    draft_id: Option<String>,
+    user_msg: String,
+) -> Result<StepResultDto, String> {
+    let api_key = {
+        let s = state.settings.lock().await;
+        s.anthropic_api_key
+            .clone()
+            .ok_or("no api key configured — open Settings (⌘,)")?
+    };
+
+    let base_dir = karl_agent::spec_author::home_covenant_dir()
+        .map_err(|e| e.to_string())?;
+
+    let mut draft = match draft_id {
+        Some(ref id_str) => {
+            let ulid = id_str.parse::<Ulid>().map_err(|e| e.to_string())?;
+            karl_agent::spec_author::load_draft_default(ulid).map_err(|e| e.to_string())?
+        }
+        None => karl_agent::spec_author::SpecDraft {
+            id: Ulid::new(),
+            messages: vec![],
+            partial_md: None,
+            last_updated: chrono::Utc::now(),
+            status: karl_agent::spec_author::DraftStatus::InProgress {
+                phase: karl_agent::spec_author::Phase::Goal,
+            },
+        },
+    };
+
+    let dispatcher = karl_agent::spec_author::AnthropicDispatcher {
+        api_key,
+        model: "claude-sonnet-4-6".into(),
+    };
+
+    let output = karl_agent::spec_author::step(&dispatcher, &mut draft, user_msg, &base_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let output_dto = match &output {
+        karl_agent::spec_author::StepOutput::Question { phase, text } => StepOutputDto::Question {
+            phase: phase_to_str(phase),
+            text: text.clone(),
+        },
+        karl_agent::spec_author::StepOutput::Final { markdown } => StepOutputDto::Final {
+            markdown: markdown.clone(),
+        },
+    };
+
+    Ok(StepResultDto {
+        draft_id: draft.id.to_string(),
+        output: output_dto,
+    })
+}
+
+#[tauri::command]
+async fn spec_author_load_draft(id: String) -> Result<karl_agent::spec_author::SpecDraft, String> {
+    let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
+    karl_agent::spec_author::load_draft_default(ulid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn spec_author_list_drafts() -> Result<Vec<karl_agent::spec_author::SpecDraft>, String> {
+    karl_agent::spec_author::list_drafts_default().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -2166,6 +2262,9 @@ pub fn run() {
             familiar_commands::familiar_snapshot,
             familiar_commands::familiar_audit,
             familiar_commands::familiar_mark_executed,
+            spec_author_step,
+            spec_author_load_draft,
+            spec_author_list_drafts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
