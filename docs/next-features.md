@@ -47,13 +47,9 @@ Principios:
 - Use case: editar un fichero puntual sin salir de Covenant
 - No queremos replicar un IDE — queremos el mínimo que evite tener que abrirlo
 
-### 3.4 AOM Mode — Autonomous Operator Mode
+### 3.4 AOM Mode — Autonomous Operator Mode ~~(AFK UI)~~ — **DEPRECATED 2026-05-05**
 
-Mode tipo **"Battery Mode"** de los juegos / AFK mode.
-
-- UI minimalista: solo ves las decisiones que el operador va tomando
-- Pensado para sesiones desatendidas
-- No es para mirar progreso fino — es **"déjalo correr"**
+> El rol de "pantalla de reposo / déjalo correr" lo absorbe **3.8 Convergence Mode**, que es más denso e informativo (ve todas las sesiones, no solo una). El motor AOM (autonomía nocturna, decisiones, cost cap) **se mantiene** — lo que se retira es la UI AFK como entry point separado. Notificaciones OS (3.6) cubren el alerting away-from-screen.
 
 ### 3.5 Self-contained docs
 
@@ -95,4 +91,4 @@ Un espacio **visual** donde se ven todos los **agent executors** trabajando en p
 - Pensado para **ver el sistema entero de un vistazo** sin saltar entre tabs.
 - Click en una tile → entra a ese tab.
 
-**Convergencia con AFK (3.4)**: a futuro Convergence Mode vive dentro del AFK mode como su vista principal — AFK deja de ser sólo feed cronológico y pasa a ser **command-center (estado actual) + feed lateral (historia)**. v1 envía la office independiente para validar la metáfora visual antes de acoplarla.
+**Idle/screensaver role (absorbido de 3.4, 2026-05-05)**: Convergence es ahora la vista canónica de reposo. Follow-up tracked: auto-engage tras N minutos sin input (configurable, default off). En v1 sólo se abre por `⌘⇧M`.
