@@ -41,7 +41,20 @@ pub enum Trigger {
     AomComplete,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Escalation,
+    Info,
+}
+
 impl Trigger {
+    pub fn severity(self) -> Severity {
+        match self {
+            Trigger::OperatorEscalate | Trigger::AomError => Severity::Escalation,
+            Trigger::AomComplete => Severity::Info,
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Trigger::OperatorEscalate => "operator_escalate",
@@ -247,6 +260,13 @@ mod tests {
         assert!(t.allow(Trigger::AomComplete, t0));
         // Same trigger again — throttled.
         assert!(!t.allow(Trigger::OperatorEscalate, t0 + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn trigger_severity_routes_correctly() {
+        assert_eq!(Trigger::OperatorEscalate.severity(), Severity::Escalation);
+        assert_eq!(Trigger::AomError.severity(), Severity::Escalation);
+        assert_eq!(Trigger::AomComplete.severity(), Severity::Info);
     }
 
     #[test]
