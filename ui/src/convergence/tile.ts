@@ -1,4 +1,5 @@
 import type { EscalationCard, OperatorRosterEntry, SessionSummary } from "../api";
+import { renderAvatarHtml } from "../operator/avatars";
 
 type SubmitFn = (
   sessionId: string,
@@ -28,7 +29,7 @@ export function renderInboxCard(
   header.className = "cv-inbox-card__header";
   const avatar = document.createElement("span");
   avatar.className = "cv-avatar";
-  avatar.textContent = card.operator_avatar ?? "👤";
+  avatar.innerHTML = renderAvatarHtml(card.operator_avatar ?? "👤", 24);
   const title = document.createElement("strong");
   title.className = "cv-inbox-card__title";
   title.textContent = `${card.operator_name} · ${card.tab_title}`;
@@ -152,7 +153,7 @@ export function renderRosterRow(
   head.className = "cv-roster-row__head";
   const avatar = document.createElement("span");
   avatar.className = "cv-avatar";
-  avatar.textContent = entry.operator_avatar ?? "👤";
+  avatar.innerHTML = renderAvatarHtml(entry.operator_avatar ?? "👤", 24);
   const name = document.createElement("strong");
   name.className = "cv-roster-row__name";
   name.textContent = entry.operator_name;
