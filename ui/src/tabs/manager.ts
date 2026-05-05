@@ -450,6 +450,25 @@ export class TabManager {
       ]);
     });
     window.addEventListener("resize", () => this.refitActive());
+
+    // When the window moves between monitors with different scaling
+    // (common on Samsung 4K + macOS), devicePixelRatio changes. The
+    // WebGL glyph atlas was sized for the old DPR — leaving it stale
+    // produces overlapping/garbled characters. matchMedia on the
+    // current resolution fires once when DPR changes; we rebuild the
+    // addon on every tab and refit. We re-arm the listener each time
+    // because the media query is bound to the previous DPR value.
+    const armDprListener = () => {
+      const mql = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio}dppx)`,
+      );
+      const onChange = () => {
+        this.rebuildWebglAtlases();
+        armDprListener();
+      };
+      mql.addEventListener("change", onChange, { once: true });
+    };
+    armDprListener();
     window.addEventListener("beforeunload", () => {
       for (const tab of this.tabs) {
         void closeSession(tab.sessionId).catch(() => {});
@@ -902,6 +921,40 @@ export class TabManager {
       );
       tab.term.focus();
     });
+  }
+
+  /// Dispose and recreate the WebGL addon on every tab. Used when DPR
+  /// changes (monitor switch / scaling change) — the existing texture
+  /// atlas was sized for the old DPR and renders garbled otherwise.
+  rebuildWebglAtlases(): void {
+    for (const tab of this.tabs) {
+      if (!tab.webgl) continue;
+      try {
+        tab.webgl.dispose();
+      } catch {
+        /* ignore */
+      }
+      try {
+        const next = new WebglAddon();
+        tab.term.loadAddon(next);
+        tab.webgl = next;
+      } catch {
+        tab.webgl = null;
+      }
+      requestAnimationFrame(() => {
+        try {
+          tab.fit.fit();
+        } catch {
+          /* ignore */
+        }
+        tab.term.refresh(0, tab.term.rows - 1);
+        void resizeSession(
+          tab.sessionId,
+          tab.term.cols,
+          tab.term.rows,
+        ).catch(() => {});
+      });
+    }
   }
 
   /// Push terminal font/size into every open tab. Called from main.ts

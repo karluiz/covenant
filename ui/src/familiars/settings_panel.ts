@@ -14,9 +14,8 @@ export function renderFamiliarsSettings(
   hooks: FamiliarsSettingsHooks,
 ): void {
   parent.innerHTML = "";
-  const wrap = document.createElement("section");
-  wrap.className = "settings-section";
-  wrap.id = "sec-familiars";
+  parent.id = "sec-familiars";
+  const wrap = parent;
 
   const head = document.createElement("h3");
   head.className = "settings-section-title";
@@ -58,7 +57,6 @@ export function renderFamiliarsSettings(
       });
   }
 
-  parent.appendChild(wrap);
 }
 
 function renderList(el: HTMLElement, items: FamiliarSummary[]): void {

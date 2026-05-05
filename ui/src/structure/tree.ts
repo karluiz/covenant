@@ -327,6 +327,22 @@ export class StructureTree {
       );
     }
 
+    menu.appendChild(
+      makeMenuItem("Reveal in Finder", () => {
+        closeAnyContextMenu();
+        void (async () => {
+          try {
+            const { revealItemInDir } = await import(
+              "@tauri-apps/plugin-opener"
+            );
+            await revealItemInDir(node.entry.path);
+          } catch (err) {
+            this.showError(`Reveal failed: ${err}`);
+          }
+        })();
+      }),
+    );
+
     const rename = makeMenuItem("Rename", () => {
       closeAnyContextMenu();
       this.startRename(node);

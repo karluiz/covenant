@@ -2169,7 +2169,7 @@ async fn run_tick(
             parsed_action
         };
 
-        let excerpt = String::from_utf8_lossy(&tail).to_string();
+        let excerpt = strip_ansi_escapes::strip_str(String::from_utf8_lossy(&tail).as_ref());
 
         // M-OP3: in live mode, route REPLY through the safety blocklist
         // before injecting. A blocked reply downgrades to ESCALATE so

@@ -470,7 +470,7 @@ export class SettingsPanel {
             <small class="settings-hint">Batch notifications within this window to avoid email spam.</small>
           </label>
         </section>
-        <div id="familiars-host"></div>
+        <section class="settings-section" id="familiars-host"></section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
