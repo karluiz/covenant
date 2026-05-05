@@ -37,7 +37,11 @@ crates/app/gen/schemas/
 .env.*.local
 
 # Claude Code transient
-.claude/scheduled_tasks.lock
+.claude/
 .worktrees/
 .fastembed_cache/
 .superpowers/
+.remember/
+
+# Agent-generated planning artifacts (contain absolute paths)
+docs/superpowers/

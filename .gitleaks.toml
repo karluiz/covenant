@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures for credential-blocking safety unit tests"
+paths = [
+    '''crates/app/src/safety\.rs''',
+    '''crates/app/src/settings\.rs''',
+    '''ui/src/settings/panel\.ts''',
+]
