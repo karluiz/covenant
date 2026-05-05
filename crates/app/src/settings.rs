@@ -23,6 +23,11 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anthropic_api_key: Option<String>,
 
+    /// SendGrid API key for outbound email notifications. Empty /
+    /// whitespace-only values are normalized to `None` on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sendgrid_api_key: Option<String>,
+
     #[serde(default)]
     pub agent: AgentConfig,
 
@@ -130,6 +135,19 @@ pub struct NotificationConfig {
     /// The event is still logged via `tracing` regardless.
     #[serde(default = "default_true")]
     pub suppress_when_focused: bool,
+
+    /// Enable outbound email notifications via SendGrid.
+    #[serde(default)]
+    pub email_enabled: bool,
+    /// Sender address for email notifications (e.g. `covenant@example.com`).
+    #[serde(default)]
+    pub email_from: Option<String>,
+    /// Recipient address for email notifications.
+    #[serde(default)]
+    pub email_to: Option<String>,
+    /// Rolling window (minutes) for digest deduplication. Default 15.
+    #[serde(default = "default_digest_window")]
+    pub email_digest_window_minutes: u32,
 }
 
 impl Default for NotificationConfig {
@@ -139,6 +157,10 @@ impl Default for NotificationConfig {
             on_aom_error: true,
             on_aom_complete: true,
             suppress_when_focused: true,
+            email_enabled: false,
+            email_from: None,
+            email_to: None,
+            email_digest_window_minutes: default_digest_window(),
         }
     }
 }
@@ -147,10 +169,15 @@ fn default_true() -> bool {
     true
 }
 
+fn default_digest_window() -> u32 {
+    15
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             anthropic_api_key: None,
+            sendgrid_api_key: None,
             agent: AgentConfig::default(),
             operator: OperatorConfig::default(),
             terminal: TerminalConfig::default(),
@@ -432,6 +459,11 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
             to_persist.anthropic_api_key = None;
         }
     }
+    if let Some(ref key) = to_persist.sendgrid_api_key {
+        if key.trim().is_empty() {
+            to_persist.sendgrid_api_key = None;
+        }
+    }
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -489,6 +521,38 @@ mod tests {
         save(&path, &Settings::default()).unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn settings_round_trip_email_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut s = Settings::default();
+        s.sendgrid_api_key = Some("SG.test".to_string());
+        s.notifications.email_enabled = true;
+        s.notifications.email_from = Some("from@example.com".to_string());
+        s.notifications.email_to = Some("to@example.com".to_string());
+        s.notifications.email_digest_window_minutes = 30;
+        save(&path, &s).unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.sendgrid_api_key.as_deref(), Some("SG.test"));
+        assert!(loaded.notifications.email_enabled);
+        assert_eq!(loaded.notifications.email_from.as_deref(), Some("from@example.com"));
+        assert_eq!(loaded.notifications.email_to.as_deref(), Some("to@example.com"));
+        assert_eq!(loaded.notifications.email_digest_window_minutes, 30);
+    }
+
+    #[test]
+    fn settings_back_compat_missing_email_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"anthropic_api_key":null}"#).unwrap();
+        let loaded = load(&path);
+        assert!(loaded.sendgrid_api_key.is_none());
+        assert!(!loaded.notifications.email_enabled);
+        assert!(loaded.notifications.email_from.is_none());
+        assert!(loaded.notifications.email_to.is_none());
+        assert_eq!(loaded.notifications.email_digest_window_minutes, 15);
     }
 
     #[test]
