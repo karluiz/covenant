@@ -480,6 +480,7 @@ impl OperatorWatcher {
         aom: AomHandle,
         mission_store: PathBuf,
         notifier: crate::notify::Notifier,
+        email: Arc<crate::email::EmailNotifier>,
         registry: Arc<OperatorRegistry>,
         embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     ) -> Self {
@@ -494,6 +495,7 @@ impl OperatorWatcher {
             app,
             aom,
             notifier,
+            email,
             registry.clone(),
             resolution_rx,
             embedder_cell,
@@ -1001,6 +1003,7 @@ async fn tick_loop(
     app: AppHandle,
     aom: AomHandle,
     notifier: crate::notify::Notifier,
+    email: Arc<crate::email::EmailNotifier>,
     registry: Arc<OperatorRegistry>,
     mut resolution_rx: mpsc::UnboundedReceiver<ConvergenceResolution>,
     embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
@@ -1038,7 +1041,7 @@ async fn tick_loop(
             }
         }
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &registry, &embedder_cell).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -1173,6 +1176,7 @@ async fn run_tick(
     app: &AppHandle,
     aom: &AomHandle,
     notifier: &crate::notify::Notifier,
+    email: &Arc<crate::email::EmailNotifier>,
     registry: &Arc<OperatorRegistry>,
     embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
 ) -> Result<(), String> {
@@ -1993,14 +1997,17 @@ async fn run_tick(
                 let body = msg.lines().next().unwrap_or(msg);
                 let body = truncate(body, 200);
                 let title = format!("[{}] paused", op.name);
-                notifier
-                    .emit(
-                        crate::notify::Trigger::OperatorEscalate,
-                        &title,
-                        body,
-                        Some(session_id),
-                    )
-                    .await;
+                crate::notifications::dispatch(
+                    notifier,
+                    email,
+                    crate::notifications::DispatchCtx {
+                        trigger: crate::notify::Trigger::OperatorEscalate,
+                        title,
+                        body: body.to_string(),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
             }
         }
 
@@ -2057,14 +2064,17 @@ async fn run_tick(
                 snap.accumulated_cost_usd, snap.budget_usd, snap.decisions_count
             );
             drop(snap);
-            notifier
-                .emit(
-                    crate::notify::Trigger::AomError,
-                    "AOM stopped (budget)",
+            crate::notifications::dispatch(
+                notifier,
+                email,
+                crate::notifications::DispatchCtx {
+                    trigger: crate::notify::Trigger::AomError,
+                    title: "AOM stopped (budget)".into(),
                     body,
-                    None,
-                )
-                .await;
+                    session_id: None,
+                },
+            )
+            .await;
             // Stop processing further candidates this tick — AOM is
             // off, the next tick will just no-op for everyone.
             break;
