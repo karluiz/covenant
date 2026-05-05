@@ -534,13 +534,26 @@ export interface AomConfig {
   default_budget_usd: number;
 }
 
+export interface NotificationConfig {
+  on_operator_escalate: boolean;
+  on_aom_error: boolean;
+  on_aom_complete: boolean;
+  suppress_when_focused: boolean;
+  email_enabled: boolean;
+  email_from?: string | null;
+  email_to?: string | null;
+  email_digest_window_minutes: number;
+}
+
 export interface Settings {
   anthropic_api_key: string | null;
+  sendgrid_api_key?: string | null;
   agent: AgentConfig;
   operator: OperatorConfig;
   terminal: TerminalConfig;
   window: WindowConfig;
   aom: AomConfig;
+  notifications?: NotificationConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
   /// Tabbar layout: "top" (default, horizontal across the top) or
@@ -555,6 +568,10 @@ export interface Settings {
   familiars_enabled: boolean;
   /// Premium gate for Familiars (and any other premium-only features).
   is_premium: boolean;
+}
+
+export async function validateSendGridKey(apiKey: string): Promise<boolean> {
+  return invoke<boolean>('validate_sendgrid_key', { apiKey });
 }
 
 export type TabbarPosition = "top" | "left";
