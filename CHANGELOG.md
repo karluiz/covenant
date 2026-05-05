@@ -6,6 +6,56 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## 0.2.10 — 2026-05-05
+
+Three threads land together. **Spec 3.8.1 — convergence redesign**
+turns the convergence view into a two-pane Inbox + Roster layout,
+with the Tauri snapshot split into roster + escalations and a
+multi-line reply composer in the Inbox. **Spec 3.17 — spec pending
+recovery** makes the spec→mission prompt durable: if you dismiss
+the toast or the tab is occupied, the candidate now lives on as a
+persistent badge per tab with a popover (assign / open /
+dismiss), and any `docs/specs/**/*.md` reference in terminal
+output becomes ⌘+click-actionable through a contextual menu. And
+**Familiars** drops the premium gate.
+
+Familiars is BYOK — the user's own Anthropic key in Settings →
+Anthropic pays for chat and summarization, so there is no premium
+flag to honor-system. The gate is gone, the API key now resolves
+from Settings (with `ANTHROPIC_API_KEY` env as fallback), and the
+Settings panel collapses to a single *Enable Familiars* toggle.
+
+### Added
+
+- **3.8.1 convergence redesign** — Inbox + Roster two-pane layout,
+  multi-line reply composer, filter chips, click semantics on the
+  Roster column. Backend snapshot split into roster + escalations
+  exposed as separate Tauri commands.
+- **3.17 spec pending recovery** — persistent per-tab spec badge
+  driven by a reactive `SpecPromptState`, popover with
+  assign / open / dismiss actions, single-toast rendering bound to
+  the active tab with target label.
+- **Spec link ⌘+click menu** — `isSpecPath` matcher for
+  `docs/specs/**/*.md`, contextual menu on ⌘+click in terminal
+  output for spec-shaped paths.
+
+### Changed
+
+- **Familiars: no premium gate.** BYOK only. `is_premium` removed
+  from settings; `familiars_active()` now means
+  `familiars_enabled` alone. The Settings → Familiars section
+  shows a single Enable toggle.
+- **Familiars API key** is read from
+  `settings.anthropic_api_key` first, falling back to
+  `ANTHROPIC_API_KEY` env. Previously it was env-only at startup,
+  so the key configured in Settings never reached the chat
+  command.
+
+### Fixed
+
+- Single-toast spec prompt now binds to the active tab and shows
+  the target label, instead of stacking duplicates.
+
 ## 0.2.9 — 2026-05-04
 
 Spec **3.16 — auto-detect spec → propose mission** lands as the
