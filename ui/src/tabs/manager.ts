@@ -1827,6 +1827,18 @@ export class TabManager {
     }));
   }
 
+  /** 3.17 — returns the id of the currently-active tab, or null. */
+  getActiveTabId(): string | null {
+    return this.activeId ?? null;
+  }
+
+  /** 3.17 — human-readable label for a tab (for toast display). */
+  getTabLabel(tabId: string): string {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return tabId;
+    return tabDisplayName(tab);
+  }
+
   /** 3.16 — read-only view of the active tab's id + mission state. */
   activeTabSnapshot(): { id: string; hasMission: boolean } | null {
     if (!this.activeId) return null;

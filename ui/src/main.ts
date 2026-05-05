@@ -346,7 +346,9 @@ async function boot(): Promise<void> {
   // cwd matches the candidate's repo root and which have no mission yet.
   void startSpecPrompts({
     listTabs: () => manager.listTabSnapshots(),
+    getActiveTabId: () => manager.getActiveTabId(),
     setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
+    getTabLabel: (tabId) => manager.getTabLabel(tabId),
   });
   const initialCwd = manager.activeCwd();
   if (initialCwd) void ensureDetectorForRepo(initialCwd);

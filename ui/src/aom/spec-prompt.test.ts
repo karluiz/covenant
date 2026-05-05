@@ -1,9 +1,133 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createSpecPromptState,
   type TabSnapshot,
 } from "./spec-prompt-state";
 import type { SpecCandidate } from "../api";
+
+// ---------------------------------------------------------------------------
+// Integration tests for spec-prompt toast rendering (single-toast semantics)
+// ---------------------------------------------------------------------------
+
+// Capture the handler registered via subscribeSpecCandidates so tests can
+// emit candidates directly without Tauri.
+let capturedCandidateHandler: ((c: SpecCandidate) => void) | null = null;
+
+vi.mock("../api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../api")>();
+  return {
+    ...original,
+    specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+    subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+      capturedCandidateHandler = handler;
+      return Promise.resolve(() => { capturedCandidateHandler = null; });
+    }),
+  };
+});
+
+type MakeHostOpts = { activeTabId?: string };
+
+function makeHost(tabs: TabSnapshot[], opts: MakeHostOpts = {}) {
+  return {
+    listTabs: () => tabs,
+    getActiveTabId: () => opts.activeTabId ?? null,
+    setMissionForTab: vi.fn().mockResolvedValue(undefined),
+    getTabLabel: (tabId: string) => {
+      const t = tabs.find((x) => x.id === tabId);
+      return t ? `Tab ${tabId}` : tabId;
+    },
+  };
+}
+
+function emitCandidate(c: Partial<SpecCandidate>) {
+  const full: SpecCandidate = {
+    repo_root: "/repo",
+    path: "/repo/docs/specs/3.20.md",
+    source: "covenant",
+    title: "3.20",
+    goal_snippet: "...",
+    ...c,
+  };
+  capturedCandidateHandler?.(full);
+}
+
+describe("spec-prompt toast rendering", () => {
+  beforeEach(async () => {
+    // Reset module-level state between tests by re-importing with a fresh state.
+    // We do this by clearing the DOM and resetting the singleton via the export.
+    document.body.innerHTML = "";
+    capturedCandidateHandler = null;
+    // Reset the singleton so startSpecPrompts re-subscribes.
+    // Each test calls vi.resetModules() and re-imports spec-prompt so the
+    // module-level singleton (unlisten) is cleared, allowing a fresh subscription.
+  });
+
+  it("renders exactly one toast bound to the active eligible tab", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+
+    // Re-import after resetModules so unlisten is null and a fresh subscription fires.
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts } = await import("./spec-prompt");
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo", hasMission: false, hasOperator: true },
+      { id: "t2", cwd: "/repo", hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t2" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+
+    const toasts = document.querySelectorAll(".spec-prompt-toast");
+    expect(toasts.length).toBe(1);
+    expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t2");
+  });
+
+  it("falls back to first eligible tab if active is not eligible", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts } = await import("./spec-prompt");
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/other", hasMission: false, hasOperator: true },
+      { id: "t2", cwd: "/repo",  hasMission: true,  hasOperator: true },
+      { id: "t3", cwd: "/repo",  hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t1" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+
+    const toasts = document.querySelectorAll(".spec-prompt-toast");
+    expect(toasts.length).toBe(1);
+    expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t3");
+  });
+});
 
 const cand = (over: Partial<SpecCandidate> = {}): SpecCandidate => ({
   repo_root: "/tmp/repo",

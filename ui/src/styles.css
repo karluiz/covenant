@@ -8373,6 +8373,11 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.spec-prompt-toast-target {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  margin-top: 2px;
+}
 .spec-prompt-toast-snippet {
   color: var(--muted, #9aa0a6);
   line-height: 1.4;
