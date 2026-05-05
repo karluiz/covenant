@@ -79,7 +79,7 @@ Append to the existing test module in `crates/app/src/settings.rs`:
 - [ ] **Step 2: Run tests — expect failure**
 
 ```bash
-cargo test -p karl-app settings::tests::settings_round_trip_email_fields settings::tests::settings_back_compat_missing_email_fields
+cargo test -p covenant settings::tests::settings_round_trip_email_fields settings::tests::settings_back_compat_missing_email_fields
 ```
 
 Expected: compile error — fields don't exist yet.
@@ -138,7 +138,7 @@ In the persistence helper (`crates/app/src/settings.rs:430` area where `anthropi
 - [ ] **Step 4: Run tests — expect pass**
 
 ```bash
-cargo test -p karl-app settings::
+cargo test -p covenant settings::
 ```
 
 Expected: all settings tests pass.
@@ -177,7 +177,7 @@ tempfile = "3"
 - [ ] **Step 2: Verify compile**
 
 ```bash
-cargo check -p karl-app
+cargo check -p covenant
 ```
 
 Expected: clean.
@@ -213,7 +213,7 @@ Append to `mod tests` in `crates/app/src/notify.rs`:
 - [ ] **Step 2: Run — expect failure**
 
 ```bash
-cargo test -p karl-app notify::tests::trigger_severity_routes_correctly
+cargo test -p covenant notify::tests::trigger_severity_routes_correctly
 ```
 
 Expected: `Severity` not in scope.
@@ -244,7 +244,7 @@ impl Trigger {
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
-cargo test -p karl-app notify::
+cargo test -p covenant notify::
 ```
 
 - [ ] **Step 5: Commit**
@@ -356,7 +356,7 @@ pub mod email;
 - [ ] **Step 2: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::templates::
+cargo test -p covenant email::templates::
 ```
 
 - [ ] **Step 3: Commit**
@@ -460,7 +460,7 @@ Confirm `karl-app` already depends on `thiserror` and `tokio` (it does — used 
 - [ ] **Step 2: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::client::
+cargo test -p covenant email::client::
 ```
 
 - [ ] **Step 3: Commit**
@@ -553,7 +553,7 @@ Append to the `tests` module in `crates/app/src/email/client.rs`:
 - [ ] **Step 2: Run — expect failure**
 
 ```bash
-cargo test -p karl-app email::client::tests::http
+cargo test -p covenant email::client::tests::http
 ```
 
 Expected: `HttpSendGridClient` does not exist.
@@ -628,7 +628,7 @@ impl SendGridClient for HttpSendGridClient {
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::client::
+cargo test -p covenant email::client::
 ```
 
 - [ ] **Step 5: Commit**
@@ -751,7 +751,7 @@ pub mod templates;
 - [ ] **Step 2: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::digest::
+cargo test -p covenant email::digest::
 ```
 
 - [ ] **Step 3: Commit**
@@ -991,7 +991,7 @@ mod tests {
 - [ ] **Step 2: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::
+cargo test -p covenant email::
 ```
 
 - [ ] **Step 3: Commit**
@@ -1067,7 +1067,7 @@ Note: the test above is a sketch; the implementation step will replace it with a
 - [ ] **Step 2: Run — expect compile error**
 
 ```bash
-cargo test -p karl-app email::digest::flush_tests
+cargo test -p covenant email::digest::flush_tests
 ```
 
 Expected: `spawn_flush_loop` not found.
@@ -1190,7 +1190,7 @@ pub async fn spawn_flush_loop(
 - [ ] **Step 4: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::digest::flush_tests
+cargo test -p covenant email::digest::flush_tests
 ```
 
 - [ ] **Step 5: Commit**
@@ -1296,7 +1296,7 @@ pub mod notifications;
 - [ ] **Step 2: Run — expect pass**
 
 ```bash
-cargo test -p karl-app notifications::
+cargo test -p covenant notifications::
 ```
 
 - [ ] **Step 3: Wire dispatch at the three call sites**
@@ -1326,7 +1326,7 @@ For each modification, also thread `email: Arc<EmailNotifier>` through the call 
 - [ ] **Step 4: Run — expect compile + pass**
 
 ```bash
-cargo test -p karl-app
+cargo test -p covenant
 ```
 
 Fix call-site mismatches as needed; do not change behavior of any other test.
@@ -1386,8 +1386,8 @@ Then thread `email_notifier.clone()` through wherever `notifier.clone()` is curr
 - [ ] **Step 2: Run**
 
 ```bash
-cargo build -p karl-app
-cargo test -p karl-app
+cargo build -p covenant
+cargo test -p covenant
 ```
 
 Expected: clean build, all tests pass.
@@ -1468,7 +1468,7 @@ mod scope_tests {
 - [ ] **Step 2: Run — expect pass**
 
 ```bash
-cargo test -p karl-app email::client::scope_tests
+cargo test -p covenant email::client::scope_tests
 ```
 
 - [ ] **Step 3: Add the Tauri command**
@@ -1499,7 +1499,7 @@ Register it in the `tauri::Builder::default().invoke_handler(tauri::generate_han
 - [ ] **Step 4: Build**
 
 ```bash
-cargo build -p karl-app
+cargo build -p covenant
 ```
 
 - [ ] **Step 5: Commit**
@@ -1612,8 +1612,8 @@ git commit -m "release: v0.2.13 — email notifications via SendGrid"
 
 ## Verification checklist (run before merge)
 
-- [ ] `cargo test -p karl-app` — all green
-- [ ] `cargo clippy -p karl-app -- -D warnings` — clean
+- [ ] `cargo test -p covenant` — all green
+- [ ] `cargo clippy -p covenant -- -D warnings` — clean
 - [ ] `cargo tauri dev` — manual smoke: trigger an operator escalate while email is configured with a real SendGrid sandbox key; verify email arrives. Then disable, trigger again — no email.
 - [ ] AOM-complete fires; wait for digest window (or set it to 5 minutes for the test); verify single digest email arrives.
 - [ ] Throttle: trigger two escalations within 60s; only one email sent.
