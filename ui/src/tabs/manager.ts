@@ -2917,13 +2917,12 @@ export class TabManager {
       const aomOn = this.aomBanner?.isOn() ?? false;
       const excluded = tab.aomExcluded;
       const showOff = aomOn && excluded;
-      // During AOM, mirror the status-bar AOM glyph (zap) so the
-      // user reads the per-tab badge as "AOM is driving this tab".
-      // Outside AOM, fall back to the operator (bot) glyph.
-      const iconHtml = aomOn
-        ? excluded
-          ? Icons.zapOff({ size: 12 })
-          : Icons.zap({ size: 12 })
+      // "AOM driving this tab" is signalled by the animated gradient
+      // border on the pill itself (.tab-aom-active), not by the inner
+      // glyph. The badge stays as the click-target for include/exclude.
+      if (aomOn && !excluded) pill.classList.add("tab-aom-active");
+      const iconHtml = aomOn && excluded
+        ? Icons.zapOff({ size: 12 })
         : Icons.bot({ size: 12 });
       const badge = document.createElement("button");
       badge.type = "button";

@@ -208,6 +208,41 @@ body.bg-translucent {
     border-radius: var(--tab-radius) var(--tab-radius) 0 0;
 }
 
+/* AOM "driving this tab" indicator — animated gradient ring around
+   the pill border. Replaces the inner zap glyph (spec 2026-05-05).
+   Uses a pseudo-element with a mask trick so only the border-shaped
+   ring is painted, leaving the tab background and content untouched. */
+.tab-btn.tab-aom-active::after {
+    content: "";
+    position: absolute;
+    inset: -1px -1px 0 -1px;
+    border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+    padding: 1.5px;
+    background: linear-gradient(
+        120deg,
+        #7c8cff 0%,
+        #8b5cf6 30%,
+        #22d3ee 55%,
+        #7c8cff 100%
+    );
+    background-size: 300% 300%;
+    animation: tab-aom-flow 4s linear infinite;
+    -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 0;
+}
+@keyframes tab-aom-flow {
+    0%   { background-position:   0% 50%; }
+    100% { background-position: 300% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tab-btn.tab-aom-active::after { animation: none; }
+}
+
 /* Per-tab color: subtle bg tint + leading dot. The tab "is" the
    color, regardless of active state. */
 .tab-colored {
