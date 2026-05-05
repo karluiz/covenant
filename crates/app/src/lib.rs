@@ -586,6 +586,23 @@ async fn is_operator_live(
     Ok(state.operator.is_live(id).await)
 }
 
+#[tauri::command]
+async fn validate_sendgrid_key(
+    app: tauri::AppHandle,
+    api_key: String,
+) -> Result<bool, String> {
+    use tauri::Emitter;
+    let base = "https://api.sendgrid.com";
+    match crate::email::client::check_key_via(base, &api_key).await {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            let _ = app.emit("sendgrid-key-invalid", ());
+            Ok(false)
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Mission spec attached to a session. The Operator reads the spec
 /// content as authoritative scope: Out of scope → escalate triggers;
 /// File boundaries → constraints; Open questions → auto-escalate.
@@ -2319,6 +2336,7 @@ pub fn run() {
             spec_author_load_draft,
             spec_author_list_drafts,
             spec_author_mark_published,
+            validate_sendgrid_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

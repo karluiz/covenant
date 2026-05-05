@@ -193,3 +193,56 @@ mod tests {
         assert!(matches!(err, EmailError::Http(401)));
     }
 }
+
+pub async fn check_key_via(base_url: &str, api_key: &str) -> Result<bool, EmailError> {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| EmailError::Network(e.to_string()))?;
+    let url = format!("{}/v3/scopes", base_url);
+    let resp = http
+        .get(&url)
+        .bearer_auth(api_key)
+        .send()
+        .await
+        .map_err(|e| EmailError::Network(e.to_string()))?;
+    let status = resp.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        return Ok(false);
+    }
+    if status.is_success() {
+        return Ok(true);
+    }
+    Err(EmailError::Http(status.as_u16()))
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn key_check_true_on_200() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/scopes"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&s)
+            .await;
+        assert_eq!(check_key_via(&s.uri(), "k").await.unwrap(), true);
+    }
+
+    #[tokio::test]
+    async fn key_check_false_on_401() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let s = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/scopes"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&s)
+            .await;
+        assert_eq!(check_key_via(&s.uri(), "k").await.unwrap(), false);
+    }
+}
