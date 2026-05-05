@@ -25,6 +25,8 @@ export interface DraftWizardOpts {
   onBack: () => void;
   onClose: () => void;
   autoPublish?: boolean;
+  /** Pre-populate the editor from a spec markdown string (e.g. emitted by the agent). */
+  initialBody?: string;
 }
 
 interface SectionDef {
@@ -127,6 +129,17 @@ export class DraftWizard {
       } catch (e) {
         this.opts.host.innerHTML = `<div class="drafts-empty">Failed to load: ${String(e)}</div>`;
         return;
+      }
+    } else if (this.opts.initialBody) {
+      const sections = parseBody(this.opts.initialBody);
+      for (const s of SECTIONS) {
+        this.values.set(s.key, sections.get(s.key) ?? "");
+      }
+      // Seed complexity if valid
+      const cmpx = (sections.get("Complexity") ?? "").trim().toLowerCase();
+      if ((COMPLEXITY_VALUES as readonly string[]).includes(cmpx)) {
+        this.complexity = cmpx as typeof COMPLEXITY_VALUES[number];
+        this.values.set("Complexity", this.complexity);
       }
     } else {
       for (const s of SECTIONS) this.values.set(s.key, "");

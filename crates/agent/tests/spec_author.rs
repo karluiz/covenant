@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use karl_agent::spec_author::{
-    list_drafts, load_draft, save_draft, step, validate_spec_markdown, Dispatcher, DraftMessage,
-    DraftStatus, MessageRole, Phase, SpecAuthorError, SpecDraft, StepOutput,
+    list_drafts, load_draft, mark_published, save_draft, step, validate_spec_markdown, Dispatcher,
+    DraftMessage, DraftStatus, MessageRole, Phase, SpecAuthorError, SpecDraft, StepOutput,
 };
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -299,6 +299,29 @@ The goal.
 #[test]
 fn validate_passes_complete_spec() {
     validate_spec_markdown(VALID_SPEC).expect("should be valid");
+}
+
+/// Task 6 — mark_published: save InProgress draft, call mark_published, reload, assert Published.
+#[test]
+fn mark_published_sets_status() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let draft = make_draft(DraftStatus::InProgress { phase: Phase::Goal });
+    let id = draft.id;
+    let original_ts = draft.last_updated;
+
+    save_draft(dir.path(), &draft).expect("save");
+
+    // Small sleep so last_updated is guaranteed to advance.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    mark_published(id, dir.path()).expect("mark_published");
+
+    let loaded = load_draft(dir.path(), id).expect("load after mark_published");
+    assert_eq!(loaded.status, DraftStatus::Published);
+    assert!(
+        loaded.last_updated >= original_ts,
+        "last_updated should be >= original after mark_published"
+    );
 }
 
 /// validate_spec_markdown fails when sections are missing.

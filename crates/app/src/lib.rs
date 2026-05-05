@@ -1990,6 +1990,12 @@ async fn spec_author_list_drafts() -> Result<Vec<karl_agent::spec_author::SpecDr
     karl_agent::spec_author::list_drafts_default().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn spec_author_mark_published(id: String) -> Result<(), String> {
+    let id: ulid::Ulid = id.parse().map_err(|e: ulid::DecodeError| e.to_string())?;
+    karl_agent::spec_author::mark_published_default(id).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -2265,6 +2271,7 @@ pub fn run() {
             spec_author_step,
             spec_author_load_draft,
             spec_author_list_drafts,
+            spec_author_mark_published,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -918,3 +918,7 @@ export async function specAuthorLoadDraft(id: string): Promise<SpecDraftSummary>
 export async function specAuthorListDrafts(): Promise<SpecDraftSummary[]> {
   return invoke<SpecDraftSummary[]>("spec_author_list_drafts");
 }
+
+export async function specAuthorMarkPublished(id: string): Promise<void> {
+  return invoke<void>("spec_author_mark_published", { id });
+}

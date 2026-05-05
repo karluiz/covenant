@@ -363,6 +363,20 @@ pub async fn step<D: Dispatcher>(
     })
 }
 
+/// Mark a draft as published. Loads, mutates status, saves.
+pub fn mark_published(id: Ulid, base_dir: &Path) -> Result<()> {
+    let mut draft = load_draft(base_dir, id)?;
+    draft.status = DraftStatus::Published;
+    draft.last_updated = chrono::Utc::now();
+    save_draft(base_dir, &draft)
+}
+
+/// Convenience wrapper — resolves `~/.covenant/` via `dirs::home_dir()`.
+pub fn mark_published_default(id: Ulid) -> Result<()> {
+    let base = home_covenant_dir()?;
+    mark_published(id, &base)
+}
+
 /// Extract the markdown between `<spec>` and `</spec>` tags.
 fn extract_spec(text: &str) -> Option<String> {
     let start_tag = "<spec>";
