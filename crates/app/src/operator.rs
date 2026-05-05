@@ -367,17 +367,21 @@ struct Attached {
     /// without paying for more identical decisions.
     loop_cooldown_until: Option<Instant>,
     /// Counter for the idle-WAIT escalation path. Increments on every
-    /// WAIT decision where the executor's `bytes_total` matches the
-    /// value at the previous WAIT (i.e. no new output between checks).
-    /// Resets on any non-WAIT action OR when bytes change. Triggers a
-    /// forced ESCALATE + cooldown when it reaches
-    /// `IDLE_WAIT_ESCALATE_THRESHOLD`.
+    /// WAIT decision where the screen's *progress signature* matches
+    /// the value at the previous WAIT (i.e. content hasn't actually
+    /// changed — only spinner / timer churn). Resets on any non-WAIT
+    /// action OR when the signature changes. Triggers a forced ESCALATE
+    /// + cooldown when it reaches `IDLE_WAIT_ESCALATE_THRESHOLD`.
+    ///
+    /// We deliberately do NOT key off `bytes_total` here: a TUI
+    /// rendering a Braille-spinner emits new bytes every frame even
+    /// though no real work happened, which used to defeat this detector
+    /// and leave AOM polling indefinitely on stuck executors.
     consecutive_idle_waits: u32,
-    /// `bytes_total` snapshot at the previous WAIT decision. Used to
-    /// decide whether the current WAIT is "still idle" vs "executor
-    /// produced output but is now waiting again" (the latter resets
-    /// the counter — that's progress).
-    bytes_total_at_last_wait: u64,
+    /// `compute_progress_signature` of the tail at the previous WAIT
+    /// decision. Same value across consecutive WAITs ⇒ the visible
+    /// screen (ignoring spinner / elapsed-time animation) is unchanged.
+    progress_sig_at_last_wait: u64,
     /// True while an Anthropic Messages API call is in flight for this
     /// session. Set by `ThinkingGuard` around the `karl_agent::ask_*`
     /// call site in `run_tick`; consumed by `OperatorWatcher::is_thinking`
@@ -537,7 +541,7 @@ impl OperatorWatcher {
                 recent_reply_hashes: VecDeque::with_capacity(REPLY_REPEAT_THRESHOLD),
                 loop_cooldown_until: None,
                 consecutive_idle_waits: 0,
-                bytes_total_at_last_wait: 0,
+                progress_sig_at_last_wait: 0,
                 thinking: Arc::new(AtomicBool::new(false)),
             },
         );
@@ -568,7 +572,7 @@ impl OperatorWatcher {
             att.recent_reply_hashes.clear();
             att.loop_cooldown_until = None;
             att.consecutive_idle_waits = 0;
-            att.bytes_total_at_last_wait = 0;
+            att.progress_sig_at_last_wait = 0;
         }
     }
 
@@ -1625,22 +1629,29 @@ async fn run_tick(
                 };
 
                 // Idle-WAIT counter — separate from the hash-based
-                // detectors. Increments on a WAIT where the executor
-                // produced no new bytes since the previous WAIT
-                // (genuinely idle, not just paused mid-render). Resets
-                // on any non-WAIT action OR when bytes_total moved.
+                // detectors. Increments on a WAIT whose progress
+                // signature (screen content with spinner / timer churn
+                // stripped — see `compute_progress_signature`) matches
+                // the previous WAIT's. Resets on any non-WAIT action
+                // OR when the signature changes.
+                //
+                // Was previously keyed off raw `bytes_total`; that
+                // false-resets every tick on any TUI rendering an
+                // animated spinner, which is exactly when we most need
+                // this detector to fire.
                 let idle_stuck = match parsed_action {
                     OperatorAction::Wait { .. } => {
-                        if bytes_total == att.bytes_total_at_last_wait
+                        let cur_sig = compute_progress_signature(&tail);
+                        if cur_sig == att.progress_sig_at_last_wait
                             && att.consecutive_idle_waits > 0
                         {
                             att.consecutive_idle_waits =
                                 att.consecutive_idle_waits.saturating_add(1);
                         } else {
-                            // First WAIT after activity OR after a
-                            // non-WAIT — start a fresh idle window.
+                            // First WAIT after real progress OR after
+                            // a non-WAIT — start a fresh idle window.
                             att.consecutive_idle_waits = 1;
-                            att.bytes_total_at_last_wait = bytes_total;
+                            att.progress_sig_at_last_wait = cur_sig;
                         }
                         att.consecutive_idle_waits >= IDLE_WAIT_ESCALATE_THRESHOLD
                     }
@@ -2649,8 +2660,14 @@ fn compute_loop_hash(action: &OperatorAction, tail: &[u8]) -> u64 {
         OperatorAction::Wait { rationale } => normalize_for_hash(rationale),
     };
     rationale_norm.hash(&mut hasher);
+    // Tail signature: ANSI-stripped + spinner / timer churn removed,
+    // then truncated to the last LOOP_TAIL_SIG_CHARS. The spinner
+    // strip matches what the idle-WAIT detector uses so both loop
+    // detectors see "the screen" the same way and a stuck spinner
+    // doesn't silently bypass either.
     let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
-    let sig = take_last_chars(&stripped, LOOP_TAIL_SIG_CHARS);
+    let despun = strip_spinner_churn(&stripped);
+    let sig = take_last_chars(&despun, LOOP_TAIL_SIG_CHARS);
     normalize_for_hash(&sig).hash(&mut hasher);
     hasher.finish()
 }
@@ -2660,6 +2677,71 @@ fn normalize_for_hash(s: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
+}
+
+/// "Progress signature" of the executor's screen — designed to ignore
+/// the churn produced by spinners and elapsed-time counters so we can
+/// tell whether the executor is making real progress vs just animating
+/// in place.
+///
+/// Strips ANSI, then removes:
+///   - Braille spinner glyphs (U+2800-U+28FF — covers cli-spinners
+///     "dots", "dots2"…, what most TUIs use)
+///   - Common single-char spinners and sparkles: ✶ ✷ ✸ ✹ ✺ ✦ ★ ☆ ◐ ◓
+///     ◑ ◒ ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏ ◴ ◷ ◶ ◵ ◰ ◳ ◲ ◱
+///   - Block-element progress bars: ▏▎▍▌▋▊▉█ ░ ▒ ▓
+///   - Elapsed-time tokens that change every second:
+///     `\d+(\.\d+)?s\b`, `\d+m\b`, `\d+:\d{1,2}(:\d{1,2})?`,
+///     and ISO-ish timestamps `\d{2}:\d{2}:\d{2}`
+/// Then `normalize_for_hash` (whitespace + case) and hash.
+///
+/// Two consecutive WAITs that hash equal here mean: the executor's
+/// visible content (modulo spinner animation) hasn't changed. That's
+/// the precise definition of "stuck" — distinct from "spinner is
+/// rotating, bytes_total advanced" (which the old detector confused
+/// for progress).
+fn compute_progress_signature(tail: &[u8]) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
+    let despun = strip_spinner_churn(&stripped);
+    let mut hasher = DefaultHasher::new();
+    normalize_for_hash(&despun).hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Strip animated-glyph and elapsed-time churn from already-ANSI-
+/// stripped terminal text. Removes:
+///   - Braille block (U+2800-U+28FF) — cli-spinners default
+///   - Block elements (U+2580-U+259F) — progress bars / shade blocks
+///   - Common single-char spinners and dial glyphs
+///   - Elapsed-time tokens (`14s`, `1:23`, `00:01:42`, `120ms`)
+fn strip_spinner_churn(s: &str) -> String {
+    use std::sync::OnceLock;
+    static TIMER_RE: OnceLock<Regex> = OnceLock::new();
+    let timer = TIMER_RE.get_or_init(|| {
+        Regex::new(r"\d{1,2}:\d{2}:\d{2}|\d{1,3}:\d{2}|\d+(\.\d+)?\s*(ms|s|m|h)\b")
+            .unwrap()
+    });
+    let despun: String = s
+        .chars()
+        .filter(|c| {
+            let cp = *c as u32;
+            if (0x2800..=0x28FF).contains(&cp) {
+                return false;
+            }
+            if (0x2580..=0x259F).contains(&cp) {
+                return false;
+            }
+            !matches!(
+                *c,
+                '✶' | '✷' | '✸' | '✹' | '✺' | '✦' | '★' | '☆'
+                | '◐' | '◓' | '◑' | '◒'
+                | '◴' | '◷' | '◶' | '◵' | '◰' | '◳' | '◲' | '◱'
+            )
+        })
+        .collect();
+    timer.replace_all(&despun, "").into_owned()
 }
 
 /// Hash a REPLY text alone — no rationale, no screen state. Used by
@@ -3119,6 +3201,55 @@ mod tests {
             rationale: "x".to_string(),
         };
         assert_ne!(compute_loop_hash(&wait, tail), compute_loop_hash(&reply, tail));
+    }
+
+    #[test]
+    fn progress_sig_collapses_braille_spinner_frames() {
+        // Two frames of the same "Sautéed for Ns" line — different
+        // spinner glyph + bumped timer — must hash equal.
+        let frame_a = "⠋ Sautéed for 14s — sparkle\n› ".as_bytes();
+        let frame_b = "⠹ Sautéed for 18s — sparkle\n› ".as_bytes();
+        assert_eq!(
+            compute_progress_signature(frame_a),
+            compute_progress_signature(frame_b),
+            "spinner glyph + elapsed-time churn must not change progress signature"
+        );
+    }
+
+    #[test]
+    fn progress_sig_changes_on_real_content_change() {
+        let before = "⠋ Sautéed for 14s\nLast op: read foo.rs\n› ".as_bytes();
+        let after = "⠋ Sautéed for 14s\nLast op: write bar.rs\n› ".as_bytes();
+        assert_ne!(
+            compute_progress_signature(before),
+            compute_progress_signature(after),
+            "real content change must shift the progress signature"
+        );
+    }
+
+    #[test]
+    fn progress_sig_collapses_block_progress_bars() {
+        let a = "Building [████░░░░] 50% (12s)".as_bytes();
+        let b = "Building [██████░░] 75% (18s)".as_bytes();
+        // Bar fill + percent number differ, but the percent is a bare
+        // integer (not a timer token) so it survives — that's fine,
+        // it's real progress. The bar glyphs themselves must not.
+        // Strip the percent tokens out for the assertion focus: equal
+        // structural words.
+        let sig_a = compute_progress_signature(a);
+        let sig_b = compute_progress_signature(b);
+        // Different because the percent ('50' vs '75') survives —
+        // that's correct: percent IS progress.
+        assert_ne!(sig_a, sig_b);
+
+        // But two identical states with different bar glyphs only?
+        let c = "Building [████░░░░] 50% (12s)".as_bytes();
+        let d = "Building [██▓▒░░░░] 50% (18s)".as_bytes();
+        assert_eq!(
+            compute_progress_signature(c),
+            compute_progress_signature(d),
+            "bar glyph churn at fixed percent must not change signature"
+        );
     }
 
     #[test]

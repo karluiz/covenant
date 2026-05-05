@@ -39,10 +39,21 @@ const AUTO_DISMISS_MS = 4_000;
 /// stack on top until cap is hit, then we drop the oldest visible.
 const MAX_VISIBLE = 6;
 
+/// Suppress consecutive WAIT cards with the same rationale within
+/// this window. The backend can legitimately emit a WAIT every ~90s
+/// while the executor is genuinely running, but the rationale is
+/// almost always the same wording — surfacing it twice in a row
+/// adds noise without information. Reply / Escalate are NEVER
+/// suppressed: those represent state changes the user must see.
+const WAIT_DEDUP_MS = 30_000;
+
 export class AomActivityFeed {
   private container: HTMLElement;
   private unlistenDecision?: UnlistenFn;
   private unlistenStartup?: UnlistenFn;
+  /// Per-session record of the last WAIT we surfaced. Used to drop
+  /// repeat WAITs with identical rationale inside `WAIT_DEDUP_MS`.
+  private lastWait = new Map<string, { rationaleKey: string; t: number }>();
 
   constructor(private readonly mountHost: HTMLElement) {
     this.container = document.createElement("div");
@@ -73,6 +84,26 @@ export class AomActivityFeed {
   }
 
   private pushDecision(d: DecisionEvent): void {
+    // Dedup: suppress consecutive WAITs with identical rationale on
+    // the same session within WAIT_DEDUP_MS. This is the visible
+    // symptom of a stuck-spinner loop — the backend's idle-WAIT
+    // detector still escalates after enough repeats; we just don't
+    // need to show the same card twice in a row in the meantime.
+    if (d.action === "wait") {
+      const key = normalizeRationale(d.rationale);
+      const prev = this.lastWait.get(d.session_id);
+      const now = d.timestamp_unix_ms || Date.now();
+      if (prev && prev.rationaleKey === key && now - prev.t < WAIT_DEDUP_MS) {
+        prev.t = now; // refresh window so a stuck WAIT stays muted
+        return;
+      }
+      this.lastWait.set(d.session_id, { rationaleKey: key, t: now });
+    } else {
+      // Any non-WAIT decision is real progress — clear the dedup
+      // record so the NEXT WAIT (after activity) shows again.
+      this.lastWait.delete(d.session_id);
+    }
+
     // Action → visual + label.
     let cls: string;
     let icon: string;
@@ -171,6 +202,10 @@ export class AomActivityFeed {
     }
     arm();
   }
+}
+
+function normalizeRationale(s: string | null): string {
+  return (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function shortSession(id: string): string {
