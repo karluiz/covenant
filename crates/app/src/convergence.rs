@@ -196,6 +196,14 @@ use karl_session::SessionId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex};
 
+/// Frontend-supplied tab metadata, sent with each command invocation.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TabHint {
+    pub session_id: String,
+    pub title: String,
+    pub color: Option<String>,
+}
+
 /// Per-session inputs the aggregator needs. The frontend supplies
 /// title/color (it owns tab metadata); the backend supplies status +
 /// activity. `op_state` is shared with the byte pump — we lock it
@@ -214,6 +222,64 @@ pub struct SessionInput {
     pub operator_name: Option<String>,
     /// Operator avatar (emoji or short string). Optional.
     pub operator_avatar: Option<String>,
+}
+
+/// Flat row produced by the first pass of `build_convergence_snapshot`.
+/// Exposed so `assemble_snapshot` can be unit-tested without async I/O.
+pub struct BuiltRow {
+    pub operator_id: String,
+    pub operator_name: String,
+    pub operator_avatar: Option<String>,
+    pub summary: SessionSummary,
+    pub escalated_at_unix_ms: u64,
+}
+
+/// Pure second + third pass: groups rows by operator, builds escalation
+/// list, and sorts both. Extracted so tests can drive it without async.
+pub fn assemble_snapshot(built: Vec<BuiltRow>) -> ConvergenceSnapshot {
+    let mut escalations: Vec<EscalationCard> = built
+        .iter()
+        .filter(|b| matches!(b.summary.status, TileStatus::Blocked))
+        .map(|b| EscalationCard {
+            session_id: b.summary.session_id.clone(),
+            tab_title: b.summary.tab_title.clone(),
+            tab_color: b.summary.tab_color.clone(),
+            operator_id: b.operator_id.clone(),
+            operator_name: b.operator_name.clone(),
+            operator_avatar: b.operator_avatar.clone(),
+            vendor: b.summary.vendor,
+            raw_command_label: b.summary.raw_command_label.clone(),
+            question: b.summary.last_decision_rationale.clone(),
+            mission_name: b.summary.mission_name.clone(),
+            escalated_at_unix_ms: b.escalated_at_unix_ms,
+        })
+        .collect();
+    escalations.sort_by_key(|e| e.escalated_at_unix_ms);
+
+    let mut roster: Vec<OperatorRosterEntry> = Vec::new();
+    for b in built {
+        if let Some(entry) = roster.iter_mut().find(|e| e.operator_id == b.operator_id) {
+            if matches!(b.summary.status, TileStatus::Blocked) {
+                entry.has_escalation = true;
+            }
+            entry.sessions.push(b.summary);
+        } else {
+            let has_escalation = matches!(b.summary.status, TileStatus::Blocked);
+            roster.push(OperatorRosterEntry {
+                operator_id: b.operator_id,
+                operator_name: b.operator_name,
+                operator_avatar: b.operator_avatar,
+                sessions: vec![b.summary],
+                has_escalation,
+            });
+        }
+    }
+    roster.sort_by(|a, b| match (a.has_escalation, b.has_escalation) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.operator_name.cmp(&b.operator_name),
+    });
+    ConvergenceSnapshot { roster, escalations }
 }
 
 pub async fn build_convergence_snapshot(
@@ -236,15 +302,7 @@ pub async fn build_convergence_snapshot(
 
     let now = Instant::now();
 
-    struct Built {
-        operator_id: String,
-        operator_name: String,
-        operator_avatar: Option<String>,
-        summary: SessionSummary,
-        escalated_at_unix_ms: u64,
-    }
-
-    let mut built: Vec<Built> = Vec::with_capacity(sessions.len());
+    let mut built: Vec<BuiltRow> = Vec::with_capacity(sessions.len());
     for s in sessions {
         let Some(op_id) = s.operator_id else {
             continue;
@@ -295,7 +353,7 @@ pub async fn build_convergence_snapshot(
             budget_usd: if enrolled { Some(aom_budget) } else { None },
         };
 
-        built.push(Built {
+        built.push(BuiltRow {
             operator_id: op_id,
             operator_name: op_name,
             operator_avatar: op_avatar,
@@ -304,51 +362,7 @@ pub async fn build_convergence_snapshot(
         });
     }
 
-    let mut escalations: Vec<EscalationCard> = built
-        .iter()
-        .filter(|b| matches!(b.summary.status, TileStatus::Blocked))
-        .map(|b| EscalationCard {
-            session_id: b.summary.session_id.clone(),
-            tab_title: b.summary.tab_title.clone(),
-            tab_color: b.summary.tab_color.clone(),
-            operator_id: b.operator_id.clone(),
-            operator_name: b.operator_name.clone(),
-            operator_avatar: b.operator_avatar.clone(),
-            vendor: b.summary.vendor,
-            raw_command_label: b.summary.raw_command_label.clone(),
-            question: b.summary.last_decision_rationale.clone(),
-            mission_name: b.summary.mission_name.clone(),
-            escalated_at_unix_ms: b.escalated_at_unix_ms,
-        })
-        .collect();
-    escalations.sort_by_key(|e| e.escalated_at_unix_ms);
-
-    let mut roster: Vec<OperatorRosterEntry> = Vec::new();
-    for b in built {
-        if let Some(entry) = roster.iter_mut().find(|e| e.operator_id == b.operator_id) {
-            if matches!(b.summary.status, TileStatus::Blocked) {
-                entry.has_escalation = true;
-            }
-            entry.sessions.push(b.summary);
-        } else {
-            let has_escalation = matches!(b.summary.status, TileStatus::Blocked);
-            roster.push(OperatorRosterEntry {
-                operator_id: b.operator_id,
-                operator_name: b.operator_name,
-                operator_avatar: b.operator_avatar,
-                sessions: vec![b.summary],
-                has_escalation,
-            });
-        }
-    }
-
-    roster.sort_by(|a, b| match (a.has_escalation, b.has_escalation) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.operator_name.cmp(&b.operator_name),
-    });
-
-    ConvergenceSnapshot { roster, escalations }
+    assemble_snapshot(built)
 }
 
 fn shorten6(id: &str) -> String {
@@ -458,6 +472,82 @@ mod tests {
         let got = mission_name_from_path(Some(&long)).expect("some");
         assert_eq!(got.chars().count(), 40);
         assert!(got.chars().all(|c| c == 'a'));
+    }
+
+    fn summary(session: &str, status: TileStatus) -> SessionSummary {
+        SessionSummary {
+            session_id: session.into(),
+            tab_title: format!("tab-{session}"),
+            tab_color: None,
+            status,
+            vendor: Vendor::Unknown,
+            raw_command_label: None,
+            last_command: None,
+            last_output_line: None,
+            last_decision_action: None,
+            last_decision_rationale: matches!(status, TileStatus::Blocked).then(|| "q?".into()),
+            mission_name: None,
+            cost_usd: None,
+            budget_usd: None,
+        }
+    }
+
+    fn row(op: &str, op_name: &str, session: &str, status: TileStatus, esc_ms: u64) -> BuiltRow {
+        BuiltRow {
+            operator_id: op.into(),
+            operator_name: op_name.into(),
+            operator_avatar: None,
+            summary: summary(session, status),
+            escalated_at_unix_ms: esc_ms,
+        }
+    }
+
+    #[test]
+    fn roster_groups_same_operator_across_sessions() {
+        let snap = assemble_snapshot(vec![
+            row("op-frontend", "frontend", "s1", TileStatus::Working, 0),
+            row("op-backend",  "backend",  "s2", TileStatus::Idle,    0),
+            row("op-frontend", "frontend", "s3", TileStatus::Idle,    0),
+        ]);
+        assert_eq!(snap.roster.len(), 2);
+        let frontend = snap.roster.iter().find(|r| r.operator_id == "op-frontend").unwrap();
+        assert_eq!(frontend.sessions.len(), 2);
+        assert!(snap.roster.iter().any(|r| r.operator_id == "op-backend"));
+    }
+
+    #[test]
+    fn roster_sorts_escalating_operators_first() {
+        let snap = assemble_snapshot(vec![
+            row("op-a", "alpha",   "s1", TileStatus::Working, 0),
+            row("op-b", "bravo",   "s2", TileStatus::Blocked, 100),
+            row("op-c", "charlie", "s3", TileStatus::Idle,    0),
+        ]);
+        assert_eq!(snap.roster[0].operator_id, "op-b");
+        assert!(snap.roster[0].has_escalation);
+        assert_eq!(snap.roster[1].operator_name, "alpha");
+        assert_eq!(snap.roster[2].operator_name, "charlie");
+    }
+
+    #[test]
+    fn escalations_are_oldest_first() {
+        let snap = assemble_snapshot(vec![
+            row("op-a", "alpha", "s-new", TileStatus::Blocked, 500),
+            row("op-b", "bravo", "s-old", TileStatus::Blocked, 100),
+            row("op-c", "char",  "s-mid", TileStatus::Blocked, 300),
+        ]);
+        let order: Vec<_> = snap.escalations.iter().map(|e| e.session_id.as_str()).collect();
+        assert_eq!(order, vec!["s-old", "s-mid", "s-new"]);
+    }
+
+    #[test]
+    fn escalations_only_include_blocked_status() {
+        let snap = assemble_snapshot(vec![
+            row("op-a", "alpha", "s1", TileStatus::Working, 0),
+            row("op-b", "bravo", "s2", TileStatus::Blocked, 100),
+            row("op-c", "char",  "s3", TileStatus::AwaitingInput, 200),
+        ]);
+        assert_eq!(snap.escalations.len(), 1);
+        assert_eq!(snap.escalations[0].session_id, "s2");
     }
 
     #[test]

@@ -1011,22 +1011,63 @@ async fn aom_report(state: State<'_, AppState>) -> Result<Option<AomReport>, Str
         .map_err(|e| e.to_string())
 }
 
+/// Builds the `SessionInput` vec from state + tab hints + operator registry.
+/// `tabs` is supplied by the frontend (it owns title/color); registry
+/// provides the pinned-operator assignment. Sessions with no pinned
+/// operator are included with `operator_id: None` and will be dropped
+/// by `build_convergence_snapshot`.
+async fn build_convergence_inputs(
+    state: &State<'_, AppState>,
+    registry: &std::sync::Arc<crate::operator_registry::OperatorRegistry>,
+    tab_hints: Vec<convergence::TabHint>,
+) -> Vec<convergence::SessionInput> {
+    use std::collections::HashMap;
+    let by_id: HashMap<String, convergence::TabHint> =
+        tab_hints.into_iter().map(|t| (t.session_id.clone(), t)).collect();
+
+    let sessions = state.sessions.lock().await;
+    let mut out = Vec::with_capacity(sessions.len());
+    for (id, ms) in sessions.iter() {
+        let id_str = id.to_string();
+        let pinned = registry.pinned(*id);
+        let (operator_id, operator_name, operator_avatar) =
+            match pinned.and_then(|oid| registry.get(oid)) {
+                Some(op) => (
+                    Some(op.id.to_string()),
+                    Some(op.name.clone()),
+                    Some(op.emoji.clone()),
+                ),
+                None => (None, None, None),
+            };
+        let (tab_title, tab_color) = by_id
+            .get(&id_str)
+            .map(|h| (h.title.clone(), h.color.clone()))
+            .unwrap_or_else(|| (String::from("untitled"), None));
+        out.push(convergence::SessionInput {
+            session_id: *id,
+            op_state: ms.op_state.clone(),
+            tab_title,
+            tab_color,
+            operator_id,
+            operator_name,
+            operator_avatar,
+        });
+    }
+    out
+}
+
 /// 3.8 Convergence Mode — one snapshot per UI poll (1 Hz). Read-only
 /// aggregator over existing handles; no schema changes.
+/// Frontend MUST supply `tabs` (title + color per session) — Task 3
+/// wires the JS side; until then the array may be empty (tabs show
+/// "untitled" with no color).
 #[tauri::command]
 async fn get_convergence_snapshot(
     state: State<'_, AppState>,
+    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    tabs: Vec<convergence::TabHint>,
 ) -> Result<convergence::ConvergenceSnapshot, String> {
-    let inputs: Vec<convergence::SessionInput> = {
-        let sessions = state.sessions.lock().await;
-        sessions
-            .iter()
-            .map(|(id, ms)| convergence::SessionInput {
-                session_id: *id,
-                op_state: ms.op_state.clone(),
-            })
-            .collect()
-    };
+    let inputs = build_convergence_inputs(&state, &registry, tabs).await;
     Ok(convergence::build_convergence_snapshot(
         inputs,
         &state.operator,
@@ -1041,20 +1082,14 @@ async fn get_convergence_snapshot(
 /// so the tab chip can render its escalation dot independent of the
 /// convergence overlay's lifecycle. Reuses `build_convergence_snapshot`
 /// — at 1 Hz the cost is negligible and we get the exact same logic.
+/// Frontend MUST supply `tabs` — see `get_convergence_snapshot` note.
 #[tauri::command]
 async fn get_blocked_session_ids(
     state: State<'_, AppState>,
+    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    tabs: Vec<convergence::TabHint>,
 ) -> Result<Vec<String>, String> {
-    let inputs: Vec<convergence::SessionInput> = {
-        let sessions = state.sessions.lock().await;
-        sessions
-            .iter()
-            .map(|(id, ms)| convergence::SessionInput {
-                session_id: *id,
-                op_state: ms.op_state.clone(),
-            })
-            .collect()
-    };
+    let inputs = build_convergence_inputs(&state, &registry, tabs).await;
     let snap = convergence::build_convergence_snapshot(
         inputs,
         &state.operator,
@@ -1062,12 +1097,7 @@ async fn get_blocked_session_ids(
         &state.aom,
     )
     .await;
-    Ok(snap
-        .tiles
-        .into_iter()
-        .filter(|t| matches!(t.status, convergence::TileStatus::Blocked))
-        .map(|t| t.session_id)
-        .collect())
+    Ok(snap.escalations.into_iter().map(|e| e.session_id).collect())
 }
 
 /// 3.13 Task 3 — pure scope-resolution helper. UI sends literal
