@@ -2928,6 +2928,10 @@ export class TabManager {
       tab.id,
       getSpecPromptState(),
       () => this.listTabSnapshots(),
+      {
+        setMissionForTab: (tabId, path) => this.setMissionPathForTab(tabId, path),
+        openSpec: async (path) => { this.openFileAtLine(path); },
+      },
     );
 
     const close = document.createElement("span");

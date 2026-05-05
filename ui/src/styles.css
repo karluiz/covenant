@@ -8603,3 +8603,23 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-actions {
 .spec-badge.hidden { display: none; }
 .spec-badge-count:empty { display: none; }
 .spec-badge-icon { font-size: 10px; line-height: 1; }
+.spec-badge-popover {
+  z-index: 9999;
+  background: var(--bg-overlay, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  padding: 6px;
+  min-width: 280px;
+  max-width: 380px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.spec-badge-item { padding: 6px; border-bottom: 1px solid var(--border, #2a2a2a); }
+.spec-badge-item:last-child { border-bottom: none; }
+.spec-badge-item-file { font-weight: 600; font-size: 12px; }
+.spec-badge-item-snippet { font-size: 11px; color: var(--text-muted, #888); margin: 4px 0; }
+.spec-badge-item-actions { display: flex; gap: 6px; }
+.spec-badge-item-actions button {
+  font-size: 11px; padding: 2px 8px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border, #444); color: inherit; border-radius: 3px;
+}
+.spec-badge-set { color: var(--accent, #3b82f6); border-color: var(--accent, #3b82f6) !important; }
