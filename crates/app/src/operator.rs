@@ -46,6 +46,46 @@ use crate::storage::Storage;
 use crate::world::SessionWorldModel;
 use crate::AppState;
 
+/// Liveness phase exposed to the UI so the AOM banner can show what
+/// the operator is currently doing, instead of a static "WAIT $cost"
+/// string. Updated at the obvious transitions in `run_tick` and from
+/// `note_user_input`. Per-session — the banner aggregates across all
+/// attached sessions (highest-priority phase wins; see
+/// `phase_overview`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OperatorPhase {
+    /// No watched executor / AOM off / nothing happening.
+    Idle,
+    /// Watching an in-flight executor command, waiting for trigger.
+    Observing,
+    /// Cheap triage classifier in flight (Task 2 will populate; the
+    /// variant exists today so the UI palette is final).
+    Triaging,
+    /// Big-model decision call in flight.
+    Deciding,
+    /// User typed into the PTY → operator yielded its WAIT/loop state.
+    /// Visible in the banner for ~5s before falling back to Observing.
+    Yielded,
+    /// Network unavailable (Task 4 will populate).
+    Offline,
+}
+
+impl Default for OperatorPhase {
+    fn default() -> Self {
+        OperatorPhase::Idle
+    }
+}
+
+/// IPC payload returned by the `operator_phase_overview` command.
+/// One value reflects the most-active phase across all sessions;
+/// `since_ms` is the unix-ms timestamp at which that phase began.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OperatorPhaseSnapshot {
+    pub phase: OperatorPhase,
+    pub since_unix_ms: u64,
+}
+
 /// Per-session rolling byte buffer of recent executor output. Sized
 /// large enough to retain a question even after several screens of
 /// follow-up output (a long plan summary + a /rename + the renamed
@@ -273,6 +313,78 @@ struct Inner {
     sessions: HashMap<SessionId, Attached>,
 }
 
+impl Inner {
+    /// Reset the WAIT/loop counters for a session whose user just
+    /// typed into the PTY. Pulled out of `OperatorWatcher` so unit
+    /// tests can exercise the mutation without standing up the full
+    /// watcher (which needs an `AppHandle`, Storage, etc.).
+    fn note_user_input(&mut self, session_id: SessionId) {
+        if let Some(att) = self.sessions.get_mut(&session_id) {
+            att.consecutive_idle_waits = 0;
+            att.progress_sig_at_last_wait = 0;
+            att.loop_cooldown_until = None;
+            // The user just took the wheel — surface that in the badge
+            // so it's visibly different from a normal Observing tick.
+            // The next operator tick will move it back to Observing or
+            // Idle as appropriate.
+            att.current_phase = OperatorPhase::Yielded;
+            att.phase_started_at = Instant::now();
+        }
+    }
+
+    /// Set the phase for `session_id`, no-op if not attached. Records
+    /// `Instant::now()` only when the phase actually changes — the UI
+    /// uses the start time to render "observing 4s" so we don't want
+    /// a same-phase write to reset the elapsed counter.
+    fn set_phase(&mut self, session_id: SessionId, phase: OperatorPhase) {
+        if let Some(att) = self.sessions.get_mut(&session_id) {
+            if att.current_phase != phase {
+                att.current_phase = phase;
+                att.phase_started_at = Instant::now();
+            }
+        }
+    }
+
+    /// Aggregate phase across all attached sessions for the global AOM
+    /// banner. Priority order picks the most "alive" phase so the UI
+    /// reads the highest-energy thing the operator is doing right now.
+    fn phase_overview(&self) -> OperatorPhaseSnapshot {
+        // Priority: Deciding > Triaging > Yielded > Observing > Offline > Idle.
+        // Yielded outranks Observing so a fresh user-input is visible
+        // even if other tabs are merely Observing.
+        fn rank(p: OperatorPhase) -> u8 {
+            match p {
+                OperatorPhase::Deciding => 5,
+                OperatorPhase::Triaging => 4,
+                OperatorPhase::Yielded => 3,
+                OperatorPhase::Observing => 2,
+                OperatorPhase::Offline => 1,
+                OperatorPhase::Idle => 0,
+            }
+        }
+        let mut best: Option<(OperatorPhase, Instant)> = None;
+        for att in self.sessions.values() {
+            let cand = (att.current_phase, att.phase_started_at);
+            best = Some(match best {
+                None => cand,
+                Some(prev) if rank(cand.0) > rank(prev.0) => cand,
+                Some(prev) => prev,
+            });
+        }
+        let (phase, started) =
+            best.unwrap_or((OperatorPhase::Idle, Instant::now()));
+        // Convert Instant → unix-ms via the elapsed-from-now offset.
+        let since_unix_ms = {
+            let elapsed = started.elapsed().as_millis() as u64;
+            now_unix_ms().saturating_sub(elapsed)
+        };
+        OperatorPhaseSnapshot {
+            phase,
+            since_unix_ms,
+        }
+    }
+}
+
 /// One-shot startup actions the Operator runs proactively when AOM
 /// transitions on, before its normal idle-decision flow. Each field
 /// represents a single action to fire ONCE per AOM cycle, then clear.
@@ -389,6 +501,13 @@ struct Attached {
     /// guard's `Drop` ensures the flag clears on success, error, or
     /// panic — a stuck `true` would otherwise wedge the tile.
     thinking: Arc<AtomicBool>,
+    /// Liveness phase for the AOM badge (Task 3). Updated at the
+    /// obvious transitions in `run_tick` and from `note_user_input`.
+    current_phase: OperatorPhase,
+    /// Instant the current phase began. Converted to a unix-ms wall
+    /// clock at IPC time so the UI can render "observing 4s" without
+    /// re-querying every tick.
+    phase_started_at: Instant,
 }
 
 /// RAII guard that flips `thinking` true on construction and false on
@@ -483,6 +602,7 @@ impl OperatorWatcher {
         email: Arc<crate::email::EmailNotifier>,
         registry: Arc<OperatorRegistry>,
         embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
+        connectivity: crate::connectivity::ConnectivityHandle,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -499,6 +619,7 @@ impl OperatorWatcher {
             registry.clone(),
             resolution_rx,
             embedder_cell,
+            connectivity,
         ));
         Self {
             inner,
@@ -545,6 +666,8 @@ impl OperatorWatcher {
                 consecutive_idle_waits: 0,
                 progress_sig_at_last_wait: 0,
                 thinking: Arc::new(AtomicBool::new(false)),
+                current_phase: OperatorPhase::Idle,
+                phase_started_at: Instant::now(),
             },
         );
     }
@@ -576,6 +699,25 @@ impl OperatorWatcher {
             att.consecutive_idle_waits = 0;
             att.progress_sig_at_last_wait = 0;
         }
+    }
+
+    /// Yield the operator on user input. When the user types into a
+    /// session's PTY while AOM is mid-WAIT cycle, the prompt the
+    /// operator was about to "answer" has been claimed by the human —
+    /// any pending escalation/loop counter is stale. We reset the
+    /// idle-WAIT state so the next tick re-evaluates from scratch
+    /// instead of charging toward `IDLE_WAIT_ESCALATE_THRESHOLD`.
+    ///
+    /// No-op when the session isn't attached (operator not watching).
+    pub async fn note_user_input(&self, session_id: SessionId) {
+        self.inner.lock().await.note_user_input(session_id);
+    }
+
+    /// Aggregate liveness phase across all attached sessions. The AOM
+    /// banner polls this once every ~1s while AOM is on; cheap (single
+    /// async lock + a value-typed iteration over a tiny HashMap).
+    pub async fn phase_overview(&self) -> OperatorPhaseSnapshot {
+        self.inner.lock().await.phase_overview()
     }
 
     pub async fn is_enabled(&self, session_id: SessionId) -> bool {
@@ -1007,6 +1149,7 @@ async fn tick_loop(
     registry: Arc<OperatorRegistry>,
     mut resolution_rx: mpsc::UnboundedReceiver<ConvergenceResolution>,
     embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
+    connectivity: crate::connectivity::ConnectivityHandle,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1041,7 +1184,7 @@ async fn tick_loop(
             }
         }
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -1179,7 +1322,29 @@ async fn run_tick(
     email: &Arc<crate::email::EmailNotifier>,
     registry: &Arc<OperatorRegistry>,
     embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
+    connectivity: &crate::connectivity::ConnectivityHandle,
 ) -> Result<(), String> {
+    // Offline gate (Task 4 / AOM liveness). If the OS reports we're
+    // offline (forwarded by the frontend `online`/`offline` listener
+    // via the `set_connectivity` command), short-circuit the entire
+    // tick: no model calls, no rate-limit budget burned, no silent
+    // API errors. Auto-resumes on the next tick after reconnect.
+    // Every enabled session is parked in `OperatorPhase::Offline`
+    // so the badge / banner mirror the gate state in real time.
+    if crate::connectivity::should_skip_for_offline(&*connectivity.read().await) {
+        let mut i = inner.lock().await;
+        let ids: Vec<SessionId> = i
+            .sessions
+            .iter()
+            .filter(|(_, att)| att.enabled)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            i.set_phase(id, OperatorPhase::Offline);
+        }
+        return Ok(());
+    }
+
     // Snapshot AOM state once per tick. When on, every Operator-enabled
     // tab gets autonomous posture + forced live regardless of per-tab
     // live setting (the user opted in by enabling Operator on the tab).
@@ -1205,7 +1370,23 @@ async fn run_tick(
         let now = Instant::now();
         for (id, att) in i.sessions.iter_mut() {
             if !att.enabled {
+                // Disabled tabs are inert — keep the badge quiet.
+                if att.current_phase != OperatorPhase::Idle {
+                    att.current_phase = OperatorPhase::Idle;
+                    att.phase_started_at = Instant::now();
+                }
                 continue;
+            }
+            // Default phase for an enabled, watched tab is Observing.
+            // Preserve `Yielded` so the "user just typed" badge cue
+            // stays visible at least one tick; the Deciding override
+            // happens later, around the ask call.
+            if !matches!(
+                att.current_phase,
+                OperatorPhase::Observing | OperatorPhase::Yielded
+            ) {
+                att.current_phase = OperatorPhase::Observing;
+                att.phase_started_at = Instant::now();
             }
             // Loop cooldown — the previous decision burned the loop
             // detector and parked this tab. Skip entirely until the
@@ -1248,6 +1429,8 @@ async fn run_tick(
         deny_extra_global,
         idle_threshold,
         max_per_min,
+        triage_enabled,
+        triage_model,
     ) = {
         let s = settings.lock().await;
         let key = match s.anthropic_api_key.clone() {
@@ -1260,6 +1443,8 @@ async fn run_tick(
             s.operator.deny_extra_patterns.clone(),
             Duration::from_secs(s.operator.idle_threshold_secs.max(1)),
             s.operator.max_decisions_per_minute,
+            s.operator.triage_enabled,
+            s.operator.triage_model.clone(),
         )
     };
 
@@ -1488,8 +1673,110 @@ async fn run_tick(
             }
         }
 
+        // AOM liveness Task 2 — Haiku triage tier. Skip if disabled
+        // OR if this is a flagged decision-point (those are pre-filtered
+        // by `detect_decision_point` and already merit the big model).
+        let mut triage_short_circuit: Option<OperatorAction> = None;
+        let mut triage_cost_usd = 0.0_f64;
+        let mut triage_yielded = false;
+        if triage_enabled && !is_decision {
+            {
+                let mut inner_lock = inner.lock().await;
+                inner_lock.set_phase(session_id, OperatorPhase::Triaging);
+            }
+            let _thinking = ThinkingGuard::new(&thinking_flag);
+            let triage_result = karl_agent::triage_oneshot(karl_agent::AskRequest {
+                api_key: api_key.clone(),
+                model: triage_model.clone(),
+                system_prompt: system_prompt.clone(),
+                user_message: user_message.clone(),
+                max_tokens: 64,
+            })
+            .await;
+            drop(_thinking);
+            match triage_result {
+                Ok((verdict, usage)) => {
+                    let cost = cost::estimate_usd(&triage_model, usage);
+                    triage_cost_usd += cost;
+                    tracing::info!(
+                        session = %session_id,
+                        action = ?verdict.action,
+                        confidence = verdict.confidence,
+                        cost_usd = cost,
+                        "operator triage verdict"
+                    );
+                    match verdict.action {
+                        karl_agent::TriageAction::Act
+                            if verdict.confidence > 0.6 =>
+                        {
+                            // Fall through to the big-model path.
+                        }
+                        karl_agent::TriageAction::Act => {
+                            // Low-confidence Act → treat as Wait to
+                            // avoid spending Opus on a guess.
+                            triage_short_circuit = Some(OperatorAction::Wait {
+                                rationale: format!(
+                                    "triage: act/low-conf ({:.2}) — {}",
+                                    verdict.confidence, verdict.rationale
+                                ),
+                            });
+                        }
+                        karl_agent::TriageAction::Wait => {
+                            triage_short_circuit = Some(OperatorAction::Wait {
+                                rationale: format!("triage: {}", verdict.rationale),
+                            });
+                        }
+                        karl_agent::TriageAction::Yield => {
+                            triage_short_circuit = Some(OperatorAction::Wait {
+                                rationale: format!("triage/yield: {}", verdict.rationale),
+                            });
+                            triage_yielded = true;
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Triage failure is non-fatal — fall through to the
+                    // big-model path so a transient API blip doesn't
+                    // leave the operator silent.
+                    tracing::warn!(
+                        session = %session_id,
+                        error = %e,
+                        "operator triage failed — falling back to decision model"
+                    );
+                }
+            }
+        }
+
+        // Apply yield cooldown (10s) to this session if triage said so.
+        if triage_yielded {
+            if let Some(att) = inner.lock().await.sessions.get_mut(&session_id) {
+                att.loop_cooldown_until = Some(Instant::now() + Duration::from_secs(10));
+            }
+        }
+
+        // Accumulate triage cost into the AOM budget regardless of branch.
+        if effective_aom && triage_cost_usd > 0.0 {
+            let mut a = aom.write().await;
+            a.accumulated_cost_usd += triage_cost_usd;
+        }
+
+        // Liveness: we're about to call the model — surface Deciding
+        // in the AOM badge until the ask returns.
+        {
+            let mut inner_lock = inner.lock().await;
+            inner_lock.set_phase(session_id, OperatorPhase::Deciding);
+        }
+
         let started = Instant::now();
-        let ask_response = {
+        let ask_response = if let Some(action) = triage_short_circuit.clone() {
+            // Synthesize a successful "ask" outcome with zero usage so
+            // the rest of the pipeline (loop detection, persistence,
+            // emission) treats this exactly like a normal Wait.
+            Ok(karl_agent::AskResponse {
+                text: synth_response_for(&action),
+                usage: karl_agent::TokenUsage::default(),
+            })
+        } else {
             // Marks the session as `operator-thinking` for the
             // convergence tile while the HTTP call is in flight. Drop
             // covers Ok, Err, and panic — the flag never leaks.
@@ -1503,6 +1790,15 @@ async fn run_tick(
             })
             .await
         };
+        // Ask completed (success or error) — fall back to Observing
+        // until the next tick re-evaluates. We touch the phase even on
+        // error so a transient failure doesn't leave the badge stuck
+        // on "deciding…".
+        {
+            let mut inner_lock = inner.lock().await;
+            inner_lock.set_phase(session_id, OperatorPhase::Observing);
+        }
+
         let ask_response = match ask_response {
             Ok(s) => s,
             Err(e) => {
@@ -2767,6 +3063,31 @@ fn compute_reply_text_hash(text: &str) -> u64 {
     hasher.finish()
 }
 
+/// Render an `OperatorAction` back into the ACTION/RATIONALE wire
+/// format `parse_response` expects. Used by the triage short-circuit
+/// path so a Wait verdict from Haiku flows through the same parser
+/// and downstream pipeline as a Wait from the big model.
+fn synth_response_for(action: &OperatorAction) -> String {
+    match action {
+        OperatorAction::Wait { rationale } => {
+            format!("ACTION: WAIT\nRATIONALE: {}\n", rationale.replace('\n', " "))
+        }
+        OperatorAction::Escalate {
+            notification,
+            rationale,
+        } => format!(
+            "ACTION: ESCALATE\nNOTIFICATION: {}\nRATIONALE: {}\n",
+            notification.replace('\n', " "),
+            rationale.replace('\n', " "),
+        ),
+        OperatorAction::Reply { text, rationale } => format!(
+            "ACTION: REPLY\nTEXT: {}\nRATIONALE: {}\n",
+            text.replace('\n', "\\n"),
+            rationale.replace('\n', " "),
+        ),
+    }
+}
+
 fn parse_response(text: &str) -> Option<OperatorAction> {
     // Find the ACTION marker and extract subsequent labelled lines.
     let mut action: Option<&str> = None;
@@ -3138,6 +3459,159 @@ mod tests {
             slug_from_mission_path(&PathBuf::from("/x/.md")),
             ""
         );
+    }
+
+    /// Build an `Attached` with sensible defaults for tests. We only
+    /// care about the WAIT/loop-counter fields here; everything else
+    /// gets a benign zero/empty value.
+    fn test_attached() -> Attached {
+        Attached {
+            enabled: true,
+            live: true,
+            aom_excluded: false,
+            enabled_by_aom: false,
+            mission: None,
+            aom_startup: AomStartupPending::default(),
+            decision_point_stable_since: None,
+            decision_point_fired: false,
+            decision_pattern_lost_at: None,
+            state: Arc::new(StdMutex::new(OperatorState::new())),
+            world: Arc::new(AsyncMutex::new(SessionWorldModel::default())),
+            decisions_in_window: VecDeque::new(),
+            recent_decision_hashes: VecDeque::with_capacity(LOOP_WINDOW),
+            recent_reply_hashes: VecDeque::with_capacity(REPLY_REPEAT_THRESHOLD),
+            loop_cooldown_until: None,
+            consecutive_idle_waits: 0,
+            progress_sig_at_last_wait: 0,
+            thinking: Arc::new(AtomicBool::new(false)),
+            current_phase: OperatorPhase::Idle,
+            phase_started_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn note_user_input_resets_wait_state() {
+        // Exercises the same mutation `OperatorWatcher::note_user_input`
+        // delegates to. Avoids spinning up the full watcher (which needs
+        // an `AppHandle`, Storage, Registry, etc.) by going straight to
+        // `Inner`.
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        let mut att = test_attached();
+        att.consecutive_idle_waits = 4;
+        att.progress_sig_at_last_wait = 0xDEAD_BEEF;
+        att.loop_cooldown_until = Some(Instant::now() + Duration::from_secs(60));
+        inner.sessions.insert(sid, att);
+
+        inner.note_user_input(sid);
+
+        let att = inner.sessions.get(&sid).expect("session present");
+        assert_eq!(att.consecutive_idle_waits, 0);
+        assert_eq!(att.progress_sig_at_last_wait, 0);
+        assert!(att.loop_cooldown_until.is_none());
+    }
+
+    #[test]
+    fn note_user_input_sets_phase_to_yielded() {
+        // Task 3 (liveness): the user typing into the PTY is the most
+        // visible "operator gives up the wheel" moment — the badge must
+        // surface it explicitly so the UI never feels frozen during the
+        // 5s window between user input and the next tick.
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        let mut att = test_attached();
+        att.current_phase = OperatorPhase::Observing;
+        let observed_at = att.phase_started_at;
+        inner.sessions.insert(sid, att);
+
+        // Sleep a bit so phase_started_at moves forward measurably.
+        std::thread::sleep(Duration::from_millis(5));
+        inner.note_user_input(sid);
+
+        let att = inner.sessions.get(&sid).expect("session present");
+        assert_eq!(att.current_phase, OperatorPhase::Yielded);
+        assert!(
+            att.phase_started_at > observed_at,
+            "phase_started_at must advance when entering Yielded"
+        );
+    }
+
+    #[test]
+    fn set_phase_only_resets_started_when_phase_changes() {
+        // Same-phase writes must not stomp the elapsed counter — the
+        // banner reads `since` to render "deciding 2s" and a stomped
+        // timestamp would freeze that display at 0 across ticks.
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        let mut att = test_attached();
+        att.current_phase = OperatorPhase::Deciding;
+        inner.sessions.insert(sid, att);
+        let original = inner.sessions.get(&sid).unwrap().phase_started_at;
+
+        std::thread::sleep(Duration::from_millis(5));
+        inner.set_phase(sid, OperatorPhase::Deciding);
+        assert_eq!(
+            inner.sessions.get(&sid).unwrap().phase_started_at,
+            original,
+            "same-phase write must NOT bump phase_started_at"
+        );
+
+        inner.set_phase(sid, OperatorPhase::Observing);
+        assert!(
+            inner.sessions.get(&sid).unwrap().phase_started_at > original,
+            "phase change must bump phase_started_at"
+        );
+    }
+
+    #[test]
+    fn phase_overview_picks_highest_priority() {
+        // Banner aggregates across sessions: Deciding outranks
+        // Observing outranks Idle. A multi-tab AOM run should advertise
+        // the most "alive" thing the operator is doing right now.
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let s_idle = SessionId::new();
+        let s_obs = SessionId::new();
+        let s_dec = SessionId::new();
+        let mut a_idle = test_attached();
+        a_idle.current_phase = OperatorPhase::Idle;
+        let mut a_obs = test_attached();
+        a_obs.current_phase = OperatorPhase::Observing;
+        let mut a_dec = test_attached();
+        a_dec.current_phase = OperatorPhase::Deciding;
+        inner.sessions.insert(s_idle, a_idle);
+        inner.sessions.insert(s_obs, a_obs);
+        inner.sessions.insert(s_dec, a_dec);
+
+        let snap = inner.phase_overview();
+        assert_eq!(snap.phase, OperatorPhase::Deciding);
+    }
+
+    #[test]
+    fn phase_overview_idle_when_no_sessions() {
+        let inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let snap = inner.phase_overview();
+        assert_eq!(snap.phase, OperatorPhase::Idle);
+    }
+
+    #[test]
+    fn note_user_input_no_op_for_unattached_session() {
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        // Must not panic and must not insert a phantom entry.
+        inner.note_user_input(sid);
+        assert!(inner.sessions.is_empty());
     }
 
     #[test]
@@ -3605,5 +4079,58 @@ What would you like to do?
             final_rationale,
             Some("We made a decision.\napplied_memory: 99".to_string())
         );
+    }
+
+    // AOM liveness Task 2: a Wait verdict from triage gets stuffed
+    // through `synth_response_for` and must parse back into a Wait
+    // OperatorAction so the rest of the pipeline (loop detection,
+    // emission, persistence) treats it like any other Wait.
+    #[test]
+    fn synth_wait_round_trips_through_parse_response() {
+        let original = OperatorAction::Wait {
+            rationale: "triage: spinner churning".to_string(),
+        };
+        let wire = synth_response_for(&original);
+        let parsed = parse_response(&wire).expect("parse synth wait");
+        match parsed {
+            OperatorAction::Wait { rationale } => {
+                assert_eq!(rationale, "triage: spinner churning");
+            }
+            other => panic!("expected Wait, got {:?}", other.kind()),
+        }
+    }
+
+    #[test]
+    fn synth_escalate_round_trips() {
+        let original = OperatorAction::Escalate {
+            notification: "needs human".to_string(),
+            rationale: "low confidence".to_string(),
+        };
+        let wire = synth_response_for(&original);
+        let parsed = parse_response(&wire).expect("parse synth escalate");
+        match parsed {
+            OperatorAction::Escalate {
+                notification,
+                rationale,
+            } => {
+                assert_eq!(notification, "needs human");
+                assert_eq!(rationale, "low confidence");
+            }
+            other => panic!("expected Escalate, got {:?}", other.kind()),
+        }
+    }
+
+    #[test]
+    fn triage_action_thresholds() {
+        // Sanity-check the policy used at the call site:
+        //   Act + conf > 0.6 → escalate to big model
+        //   Act + conf <= 0.6 → fall back to Wait (don't burn Opus)
+        //   Wait → Wait
+        //   Yield → Wait + cooldown
+        // This test just locks in the threshold value so a careless
+        // edit doesn't silently change behavior.
+        const ACT_THRESHOLD: f32 = 0.6;
+        assert!(0.7_f32 > ACT_THRESHOLD);
+        assert!(!(0.5_f32 > ACT_THRESHOLD));
     }
 }

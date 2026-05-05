@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.15 — AOM liveness, offline pause, Haiku triage
+
+The Operator now feels *alive*. Four changes targeting the
+"AOM took 5 minutes to make an obvious decision" feedback:
+
+### Added
+
+- **Yield on user input.** Typing into a watched executor's PTY
+  immediately resets the operator's WAIT/cooldown counters for
+  that session. The operator no longer tries to answer a prompt
+  the user already answered.
+- **Liveness phase in the AOM badge.** New `OperatorPhase` enum
+  (`observing` / `triaging` / `deciding` / `yielded` / `offline` /
+  `idle`) drives the badge. Pulse animation while `deciding` /
+  `triaging`. Cost moves to tooltip; phase + elapsed take the
+  primary slot.
+- **Offline detection.** `Connectivity` state listens to the
+  browser's `online` / `offline` events. While offline, every
+  enabled session is parked in `OperatorPhase::Offline`, model
+  calls are short-circuited, and a banner pill shows "AOM
+  paused — offline". Auto-resumes on reconnect.
+- **Haiku triage tier.** Each candidate tick runs through Haiku
+  4.5 (`max_tokens=64`) classifying `act` / `wait` / `yield`
+  before any Opus/Sonnet call. Only `act && confidence > 0.6`
+  escalates to the configured big model. Triage system prompt
+  shares the cached prefix so cache hits are preserved. Settings:
+  `triage_enabled` (default true), `triage_model`.
+
 ## v0.2.14 — Email notifications via SendGrid
 
 - New: SendGrid email channel for Operator escalations, AOM errors (immediate)

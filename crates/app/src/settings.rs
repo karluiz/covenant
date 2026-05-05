@@ -357,6 +357,16 @@ pub struct OperatorConfig {
     /// Operator will refuse to type any reply that matches.
     #[serde(default)]
     pub deny_extra_patterns: Vec<String>,
+    /// AOM liveness Task 2: route every candidate tick through a cheap
+    /// Haiku triage classifier before paying for the configured
+    /// Opus/Sonnet decision call. Defaults to true; disable to fall
+    /// back to the legacy single-model path.
+    #[serde(default = "default_triage_enabled")]
+    pub triage_enabled: bool,
+    /// Model id for the triage classifier. Override only for A/B
+    /// experiments — the default is the cheapest current Haiku.
+    #[serde(default = "default_triage_model")]
+    pub triage_model: String,
 }
 
 impl Default for OperatorConfig {
@@ -368,8 +378,18 @@ impl Default for OperatorConfig {
             idle_threshold_secs: default_idle_secs(),
             max_decisions_per_minute: default_max_decisions_per_minute(),
             deny_extra_patterns: vec![],
+            triage_enabled: default_triage_enabled(),
+            triage_model: default_triage_model(),
         }
     }
+}
+
+fn default_triage_enabled() -> bool {
+    true
+}
+
+fn default_triage_model() -> String {
+    karl_agent::DEFAULT_TRIAGE_MODEL.to_string()
 }
 
 fn default_persona() -> String {
