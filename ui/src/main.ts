@@ -41,6 +41,7 @@ import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager } from "./tabs/manager";
+import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
@@ -247,8 +248,9 @@ async function boot(): Promise<void> {
   const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
   const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
 
-  // Lucide chevrons-left icon — flipped via CSS when the sidebar is
-  // collapsed so a single SVG covers both states.
+  // chevron-right SVG; CSS flips it 180° when expanded so it points
+  // left ("click to collapse"). Collapsed state leaves it pointing
+  // right ("click to expand"). Single SVG covers both states.
   tabbarFoldBtn.innerHTML = Icons.chevronRight({ size: 14 });
   tabbarFoldBtn.addEventListener("click", () => {
     const next = !document.body.classList.contains("tabbar-left-collapsed");
@@ -285,6 +287,18 @@ async function boot(): Promise<void> {
 
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();
+  });
+
+  // Collapsed rail (variant 6). Active only in vertical-tabbar +
+  // collapsed mode; CSS handles visibility, the component just keeps
+  // its DOM in sync with the manager's render cycle.
+  const railHost = requireEl<HTMLElement>("tabbar-rail");
+  new CollapsedRail(railHost, {
+    snapshot: () => manager.getRailSnapshot(),
+    selectTab: (id) => manager.activate(id),
+    setOnAfterRender: (cb) => {
+      manager.onAfterRender = cb;
+    },
   });
 
   const convergence = new ConvergenceOverlay(makeTabsBridge(manager));
