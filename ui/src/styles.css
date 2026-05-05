@@ -87,7 +87,8 @@ body.bg-translucent {
 #workspace,
 #settings-page,
 #docs-page,
-#drafts-page {
+#drafts-page,
+#operator-page {
     grid-row: 2 / 3;
     grid-column: 1;
     min-height: 0;
@@ -1885,58 +1886,53 @@ body:not(.tabbar-left) #new-group {
 
 /* (.tab-operator-dot lives in the tab-btn block above) */
 
-/* ─── Operator (⌘O) panel ──────────────────────────── */
+/* ─── Operator (⌘O) page ───────────────────────────── */
 
-.operator-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 60px;
-    z-index: 1000;
+#operator-page {
+    display: grid;
+    grid-template-rows: 56px auto 1fr;
+    background: var(--bg);
+    overflow: hidden;
     animation: settings-fade 0.12s ease-out;
 }
-
-.operator-card {
-    width: 720px;
-    max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 120px);
-    background: var(--bg-overlay);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow:
-        0 16px 48px rgba(0, 0, 0, 0.5),
-        0 4px 12px rgba(0, 0, 0, 0.3);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    animation: settings-pop 0.16s ease-out;
+#operator-page[hidden] {
+    display: none;
 }
 
-.operator-header {
+.operator-page-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    padding: 14px 18px;
+    gap: 16px;
+    padding: 0 24px;
     border-bottom: 1px solid var(--border);
+    background: var(--bg-tabbar);
+    min-width: 0;
 }
 
-.operator-header h2 {
+.operator-page-titles {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+    flex: 1;
+}
+
+.operator-page-titles h2 {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
     color: #fff;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
 }
 
-.operator-header small {
-    display: block;
-    margin-top: 2px;
+.operator-page-titles small {
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* AOM-active variant: tint the subtitle so the user can spot at a
@@ -1962,9 +1958,9 @@ body:not(.tabbar-left) #new-group {
 }
 
 .operator-list {
-    padding: 8px 0;
+    padding: 8px 24px;
     overflow-y: auto;
-    flex: 1;
+    min-height: 0;
     outline: none;
 }
 
@@ -2153,7 +2149,7 @@ body:not(.tabbar-left) #new-group {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 18px;
+    padding: 10px 24px;
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
 }
@@ -6284,7 +6280,8 @@ body.tabbar-left #tabbar-host {
 body.tabbar-left #workspace,
 body.tabbar-left #settings-page,
 body.tabbar-left #docs-page,
-body.tabbar-left #drafts-page {
+body.tabbar-left #drafts-page,
+body.tabbar-left #operator-page {
     grid-column: 2;
     grid-row: 1;
 }

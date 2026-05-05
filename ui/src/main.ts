@@ -393,7 +393,11 @@ async function boot(): Promise<void> {
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
-  const operator = new OperatorPanel(document.body, manager);
+  const operatorPage = requireEl<HTMLElement>("operator-page");
+  const operator = new OperatorPanel(operatorPage, workspace, manager);
+  operator.onClosed = () => {
+    manager.refitActive();
+  };
   const release = new ReleasePanel(document.body);
   const shortcutsPanel = new ShortcutsPanel(document.body);
   statusBar.onVersionChipClick = () => release.toggle();
@@ -672,6 +676,7 @@ async function boot(): Promise<void> {
       // one can be visible. Close the others before opening settings.
       if (docsPanel.isOpen()) docsPanel.close();
       if (draftsPanel.isOpen()) draftsPanel.close();
+      if (operator.isOpen()) operator.close();
       void settings.toggle();
       return;
     }
@@ -681,9 +686,16 @@ async function boot(): Promise<void> {
       agent.toggle();
       return;
     }
-    // ⌘O → operator decisions panel.
+    // ⌘O → operator decisions page. Shares the workspace cell with
+    // settings/docs/drafts/mission — close the others before opening.
     if (e.metaKey && !e.shiftKey && e.key === "o") {
       e.preventDefault();
+      if (!operator.isOpen()) {
+        if (settings.isOpen()) settings.close();
+        if (docsPanel.isOpen()) docsPanel.close();
+        if (draftsPanel.isOpen()) draftsPanel.close();
+        if (missionPanel.isOpen()) missionPanel.close();
+      }
       void operator.toggle();
       return;
     }
@@ -708,6 +720,7 @@ async function boot(): Promise<void> {
         if (settings.isOpen()) settings.close();
         if (docsPanel.isOpen()) docsPanel.close();
         if (draftsPanel.isOpen()) draftsPanel.close();
+        if (operator.isOpen()) operator.close();
         void manager.openMissionForActive();
       }
       return;
@@ -820,6 +833,7 @@ async function boot(): Promise<void> {
       e.preventDefault();
       if (settings.isOpen()) settings.close();
       if (docsPanel.isOpen()) docsPanel.close();
+      if (operator.isOpen()) operator.close();
       draftsPanel.toggle();
       return;
     }
@@ -831,6 +845,7 @@ async function boot(): Promise<void> {
       // Mutually exclusive with settings and drafts — see ⌘, branch above.
       if (settings.isOpen()) settings.close();
       if (draftsPanel.isOpen()) draftsPanel.close();
+      if (operator.isOpen()) operator.close();
       docsPanel.toggle();
       return;
     }

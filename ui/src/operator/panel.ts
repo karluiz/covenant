@@ -1,7 +1,11 @@
-// ⌘O — Operator decisions panel.
+// ⌘O — Operator decisions page.
 //
 // Lists recent decisions the Operator has proposed. The subtitle adapts
 // to the current mode: "AOM live" when AOM is active, "Dry-run" otherwise.
+//
+// Rendered as a full PAGE (mirrors settings/docs): shares row 2 of
+// #layout with #workspace, replacing it while open. Esc closing is
+// routed by main.ts's global keydown handler.
 //
 // Auto-refreshes when the backend emits "operator-decision" via Tauri.
 // Also re-checks AOM status on each refresh so the subtitle stays in
@@ -58,7 +62,10 @@ function savePrefs(p: FilterState): void {
 }
 
 export class OperatorPanel {
-  private modal: HTMLElement | null = null;
+  private isOpenState = false;
+  /// Optional callback fired when the page closes (any reason). Used by
+  /// main.ts to refit the active terminal once the workspace returns.
+  public onClosed: (() => void) | null = null;
   private listEl: HTMLElement | null = null;
   private subtitleEl: HTMLElement | null = null;
   private countersEl: HTMLElement | null = null;
@@ -79,7 +86,8 @@ export class OperatorPanel {
   private operatorCombo: AvatarCombobox | null = null;
 
   constructor(
-    private readonly mountHost: HTMLElement,
+    private readonly pageHost: HTMLElement,
+    private readonly workspace: HTMLElement,
     private readonly manager: TabManager,
   ) {}
 
@@ -99,7 +107,7 @@ export class OperatorPanel {
   }
 
   isOpen(): boolean {
-    return this.modal !== null;
+    return this.isOpenState;
   }
 
   async toggle(): Promise<void> {
@@ -137,6 +145,7 @@ export class OperatorPanel {
   }
 
   close(): void {
+    if (!this.isOpenState) return;
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = null;
@@ -149,51 +158,44 @@ export class OperatorPanel {
       this.operatorCombo.destroy();
       this.operatorCombo = null;
     }
-    if (this.modal) {
-      this.modal.remove();
-      this.modal = null;
-      this.listEl = null;
-      this.subtitleEl = null;
-      this.countersEl = null;
-      this.filtersEl = null;
-    }
+    this.pageHost.innerHTML = "";
+    this.pageHost.hidden = true;
+    this.workspace.hidden = false;
+    this.isOpenState = false;
+    this.listEl = null;
+    this.subtitleEl = null;
+    this.countersEl = null;
+    this.filtersEl = null;
     this.expandedGroups.clear();
+    if (this.onClosed) this.onClosed();
   }
 
   private render(): void {
-    const overlay = document.createElement("div");
-    overlay.className = "operator-overlay";
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) this.close();
-    });
-
-    const card = document.createElement("div");
-    card.className = "operator-card";
-    overlay.appendChild(card);
-
-    card.innerHTML = `
-      <header class="operator-header">
-        <div>
+    this.pageHost.innerHTML = `
+      <header class="operator-page-header">
+        <div class="operator-page-titles">
           <h2>Operator decisions</h2>
           <small class="operator-subtitle">checking mode…</small>
           <small class="operator-counters"></small>
         </div>
-        <button type="button" class="operator-close" aria-label="Close">×</button>
+        <button type="button" class="operator-close" aria-label="Close" title="Close (Esc)">×</button>
       </header>
       <div class="operator-filters" role="toolbar" aria-label="Filters"></div>
       <div class="operator-list" tabindex="-1">loading…</div>
     `;
 
-    card
+    this.pageHost
       .querySelector<HTMLButtonElement>(".operator-close")!
       .addEventListener("click", () => this.close());
 
-    this.mountHost.appendChild(overlay);
-    this.modal = overlay;
-    this.listEl = card.querySelector<HTMLElement>(".operator-list");
-    this.subtitleEl = card.querySelector<HTMLElement>(".operator-subtitle");
-    this.countersEl = card.querySelector<HTMLElement>(".operator-counters");
-    this.filtersEl = card.querySelector<HTMLElement>(".operator-filters");
+    this.workspace.hidden = true;
+    this.pageHost.hidden = false;
+    this.isOpenState = true;
+
+    this.listEl = this.pageHost.querySelector<HTMLElement>(".operator-list");
+    this.subtitleEl = this.pageHost.querySelector<HTMLElement>(".operator-subtitle");
+    this.countersEl = this.pageHost.querySelector<HTMLElement>(".operator-counters");
+    this.filtersEl = this.pageHost.querySelector<HTMLElement>(".operator-filters");
     this.renderFilters();
   }
 
