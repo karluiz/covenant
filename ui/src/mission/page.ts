@@ -348,7 +348,30 @@ export class MissionPage {
   private renderSuperpowersSection(): string {
     const s = this.state;
     if (s.loading || s.superpowers.length === 0) return "";
-    const items = s.superpowers.map((e) => {
+    const q = s.query.trim().toLowerCase();
+    const filtered = q
+      ? s.superpowers.filter((e) => {
+          const { title } = humanizeSpecFilename(e.spec_filename);
+          return (
+            title.toLowerCase().includes(q) ||
+            e.spec_filename.toLowerCase().includes(q) ||
+            (e.goal_preview ?? "").toLowerCase().includes(q)
+          );
+        })
+      : s.superpowers;
+    const countLabel = q && filtered.length !== s.superpowers.length
+      ? `${filtered.length}/${s.superpowers.length}`
+      : `${s.superpowers.length}`;
+    if (filtered.length === 0) {
+      return `<section class="mission-page-section">
+        <div class="mission-page-section-head">
+          <h4>Superpowers (${countLabel})</h4>
+          <button type="button" class="mission-page-sp-new" data-action="sp-new">+ New Superpowers mission</button>
+        </div>
+        <div class="mission-page-empty">No matches for "${escapeHtml(s.query)}".</div>
+      </section>`;
+    }
+    const items = filtered.map((e) => {
       const { title, date } = humanizeSpecFilename(e.spec_filename);
       const goal = cleanGoalPreview(e.goal_preview ?? "");
       const planMissing = !e.plan_path;
@@ -366,7 +389,7 @@ export class MissionPage {
           <span class="mission-page-id">${escapeHtml(date)}</span>
           <span class="mission-page-spec-body">
             <span class="mission-page-spec-title">${escapeHtml(title)}</span>
-            ${goal ? `<span class="mission-page-spec-goal">${escapeHtml(goal)}</span>` : ""}
+            <span class="mission-page-spec-goal">${goal ? escapeHtml(goal) : "&nbsp;"}</span>
           </span>
           ${statusBadge}
         </button>
@@ -374,7 +397,7 @@ export class MissionPage {
     }).join("");
     return `<section class="mission-page-section">
       <div class="mission-page-section-head">
-        <h4>Superpowers (${s.superpowers.length})</h4>
+        <h4>Superpowers (${countLabel})</h4>
         <button type="button" class="mission-page-sp-new" data-action="sp-new">+ New Superpowers mission</button>
       </div>
       <div class="mission-page-list">${items}</div>
