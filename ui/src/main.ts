@@ -942,15 +942,8 @@ roster.onDeliverDirective = async (sessionId, rendered) => {
   await invoke("write_to_session", { id: sessionId, data: Array.from(bytes) });
 };
 
-window.addEventListener("keydown", (e) => {
-  if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "m") {
-    e.preventDefault();
-    roster.toggle();
-  }
-});
-
-// Status-bar Familiar dot dispatches this on click — same affordance
-// as ⌘⇧M, but contextual to the active tab's bound Familiar.
+// Status-bar Familiar dot dispatches this on click to open the roster
+// contextually for the active tab's bound Familiar.
 document.addEventListener("familiars:open", () => roster.show());
 
 void boot().catch((err) => {
