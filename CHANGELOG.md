@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## v0.2.13 — Email notifications via SendGrid
+## v0.2.14 — Email notifications via SendGrid
 
 - New: SendGrid email channel for Operator escalations, AOM errors (immediate)
   and AOM completions (digest). Configure via Settings → Notifications → Email.
