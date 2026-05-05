@@ -21,6 +21,7 @@ import {
   getPendingSpecCandidateForTab,
   getSpecPromptState,
 } from "./aom/spec-prompt";
+import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
@@ -350,6 +351,28 @@ async function boot(): Promise<void> {
     setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
     getTabLabel: (tabId) => manager.getTabLabel(tabId),
   });
+
+  installSpecLinkInterceptor({
+    getActiveTabId: () => manager.getActiveTabId(),
+    listTabsForRepo: (repoRoot) => {
+      const tabs = manager.listTabSnapshots();
+      return tabs
+        .filter((t) => !repoRoot || t.cwd.startsWith(repoRoot))
+        .map((t) => ({
+          id: t.id,
+          label: manager.getTabLabel(t.id),
+          cwd: t.cwd,
+          hasMission: t.hasMission,
+        }));
+    },
+    setMissionForTab: (tabId, path) => manager.setMissionPathForTab(tabId, path),
+    openSpec: async (path) => { manager.openFileAtLine(path); },
+    revealInFinder: async (path) => {
+      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      await revealItemInDir(path);
+    },
+  });
+
   const initialCwd = manager.activeCwd();
   if (initialCwd) void ensureDetectorForRepo(initialCwd);
 
