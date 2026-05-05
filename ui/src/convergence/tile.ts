@@ -139,19 +139,97 @@ export interface RosterRowCallbacks {
 }
 
 export function renderRosterRow(
-  _entry: OperatorRosterEntry,
-  _expanded: boolean,
-  _cb: RosterRowCallbacks,
+  entry: OperatorRosterEntry,
+  expanded: boolean,
+  cb: RosterRowCallbacks,
 ): HTMLElement {
-  const placeholder = document.createElement("div");
-  placeholder.className = "cv-roster-row";
-  placeholder.textContent = "(roster row — Task 5)";
-  return placeholder;
+  const root = document.createElement("article");
+  root.className = "cv-roster-row";
+  if (entry.has_escalation) root.classList.add("cv-roster-row--escalated");
+  root.dataset.operatorId = entry.operator_id;
+
+  const head = document.createElement("div");
+  head.className = "cv-roster-row__head";
+  const avatar = document.createElement("span");
+  avatar.className = "cv-avatar";
+  avatar.textContent = entry.operator_avatar ?? "👤";
+  const name = document.createElement("strong");
+  name.className = "cv-roster-row__name";
+  name.textContent = entry.operator_name;
+  const count = document.createElement("span");
+  count.className = "cv-roster-row__count";
+  count.textContent =
+    entry.sessions.length > 1 ? `${entry.sessions.length} sessions` : "";
+  const caret = document.createElement("button");
+  caret.type = "button";
+  caret.className = "cv-roster-row__caret";
+  caret.setAttribute("aria-label", expanded ? "Collapse" : "Expand");
+  caret.textContent = expanded ? "▾" : "▸";
+  if (entry.sessions.length <= 1) caret.style.visibility = "hidden";
+  caret.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cb.onToggleExpand(entry.operator_id);
+  });
+  head.append(avatar, name);
+
+  if (entry.sessions.length === 1) {
+    const only = entry.sessions[0];
+    const status = document.createElement("span");
+    status.className = `cv-pill cv-pill--${only.status}`;
+    status.textContent = only.status;
+    head.append(status);
+    head.append(caret);
+    head.classList.add("cv-roster-row__head--clickable");
+    head.addEventListener("click", () => cb.onFocus(only.session_id, false));
+    head.addEventListener("dblclick", () => cb.onFocus(only.session_id, true));
+  } else {
+    head.append(count, caret);
+  }
+
+  root.append(head);
+
+  if (expanded && entry.sessions.length > 1) {
+    const sub = document.createElement("div");
+    sub.className = "cv-roster-row__sub";
+    for (const s of entry.sessions) sub.append(renderRosterSubRow(s, cb));
+    root.append(sub);
+  }
+  return root;
 }
 
 export function renderRosterSubRow(
-  _summary: SessionSummary,
-  _cb: RosterRowCallbacks,
+  summary: SessionSummary,
+  cb: RosterRowCallbacks,
 ): HTMLElement {
-  return document.createElement("div");
+  const row = document.createElement("div");
+  row.className = "cv-roster-sub";
+  row.dataset.sessionId = summary.session_id;
+
+  const dot = document.createElement("span");
+  dot.className = `cv-status-dot cv-status-dot--${summary.status}`;
+  const title = document.createElement("span");
+  title.className = "cv-roster-sub__title";
+  title.textContent = summary.tab_title;
+  const status = document.createElement("span");
+  status.className = "cv-roster-sub__status";
+  status.textContent =
+    summary.status === "blocked"
+      ? "escalated"
+      : summary.last_command
+      ? `${summary.status} · ${summary.last_command.slice(0, 40)}`
+      : summary.status;
+
+  row.append(dot, title, status);
+
+  // Cost footer (only when AOM-enrolled): inserted right of status.
+  if (summary.cost_usd != null && summary.budget_usd != null) {
+    const cost = document.createElement("span");
+    cost.className = "cv-roster-sub__cost";
+    cost.textContent = `$${summary.cost_usd.toFixed(2)} / $${summary.budget_usd.toFixed(2)}`;
+    row.append(cost);
+  }
+
+  row.addEventListener("click", () => cb.onFocus(summary.session_id, false));
+  row.addEventListener("dblclick", () => cb.onFocus(summary.session_id, true));
+  return row;
 }

@@ -3,7 +3,7 @@ import {
   submitConvergenceReply,
   type ConvergenceSnapshot,
 } from "../api";
-import { renderInboxCard } from "./tile";
+import { renderInboxCard, renderRosterRow } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -28,6 +28,8 @@ export class ConvergenceOverlay {
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
   private snap: ConvergenceSnapshot | null = null;
   private activeEscalationId: string | null = null;
+  private filter: "all" | "escalated" | "working" | "idle" = "all";
+  private expanded = new Set<string>();
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
@@ -61,6 +63,8 @@ export class ConvergenceOverlay {
     this.empty = null;
     this.snap = null;
     this.activeEscalationId = null;
+    this.filter = "all";
+    this.expanded.clear();
   }
 
   private mount(): void {
@@ -160,12 +164,7 @@ export class ConvergenceOverlay {
     }
     this.empty.hidden = true;
     this.renderInbox();
-    // Roster rendering is implemented in Task 5.
-    this.rosterEl.replaceChildren();
-    const placeholder = document.createElement("div");
-    placeholder.className = "cv-roster__placeholder";
-    placeholder.textContent = "Roster — Task 5";
-    this.rosterEl.append(placeholder);
+    this.renderRoster();
   }
 
   private renderInbox(): void {
@@ -203,6 +202,55 @@ export class ConvergenceOverlay {
             this.renderInbox();
           },
           onSubmit: this.submitReply.bind(this),
+        }),
+      );
+    }
+  }
+
+  private renderRoster(): void {
+    if (!this.rosterEl || !this.snap) return;
+    this.rosterEl.replaceChildren();
+
+    const header = document.createElement("div");
+    header.className = "cv-roster__header";
+    const label = document.createElement("span");
+    label.className = "cv-roster__label";
+    label.textContent = `Roster · ${this.snap.roster.length} operators`;
+    const chips = document.createElement("div");
+    chips.className = "cv-roster__chips";
+    for (const v of ["all", "escalated", "working", "idle"] as const) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "cv-chip" + (this.filter === v ? " cv-chip--active" : "");
+      chip.textContent = v;
+      chip.addEventListener("click", () => {
+        this.filter = v;
+        this.renderRoster();
+      });
+      chips.append(chip);
+    }
+    header.append(label, chips);
+    this.rosterEl.append(header);
+
+    const filtered = this.snap.roster.filter((entry) => {
+      if (this.filter === "all") return true;
+      if (this.filter === "escalated") return entry.has_escalation;
+      return entry.sessions.some((s) => s.status === this.filter);
+    });
+
+    for (const entry of filtered) {
+      const expanded = entry.has_escalation || this.expanded.has(entry.operator_id);
+      this.rosterEl.append(
+        renderRosterRow(entry, expanded, {
+          onFocus: (sid, keepOpen) => {
+            const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
+            if (ok && !keepOpen) this.close();
+          },
+          onToggleExpand: (opId) => {
+            if (this.expanded.has(opId)) this.expanded.delete(opId);
+            else this.expanded.add(opId);
+            this.renderRoster();
+          },
         }),
       );
     }
