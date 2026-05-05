@@ -157,6 +157,7 @@ export function mountSpecChat(
     el.appendChild(blankBtn);
 
     host.appendChild(el);
+    host.hidden = false;
     chooserEl = el;
   }
 
@@ -187,6 +188,7 @@ export function mountSpecChat(
         currentPanel.close();
         panelMounted = false;
       }
+      host.hidden = true;
     },
   };
 

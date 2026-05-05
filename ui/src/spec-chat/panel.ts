@@ -106,6 +106,7 @@ export function mountSpecChatPanel(
       panelEl.appendChild(finalRow);
       root.appendChild(panelEl);
       host.appendChild(root);
+      host.hidden = false;
 
       // Submit logic
       const doSubmit = async () => {
@@ -175,6 +176,7 @@ export function mountSpecChatPanel(
       if (!root) return;
       root.remove();
       root = null;
+      host.hidden = true;
       if (unsub) {
         unsub();
         unsub = null;
