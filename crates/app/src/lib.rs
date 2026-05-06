@@ -27,6 +27,7 @@ mod mission_pair;
 mod mission_persistence;
 mod notify;
 mod operator;
+pub mod operator_mind;
 pub mod operator_registry;
 mod project_notes;
 mod safety;
