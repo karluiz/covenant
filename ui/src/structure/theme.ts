@@ -94,6 +94,29 @@ export const editorTheme = EditorView.theme(
     ".cm-panels.cm-panels-bottom": {
       borderTop: "1px solid var(--border, #2b2d33)",
     },
+    // Search panel — compact single-row layout. Default CM6 stacks
+    // find / replace on two rows with wide inputs; we wrap, shrink the
+    // controls and let everything sit on one (or two on narrow widths)
+    // line so the panel doesn't eat vertical space above the file.
+    ".cm-panel.cm-search": {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: "4px",
+      padding: "6px 8px",
+      fontSize: "11px",
+    },
+    ".cm-panel.cm-search br": { display: "none" },
+    ".cm-panel.cm-search label": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "3px",
+      fontSize: "10.5px",
+      color: MUTED,
+    },
+    ".cm-panel.cm-search input[type=checkbox]": {
+      margin: "0 2px 0 0",
+    },
     ".cm-textfield": {
       backgroundColor: "var(--bg, #1c1d22)",
       border: "1px solid var(--border, #2b2d33)",
@@ -101,6 +124,10 @@ export const editorTheme = EditorView.theme(
       padding: "2px 6px",
       borderRadius: "4px",
       fontSize: "11px",
+    },
+    ".cm-panel.cm-search .cm-textfield": {
+      width: "180px",
+      flex: "0 1 180px",
     },
     ".cm-button": {
       backgroundColor: "transparent",
@@ -112,8 +139,39 @@ export const editorTheme = EditorView.theme(
       cursor: "pointer",
       backgroundImage: "none",
     },
+    ".cm-panel.cm-search .cm-button": {
+      padding: "2px 6px",
+      fontSize: "10.5px",
+    },
     ".cm-button:hover": {
       color: FG,
+    },
+    // Close button — JS replaces its `×` glyph with the same lucide-X
+    // icon used in the editor header so both X buttons read identical.
+    // Position mirrors the header close (top-right, 14px square).
+    ".cm-panel.cm-search button[name=close]": {
+      position: "absolute",
+      top: "8px",
+      right: "10px",
+      width: "20px",
+      height: "20px",
+      padding: "0",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "transparent",
+      border: "1px solid transparent",
+      borderRadius: "3px",
+      color: MUTED,
+      cursor: "pointer",
+      lineHeight: "1",
+    },
+    ".cm-panel.cm-search button[name=close]:hover": {
+      color: FG,
+      borderColor: "var(--border, #2b2d33)",
+    },
+    ".cm-panel.cm-search button[name=close] svg": {
+      display: "block",
     },
   },
   { dark: true },

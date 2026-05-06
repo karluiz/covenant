@@ -39,7 +39,11 @@ import {
   indentOnInput,
   indentUnit,
 } from "@codemirror/language";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+import {
+  search,
+  searchKeymap,
+  highlightSelectionMatches,
+} from "@codemirror/search";
 
 import { Icons } from "../icons";
 import {
@@ -472,6 +476,11 @@ export class StructureEditor {
         rectangularSelection(),
         crosshairCursor(),
         highlightSelectionMatches(),
+        // Search panel anchored at the TOP of the editor so the
+        // find-and-replace inputs aren't clipped by the body's bottom
+        // edge when the file is short. Mod-f opens it; the panel
+        // already exposes both find and replace fields.
+        search({ top: true }),
 
         // Editing.
         history(),
@@ -640,11 +649,57 @@ export class StructureEditor {
       state,
       parent: this.editorHostEl,
     });
+    this.installSearchPanelTweaks();
     requestAnimationFrame(() => {
       if (!this.view) return;
       if (opts.focus) this.view.focus();
       if (opts.jumpToLine !== undefined) this.jumpToLine(opts.jumpToLine);
     });
+  }
+
+  /// CM6 renders the search panel into the editor DOM lazily on first
+  /// ⌘F. We can't reach those inputs at mount time, so a MutationObserver
+  /// watches the editor host for the panel and (a) disables iOS/macOS
+  /// autocapitalize / autocorrect / spellcheck on the find/replace
+  /// inputs (capital "L" suggestions while typing "lang" were ugly) and
+  /// (b) swaps the close button's `×` glyph for the same lucide-X icon
+  /// the editor header uses, so the affordance looks consistent.
+  private installSearchPanelTweaks(): void {
+    const host = this.editorHostEl;
+    const apply = (panel: Element) => {
+      panel.querySelectorAll<HTMLInputElement>("input.cm-textfield").forEach(
+        (inp) => {
+          inp.setAttribute("autocapitalize", "off");
+          inp.setAttribute("autocorrect", "off");
+          inp.setAttribute("autocomplete", "off");
+          inp.setAttribute("spellcheck", "false");
+        },
+      );
+      const closeBtn = panel.querySelector<HTMLButtonElement>(
+        'button[name="close"]',
+      );
+      if (closeBtn && !closeBtn.dataset.iconified) {
+        closeBtn.innerHTML = Icons.x({ size: 12 });
+        closeBtn.dataset.iconified = "1";
+        closeBtn.classList.add("cm-search-close");
+      }
+    };
+    // Apply now if the panel already exists (e.g. survived a state swap).
+    host.querySelectorAll(".cm-panel.cm-search").forEach(apply);
+    const obs = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        m.addedNodes.forEach((n) => {
+          if (!(n instanceof HTMLElement)) return;
+          if (n.matches?.(".cm-panel.cm-search")) apply(n);
+          n.querySelectorAll?.(".cm-panel.cm-search").forEach(apply);
+        });
+      }
+    });
+    obs.observe(host, { childList: true, subtree: true });
+    // Stash so the next view rebuild can disconnect (we don't keep the
+    // ref otherwise; the new EditorView replaces the host's children).
+    (this.editorHostEl as unknown as { __searchObs?: MutationObserver }).__searchObs?.disconnect();
+    (this.editorHostEl as unknown as { __searchObs?: MutationObserver }).__searchObs = obs;
   }
 
   /// Mount the preview renderer for the current `previewKind` with
