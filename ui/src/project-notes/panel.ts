@@ -1,5 +1,6 @@
 import "./styles.css";
 import { CommandsTab } from "./commands-tab";
+import { NotesTab } from "./notes-tab";
 
 export type PanelTab = "commands" | "notes" | "docs";
 
@@ -108,8 +109,10 @@ export class ProjectNotesPanel {
     this.body.replaceChildren();
     if (this.currentTab === "commands") {
       new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
+    } else if (this.currentTab === "notes") {
+      new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
     } else {
-      // Notes and Docs tabs are wired in Tasks 7 and 8.
+      // Docs tab is wired in Task 8.
       const slot = document.createElement("div");
       slot.className = `pn-tab-slot pn-tab-${this.currentTab}`;
       slot.textContent = `(${this.currentTab})`;

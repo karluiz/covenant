@@ -12,6 +12,17 @@ vi.mock("./commands-tab", () => ({
   },
 }));
 
+vi.mock("./notes-tab", () => ({
+  NotesTab: class {
+    mount(parent: HTMLElement) {
+      const el = document.createElement("div");
+      el.className = "pn-notes-tab";
+      parent.appendChild(el);
+      return this;
+    }
+  },
+}));
+
 describe("ProjectNotesPanel", () => {
   let host: HTMLElement;
 
