@@ -2186,20 +2186,26 @@ async fn run_tick(
                         mut text,
                         rationale,
                     } => {
-                        if effective_aom {
-                            // Auto-submit in AOM. Most TUIs (Claude
-                            // Code, aider, opencode) treat `\n` as
-                            // "newline within input" and `\r` as
-                            // SUBMIT — same as physical Enter on a
-                            // tty. Strip whatever trailing line
-                            // chars the model added, then `\r` once.
-                            // For plain shells \r works too (the
-                            // tty translates it via icrnl).
-                            while text.ends_with('\n') || text.ends_with('\r') {
-                                text.pop();
-                            }
-                            text.push('\r');
+                        // Auto-submit on every live REPLY. Most TUIs
+                        // (Claude Code, aider, opencode) treat `\n`
+                        // as "newline within input" and `\r` as
+                        // SUBMIT — same as physical Enter on a tty.
+                        // Strip whatever trailing line chars the
+                        // model added, then `\r` once. For plain
+                        // shells `\r` works too (the tty translates
+                        // it via icrnl).
+                        //
+                        // Previously this was AOM-only, on the
+                        // theory that non-AOM live mode gave the
+                        // user a review window. In practice the
+                        // model often omits `\n` and the executor
+                        // sits forever with the reply typed but not
+                        // submitted — the operator looks dumb. If
+                        // we already decided to REPLY, commit it.
+                        while text.ends_with('\n') || text.ends_with('\r') {
+                            text.pop();
                         }
+                        text.push('\r');
                         if let Some(reason) =
                             safety::is_dangerous(&text, &deny_extra_regexes)
                         {
