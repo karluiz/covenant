@@ -17,6 +17,11 @@ import { pushInfoToast } from "../notifications/toast";
 import { renderFamiliarsSettings } from "../familiars/settings_panel";
 import { OperatorsPane } from "./operators";
 
+function clampBudget(n: number): number {
+  if (!Number.isFinite(n) || isNaN(n)) return 2000;
+  return Math.max(500, Math.min(4000, Math.round(n)));
+}
+
 interface AgentConfig {
   model_summary: string;
   model_chat: string;
@@ -30,6 +35,8 @@ interface OperatorConfig {
   idle_threshold_secs: number;
   max_decisions_per_minute: number;
   deny_extra_patterns: string[];
+  mind_v2: boolean;
+  mind_thinking_budget: number;
 }
 
 interface TerminalConfig {
@@ -139,6 +146,8 @@ export class SettingsPanel {
           idle_threshold_secs: 4,
           max_decisions_per_minute: 10,
           deny_extra_patterns: [],
+          mind_v2: false,
+          mind_thinking_budget: 2000,
         },
         terminal: {
           font_family:
@@ -393,6 +402,32 @@ export class SettingsPanel {
               testing the wiring.
             </small>
           </label>
+          <h4 class="settings-subsection-title">Operator Mind v2 (experimental)</h4>
+          <p class="settings-hint" style="margin: 0 0 6px;">
+            Per-tab persistent memory + extended thinking. The operator
+            keeps a goal/belief/recent-turns tape across reboots. Spec 3.20.
+          </p>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="mind_v2" />
+              <span>Enable Mind v2 for new sessions</span>
+            </span>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Mind thinking budget (tokens)</span>
+            <input
+              type="number"
+              name="mind_thinking_budget"
+              min="500"
+              max="4000"
+              step="100"
+            />
+            <small class="settings-hint">
+              Anthropic extended-thinking budget per turn. 2000 is the
+              default. Lower = cheaper but less coherent; higher = more
+              robust on ambiguous prompts.
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-notifications">
           <h3 class="settings-section-title">Notifications</h3>
@@ -483,6 +518,8 @@ export class SettingsPanel {
     const modelChat = form.querySelector<HTMLInputElement>('input[name="model_chat"]')!;
     const maxCalls = form.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
     const aomBudget = form.querySelector<HTMLInputElement>('input[name="aom_budget"]')!;
+    const mindV2Input = form.querySelector<HTMLInputElement>('input[name="mind_v2"]')!;
+    const mindBudgetInput = form.querySelector<HTMLInputElement>('input[name="mind_thinking_budget"]')!;
     const termFont = form.querySelector<HTMLInputElement>('input[name="term_font"]')!;
     const termSize = form.querySelector<HTMLInputElement>('input[name="term_size"]')!;
     const termLetterSpacing = form.querySelector<HTMLInputElement>(
@@ -539,6 +576,8 @@ export class SettingsPanel {
     modelChat.value = this.current.agent.model_chat;
     maxCalls.value = String(this.current.agent.max_calls_per_minute);
     aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
+    mindV2Input.checked = this.current.operator.mind_v2;
+    mindBudgetInput.value = String(this.current.operator.mind_thinking_budget);
     termFont.value = this.current.terminal.font_family;
     termSize.value = String(this.current.terminal.font_size);
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);
@@ -719,7 +758,11 @@ export class SettingsPanel {
             Math.min(60, Number(maxCalls.value) || 6),
           ),
         },
-        operator: prevOp,
+        operator: {
+          ...prevOp,
+          mind_v2: mindV2Input.checked,
+          mind_thinking_budget: clampBudget(parseInt(mindBudgetInput.value, 10)),
+        },
         terminal: {
           font_family:
             termFont.value.trim() ||

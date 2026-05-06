@@ -537,6 +537,8 @@ export interface OperatorConfig {
   idle_threshold_secs: number;
   max_decisions_per_minute: number;
   deny_extra_patterns: string[];
+  mind_v2: boolean;
+  mind_thinking_budget: number;
 }
 
 export interface TerminalConfig {
