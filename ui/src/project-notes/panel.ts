@@ -1,6 +1,7 @@
 import "./styles.css";
 import { CommandsTab } from "./commands-tab";
 import { NotesTab } from "./notes-tab";
+import { DocsTab } from "./docs-tab";
 
 export type PanelTab = "commands" | "notes" | "docs";
 
@@ -112,11 +113,7 @@ export class ProjectNotesPanel {
     } else if (this.currentTab === "notes") {
       new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
     } else {
-      // Docs tab is wired in Task 8.
-      const slot = document.createElement("div");
-      slot.className = `pn-tab-slot pn-tab-${this.currentTab}`;
-      slot.textContent = `(${this.currentTab})`;
-      this.body.appendChild(slot);
+      void new DocsTab({ groupId: this.opts.groupId }).mount(this.body);
     }
   }
 
