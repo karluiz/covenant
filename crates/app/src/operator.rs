@@ -2918,6 +2918,41 @@ async fn run_tick(
             if let Some(att) = inner_lock.sessions.get_mut(&id) {
                 att.mind_dirty = true;
             }
+        } else {
+            // Spec 3.20 phase 6: notify the UI panel so it can re-render
+            // the mind section live. Payload mirrors the masked struct
+            // we just persisted, so the UI never sees raw secrets.
+            let payload = serde_json::json!({
+                "session_id": id.to_string(),
+                "goal": m.goal,
+                "belief": m.belief,
+                "open_questions": m.open_questions,
+                "tried_failed": m.tried_failed.iter().cloned().collect::<Vec<_>>(),
+                "next_intent": m.next_intent,
+                "turn_count": m.turn_count,
+                "recent": m.recent.iter().map(|r| {
+                    serde_json::json!({
+                        "turn": r.turn,
+                        "at": r.at.to_rfc3339(),
+                        "saw": r.saw,
+                        "thought": r.thought,
+                        "action_kind": match &r.action {
+                            crate::operator_mind::TurnAction::Reply { .. } => "Reply",
+                            crate::operator_mind::TurnAction::Execute { .. } => "Execute",
+                            crate::operator_mind::TurnAction::Escalate { .. } => "Escalate",
+                            crate::operator_mind::TurnAction::Ignore => "Ignore",
+                        },
+                        "action_summary": match &r.action {
+                            crate::operator_mind::TurnAction::Reply { text } => text.clone(),
+                            crate::operator_mind::TurnAction::Execute { command } => command.clone(),
+                            crate::operator_mind::TurnAction::Escalate { notification } => notification.clone(),
+                            crate::operator_mind::TurnAction::Ignore => String::new(),
+                        },
+                        "executed": r.executed,
+                    })
+                }).collect::<Vec<_>>(),
+            });
+            let _ = app.emit("operator-mind-updated", payload);
         }
     }
 

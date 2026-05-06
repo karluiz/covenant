@@ -9562,3 +9562,72 @@ body[data-aom-phase="triaging"]
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Spec 3.20 OperatorMind — MindLossModal + panel mind section */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: grid;
+  place-items: center;
+  z-index: 9999;
+}
+.modal {
+  background: var(--bg, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 480px;
+  font-family: var(--ui-font, system-ui);
+  color: var(--fg, #ddd);
+}
+.modal h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.modal dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.modal dl dt {
+  color: var(--muted, #888);
+}
+.modal .warn {
+  color: var(--err, #e57373);
+  font-size: 12px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.modal-actions button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--border, #333);
+  font: inherit;
+}
+.modal-actions button.btn-cancel {
+  background: var(--bg-2, #222);
+  color: var(--fg, #ddd);
+}
+.modal-actions button.danger {
+  background: var(--err, #b94a4a);
+  color: white;
+  border-color: var(--err, #b94a4a);
+}
+
+.operator-mind-section { padding: 8px 12px; font-size: 12px; border-bottom: 1px solid var(--border, #333); }
+.operator-mind-section .label { color: var(--muted, #888); margin-right: 6px; font-weight: 600; }
+.operator-mind-section .mind-belief, .operator-mind-section .mind-intent { margin: 4px 0; }
+.operator-mind-section .mind-tried-failed summary { cursor: pointer; color: var(--warn, #d4a14a); }
+.operator-mind-section .mind-recent { margin-top: 8px; border-top: 1px solid var(--border, #333); padding-top: 6px; }
+.operator-mind-section .mind-turn summary { cursor: pointer; }
+.operator-mind-section .mind-turn .blocked { color: var(--err, #e57373); margin-left: 6px; }
+.operator-mind-section .mind-turn .thought, .operator-mind-section .mind-turn .saw { padding: 4px 12px; }
+.operator-mind-section .mind-turn pre { white-space: pre-wrap; max-height: 6em; overflow: auto; background: var(--bg-2, #222); padding: 4px; }

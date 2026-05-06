@@ -549,10 +549,43 @@ async fn close_session(
     if let Some(mut managed) = sessions.remove(&id) {
         let _ = managed.session.kill();
     }
+    drop(sessions);
+    // Spec 3.20: drop the persisted mind on confirmed close. The
+    // close_session_check command + UI modal already gave the user
+    // the chance to back out.
+    let mind_v2_on = state.settings.lock().await.operator.mind_v2;
+    if mind_v2_on {
+        if let Err(e) = state.storage.mind_delete(&id.to_string()).await {
+            tracing::warn!(session = %id, error = %e, "mind_delete failed");
+        }
+    }
     if let Err(e) = state.storage.close_session(id, now_unix_ms()).await {
         tracing::warn!(session = %id, error = %e, "close_session persist failed");
     }
     Ok(())
+}
+
+/// Spec 3.20 phase 6: peek at the persisted mind for `id` so the UI can
+/// decide whether to show the MindLossModal before destroying the tab.
+/// Returns `None` when mind_v2 is off OR no mind exists OR turn_count
+/// is 0 (nothing to lose).
+#[tauri::command]
+async fn close_session_check(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<storage::MindPreviewRow>, String> {
+    let id = parse_id(&id)?;
+    if !state.settings.lock().await.operator.mind_v2 {
+        return Ok(None);
+    }
+    match state.storage.mind_preview(&id.to_string()).await {
+        Ok(Some(p)) if p.turn_count > 0 => Ok(Some(p)),
+        Ok(_) => Ok(None),
+        Err(e) => {
+            tracing::warn!(session = %id, error = %e, "mind_preview failed");
+            Ok(None)
+        }
+    }
 }
 
 #[tauri::command]
@@ -2302,6 +2335,7 @@ pub fn run() {
             write_to_session,
             resize_session,
             close_session,
+            close_session_check,
             inject_command,
             get_block_output,
             get_settings,
