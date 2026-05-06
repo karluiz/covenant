@@ -49,6 +49,7 @@ import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
+import { ProjectNotesPanel } from "./project-notes/panel";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -356,6 +357,34 @@ async function boot(): Promise<void> {
   window.addEventListener("mission:set", (e) => {
     const detail = (e as CustomEvent<{ path: string }>).detail;
     void manager.setMissionPathForActiveTab(detail.path);
+  });
+
+  // Project Notes panel — singleton overlay, opened from group-chip or ⌘⇧N.
+  let activeProjectNotesPanel: ProjectNotesPanel | null = null;
+
+  function openProjectNotes(groupId: string, groupLabel: string): void {
+    if (activeProjectNotesPanel) activeProjectNotesPanel.close();
+    activeProjectNotesPanel = new ProjectNotesPanel({
+      groupId,
+      groupLabel,
+      onClose: () => {
+        activeProjectNotesPanel = null;
+      },
+    }).mount(document.body);
+  }
+
+  manager.setOptions({
+    onOpenProjectNotes: openProjectNotes,
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
+      const g = manager.activeGroup();
+      if (g) {
+        e.preventDefault();
+        openProjectNotes(g.id, g.name);
+      }
+    }
   });
 
   // 3.16 — spec auto-detect → propose mission. Subscribe to backend
