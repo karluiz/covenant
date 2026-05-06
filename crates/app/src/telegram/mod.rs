@@ -125,6 +125,32 @@ impl TelegramNotifier {
 }
 
 impl TelegramNotifier {
+    pub async fn test_connection(&self) -> Result<(), String> {
+        let s = self.settings.lock().await;
+        if s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
+            return Err("token y chat_id requeridos".into());
+        }
+        let token = s.telegram.bot_token.clone();
+        let chat = s.telegram.chat_id.clone();
+        drop(s);
+        self.client.get_me(&token).await.map_err(|e| format!("getMe: {e}"))?;
+        self.client
+            .send_message(
+                &token,
+                SendMessageReq {
+                    chat_id: chat,
+                    text: "✓ Covenant connected".into(),
+                    reply_markup: None,
+                    parse_mode: None,
+                },
+            )
+            .await
+            .map_err(|e| format!("sendMessage: {e}"))?;
+        Ok(())
+    }
+}
+
+impl TelegramNotifier {
     pub async fn spawn_inbound(
         &self,
         tx: tokio::sync::mpsc::UnboundedSender<InboundEvent>,

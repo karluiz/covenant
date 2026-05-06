@@ -2091,6 +2091,11 @@ async fn spec_author_mark_published(id: String) -> Result<(), String> {
     karl_agent::spec_author::mark_published_default(id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn telegram_test_connection(state: State<'_, AppState>) -> Result<(), String> {
+    state.telegram_notifier.test_connection().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -2643,6 +2648,7 @@ pub fn run() {
             project_notes::project_note_list,
             project_notes::project_docs_get,
             project_notes::project_docs_save,
+            telegram_test_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

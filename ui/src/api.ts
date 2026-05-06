@@ -966,3 +966,7 @@ export async function specAuthorListDrafts(): Promise<SpecDraftSummary[]> {
 export async function specAuthorMarkPublished(id: string): Promise<void> {
   return invoke<void>("spec_author_mark_published", { id });
 }
+
+export async function telegramTestConnection(): Promise<void> {
+  return invoke<void>("telegram_test_connection");
+}
