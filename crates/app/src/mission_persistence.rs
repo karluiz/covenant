@@ -23,7 +23,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::mission_pair::{MissionKind, MissionRef};
+use crate::mission_pair::MissionRef;
 
 pub type MissionMap = HashMap<String, MissionRef>;
 
@@ -115,6 +115,7 @@ pub fn forget(path: &Path, cwd: &str) {
 
 /// Lookup helper used by the cwd-restore path. Returns the `MissionRef`
 /// the user previously associated with `cwd`, if any.
+#[allow(dead_code)]
 pub fn lookup(path: &Path, cwd: &str) -> Option<MissionRef> {
     if cwd.is_empty() {
         return None;

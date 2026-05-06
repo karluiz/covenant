@@ -407,7 +407,7 @@ fn truncate_around(
     let half = max_chars / 2;
     let center = (match_start + match_end) / 2;
     let mut start = center.saturating_sub(half);
-    let mut end = (start + max_chars).min(chars.len());
+    let end = (start + max_chars).min(chars.len());
     if end == chars.len() {
         start = chars.len() - max_chars;
     }

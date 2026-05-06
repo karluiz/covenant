@@ -375,18 +375,22 @@ fn get_docs(conn: &Connection, group_id: &str) -> Result<String> {
     Ok(body.unwrap_or_default())
 }
 
-// ----- Pre-context builder -----
+// ----- Pre-context builder (reserved; not yet wired into agent prompt) -----
 
 /// Hard token cap. We approximate tokens at ~4 chars/token (English-ish);
 /// the budget therefore equals `budget_tokens * 4` characters. This is
 /// intentionally conservative — the model-side counter will always show
 /// fewer tokens than our character estimate predicts.
+#[allow(dead_code)]
 const CHARS_PER_TOKEN: usize = 4;
 
+#[allow(dead_code)]
 const COMMANDS_BUDGET_PCT: usize = 30;
+#[allow(dead_code)]
 const DOCS_BUDGET_PCT: usize = 50;
 // notes get whatever is left
 
+#[allow(dead_code)]
 pub async fn build_context(
     store: &Store,
     group_id: &str,
@@ -397,6 +401,7 @@ pub async fn build_context(
     Ok(render_context(&snapshot, group_label, budget_tokens))
 }
 
+#[allow(dead_code)]
 fn render_context(snapshot: &Snapshot, group_label: &str, budget_tokens: usize) -> String {
     if snapshot.commands.is_empty()
         && snapshot.notes.is_empty()
@@ -441,6 +446,7 @@ fn render_context(snapshot: &Snapshot, group_label: &str, budget_tokens: usize) 
     out
 }
 
+#[allow(dead_code)]
 fn render_commands(commands: &[Command], budget_chars: usize) -> String {
     // Sort by updated_at_unix_ms DESC so the most recently touched commands
     // are kept when truncating.
@@ -462,6 +468,7 @@ fn render_commands(commands: &[Command], budget_chars: usize) -> String {
     out
 }
 
+#[allow(dead_code)]
 fn render_docs(docs: &str, budget_chars: usize) -> String {
     let trimmed = docs.trim();
     if trimmed.is_empty() {
@@ -491,6 +498,7 @@ fn render_docs(docs: &str, budget_chars: usize) -> String {
     )
 }
 
+#[allow(dead_code)]
 fn render_notes(notes: &[Note], budget_chars: usize) -> String {
     let mut out = String::new();
     let mut count = 0usize;
@@ -509,6 +517,7 @@ fn render_notes(notes: &[Note], budget_chars: usize) -> String {
     out
 }
 
+#[allow(dead_code)]
 fn relative_stamp(ts_ms: i64) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now_ms = SystemTime::now()

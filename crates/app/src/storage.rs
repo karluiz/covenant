@@ -22,6 +22,7 @@ use rusqlite::{params, Connection};
 /// After registration, every subsequent `Connection::open` automatically
 /// loads `vec0` so `vec_version()` and `vec0` virtual tables are usable
 /// without per-connection setup.
+#[allow(dead_code)]
 pub(crate) fn ensure_sqlite_vec_loaded_for_tests() {
     ensure_sqlite_vec_loaded();
 }

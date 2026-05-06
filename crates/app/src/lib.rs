@@ -131,6 +131,7 @@ pub(crate) struct AppState {
     /// every poll and short-circuits when offline; AOM banner mirrors
     /// the state for UX. Backend heartbeat is a TODO — v0 trusts the
     /// browser as the single source of truth.
+    #[allow(dead_code)]
     connectivity: connectivity::ConnectivityHandle,
     /// Telegram inbound long-poll JoinHandle, behind a mutex so
     /// `set_settings` can abort and respawn it when the bot token,
