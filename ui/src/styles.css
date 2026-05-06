@@ -5239,20 +5239,41 @@ button.status-segment.status-aom.status-aom-warn:hover {
 .editor-host[hidden] {
     display: none;
 }
-/* When the editor is visible, the terminal collapses to a compact
-   reading column (capped at 280px) so the editor receives the whole
-   remaining width — premium "open file = focus on the file" feel.
-   The user can drag the splitter to grow the terminal back; that
-   override lives as an inline style on .tab-pane (managed by
-   TabManager) and beats this rule by specificity. */
-.tab-pane:has(.editor-host:not([hidden])) {
-    grid-template-columns: minmax(160px, 280px) 4px 1fr 220px;
+/* Editor floats OVER the terminal (no reflow). Grid columns stay as
+   default `1fr 0 0 240px` — the editor-host is pulled out of flow with
+   position:absolute and pinned over the terminal column, so opening a
+   file no longer pushes xterm or triggers a refit. The editor right
+   edge tracks the blocks sidebar width via the rules below. */
+.tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+    /* grid-column: auto is critical — a grid item with explicit
+       placement uses its grid cell (0px here) as the absolute-positioning
+       containing block, hiding the editor entirely. Resetting it
+       falls back to .tab-pane's padding box. */
+    grid-column: auto;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 240px;
+    width: auto;
+    height: auto;
+    z-index: 10;
+    /* Solid background — overlay mode covers the terminal, so honoring
+       --surface-alpha would let xterm text bleed through. */
+    background: rgb(17 20 26);
+    box-shadow: -8px 0 28px rgb(0 0 0 / 0.55);
 }
-
-/* Editor open + sidebar collapsed → keep the 28px sliver for the
-   toggle but still give the editor max width. */
-.tab-pane:has(.editor-host:not([hidden])):has(.blocks-collapsed) {
-    grid-template-columns: minmax(160px, 280px) 4px 1fr 28px;
+/* Solidify nested header + body too — both inherit alpha-tinted
+   surfaces from the global theme. */
+.tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
+.tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
+    background: rgb(17 20 26);
+}
+.tab-pane:has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
+    right: 28px;
+}
+.tab-pane:has(.editor-host:not([hidden])):has(.blocks-host.recall-active) > .editor-host {
+    right: 240px;
 }
 
 /* While the user is actively dragging the splitter, suppress the
@@ -5442,6 +5463,66 @@ button.status-segment.status-aom.status-aom-warn:hover {
 }
 .structure-editor-cm[hidden] {
     display: none;
+}
+
+/* In-preview find bar — floats top-right of body. */
+.structure-editor-find {
+    position: absolute;
+    top: 8px;
+    right: 14px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    background: rgb(22 26 33 / 0.96);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    border-radius: 6px;
+    box-shadow: 0 4px 14px rgb(0 0 0 / 0.35);
+    font-size: 12px;
+}
+.structure-editor-find[hidden] {
+    display: none;
+}
+.structure-editor-find-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary, #e6e8ee);
+    font: inherit;
+    width: 200px;
+    padding: 2px 4px;
+}
+.structure-editor-find-count {
+    color: rgb(255 255 255 / 0.55);
+    min-width: 36px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.structure-editor-find-count.none {
+    color: rgb(255 120 120 / 0.85);
+}
+.structure-editor-find-btn {
+    background: transparent;
+    border: none;
+    color: rgb(255 255 255 / 0.7);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font: inherit;
+    line-height: 1;
+}
+.structure-editor-find-btn:hover {
+    background: rgb(255 255 255 / 0.08);
+    color: var(--text-primary, #e6e8ee);
+}
+::highlight(editor-find) {
+    background-color: rgb(255 213 79 / 0.35);
+    color: inherit;
+}
+::highlight(editor-find-active) {
+    background-color: rgb(255 167 38 / 0.9);
+    color: #1a1a1a;
 }
 
 /* Preview/Source toggle button in the editor header. CM6 wraps lines
@@ -5803,17 +5884,68 @@ button.status-segment.status-aom.status-aom-warn:hover {
 }
 
 .afk-header {
-    display: flex;
-    justify-content: center;
-    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 24px;
+    padding: 18px 28px;
     border-bottom: 1px solid var(--border);
+}
+
+.afk-header-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    justify-self: start;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.afk-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #4ade80;
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+    animation: afk-status-pulse 2s ease-out infinite;
+}
+
+@keyframes afk-status-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
 }
 
 .afk-header-stats {
     display: flex;
-    gap: 32px;
-    align-items: baseline;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
     font-variant-numeric: tabular-nums;
+    justify-self: center;
+}
+
+.afk-stat-primary {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.afk-stat-secondary {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+}
+
+.afk-stat-sep {
+    opacity: 0.5;
 }
 
 .afk-stat {
@@ -5822,13 +5954,39 @@ button.status-segment.status-aom.status-aom-warn:hover {
     letter-spacing: 0.02em;
 }
 
+.afk-stat-secondary .afk-stat {
+    font-size: 12px;
+}
+
 .afk-stat-cost {
     color: inherit;
     font-weight: 500;
+    font-size: 22px;
+    letter-spacing: 0;
 }
 
 .afk-stat-warn {
     color: #d6a16a;
+}
+
+.afk-cost-bar {
+    width: 180px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.afk-cost-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent, #4ade80);
+    border-radius: inherit;
+    transition: width 0.4s ease;
+}
+
+.afk-cost-bar-fill-warn {
+    background: #d6a16a;
 }
 
 .afk-feed-wrap {
@@ -6377,6 +6535,30 @@ body.tabbar-left #tabbar-host {
     gap: 6px;
     overflow-y: auto;
     overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+
+body.tabbar-left #tabbar-host::-webkit-scrollbar {
+    width: 6px;
+}
+
+body.tabbar-left #tabbar-host::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+body.tabbar-left #tabbar-host::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    transition: background 120ms ease;
+}
+
+body.tabbar-left #tabbar-host:hover::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+body.tabbar-left #tabbar-host::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
 }
 
 body.tabbar-left #workspace,
@@ -7620,15 +7802,24 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
 /* ── AFK active-operators strip (Task 7) ────────────────────── */
 .afk-active-operators {
   display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 4px 0;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
 }
 .afk-active-label {
-  color: var(--muted); font-size: 12px; align-self: center;
+  color: var(--muted); font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-right: 4px;
 }
 .afk-op-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px 3px 3px;
   border-radius: 999px;
+  background: color-mix(in srgb, var(--op-color, #6B7280) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--op-color, #6B7280) 35%, transparent);
+  font-size: 12px;
+  color: inherit;
 }
 
 /* ── Operator avatars ─────────────────────────────────────────────── */
@@ -8839,6 +9030,14 @@ body[data-aom-phase="triaging"]
 .cv-inbox-card__question {
   font-size: 12px; line-height: 1.45; color: var(--muted);
   margin: 0 0 10px 0;
+}
+.cv-inbox-card__excerpt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.4; color: #d8dadd;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; margin: 0 0 10px 0;
+  max-height: 220px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
 }
 
 .cv-reply {

@@ -449,7 +449,15 @@ export class TabManager {
         },
       ]);
     });
-    window.addEventListener("resize", () => this.refitActive());
+    let lastDpr = window.devicePixelRatio;
+    window.addEventListener("resize", () => {
+      if (window.devicePixelRatio !== lastDpr) {
+        lastDpr = window.devicePixelRatio;
+        this.rebuildWebglAtlases();
+      } else {
+        this.refitActive();
+      }
+    });
 
     // When the window moves between monitors with different scaling
     // (common on Samsung 4K + macOS), devicePixelRatio changes. The
@@ -928,18 +936,30 @@ export class TabManager {
   /// atlas was sized for the old DPR and renders garbled otherwise.
   rebuildWebglAtlases(): void {
     for (const tab of this.tabs) {
-      if (!tab.webgl) continue;
-      try {
-        tab.webgl.dispose();
-      } catch {
-        /* ignore */
-      }
-      try {
-        const next = new WebglAddon();
-        tab.term.loadAddon(next);
-        tab.webgl = next;
-      } catch {
-        tab.webgl = null;
+      if (tab.webgl) {
+        try {
+          tab.webgl.dispose();
+        } catch {
+          /* ignore */
+        }
+        try {
+          const next = new WebglAddon();
+          tab.term.loadAddon(next);
+          tab.webgl = next;
+        } catch {
+          tab.webgl = null;
+        }
+      } else {
+        // DOM/canvas renderer: invalidate the glyph atlas by nudging
+        // fontSize. xterm has no public clearTextureAtlas for non-WebGL
+        // renderers, but option setters force a renderer re-measure.
+        try {
+          const size = tab.term.options.fontSize ?? DEFAULT_FONT_SIZE;
+          tab.term.options.fontSize = size + 0.0001;
+          tab.term.options.fontSize = size;
+        } catch {
+          /* ignore */
+        }
       }
       requestAnimationFrame(() => {
         try {
@@ -1551,9 +1571,10 @@ export class TabManager {
     // load, terminal refit — keeps the two callers in lockstep.
     const openEditor = (path: string, opts?: { line?: number }): void => {
       editorHost.hidden = false;
-      showSplitter(true);
+      // Editor now overlays the terminal (CSS position:absolute) — no
+      // splitter, no grid reflow, no terminal refit needed on open.
+      showSplitter(false);
       void editor.open(path, opts);
-      refitAfterLayoutTransition();
     };
 
     const structure = new StructureTree(

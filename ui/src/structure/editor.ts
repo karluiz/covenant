@@ -148,6 +148,17 @@ export class StructureEditor {
   private readonly pngScaleSelect: HTMLSelectElement;
   private pngScale: PngScale = 2;
 
+  /// In-preview find bar. Source mode uses CM6's built-in panel; this
+  /// bar covers preview mode (markdown / svg) where there's no editor
+  /// to host CM6's search. Highlights via the CSS Custom Highlight API
+  /// so we don't mutate the rendered DOM.
+  private readonly findBarEl: HTMLElement;
+  private readonly findInputEl: HTMLInputElement;
+  private readonly findCountEl: HTMLElement;
+  private findRanges: Range[] = [];
+  private findActiveIdx = -1;
+  private findOpen = false;
+
   constructor(
     private readonly host: HTMLElement,
     private readonly callbacks: EditorCallbacks,
@@ -249,7 +260,194 @@ export class StructureEditor {
     this.placeholderEl.hidden = true;
     this.bodyEl.appendChild(this.placeholderEl);
 
+    // Find bar — floats over the body, hidden by default.
+    this.findBarEl = document.createElement("div");
+    this.findBarEl.className = "structure-editor-find";
+    this.findBarEl.hidden = true;
+    this.findInputEl = document.createElement("input");
+    this.findInputEl.type = "text";
+    this.findInputEl.placeholder = "Find in preview…";
+    this.findInputEl.className = "structure-editor-find-input";
+    this.findInputEl.spellcheck = false;
+    this.findCountEl = document.createElement("span");
+    this.findCountEl.className = "structure-editor-find-count";
+    const mkBtn = (label: string, title: string, onClick: () => void) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "structure-editor-find-btn";
+      b.textContent = label;
+      b.title = title;
+      b.tabIndex = -1;
+      b.addEventListener("click", (e) => {
+        e.preventDefault();
+        onClick();
+      });
+      return b;
+    };
+    const prevBtn = mkBtn("‹", "Previous match (⇧⏎)", () => this.findStep(-1));
+    const nextBtn = mkBtn("›", "Next match (⏎)", () => this.findStep(1));
+    const closeBtn2 = mkBtn("✕", "Close (Esc)", () => this.closeFind());
+    this.findBarEl.appendChild(this.findInputEl);
+    this.findBarEl.appendChild(this.findCountEl);
+    this.findBarEl.appendChild(prevBtn);
+    this.findBarEl.appendChild(nextBtn);
+    this.findBarEl.appendChild(closeBtn2);
+    this.bodyEl.appendChild(this.findBarEl);
+
+    this.findInputEl.addEventListener("input", () => this.recomputeMatches());
+    this.findInputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeFind();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        this.findStep(e.shiftKey ? -1 : 1);
+      }
+    });
+
+    // ⌘F at the root level — only intercept in preview mode. In source
+    // CM6 already binds Mod-f via searchKeymap and we let it through.
+    this.root.addEventListener("keydown", (e) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && (e.key === "f" || e.key === "F") && !e.shiftKey) {
+        if (this.viewMode === "preview" && this.previewKind !== "png") {
+          e.preventDefault();
+          e.stopPropagation();
+          this.openFind();
+        }
+      }
+    });
+
     this.host.appendChild(this.root);
+  }
+
+  // ─── Find-in-preview ───────────────────────────────────
+
+  private openFind(): void {
+    this.findOpen = true;
+    this.findBarEl.hidden = false;
+    // Seed with current selection if any
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim() && this.previewHostEl.contains(sel.anchorNode)) {
+      this.findInputEl.value = sel.toString();
+    }
+    this.findInputEl.focus();
+    this.findInputEl.select();
+    this.recomputeMatches();
+  }
+
+  private closeFind(): void {
+    this.findOpen = false;
+    this.findBarEl.hidden = true;
+    this.findInputEl.value = "";
+    this.clearFindHighlights();
+    this.findRanges = [];
+    this.findActiveIdx = -1;
+    if (this.viewMode === "preview") {
+      this.previewHostEl.tabIndex = -1;
+      this.previewHostEl.focus({ preventScroll: true });
+    }
+  }
+
+  /// Walk text nodes inside the preview host, build Ranges for every
+  /// case-insensitive substring match, and apply CSS Custom Highlights.
+  private recomputeMatches(): void {
+    this.clearFindHighlights();
+    this.findRanges = [];
+    this.findActiveIdx = -1;
+    const query = this.findInputEl.value;
+    if (!query) {
+      this.renderFindCount();
+      return;
+    }
+    const lower = query.toLowerCase();
+    const walker = document.createTreeWalker(
+      this.previewHostEl,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: (n) => {
+          if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+          // Skip text inside hidden / non-rendered nodes.
+          const parent = n.parentElement;
+          if (parent && parent.closest("[hidden]")) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      },
+    );
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const text = node.nodeValue ?? "";
+      const hay = text.toLowerCase();
+      let from = 0;
+      while (from <= hay.length) {
+        const i = hay.indexOf(lower, from);
+        if (i < 0) break;
+        const r = document.createRange();
+        r.setStart(node, i);
+        r.setEnd(node, i + query.length);
+        this.findRanges.push(r);
+        from = i + Math.max(1, query.length);
+      }
+    }
+    if (this.findRanges.length > 0) this.findActiveIdx = 0;
+    this.applyFindHighlights();
+    this.renderFindCount();
+    this.scrollActiveIntoView();
+  }
+
+  private findStep(delta: number): void {
+    if (this.findRanges.length === 0) return;
+    const n = this.findRanges.length;
+    this.findActiveIdx = (this.findActiveIdx + delta + n) % n;
+    this.applyFindHighlights();
+    this.renderFindCount();
+    this.scrollActiveIntoView();
+  }
+
+  private applyFindHighlights(): void {
+    // CSS Custom Highlight API. WebKit (Tauri) supports it; gracefully
+    // skip when unavailable — the bar still works as next/prev nav.
+    const cssAny = CSS as unknown as { highlights?: Map<string, unknown> };
+    if (!cssAny.highlights || typeof Highlight === "undefined") return;
+    cssAny.highlights.delete("editor-find");
+    cssAny.highlights.delete("editor-find-active");
+    if (this.findRanges.length === 0) return;
+    const inactive: Range[] = [];
+    let active: Range | null = null;
+    for (let i = 0; i < this.findRanges.length; i++) {
+      if (i === this.findActiveIdx) active = this.findRanges[i];
+      else inactive.push(this.findRanges[i]);
+    }
+    cssAny.highlights.set("editor-find", new Highlight(...inactive));
+    if (active) cssAny.highlights.set("editor-find-active", new Highlight(active));
+  }
+
+  private clearFindHighlights(): void {
+    const cssAny = CSS as unknown as { highlights?: Map<string, unknown> };
+    if (!cssAny.highlights) return;
+    cssAny.highlights.delete("editor-find");
+    cssAny.highlights.delete("editor-find-active");
+  }
+
+  private renderFindCount(): void {
+    if (this.findRanges.length === 0) {
+      this.findCountEl.textContent = this.findInputEl.value ? "0/0" : "";
+      this.findCountEl.classList.toggle("none", !!this.findInputEl.value);
+    } else {
+      this.findCountEl.textContent = `${this.findActiveIdx + 1}/${this.findRanges.length}`;
+      this.findCountEl.classList.remove("none");
+    }
+  }
+
+  private scrollActiveIntoView(): void {
+    if (this.findActiveIdx < 0) return;
+    const r = this.findRanges[this.findActiveIdx];
+    const rect = r.getBoundingClientRect();
+    const hostRect = this.previewHostEl.getBoundingClientRect();
+    if (rect.top < hostRect.top || rect.bottom > hostRect.bottom) {
+      const target = (r.startContainer.parentElement ?? null);
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
   }
 
   /// Build a fresh EditorState for `text` with the language matching
@@ -431,6 +629,7 @@ export class StructureEditor {
     this.viewMode = "source";
     this.previewHostEl.hidden = true;
     this.editorHostEl.hidden = false;
+    if (this.findOpen) this.closeFind();
     if (this.currentPreview) {
       this.currentPreview.dispose();
       this.currentPreview = null;
@@ -462,6 +661,7 @@ export class StructureEditor {
     }
     this.currentPreview = makePreview(this.previewKind);
     this.currentPreview.mount(this.previewHostEl, text);
+    if (this.findOpen) this.recomputeMatches();
     if (opts.focus) {
       // Preview is read-only but should be focusable for ⌘⇧P / Esc.
       this.previewHostEl.tabIndex = -1;
@@ -692,6 +892,7 @@ export class StructureEditor {
     this.previewBtn.hidden = true;
     this.pngBtn.hidden = true;
     this.pngScaleSelect.hidden = true;
+    if (this.findOpen) this.closeFind();
     this.callbacks.onClose?.();
   }
 

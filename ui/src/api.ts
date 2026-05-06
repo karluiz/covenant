@@ -801,6 +801,11 @@ export interface EscalationCard {
   vendor: Vendor;
   raw_command_label: string | null;
   question: string | null;
+  /// Last ~15 non-empty lines of the executor's screen at escalation
+  /// time (ANSI-stripped). Distinct from `question`, which is the
+  /// operator's rationale; this is the raw context the user reads to
+  /// reply.
+  executor_excerpt: string | null;
   mission_name: string | null;
   escalated_at_unix_ms: number;
 }

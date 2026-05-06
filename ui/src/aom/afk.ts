@@ -69,10 +69,22 @@ export class AfkOverlay {
     root.className = "afk-overlay";
     root.innerHTML = `
       <header class="afk-header">
+        <div class="afk-header-status">
+          <span class="afk-status-dot" aria-hidden="true"></span>
+          <span class="afk-status-label">AOM</span>
+        </div>
         <div class="afk-header-stats">
-          <span class="afk-stat afk-stat-cost">—</span>
-          <span class="afk-stat afk-stat-elapsed">—</span>
-          <span class="afk-stat afk-stat-tabs">—</span>
+          <div class="afk-stat-primary">
+            <span class="afk-stat afk-stat-cost">—</span>
+            <div class="afk-cost-bar" aria-hidden="true">
+              <div class="afk-cost-bar-fill" data-role="cost-fill"></div>
+            </div>
+          </div>
+          <div class="afk-stat-secondary">
+            <span class="afk-stat afk-stat-elapsed">—</span>
+            <span class="afk-stat-sep" aria-hidden="true">·</span>
+            <span class="afk-stat afk-stat-tabs">—</span>
+          </div>
         </div>
         <div class="afk-active-operators" data-role="active-operators"></div>
       </header>
@@ -140,7 +152,7 @@ export class AfkOverlay {
         const color = op?.color ?? "#6B7280";
         const name = op ? op.name : `…${id.slice(-6)}`;
         const avatarHtml = op ? renderAvatarHtml(op.emoji, 24) : "";
-        return `<span class="afk-op-chip" style="background:${escapeHtml(color)}" title="${escapeHtml(name)}">${avatarHtml}<span>${escapeHtml(name)}</span></span>`;
+        return `<span class="afk-op-chip" style="--op-color:${escapeHtml(color)}" title="${escapeHtml(name)}">${avatarHtml}<span>${escapeHtml(name)}</span></span>`;
       })
       .join("");
     el.innerHTML = `<span class="afk-active-label">Active operators:</span>${chips}`;
@@ -183,12 +195,18 @@ export class AfkOverlay {
     const costEl = this.root.querySelector<HTMLElement>(".afk-stat-cost");
     const elapsedEl = this.root.querySelector<HTMLElement>(".afk-stat-elapsed");
     const tabsEl = this.root.querySelector<HTMLElement>(".afk-stat-tabs");
+    const ratio = s.budget_usd > 0 ? s.accumulated_cost_usd / s.budget_usd : 0;
     if (costEl) {
       costEl.textContent = `$${s.accumulated_cost_usd.toFixed(
         3,
       )} / $${s.budget_usd.toFixed(2)}`;
-      const ratio = s.budget_usd > 0 ? s.accumulated_cost_usd / s.budget_usd : 0;
       costEl.classList.toggle("afk-stat-warn", ratio >= 0.8);
+    }
+    const fillEl = this.root.querySelector<HTMLElement>("[data-role='cost-fill']");
+    if (fillEl) {
+      const pct = Math.max(0, Math.min(1, ratio)) * 100;
+      fillEl.style.width = `${pct}%`;
+      fillEl.classList.toggle("afk-cost-bar-fill-warn", ratio >= 0.8);
     }
     if (elapsedEl) {
       const ms = s.started_at_unix_ms > 0 ? Date.now() - s.started_at_unix_ms : 0;

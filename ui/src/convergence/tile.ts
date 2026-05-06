@@ -47,6 +47,13 @@ export function renderInboxCard(
 
   root.append(header, question);
 
+  if (card.executor_excerpt) {
+    const excerpt = document.createElement("pre");
+    excerpt.className = "cv-inbox-card__excerpt";
+    excerpt.textContent = card.executor_excerpt;
+    root.append(excerpt);
+  }
+
   if (isActive) {
     root.append(renderReplyComposer(card.session_id, cb.onSubmit));
   }

@@ -95,6 +95,10 @@ pub struct EscalationCard {
     /// The operator's open question — `last_decision_rationale` of the
     /// escalating decision, full text (no truncation in backend).
     pub question: Option<String>,
+    /// Last ~15 non-empty lines of the executor's screen at escalation
+    /// time, ANSI-stripped. Distinct from `question` (operator's
+    /// rationale) — this is the raw context the user needs to reply.
+    pub executor_excerpt: Option<String>,
     pub mission_name: Option<String>,
     /// Unix ms of the escalating decision row, used by the UI for
     /// "2m ago" labels and oldest-first sort.
@@ -168,6 +172,32 @@ pub fn last_non_empty_line(bytes: &[u8], max_chars: usize) -> Option<String> {
     Some(line.chars().take(max_chars).collect())
 }
 
+/// ANSI-strips and returns the last `max_lines` non-empty lines joined
+/// in original order. Each line truncated to `max_chars_per_line`.
+/// Used to surface the executor's actual on-screen content (e.g. the
+/// pending question) on an escalation card, so the user has context to
+/// reply without flipping back to the tab.
+pub fn last_non_empty_lines(
+    bytes: &[u8],
+    max_lines: usize,
+    max_chars_per_line: usize,
+) -> Option<String> {
+    let stripped = strip_ansi_escapes::strip(bytes);
+    let s = String::from_utf8_lossy(&stripped);
+    let mut tail: Vec<String> = s
+        .lines()
+        .rev()
+        .filter(|l| !l.trim().is_empty())
+        .take(max_lines)
+        .map(|l| l.chars().take(max_chars_per_line).collect::<String>())
+        .collect();
+    if tail.is_empty() {
+        return None;
+    }
+    tail.reverse();
+    Some(tail.join("\n"))
+}
+
 use crate::aom::AomHandle;
 use crate::operator::{OperatorState, OperatorWatcher};
 use crate::storage::{OperatorDecisionRow, Storage};
@@ -211,6 +241,9 @@ pub struct BuiltRow {
     pub operator_avatar: Option<String>,
     pub summary: SessionSummary,
     pub escalated_at_unix_ms: u64,
+    /// Snapshot of the executor's tail at build time. Only meaningful
+    /// when `summary.status == Blocked`; copied into the EscalationCard.
+    pub executor_excerpt: Option<String>,
 }
 
 /// Pure second + third pass: groups rows by operator, builds escalation
@@ -229,6 +262,7 @@ pub fn assemble_snapshot(built: Vec<BuiltRow>) -> ConvergenceSnapshot {
             vendor: b.summary.vendor,
             raw_command_label: b.summary.raw_command_label.clone(),
             question: b.summary.last_decision_rationale.clone(),
+            executor_excerpt: b.executor_excerpt.clone(),
             mission_name: b.summary.mission_name.clone(),
             escalated_at_unix_ms: b.escalated_at_unix_ms,
         })
@@ -332,12 +366,17 @@ pub async fn build_convergence_snapshot(
             budget_usd: if enrolled { Some(aom_budget) } else { None },
         };
 
+        let executor_excerpt = matches!(status, TileStatus::Blocked)
+            .then(|| last_non_empty_lines(&tail_bytes, 15, 200))
+            .flatten();
+
         built.push(BuiltRow {
             operator_id: op_id,
             operator_name: op_name,
             operator_avatar: op_avatar,
             escalated_at_unix_ms: last.map(|d| d.timestamp_unix_ms).unwrap_or(0),
             summary,
+            executor_excerpt,
         });
     }
 
@@ -478,6 +517,7 @@ mod tests {
             operator_avatar: None,
             summary: summary(session, status),
             escalated_at_unix_ms: esc_ms,
+            executor_excerpt: None,
         }
     }
 
