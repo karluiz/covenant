@@ -8,6 +8,7 @@ export type ShortcutCategory =
   | "Navigation"
   | "Tabs"
   | "Panels"
+  | "Operator & AI"
   | "AOM"
   | "Misc";
 
@@ -29,17 +30,23 @@ export const SHORTCUTS: ShortcutEntry[] = [
 
   // Panels
   { category: "Panels", keys: ["⌘", ","], label: "Settings", description: "Open or toggle the settings page." },
-  { category: "Panels", keys: ["⌘", "K"], label: "Super-agent", description: "Toggle the agent chat panel." },
-  { category: "Panels", keys: ["⌘", "O"], label: "Operator decisions", description: "Toggle the operator decisions log." },
   { category: "Panels", keys: ["⌘", "P"], label: "Recall palette", description: "Search command history (zsh import)." },
   { category: "Panels", keys: ["⌘", "⇧", "F"], label: "Global file search", description: "Search file contents in the active tab's cwd." },
-  { category: "Panels", keys: ["⌘", "⌥", "O"], label: "Convergence Mode", description: "Full-window overlay with one tile per session." },
+  { category: "Panels", keys: ["⌘", "⇧", "M"], label: "Convergence Mode", description: "Full-window overlay with one tile per session." },
   { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Show the version history / changelog." },
   { category: "Panels", keys: ["⌘", "/"], label: "Docs hub", description: "Open in-app documentation. ⌘? also works." },
   { category: "Panels", keys: ["⌘", "⇧", "K"], label: "Keyboard shortcuts", description: "Show this list." },
-  { category: "Panels", keys: ["⌘", "⇧", "L"], label: "Familiar roster", description: "Open the Familiar chat. Use /summary inside to recap a long session." },
 
-  // AOM
+  // Operator & AI — agent-driven features (super-agent, operators, mission, familiars)
+  { category: "Operator & AI", keys: ["⌘", "K"], label: "Super-agent", description: "Toggle the agent chat panel." },
+  { category: "Operator & AI", keys: ["⌘", "O"], label: "Operator decisions", description: "Toggle the operator decisions log for the active tab." },
+  { category: "Operator & AI", keys: ["⌘", "⇧", "O"], label: "Operator picker", description: "Pick an operator preset (style, budget, autonomy) for the active tab." },
+  { category: "Operator & AI", keys: ["⌘", "M"], label: "Mission picker", description: "Open the mission picker — set or edit the active tab's mission." },
+  { category: "Operator & AI", keys: ["⌘", "N"], label: "Spec-chat", description: "Open the spec-chat panel to draft specs and plans." },
+  { category: "Operator & AI", keys: ["⌘", "⇧", "D"], label: "Drafts", description: "Open the drafts panel (pending specs/plans/notes)." },
+  { category: "Operator & AI", keys: ["⌘", "⇧", "L"], label: "Familiar roster", description: "Open the Familiar chat (per-tab companion agent). Use /summary for a session recap." },
+
+  // AOM — autonomous overnight mode
   { category: "AOM", keys: ["⌘", "⇧", "A"], label: "Toggle AOM", description: "Start or stop autonomous overnight mode." },
   { category: "AOM", keys: ["⌘", "⇧", "R"], label: "AOM morning report", description: "Read-only digest of the most recent AOM run." },
   { category: "AOM", keys: ["⌘", "⇧", "E"], label: "Toggle AOM for active tab", description: "Include/exclude the active tab from AOM. Visible feedback via the tab's bot badge (slashed = excluded)." },
@@ -54,6 +61,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
 ];
 
 export const CATEGORY_ORDER: ShortcutCategory[] = [
+  "Operator & AI",
   "Panels",
   "Tabs",
   "AOM",

@@ -62,8 +62,7 @@ export function renderFamiliarsSettings(
 function renderList(el: HTMLElement, items: FamiliarSummary[]): void {
   el.innerHTML = "";
   if (items.length === 0) {
-    el.textContent =
-      "(no Familiars yet — they appear once an operator starts)";
+    renderEmptyState(el);
     return;
   }
   const styles: Style[] = ["concise", "formal", "conversational", "sarcastic"];
@@ -93,6 +92,57 @@ function renderList(el: HTMLElement, items: FamiliarSummary[]): void {
     });
     el.appendChild(row);
   }
+}
+
+function renderEmptyState(el: HTMLElement): void {
+  el.classList.add("familiars-empty");
+  el.innerHTML = `
+    <div class="familiars-empty-card">
+      <div class="familiars-empty-title">No Familiars yet</div>
+      <p class="familiars-empty-lede">
+        A <strong>Familiar</strong> is a per-operator AI companion: it watches
+        your terminal session, keeps a persistent memory across restarts, and
+        chats with you in plain language. It can also propose
+        <em>directives</em> — actions you approve before they reach the operator.
+      </p>
+
+      <ol class="familiars-empty-steps">
+        <li>
+          <span class="step-num">1</span>
+          <div>
+            <div class="step-title">Start an operator on a tab</div>
+            <div class="step-body">Open a tab and press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>A</kbd> to toggle AOM. A Familiar is auto-spawned the first time the operator runs a command.</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <div>
+            <div class="step-title">Watch the status bar</div>
+            <div class="step-body">A small dot appears at the bottom — green means the Familiar is observing. Click it to jump to its chat.</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <div>
+            <div class="step-title">Open the roster</div>
+            <div class="step-body">Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>L</kbd> to see all Familiars. Click one to chat. Try <code>/summary</code> for a session recap.</div>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">4</span>
+          <div>
+            <div class="step-title">Approve directives</div>
+            <div class="step-body">Ask the Familiar to propose an action ("propose stopping the next deploy"). Approve or reject the card — only approved directives reach the operator.</div>
+          </div>
+        </li>
+      </ol>
+
+      <div class="familiars-empty-meta">
+        <div><strong>Cost:</strong> uses your Anthropic API key (BYOK). Eager observation is cheap (Haiku); deep chat uses Sonnet. Per-Familiar daily cap defaults to <code>$5</code>.</div>
+        <div><strong>Memory:</strong> persisted at <code>~/.karlTerminal/familiars/</code>. Survives restarts. Closing a tab does not delete its Familiar.</div>
+        <div><strong>Safety:</strong> proposed commands pass through the operator blocklist. Unsafe directives are blocked and audited.</div>
+      </div>
+    </div>`;
 }
 
 function escapeAttr(s: string): string {

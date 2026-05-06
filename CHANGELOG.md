@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.18 — Shortcuts audit + Familiars onboarding
+
+### Added
+
+- **Operator & AI** category in the keyboard shortcuts modal
+  (⌘⇧K), grouping super-agent, operator decisions, operator
+  picker (⌘⇧O), mission picker (⌘M), spec-chat (⌘N), drafts
+  (⌘⇧D), and Familiar roster (⌘⇧L). Four bindings that were
+  active in `main.ts` but missing from the registry are now
+  discoverable.
+- **Familiars settings: empty-state onboarding.** Replaces the
+  single-line "(no Familiars yet)" with a card explaining what
+  a Familiar is, four numbered steps to spawn one, and meta
+  notes on cost (BYOK), persistence
+  (`~/.karlTerminal/familiars/`), and safety.
+
+### Fixed
+
+- **Convergence Mode shortcut listed wrong keys.** Registry
+  showed `⌘⌥O`; the real binding is `⌘⇧M`.
+- **"Operator decisions" label was ambiguous** — it now reads
+  "Operator decisions log for the active tab", distinguishing
+  it from the new "Operator picker" entry.
+
 ## v0.2.17 — Terminal refit + convergence overlay polish
 
 ### Fixed

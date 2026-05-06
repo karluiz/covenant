@@ -3023,6 +3023,117 @@ body:not(.tabbar-left) #new-group {
     font-size: 10px;
 }
 
+.familiars-empty {
+    margin-top: 16px;
+}
+
+.familiars-empty-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    background: linear-gradient(180deg, rgba(99,102,241,0.04), rgba(99,102,241,0));
+}
+
+.familiars-empty-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 8px;
+}
+
+.familiars-empty-lede {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.55;
+    margin: 0 0 18px 0;
+}
+
+.familiars-empty-lede strong {
+    color: #e6e6e6;
+    font-weight: 600;
+}
+
+.familiars-empty-steps {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 18px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.familiars-empty-steps li {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.familiars-empty-steps .step-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(99,102,241,0.18);
+    color: #a5b4fc;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+}
+
+.familiars-empty-steps .step-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e6e6e6;
+    margin-bottom: 2px;
+}
+
+.familiars-empty-steps .step-body {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.familiars-empty-steps kbd {
+    display: inline-block;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    margin: 0 1px;
+    font-size: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #d4d4d4;
+}
+
+.familiars-empty-steps code,
+.familiars-empty-meta code {
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    color: #d4d4d4;
+}
+
+.familiars-empty-meta {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.familiars-empty-meta strong {
+    color: #d4d4d4;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
 .settings-actions {
     display: flex;
     gap: 8px;
