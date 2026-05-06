@@ -172,6 +172,15 @@ CREATE TABLE IF NOT EXISTS project_docs (
     body               TEXT NOT NULL,
     updated_at_unix_ms INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS operator_mind (
+    session_id  TEXT PRIMARY KEY,
+    json        TEXT NOT NULL,
+    turn_count  INTEGER NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_operator_mind_updated_at
+    ON operator_mind(updated_at);
 ";
 
 #[derive(Debug, Error)]
@@ -184,6 +193,16 @@ pub enum StorageError {
     Join(String),
     #[error("{0}")]
     Other(String),
+}
+
+/// Cheap header fields from an operator_mind row — used by MindLossModal
+/// to show a preview without deserialising the full JSON blob.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MindPreviewRow {
+    pub turn_count: u64,
+    pub updated_at_rfc3339: String,
+    pub goal: String,
+    pub belief: String,
 }
 
 /// Lightweight snapshot of a persisted block, tailored for the agent's
@@ -1606,6 +1625,142 @@ impl Storage {
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
+
+    /// Load the persisted OperatorMind for a session, if any.
+    /// Corrupt JSON triggers automatic delete + returns None so the next
+    /// turn rebuilds default.
+    pub async fn mind_load(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::operator_mind::OperatorMind>, StorageError> {
+        let conn = self.inner.clone();
+        let session_id = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<crate::operator_mind::OperatorMind>, StorageError> {
+            let conn = conn.blocking_lock();
+            let result: Result<String, rusqlite::Error> = conn.query_row(
+                "SELECT json FROM operator_mind WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            );
+            match result {
+                Ok(json) => match serde_json::from_str::<crate::operator_mind::OperatorMind>(&json) {
+                    Ok(m) => Ok(Some(m)),
+                    Err(e) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            error = %e,
+                            "operator_mind: corrupt JSON, deleting and starting fresh"
+                        );
+                        let _ = conn.execute(
+                            "DELETE FROM operator_mind WHERE session_id = ?1",
+                            params![session_id],
+                        );
+                        Ok(None)
+                    }
+                },
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(StorageError::Sqlite(e)),
+            }
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Persist (upsert) the OperatorMind for a session.
+    pub async fn mind_save(
+        &self,
+        session_id: &str,
+        mind: &crate::operator_mind::OperatorMind,
+    ) -> Result<(), StorageError> {
+        let json = serde_json::to_string(mind)
+            .map_err(|e| StorageError::Other(format!("operator_mind serialize: {e}")))?;
+        let session_id = session_id.to_string();
+        let turn_count = mind.turn_count as i64;
+        let updated_at = mind.updated_at.to_rfc3339();
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let conn = conn.blocking_lock();
+            conn.execute(
+                "INSERT INTO operator_mind (session_id, json, turn_count, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(session_id) DO UPDATE SET
+                   json = excluded.json,
+                   turn_count = excluded.turn_count,
+                   updated_at = excluded.updated_at",
+                params![session_id, json, turn_count, updated_at],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Delete the OperatorMind for a session.
+    pub async fn mind_delete(&self, session_id: &str) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        let session_id = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let conn = conn.blocking_lock();
+            conn.execute(
+                "DELETE FROM operator_mind WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// GC: drop minds whose session_id no longer exists in `sessions`.
+    /// Returns count of rows deleted. Run on app startup.
+    pub async fn mind_gc_orphans(&self) -> Result<usize, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<usize, StorageError> {
+            let conn = conn.blocking_lock();
+            let n = conn.execute(
+                "DELETE FROM operator_mind
+                 WHERE session_id NOT IN (SELECT id FROM sessions)",
+                [],
+            )?;
+            Ok(n)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Cheap header read for the MindLossModal preview path.
+    /// Returns None if the row is absent.
+    pub async fn mind_preview(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<MindPreviewRow>, StorageError> {
+        let conn = self.inner.clone();
+        let session_id = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<MindPreviewRow>, StorageError> {
+            let conn = conn.blocking_lock();
+            let result: Result<(String, i64, String), rusqlite::Error> = conn.query_row(
+                "SELECT json, turn_count, updated_at FROM operator_mind WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            );
+            match result {
+                Ok((json, turn_count, updated_at)) => {
+                    let mind: crate::operator_mind::OperatorMind = serde_json::from_str(&json)
+                        .map_err(|e| StorageError::Other(format!("mind_preview JSON: {e}")))?;
+                    Ok(Some(MindPreviewRow {
+                        turn_count: turn_count as u64,
+                        updated_at_rfc3339: updated_at,
+                        goal: mind.goal,
+                        belief: mind.belief,
+                    }))
+                }
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(StorageError::Sqlite(e)),
+            }
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
 }
 
 /// Recall ranker. Tuned so the obvious-good answer wins:
@@ -2466,5 +2621,101 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM seen_specs", [], |r| r.get(0))
             .expect("count");
         assert_eq!(count, 1);
+    }
+
+    use crate::operator_mind::{OperatorMind, TurnAction, TurnRecord};
+
+    #[tokio::test]
+    async fn mind_save_load_roundtrip() {
+        let (s, _g) = fresh();
+        let mut m = OperatorMind::default();
+        m.goal = "ship 3.20".into();
+        m.belief = "executor mid task".into();
+        m.record_turn(TurnRecord {
+            turn: 3,
+            at: chrono::Utc::now(),
+            saw: "tail".into(),
+            thought: "thinking".into(),
+            action: TurnAction::Reply { text: "yes".into() },
+            executed: true,
+        });
+        s.mind_save("sess-1", &m).await.unwrap();
+        let loaded = s.mind_load("sess-1").await.unwrap().unwrap();
+        assert_eq!(loaded.goal, "ship 3.20");
+        assert_eq!(loaded.belief, "executor mid task");
+        assert_eq!(loaded.recent.len(), 1);
+        assert_eq!(loaded.turn_count, 3);
+    }
+
+    #[tokio::test]
+    async fn mind_load_returns_none_for_missing_session() {
+        let (s, _g) = fresh();
+        let loaded = s.mind_load("nope").await.unwrap();
+        assert!(loaded.is_none());
+    }
+
+    #[tokio::test]
+    async fn mind_load_corrupt_json_deletes_and_returns_none() {
+        let (s, _g) = fresh();
+        // Direct insert of garbage JSON via the inner connection.
+        {
+            let conn = s.inner.lock().await;
+            conn.execute(
+                "INSERT INTO operator_mind (session_id, json, turn_count, updated_at)
+                 VALUES ('corrupt', 'not json', 0, '2026-05-06T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        }
+        let loaded = s.mind_load("corrupt").await.unwrap();
+        assert!(loaded.is_none());
+        // Verify the row was deleted (preview returns None).
+        let preview = s.mind_preview("corrupt").await.unwrap();
+        assert!(preview.is_none());
+    }
+
+    #[tokio::test]
+    async fn mind_save_overwrites() {
+        let (s, _g) = fresh();
+        let mut m = OperatorMind::default();
+        m.goal = "first".into();
+        s.mind_save("sess-2", &m).await.unwrap();
+        m.goal = "second".into();
+        s.mind_save("sess-2", &m).await.unwrap();
+        assert_eq!(s.mind_load("sess-2").await.unwrap().unwrap().goal, "second");
+    }
+
+    #[tokio::test]
+    async fn mind_delete_removes_row() {
+        let (s, _g) = fresh();
+        let m = OperatorMind::default();
+        s.mind_save("sess-3", &m).await.unwrap();
+        s.mind_delete("sess-3").await.unwrap();
+        assert!(s.mind_load("sess-3").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn mind_gc_drops_orphans() {
+        let (s, _g) = fresh();
+        // Insert mind without a corresponding session row.
+        let m = OperatorMind::default();
+        s.mind_save("orphan-1", &m).await.unwrap();
+        let n = s.mind_gc_orphans().await.unwrap();
+        assert_eq!(n, 1);
+        assert!(s.mind_load("orphan-1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn mind_preview_returns_header_fields() {
+        let (s, _g) = fresh();
+        let mut m = OperatorMind::default();
+        m.goal = "g".into();
+        m.belief = "b".into();
+        m.turn_count = 7;
+        s.mind_save("sess-4", &m).await.unwrap();
+        let p = s.mind_preview("sess-4").await.unwrap().unwrap();
+        assert_eq!(p.turn_count, 7);
+        assert_eq!(p.goal, "g");
+        assert_eq!(p.belief, "b");
     }
 }

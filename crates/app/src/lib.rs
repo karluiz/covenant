@@ -2265,6 +2265,7 @@ pub fn run() {
             );
 
             let tab_manifest_path = dir.join("tab_manifest.json");
+            let gc_storage = storage.clone();
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
                 settings: settings_arc,
@@ -2282,6 +2283,16 @@ pub fn run() {
                 spec_detectors: Mutex::new(HashMap::new()),
                 connectivity: connectivity_handle,
             });
+
+            // Operator-mind orphan GC on startup. Best-effort; log only.
+            tauri::async_runtime::spawn(async move {
+                match gc_storage.mind_gc_orphans().await {
+                    Ok(n) if n > 0 => tracing::info!(deleted = n, "operator_mind: gc orphans"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "operator_mind: gc failed"),
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
