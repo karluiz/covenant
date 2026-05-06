@@ -40,6 +40,7 @@ impl TelegramNotifier {
         summary: &str,
         escalation_id: &str,
         actions: &[String],
+        session_id: &str,
     ) -> anyhow::Result<()> {
         let s = self.settings.lock().await;
         if !s.telegram.enabled
@@ -61,6 +62,11 @@ impl TelegramNotifier {
         };
         let result = self.client.send_message(&token, req).await?;
         self.state.map.lock().unwrap().insert(result.message_id, escalation_id.to_string());
+        self.state
+            .session_map
+            .lock()
+            .unwrap()
+            .insert(escalation_id.to_string(), session_id.to_string());
         Ok(())
     }
 
@@ -163,7 +169,7 @@ mod tests {
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
         n.send_escalation("tab1", "BLOCKED", "summary", "esc-1",
-            &["Approve".into(), "Reject".into()]).await.unwrap();
+            &["Approve".into(), "Reject".into()], "sess-1").await.unwrap();
         assert_eq!(fake.sent.lock().unwrap().len(), 1);
         let map = n.state.map.lock().unwrap();
         assert_eq!(map.get(&101).map(String::as_str), Some("esc-1"));
@@ -173,7 +179,7 @@ mod tests {
     async fn send_escalation_skipped_when_disabled() {
         let fake = Arc::new(FakeTelegramClient::default());
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(false, "42"));
-        n.send_escalation("t", "K", "s", "id", &["Approve".into()]).await.unwrap();
+        n.send_escalation("t", "K", "s", "id", &["Approve".into()], "sess").await.unwrap();
         assert!(fake.sent.lock().unwrap().is_empty());
     }
 
@@ -182,7 +188,7 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()]).await.unwrap();
+        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()], "sess").await.unwrap();
         n.on_resolved("esc-1", "Approved via terminal").await.unwrap();
         assert_eq!(fake.edits.lock().unwrap().len(), 1);
         assert!(n.state.map.lock().unwrap().is_empty());
@@ -244,7 +250,7 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()]).await.unwrap();
+        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()], "sess").await.unwrap();
         fake.queued_updates.lock().unwrap().push(vec![Update {
             update_id: 1,
             callback_query: None,

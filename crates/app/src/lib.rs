@@ -131,6 +131,16 @@ pub(crate) struct AppState {
     /// the state for UX. Backend heartbeat is a TODO — v0 trusts the
     /// browser as the single source of truth.
     connectivity: connectivity::ConnectivityHandle,
+    /// Telegram inbound long-poll JoinHandle, behind a mutex so
+    /// `set_settings` can abort and respawn it when the bot token,
+    /// chat_id, or enabled flag changes.
+    #[allow(dead_code)]
+    telegram_inbound_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Sender side of the inbound channel — kept on AppState so respawns
+    /// after settings changes feed the same drain task.
+    #[allow(dead_code)]
+    telegram_inbound_tx:
+        tokio::sync::mpsc::UnboundedSender<crate::telegram::InboundEvent>,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -1714,7 +1724,24 @@ async fn set_settings(
     settings: Settings,
 ) -> Result<(), String> {
     settings::save(&state.settings_path, &settings).map_err(|e| e.to_string())?;
+    let telegram_changed = {
+        let cur = state.settings.lock().await;
+        cur.telegram.enabled != settings.telegram.enabled
+            || cur.telegram.bot_token != settings.telegram.bot_token
+            || cur.telegram.chat_id != settings.telegram.chat_id
+    };
     *state.settings.lock().await = settings;
+    if telegram_changed {
+        let mut slot = state.telegram_inbound_handle.lock().await;
+        if let Some(h) = slot.take() {
+            h.abort();
+        }
+        let new_handle = state
+            .telegram_notifier
+            .spawn_inbound(state.telegram_inbound_tx.clone())
+            .await;
+        *slot = Some(new_handle);
+    }
     Ok(())
 }
 
@@ -2296,6 +2323,7 @@ pub fn run() {
                                         &summary,
                                         &escalation_id,
                                         &actions_strs,
+                                        &session.to_string(),
                                     )
                                     .await
                                 {
@@ -2358,6 +2386,118 @@ pub fn run() {
                 });
             }
 
+            // Telegram inbound: long-poll loop emits InboundEvent into a
+            // channel; the drain task republishes Resolved as
+            // EscalationResolved on the bus and, for FreeText, types the
+            // text into the originating session's PTY (Enter appended so
+            // the executor TUI receives it as a submitted message).
+            let (tg_inbound_tx, mut tg_inbound_rx) =
+                tokio::sync::mpsc::unbounded_channel::<crate::telegram::InboundEvent>();
+            let initial_inbound_handle = tauri::async_runtime::block_on(
+                telegram_notifier.spawn_inbound(tg_inbound_tx.clone()),
+            );
+            let tg_inbound_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> =
+                Arc::new(Mutex::new(Some(initial_inbound_handle)));
+
+            {
+                let escalation_bus_tx_for_drain = escalation_bus_tx.clone();
+                let tg_for_drain = telegram_notifier.clone();
+                let app_handle_for_drain = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use karl_session::{EscalationResolution, ResolutionSource, SessionEvent};
+                    while let Some(evt) = tg_inbound_rx.recv().await {
+                        match evt {
+                            crate::telegram::InboundEvent::Resolved {
+                                escalation_id,
+                                resolution,
+                            } => {
+                                let (res, free_text) = match resolution {
+                                    crate::telegram::ResolutionFromTelegram::Approved => {
+                                        (EscalationResolution::Approved, None)
+                                    }
+                                    crate::telegram::ResolutionFromTelegram::Rejected => {
+                                        (EscalationResolution::Rejected, None)
+                                    }
+                                    crate::telegram::ResolutionFromTelegram::Snoozed => {
+                                        (EscalationResolution::Snoozed, None)
+                                    }
+                                    crate::telegram::ResolutionFromTelegram::FreeText(t) => {
+                                        let txt = t.clone();
+                                        (EscalationResolution::FreeText(t), Some(txt))
+                                    }
+                                };
+                                let _ = escalation_bus_tx_for_drain.send(
+                                    SessionEvent::EscalationResolved {
+                                        escalation_id: escalation_id.clone(),
+                                        resolution: res,
+                                        source: ResolutionSource::Telegram,
+                                    },
+                                );
+                                if let Some(text) = free_text {
+                                    let session_str = tg_for_drain
+                                        .state
+                                        .session_map
+                                        .lock()
+                                        .unwrap()
+                                        .get(&escalation_id)
+                                        .cloned();
+                                    if let Some(sid_str) = session_str {
+                                        match sid_str.parse::<karl_session::SessionId>() {
+                                            Ok(sid) => {
+                                                if let Some(state) = app_handle_for_drain
+                                                    .try_state::<AppState>()
+                                                {
+                                                    let mut payload = text.into_bytes();
+                                                    payload.push(b'\n');
+                                                    let mut sessions =
+                                                        state.sessions.lock().await;
+                                                    if let Some(managed) =
+                                                        sessions.get_mut(&sid)
+                                                    {
+                                                        if let Err(e) =
+                                                            managed.session.write(&payload)
+                                                        {
+                                                            tracing::warn!(error = %e, "telegram free-text inject failed");
+                                                        }
+                                                    } else {
+                                                        tracing::warn!(session = %sid, "telegram free-text: session not found");
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(error = %e, "telegram free-text: bad session id");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            crate::telegram::InboundEvent::UnknownReply {
+                                chat_id,
+                                message_id: _,
+                            } => {
+                                let s = tg_for_drain.settings.lock().await;
+                                let token = s.telegram.bot_token.clone();
+                                drop(s);
+                                if !token.is_empty() {
+                                    let _ = tg_for_drain
+                                        .client
+                                        .send_message(
+                                            &token,
+                                            crate::telegram::types::SendMessageReq {
+                                                chat_id: chat_id.to_string(),
+                                                text: "Responde al mensaje original de la tab a la que te refieres, o esa escalación ya cerró.".into(),
+                                                reply_markup: None,
+                                                parse_mode: None,
+                                            },
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
             let operator_watcher = OperatorWatcher::spawn(
                 app.handle().clone(),
                 settings_arc.clone(),
@@ -2403,6 +2543,8 @@ pub fn run() {
                 embedder: embedder_cell,
                 spec_detectors: Mutex::new(HashMap::new()),
                 connectivity: connectivity_handle,
+                telegram_inbound_handle: tg_inbound_handle,
+                telegram_inbound_tx: tg_inbound_tx,
             });
             Ok(())
         })

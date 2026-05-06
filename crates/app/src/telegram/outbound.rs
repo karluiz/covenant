@@ -4,6 +4,7 @@ use std::sync::Mutex;
 #[derive(Default)]
 pub struct OutboundState {
     pub map: Mutex<HashMap<i64, String>>, // message_id -> escalation_id
+    pub session_map: Mutex<HashMap<String, String>>, // escalation_id -> session_id
 }
 
 pub fn format_escalation(tab_name: &str, kind: &str, summary: &str) -> String {
