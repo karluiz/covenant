@@ -2128,6 +2128,27 @@ async fn run_tick(
                 continue;
             }
         };
+        // Spec 3.20 §7.2: thinking-budget truncation bump.
+        if mind_v2_on && ask_response.stop_reason.as_deref() == Some("max_tokens") {
+            let mut inner_lock = inner.lock().await;
+            if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
+                let cur = att
+                    .thinking_budget_override
+                    .unwrap_or(mind_thinking_budget_setting);
+                let next = (cur + 1000).min(4000);
+                att.thinking_budget_override = Some(next);
+                att.consecutive_parse_failures =
+                    att.consecutive_parse_failures.saturating_add(1);
+                tracing::warn!(
+                    session = %session_id,
+                    from = cur,
+                    to = next,
+                    "operator_mind: thinking budget truncation; bumping"
+                );
+            }
+            continue;
+        }
+
         let response = ask_response.text;
         let call_cost_usd = cost::estimate_usd(&model, ask_response.usage);
 
@@ -2251,6 +2272,48 @@ async fn run_tick(
                     continue;
                 }
             }
+        };
+
+        // Spec 3.20 §7.5 phase 5: repeat-failure guard. If the model
+        // proposes an action whose signature substring-matches any
+        // entry in tried_failed, force Escalate so it doesn't burn
+        // a turn re-attempting a known-bad path.
+        let parsed_action = if mind_v2_on {
+            let tried_failed_snapshot: VecDeque<String> = mind
+                .as_ref()
+                .map(|m| m.tried_failed.clone())
+                .unwrap_or_default();
+            let probe: Option<crate::operator_mind::TurnAction> = match &parsed_action {
+                OperatorAction::Reply { text, .. } => {
+                    Some(crate::operator_mind::TurnAction::Reply { text: text.clone() })
+                }
+                _ => None,
+            };
+            if let Some(probe_action) = probe {
+                if crate::operator_mind::is_repeat_of_known_failure(
+                    &probe_action,
+                    &tried_failed_snapshot,
+                ) {
+                    let sig = crate::operator_mind::action_signature(&probe_action);
+                    tracing::warn!(
+                        session = %session_id,
+                        signature = %sig,
+                        "operator_mind: blocking repeat of known-failed action"
+                    );
+                    OperatorAction::Escalate {
+                        notification: format!(
+                            "operator about to repeat a known-failed action: {sig}"
+                        ),
+                        rationale: String::new(),
+                    }
+                } else {
+                    parsed_action
+                }
+            } else {
+                parsed_action
+            }
+        } else {
+            parsed_action
         };
 
         // Two loop detectors run side-by-side:
@@ -2434,6 +2497,30 @@ async fn run_tick(
                                 "operator reply blocked by safety"
                             );
                             let note = format!("blocked: {}", reason.message);
+                            // Spec 3.20 phase 5: append to tried_failed so
+                            // the model learns within the session.
+                            if mind_v2_on {
+                                let snippet: String = text.chars().take(60).collect();
+                                let attempted = format!(
+                                    "attempted REPLY '{}' — blocked by safety: {}",
+                                    snippet, reason.message
+                                );
+                                let mut update =
+                                    crate::operator_mind::MindUpdate::default();
+                                update.tried_failed_append = Some(vec![attempted]);
+                                let mut inner_lock = inner.lock().await;
+                                if let Some(att) =
+                                    inner_lock.sessions.get_mut(&session_id)
+                                {
+                                    if att.mind.is_none() {
+                                        att.mind = mind.clone();
+                                    }
+                                    if let Some(m) = att.mind.as_mut() {
+                                        m.apply(update, chrono::Utc::now());
+                                        att.mind_dirty = true;
+                                    }
+                                }
+                            }
                             (
                                 OperatorAction::Escalate {
                                     notification: note.clone(),
@@ -2823,7 +2910,8 @@ async fn run_tick(
         }
         out
     };
-    for (id, m) in to_flush {
+    for (id, mut m) in to_flush {
+        crate::operator_mind::mask_in_place(&mut m, |s| crate::safety::mask_secrets(s));
         if let Err(e) = storage.mind_save(&id.to_string(), &m).await {
             tracing::warn!(session = %id, error = %e, "operator_mind: save failed; will retry");
             let mut inner_lock = inner.lock().await;

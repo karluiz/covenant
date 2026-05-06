@@ -247,6 +247,44 @@ pub fn action_signature(a: &TurnAction) -> String {
     }
 }
 
+/// Returns true if the action's signature appears (case-insensitive
+/// substring match) in any entry of `tried_failed`. Empty signatures
+/// (Escalate, Ignore) never match.
+pub fn is_repeat_of_known_failure(action: &TurnAction, tried_failed: &VecDeque<String>) -> bool {
+    let sig = action_signature(action);
+    if sig.is_empty() {
+        return false;
+    }
+    let sig_lc = sig.to_lowercase();
+    tried_failed
+        .iter()
+        .any(|tf| tf.to_lowercase().contains(&sig_lc))
+}
+
+/// Apply a masking function across all model-authored text in the
+/// mind. Used before persistence to keep secrets out of SQLite.
+pub fn mask_in_place<F: Fn(&str) -> String>(mind: &mut OperatorMind, mask: F) {
+    mind.goal = mask(&mind.goal);
+    mind.belief = mask(&mind.belief);
+    mind.next_intent = mask(&mind.next_intent);
+    for q in mind.open_questions.iter_mut() {
+        *q = mask(q);
+    }
+    for tf in mind.tried_failed.iter_mut() {
+        *tf = mask(tf);
+    }
+    for rec in mind.recent.iter_mut() {
+        rec.saw = mask(&rec.saw);
+        rec.thought = mask(&rec.thought);
+        match &mut rec.action {
+            TurnAction::Reply { text } => *text = mask(text),
+            TurnAction::Execute { command } => *command = mask(command),
+            TurnAction::Escalate { notification } => *notification = mask(notification),
+            TurnAction::Ignore => {}
+        }
+    }
+}
+
 /// Find the JSON object inside a possibly-noisy text block and parse.
 pub fn parse_model_response(text: &str) -> Result<ModelResponse, MindParseError> {
     let candidate = find_first_json_object(text).ok_or(MindParseError::NoJsonObject)?;
@@ -586,6 +624,75 @@ mod tests {
         let text = r#"{"mind_update": {"belief": "use {x} for placeholders"}, "action": {"kind": "Ignore"}}"#;
         let r = parse_model_response(text).unwrap();
         assert_eq!(r.mind_update.belief.as_deref(), Some("use {x} for placeholders"));
+    }
+
+    #[test]
+    fn is_repeat_of_known_failure_substring_matches() {
+        let mut tf = VecDeque::new();
+        tf.push_back("attempted REPLY 'yes' — blocked by safety".to_string());
+        let act = TurnAction::Reply { text: "yes".into() };
+        assert!(is_repeat_of_known_failure(&act, &tf));
+    }
+
+    #[test]
+    fn is_repeat_of_known_failure_no_overlap() {
+        let mut tf = VecDeque::new();
+        tf.push_back("attempted git push — failed".to_string());
+        let act = TurnAction::Reply { text: "yes".into() };
+        assert!(!is_repeat_of_known_failure(&act, &tf));
+    }
+
+    #[test]
+    fn is_repeat_of_known_failure_empty_signature_never_matches() {
+        let mut tf = VecDeque::new();
+        tf.push_back("anything".to_string());
+        assert!(!is_repeat_of_known_failure(
+            &TurnAction::Escalate { notification: "n".into() },
+            &tf
+        ));
+        assert!(!is_repeat_of_known_failure(&TurnAction::Ignore, &tf));
+    }
+
+    #[test]
+    fn is_repeat_of_known_failure_execute_matches_by_first_token() {
+        let mut tf = VecDeque::new();
+        tf.push_back("blocked: rm bypassed safety".to_string());
+        let act = TurnAction::Execute { command: "rm -rf /tmp/x".into() };
+        assert!(is_repeat_of_known_failure(&act, &tf));
+    }
+
+    #[test]
+    fn mask_in_place_redacts_secret_pattern_across_all_fields() {
+        let mut m = OperatorMind {
+            goal: "get sk-abc123".into(),
+            belief: "uses sk-abc123 for auth".into(),
+            next_intent: "store sk-abc123".into(),
+            open_questions: vec!["why sk-abc123?".into()],
+            ..Default::default()
+        };
+        m.tried_failed.push_back("replied with sk-abc123".into());
+        m.record_turn(TurnRecord {
+            turn: 1,
+            at: chrono::Utc::now(),
+            saw: "tail with sk-abc123".into(),
+            thought: "thinking sk-abc123".into(),
+            action: TurnAction::Reply { text: "echo sk-abc123".into() },
+            executed: false,
+        });
+        mask_in_place(&mut m, |s| s.replace("sk-abc123", "***"));
+        assert!(!m.goal.contains("sk-abc123"));
+        assert!(!m.belief.contains("sk-abc123"));
+        assert!(!m.next_intent.contains("sk-abc123"));
+        assert!(!m.open_questions[0].contains("sk-abc123"));
+        assert!(!m.tried_failed[0].contains("sk-abc123"));
+        let r = m.recent.front().unwrap();
+        assert!(!r.saw.contains("sk-abc123"));
+        assert!(!r.thought.contains("sk-abc123"));
+        if let TurnAction::Reply { text } = &r.action {
+            assert!(!text.contains("sk-abc123"));
+        } else {
+            panic!("expected Reply variant");
+        }
     }
 
     #[test]
