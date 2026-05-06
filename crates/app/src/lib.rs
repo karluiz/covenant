@@ -104,6 +104,19 @@ pub(crate) struct AppState {
     /// Email fan-out channel (SendGrid). Paired with `notifier` so
     /// every OS notification also optionally fires an email.
     email_notifier: Arc<crate::email::EmailNotifier>,
+    /// Telegram fan-out channel. Subscribes (via a dedicated task at
+    /// app setup) to the same `escalation_bus_tx` that the operator
+    /// publishes `EscalationRequested` / `MissionCompleted` /
+    /// `MissionFailed` on. Held on AppState so future Tauri commands
+    /// (Task 8/9) can also call into it directly.
+    #[allow(dead_code)]
+    telegram_notifier: Arc<crate::telegram::TelegramNotifier>,
+    /// Broadcast channel the operator (and, in Task 7+, the terminal
+    /// modal) publish escalation/mission events on. Subscribed by the
+    /// telegram fan-out task spawned at app setup. Held on AppState so
+    /// other surfaces (e.g. the resolution path) can publish too.
+    #[allow(dead_code)]
+    escalation_bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
     /// 3.13 operator learning — local embedding model, lazy-loaded on
     /// first use (model download ~30 MB). Wrapped in `OnceCell` so app
     /// startup stays cheap; resolved on a blocking task by `get_embedder`.
@@ -2239,6 +2252,112 @@ pub fn run() {
             let mission_store = dir.join("session_missions.json");
             let embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>> =
                 Arc::new(tokio::sync::OnceCell::new());
+
+            // Telegram fan-out: construct the notifier next to its email
+            // counterpart, then subscribe to the escalation bus the
+            // operator publishes on. The Tauri-command path for resolving
+            // an escalation from Telegram lands in Task 8.
+            let tg_client: std::sync::Arc<dyn crate::telegram::client::TelegramClient> =
+                std::sync::Arc::new(crate::telegram::client::ReqwestTelegramClient::new());
+            let telegram_notifier = std::sync::Arc::new(
+                crate::telegram::TelegramNotifier::new(tg_client, settings_arc.clone()),
+            );
+            let (escalation_bus_tx, _) =
+                tokio::sync::broadcast::channel::<karl_session::SessionEvent>(64);
+            {
+                let mut rx = escalation_bus_tx.subscribe();
+                let tg = telegram_notifier.clone();
+                tauri::async_runtime::spawn(async move {
+                    use karl_session::SessionEvent;
+                    loop {
+                        match rx.recv().await {
+                            Ok(SessionEvent::EscalationRequested {
+                                session,
+                                escalation_id,
+                                kind,
+                                summary,
+                                actions,
+                            }) => {
+                                let session_short = session
+                                    .to_string()
+                                    .chars()
+                                    .take(6)
+                                    .collect::<String>();
+                                let tab_name = format!("session:{session_short}");
+                                let actions_strs: Vec<String> = actions
+                                    .iter()
+                                    .map(|a| format!("{:?}", a))
+                                    .collect();
+                                let kind_label = format!("{:?}", kind).to_uppercase();
+                                if let Err(e) = tg
+                                    .send_escalation(
+                                        &tab_name,
+                                        &kind_label,
+                                        &summary,
+                                        &escalation_id,
+                                        &actions_strs,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(error = %e, "telegram send_escalation failed");
+                                }
+                            }
+                            Ok(SessionEvent::EscalationResolved {
+                                escalation_id,
+                                resolution,
+                                source,
+                            }) => {
+                                let status = format!("{:?} via {:?}", resolution, source);
+                                if let Err(e) = tg.on_resolved(&escalation_id, &status).await {
+                                    tracing::warn!(error = %e, "telegram on_resolved failed");
+                                }
+                            }
+                            Ok(SessionEvent::MissionCompleted { session, summary }) => {
+                                let session_short = session
+                                    .to_string()
+                                    .chars()
+                                    .take(6)
+                                    .collect::<String>();
+                                let tab_name = format!("session:{session_short}");
+                                if let Err(e) = tg
+                                    .send_mission_event(
+                                        crate::telegram::MissionKind::Completed,
+                                        &tab_name,
+                                        &summary,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(error = %e, "telegram mission completed failed");
+                                }
+                            }
+                            Ok(SessionEvent::MissionFailed { session, reason }) => {
+                                let session_short = session
+                                    .to_string()
+                                    .chars()
+                                    .take(6)
+                                    .collect::<String>();
+                                let tab_name = format!("session:{session_short}");
+                                if let Err(e) = tg
+                                    .send_mission_event(
+                                        crate::telegram::MissionKind::Failed,
+                                        &tab_name,
+                                        &reason,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(error = %e, "telegram mission failed failed");
+                                }
+                            }
+                            Ok(_) => { /* not interested */ }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!(skipped = n, "telegram subscriber lagged");
+                            }
+                        }
+                    }
+                });
+            }
+
             let operator_watcher = OperatorWatcher::spawn(
                 app.handle().clone(),
                 settings_arc.clone(),
@@ -2250,6 +2369,7 @@ pub fn run() {
                 registry_arc.clone(),
                 embedder_cell.clone(),
                 connectivity_handle.clone(),
+                escalation_bus_tx.clone(),
             );
 
             spawn_superpowers_watcher(app.handle().clone());
@@ -2278,6 +2398,8 @@ pub fn run() {
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
                 email_notifier,
+                telegram_notifier,
+                escalation_bus_tx,
                 embedder: embedder_cell,
                 spec_detectors: Mutex::new(HashMap::new()),
                 connectivity: connectivity_handle,
