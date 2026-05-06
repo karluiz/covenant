@@ -88,6 +88,11 @@ fn event_kind(ev: &SessionEvent) -> String {
         SessionEvent::BlockFinished { .. } => "BlockFinished",
         SessionEvent::CwdChanged { .. } => "CwdChanged",
         SessionEvent::FixSuggested { .. } => "FixSuggested",
+        // TODO(telegram): handled in Task 5/6
+        SessionEvent::EscalationRequested { .. } => "EscalationRequested",
+        SessionEvent::EscalationResolved { .. } => "EscalationResolved",
+        SessionEvent::MissionCompleted { .. } => "MissionCompleted",
+        SessionEvent::MissionFailed { .. } => "MissionFailed",
     }
     .into()
 }
@@ -100,7 +105,13 @@ fn event_session_id(ev: &SessionEvent) -> String {
         | SessionEvent::BlockSubmitted { session, .. }
         | SessionEvent::BlockFinished { session, .. }
         | SessionEvent::CwdChanged { session, .. }
-        | SessionEvent::FixSuggested { session, .. } => session.to_string(),
+        | SessionEvent::FixSuggested { session, .. }
+        // TODO(telegram): handled in Task 5/6
+        | SessionEvent::EscalationRequested { session, .. }
+        | SessionEvent::MissionCompleted { session, .. }
+        | SessionEvent::MissionFailed { session, .. } => session.to_string(),
+        // TODO(telegram): handled in Task 5/6 — no session id on this variant
+        SessionEvent::EscalationResolved { .. } => String::new(),
     }
 }
 
