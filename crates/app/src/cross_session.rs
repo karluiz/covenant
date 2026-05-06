@@ -270,6 +270,7 @@ async fn check_for_pattern(
         system_prompt: SYSTEM_PROMPT.to_string(),
         user_message: user_msg,
         max_tokens: 180,
+        thinking_budget: None,
     })
     .await
     .map_err(|e| e.to_string())?;

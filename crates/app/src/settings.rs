@@ -367,6 +367,15 @@ pub struct OperatorConfig {
     /// experiments — the default is the cheapest current Haiku.
     #[serde(default = "default_triage_model")]
     pub triage_model: String,
+    /// Enable the v2 OperatorMind protocol (per-tab persistent state,
+    /// extended thinking, decision tape). Default off — old code path
+    /// runs when false. Spec 3.20.
+    #[serde(default)]
+    pub mind_v2: bool,
+    /// Anthropic extended-thinking budget in tokens for the v2 path.
+    /// Cap 4000 server-side. Ignored when mind_v2 is false.
+    #[serde(default = "default_mind_thinking_budget")]
+    pub mind_thinking_budget: u32,
 }
 
 impl Default for OperatorConfig {
@@ -380,8 +389,14 @@ impl Default for OperatorConfig {
             deny_extra_patterns: vec![],
             triage_enabled: default_triage_enabled(),
             triage_model: default_triage_model(),
+            mind_v2: false,
+            mind_thinking_budget: default_mind_thinking_budget(),
         }
     }
+}
+
+fn default_mind_thinking_budget() -> u32 {
+    2000
 }
 
 fn default_triage_enabled() -> bool {
@@ -585,5 +600,40 @@ mod tests {
         // Original content untouched.
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.contains("not json"));
+    }
+
+    #[test]
+    fn operator_config_default_has_mind_v2_off_and_budget_2000() {
+        let c = OperatorConfig::default();
+        assert!(!c.mind_v2);
+        assert_eq!(c.mind_thinking_budget, 2000);
+    }
+
+    #[test]
+    fn operator_config_round_trips_with_mind_fields() {
+        let mut c = OperatorConfig::default();
+        c.mind_v2 = true;
+        c.mind_thinking_budget = 1500;
+        let s = serde_json::to_string(&c).unwrap();
+        let d: OperatorConfig = serde_json::from_str(&s).unwrap();
+        assert!(d.mind_v2);
+        assert_eq!(d.mind_thinking_budget, 1500);
+    }
+
+    #[test]
+    fn operator_config_back_compat_loads_legacy_settings_without_mind_fields() {
+        let legacy = r#"{
+            "enabled_default": true,
+            "persona": "p",
+            "executor_patterns": [],
+            "idle_threshold_secs": 5,
+            "max_decisions_per_minute": 6,
+            "deny_extra_patterns": [],
+            "triage_enabled": true,
+            "triage_model": "claude-haiku-4-5"
+        }"#;
+        let c: OperatorConfig = serde_json::from_str(legacy).unwrap();
+        assert!(!c.mind_v2);
+        assert_eq!(c.mind_thinking_budget, 2000);
     }
 }

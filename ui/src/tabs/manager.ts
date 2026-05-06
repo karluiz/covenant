@@ -18,6 +18,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { closeSessionCheck } from "../api";
+import { openMindLossModal } from "../operator/mind-loss-modal";
 import {
   aomStatus,
   aomStop,
@@ -2409,6 +2411,32 @@ export class TabManager {
   }
 
   closeTab(id: string): void {
+    const idx = this.tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const tab = this.tabs[idx];
+    // Spec 3.20 phase 6: peek for accumulated operator memory; if any,
+    // open the MindLossModal before destroying the tab. On error or
+    // when there's nothing to lose, fall through to direct close.
+    void closeSessionCheck(tab.sessionId)
+      .then((preview) => {
+        if (preview) {
+          openMindLossModal({
+            preview,
+            onConfirm: () => this.finalizeCloseTab(id),
+            onCancel: () => {
+              /* keep the tab — user backed out */
+            },
+          });
+        } else {
+          this.finalizeCloseTab(id);
+        }
+      })
+      .catch(() => {
+        this.finalizeCloseTab(id);
+      });
+  }
+
+  private finalizeCloseTab(id: string): void {
     const idx = this.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
 

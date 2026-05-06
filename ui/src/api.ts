@@ -80,6 +80,40 @@ export async function closeSession(id: SessionId): Promise<void> {
   return invoke<void>("close_session", { id });
 }
 
+export interface MindPreview {
+  turn_count: number;
+  updated_at_rfc3339: string;
+  goal: string;
+  belief: string;
+}
+
+/// Spec 3.20 phase 6: peek at persisted mind for `id`. Resolves to
+/// `null` when mind_v2 is off OR no mind exists OR turn_count is 0.
+export async function closeSessionCheck(id: SessionId): Promise<MindPreview | null> {
+  return invoke<MindPreview | null>("close_session_check", { id });
+}
+
+export interface MindTurnRecord {
+  turn: number;
+  at: string;
+  saw: string;
+  thought: string;
+  action_kind: "Reply" | "Execute" | "Escalate" | "Ignore";
+  action_summary: string;
+  executed: boolean;
+}
+
+export interface MindUpdatedEvent {
+  session_id: string;
+  goal: string;
+  belief: string;
+  open_questions: string[];
+  tried_failed: string[];
+  next_intent: string;
+  turn_count: number;
+  recent: MindTurnRecord[];
+}
+
 /// Type a command into the PTY without a trailing newline. Used by the
 /// fix-suggestion click path — user reviews and presses Enter.
 export async function injectCommand(id: SessionId, command: string): Promise<void> {
@@ -547,6 +581,8 @@ export interface OperatorConfig {
   idle_threshold_secs: number;
   max_decisions_per_minute: number;
   deny_extra_patterns: string[];
+  mind_v2: boolean;
+  mind_thinking_budget: number;
 }
 
 export interface TerminalConfig {

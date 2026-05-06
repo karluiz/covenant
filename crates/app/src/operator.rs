@@ -93,6 +93,43 @@ pub struct OperatorPhaseSnapshot {
 /// covers ~4–5 visible screens — beyond which the user has manually
 /// scrolled and won't expect AOM to reach back anyway.
 const TAIL_CAPACITY: usize = 32 * 1024;
+
+/// Spec 3.20 v2 protocol directive — appended to the system prompt
+/// only when `mind_v2_on` is true. Pre-v2 prompts are byte-identical
+/// to before so the prefix cache stays warm in the old path.
+const MIND_V2_DIRECTIVE: &str = r#"
+
+# OPERATOR MIND (v2 protocol)
+
+You maintain a persistent working memory for THIS tab across turns.
+Each turn you receive your current mind state plus the latest tail.
+You MUST emit, alongside your action, a `mind_update` JSON object with
+ANY fields you want to change. Omit fields you don't want to change.
+Caps enforced server-side (oldest dropped if exceeded):
+open_questions ≤ 5, tried_failed ≤ 5.
+
+  - goal (string): high-level objective in this tab. Set once, change rarely.
+  - belief (string): your 1–3 sentence understanding. UPDATE EVERY TURN
+    if anything changed.
+  - open_questions_set (string[]): full replace. Send [] to clear; omit
+    to leave unchanged.
+  - tried_failed_append (string[]): things that didn't work, with why.
+    Server appends and FIFO-caps at 5.
+  - next_intent (string): what you plan to do NEXT turn if conditions
+    hold. Used as your own coherence check.
+
+CONTRACT:
+- If your `next_intent` from last turn doesn't match what you're doing
+  now, briefly explain in `belief` why you changed course.
+- If something is in `tried_failed`, do NOT propose it again unless
+  conditions clearly changed (and say what changed in `belief`).
+
+OUTPUT FORMAT (single JSON object, only this — no prose around it):
+{
+  "mind_update": { ...optional fields... },
+  "action": { "kind": "Reply"|"Execute"|"Escalate"|"Ignore", ... }
+}
+"#;
 const TICK_INTERVAL: Duration = Duration::from_millis(500);
 /// What we sample from the tail for downstream processing (decisions,
 /// summary updates). Capped at 16KB raw; tail-bias slicing in the
@@ -519,6 +556,22 @@ struct Attached {
     /// (session, mission) transition to done. Reset when the attached
     /// mission changes (different path) or is detached.
     last_plan_completed_path: Option<PathBuf>,
+    /// Spec 3.20: per-tab persistent agent state. None until first
+    /// hydration; lazily loaded from SQLite on the first tick where
+    /// `settings.operator.mind_v2` is true.
+    mind: Option<crate::operator_mind::OperatorMind>,
+    /// Set true on every mind mutation; cleared by the flusher pass at
+    /// the end of `run_tick` once the row is persisted.
+    mind_dirty: bool,
+    /// Snapshot of the mission file mtime at the previous turn, used to
+    /// detect mid-session mission edits. Spec 3.20 §7.8.
+    last_mission_mtime: Option<std::time::SystemTime>,
+    /// Consecutive parse failures of the v2 response. Resets on any
+    /// successful parse. UI hint emits at >= 3.
+    consecutive_parse_failures: u32,
+    /// Per-session bumped thinking budget after a `max_tokens` stop.
+    /// Resets on app restart (in-memory only). Cap 4000.
+    thinking_budget_override: Option<u32>,
 }
 
 /// RAII guard that flips `thinking` true on construction and false on
@@ -700,11 +753,20 @@ impl OperatorWatcher {
                 current_phase: OperatorPhase::Idle,
                 phase_started_at: Instant::now(),
                 last_plan_completed_path: None,
+                mind: None,
+                mind_dirty: false,
+                last_mission_mtime: None,
+                consecutive_parse_failures: 0,
+                thinking_budget_override: None,
             },
         );
     }
 
     pub async fn detach(&self, session_id: SessionId) {
+        // Spec 3.20 phase 4b: drop the in-memory mind on detach. The
+        // per-tick flusher already wrote any dirty state, so we just
+        // remove the session from the table. Phase 6 will wire a real
+        // `close_session_confirm` that calls `storage.mind_delete`.
         self.inner.lock().await.sessions.remove(&session_id);
     }
 
@@ -1542,6 +1604,9 @@ async fn run_tick(
         bool,
         Option<MissionDoc>,
         Arc<AtomicBool>,
+        Option<crate::operator_mind::OperatorMind>,
+        Option<std::time::SystemTime>,
+        Option<u32>,
     )> = {
         let mut i = inner.lock().await;
         let mut out = Vec::new();
@@ -1593,6 +1658,9 @@ async fn run_tick(
                 att.aom_excluded,
                 att.mission.clone(),
                 att.thinking.clone(),
+                att.mind.clone(),
+                att.last_mission_mtime,
+                att.thinking_budget_override,
             ));
         }
         out
@@ -1610,6 +1678,8 @@ async fn run_tick(
         max_per_min,
         triage_enabled,
         triage_model,
+        mind_v2_setting,
+        mind_thinking_budget_setting,
     ) = {
         let s = settings.lock().await;
         let key = match s.anthropic_api_key.clone() {
@@ -1624,6 +1694,8 @@ async fn run_tick(
             s.operator.max_decisions_per_minute,
             s.operator.triage_enabled,
             s.operator.triage_model.clone(),
+            s.operator.mind_v2,
+            s.operator.mind_thinking_budget,
         )
     };
 
@@ -1633,7 +1705,18 @@ async fn run_tick(
     }
 
     let now = Instant::now();
-    for (session_id, state_arc, world_arc, per_tab_live, aom_excluded, mission, thinking_flag) in candidates {
+    for (
+        session_id,
+        state_arc,
+        world_arc,
+        per_tab_live,
+        aom_excluded,
+        mission,
+        thinking_flag,
+        existing_mind,
+        _prev_mission_mtime,
+        budget_override,
+    ) in candidates {
         // Resolve per-session operator from the registry. Falls back to
         // the Default operator if no assignment exists for this session.
         let op = registry.effective_for(session_id);
@@ -1654,6 +1737,8 @@ async fn run_tick(
         // else.
         let effective_aom = aom_active && !aom_excluded;
         let live = per_tab_live || effective_aom;
+        // Spec 3.20 §6.1: tie mind_v2 strictly to live for v1.
+        let mind_v2_on = mind_v2_setting && live;
         // Snapshot tail + idle BEFORE the threshold check so we can
         // pre-scan for decision-point patterns. Dropping de-dup'd
         // sessions still happens here under the sync lock.
@@ -1816,7 +1901,62 @@ async fn run_tick(
             let w = world_arc.lock().await;
             w.cwd.display().to_string()
         };
-        let user_message = render_user_message(&cmd, &cwd, idle, &tail);
+        // Spec 3.20: lazy hydrate the per-tab mind on first use.
+        let mind: Option<crate::operator_mind::OperatorMind> = if mind_v2_on
+            && existing_mind.is_none()
+        {
+            match storage.mind_load(&session_id.to_string()).await {
+                Ok(Some(m)) => {
+                    tracing::info!(
+                        session = %session_id,
+                        turn_count = m.turn_count,
+                        "operator_mind hydrated from SQLite"
+                    );
+                    Some(m)
+                }
+                Ok(None) => {
+                    let mut seeded = crate::operator_mind::OperatorMind::default();
+                    if let Some(m) = mission.as_ref() {
+                        if let Some(name) =
+                            m.path.file_stem().and_then(|s| s.to_str())
+                        {
+                            seeded.goal = name.to_string();
+                        }
+                    }
+                    Some(seeded)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session = %session_id,
+                        error = %e,
+                        "mind_load failed; using default"
+                    );
+                    Some(crate::operator_mind::OperatorMind::default())
+                }
+            }
+        } else {
+            existing_mind
+        };
+
+        let user_message = {
+            let base = render_user_message(&cmd, &cwd, idle, &tail);
+            if mind_v2_on {
+                if let Some(m) = mind.as_ref() {
+                    let now_utc = chrono::Utc::now();
+                    let mut prefix = crate::operator_mind::render_mind_block(m, now_utc);
+                    let recent = crate::operator_mind::render_recent_block(m);
+                    if !recent.is_empty() {
+                        prefix.push_str(&recent);
+                    }
+                    prefix.push_str(&base);
+                    prefix
+                } else {
+                    base
+                }
+            } else {
+                base
+            }
+        };
 
         // 3.13 Task 4: retrieve relevant operator memories at decision
         // time. NO in-process cache — every tick re-queries the DB.
@@ -1836,7 +1976,7 @@ async fn run_tick(
         // group/session mapping is parsed on the Rust side. For now,
         // project_context is always empty (no-op, cache-safe).
         let system_prompt =
-            build_system_prompt(&persona, effective_aom, mission.as_ref(), &learned, "");
+            build_system_prompt(&persona, effective_aom, mission.as_ref(), &learned, "", mind_v2_on);
 
         // CRITICAL: mark dedup BEFORE the model call. If we marked
         // only on success, a failing call (bad API key, rate limit,
@@ -1873,6 +2013,7 @@ async fn run_tick(
                 system_prompt: system_prompt.clone(),
                 user_message: user_message.clone(),
                 max_tokens: 64,
+                thinking_budget: None,
             })
             .await;
             drop(_thinking);
@@ -1957,18 +2098,27 @@ async fn run_tick(
             Ok(karl_agent::AskResponse {
                 text: synth_response_for(&action),
                 usage: karl_agent::TokenUsage::default(),
+                stop_reason: None,
+                thinking_summary: String::new(),
+                thinking_full: vec![],
             })
         } else {
             // Marks the session as `operator-thinking` for the
             // convergence tile while the HTTP call is in flight. Drop
             // covers Ok, Err, and panic — the flag never leaks.
             let _thinking = ThinkingGuard::new(&thinking_flag);
+            let thinking_budget = if mind_v2_on {
+                Some(budget_override.unwrap_or(mind_thinking_budget_setting))
+            } else {
+                None
+            };
             karl_agent::ask_oneshot_with_usage(karl_agent::AskRequest {
                 api_key: api_key.clone(),
                 model: model.clone(),
                 system_prompt,
                 user_message,
                 max_tokens: max_tokens_for_call,
+                thinking_budget,
             })
             .await
         };
@@ -2005,6 +2155,27 @@ async fn run_tick(
                 continue;
             }
         };
+        // Spec 3.20 §7.2: thinking-budget truncation bump.
+        if mind_v2_on && ask_response.stop_reason.as_deref() == Some("max_tokens") {
+            let mut inner_lock = inner.lock().await;
+            if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
+                let cur = att
+                    .thinking_budget_override
+                    .unwrap_or(mind_thinking_budget_setting);
+                let next = (cur + 1000).min(4000);
+                att.thinking_budget_override = Some(next);
+                att.consecutive_parse_failures =
+                    att.consecutive_parse_failures.saturating_add(1);
+                tracing::warn!(
+                    session = %session_id,
+                    from = cur,
+                    to = next,
+                    "operator_mind: thinking budget truncation; bumping"
+                );
+            }
+            continue;
+        }
+
         let response = ask_response.text;
         let call_cost_usd = cost::estimate_usd(&model, ask_response.usage);
 
@@ -2052,16 +2223,124 @@ async fn run_tick(
             "operator decision generated"
         );
 
-        let parsed_action = match parse_response(&response) {
-            Some(a) => a,
-            None => {
-                tracing::warn!(
-                    session = %session_id,
-                    raw = %truncate(&response, 240),
-                    "operator response unparseable"
-                );
-                continue;
+        // Phase 4b: v2 path uses the structured response parser, which
+        // also returns a MindUpdate that we apply below. v2's TurnAction
+        // enum is mapped onto OperatorAction's three variants:
+        //   Reply → Reply, Escalate → Escalate, Execute → Reply (text
+        //   becomes the command), Ignore → Wait. There's no native
+        //   "execute a shell command" action here today; treating
+        //   Execute as a Reply with the command-as-text matches the
+        //   PTY-injection semantics. Ignore maps to Wait — closest
+        //   no-op variant available.
+        let (parsed_action, mind_update_v2) = if mind_v2_on {
+            match crate::operator_mind::parse_model_response(&response) {
+                Ok(model_resp) => {
+                    {
+                        let mut inner_lock = inner.lock().await;
+                        if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
+                            att.consecutive_parse_failures = 0;
+                        }
+                    }
+                    let op_action = match model_resp.action {
+                        crate::operator_mind::TurnAction::Reply { text } => {
+                            OperatorAction::Reply { text, rationale: String::new() }
+                        }
+                        crate::operator_mind::TurnAction::Execute { command } => {
+                            // Map Execute → Reply (PTY injection of the command text).
+                            OperatorAction::Reply {
+                                text: command,
+                                rationale: "v2 execute".into(),
+                            }
+                        }
+                        crate::operator_mind::TurnAction::Escalate { notification } => {
+                            OperatorAction::Escalate {
+                                notification,
+                                rationale: String::new(),
+                            }
+                        }
+                        crate::operator_mind::TurnAction::Ignore => {
+                            OperatorAction::Wait {
+                                rationale: "v2 ignore".into(),
+                            }
+                        }
+                    };
+                    (op_action, Some(model_resp.mind_update))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        session = %session_id,
+                        error = %e,
+                        raw = %truncate(&response, 240),
+                        "operator_mind v2 parse failed; downgrading to ESCALATE"
+                    );
+                    {
+                        let mut inner_lock = inner.lock().await;
+                        if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
+                            att.consecutive_parse_failures =
+                                att.consecutive_parse_failures.saturating_add(1);
+                        }
+                    }
+                    let action = OperatorAction::Escalate {
+                        notification: format!("v2 parse failed: {e}"),
+                        rationale: String::new(),
+                    };
+                    (action, None)
+                }
             }
+        } else {
+            match parse_response(&response) {
+                Some(a) => (a, None),
+                None => {
+                    tracing::warn!(
+                        session = %session_id,
+                        raw = %truncate(&response, 240),
+                        "operator response unparseable"
+                    );
+                    continue;
+                }
+            }
+        };
+
+        // Spec 3.20 §7.5 phase 5: repeat-failure guard. If the model
+        // proposes an action whose signature substring-matches any
+        // entry in tried_failed, force Escalate so it doesn't burn
+        // a turn re-attempting a known-bad path.
+        let parsed_action = if mind_v2_on {
+            let tried_failed_snapshot: VecDeque<String> = mind
+                .as_ref()
+                .map(|m| m.tried_failed.clone())
+                .unwrap_or_default();
+            let probe: Option<crate::operator_mind::TurnAction> = match &parsed_action {
+                OperatorAction::Reply { text, .. } => {
+                    Some(crate::operator_mind::TurnAction::Reply { text: text.clone() })
+                }
+                _ => None,
+            };
+            if let Some(probe_action) = probe {
+                if crate::operator_mind::is_repeat_of_known_failure(
+                    &probe_action,
+                    &tried_failed_snapshot,
+                ) {
+                    let sig = crate::operator_mind::action_signature(&probe_action);
+                    tracing::warn!(
+                        session = %session_id,
+                        signature = %sig,
+                        "operator_mind: blocking repeat of known-failed action"
+                    );
+                    OperatorAction::Escalate {
+                        notification: format!(
+                            "operator about to repeat a known-failed action: {sig}"
+                        ),
+                        rationale: String::new(),
+                    }
+                } else {
+                    parsed_action
+                }
+            } else {
+                parsed_action
+            }
+        } else {
+            parsed_action
         };
 
         // Two loop detectors run side-by-side:
@@ -2245,6 +2524,30 @@ async fn run_tick(
                                 "operator reply blocked by safety"
                             );
                             let note = format!("blocked: {}", reason.message);
+                            // Spec 3.20 phase 5: append to tried_failed so
+                            // the model learns within the session.
+                            if mind_v2_on {
+                                let snippet: String = text.chars().take(60).collect();
+                                let attempted = format!(
+                                    "attempted REPLY '{}' — blocked by safety: {}",
+                                    snippet, reason.message
+                                );
+                                let mut update =
+                                    crate::operator_mind::MindUpdate::default();
+                                update.tried_failed_append = Some(vec![attempted]);
+                                let mut inner_lock = inner.lock().await;
+                                if let Some(att) =
+                                    inner_lock.sessions.get_mut(&session_id)
+                                {
+                                    if att.mind.is_none() {
+                                        att.mind = mind.clone();
+                                    }
+                                    if let Some(m) = att.mind.as_mut() {
+                                        m.apply(update, chrono::Utc::now());
+                                        att.mind_dirty = true;
+                                    }
+                                }
+                            }
                             (
                                 OperatorAction::Escalate {
                                     notification: note.clone(),
@@ -2495,6 +2798,58 @@ async fn run_tick(
             }
         }
 
+        // Spec 3.20 phase 4b: apply MindUpdate + record TurnRecord.
+        // We do this AFTER the audit row so the mind reflects the
+        // final action that actually went through (loop guard,
+        // safety blocklist, etc may have rewritten it).
+        if mind_v2_on {
+            let now_utc = chrono::Utc::now();
+            let saw_raw = strip_ansi_escapes::strip_str(
+                String::from_utf8_lossy(&tail).as_ref(),
+            );
+            // Last 800 chars (record_turn truncates to 400 internally;
+            // slack handles multi-byte boundaries cleanly).
+            let saw_chars: Vec<char> = saw_raw.chars().collect();
+            let take = saw_chars.len().min(800);
+            let saw_trimmed: String =
+                saw_chars[saw_chars.len() - take..].iter().collect();
+            let action_for_record = match &action {
+                OperatorAction::Reply { text, .. } => {
+                    crate::operator_mind::TurnAction::Reply { text: text.clone() }
+                }
+                OperatorAction::Escalate { notification, .. } => {
+                    crate::operator_mind::TurnAction::Escalate {
+                        notification: notification.clone(),
+                    }
+                }
+                OperatorAction::Wait { .. } => {
+                    crate::operator_mind::TurnAction::Ignore
+                }
+            };
+            let thought = ask_response.thinking_summary.clone();
+            let mut inner_lock = inner.lock().await;
+            if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
+                if att.mind.is_none() {
+                    att.mind = mind.clone();
+                }
+                if let Some(m) = att.mind.as_mut() {
+                    if let Some(update) = mind_update_v2.clone() {
+                        m.apply(update, now_utc);
+                    }
+                    let next_turn = m.turn_count + 1;
+                    m.record_turn(crate::operator_mind::TurnRecord {
+                        turn: next_turn,
+                        at: now_utc,
+                        saw: saw_trimmed,
+                        thought,
+                        action: action_for_record,
+                        executed,
+                    });
+                    att.mind_dirty = true;
+                }
+            }
+        }
+
         // If THIS decision pushed AOM over budget, finalize the
         // aom_sessions row + emit the dedicated event so the UI can
         // surface a toast explaining why the banner just disappeared.
@@ -2562,6 +2917,69 @@ async fn run_tick(
             // Stop processing further candidates this tick — AOM is
             // off, the next tick will just no-op for everyone.
             break;
+        }
+    }
+
+    // Spec 3.20 phase 4b: flush dirty minds. Per-tick (~500ms) is close
+    // enough to the spec's debounced 500ms; phase 5 may tighten if
+    // needed. Errors are logged and mind_dirty is re-set so the next
+    // tick retries.
+    let to_flush: Vec<(SessionId, crate::operator_mind::OperatorMind)> = {
+        let mut inner_lock = inner.lock().await;
+        let mut out = Vec::new();
+        for (id, att) in inner_lock.sessions.iter_mut() {
+            if att.mind_dirty {
+                if let Some(m) = att.mind.as_ref() {
+                    out.push((*id, m.clone()));
+                }
+                att.mind_dirty = false;
+            }
+        }
+        out
+    };
+    for (id, mut m) in to_flush {
+        crate::operator_mind::mask_in_place(&mut m, |s| crate::safety::mask_secrets(s));
+        if let Err(e) = storage.mind_save(&id.to_string(), &m).await {
+            tracing::warn!(session = %id, error = %e, "operator_mind: save failed; will retry");
+            let mut inner_lock = inner.lock().await;
+            if let Some(att) = inner_lock.sessions.get_mut(&id) {
+                att.mind_dirty = true;
+            }
+        } else {
+            // Spec 3.20 phase 6: notify the UI panel so it can re-render
+            // the mind section live. Payload mirrors the masked struct
+            // we just persisted, so the UI never sees raw secrets.
+            let payload = serde_json::json!({
+                "session_id": id.to_string(),
+                "goal": m.goal,
+                "belief": m.belief,
+                "open_questions": m.open_questions,
+                "tried_failed": m.tried_failed.iter().cloned().collect::<Vec<_>>(),
+                "next_intent": m.next_intent,
+                "turn_count": m.turn_count,
+                "recent": m.recent.iter().map(|r| {
+                    serde_json::json!({
+                        "turn": r.turn,
+                        "at": r.at.to_rfc3339(),
+                        "saw": r.saw,
+                        "thought": r.thought,
+                        "action_kind": match &r.action {
+                            crate::operator_mind::TurnAction::Reply { .. } => "Reply",
+                            crate::operator_mind::TurnAction::Execute { .. } => "Execute",
+                            crate::operator_mind::TurnAction::Escalate { .. } => "Escalate",
+                            crate::operator_mind::TurnAction::Ignore => "Ignore",
+                        },
+                        "action_summary": match &r.action {
+                            crate::operator_mind::TurnAction::Reply { text } => text.clone(),
+                            crate::operator_mind::TurnAction::Execute { command } => command.clone(),
+                            crate::operator_mind::TurnAction::Escalate { notification } => notification.clone(),
+                            crate::operator_mind::TurnAction::Ignore => String::new(),
+                        },
+                        "executed": r.executed,
+                    })
+                }).collect::<Vec<_>>(),
+            });
+            let _ = app.emit("operator-mind-updated", payload);
         }
     }
 
@@ -2730,6 +3148,7 @@ fn build_system_prompt(
     mission: Option<&MissionDoc>,
     learned: &[memory::MemoryHit],
     project_context: &str,
+    mind_v2_on: bool,
 ) -> String {
     let aom_block = if aom_active {
         format!("# {}\n\n", AOM_DIRECTIVE)
@@ -2776,7 +3195,7 @@ fn build_system_prompt(
     } else {
         format!("{project_context}\n")
     };
-    format!(
+    let mut s = format!(
         "You are the Operator for Covenant — the user's coordinator that \
          watches an executor agent (claude code, copilot, opencode, aider, …) \
          running inside their PTY. The executor has paused; the user wants you \
@@ -2794,7 +3213,11 @@ fn build_system_prompt(
         recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
         hard = HARD_CONSTRAINTS,
         fmt = OUTPUT_FORMAT,
-    )
+    );
+    if mind_v2_on {
+        s.push_str(MIND_V2_DIRECTIVE);
+    }
+    s
 }
 
 /// Render the `## Learned decisions` block, or an empty string when
@@ -3785,6 +4208,11 @@ mod tests {
             current_phase: OperatorPhase::Idle,
             phase_started_at: Instant::now(),
             last_plan_completed_path: None,
+            mind: None,
+            mind_dirty: false,
+            last_mission_mtime: None,
+            consecutive_parse_failures: 0,
+            thinking_budget_override: None,
         }
     }
 
@@ -4189,7 +4617,7 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_learned_matches_baseline() {
         let persona = "Always say yes to test runs.";
-        let got = build_system_prompt(persona, false, None, &[], "");
+        let got = build_system_prompt(persona, false, None, &[], "", false);
         let expected = format!(
             "You are the Operator for Covenant — the user's coordinator that \
              watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -4216,7 +4644,7 @@ What would you like to do?
             mem_hit(42, "executor asks to run tests", "y\\n"),
             mem_hit(43, "executor asks to push", "n\\n"),
         ];
-        let got = build_system_prompt(persona, false, None, &learned, "");
+        let got = build_system_prompt(persona, false, None, &learned, "", false);
         assert_eq!(got.matches("## Learned decisions").count(), 1);
         assert!(got.contains("[id=42]"));
         assert!(got.contains("[id=43]"));
@@ -4230,7 +4658,7 @@ What would you like to do?
     #[test]
     fn build_system_prompt_with_project_context_renders_block() {
         let ctx = "## Project: my-app\n\nSome notes about the project.";
-        let got = build_system_prompt("persona", false, None, &[], ctx);
+        let got = build_system_prompt("persona", false, None, &[], ctx, false);
         assert!(got.contains("## Project: my-app"), "project block missing; got: {got}");
         assert!(got.contains("Some notes about the project."));
         // Block sits between learned_block (absent) and PERSONA.
@@ -4242,8 +4670,8 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_project_is_byte_identical_to_baseline() {
         let persona = "Always say yes to test runs.";
-        let with_empty = build_system_prompt(persona, false, None, &[], "");
-        let baseline = build_system_prompt(persona, false, None, &[], "");
+        let with_empty = build_system_prompt(persona, false, None, &[], "", false);
+        let baseline = build_system_prompt(persona, false, None, &[], "", false);
         assert_eq!(with_empty, baseline);
         // Also verify the empty case does not insert any orphan header or
         // whitespace that would break the prefix-cache invariant.
@@ -4261,7 +4689,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "");
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
         assert!(out.contains("<mission-spec kind=\"covenant\""), "out was: {out}");
         assert!(out.contains("Goal: do X"));
         assert!(!out.contains("<mission-plan"));
@@ -4282,7 +4710,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: Some(plan),
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "");
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
         assert!(out.contains("<mission-spec kind=\"superpowers\""), "out was: {out}");
         assert!(out.contains("spec body"));
         assert!(out.contains("<mission-plan status=\"1/2\""), "out was: {out}");
@@ -4299,7 +4727,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "");
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
         assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");
     }
 

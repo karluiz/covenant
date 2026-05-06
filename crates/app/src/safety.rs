@@ -273,6 +273,46 @@ fn check_credential_shape(text: &str) -> Option<BlockedReason> {
     None
 }
 
+/// Replace anything that looks like a credential with `[REDACTED:kind]`.
+/// Uses the same patterns as `check_credential_shape`. Idempotent
+/// (already-redacted strings won't match again).
+pub fn mask_secrets(text: &str) -> String {
+    static REGEXES: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    let regexes = REGEXES.get_or_init(|| {
+        vec![
+            (
+                Regex::new(r"sk-ant-[A-Za-z0-9_\-]{16,}").unwrap(),
+                "anthropic",
+            ),
+            (
+                Regex::new(r"sk-(proj-)?[A-Za-z0-9_\-]{20,}").unwrap(),
+                "openai",
+            ),
+            (
+                Regex::new(r"gh[pousr]_[A-Za-z0-9]{20,}").unwrap(),
+                "github",
+            ),
+            (Regex::new(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b").unwrap(), "aws"),
+            (
+                Regex::new(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\b")
+                    .unwrap(),
+                "jwt",
+            ),
+            (
+                Regex::new(r"-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----").unwrap(),
+                "pem",
+            ),
+        ]
+    });
+    let mut out = text.to_string();
+    for (re, kind) in regexes.iter() {
+        out = re
+            .replace_all(&out, format!("[REDACTED:{kind}]"))
+            .into_owned();
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,5 +456,31 @@ mod tests {
     #[test]
     fn ansi_escape_does_not_hide_sudo() {
         assert!(check("\x1b[31msudo\x1b[0m apt").is_some());
+    }
+
+    #[test]
+    fn mask_secrets_redacts_anthropic_key() {
+        let masked = super::mask_secrets("token=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA suffix");
+        assert!(!masked.contains("sk-ant-api03"));
+        assert!(masked.contains("[REDACTED:anthropic]"));
+    }
+
+    #[test]
+    fn mask_secrets_redacts_github_token() {
+        let masked = super::mask_secrets("Bearer ghp_abcdefghijklmnopqrst1234");
+        assert!(!masked.contains("ghp_abcdefghi"));
+        assert!(masked.contains("[REDACTED:github]"));
+    }
+
+    #[test]
+    fn mask_secrets_idempotent_on_clean_text() {
+        let clean = "no secrets here, just words";
+        assert_eq!(super::mask_secrets(clean), clean);
+    }
+
+    #[test]
+    fn mask_secrets_idempotent_on_already_redacted() {
+        let already = "before [REDACTED:anthropic] after";
+        assert_eq!(super::mask_secrets(already), already);
     }
 }

@@ -151,6 +151,7 @@ async fn propose_fix(
         system_prompt: FIX_SYSTEM_PROMPT.to_string(),
         user_message: user_msg,
         max_tokens: SUGGEST_MAX_TOKENS,
+        thinking_budget: None,
     })
     .await
     .map_err(|e| e.to_string())?;

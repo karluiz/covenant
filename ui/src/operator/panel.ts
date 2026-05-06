@@ -19,7 +19,7 @@
 
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { aomStatus, listOperatorDecisions, operatorLevelFromXp, operatorList, type Operator, type OperatorDecisionRow } from "../api";
+import { aomStatus, listOperatorDecisions, operatorLevelFromXp, operatorList, type MindUpdatedEvent, type Operator, type OperatorDecisionRow } from "../api";
 import { renderAvatarHtml } from "./avatars";
 import { detectExecutor } from "../executor";
 import type { TabManager } from "../tabs/manager";
@@ -72,6 +72,12 @@ export class OperatorPanel {
   private filtersEl: HTMLElement | null = null;
   private unlisten: UnlistenFn | null = null;
   private unlistenXp: UnlistenFn | null = null;
+  /// Spec 3.20 phase 6: live mind snapshot for the currently-filtered
+  /// session. Map keyed by full session_id (mind events carry the full
+  /// id; we match on the trailing 6 chars used by the filter).
+  private unlistenMind: UnlistenFn | null = null;
+  private mindBySession: Map<string, MindUpdatedEvent> = new Map();
+  private mindEl: HTMLElement | null = null;
   private rows: OperatorDecisionRow[] = [];
   private filter: FilterState = loadPrefs();
   /// Decision IDs (the head row of a collapsed group) the user has
@@ -142,6 +148,15 @@ export class OperatorPanel {
         }
       },
     );
+    // Spec 3.20 phase 6: subscribe to mind-state updates so the mind
+    // section stays live while the panel is open.
+    this.unlistenMind = await listen<MindUpdatedEvent>(
+      "operator-mind-updated",
+      (event) => {
+        this.mindBySession.set(event.payload.session_id, event.payload);
+        this.renderMindSection();
+      },
+    );
   }
 
   close(): void {
@@ -154,6 +169,11 @@ export class OperatorPanel {
       this.unlistenXp();
       this.unlistenXp = null;
     }
+    if (this.unlistenMind) {
+      this.unlistenMind();
+      this.unlistenMind = null;
+    }
+    this.mindEl = null;
     if (this.operatorCombo) {
       this.operatorCombo.destroy();
       this.operatorCombo = null;
@@ -181,6 +201,7 @@ export class OperatorPanel {
         <button type="button" class="operator-close" aria-label="Close" title="Close (Esc)">×</button>
       </header>
       <div class="operator-filters" role="toolbar" aria-label="Filters"></div>
+      <section class="operator-mind-section" hidden></section>
       <div class="operator-list" tabindex="-1">loading…</div>
     `;
 
@@ -196,7 +217,62 @@ export class OperatorPanel {
     this.subtitleEl = this.pageHost.querySelector<HTMLElement>(".operator-subtitle");
     this.countersEl = this.pageHost.querySelector<HTMLElement>(".operator-counters");
     this.filtersEl = this.pageHost.querySelector<HTMLElement>(".operator-filters");
+    this.mindEl = this.pageHost.querySelector<HTMLElement>(".operator-mind-section");
     this.renderFilters();
+    this.renderMindSection();
+  }
+
+  /// Spec 3.20 phase 6: render the live mind for the currently-filtered
+  /// session. Hidden when the filter is "all" (no single session in
+  /// focus) or when no mind event has arrived yet for that session.
+  private renderMindSection(): void {
+    if (!this.mindEl) return;
+    const sessionShort = this.filter.session;
+    if (sessionShort === "all") {
+      this.mindEl.hidden = true;
+      this.mindEl.innerHTML = "";
+      return;
+    }
+    // Match by trailing 6 chars (storage::shorten convention).
+    let mind: MindUpdatedEvent | null = null;
+    for (const [fullId, snap] of this.mindBySession) {
+      if (fullId.endsWith(sessionShort)) {
+        mind = snap;
+        break;
+      }
+    }
+    if (!mind) {
+      this.mindEl.hidden = true;
+      this.mindEl.innerHTML = "";
+      return;
+    }
+    this.mindEl.hidden = false;
+    const esc = mindEscape;
+    const triedFailedHtml = mind.tried_failed.length
+      ? `<details class="mind-tried-failed"><summary>Tried &amp; failed (${mind.tried_failed.length})</summary><ul>${mind.tried_failed.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></details>`
+      : "";
+    const recentHtml = mind.recent
+      .map(
+        (r) => `
+          <details class="mind-turn">
+            <summary>#${r.turn} · ${esc(r.action_kind)} ${esc((r.action_summary || "").slice(0, 60))}${r.executed ? "" : "<span class=\"blocked\">blocked</span>"}</summary>
+            <div class="thought"><b>thought:</b> ${esc(r.thought)}</div>
+            <div class="saw"><b>saw:</b> <pre>${esc(r.saw)}</pre></div>
+          </details>
+        `,
+      )
+      .join("");
+    this.mindEl.innerHTML = `
+      <div class="mind-block">
+        <div class="mind-belief"><span class="label">Belief</span><span class="value">${esc(mind.belief || "—")}</span></div>
+        <div class="mind-intent"><span class="label">Next intent</span><span class="value">${esc(mind.next_intent || "—")}</span></div>
+        ${triedFailedHtml}
+        <div class="mind-recent">
+          <div class="label">Recent ${mind.recent.length} turn${mind.recent.length === 1 ? "" : "s"}</div>
+          ${recentHtml}
+        </div>
+      </div>
+    `;
   }
 
   /// Filter bar: action pills (All / Reply / Wait / Escalate), session
@@ -288,6 +364,7 @@ export class OperatorPanel {
         this.filter.session = (e.target as HTMLSelectElement).value;
         savePrefs(this.filter);
         this.renderList();
+        this.renderMindSection();
       });
 
     // Custom operator combobox — supports avatar PNGs in both the
@@ -951,4 +1028,12 @@ class AvatarCombobox {
     }
     this.close();
   }
+}
+
+function mindEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
