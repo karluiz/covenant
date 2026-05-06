@@ -38,6 +38,7 @@ import {
   sessionSetOperator,
   setOperatorLive,
   setSessionMission,
+  setTabTitle,
   spawnSession,
   tabManifestSave,
   writeToSession,
@@ -1151,6 +1152,11 @@ export class TabManager {
     const short = sessionId.slice(-6);
     this.sessionNameCache.set(short, { name, ts: Date.now() });
     saveSessionNameCache(this.sessionNameCache);
+    // Mirror to the backend so AOM startup can build a mnemonic
+    // `covenant-{tab-slug}-{ulid6}` Claude session name.
+    void setTabTitle(sessionId as SessionId, name).catch((err) => {
+      console.warn("setTabTitle failed", err);
+    });
   }
 
   /// 3.6 — focus the tab whose backend session matches `sessionId`. Used

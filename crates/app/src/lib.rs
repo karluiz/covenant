@@ -543,6 +543,7 @@ async fn close_session(
 ) -> Result<(), String> {
     let id = parse_id(&id)?;
     state.operator.detach(id).await;
+    state.operator.forget_tab_title(id).await;
     registry.unpin_session(id);
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
@@ -883,6 +884,20 @@ async fn operator_append_plan_note(
         .operator
         .append_plan_note(id, task_index, note, expected_mtime_unix_ms)
         .await
+}
+
+/// Frontend → backend tab title push. Used by AOM startup to build the
+/// `covenant-{tab-slug}-{ulid6}` Claude session-name slug. Empty title
+/// clears the cached entry. Called on tab create and on rename.
+#[tauri::command]
+async fn set_tab_title(
+    state: State<'_, AppState>,
+    session_id: String,
+    title: String,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.operator.set_tab_title(id, title).await;
+    Ok(())
 }
 
 /// Per-tab AOM opt-out. When AOM is on, an excluded tab keeps its
@@ -2299,6 +2314,7 @@ pub fn run() {
             set_operator_live,
             is_operator_live,
             set_aom_excluded,
+            set_tab_title,
             is_aom_excluded,
             clear_all_aom_excluded,
             set_session_mission,

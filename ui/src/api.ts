@@ -130,6 +130,16 @@ export async function isAomExcluded(sessionId: SessionId): Promise<boolean> {
   return invoke<boolean>("is_aom_excluded", { sessionId });
 }
 
+/// Push the user-visible tab title to the backend so AOM startup can
+/// build a `covenant-{tab-slug}-{ulid6}` Claude session name. Empty
+/// title clears the entry. Fire-and-forget; errors are logged only.
+export async function setTabTitle(
+  sessionId: SessionId,
+  title: string,
+): Promise<void> {
+  return invoke<void>("set_tab_title", { sessionId, title });
+}
+
 /// "Include all" backend hook — flips every tab's `aom_excluded` to
 /// false in one call. Surfaced in the AOM popover when ≥1 tabs are
 /// excluded. Use sparingly; the per-tab toggle is the daily affordance.

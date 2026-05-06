@@ -307,6 +307,12 @@ pub struct OperatorWatcher {
     /// Sender side of the convergence resolution channel. The receiver
     /// is held internally by `tick_loop` and drained each tick.
     resolution_tx: mpsc::UnboundedSender<ConvergenceResolution>,
+    /// Frontend-supplied tab titles per session. Used by
+    /// `queue_aom_startup_actions` to build the `covenant-{slug}-{ulid6}`
+    /// session-name slug when there is no mission attached. Lives outside
+    /// `Inner` so the frontend can stamp a title before/after the
+    /// operator has registered the session.
+    tab_titles: Arc<AsyncMutex<HashMap<SessionId, String>>>,
 }
 
 struct Inner {
@@ -631,7 +637,27 @@ impl OperatorWatcher {
             mission_store,
             registry,
             resolution_tx,
+            tab_titles: Arc::new(AsyncMutex::new(HashMap::new())),
         }
+    }
+
+    /// Frontend → backend tab title push. Called on tab create and on
+    /// rename so `queue_aom_startup_actions` can build a more mnemonic
+    /// `covenant-{tab-slug}-{ulid6}` session name. Empty/whitespace
+    /// titles clear the entry so we fall back to cwd basename.
+    pub async fn set_tab_title(&self, session_id: SessionId, title: String) {
+        let trimmed = title.trim();
+        let mut map = self.tab_titles.lock().await;
+        if trimmed.is_empty() {
+            map.remove(&session_id);
+        } else {
+            map.insert(session_id, trimmed.to_string());
+        }
+    }
+
+    /// Drop the cached title for a closed session.
+    pub async fn forget_tab_title(&self, session_id: SessionId) {
+        self.tab_titles.lock().await.remove(&session_id);
     }
 
     /// Sender for convergence resolutions submitted from the
@@ -1140,6 +1166,7 @@ impl OperatorWatcher {
                 .collect()
         };
 
+        let titles = self.tab_titles.lock().await.clone();
         let mut slugs: Vec<(SessionId, String)> = Vec::with_capacity(snapshot.len());
         for (id, mission_path, world_arc) in snapshot {
             let slug = if let Some(p) = mission_path.as_ref() {
@@ -1148,13 +1175,13 @@ impl OperatorWatcher {
                     // Mission path produced an empty slug (weird name) —
                     // fall back to cwd-based slug so we still rename.
                     let cwd = world_arc.lock().await.cwd.clone();
-                    slug_fallback_from_cwd(&cwd, id)
+                    slug_fallback_covenant(titles.get(&id).map(String::as_str), &cwd, id)
                 } else {
                     s
                 }
             } else {
                 let cwd = world_arc.lock().await.cwd.clone();
-                slug_fallback_from_cwd(&cwd, id)
+                slug_fallback_covenant(titles.get(&id).map(String::as_str), &cwd, id)
             };
             slugs.push((id, slug));
         }
@@ -3471,11 +3498,16 @@ fn slug_from_mission_path(path: &std::path::Path) -> String {
     out
 }
 
-/// Fallback slug when no mission is attached. Builds
-/// `{cwd-basename-kebab}-{ulid6}` where `ulid6` is the last 6 chars of
-/// the session id, lowercase. Empty/weird basenames degrade to
-/// `session-{ulid6}` so the rename is always non-empty.
-fn slug_fallback_from_cwd(cwd: &std::path::Path, session_id: SessionId) -> String {
+/// Mission-less rename: prefer the user-visible tab title, fall back to
+/// the cwd basename. Always wraps with `covenant-` and a 6-char session
+/// suffix so names stay unique across tabs:
+///   `covenant-{kebab(title|cwd)}-{ulid6}`
+/// Empty/weird inputs degrade to `covenant-session-{ulid6}`.
+fn slug_fallback_covenant(
+    tab_title: Option<&str>,
+    cwd: &std::path::Path,
+    session_id: SessionId,
+) -> String {
     let id_str = session_id.to_string();
     let ulid6: String = id_str
         .chars()
@@ -3486,16 +3518,18 @@ fn slug_fallback_from_cwd(cwd: &std::path::Path, session_id: SessionId) -> Strin
         .rev()
         .collect::<String>()
         .to_ascii_lowercase();
-    let raw_basename = cwd
-        .file_name()
-        .map(|f| f.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let kebab = kebab_case(&raw_basename);
-    if kebab.is_empty() {
-        format!("session-{ulid6}")
-    } else {
-        format!("{kebab}-{ulid6}")
-    }
+    let kebab_title = tab_title
+        .map(|t| kebab_case(t))
+        .filter(|s| !s.is_empty());
+    let body = kebab_title.unwrap_or_else(|| {
+        let raw = cwd
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let k = kebab_case(&raw);
+        if k.is_empty() { String::from("session") } else { k }
+    });
+    format!("covenant-{body}-{ulid6}")
 }
 
 /// Lowercase, replace non-alphanumeric with `-`, collapse runs, trim
@@ -4409,7 +4443,7 @@ What would you like to do?
     }
 
     #[test]
-    fn slug_fallback_from_cwd_normal_basename() {
+    fn slug_fallback_covenant_uses_tab_title_when_present() {
         use std::path::PathBuf;
         let sid = SessionId::new();
         let id_str = sid.to_string();
@@ -4422,40 +4456,48 @@ What would you like to do?
             .rev()
             .collect::<String>()
             .to_ascii_lowercase();
-        let s = slug_fallback_from_cwd(&PathBuf::from("/Users/karl/karlTerminal"), sid);
-        assert_eq!(s, format!("karlterminal-{expected_suffix}"));
+        let s = slug_fallback_covenant(
+            Some("My Cool Tab"),
+            &PathBuf::from("/Users/karl/karlTerminal"),
+            sid,
+        );
+        assert_eq!(s, format!("covenant-my-cool-tab-{expected_suffix}"));
     }
 
     #[test]
-    fn slug_fallback_from_cwd_with_spaces_and_dots() {
+    fn slug_fallback_covenant_falls_back_to_cwd_basename() {
         use std::path::PathBuf;
         let sid = SessionId::new();
-        let s = slug_fallback_from_cwd(&PathBuf::from("/work/My App.v2"), sid);
-        // "My App.v2" → "my-app-v2" (dots and spaces → '-', collapsed)
-        assert!(s.starts_with("my-app-v2-"), "got: {s}");
-        // suffix is exactly 6 chars after the trailing dash
+        let s = slug_fallback_covenant(None, &PathBuf::from("/Users/karl/karlTerminal"), sid);
+        assert!(s.starts_with("covenant-karlterminal-"), "got: {s}");
         let suf = s.rsplit('-').next().unwrap();
         assert_eq!(suf.len(), 6);
     }
 
     #[test]
-    fn slug_fallback_from_cwd_root_or_empty() {
+    fn slug_fallback_covenant_blank_title_falls_back_to_cwd() {
         use std::path::PathBuf;
         let sid = SessionId::new();
-        // PathBuf::from("/") has no file_name → empty basename → session-{ulid6}
-        let s_root = slug_fallback_from_cwd(&PathBuf::from("/"), sid);
-        assert!(s_root.starts_with("session-"), "root got: {s_root}");
-        let s_empty = slug_fallback_from_cwd(&PathBuf::from(""), sid);
-        assert!(s_empty.starts_with("session-"), "empty got: {s_empty}");
+        let s = slug_fallback_covenant(Some("   "), &PathBuf::from("/work/My App.v2"), sid);
+        assert!(s.starts_with("covenant-my-app-v2-"), "got: {s}");
     }
 
     #[test]
-    fn slug_fallback_from_cwd_unicode() {
+    fn slug_fallback_covenant_root_or_empty_cwd() {
         use std::path::PathBuf;
         let sid = SessionId::new();
-        let s = slug_fallback_from_cwd(&PathBuf::from("/x/Café Münster"), sid);
-        // alphanumeric Unicode is preserved (lowercased); spaces → '-'
-        assert!(s.starts_with("café-münster-"), "got: {s}");
+        let s_root = slug_fallback_covenant(None, &PathBuf::from("/"), sid);
+        assert!(s_root.starts_with("covenant-session-"), "root got: {s_root}");
+        let s_empty = slug_fallback_covenant(None, &PathBuf::from(""), sid);
+        assert!(s_empty.starts_with("covenant-session-"), "empty got: {s_empty}");
+    }
+
+    #[test]
+    fn slug_fallback_covenant_unicode_title() {
+        use std::path::PathBuf;
+        let sid = SessionId::new();
+        let s = slug_fallback_covenant(Some("Café Münster"), &PathBuf::from("/x"), sid);
+        assert!(s.starts_with("covenant-café-münster-"), "got: {s}");
     }
 
     #[tokio::test]
@@ -4490,12 +4532,12 @@ What would you like to do?
             let s = if let Some(p) = mp.as_ref() {
                 let s = slug_from_mission_path(p);
                 if s.is_empty() {
-                    slug_fallback_from_cwd(&w.lock().await.cwd.clone(), id)
+                    slug_fallback_covenant(None, &w.lock().await.cwd.clone(), id)
                 } else {
                     s
                 }
             } else {
-                slug_fallback_from_cwd(&w.lock().await.cwd.clone(), id)
+                slug_fallback_covenant(None, &w.lock().await.cwd.clone(), id)
             };
             slugs.push((id, s));
         }
@@ -4540,12 +4582,12 @@ What would you like to do?
             let s = if let Some(p) = mp {
                 slug_from_mission_path(&p)
             } else {
-                slug_fallback_from_cwd(&w.lock().await.cwd.clone(), id)
+                slug_fallback_covenant(None, &w.lock().await.cwd.clone(), id)
             };
             slugs.push((id, s));
         }
         let (_, slug) = &slugs[0];
-        assert!(slug.starts_with("karl-terminal-"), "slug was: {slug}");
+        assert!(slug.starts_with("covenant-karl-terminal-"), "slug was: {slug}");
         let suf = slug.rsplit('-').next().unwrap();
         assert_eq!(suf.len(), 6);
     }
