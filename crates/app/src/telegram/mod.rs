@@ -32,6 +32,36 @@ use crate::telegram::types::SendMessageReq;
 
 pub enum MissionKind { Completed, Failed }
 
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TelegramStatus {
+    Disabled,
+    Ok,
+    Error,
+}
+
+impl TelegramNotifier {
+    pub async fn status(&self) -> TelegramStatus {
+        let s = self.settings.lock().await;
+        if !s.telegram.enabled
+            || s.telegram.bot_token.is_empty()
+            || s.telegram.chat_id.is_empty()
+        {
+            return TelegramStatus::Disabled;
+        }
+        drop(s);
+        match self
+            .state
+            .status
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            outbound::STATUS_OK => TelegramStatus::Ok,
+            outbound::STATUS_ERROR => TelegramStatus::Error,
+            _ => TelegramStatus::Disabled,
+        }
+    }
+}
+
 impl TelegramNotifier {
     pub async fn send_escalation(
         &self,
@@ -41,10 +71,20 @@ impl TelegramNotifier {
         escalation_id: &str,
         actions: &[String],
         session_id: &str,
+        tab_id: Option<&str>,
     ) -> anyhow::Result<()> {
         let s = self.settings.lock().await;
-        if !s.telegram.enabled
-            || s.telegram.bot_token.is_empty()
+        if !s.telegram.enabled {
+            return Ok(());
+        }
+        if let Some(tid) = tab_id {
+            if let Some(ovr) = s.telegram.per_tab_overrides.get(tid) {
+                if matches!(ovr.enabled, Some(false)) {
+                    return Ok(());
+                }
+            }
+        }
+        if s.telegram.bot_token.is_empty()
             || s.telegram.chat_id.is_empty()
             || !s.telegram.events.escalations
         {
@@ -70,14 +110,23 @@ impl TelegramNotifier {
         Ok(())
     }
 
-    pub async fn send_mission_event(&self, mission_kind: MissionKind, tab: &str, body: &str) -> anyhow::Result<()> {
+    pub async fn send_mission_event(&self, mission_kind: MissionKind, tab: &str, body: &str, tab_id: Option<&str>) -> anyhow::Result<()> {
         let s = self.settings.lock().await;
+        if !s.telegram.enabled {
+            return Ok(());
+        }
+        if let Some(tid) = tab_id {
+            if let Some(ovr) = s.telegram.per_tab_overrides.get(tid) {
+                if matches!(ovr.enabled, Some(false)) {
+                    return Ok(());
+                }
+            }
+        }
         let allowed = match mission_kind {
             MissionKind::Completed => s.telegram.events.mission_completed,
             MissionKind::Failed => s.telegram.events.mission_failed,
         };
-        if !s.telegram.enabled
-            || !allowed
+        if !allowed
             || s.telegram.bot_token.is_empty()
             || s.telegram.chat_id.is_empty()
         {
@@ -195,7 +244,7 @@ mod tests {
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
         n.send_escalation("tab1", "BLOCKED", "summary", "esc-1",
-            &["Approve".into(), "Reject".into()], "sess-1").await.unwrap();
+            &["Approve".into(), "Reject".into()], "sess-1", None).await.unwrap();
         assert_eq!(fake.sent.lock().unwrap().len(), 1);
         let map = n.state.map.lock().unwrap();
         assert_eq!(map.get(&101).map(String::as_str), Some("esc-1"));
@@ -205,7 +254,7 @@ mod tests {
     async fn send_escalation_skipped_when_disabled() {
         let fake = Arc::new(FakeTelegramClient::default());
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(false, "42"));
-        n.send_escalation("t", "K", "s", "id", &["Approve".into()], "sess").await.unwrap();
+        n.send_escalation("t", "K", "s", "id", &["Approve".into()], "sess", None).await.unwrap();
         assert!(fake.sent.lock().unwrap().is_empty());
     }
 
@@ -214,7 +263,7 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()], "sess").await.unwrap();
+        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()], "sess", None).await.unwrap();
         n.on_resolved("esc-1", "Approved via terminal").await.unwrap();
         assert_eq!(fake.edits.lock().unwrap().len(), 1);
         assert!(n.state.map.lock().unwrap().is_empty());
@@ -276,7 +325,7 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()], "sess").await.unwrap();
+        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()], "sess", None).await.unwrap();
         fake.queued_updates.lock().unwrap().push(vec![Update {
             update_id: 1,
             callback_query: None,

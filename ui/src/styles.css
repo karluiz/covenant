@@ -9562,3 +9562,13 @@ body[data-aom-phase="triaging"]
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Telegram statusbar pill — three states. */
+.status-tg {
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.status-tg.tg-disabled { opacity: 0.4; }
+.status-tg.tg-ok { color: #4ade80; }
+.status-tg.tg-error { color: #f59e0b; }

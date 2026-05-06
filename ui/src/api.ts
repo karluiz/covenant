@@ -970,3 +970,9 @@ export async function specAuthorMarkPublished(id: string): Promise<void> {
 export async function telegramTestConnection(): Promise<void> {
   return invoke<void>("telegram_test_connection");
 }
+
+export type TelegramStatus = "disabled" | "ok" | "error";
+
+export async function telegramStatus(): Promise<TelegramStatus> {
+  return invoke<TelegramStatus>("telegram_status");
+}

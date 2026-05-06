@@ -438,6 +438,19 @@ async function boot(): Promise<void> {
   const release = new ReleasePanel(document.body);
   const shortcutsPanel = new ShortcutsPanel(document.body);
   statusBar.onVersionChipClick = () => release.toggle();
+  // Statusbar Telegram pill click → open Settings, scroll to Telegram section.
+  window.addEventListener("covenant:open-telegram-settings", () => {
+    if (docsPanel.isOpen()) docsPanel.close();
+    if (draftsPanel.isOpen()) draftsPanel.close();
+    if (operator.isOpen()) operator.close();
+    void settings.open().then(() => {
+      // Defer so the panel is mounted before we look up the section.
+      requestAnimationFrame(() => {
+        const sec = document.getElementById("sec-telegram");
+        sec?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  });
   // Auto-show "What's new" on the first launch after a version bump.
   // Compares the persisted last-seen version with the running one;
   // if missing or different, pop the modal once. Marked seen on close.

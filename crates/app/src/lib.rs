@@ -2096,6 +2096,13 @@ async fn telegram_test_connection(state: State<'_, AppState>) -> Result<(), Stri
     state.telegram_notifier.test_connection().await
 }
 
+#[tauri::command]
+async fn telegram_status(
+    state: State<'_, AppState>,
+) -> Result<crate::telegram::TelegramStatus, String> {
+    Ok(state.telegram_notifier.status().await)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::registry()
@@ -2321,6 +2328,7 @@ pub fn run() {
                                     .map(|a| format!("{:?}", a))
                                     .collect();
                                 let kind_label = format!("{:?}", kind).to_uppercase();
+                                let sid_str = session.to_string();
                                 if let Err(e) = tg
                                     .send_escalation(
                                         &tab_name,
@@ -2328,7 +2336,8 @@ pub fn run() {
                                         &summary,
                                         &escalation_id,
                                         &actions_strs,
-                                        &session.to_string(),
+                                        &sid_str,
+                                        Some(sid_str.as_str()),
                                     )
                                     .await
                                 {
@@ -2346,17 +2355,16 @@ pub fn run() {
                                 }
                             }
                             Ok(SessionEvent::MissionCompleted { session, summary }) => {
-                                let session_short = session
-                                    .to_string()
-                                    .chars()
-                                    .take(6)
-                                    .collect::<String>();
+                                let sid_str = session.to_string();
+                                let session_short: String =
+                                    sid_str.chars().take(6).collect();
                                 let tab_name = format!("session:{session_short}");
                                 if let Err(e) = tg
                                     .send_mission_event(
                                         crate::telegram::MissionKind::Completed,
                                         &tab_name,
                                         &summary,
+                                        Some(sid_str.as_str()),
                                     )
                                     .await
                                 {
@@ -2364,17 +2372,16 @@ pub fn run() {
                                 }
                             }
                             Ok(SessionEvent::MissionFailed { session, reason }) => {
-                                let session_short = session
-                                    .to_string()
-                                    .chars()
-                                    .take(6)
-                                    .collect::<String>();
+                                let sid_str = session.to_string();
+                                let session_short: String =
+                                    sid_str.chars().take(6).collect();
                                 let tab_name = format!("session:{session_short}");
                                 if let Err(e) = tg
                                     .send_mission_event(
                                         crate::telegram::MissionKind::Failed,
                                         &tab_name,
                                         &reason,
+                                        Some(sid_str.as_str()),
                                     )
                                     .await
                                 {
@@ -2649,6 +2656,7 @@ pub fn run() {
             project_notes::project_docs_get,
             project_notes::project_docs_save,
             telegram_test_connection,
+            telegram_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

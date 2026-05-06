@@ -1,9 +1,10 @@
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 
 use super::client::TelegramClient;
-use super::outbound::OutboundState;
+use super::outbound::{OutboundState, STATUS_ERROR, STATUS_OK};
 
 #[derive(Debug)]
 pub enum InboundEvent {
@@ -34,8 +35,12 @@ pub fn spawn(
         let mut offset: Option<i64> = None;
         loop {
             let updates = match client.get_updates(&cfg.token, offset, 30).await {
-                Ok(u) => u,
+                Ok(u) => {
+                    state.status.store(STATUS_OK, Ordering::Relaxed);
+                    u
+                }
                 Err(e) => {
+                    state.status.store(STATUS_ERROR, Ordering::Relaxed);
                     tracing::warn!(error=%e, "telegram getUpdates failed; sleeping 60s");
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                     continue;

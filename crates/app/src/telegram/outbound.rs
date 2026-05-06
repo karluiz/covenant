@@ -1,10 +1,18 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU8;
 use std::sync::Mutex;
+
+pub const STATUS_DISABLED: u8 = 0;
+pub const STATUS_OK: u8 = 1;
+pub const STATUS_ERROR: u8 = 2;
 
 #[derive(Default)]
 pub struct OutboundState {
     pub map: Mutex<HashMap<i64, String>>, // message_id -> escalation_id
     pub session_map: Mutex<HashMap<String, String>>, // escalation_id -> session_id
+    /// Last inbound long-poll outcome. Drives the statusbar Telegram pill.
+    /// `STATUS_DISABLED` while no inbound loop is running (token/chat empty).
+    pub status: AtomicU8,
 }
 
 pub fn format_escalation(tab_name: &str, kind: &str, summary: &str) -> String {
