@@ -22,6 +22,10 @@ use rusqlite::{params, Connection};
 /// After registration, every subsequent `Connection::open` automatically
 /// loads `vec0` so `vec_version()` and `vec0` virtual tables are usable
 /// without per-connection setup.
+pub(crate) fn ensure_sqlite_vec_loaded_for_tests() {
+    ensure_sqlite_vec_loaded();
+}
+
 fn ensure_sqlite_vec_loaded() {
     static INIT: Once = Once::new();
     INIT.call_once(|| unsafe {
@@ -141,6 +145,33 @@ CREATE TABLE IF NOT EXISTS seen_specs (
 
 CREATE INDEX IF NOT EXISTS idx_seen_specs_repo
     ON seen_specs(repo_root);
+
+CREATE TABLE IF NOT EXISTS project_commands (
+    id                 TEXT PRIMARY KEY,
+    group_id           TEXT NOT NULL,
+    title              TEXT NOT NULL,
+    command            TEXT NOT NULL,
+    sort_order         INTEGER NOT NULL,
+    created_at_unix_ms INTEGER NOT NULL,
+    updated_at_unix_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_commands_group
+    ON project_commands(group_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS project_notes (
+    id                 TEXT PRIMARY KEY,
+    group_id           TEXT NOT NULL,
+    body               TEXT NOT NULL,
+    created_at_unix_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_notes_group_created
+    ON project_notes(group_id, created_at_unix_ms DESC);
+
+CREATE TABLE IF NOT EXISTS project_docs (
+    group_id           TEXT PRIMARY KEY,
+    body               TEXT NOT NULL,
+    updated_at_unix_ms INTEGER NOT NULL
+);
 ";
 
 #[derive(Debug, Error)]
@@ -370,6 +401,13 @@ impl Storage {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Expose the underlying connection arc so other modules (e.g.
+    /// `project_notes`) can share the same SQLite connection without
+    /// opening a second DB file.
+    pub fn conn(&self) -> Arc<Mutex<Connection>> {
+        self.inner.clone()
     }
 
     /// Insert a new session row. Idempotent via INSERT OR IGNORE.

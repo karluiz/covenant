@@ -43,12 +43,18 @@ import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager } from "./tabs/manager";
+
+/// Module-level reference to the singleton TabManager. Assigned during
+/// boot() and used by project-notes paste helper to resolve the active
+/// session in a group without a Tauri round-trip.
+export let tabsManager: TabManager | null = null;
 import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
+import { ProjectNotesPanel } from "./project-notes/panel";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -287,6 +293,7 @@ async function boot(): Promise<void> {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
     void getCurrentWindow().close();
   });
+  tabsManager = manager;
 
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();
@@ -356,6 +363,34 @@ async function boot(): Promise<void> {
   window.addEventListener("mission:set", (e) => {
     const detail = (e as CustomEvent<{ path: string }>).detail;
     void manager.setMissionPathForActiveTab(detail.path);
+  });
+
+  // Project Notes panel — singleton overlay, opened from group-chip or ⌘⇧N.
+  let activeProjectNotesPanel: ProjectNotesPanel | null = null;
+
+  function openProjectNotes(groupId: string, groupLabel: string): void {
+    if (activeProjectNotesPanel) activeProjectNotesPanel.close();
+    activeProjectNotesPanel = new ProjectNotesPanel({
+      groupId,
+      groupLabel,
+      onClose: () => {
+        activeProjectNotesPanel = null;
+      },
+    }).mount(document.body);
+  }
+
+  manager.setOptions({
+    onOpenProjectNotes: openProjectNotes,
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
+      const g = manager.activeGroup();
+      if (g) {
+        e.preventDefault();
+        openProjectNotes(g.id, g.name);
+      }
+    }
   });
 
   // 3.16 — spec auto-detect → propose mission. Subscribe to backend

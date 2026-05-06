@@ -413,6 +413,25 @@ export class TabManager {
   /// truth. Single-listener — only the rail consumes this.
   public onAfterRender: (() => void) | null = null;
 
+  /// Fires when the user clicks the project-notes icon on a group chip.
+  public onOpenProjectNotes: ((groupId: string, groupLabel: string) => void) | null = null;
+
+  /// Update optional callbacks without reconstructing the manager.
+  setOptions(opts: { onOpenProjectNotes?: (groupId: string, groupLabel: string) => void }): void {
+    if (opts.onOpenProjectNotes !== undefined) {
+      this.onOpenProjectNotes = opts.onOpenProjectNotes;
+    }
+  }
+
+  /// Returns the group that owns the currently active tab, or null if
+  /// the active tab has no group (or no tabs exist).
+  activeGroup(): { id: string; name: string } | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab?.groupId) return null;
+    const g = this.groups.get(tab.groupId);
+    return g ? { id: g.id, name: g.name } : null;
+  }
+
   constructor(
     private readonly tabbarHost: HTMLElement,
     private readonly workspace: HTMLElement,
@@ -1057,6 +1076,14 @@ export class TabManager {
   activeSessionId(): SessionId | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     return tab?.sessionId ?? null;
+  }
+
+  /// Returns the sessionId of the currently active tab that belongs to
+  /// `groupId`, or null if no tab in that group is active.
+  activeSessionInGroup(groupId: string): string | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || tab.groupId !== groupId) return null;
+    return tab.sessionId;
   }
 
   /// Count of tabs that AOM is currently driving — operator-enabled
@@ -2985,6 +3012,21 @@ export class TabManager {
       count.className = "group-chip-count";
       count.textContent = String(memberCount);
       chip.appendChild(count);
+
+      // Project-notes icon — separate click target, no conflict with
+      // the dblclick-to-rename or the chevron fold handlers.
+      const notesBtn = document.createElement("button");
+      notesBtn.type = "button";
+      notesBtn.className = "group-chip-notes-btn";
+      notesBtn.title = "Project Notes";
+      notesBtn.setAttribute("aria-label", "Open Project Notes");
+      notesBtn.innerHTML = Icons.clipboard({ size: 12 });
+      notesBtn.addEventListener("mousedown", (e) => e.stopPropagation());
+      notesBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.onOpenProjectNotes?.(group.id, group.name);
+      });
+      chip.appendChild(notesBtn);
     }
 
     chip.addEventListener("dblclick", (e) => {
