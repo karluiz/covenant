@@ -8927,6 +8927,7 @@ body[data-aom-phase="triaging"]
   height: calc(100% - 64px);
   overflow: hidden;
 }
+.cv-grid[hidden] { display: none; }
 @media (max-width: 960px) {
   .cv-grid { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
 }

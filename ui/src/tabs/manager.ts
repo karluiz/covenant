@@ -1239,6 +1239,19 @@ export class TabManager {
     // negligible at terminal byte rates.
     const webgl: WebglAddon | null = null;
     fit.fit();
+    // Re-fit once webfonts have actually loaded: the initial fit above
+    // measures glyphs against fallback metrics, which can leave term.rows
+    // one too high once the real font lands and cell height grows. The
+    // overflow rows render under the status bar (clipped by `overflow:
+    // hidden`) but stay selectable — the symptom of "scroll won't reach
+    // the bottom".
+    void document.fonts.ready.then(() => {
+      try {
+        fit.fit();
+      } catch {
+        /* ignore — tab may already be disposed */
+      }
+    });
 
     let blocks: BlockManager | null = null;
     let recall: RecallManager | null = null;
@@ -1686,13 +1699,26 @@ export class TabManager {
         if (termHost.offsetWidth === 0 || termHost.offsetHeight === 0) return;
         try {
           fit.fit();
+        } catch {
+          /* ignore — tab may be hidden or disposing */
+          return;
+        }
+        // Second pass on the next frame: layout transitions (status bar
+        // mounting, splitter settle, sidebar collapse) can shift the
+        // terminal's effective height by a sub-cell amount after the
+        // first fit. Without this, the bottom row sometimes renders
+        // under the status bar — invisible but selectable.
+        requestAnimationFrame(() => {
+          try {
+            fit.fit();
+          } catch {
+            return;
+          }
           void resizeSession(sessionId, term.cols, term.rows).catch((e) =>
             // eslint-disable-next-line no-console
             console.error("resize failed (RO)", e),
           );
-        } catch {
-          /* ignore — tab may be hidden or disposing */
-        }
+        });
       });
     });
     ro.observe(termHost);
@@ -2410,17 +2436,32 @@ export class TabManager {
     this.emitActiveTab();
     this.statusBar?.setExecutor(tab.executor);
 
-    requestAnimationFrame(() => {
+    // Double-rAF refit. The first pass fits against layout from the
+    // synchronous reflow triggered by toggling `pane.hidden`; the second
+    // pass corrects for any sub-pixel/cell-metric drift that lands on
+    // the next paint (status bar, AOM banner, splitter, etc. settling).
+    // Without the second pass, term.rows can stay one too high and
+    // xterm renders rows under the status bar — invisible but
+    // selectable, which is exactly what users hit when scrolling can't
+    // reach the actual last line.
+    const doFit = (): void => {
       try {
         tab.fit.fit();
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn("fit failed on activation", err);
       }
-      void resizeSession(tab.sessionId, tab.term.cols, tab.term.rows).catch(
-        () => {},
-      );
-      tab.term.focus();
+    };
+    requestAnimationFrame(() => {
+      doFit();
+      requestAnimationFrame(() => {
+        doFit();
+        void resizeSession(tab.sessionId, tab.term.cols, tab.term.rows).catch(
+          () => {},
+        );
+        tab.term.scrollToBottom();
+        tab.term.focus();
+      });
     });
   }
 

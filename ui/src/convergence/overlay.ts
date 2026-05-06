@@ -21,6 +21,7 @@ const POLL_MS = 1000;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
+  private gridEl: HTMLElement | null = null;
   private inboxEl: HTMLElement | null = null;
   private rosterEl: HTMLElement | null = null;
   private empty: HTMLElement | null = null;
@@ -59,6 +60,7 @@ export class ConvergenceOverlay {
     }
     this.root?.remove();
     this.root = null;
+    this.gridEl = null;
     this.inboxEl = null;
     this.rosterEl = null;
     this.empty = null;
@@ -112,6 +114,7 @@ export class ConvergenceOverlay {
     document.body.append(root);
 
     this.root = root;
+    this.gridEl = grid;
     this.inboxEl = inbox;
     this.rosterEl = roster;
     this.empty = empty;
@@ -169,9 +172,11 @@ export class ConvergenceOverlay {
       this.inboxEl.replaceChildren();
       this.rosterEl.replaceChildren();
       this.empty.hidden = false;
+      if (this.gridEl) this.gridEl.hidden = true;
       return;
     }
     this.empty.hidden = true;
+    if (this.gridEl) this.gridEl.hidden = false;
     this.renderInbox();
     this.renderRoster();
   }

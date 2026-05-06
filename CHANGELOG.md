@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.17 — Terminal refit + convergence overlay polish
+
+### Fixed
+
+- **Bottom row clipped under the status bar.** The xterm fit
+  addon measured glyphs against fallback font metrics on first
+  mount, leaving `term.rows` one too high once the real webfont
+  landed. Rows rendered under the status bar — invisible but
+  selectable, and "scroll to bottom" appeared stuck one line
+  short. Fits now run a second pass on `document.fonts.ready`,
+  inside the ResizeObserver callback (next-frame), and on tab
+  activation (double-rAF). Activation also explicitly scrolls
+  to bottom after the second fit.
+- **Convergence overlay grid stayed visible when empty.** The
+  `cv-grid` container is now hidden alongside the empty-state
+  placeholder so the empty view isn't framed by a stray grid.
+
 ## v0.2.15 — AOM liveness, offline pause, Haiku triage
 
 The Operator now feels *alive*. Four changes targeting the
