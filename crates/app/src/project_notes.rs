@@ -371,6 +371,158 @@ fn get_docs(conn: &Connection, group_id: &str) -> Result<String> {
     Ok(body.unwrap_or_default())
 }
 
+// ----- Pre-context builder -----
+
+/// Hard token cap. We approximate tokens at ~4 chars/token (English-ish);
+/// the budget therefore equals `budget_tokens * 4` characters. This is
+/// intentionally conservative — the model-side counter will always show
+/// fewer tokens than our character estimate predicts.
+const CHARS_PER_TOKEN: usize = 4;
+
+const COMMANDS_BUDGET_PCT: usize = 30;
+const DOCS_BUDGET_PCT: usize = 50;
+// notes get whatever is left
+
+pub async fn build_context(
+    store: &Store,
+    group_id: &str,
+    group_label: &str,
+    budget_tokens: usize,
+) -> Result<String> {
+    let snapshot = store.snapshot(group_id).await?;
+    Ok(render_context(&snapshot, group_label, budget_tokens))
+}
+
+fn render_context(snapshot: &Snapshot, group_label: &str, budget_tokens: usize) -> String {
+    if snapshot.commands.is_empty()
+        && snapshot.notes.is_empty()
+        && snapshot.docs.trim().is_empty()
+    {
+        return String::new();
+    }
+
+    let total_chars = budget_tokens.saturating_mul(CHARS_PER_TOKEN);
+    let cmds_budget = total_chars * COMMANDS_BUDGET_PCT / 100;
+    let docs_budget = total_chars * DOCS_BUDGET_PCT / 100;
+
+    let mut out = String::new();
+    out.push_str(&format!("# Project: {group_label}\n\n"));
+
+    let cmds_block = render_commands(&snapshot.commands, cmds_budget);
+    let cmds_used = cmds_block.len();
+    if !cmds_block.is_empty() {
+        out.push_str("## Saved Commands\n");
+        out.push_str(&cmds_block);
+        out.push('\n');
+    }
+
+    let docs_block = render_docs(&snapshot.docs, docs_budget);
+    let docs_used = docs_block.len();
+    if !docs_block.is_empty() {
+        out.push_str("## Project Docs\n");
+        out.push_str(&docs_block);
+        out.push('\n');
+    }
+
+    let remaining = total_chars
+        .saturating_sub(cmds_used)
+        .saturating_sub(docs_used)
+        .saturating_sub(out.len() - cmds_used - docs_used);
+    let notes_block = render_notes(&snapshot.notes, remaining);
+    if !notes_block.is_empty() {
+        out.push_str("## Recent Notes (newest first)\n");
+        out.push_str(&notes_block);
+    }
+
+    out
+}
+
+fn render_commands(commands: &[Command], budget_chars: usize) -> String {
+    // Sort by updated_at_unix_ms DESC so the most recently touched commands
+    // are kept when truncating.
+    let mut sorted: Vec<&Command> = commands.iter().collect();
+    sorted.sort_by_key(|c| std::cmp::Reverse(c.updated_at_unix_ms));
+    let mut out = String::new();
+    let mut truncated = false;
+    for c in sorted {
+        let line = format!("- {}: `{}`\n", c.title, c.command);
+        if out.len() + line.len() > budget_chars {
+            truncated = true;
+            break;
+        }
+        out.push_str(&line);
+    }
+    if truncated {
+        out.push_str("- [more truncated for budget]\n");
+    }
+    out
+}
+
+fn render_docs(docs: &str, budget_chars: usize) -> String {
+    let trimmed = docs.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.len() <= budget_chars {
+        let mut out = trimmed.to_string();
+        out.push('\n');
+        return out;
+    }
+    // TOC fallback: collect `##`/`###` headings.
+    let mut toc = String::new();
+    for line in trimmed.lines() {
+        let l = line.trim_start();
+        if l.starts_with("## ") || l.starts_with("### ") {
+            toc.push_str(line);
+            toc.push('\n');
+        }
+        if toc.len() >= budget_chars / 2 {
+            break;
+        }
+    }
+    let remaining = budget_chars.saturating_sub(toc.len());
+    let body_excerpt: String = trimmed.chars().take(remaining).collect();
+    format!(
+        "{toc}{body_excerpt}\n[truncated — see full docs in panel]\n"
+    )
+}
+
+fn render_notes(notes: &[Note], budget_chars: usize) -> String {
+    let mut out = String::new();
+    let mut count = 0usize;
+    for n in notes {
+        if count >= 20 {
+            break;
+        }
+        let stamp = relative_stamp(n.created_at_unix_ms);
+        let line = format!("- [{stamp}] {body}\n", body = n.body.trim());
+        if out.len() + line.len() > budget_chars {
+            break;
+        }
+        out.push_str(&line);
+        count += 1;
+    }
+    out
+}
+
+fn relative_stamp(ts_ms: i64) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(ts_ms);
+    let delta_s = (now_ms - ts_ms).max(0) / 1000;
+    if delta_s < 60 {
+        "just now".to_string()
+    } else if delta_s < 3600 {
+        format!("{}m ago", delta_s / 60)
+    } else if delta_s < 86_400 {
+        format!("{}h ago", delta_s / 3600)
+    } else {
+        format!("{}d ago", delta_s / 86_400)
+    }
+}
+
 // ----- Tauri command surface -----
 
 use tauri::State;
@@ -557,5 +709,74 @@ mod tests {
         assert!(snap1.commands.is_empty());
         assert_eq!(snap2.commands.len(), 1);
         assert!(snap2.notes.is_empty());
+    }
+
+    #[test]
+    fn render_context_empty_returns_empty() {
+        let snap = Snapshot::default();
+        assert_eq!(render_context(&snap, "X", 2000), "");
+    }
+
+    #[test]
+    fn render_context_includes_all_three_sections_when_in_budget() {
+        let now = 1_700_000_000_000i64;
+        let snap = Snapshot {
+            commands: vec![Command {
+                id: "1".into(),
+                group_id: "g".into(),
+                title: "Run".into(),
+                command: "npm run dev".into(),
+                sort_order: 0,
+                created_at_unix_ms: now,
+                updated_at_unix_ms: now,
+            }],
+            notes: vec![Note {
+                id: "2".into(),
+                group_id: "g".into(),
+                body: "wip".into(),
+                created_at_unix_ms: now,
+            }],
+            docs: "# Hello".into(),
+        };
+        let out = render_context(&snap, "COVENANT", 2000);
+        assert!(out.contains("# Project: COVENANT"));
+        assert!(out.contains("## Saved Commands"));
+        assert!(out.contains("npm run dev"));
+        assert!(out.contains("## Project Docs"));
+        assert!(out.contains("Hello"));
+        assert!(out.contains("## Recent Notes"));
+        assert!(out.contains("wip"));
+    }
+
+    #[test]
+    fn render_context_truncates_docs_with_marker() {
+        let big = "## Heading A\n".to_string()
+            + &"x".repeat(20_000)
+            + "\n## Heading B\n"
+            + &"y".repeat(20_000);
+        let snap = Snapshot {
+            docs: big,
+            ..Default::default()
+        };
+        let out = render_context(&snap, "P", 200); // tiny budget
+        assert!(out.contains("[truncated — see full docs in panel]"));
+    }
+
+    #[test]
+    fn render_context_caps_notes_at_twenty() {
+        let now = 1_700_000_000_000i64;
+        let mut notes = Vec::new();
+        for i in 0..30 {
+            notes.push(Note {
+                id: format!("{i}"),
+                group_id: "g".into(),
+                body: format!("note {i}"),
+                created_at_unix_ms: now - (i as i64 * 1000),
+            });
+        }
+        let snap = Snapshot { notes, ..Default::default() };
+        let out = render_context(&snap, "P", 5000);
+        let count = out.matches("- [").count();
+        assert_eq!(count, 20);
     }
 }
