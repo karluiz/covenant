@@ -34,6 +34,9 @@ pub struct AskRequest {
     pub system_prompt: String,
     pub user_message: String,
     pub max_tokens: u32,
+    /// Enable Anthropic extended thinking with this token budget.
+    /// `None` means thinking disabled (legacy behavior).
+    pub thinking_budget: Option<u32>,
 }
 
 /// Events emitted as the response streams in.
@@ -50,6 +53,13 @@ pub enum AgentEvent {
     Usage(TokenUsage),
     /// Stream finished cleanly (`message_stop` from Anthropic).
     Done,
+    /// A text fragment of a thinking block. Only emitted when extended
+    /// thinking is enabled. Treat like Delta but for the model's
+    /// internal reasoning, not its user-facing output.
+    ThinkingDelta(String),
+    /// The stop_reason from message_delta. Common values:
+    /// "end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal".
+    StopReason(String),
 }
 
 /// Token counts for a single Messages API call. All fields are 0 if the
@@ -70,6 +80,15 @@ pub struct TokenUsage {
 pub struct AskResponse {
     pub text: String,
     pub usage: TokenUsage,
+    /// Anthropic stop_reason from message_delta. Common values:
+    /// "end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal".
+    /// `None` if not received (older API or partial events).
+    pub stop_reason: Option<String>,
+    /// First ≤200 chars of the model's thinking blocks, joined.
+    /// Empty when thinking was disabled or none emitted.
+    pub thinking_summary: String,
+    /// Full text of every thinking block, in order. Empty when disabled.
+    pub thinking_full: Vec<String>,
 }
 
 /// One-shot variant: drive a streaming call internally and return the
@@ -85,8 +104,12 @@ pub async fn ask_oneshot(req: AskRequest) -> Result<String, AgentError> {
 pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, AgentError> {
     let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let usage = std::sync::Arc::new(std::sync::Mutex::new(TokenUsage::default()));
+    let thinking_buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let stop_reason = std::sync::Arc::new(std::sync::Mutex::new(Option::<String>::None));
     let buf_for_cb = buffer.clone();
     let usage_for_cb = usage.clone();
+    let thinking_for_cb = thinking_buffer.clone();
+    let stop_reason_for_cb = stop_reason.clone();
     ask_streaming(req, move |event| {
         match event {
             AgentEvent::Delta(text) => {
@@ -108,12 +131,32 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
                 }
             }
             AgentEvent::Done => {}
+            AgentEvent::ThinkingDelta(text) => {
+                if let Ok(mut t) = thinking_for_cb.lock() {
+                    t.push_str(&text);
+                }
+            }
+            AgentEvent::StopReason(r) => {
+                if let Ok(mut s) = stop_reason_for_cb.lock() {
+                    *s = Some(r);
+                }
+            }
         }
     })
     .await?;
+    let thinking_full_str = thinking_buffer.lock().map(|t| t.clone()).unwrap_or_default();
+    let thinking_full: Vec<String> = if thinking_full_str.is_empty() {
+        vec![]
+    } else {
+        vec![thinking_full_str.clone()]
+    };
+    let thinking_summary: String = thinking_full_str.chars().take(200).collect();
     Ok(AskResponse {
         text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),
         usage: usage.lock().map(|u| *u).unwrap_or_default(),
+        stop_reason: stop_reason.lock().map(|s| s.clone()).unwrap_or_default(),
+        thinking_summary,
+        thinking_full,
     })
 }
 
@@ -131,7 +174,7 @@ where
         .timeout(std::time::Duration::from_secs(180))
         .build()?;
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": req.model,
         "max_tokens": req.max_tokens,
         "stream": true,
@@ -146,6 +189,12 @@ where
             { "role": "user", "content": req.user_message }
         ]
     });
+    if let Some(budget) = req.thinking_budget {
+        body["thinking"] = serde_json::json!({
+            "type": "enabled",
+            "budget_tokens": budget,
+        });
+    }
 
     let response = client
         .post(ANTHROPIC_URL)
@@ -194,12 +243,29 @@ where
                     value.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 match event_type {
                     "content_block_delta" => {
-                        if let Some(text) = value
-                            .get("delta")
-                            .and_then(|d| d.get("text"))
+                        let delta = value.get("delta");
+                        let delta_type = delta
+                            .and_then(|d| d.get("type"))
                             .and_then(|t| t.as_str())
-                        {
-                            on_event(AgentEvent::Delta(text.to_string()));
+                            .unwrap_or("");
+                        match delta_type {
+                            "text_delta" => {
+                                if let Some(text) = delta
+                                    .and_then(|d| d.get("text"))
+                                    .and_then(|t| t.as_str())
+                                {
+                                    on_event(AgentEvent::Delta(text.to_string()));
+                                }
+                            }
+                            "thinking_delta" => {
+                                if let Some(text) = delta
+                                    .and_then(|d| d.get("thinking"))
+                                    .and_then(|t| t.as_str())
+                                {
+                                    on_event(AgentEvent::ThinkingDelta(text.to_string()));
+                                }
+                            }
+                            _ => {} // signature_delta, input_json_delta, etc.
                         }
                     }
                     "message_start" => {
@@ -222,6 +288,13 @@ where
                             value.get("usage").and_then(parse_usage)
                         {
                             on_event(AgentEvent::Usage(usage));
+                        }
+                        if let Some(reason) = value
+                            .get("delta")
+                            .and_then(|d| d.get("stop_reason"))
+                            .and_then(|r| r.as_str())
+                        {
+                            on_event(AgentEvent::StopReason(reason.to_string()));
                         }
                     }
                     "message_stop" => {

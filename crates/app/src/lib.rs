@@ -1784,6 +1784,7 @@ async fn ask_agent(
         system_prompt: SYSTEM_PROMPT.to_string(),
         user_message,
         max_tokens: 1024,
+        thinking_budget: None,
     };
 
     karl_agent::ask_streaming(req, move |event| match event {
@@ -1796,6 +1797,7 @@ async fn ask_agent(
         karl_agent::AgentEvent::Done => {
             // Promise resolution on the JS side signals end-of-stream.
         }
+        karl_agent::AgentEvent::ThinkingDelta(_) | karl_agent::AgentEvent::StopReason(_) => {}
     })
     .await
     .map_err(|e| e.to_string())?;

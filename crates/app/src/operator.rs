@@ -1846,6 +1846,7 @@ async fn run_tick(
                 system_prompt: system_prompt.clone(),
                 user_message: user_message.clone(),
                 max_tokens: 64,
+                thinking_budget: None,
             })
             .await;
             drop(_thinking);
@@ -1930,6 +1931,9 @@ async fn run_tick(
             Ok(karl_agent::AskResponse {
                 text: synth_response_for(&action),
                 usage: karl_agent::TokenUsage::default(),
+                stop_reason: None,
+                thinking_summary: String::new(),
+                thinking_full: vec![],
             })
         } else {
             // Marks the session as `operator-thinking` for the
@@ -1942,6 +1946,7 @@ async fn run_tick(
                 system_prompt,
                 user_message,
                 max_tokens: max_tokens_for_call,
+                thinking_budget: None,
             })
             .await
         };

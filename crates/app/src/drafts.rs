@@ -892,6 +892,7 @@ pub async fn suggest_draft_section(
         system_prompt: SUGGEST_SYSTEM_PROMPT.to_string(),
         user_message: user_msg,
         max_tokens: SUGGEST_MAX_TOKENS,
+        thinking_budget: None,
     })
     .await
     .map_err(|e| e.to_string())?;
