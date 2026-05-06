@@ -6,6 +6,53 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.19 — Telegram escalation
+
+### Added
+
+- **Bidirectional Telegram escalation.** When the operator
+  needs to escalate (blocklist refusal, budget cap, AOM loop
+  detection, or other blocked decisions), Covenant pushes the
+  context to your Telegram with three inline buttons —
+  Approve / Reject / Snooze 10m. Tap one and the originating
+  tab resumes; *or* reply with free text and that text is
+  injected into the operator as a new instruction (LLM path,
+  never the PTY directly — blocklist still applies).
+- **Mission lifecycle pings.** `MissionCompleted` and
+  `MissionFailed` events fan out as fire-and-forget Telegram
+  notifications when enabled.
+- **Settings → Telegram section.** Toggle, bot token (paste
+  from @BotFather), chat ID (paste from @userinfobot), event
+  filters (escalations / mission completed / mission failed),
+  and a `Test connection` button that round-trips `getMe` +
+  `sendMessage`.
+- **Statusbar pill.** Tiny Telegram indicator in the status
+  bar — disabled / ok / error — polled every 5s; click jumps
+  to the Telegram settings section.
+- **Per-tab override (backend).** `settings.telegram.per_tab_overrides[<tab_id>].enabled = false`
+  silences a noisy tab without touching the global toggle.
+  UI surface for the override is deferred.
+
+### Changed
+
+- `OutboundState` tracks both `message_id → escalation_id`
+  (for resolving replies) and `escalation_id → session_id`
+  (for routing free-text replies back to the right tab).
+- Settings save round-trip aborts and respawns the inbound
+  long-poll task when the bot token, chat id, or enabled
+  toggle changes — no app restart needed.
+
+### Security
+
+- Strict whitelist on `chat_id` for all inbound updates —
+  messages from any other chat are silently dropped.
+- Free-text replies are injected into the operator as
+  user-style input (the LLM decides what to do); they never
+  bypass the safety blocklist or per-tab policy.
+- Bot token lives in `settings.json` plain (FS perms only).
+  v1 trade-off in exchange for shipping without Keychain
+  integration; future migration tracked.
+
 ## v0.2.18 — Shortcuts audit + Familiars onboarding
 
 ### Added

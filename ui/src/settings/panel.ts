@@ -16,6 +16,7 @@ import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
 import { renderFamiliarsSettings } from "../familiars/settings_panel";
 import { OperatorsPane } from "./operators";
+import { renderTelegramSection, type TelegramSettings } from "./telegram";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -81,6 +82,7 @@ interface Settings {
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
   familiars_enabled: boolean;
+  telegram?: TelegramSettings;
 }
 
 type TabbarPosition = "top" | "left";
@@ -216,6 +218,7 @@ export class SettingsPanel {
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
+      <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-familiars" data-target="sec-familiars">Familiars</a>
     `;
     body.appendChild(nav);
@@ -505,6 +508,7 @@ export class SettingsPanel {
             <small class="settings-hint">Batch notifications within this window to avoid email spam.</small>
           </label>
         </section>
+        <section class="settings-section" id="sec-telegram"></section>
         <section class="settings-section" id="familiars-host"></section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
@@ -666,6 +670,20 @@ export class SettingsPanel {
       await this.operatorsPane.open();
     }
 
+    const tgHost = form.querySelector<HTMLElement>("#sec-telegram");
+    if (tgHost && this.current) {
+      renderTelegramSection(
+        tgHost,
+        { telegram: this.current.telegram },
+        async (patch) => {
+          if (!this.current) return;
+          this.current.telegram = patch.telegram;
+          await setSettings(this.current);
+          if (this.onSaved) this.onSaved(this.current);
+        },
+      );
+    }
+
     const familiarsHost = form.querySelector<HTMLElement>("#familiars-host");
     if (familiarsHost) {
       const persistFamiliars = async (): Promise<void> => {
@@ -804,6 +822,7 @@ export class SettingsPanel {
             ?.value as TabbarPosition) || "top",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
         familiars_enabled: this.current!.familiars_enabled,
+        telegram: this.current!.telegram,
       };
       try {
         await setSettings(next);

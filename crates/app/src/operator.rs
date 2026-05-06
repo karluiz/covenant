@@ -28,11 +28,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use karl_session::SessionId;
+use karl_session::{
+    EscalationAction, EscalationKind, SessionEvent, SessionId,
+};
 use regex::Regex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as AsyncMutex;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::aom::AomHandle;
 use crate::cost;
@@ -667,6 +669,7 @@ impl OperatorWatcher {
         registry: Arc<OperatorRegistry>,
         embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
         connectivity: crate::connectivity::ConnectivityHandle,
+        escalation_tx: broadcast::Sender<SessionEvent>,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -684,6 +687,7 @@ impl OperatorWatcher {
             resolution_rx,
             embedder_cell,
             connectivity,
+            escalation_tx,
         ));
         Self {
             inner,
@@ -1274,6 +1278,7 @@ async fn tick_loop(
     mut resolution_rx: mpsc::UnboundedReceiver<ConvergenceResolution>,
     embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     connectivity: crate::connectivity::ConnectivityHandle,
+    escalation_tx: broadcast::Sender<SessionEvent>,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1313,9 +1318,9 @@ async fn tick_loop(
         // call gate). Fires `operator-mission-completed` + an OS
         // notification exactly once per (session, mission) transition
         // to 100% done. AOM-only.
-        detect_mission_completions(&inner, &app, &aom, &notifier).await;
+        detect_mission_completions(&inner, &app, &aom, &notifier, &escalation_tx).await;
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity, &escalation_tx).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -1334,6 +1339,7 @@ async fn detect_mission_completions(
     app: &AppHandle,
     aom: &AomHandle,
     notifier: &crate::notify::Notifier,
+    escalation_tx: &broadcast::Sender<SessionEvent>,
 ) {
     let aom_active = aom.read().await.enabled;
     if !aom_active {
@@ -1424,10 +1430,14 @@ async fn detect_mission_completions(
             .emit(
                 crate::notify::Trigger::AomComplete,
                 "Mission completed",
-                body,
+                body.clone(),
                 Some(p.session_id),
             )
             .await;
+        let _ = escalation_tx.send(SessionEvent::MissionCompleted {
+            session: p.session_id,
+            summary: strip_ansi_escapes::strip_str(&body),
+        });
     }
 }
 
@@ -1564,6 +1574,7 @@ async fn run_tick(
     registry: &Arc<OperatorRegistry>,
     embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     connectivity: &crate::connectivity::ConnectivityHandle,
+    escalation_tx: &broadcast::Sender<SessionEvent>,
 ) -> Result<(), String> {
     // Offline gate (Task 4 / AOM liveness). If the OS reports we're
     // offline (forwarded by the frontend `online`/`offline` listener
@@ -2795,6 +2806,33 @@ async fn run_tick(
                     },
                 )
                 .await;
+
+                // Telegram/UI: publish escalation event on the bus.
+                // Heuristically classify by message/rationale prefix
+                // (the dispatch above already sent the OS notification).
+                let kind = if msg.starts_with("blocked:") {
+                    EscalationKind::Blocklist
+                } else if rationale
+                    .as_deref()
+                    .map(|r| r.starts_with("loop guard"))
+                    .unwrap_or(false)
+                {
+                    EscalationKind::Loop
+                } else {
+                    EscalationKind::Blocked
+                };
+                let escalation_id = ulid::Ulid::new().to_string();
+                let _ = escalation_tx.send(SessionEvent::EscalationRequested {
+                    session: session_id,
+                    escalation_id,
+                    kind,
+                    summary: strip_ansi_escapes::strip_str(msg),
+                    actions: vec![
+                        EscalationAction::Approve,
+                        EscalationAction::Reject,
+                        EscalationAction::Snooze10m,
+                    ],
+                });
             }
         }
 
@@ -2909,11 +2947,22 @@ async fn run_tick(
                 crate::notifications::DispatchCtx {
                     trigger: crate::notify::Trigger::AomError,
                     title: "AOM stopped (budget)".into(),
-                    body,
+                    body: body.clone(),
                     session_id: None,
                 },
             )
             .await;
+            let _ = escalation_tx.send(SessionEvent::EscalationRequested {
+                session: session_id,
+                escalation_id: ulid::Ulid::new().to_string(),
+                kind: EscalationKind::BudgetExhausted,
+                summary: strip_ansi_escapes::strip_str(&body),
+                actions: vec![
+                    EscalationAction::Approve,
+                    EscalationAction::Reject,
+                    EscalationAction::Snooze10m,
+                ],
+            });
             // Stop processing further candidates this tick — AOM is
             // off, the next tick will just no-op for everyone.
             break;

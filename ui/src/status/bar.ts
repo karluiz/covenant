@@ -32,6 +32,8 @@ import {
   getSessionMissionContent,
   getSessionPlanContent,
   setSessionMissionContent,
+  telegramStatus,
+  type TelegramStatus,
 } from "../api";
 import { Icons } from "../icons";
 import { brandIconSvg } from "../icons/brands";
@@ -102,6 +104,8 @@ export class StatusBar {
   /// are dropped by comparing against this on completion.
   private fetchTicket = 0;
   private modal: MissionViewerModal | null = null;
+  /// Last polled Telegram status. Drives the .tg-status pill class.
+  private currentTgStatus: TelegramStatus = "disabled";
 
   /// Wired by main.ts to TabManager. Fires when the user clicks the
   /// "+ Mission" affordance on the status bar (only shown when no
@@ -124,6 +128,23 @@ export class StatusBar {
     this.host.classList.add("status-bar");
     this.host.setAttribute("role", "status");
     this.host.setAttribute("aria-live", "off");
+    this.startTelegramPolling();
+  }
+
+  private startTelegramPolling(): void {
+    const tick = async (): Promise<void> => {
+      try {
+        const next = await telegramStatus();
+        if (next !== this.currentTgStatus) {
+          this.currentTgStatus = next;
+          this.render(this.lastDirCtx);
+        }
+      } catch {
+        /* backend not ready / command missing — leave as-is */
+      }
+    };
+    void tick();
+    window.setInterval(() => void tick(), 5000);
   }
 
   setEnabled(enabled: boolean): void {
@@ -566,6 +587,9 @@ export class StatusBar {
         ),
       );
     }
+    // Telegram status pill — Disabled / Ok / Error. Click opens the
+    // settings panel scrolled to the Telegram section.
+    this.host.appendChild(telegramSegment(this.currentTgStatus));
     // Version chip lives at the trailing edge — informational, click
     // opens the release log. Always rendered so the user always has a
     // glanceable "what build am I on" indicator.
@@ -729,6 +753,32 @@ function formatElapsed(ms: number): string {
   const h = Math.floor(m / 60);
   const rm = m - h * 60;
   return rm === 0 ? `${h}h` : `${h}h${rm}m`;
+}
+
+function telegramSegment(status: TelegramStatus): HTMLElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = `status-segment status-tg tg-status tg-${status}`;
+  const label =
+    status === "ok"
+      ? "Telegram connected"
+      : status === "error"
+        ? "Telegram error — last poll failed"
+        : "Telegram disabled — click to configure";
+  el.title = `${label}. Click to open Telegram settings.`;
+  el.setAttribute("aria-label", label);
+
+  const text = document.createElement("span");
+  text.className = "status-text";
+  text.textContent = "TG";
+  el.appendChild(text);
+
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent("covenant:open-telegram-settings"));
+  });
+  return el;
 }
 
 function versionSegment(version: string, onClick: () => void): HTMLElement {

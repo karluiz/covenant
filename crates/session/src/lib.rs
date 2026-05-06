@@ -115,6 +115,65 @@ pub enum SessionEvent {
         /// Short justification surfaced to the user inline.
         rationale: String,
     },
+    /// Operator requests human-in-the-loop intervention. Subscribers
+    /// (terminal UI, telegram notifier) surface this to the user.
+    EscalationRequested {
+        session: SessionId,
+        /// Ulid as string for serialization simplicity.
+        escalation_id: String,
+        #[serde(rename = "escalation_kind")]
+        kind: EscalationKind,
+        summary: String,
+        actions: Vec<EscalationAction>,
+    },
+    /// An outstanding escalation has been resolved by some surface
+    /// (terminal panel, telegram reply, etc).
+    EscalationResolved {
+        escalation_id: String,
+        resolution: EscalationResolution,
+        source: ResolutionSource,
+    },
+    MissionCompleted {
+        session: SessionId,
+        summary: String,
+    },
+    MissionFailed {
+        session: SessionId,
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EscalationKind {
+    Blocked,
+    Blocklist,
+    BudgetExhausted,
+    Loop,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EscalationAction {
+    Approve,
+    Reject,
+    Snooze10m,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum EscalationResolution {
+    Approved,
+    Rejected,
+    Snoozed,
+    FreeText(String),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionSource {
+    Terminal,
+    Telegram,
 }
 
 /// Lightweight UI-facing projection of [`SessionEvent`]. Strips fields
@@ -156,7 +215,13 @@ impl SessionEvent {
     /// events the UI does not need (Opened/Closed today).
     pub fn to_ui(&self) -> Option<SessionUiEvent> {
         match self {
-            SessionEvent::Opened { .. } | SessionEvent::Closed { .. } => None,
+            SessionEvent::Opened { .. }
+            | SessionEvent::Closed { .. }
+            // TODO(telegram): handled in Task 5/6
+            | SessionEvent::EscalationRequested { .. }
+            | SessionEvent::EscalationResolved { .. }
+            | SessionEvent::MissionCompleted { .. }
+            | SessionEvent::MissionFailed { .. } => None,
             SessionEvent::PromptStart { session } => {
                 Some(SessionUiEvent::PromptStart { session: *session })
             }
