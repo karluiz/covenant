@@ -1,4 +1,5 @@
 import "./styles.css";
+import { CommandsTab } from "./commands-tab";
 
 export type PanelTab = "commands" | "notes" | "docs";
 
@@ -105,12 +106,15 @@ export class ProjectNotesPanel {
       this.tabButtons[t].classList.toggle("active", t === this.currentTab);
     }
     this.body.replaceChildren();
-    // Concrete tab renderers are added in Tasks 6, 7, 8.
-    // For now, render a placeholder so the test in 5.3 can assert layout.
-    const slot = document.createElement("div");
-    slot.className = `pn-tab-slot pn-tab-${this.currentTab}`;
-    slot.textContent = `(${this.currentTab})`;
-    this.body.appendChild(slot);
+    if (this.currentTab === "commands") {
+      new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
+    } else {
+      // Notes and Docs tabs are wired in Tasks 7 and 8.
+      const slot = document.createElement("div");
+      slot.className = `pn-tab-slot pn-tab-${this.currentTab}`;
+      slot.textContent = `(${this.currentTab})`;
+      this.body.appendChild(slot);
+    }
   }
 
   // Exposed for subsequent tasks to plug in.

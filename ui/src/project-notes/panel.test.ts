@@ -1,5 +1,16 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ProjectNotesPanel } from "./panel";
+
+vi.mock("./commands-tab", () => ({
+  CommandsTab: class {
+    mount(parent: HTMLElement) {
+      const el = document.createElement("div");
+      el.className = "pn-cmd-tab";
+      parent.appendChild(el);
+      return this;
+    }
+  },
+}));
 
 describe("ProjectNotesPanel", () => {
   let host: HTMLElement;
@@ -16,7 +27,7 @@ describe("ProjectNotesPanel", () => {
     p.mount(host);
     const buttons = host.querySelectorAll(".pn-tabs button");
     expect(buttons.length).toBe(3);
-    expect(host.querySelector(".pn-tab-commands")).not.toBeNull();
+    expect(host.querySelector(".pn-cmd-tab")).not.toBeNull();
   });
 
   it("persists the last active tab per group", () => {

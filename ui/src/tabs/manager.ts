@@ -1078,6 +1078,14 @@ export class TabManager {
     return tab?.sessionId ?? null;
   }
 
+  /// Returns the sessionId of the currently active tab that belongs to
+  /// `groupId`, or null if no tab in that group is active.
+  activeSessionInGroup(groupId: string): string | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || tab.groupId !== groupId) return null;
+    return tab.sessionId;
+  }
+
   /// Count of tabs that AOM is currently driving — operator-enabled
   /// tabs (AOM auto-enables on every non-excluded tab on start, and
   /// reverts on stop, so this count IS the AOM-active set while AOM

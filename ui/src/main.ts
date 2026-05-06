@@ -43,6 +43,11 @@ import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager } from "./tabs/manager";
+
+/// Module-level reference to the singleton TabManager. Assigned during
+/// boot() and used by project-notes paste helper to resolve the active
+/// session in a group without a Tauri round-trip.
+export let tabsManager: TabManager | null = null;
 import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
@@ -288,6 +293,7 @@ async function boot(): Promise<void> {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
     void getCurrentWindow().close();
   });
+  tabsManager = manager;
 
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();
