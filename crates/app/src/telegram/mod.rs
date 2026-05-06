@@ -3,6 +3,8 @@ pub mod inbound;
 pub mod outbound;
 pub mod types;
 
+pub use inbound::{InboundEvent, ResolutionFromTelegram};
+
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -116,6 +118,28 @@ impl TelegramNotifier {
     }
 }
 
+impl TelegramNotifier {
+    pub async fn spawn_inbound(
+        &self,
+        tx: tokio::sync::mpsc::UnboundedSender<InboundEvent>,
+    ) -> tokio::task::JoinHandle<()> {
+        let s = self.settings.lock().await;
+        let token = s.telegram.bot_token.clone();
+        let chat_str = s.telegram.chat_id.clone();
+        drop(s);
+        let allowed_chat_id: i64 = chat_str.parse().unwrap_or(0);
+        if token.is_empty() || allowed_chat_id == 0 {
+            return tokio::spawn(async {});
+        }
+        inbound::spawn(
+            self.client.clone(),
+            self.state.clone(),
+            inbound::InboundConfig { token, allowed_chat_id },
+            tx,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +186,87 @@ mod tests {
         n.on_resolved("esc-1", "Approved via terminal").await.unwrap();
         assert_eq!(fake.edits.lock().unwrap().len(), 1);
         assert!(n.state.map.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn callback_query_publishes_resolution() {
+        use crate::telegram::types::*;
+        let fake = Arc::new(FakeTelegramClient::default());
+        fake.queued_updates.lock().unwrap().push(vec![Update {
+            update_id: 1,
+            message: None,
+            callback_query: Some(CallbackQuery {
+                id: "cb1".into(),
+                from: From { id: 42 },
+                message: Some(IncomingMessage { message_id: 99, chat: Chat { id: 42 }, text: None, reply_to_message: None }),
+                data: Some("esc:abc:Approve".into()),
+            }),
+        }]);
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle = n.spawn_inbound(tx).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        handle.abort();
+
+        let evt = rx.try_recv().expect("expected resolution");
+        match evt {
+            InboundEvent::Resolved { escalation_id, resolution } => {
+                assert_eq!(escalation_id, "abc");
+                assert!(matches!(resolution, ResolutionFromTelegram::Approved));
+            }
+            _ => panic!("wrong event"),
+        }
+        assert_eq!(fake.answers.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn message_from_other_chat_ignored() {
+        use crate::telegram::types::*;
+        let fake = Arc::new(FakeTelegramClient::default());
+        fake.queued_updates.lock().unwrap().push(vec![Update {
+            update_id: 1,
+            callback_query: None,
+            message: Some(IncomingMessage {
+                message_id: 1, chat: Chat { id: 999 }, text: Some("hi".into()), reply_to_message: None,
+            }),
+        }]);
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle = n.spawn_inbound(tx).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        handle.abort();
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn reply_message_publishes_freetext() {
+        use crate::telegram::types::*;
+        let fake = Arc::new(FakeTelegramClient::default());
+        *fake.next_message_id.lock().unwrap() = 100;
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()]).await.unwrap();
+        fake.queued_updates.lock().unwrap().push(vec![Update {
+            update_id: 1,
+            callback_query: None,
+            message: Some(IncomingMessage {
+                message_id: 200, chat: Chat { id: 42 },
+                text: Some("usa --force".into()),
+                reply_to_message: Some(Box::new(IncomingMessage {
+                    message_id: 101, chat: Chat { id: 42 }, text: None, reply_to_message: None,
+                })),
+            }),
+        }]);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle = n.spawn_inbound(tx).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        handle.abort();
+        let evt = rx.recv().await.unwrap();
+        match evt {
+            InboundEvent::Resolved { escalation_id, resolution } => {
+                assert_eq!(escalation_id, "esc-7");
+                assert!(matches!(resolution, ResolutionFromTelegram::FreeText(t) if t == "usa --force"));
+            }
+            _ => panic!(),
+        }
     }
 }
