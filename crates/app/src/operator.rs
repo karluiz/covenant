@@ -1805,8 +1805,11 @@ async fn run_tick(
             mission.as_ref().map(|m| m.path.display().to_string()).as_deref(),
         )
         .await;
+        // TODO(project-notes): resolve group from session once tab_manifest
+        // group/session mapping is parsed on the Rust side. For now,
+        // project_context is always empty (no-op, cache-safe).
         let system_prompt =
-            build_system_prompt(&persona, effective_aom, mission.as_ref(), &learned);
+            build_system_prompt(&persona, effective_aom, mission.as_ref(), &learned, "");
 
         // CRITICAL: mark dedup BEFORE the model call. If we marked
         // only on success, a failing call (bad API key, rate limit,
@@ -2693,6 +2696,7 @@ fn build_system_prompt(
     aom_active: bool,
     mission: Option<&MissionDoc>,
     learned: &[memory::MemoryHit],
+    project_context: &str,
 ) -> String {
     let aom_block = if aom_active {
         format!("# {}\n\n", AOM_DIRECTIVE)
@@ -2732,6 +2736,13 @@ fn build_system_prompt(
     // byte-identical to the pre-3.13 baseline so the LLM provider's
     // prefix cache stays warm.
     let learned_block = render_learned_block(learned);
+    // project-notes: when project_context is empty, project_block MUST be
+    // zero bytes — same prefix-cache invariant as learned_block.
+    let project_block = if project_context.is_empty() {
+        String::new()
+    } else {
+        format!("{project_context}\n")
+    };
     format!(
         "You are the Operator for Covenant — the user's coordinator that \
          watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -2740,6 +2751,7 @@ fn build_system_prompt(
          {aom_block}\
          {mission_block}\
          {learned_block}\
+         {project_block}\
          # PERSONA (set by user — guides judgment for the routine cases)\n\
          {persona}\n\n\
          # {recommendation}\n\n\
@@ -4137,7 +4149,7 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_learned_matches_baseline() {
         let persona = "Always say yes to test runs.";
-        let got = build_system_prompt(persona, false, None, &[]);
+        let got = build_system_prompt(persona, false, None, &[], "");
         let expected = format!(
             "You are the Operator for Covenant — the user's coordinator that \
              watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -4164,7 +4176,7 @@ What would you like to do?
             mem_hit(42, "executor asks to run tests", "y\\n"),
             mem_hit(43, "executor asks to push", "n\\n"),
         ];
-        let got = build_system_prompt(persona, false, None, &learned);
+        let got = build_system_prompt(persona, false, None, &learned, "");
         assert_eq!(got.matches("## Learned decisions").count(), 1);
         assert!(got.contains("[id=42]"));
         assert!(got.contains("[id=43]"));
@@ -4173,6 +4185,29 @@ What would you like to do?
         let learned_idx = got.find("## Learned decisions").unwrap();
         let persona_idx = got.find("# PERSONA").unwrap();
         assert!(learned_idx < persona_idx);
+    }
+
+    #[test]
+    fn build_system_prompt_with_project_context_renders_block() {
+        let ctx = "## Project: my-app\n\nSome notes about the project.";
+        let got = build_system_prompt("persona", false, None, &[], ctx);
+        assert!(got.contains("## Project: my-app"), "project block missing; got: {got}");
+        assert!(got.contains("Some notes about the project."));
+        // Block sits between learned_block (absent) and PERSONA.
+        let project_idx = got.find("## Project: my-app").unwrap();
+        let persona_idx = got.find("# PERSONA").unwrap();
+        assert!(project_idx < persona_idx);
+    }
+
+    #[test]
+    fn build_system_prompt_empty_project_is_byte_identical_to_baseline() {
+        let persona = "Always say yes to test runs.";
+        let with_empty = build_system_prompt(persona, false, None, &[], "");
+        let baseline = build_system_prompt(persona, false, None, &[], "");
+        assert_eq!(with_empty, baseline);
+        // Also verify the empty case does not insert any orphan header or
+        // whitespace that would break the prefix-cache invariant.
+        assert!(!with_empty.contains("Project notes"));
     }
 
     #[test]
@@ -4186,7 +4221,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[]);
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "");
         assert!(out.contains("<mission-spec kind=\"covenant\""), "out was: {out}");
         assert!(out.contains("Goal: do X"));
         assert!(!out.contains("<mission-plan"));
@@ -4207,7 +4242,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: Some(plan),
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[]);
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "");
         assert!(out.contains("<mission-spec kind=\"superpowers\""), "out was: {out}");
         assert!(out.contains("spec body"));
         assert!(out.contains("<mission-plan status=\"1/2\""), "out was: {out}");
@@ -4224,7 +4259,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[]);
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "");
         assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");
     }
 
