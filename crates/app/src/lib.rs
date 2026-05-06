@@ -28,6 +28,7 @@ mod mission_persistence;
 mod notify;
 mod operator;
 pub mod operator_registry;
+mod project_notes;
 mod safety;
 pub mod settings;
 mod spec_detector;
