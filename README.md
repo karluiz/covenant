@@ -128,6 +128,20 @@ Be direct and technical. No hedging, no over-explaining basics, no performative 
 
 ---
 
+## Future work to revisit
+
+- **Project Notes — repo-backed storage.** The first cut of Project Notes
+  (Commands / Notes / Docs per group, see
+  `docs/superpowers/specs/2026-05-06-project-notes-design.md`) stores data
+  in the app's SQLite. The interesting medium-term direction is binding a
+  project to a filesystem root and persisting `commands.toml`,
+  `notes.jsonl`, and `project.md` under `<root>/.covenant/`. That makes
+  notes portable across installs, git-versionable, and readable directly
+  by operator subagents without IPC. Worth picking up once the in-app
+  shape settles.
+
+---
+
 ## License
 
 Dual-licensed under either of:
