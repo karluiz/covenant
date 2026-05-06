@@ -36,6 +36,7 @@ pub mod storage;
 mod structure;
 mod summarizer;
 mod tab_manifest;
+pub mod telegram;
 mod world;
 
 use std::collections::HashMap;

@@ -11,6 +11,7 @@
 //! Keychain via the `keyring` crate; this file stays as a fallback for
 //! portability and debugging.
 
+use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -76,6 +77,41 @@ pub struct Settings {
     /// so there is no premium gate; the feature is purely opt-in.
     #[serde(default)]
     pub familiars_enabled: bool,
+
+    #[serde(default)]
+    pub telegram: TelegramSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TelegramSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub bot_token: String,
+    #[serde(default)]
+    pub chat_id: String,
+    #[serde(default)]
+    pub events: TelegramEvents,
+    #[serde(default)]
+    pub per_tab_overrides: HashMap<String, TelegramTabOverride>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramEvents {
+    pub escalations: bool,
+    pub mission_completed: bool,
+    pub mission_failed: bool,
+}
+
+impl Default for TelegramEvents {
+    fn default() -> Self {
+        Self { escalations: true, mission_completed: true, mission_failed: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TelegramTabOverride {
+    pub enabled: Option<bool>,
 }
 
 impl Settings {
@@ -189,6 +225,7 @@ impl Default for Settings {
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
             familiars_enabled: false,
+            telegram: TelegramSettings::default(),
         }
     }
 }
