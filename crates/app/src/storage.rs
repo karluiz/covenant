@@ -403,6 +403,13 @@ impl Storage {
         &self.path
     }
 
+    /// Expose the underlying connection arc so other modules (e.g.
+    /// `project_notes`) can share the same SQLite connection without
+    /// opening a second DB file.
+    pub fn conn(&self) -> Arc<Mutex<Connection>> {
+        self.inner.clone()
+    }
+
     /// Insert a new session row. Idempotent via INSERT OR IGNORE.
     pub async fn save_session(
         &self,

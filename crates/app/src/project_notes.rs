@@ -371,6 +371,112 @@ fn get_docs(conn: &Connection, group_id: &str) -> Result<String> {
     Ok(body.unwrap_or_default())
 }
 
+// ----- Tauri command surface -----
+
+use tauri::State;
+
+fn map_err<E: std::fmt::Display>(e: E) -> String {
+    e.to_string()
+}
+
+#[tauri::command]
+pub async fn project_notes_get(
+    store: State<'_, Store>,
+    group_id: String,
+) -> std::result::Result<Snapshot, String> {
+    store.snapshot(&group_id).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_command_create(
+    store: State<'_, Store>,
+    group_id: String,
+    title: String,
+    command: String,
+) -> std::result::Result<Command, String> {
+    store
+        .create_command(&group_id, &title, &command)
+        .await
+        .map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_command_update(
+    store: State<'_, Store>,
+    id: String,
+    title: String,
+    command: String,
+) -> std::result::Result<Option<Command>, String> {
+    store.update_command(&id, &title, &command).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_command_delete(
+    store: State<'_, Store>,
+    id: String,
+) -> std::result::Result<(), String> {
+    store.delete_command(&id).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_command_reorder(
+    store: State<'_, Store>,
+    group_id: String,
+    ordered_ids: Vec<String>,
+) -> std::result::Result<(), String> {
+    store
+        .reorder_commands(&group_id, ordered_ids)
+        .await
+        .map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_note_append(
+    store: State<'_, Store>,
+    group_id: String,
+    body: String,
+) -> std::result::Result<Note, String> {
+    store.append_note(&group_id, &body).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_note_delete(
+    store: State<'_, Store>,
+    id: String,
+) -> std::result::Result<(), String> {
+    store.delete_note(&id).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_note_list(
+    store: State<'_, Store>,
+    group_id: String,
+    limit: usize,
+    before_ts: Option<i64>,
+) -> std::result::Result<Vec<Note>, String> {
+    store
+        .list_notes(&group_id, limit, before_ts)
+        .await
+        .map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_docs_get(
+    store: State<'_, Store>,
+    group_id: String,
+) -> std::result::Result<String, String> {
+    store.get_docs(&group_id).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn project_docs_save(
+    store: State<'_, Store>,
+    group_id: String,
+    body: String,
+) -> std::result::Result<(), String> {
+    store.save_docs(&group_id, &body).await.map_err(map_err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

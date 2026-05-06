@@ -2177,6 +2177,7 @@ pub fn run() {
             let registry_arc = Arc::new(registry);
             app.manage(registry_arc.clone());
             app.manage(Arc::new(storage.clone()));
+            app.manage(project_notes::Store::new(storage.conn()));
 
             // Familiars: per-session AI companion with persistent
             // SQLite-backed memory. Storage root is under the user's
@@ -2367,6 +2368,16 @@ pub fn run() {
             spec_author_list_drafts,
             spec_author_mark_published,
             validate_sendgrid_key,
+            project_notes::project_notes_get,
+            project_notes::project_command_create,
+            project_notes::project_command_update,
+            project_notes::project_command_delete,
+            project_notes::project_command_reorder,
+            project_notes::project_note_append,
+            project_notes::project_note_delete,
+            project_notes::project_note_list,
+            project_notes::project_docs_get,
+            project_notes::project_docs_save,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
