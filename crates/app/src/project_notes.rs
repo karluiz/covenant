@@ -5,6 +5,10 @@
 //! `spawn_blocking` so the executor doesn't stall.
 //!
 //! See `docs/superpowers/specs/2026-05-06-project-notes-design.md`.
+//!
+//! FUTURE: see README "Future work to revisit" — repo-backed storage
+//! (`<root>/.covenant/project.md` + `commands.toml` + `notes.jsonl`) is
+//! the next iteration once the in-app shape is stable.
 
 use std::sync::Arc;
 
