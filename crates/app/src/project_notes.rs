@@ -319,7 +319,7 @@ fn list_notes(
     limit: usize,
     before_ts: Option<i64>,
 ) -> Result<Vec<Note>> {
-    let (sql, rows) = if let Some(ts) = before_ts {
+    if let Some(ts) = before_ts {
         let mut stmt = conn.prepare(
             "SELECT id, group_id, body, created_at_unix_ms
                FROM project_notes
@@ -337,7 +337,7 @@ fn list_notes(
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        (true, rows)
+        Ok(rows)
     } else {
         let mut stmt = conn.prepare(
             "SELECT id, group_id, body, created_at_unix_ms
@@ -356,10 +356,8 @@ fn list_notes(
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        (false, rows)
-    };
-    let _ = sql;
-    Ok(rows)
+        Ok(rows)
+    }
 }
 
 fn get_docs(conn: &Connection, group_id: &str) -> Result<String> {
