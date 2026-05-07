@@ -8,6 +8,8 @@ export type PanelTab = "commands" | "notes" | "docs";
 export interface PanelOpts {
   groupId: string;
   groupLabel: string;
+  /** Optional group accent color — drives the left-edge bar and title dot. */
+  groupColor?: string | null;
   defaultTab?: PanelTab;
   onClose?: () => void;
 }
@@ -41,16 +43,24 @@ export class ProjectNotesPanel {
     this.root.className = "pn-panel";
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-label", `Project Notes — ${opts.groupLabel}`);
+    if (opts.groupColor) {
+      this.root.style.setProperty("--pn-accent", opts.groupColor);
+    }
 
     const header = document.createElement("div");
     header.className = "pn-header";
     header.innerHTML = `
-      <span class="pn-title">${escapeHtml(opts.groupLabel)}</span>
+      <span class="pn-title">
+        <span class="pn-title-dot" aria-hidden="true"></span>
+        <span class="pn-title-label"></span>
+      </span>
       <div class="pn-actions">
         <button class="pn-fs" aria-label="Toggle fullscreen">⤢</button>
         <button class="pn-close" aria-label="Close">×</button>
       </div>
     `;
+    (header.querySelector(".pn-title-label") as HTMLElement).textContent =
+      opts.groupLabel;
     header.querySelector(".pn-close")!.addEventListener("click", () => this.close());
     header.querySelector(".pn-fs")!.addEventListener("click", () => this.toggleFullscreen());
 
@@ -129,7 +139,3 @@ export class ProjectNotesPanel {
   }
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
-}

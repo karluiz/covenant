@@ -1130,6 +1130,7 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     display: none;
 }
 
+
 .group-chip-input {
     background: var(--bg);
     border: 1px solid var(--accent);

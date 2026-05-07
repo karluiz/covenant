@@ -417,10 +417,10 @@ export class TabManager {
   public onAfterRender: (() => void) | null = null;
 
   /// Fires when the user clicks the project-notes icon on a group chip.
-  public onOpenProjectNotes: ((groupId: string, groupLabel: string) => void) | null = null;
+  public onOpenProjectNotes: ((groupId: string, groupLabel: string, groupColor: string | null) => void) | null = null;
 
   /// Update optional callbacks without reconstructing the manager.
-  setOptions(opts: { onOpenProjectNotes?: (groupId: string, groupLabel: string) => void }): void {
+  setOptions(opts: { onOpenProjectNotes?: (groupId: string, groupLabel: string, groupColor: string | null) => void }): void {
     if (opts.onOpenProjectNotes !== undefined) {
       this.onOpenProjectNotes = opts.onOpenProjectNotes;
     }
@@ -428,11 +428,11 @@ export class TabManager {
 
   /// Returns the group that owns the currently active tab, or null if
   /// the active tab has no group (or no tabs exist).
-  activeGroup(): { id: string; name: string } | null {
+  activeGroup(): { id: string; name: string; color: string | null } | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab?.groupId) return null;
     const g = this.groups.get(tab.groupId);
-    return g ? { id: g.id, name: g.name } : null;
+    return g ? { id: g.id, name: g.name, color: g.color ?? null } : null;
   }
 
   constructor(
@@ -3047,20 +3047,6 @@ export class TabManager {
       count.textContent = String(memberCount);
       chip.appendChild(count);
 
-      // Project-notes icon — separate click target, no conflict with
-      // the dblclick-to-rename or the chevron fold handlers.
-      const notesBtn = document.createElement("button");
-      notesBtn.type = "button";
-      notesBtn.className = "group-chip-notes-btn";
-      notesBtn.title = "Project Notes";
-      notesBtn.setAttribute("aria-label", "Open Project Notes");
-      notesBtn.innerHTML = Icons.clipboard({ size: 12 });
-      notesBtn.addEventListener("mousedown", (e) => e.stopPropagation());
-      notesBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.onOpenProjectNotes?.(group.id, group.name);
-      });
-      chip.appendChild(notesBtn);
     }
 
     chip.addEventListener("dblclick", (e) => {
@@ -3425,6 +3411,12 @@ export class TabManager {
         },
       },
       { divider: true },
+      {
+        label: "Open notes (⌘M)",
+        icon: Icons.clipboard(),
+        onClick: () =>
+          this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),
+      },
       {
         label: "Rename group",
         icon: Icons.pencil(),

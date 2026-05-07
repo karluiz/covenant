@@ -368,11 +368,16 @@ async function boot(): Promise<void> {
   // Project Notes panel — singleton overlay, opened from group-chip or ⌘⇧N.
   let activeProjectNotesPanel: ProjectNotesPanel | null = null;
 
-  function openProjectNotes(groupId: string, groupLabel: string): void {
+  function openProjectNotes(
+    groupId: string,
+    groupLabel: string,
+    groupColor: string | null,
+  ): void {
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
       groupLabel,
+      groupColor,
       onClose: () => {
         activeProjectNotesPanel = null;
       },
@@ -384,11 +389,14 @@ async function boot(): Promise<void> {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.metaKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
+    // ⌘M — open Project Notes panel for the active group.
+    // Overrides macOS minimize-window default; intentional, the user
+    // chose this binding for fast access from any tab.
+    if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === "m" || e.key === "M")) {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();
-        openProjectNotes(g.id, g.name);
+        openProjectNotes(g.id, g.name, g.color ?? null);
       }
     }
   });
