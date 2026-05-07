@@ -417,18 +417,25 @@ export class SettingsPanel {
             </span>
           </label>
           <label class="settings-field">
-            <span class="settings-label">Mind thinking budget (tokens)</span>
+            <span class="settings-label">
+              Intelligence
+              <span class="settings-slider-value" data-for="mind_thinking_budget">2000 tok</span>
+            </span>
             <input
-              type="number"
+              type="range"
               name="mind_thinking_budget"
               min="500"
               max="4000"
               step="100"
+              class="settings-slider"
             />
+            <span class="settings-slider-scale">
+              <small>less</small>
+              <small>more</small>
+            </span>
             <small class="settings-hint">
-              Anthropic extended-thinking budget per turn. 2000 is the
-              default. Lower = cheaper but less coherent; higher = more
-              robust on ambiguous prompts.
+              How much the model thinks before each decision. Less =
+              cheaper and faster. More = better on ambiguous prompts.
             </small>
           </label>
         </section>
@@ -582,6 +589,14 @@ export class SettingsPanel {
     aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
     mindV2Input.checked = this.current.operator.mind_v2;
     mindBudgetInput.value = String(this.current.operator.mind_thinking_budget);
+    const mindBudgetValue = form.querySelector<HTMLElement>(
+      '.settings-slider-value[data-for="mind_thinking_budget"]',
+    )!;
+    const updateMindBudgetLabel = () => {
+      mindBudgetValue.textContent = `${mindBudgetInput.value} tok`;
+    };
+    updateMindBudgetLabel();
+    mindBudgetInput.addEventListener("input", updateMindBudgetLabel);
     termFont.value = this.current.terminal.font_family;
     termSize.value = String(this.current.terminal.font_size);
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);

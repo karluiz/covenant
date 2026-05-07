@@ -3026,6 +3026,28 @@ body:not(.tabbar-left) #new-group {
     font-size: 10px;
 }
 
+.settings-slider {
+    width: 100%;
+    accent-color: var(--accent, #4a9eff);
+    margin: 4px 0 2px;
+}
+
+.settings-slider-value {
+    float: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 11px;
+}
+
+.settings-slider-scale {
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: 10px;
+    margin-bottom: 2px;
+}
+
 .familiars-empty {
     margin-top: 16px;
 }
@@ -9633,12 +9655,23 @@ body[data-aom-phase="triaging"]
 .operator-mind-section .mind-turn .thought, .operator-mind-section .mind-turn .saw { padding: 4px 12px; }
 .operator-mind-section .mind-turn pre { white-space: pre-wrap; max-height: 6em; overflow: auto; background: var(--bg-2, #222); padding: 4px; }
 
-/* Telegram statusbar pill — three states. */
-.status-tg {
+/* Telegram statusbar indicator — icon-only, button reset so it blends
+   into the bar like the non-interactive segments. */
+button.status-segment.status-tg {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
 }
-.status-tg.tg-disabled { opacity: 0.4; }
-.status-tg.tg-ok { color: #4ade80; }
-.status-tg.tg-error { color: #f59e0b; }
+button.status-segment.status-tg:focus-visible {
+  outline: 1px solid var(--accent, #6ea8ff);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.status-tg.tg-disabled .status-icon { color: var(--muted); opacity: 0.5; }
+.status-tg.tg-ok .status-icon { color: #4ade80; }
+.status-tg.tg-error .status-icon { color: #f59e0b; }

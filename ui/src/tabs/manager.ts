@@ -3412,7 +3412,7 @@ export class TabManager {
       },
       { divider: true },
       {
-        label: "Open notes (⌘M)",
+        label: "Open notes (⌘⇧N)",
         icon: Icons.clipboard(),
         onClick: () =>
           this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),

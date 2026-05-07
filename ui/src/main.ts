@@ -389,10 +389,9 @@ async function boot(): Promise<void> {
   });
 
   document.addEventListener("keydown", (e) => {
-    // ⌘M — open Project Notes panel for the active group.
-    // Overrides macOS minimize-window default; intentional, the user
-    // chose this binding for fast access from any tab.
-    if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === "m" || e.key === "M")) {
+    // ⌘⇧N — open Project Notes panel for the active group.
+    // (⌘M is reserved for the Mission picker.)
+    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "n" || e.key === "N")) {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();

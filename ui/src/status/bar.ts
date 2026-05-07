@@ -36,7 +36,7 @@ import {
   type TelegramStatus,
 } from "../api";
 import { Icons } from "../icons";
-import { brandIconSvg } from "../icons/brands";
+import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
 
 const GIT_BRANCH_SVG =
@@ -768,10 +768,10 @@ function telegramSegment(status: TelegramStatus): HTMLElement {
   el.title = `${label}. Click to open Telegram settings.`;
   el.setAttribute("aria-label", label);
 
-  const text = document.createElement("span");
-  text.className = "status-text";
-  text.textContent = "TG";
-  el.appendChild(text);
+  const icon = document.createElement("span");
+  icon.className = "status-icon";
+  icon.innerHTML = telegramIconSvg(12);
+  el.appendChild(icon);
 
   el.addEventListener("click", (e) => {
     e.preventDefault();

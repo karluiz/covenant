@@ -55,9 +55,11 @@ impl TelegramNotifier {
             .status
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            outbound::STATUS_OK => TelegramStatus::Ok,
             outbound::STATUS_ERROR => TelegramStatus::Error,
-            _ => TelegramStatus::Disabled,
+            // Settings are valid; default (no traffic yet) and STATUS_OK
+            // both render as "Ok" so the user sees the configured state
+            // immediately, not "disabled until first send".
+            _ => TelegramStatus::Ok,
         }
     }
 }

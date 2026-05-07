@@ -18,7 +18,7 @@
 // surrounding chip's brand color drives the tint via CSS — no
 // per-vendor CSS rules needed downstream.
 
-import { siClaude, siCursor, siGithubcopilot } from "simple-icons";
+import { siClaude, siCursor, siGithubcopilot, siTelegram } from "simple-icons";
 
 interface BrandIcon {
   /// SVG `path d=` data. Single path per icon — multi-path marks are
@@ -72,5 +72,15 @@ export function brandIconSvg(name: string, size = 12): string | null {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"` +
     ` viewBox="${b.viewBox ?? SIMPLE_VIEWBOX}" fill="currentColor"` +
     ` aria-hidden="true"><path d="${b.pathD}"${fr}/></svg>`
+  );
+}
+
+/// Telegram brand mark (simple-icons, CC0). Rendered with
+/// `currentColor` so the surrounding chip drives the tint via CSS.
+export function telegramIconSvg(size = 12): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"` +
+    ` viewBox="${SIMPLE_VIEWBOX}" fill="currentColor"` +
+    ` aria-hidden="true"><path d="${siTelegram.path}"/></svg>`
   );
 }
