@@ -132,11 +132,11 @@ fn query_runtime_binary(language: &str) -> Option<String> {
         _ => return None,
     };
     // GUI apps on macOS launched from Finder/.app inherit a minimal PATH
-    // (no nvm, pyenv, asdf, or Homebrew shims). Run through the user's
-    // login+interactive shell so PATH-mutating rc files (~/.zshrc, ~/.bash_profile)
-    // run first. Slower than a direct exec, but the LRU caches the answer
-    // per cwd, so this only happens on first detection of an unknown cwd.
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // (no nvm, pyenv, asdf, or Homebrew shims). On Linux, apps launched
+    // from a .desktop file have the same problem. Run through the user's
+    // login+interactive shell so PATH-mutating rc files run first.
+    // Slower than a direct exec, but the LRU caches the answer per cwd.
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
     // Marker isolates our output from any chatter rc files print on
     // interactive startup (banners, MOTDs, plugin manager status lines).
     let wrapped = format!("printf '__KT_V_START__\\n'; {cmd}");

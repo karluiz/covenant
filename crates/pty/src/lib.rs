@@ -2,8 +2,8 @@
 //!
 //! Two surfaces:
 //!
-//! 1. [`smoke_zsh_echo`] — M0 acceptance test that proves portable-pty
-//!    plumbing works on this host.
+//! 1. [`smoke_shell_echo`] — M0 acceptance test that proves portable-pty
+//!    plumbing works on this host using the user's default shell.
 //! 2. [`PtySession`] — the real handle used by `covenant` and (later)
 //!    `karl-session`. Owns one PTY pair plus the child shell, spawns a
 //!    dedicated blocking reader thread, and exposes an async
@@ -73,10 +73,33 @@ pub struct SpawnOptions {
 impl SpawnOptions {
     /// Sensible default: interactive zsh, sized 80x24, with a TERM hint
     /// xterm.js can negotiate against.
+    ///
+    /// Prefer [`SpawnOptions::for_shell`] when the shell path is detected
+    /// at runtime (e.g. from `$SHELL`) so Linux users aren't forced onto
+    /// `/bin/zsh` which may not be installed.
     pub fn zsh_interactive() -> Self {
+        Self::for_shell("/bin/zsh")
+    }
+
+    /// Build `SpawnOptions` for any POSIX-compatible interactive shell.
+    ///
+    /// `shell_path` is the full path to the shell binary (e.g.
+    /// `/bin/bash`, `/usr/bin/fish`, `/bin/zsh`).  The `-i` flag is
+    /// omitted for fish, which is interactive by default; all other
+    /// shells receive `-i`.
+    pub fn for_shell(shell_path: &str) -> Self {
+        let name = std::path::Path::new(shell_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let args = if name.starts_with("fish") {
+            vec![] // fish starts interactive without -i
+        } else {
+            vec!["-i".to_string()]
+        };
         Self {
-            program: "/bin/zsh".to_string(),
-            args: vec!["-i".to_string()],
+            program: shell_path.to_string(),
+            args,
             size: DEFAULT_SIZE,
             env: vec![
                 ("TERM".to_string(), "xterm-256color".to_string()),
@@ -183,11 +206,86 @@ impl PtySession {
     }
 }
 
-/// Smoke test: spawn `/bin/zsh -i`, send `echo hello`, return the
-/// ANSI-stripped output the master side observed before the shell exited.
+/// Smoke test: spawn the user's `$SHELL` (falling back to `/bin/sh`),
+/// send `echo hello`, and return the ANSI-stripped output observed on
+/// the master side before the shell exited.
 ///
-/// This is the M0 acceptance check — exercises portable-pty end-to-end on
-/// the host, but does not yet wire anything into the event bus.
+/// This is the M0 acceptance check — exercises portable-pty end-to-end
+/// on the host without zsh-specific assumptions, so the test passes on
+/// Linux (bash/fish default) and macOS (zsh default) alike.
+///
+/// RC files are intentionally skipped (`--norc`/`--no-rcs`/`--no-config`)
+/// so the test is portable across environments with heavy startup scripts
+/// (e.g. Bazzite MOTD, Oh-My-Zsh) that would otherwise make it hang.
+pub fn smoke_shell_echo() -> Result<String, PtyError> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(DEFAULT_SIZE)?;
+
+    let name = std::path::Path::new(&shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    // Skip rc files in the smoke test so heavy startup scripts (Bazzite
+    // MOTD, Oh-My-Zsh plugin loading, etc.) don't make the test hang or
+    // time out. Production spawns use full rc files via the shim strategy.
+    let args: Vec<&str> = if name.starts_with("fish") {
+        vec!["--no-config"]
+    } else if name.starts_with("zsh") {
+        vec!["--no-rcs", "-i"]
+    } else {
+        // bash, sh, dash, ksh, etc.
+        vec!["--norc", "--noprofile", "-i"]
+    };
+
+    let mut cmd = CommandBuilder::new(&shell);
+    for arg in &args {
+        cmd.arg(arg);
+    }
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("LANG", "en_US.UTF-8");
+
+    let mut child = pair.slave.spawn_command(cmd)?;
+    drop(pair.slave);
+
+    let mut writer = pair.master.take_writer()?;
+    let reader = pair.master.try_clone_reader()?;
+
+    let reader_handle = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut buf = Vec::with_capacity(8 * 1024);
+        let mut reader = reader;
+        let mut chunk = [0u8; 4096];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => return Ok(buf),
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return Ok(buf),
+            }
+        }
+    });
+
+    // Give the shell a moment to print its prompt before injecting the command.
+    std::thread::sleep(Duration::from_millis(200));
+    write!(writer, "echo hello\nexit\n")?;
+    writer.flush()?;
+    drop(writer);
+
+    let _ = child.wait();
+    drop(pair.master);
+
+    let bytes = reader_handle
+        .join()
+        .map_err(|_| PtyError::ReaderThread)??;
+    let stripped = strip_ansi_escapes::strip(&bytes);
+    Ok(String::from_utf8_lossy(&stripped).into_owned())
+}
+
+/// Deprecated: use [`smoke_shell_echo`] which respects `$SHELL`.
+/// Kept for backward compatibility; calls the new implementation with
+/// `/bin/zsh` hard-coded (macOS only — will fail on Linux if zsh is absent).
+#[deprecated(since = "0.2.22", note = "use smoke_shell_echo() instead")]
 pub fn smoke_zsh_echo() -> Result<String, PtyError> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(DEFAULT_SIZE)?;
@@ -239,7 +337,7 @@ mod tests {
 
     #[test]
     fn smoke_echoes_hello() {
-        let out = smoke_zsh_echo().expect("pty smoke should succeed");
+        let out = smoke_shell_echo().expect("pty smoke should succeed");
         assert!(
             out.contains("hello"),
             "expected 'hello' in pty output, got: {out:?}"
@@ -248,10 +346,28 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pty_session_round_trip() {
-        let (mut session, mut rx) =
-            PtySession::spawn(SpawnOptions::zsh_interactive()).expect("spawn");
+        // Use the host shell so the test is portable across macOS (zsh)
+        // and Linux (bash/fish/etc.) without requiring a specific shell at
+        // a hard-coded path.
+        // Skip rc files (same reason as smoke_shell_echo) so heavy startup
+        // scripts don't cause the test to time out.
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let name = std::path::Path::new(&shell)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let mut opts = SpawnOptions::for_shell(&shell);
+        if name.starts_with("fish") {
+            opts.args = vec!["--no-config".to_string()];
+        } else if name.starts_with("zsh") {
+            opts.args = vec!["--no-rcs".to_string(), "-i".to_string()];
+        } else {
+            opts.args = vec!["--norc".to_string(), "--noprofile".to_string(), "-i".to_string()];
+        }
 
-        // Wait for any rc-loading output to settle, then send a marker.
+        let (mut session, mut rx) = PtySession::spawn(opts).expect("spawn");
+
+        // Wait for any prompt output to settle, then send a marker.
         tokio::time::sleep(Duration::from_millis(200)).await;
         session.write(b"echo karl-marker\nexit\n").expect("write");
 

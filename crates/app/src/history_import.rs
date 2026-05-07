@@ -1,18 +1,20 @@
-//! One-shot importer for the user's existing `~/.zsh_history`.
+//! One-shot importer for the user's existing shell history files.
 //!
 //! Run on first launch, then never again (gated by a settings flag).
 //! Without this, Recall starts empty for every new Covenant install
 //! and feels useless until the user has accumulated their own history.
 //!
-//! Format support:
-//!   - Extended (`setopt EXTENDED_HISTORY`): `: <epoch>:<elapsed>;cmd`
-//!   - Plain: one command per line
-//!   - Multi-line continuations (`\` at EOL): joined
+//! Supported shells and formats:
+//! - **zsh**: `~/.zsh_history` — extended (`: <epoch>:<elapsed>;cmd`) and plain
+//! - **bash**: `~/.bash_history` — plain or HISTTIMEFORMAT (`#<epoch>` line before cmd)
+//! - **fish**: `~/.local/share/fish/fish_history` — YAML-ish (`- cmd: …\n  when: …`)
+//!
+//! All parsers produce the same [`ZshHistoryEntry`] type (the name is
+//! a historical artifact; the struct is shell-agnostic).
 //!
 //! Imported entries are stored as ordinary block rows under a single
-//! synthetic session. Exit code is set to 0 — zsh doesn't record exit
-//! codes, and assuming success keeps the Recall stats sensible (we'd
-//! otherwise show every imported command as "unknown").
+//! synthetic session. Exit code is set to 0 — shells don't reliably
+//! record exit codes, and assuming success keeps Recall stats sensible.
 
 use std::path::Path;
 
@@ -167,7 +169,133 @@ fn parse_header<'a>(
     (staggered, 0, body)
 }
 
-#[cfg(test)]
+/// Parse `~/.bash_history`.
+///
+/// Two formats:
+/// - **HISTTIMEFORMAT**: a `#<epoch>` line immediately before each command.
+/// - **Plain**: one command per line, no timestamps.
+///
+/// Multi-line commands (bash `$'...\n...'` style) are not common in
+/// `~/.bash_history` and are left as-is (one line = one entry).
+pub fn parse_bash_history(
+    text: &str,
+    fallback_now_ms: u64,
+    max_entries: usize,
+) -> Vec<ZshHistoryEntry> {
+    let mut out = Vec::new();
+    let mut pending_ts: Option<u64> = None;
+    let mut plain_index: u64 = 0;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        // HISTTIMEFORMAT produces `#<epoch>` lines immediately before the command.
+        if let Some(rest) = line.strip_prefix('#') {
+            if let Ok(ts) = rest.trim().parse::<u64>() {
+                pending_ts = Some(ts.saturating_mul(1000));
+                continue;
+            }
+        }
+        // This line is a command.
+        let ts = pending_ts.take().unwrap_or_else(|| {
+            let t = fallback_now_ms.saturating_sub(plain_index);
+            plain_index += 1;
+            t
+        });
+        push_if_useful(&mut out, line.to_string(), ts, 0);
+    }
+
+    if out.len() > max_entries {
+        let drop = out.len() - max_entries;
+        out.drain(0..drop);
+    }
+    out
+}
+
+/// Parse `~/.local/share/fish/fish_history`.
+///
+/// Fish stores history in a YAML-ish format:
+/// ```text
+/// - cmd: ls -la
+///   when: 1700000000
+/// - cmd: git status
+///   when: 1700000005
+/// ```
+/// Multi-line commands use `\n` escapes within the `cmd:` value.
+pub fn parse_fish_history(
+    text: &str,
+    fallback_now_ms: u64,
+    max_entries: usize,
+) -> Vec<ZshHistoryEntry> {
+    let mut out = Vec::new();
+    let mut current_cmd: Option<String> = None;
+    let mut current_ts: u64 = fallback_now_ms;
+    let mut plain_index: u64 = 0;
+
+    for line in text.lines() {
+        if let Some(cmd_raw) = line.strip_prefix("- cmd: ") {
+            // Flush any previous entry that had no `when:`.
+            if let Some(cmd) = current_cmd.take() {
+                push_if_useful(&mut out, cmd, current_ts, 0);
+            }
+            // Unescape fish's `\n` within cmd values.
+            let cmd = cmd_raw.replace("\\n", "\n").trim().to_string();
+            current_cmd = Some(cmd);
+            // Default ts in case `when:` is missing.
+            current_ts = fallback_now_ms.saturating_sub(plain_index);
+            plain_index += 1;
+        } else if let Some(when_raw) = line.trim_start().strip_prefix("when: ") {
+            if let Ok(ts) = when_raw.trim().parse::<u64>() {
+                current_ts = ts.saturating_mul(1000);
+            }
+            // Flush: `when:` always follows `cmd:` as the last field.
+            if let Some(cmd) = current_cmd.take() {
+                push_if_useful(&mut out, cmd, current_ts, 0);
+            }
+        }
+        // Other lines (paths:, etc.) are ignored.
+    }
+    // Flush any trailing entry without a `when:`.
+    if let Some(cmd) = current_cmd.take() {
+        push_if_useful(&mut out, cmd, current_ts, 0);
+    }
+
+    if out.len() > max_entries {
+        let drop = out.len() - max_entries;
+        out.drain(0..drop);
+    }
+    out
+}
+
+/// Convenience: read a bash history file and parse. Missing → `Ok(vec![])`.
+pub fn read_and_parse_bash(
+    path: &Path,
+    fallback_now_ms: u64,
+    max_entries: usize,
+) -> std::io::Result<Vec<ZshHistoryEntry>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(parse_bash_history(&text, fallback_now_ms, max_entries)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Convenience: read a fish history file and parse. Missing → `Ok(vec![])`.
+pub fn read_and_parse_fish(
+    path: &Path,
+    fallback_now_ms: u64,
+    max_entries: usize,
+) -> std::io::Result<Vec<ZshHistoryEntry>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(parse_fish_history(&text, fallback_now_ms, max_entries)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+
 mod tests {
     use super::*;
 
