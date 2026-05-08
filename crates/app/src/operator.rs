@@ -2146,18 +2146,48 @@ async fn run_tick(
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!(error = %e, session = %session_id, "operator ask failed");
+                // Persist the full error so it survives past the toast —
+                // truncated UI cards lose the Anthropic body which is
+                // exactly what we need to diagnose 400s. Stored as an
+                // `escalate` row with the error in `rationale`.
+                let escalation_msg = format!("api error: {e}");
+                let persisted_id = match storage
+                    .save_operator_decision(
+                        session_id,
+                        now_unix_ms(),
+                        Some(cmd.clone()),
+                        String::new(),
+                        "escalate".to_string(),
+                        None,
+                        Some(truncate(&escalation_msg, 4000)),
+                        false,
+                        0.0,
+                        mission.as_ref().map(|m| m.path.display().to_string()),
+                        detect_executor(&cmd),
+                        Some(op.id.to_string()),
+                        Some(op.name.clone()),
+                        None,
+                    )
+                    .await
+                {
+                    Ok(id) => Some(id),
+                    Err(err) => {
+                        tracing::warn!(error = %err, "save_operator_decision (api-error) failed");
+                        None
+                    }
+                };
                 // Surface the failure to the UI so the user sees
                 // *something* in the activity feed instead of silent
                 // hammering. The card is styled like an escalation.
                 let _ = app.emit(
                     "operator-decision",
                     serde_json::json!({
-                        "id": null,
+                        "id": persisted_id,
                         "session_id": session_id.to_string(),
                         "action": "escalate",
                         "reply_text": null,
                         "rationale": "operator API call failed",
-                        "escalation": format!("api error: {e}"),
+                        "escalation": escalation_msg,
                         "executed": false,
                         "cost_usd": 0.0,
                         "timestamp_unix_ms": now_unix_ms(),
