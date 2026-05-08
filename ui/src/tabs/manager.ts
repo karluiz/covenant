@@ -191,6 +191,10 @@ interface TabGroup {
   name: string;
   color: string | null;
   collapsed: boolean;
+  /// Default cwd for new tabs created inside this group. Null = no
+  /// default (new tabs start in $HOME like ungrouped tabs). Set via
+  /// the group's context menu ("Set root dir…").
+  rootDir: string | null;
 }
 
 /// Persisted manifest schema. Version-tagged so we can evolve later
@@ -226,6 +230,10 @@ interface SerializedGroup {
   name: string;
   color: string | null;
   collapsed: boolean;
+  /// Default cwd for new tabs created in this group. Optional for
+  /// backward compat — older manifests lacking the field default to
+  /// null on restore.
+  root_dir?: string | null;
 }
 
 export interface RailTabView {
@@ -1357,7 +1365,13 @@ export class TabManager {
         // Persistence-restored cwd is set on the SHELL itself before
         // spawn — no visible `cd <path>` line, no bogus block. If
         // the dir is gone, backend silently falls back to $HOME.
-        { initialCwd: opts?.cwd ?? null },
+        // Fallback: when no explicit cwd, inherit the group's rootDir
+        // (if any) so all tabs in a configured group share a default.
+        {
+          initialCwd:
+            opts?.cwd ??
+            (opts?.groupId ? this.groups.get(opts.groupId)?.rootDir ?? null : null),
+        },
       );
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -2325,6 +2339,7 @@ export class TabManager {
         name: g.name,
         color: g.color,
         collapsed: g.collapsed,
+        root_dir: g.rootDir,
       })),
     };
   }
@@ -2348,6 +2363,7 @@ export class TabManager {
         name: g.name,
         color: g.color,
         collapsed: g.collapsed,
+        rootDir: g.root_dir ?? null,
       });
     }
     // Sequential spawns — concurrent would race the order of tabs[].
@@ -2555,6 +2571,30 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Open a native folder picker and set the group's default cwd for
+  /// new tabs. Existing tabs are unaffected (their PTYs already live
+  /// elsewhere). Pass `null` to clear.
+  private async pickGroupRootDir(groupId: string): Promise<void> {
+    const g = this.groups.get(groupId);
+    if (!g) return;
+    const picked = await openDialog({
+      title: `Root dir for group "${g.name}"`,
+      multiple: false,
+      directory: true,
+      defaultPath: g.rootDir ?? undefined,
+    });
+    if (typeof picked !== "string") return; // cancelled
+    g.rootDir = picked;
+    this.scheduleSave();
+  }
+
+  private clearGroupRootDir(groupId: string): void {
+    const g = this.groups.get(groupId);
+    if (!g) return;
+    g.rootDir = null;
+    this.scheduleSave();
+  }
+
   private startTabRename(id: string): void {
     this.renaming = { kind: "tab", id };
     this.renderTabbar();
@@ -2610,6 +2650,7 @@ export class TabManager {
       name: `group ${seq}`,
       color: null,
       collapsed: false,
+      rootDir: null,
     });
     tab.groupId = id;
     // No reorder needed — tab stays where it is, becomes a single-
@@ -2798,6 +2839,7 @@ export class TabManager {
       name: `group ${seq}`,
       color: null,
       collapsed: false,
+      rootDir: null,
     });
     this.renaming = { kind: "group", id };
     this.renderTabbar();
@@ -3422,6 +3464,22 @@ export class TabManager {
         icon: Icons.pencil(),
         onClick: () => this.startGroupRename(group.id),
       },
+      {
+        label: group.rootDir
+          ? `Root dir: ${shortCwd(group.rootDir)}`
+          : "Set root dir…",
+        icon: Icons.folder(),
+        onClick: () => void this.pickGroupRootDir(group.id),
+      },
+      ...(group.rootDir
+        ? [
+            {
+              label: "Clear root dir",
+              icon: Icons.folderMinus(),
+              onClick: () => this.clearGroupRootDir(group.id),
+            },
+          ]
+        : []),
       {
         label: group.collapsed ? "Expand group" : "Collapse group",
         icon: Icons.folder(),
