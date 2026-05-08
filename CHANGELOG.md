@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.22 — Per-group root dir
+
+### Added
+
+- **Per-group default cwd.** Each tab group can carry a
+  `rootDir`; new tabs spawned inside the group start in that
+  directory instead of `$HOME`. Set it via the group's
+  context menu (right-click chip → **Set root dir…**) — opens
+  the native folder picker. While set, the menu shows the
+  tildified path and a **Clear root dir** entry. Persisted
+  in the existing tab manifest as `root_dir` (optional, so
+  older manifests load unchanged). Existing tabs keep their
+  current cwd; restored tabs keep their per-tab cwd —
+  fallback only kicks in when no explicit cwd is passed.
+
 ## v0.2.19 — Telegram escalation
 
 ### Added
