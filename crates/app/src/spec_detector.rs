@@ -253,7 +253,10 @@ impl SpecDetector {
         for sub in ["docs/specs", "docs/superpowers/specs"] {
             let dir = repo_root.join(sub);
             if !dir.is_dir() {
-                continue;
+                if let Err(e) = std::fs::create_dir_all(&dir) {
+                    tracing::warn!(dir = %dir.display(), %e, "spec_detector: mkdir failed; skipping watch");
+                    continue;
+                }
             }
             if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
                 tracing::warn!(dir = %dir.display(), %e, "spec_detector: failed to watch dir");
