@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.24 — Sidebar hierarchy polish
+
+### Changed
+
+- **Sidebar group hierarchy reworked.** Pixel-tuned to match the
+  agreed mockup:
+  - Group chips render as full pills with a 3px colored
+    `border-left` + 10px radius — the curve produces the
+    parenthesis-style "(" bracket in the group's color for free.
+  - Tree-line under expanded groups is a thin 2px colored bar
+    drawn via `::before` on `.tab-group-body`, hanging from
+    below the chip down through the children area.
+  - Children physically shift right (`margin-left: 26px`) so the
+    tree-line and pill don't collide; rest-state chrome is flat
+    (no border, no bg). Hover/active tint with the group color
+    (28% bg, 60% border at active).
+  - Group header keeps its full pill shape whether expanded or
+    collapsed — fused-border style removed.
+  - Inter-group gap collapsed to 4px; folded children now reset
+    to `height: 0` so collapsed groups don't leave ghost space.
+  - Group count badge: fixed 18×18 circle, neutral dark bg, plain
+    white text — no longer stretches.
+- **Sticky sidebar header & footer.** `#tabbar-brand-row` and
+  `#tabbar-actions` now stick to top/bottom while the group list
+  scrolls. Both use the same translucent surface as the sidebar
+  (`color-mix(in srgb, var(--bg-tabbar) 92%, transparent)`) plus
+  `backdrop-filter: blur(14px) saturate(140%)` so the boundary
+  reads as a single glass surface, not a pasted rectangle.
+
+### Fixed
+
+- **Tree-line missing on expand.** `toggleGroupCollapsed` was only
+  flipping `group-chip-collapsed` on the chip, not
+  `tab-group-shell-collapsed` on the shell that the tree-line
+  CSS keys off. Selecting a tab forced a full re-render that
+  fixed it; now the class is synced inline so the line appears
+  immediately on expand.
+
 ## v0.2.23 — Sidebar hierarchy & AOM border-only states
 
 ### Changed

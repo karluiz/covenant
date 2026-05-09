@@ -2688,6 +2688,9 @@ export class TabManager {
         "group-chip-has-members",
         !g.collapsed && memberCount > 0,
       );
+      // Sidebar tree-line CSS keys off the shell-collapsed class.
+      const shell = chip.closest<HTMLElement>(".tab-group-shell");
+      shell?.classList.toggle("tab-group-shell-collapsed", g.collapsed);
       const chev = chip.querySelector<HTMLElement>(".group-chip-chev");
       if (chev) {
         const title = g.collapsed ? "Expand group" : "Collapse group";

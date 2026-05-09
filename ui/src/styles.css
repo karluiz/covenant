@@ -1135,16 +1135,18 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     align-items: center;
     justify-content: center;
     margin-left: auto;
-    padding: 2px 7px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 9px;
-    font-size: 9.5px;
+    padding: 0;
+    width: 18px;
+    height: 18px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 999px;
+    font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0;
     text-transform: none;
     font-variant-numeric: tabular-nums;
-    color: color-mix(in srgb, var(--group-color, #fff) 60%, #fff 40%);
-    min-width: 16px;
+    color: rgba(255, 255, 255, 0.85);
+    flex-shrink: 0;
 }
 
 .group-chip:not(.group-chip-collapsed) .group-chip-count {
@@ -6767,7 +6769,8 @@ body.tabbar-left .tab-btn {
         opacity 0.22s ease-out;
 }
 
-body.tabbar-left .tab-btn.tab-pill-folded {
+body.tabbar-left .tab-btn.tab-pill-folded,
+body.tabbar-left .tab-group-body > .tab-grouped.tab-pill-folded {
     max-height: 0;
     min-height: 0;
     height: 0;
@@ -6798,17 +6801,27 @@ body.tabbar-left .tab-btn.active::before {
 
 /* Group member indent so the hierarchy reads at a glance. Flat chrome
    in rest (no border, no bg) — the colored stripe on .tab-group-shell
-   carries the hierarchy; pills only "appear" on hover/active. */
-body.tabbar-left .tab-grouped {
-    padding-left: 22px;
+   carries the hierarchy; pills only "appear" on hover/active.
+   Children sit deeper than the header label so the eye reads them as
+   nested under it. Row height is shorter than the default .tab-btn so
+   sibling spacing reads tight. */
+body.tabbar-left .tab-group-body > .tab-grouped {
+    /* Children sit ~8px to the right of the tree-line (which lives at
+       left:14px on the body), so the line and the pill don't collide. */
+    margin-left: 26px;
+    width: calc(100% - 30px);
+    padding-left: 12px;
+    height: 28px;
+    min-height: 28px;
+    border-radius: 8px;
     background: transparent;
     border-color: transparent;
-    color: color-mix(in srgb, var(--tab-fg-rest) 78%, transparent);
+    color: color-mix(in srgb, var(--tab-fg-rest) 75%, transparent);
 }
 body.tabbar-left .tab-grouped:hover:not(.active) {
     background: color-mix(
         in srgb,
-        var(--group-color, transparent) 10%,
+        var(--group-color, transparent) 14%,
         rgba(255, 255, 255, 0.04)
     );
     border-color: transparent;
@@ -6817,12 +6830,12 @@ body.tabbar-left .tab-grouped:hover:not(.active) {
 body.tabbar-left .tab-grouped.active {
     background: color-mix(
         in srgb,
-        var(--group-color, var(--accent)) 18%,
+        var(--group-color, var(--accent)) 28%,
         transparent
     );
     border-color: color-mix(
         in srgb,
-        var(--group-color, var(--accent)) 40%,
+        var(--group-color, var(--accent)) 60%,
         transparent
     );
     color: #fff;
@@ -6830,45 +6843,74 @@ body.tabbar-left .tab-grouped.active {
 
 /* Restore vertical-stack body for sidebar (horizontal default uses row). */
 body.tabbar-left .tab-group-shell {
-    margin: 0 0 14px 0;
+    margin: 0 0 4px 0;
     gap: 8px;
 }
+/* External stripe replaced by: header border-left + body::before
+   tree-line through the children area only. */
 body.tabbar-left .tab-group-stripe {
-    width: 3px;
-    margin: 0;
-    background: var(--muted);
-}
-body.tabbar-left .tab-group-shell-colored .tab-group-stripe {
-    background: var(--group-color, var(--accent));
+    display: none;
 }
 body.tabbar-left .tab-group-body {
     flex-direction: column;
     align-items: stretch;
     flex: 1 1 auto;
+    position: relative;
+}
+body.tabbar-left .tab-group-shell:not(.tab-group-shell-collapsed)
+    .tab-group-body::before {
+    content: "";
+    position: absolute;
+    /* Sits at the same x as the header's colored border-left, so the
+       header bar visually continues straight down through the kids. */
+    left: 14px;
+    top: 36px; /* chip margin-top (4) + height (28) + 4 breathing room */
+    bottom: 4px;
+    width: 2px;
+    border-radius: 2px;
+    background: color-mix(
+        in srgb,
+        var(--group-color, var(--muted)) 70%,
+        transparent
+    );
+    pointer-events: none;
 }
 body.tabbar-left .tab-group-body > * + * {
     margin-top: 1px;
 }
 
-/* Group chip — full-width row, left-stripe colored. */
+/* The "(" bracket comes for free from a thick colored border-left
+   plus a generous border-radius — the rounded corners curve the
+   colored stroke into a parenthesis shape automatically. */
 body.tabbar-left .group-chip {
     width: 100%;
     height: 28px;
-    border-radius: 6px;
-    border-bottom: 1px solid;
-    border-color: color-mix(
+    border-radius: 10px;
+    border: 1px solid
+        color-mix(
+            in srgb,
+            var(--group-color, var(--border)) 22%,
+            var(--tab-border-hover)
+        );
+    border-left: 3px solid var(--group-color, var(--border));
+    padding: 0 14px 0 8px;
+    margin-top: 4px;
+}
+
+body.tabbar-left .tab-group-shell {
+    margin-right: 6px;
+}
+
+body.tabbar-left .group-chip-has-members {
+    /* Sidebar chips keep their full pill shape whether expanded or
+       collapsed — the tree-line below is what signals expansion, not
+       a fused border. */
+    border-radius: 10px;
+    border-bottom-color: color-mix(
         in srgb,
         var(--group-color, var(--border)) 22%,
         var(--tab-border-hover)
     );
-    padding: 0 10px 0 6px;
-    margin-top: 4px;
-}
-
-body.tabbar-left .group-chip-has-members {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    border-bottom-color: transparent;
     margin-bottom: 0;
 }
 
@@ -6877,7 +6919,15 @@ body.tabbar-left .group-chip-has-members {
 body.tabbar-left #tabbar-actions {
     display: flex;
     gap: 4px;
-    margin-top: 4px;
+    position: sticky;
+    bottom: -8px;
+    z-index: 2;
+    background: color-mix(in srgb, var(--bg-tabbar) 92%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    margin: 4px -8px -8px -8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
 }
 
 body.tabbar-left #tabbar-actions > button {
@@ -6979,9 +7029,17 @@ body.tabbar-left #tabbar-brand-row {
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    padding: 2px 4px 6px;
-    margin-bottom: 2px;
+    padding: 8px 4px 6px;
+    margin: -8px -8px 2px -8px;
     border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: -8px;
+    z-index: 2;
+    background: color-mix(in srgb, var(--bg-tabbar) 92%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    padding-left: 12px;
+    padding-right: 12px;
 }
 
 body.tabbar-left #tabbar-brand {
