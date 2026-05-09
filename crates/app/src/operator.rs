@@ -2123,12 +2123,21 @@ async fn run_tick(
             } else {
                 None
             };
+            // Anthropic requires `max_tokens > thinking.budget_tokens`.
+            // When extended thinking is on, the configured budget can
+            // exceed our normal max_tokens (400 default, 2000 decision)
+            // and the API rejects the call with HTTP 400. Pad with 1024
+            // tokens of headroom for the actual reply.
+            let effective_max_tokens = match thinking_budget {
+                Some(b) => max_tokens_for_call.max(b.saturating_add(1024)),
+                None => max_tokens_for_call,
+            };
             karl_agent::ask_oneshot_with_usage(karl_agent::AskRequest {
                 api_key: api_key.clone(),
                 model: model.clone(),
                 system_prompt,
                 user_message,
-                max_tokens: max_tokens_for_call,
+                max_tokens: effective_max_tokens,
                 thinking_budget,
             })
             .await

@@ -245,6 +245,27 @@ body.bg-translucent {
     .tab-btn.tab-aom-active::after { animation: none; }
 }
 
+/* AOM "excluded" indicator — muted dashed ring. Same border-shaped
+   mask trick as .tab-aom-active so the pill content is untouched.
+   Conveys "operator is on but AOM is not driving this tab" purely
+   through the border (no inner glyph). */
+.tab-btn.tab-aom-excluded {
+    opacity: 0.78;
+}
+.tab-btn.tab-aom-excluded::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: var(--tab-radius);
+    border: 1.5px dashed color-mix(in srgb, var(--fg) 35%, transparent);
+    background: transparent;
+    pointer-events: none;
+    z-index: 0;
+}
+.tab-btn.tab-aom-excluded .tab-label {
+    color: color-mix(in srgb, var(--fg) 65%, transparent);
+}
+
 /* Per-tab color: subtle bg tint + leading dot. The tab "is" the
    color, regardless of active state. */
 .tab-colored {
@@ -6775,14 +6796,41 @@ body.tabbar-left .tab-btn.active::before {
     border-radius: 2px;
 }
 
-/* Group member indent so the hierarchy reads at a glance. */
+/* Group member indent so the hierarchy reads at a glance. Flat chrome
+   in rest (no border, no bg) — the colored stripe on .tab-group-shell
+   carries the hierarchy; pills only "appear" on hover/active. */
 body.tabbar-left .tab-grouped {
     padding-left: 22px;
+    background: transparent;
+    border-color: transparent;
+    color: color-mix(in srgb, var(--tab-fg-rest) 78%, transparent);
+}
+body.tabbar-left .tab-grouped:hover:not(.active) {
+    background: color-mix(
+        in srgb,
+        var(--group-color, transparent) 10%,
+        rgba(255, 255, 255, 0.04)
+    );
+    border-color: transparent;
+    color: var(--tab-fg-rest);
+}
+body.tabbar-left .tab-grouped.active {
+    background: color-mix(
+        in srgb,
+        var(--group-color, var(--accent)) 18%,
+        transparent
+    );
+    border-color: color-mix(
+        in srgb,
+        var(--group-color, var(--accent)) 40%,
+        transparent
+    );
+    color: #fff;
 }
 
 /* Restore vertical-stack body for sidebar (horizontal default uses row). */
 body.tabbar-left .tab-group-shell {
-    margin: 0 0 6px 0;
+    margin: 0 0 14px 0;
     gap: 8px;
 }
 body.tabbar-left .tab-group-stripe {
@@ -6799,7 +6847,7 @@ body.tabbar-left .tab-group-body {
     flex: 1 1 auto;
 }
 body.tabbar-left .tab-group-body > * + * {
-    margin-top: 2px;
+    margin-top: 1px;
 }
 
 /* Group chip — full-width row, left-stripe colored. */

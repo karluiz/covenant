@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.2.23 — Sidebar hierarchy & AOM border-only states
+
+### Changed
+
+- **Tab sidebar hierarchy.** Grouped tabs in the vertical
+  sidebar now render flat (no border, no rest-state bg) and
+  rely on the existing colored group stripe + 22px indent
+  to convey nesting. Hover/active tint with the group color.
+  Inter-sibling gap tightened (2px → 1px) and inter-group gap
+  widened (6px → 14px) so each group reads as a contained
+  block instead of equal-weight pills.
+- **AOM tab states are now border-only.** Removed the inner
+  bot/zap-off glyph (`.tab-bot-badge`) from tab pills. State
+  is conveyed entirely by the pill border:
+  - operator off → neutral border
+  - operator on, AOM off → solid colored border
+  - operator on, AOM on, driving → animated gradient ring
+    (`.tab-aom-active`, unchanged)
+  - operator on, AOM on, excluded → muted dashed ring with
+    dimmed label (`.tab-aom-excluded`, new)
+  Toggle exclusion still via ⌘⇧E or the tab context menu.
+- **AOM docs.** New *Tab states* section in the in-app docs
+  explaining the four border states and how to toggle
+  exclusion.
+
+### Fixed
+
+- **AOM 400 error.** Pad `max_tokens` to
+  `thinking_budget + 1024` headroom so the Anthropic API
+  constraint (`max_tokens > thinking.budget_tokens`) is
+  always satisfied when extended thinking is on.
+
 ## v0.2.22 — Per-group root dir
 
 ### Added

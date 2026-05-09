@@ -36,6 +36,39 @@ export const aomDoc: DocSection = {
       the cap is hit, AOM auto-stops and a toast surfaces the report.
     </p>
 
+    <h3>Tab states</h3>
+    <p>
+      Tab status is conveyed entirely through the pill border — no
+      inner glyphs. Read the border, not the icon:
+    </p>
+    <ul>
+      <li>
+        <strong>Operator off</strong> — neutral border. The tab is a
+        plain terminal; AOM ignores it.
+      </li>
+      <li>
+        <strong>Operator on, AOM off</strong> — solid colored border
+        (per-tab color). The Operator is enabled but only acts on
+        explicit triggers (<kbd>⌘O</kbd>, escalations).
+      </li>
+      <li>
+        <strong>Operator on, AOM on, driving this tab</strong> —
+        animated gradient ring around the pill. AOM is autonomously
+        making decisions here within the shared budget.
+      </li>
+      <li>
+        <strong>Operator on, AOM on, excluded</strong> — muted dashed
+        border with the label dimmed (disabled look). AOM is running
+        globally but skipping this tab; you keep manual control.
+      </li>
+    </ul>
+    <p>
+      Toggle exclusion for the active tab with
+      <kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>E</kbd>, or right-click the tab
+      and pick <em>Exclude from AOM</em> / <em>Include in AOM</em>.
+      Exclusion persists across AOM cycles and app restarts.
+    </p>
+
     <h3>Example</h3>
     <p>
       You're heading out for dinner. You've left two tabs running tests

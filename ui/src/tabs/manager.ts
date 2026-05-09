@@ -3144,50 +3144,16 @@ export class TabManager {
     // an at-a-glance view of which tabs are getting hijacked vs which
     // are kept manual. The badge is interactive (toggles exclusion)
     // only while AOM is running; otherwise it's decorative.
+    // Operator/AOM state is signalled entirely by the pill border now:
+    //   - operator on, AOM off  → colored tab border (per-tab color)
+    //   - operator on, AOM on, driving this tab → animated gradient ring
+    //   - operator on, AOM on, excluded → muted/dashed "disabled" ring
+    // Toggling exclusion still happens via the context menu / ⌘⇧E.
     if (tab.operatorEnabled) {
       const aomOn = this.aomBanner?.isOn() ?? false;
       const excluded = tab.aomExcluded;
-      const showOff = aomOn && excluded;
-      // "AOM driving this tab" is signalled by the animated gradient
-      // border on the pill itself (.tab-aom-active), not by the inner
-      // glyph. The badge stays as the click-target for include/exclude.
       if (aomOn && !excluded) pill.classList.add("tab-aom-active");
-      // In AOM-driving mode the animated gradient border is the
-      // indicator; the inner bot glyph would be redundant. Only show
-      // the badge when AOM is off (decorative) or when this tab is
-      // explicitly excluded (zap-off click-target to re-include).
-      const showBadge = !aomOn || excluded;
-      if (showBadge) {
-      const iconHtml = aomOn && excluded
-        ? Icons.zapOff({ size: 12 })
-        : Icons.bot({ size: 12 });
-      const badge = document.createElement("button");
-      badge.type = "button";
-      badge.className = "tab-bot-badge";
-      if (showOff) badge.classList.add("tab-bot-badge--excluded");
-      if (!aomOn) badge.classList.add("tab-bot-badge--inert");
-      badge.innerHTML = iconHtml;
-      badge.title = aomOn
-        ? showOff
-          ? "Excluded from AOM (manual). Click or ⌘⇧E to include."
-          : "AOM is driving this tab. Click or ⌘⇧E to exclude."
-        : "Operator enabled";
-      badge.setAttribute(
-        "aria-label",
-        aomOn
-          ? showOff
-            ? "Excluded from AOM"
-            : "AOM driving this tab"
-          : "Operator enabled",
-      );
-      badge.addEventListener("mousedown", (e) => e.stopPropagation());
-      badge.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (!aomOn) return; // inert when AOM is off
-        void this.toggleAomExcluded(tab.id);
-      });
-      pill.appendChild(badge);
-      }
+      if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
     }
 
     if (this.isRenamingTab(tab.id)) {
