@@ -62,7 +62,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          gh release upload "${{ github.ref_name }}" "${{ steps.msi.outputs.path }}" --clobber
+          $tag = "${{ github.ref_name }}"
+          if (-not (gh release view $tag 2>$null)) {
+            gh release create $tag --title $tag --notes "Automated release. See CHANGELOG for details."
+          }
+          gh release upload $tag "${{ steps.msi.outputs.path }}" --clobber
 
       - name: Upload MSI as workflow artifact
         if: github.event_name == 'workflow_dispatch'
