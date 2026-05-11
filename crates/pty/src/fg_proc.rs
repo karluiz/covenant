@@ -10,11 +10,12 @@ use std::os::fd::RawFd;
 pub fn foreground_process_name(master_fd: RawFd) -> Option<String> {
     let pgid = unsafe { libc::tcgetpgrp(master_fd) };
     if pgid <= 0 {
+        tracing::trace!(master_fd, pgid, "tcgetpgrp returned non-positive");
         return None;
     }
     libproc::proc_pid::name(pgid)
+        .map_err(|e| tracing::trace!(pgid, error = %e, "libproc::name failed"))
         .ok()
-        .map(|s| s.rsplit('/').next().unwrap_or(&s).to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
