@@ -14,6 +14,8 @@
 //! The pump task that owns the fan-out is spawned with `tokio::spawn`,
 //! so callers must be inside a tokio runtime (Tauri provides one).
 
+pub mod idle;
+
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
