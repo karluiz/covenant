@@ -25,3 +25,4 @@ karl-blocks = { path = "../blocks" }
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = "3"
+serde_json = { workspace = true }

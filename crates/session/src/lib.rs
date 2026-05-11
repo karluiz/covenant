@@ -133,6 +133,19 @@ pub enum SessionEvent {
         resolution: EscalationResolution,
         source: ResolutionSource,
     },
+    AgentIdleWaiting {
+        session: SessionId,
+        /// Foreground process name (e.g. "claude", "codex", "copilot").
+        agent: String,
+        /// Best-effort regex extract of the prompt. `None` if no regex matched
+        /// but other signals fired.
+        prompt_text: Option<String>,
+        /// How long the PTY has been quiet, in milliseconds.
+        quiet_ms: u64,
+    },
+    AgentResumed {
+        session: SessionId,
+    },
     MissionCompleted {
         session: SessionId,
         summary: String,
@@ -221,7 +234,12 @@ impl SessionEvent {
             | SessionEvent::EscalationRequested { .. }
             | SessionEvent::EscalationResolved { .. }
             | SessionEvent::MissionCompleted { .. }
-            | SessionEvent::MissionFailed { .. } => None,
+            | SessionEvent::MissionFailed { .. }
+            | SessionEvent::AgentIdleWaiting { .. }
+            | SessionEvent::AgentResumed { .. } => {
+                tracing::trace!("agent idle/resumed UI forwarding deferred to Task 6");
+                None
+            }
             SessionEvent::PromptStart { session } => {
                 Some(SessionUiEvent::PromptStart { session: *session })
             }
@@ -504,6 +522,31 @@ mod tests {
             output.contains("karl-bus"),
             "expected 'karl-bus' in output_text, got: {output:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod event_serde_tests {
+    use super::*;
+
+    #[test]
+    fn agent_idle_waiting_serializes_with_kind_tag() {
+        let ev = SessionEvent::AgentIdleWaiting {
+            session: SessionId::new(),
+            agent: "claude".to_string(),
+            prompt_text: Some("Do you want to proceed? (y/N)".to_string()),
+            quiet_ms: 3200,
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(json.contains(r#""kind":"agent_idle_waiting""#), "{json}");
+        assert!(json.contains(r#""agent":"claude""#));
+    }
+
+    #[test]
+    fn agent_resumed_serializes() {
+        let ev = SessionEvent::AgentResumed { session: SessionId::new() };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(json.contains(r#""kind":"agent_resumed""#));
     }
 }
 
