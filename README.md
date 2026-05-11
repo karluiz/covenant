@@ -49,9 +49,11 @@ Current capabilities include multi-session tabs with persistence, OSC 133 block 
 
 ## Install
 
-Download the latest `.dmg` from [Releases](../../releases/latest), drag `Covenant.app` to `/Applications`, and launch.
+**macOS:** Download the latest `.dmg` from [Releases](../../releases/latest), drag `Covenant.app` to `/Applications`, and launch.
 
-On first run, Covenant will offer to install OSC 133 snippets into your `~/.zshrc`, `~/.bashrc`, or fish config. Without these, block segmentation falls back to heuristics — accept the prompt for the real experience.
+**Windows:** See [docs/install-windows.md](docs/install-windows.md) for the MSI installer and shell integration setup.
+
+On first run, Covenant will offer to install OSC 133 snippets into your `~/.zshrc`, `~/.bashrc`, fish config, or PowerShell `$PROFILE` (Windows). Without these, block segmentation falls back to heuristics — accept the prompt for the real experience.
 
 You will need an **Anthropic API key** for the agent. Set it in `Settings → API Key`, or export `ANTHROPIC_API_KEY` in your shell.
 
