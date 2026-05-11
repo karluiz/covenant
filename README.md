@@ -1,6 +1,6 @@
 # Covenant
 
-> An AI-native terminal for macOS. The terminal *is* the substrate the agent operates on.
+> An AI-native terminal. The terminal *is* the substrate the agent operates on.
 
 Covenant is not a terminal with an AI assistant bolted on. It is a terminal built from the ground up around an autonomous **super-agent** that observes every session you open, builds a live model of what you're doing across all of them, and — when authorized — acts on your behalf.
 
@@ -41,17 +41,50 @@ This unlocks things a chat-bolted-on terminal cannot do:
 
 ## Status
 
-Pre-1.0. Active development on macOS. Windows support is architected for but deferred until the macOS path is solid (see `CLAUDE.md` → M8).
+Pre-1.0. Active development on macOS; Linux support is in progress (see below). Windows support is architected for but deferred until the macOS/Linux path is solid (see `CLAUDE.md` → M8).
 
 Current capabilities include multi-session tabs with persistence, OSC 133 block parsing, mission-driven autonomous operation with cost caps, command recall over shell history, OS notifications, and a Familiars roster for per-session agents. See `CHANGELOG.md` for the running log.
 
 ---
 
+## Supported platforms
+
+| OS | Minimum version | Packages | Shell |
+|----|----------------|----------|-------|
+| macOS | 13 Ventura | `.app`, `.dmg` | zsh (default), bash, fish |
+| Ubuntu | **24.04 LTS** | `.deb`, AppImage | bash (default), zsh, fish |
+| Ubuntu | 26.04 LTS (future) | `.deb`, AppImage | bash (default), zsh, fish |
+| Fedora | 39+ | `.rpm`, AppImage | bash (default), zsh, fish |
+| Bazzite | current | **AppImage only** | bash/fish (immutable OS; rpm-ostree can't install .rpm normally) |
+| Other Linux | glibc ≥ 2.17, `webkit2gtk-4.1` ≥ 2.40 | AppImage | bash, zsh, fish |
+
+> **Ubuntu 22.04 LTS is not supported.** It ships `webkit2gtk` 2.38, below the 2.40 minimum required by Tauri 2. Upgrade to 24.04 or use the AppImage (which bundles its own WebKit).
+
+Linux notes:
+- The vibrancy/frosted-glass UI is macOS-only. On Linux, Covenant uses a solid dark window.
+- Shell block detection (OSC 133) works out of the box for bash, zsh, and fish — no manual rc-file editing required.
+- The `$SHELL` environment variable controls which shell Covenant spawns. It defaults to `/bin/sh` if unset.
+
+---
+
 ## Install
 
-Download the latest `.dmg` from [Releases](../../releases/latest), drag `Covenant.app` to `/Applications`, and launch.
+**macOS:** Download the latest `.dmg` from [Releases](../../releases/latest), drag `Covenant.app` to `/Applications`, and launch.
 
-On first run, Covenant will offer to install OSC 133 snippets into your `~/.zshrc`, `~/.bashrc`, or fish config. Without these, block segmentation falls back to heuristics — accept the prompt for the real experience.
+**Linux (Ubuntu 24.04+, Fedora 39+):** Download the AppImage, `.deb`, or `.rpm` from [Releases](../../releases/latest).
+
+```bash
+# AppImage (all distros, including Bazzite)
+chmod +x Covenant_*.AppImage && ./Covenant_*.AppImage
+
+# Ubuntu / Debian
+sudo apt install ./covenant_*.deb
+
+# Fedora / RHEL
+sudo dnf install ./covenant_*.rpm
+```
+
+On first run, Covenant detects your `$SHELL` and injects OSC 133 hooks automatically — no manual rc-file editing required.
 
 You will need an **Anthropic API key** for the agent. Set it in `Settings → API Key`, or export `ANTHROPIC_API_KEY` in your shell.
 
@@ -59,17 +92,48 @@ You will need an **Anthropic API key** for the agent. Set it in `Settings → AP
 
 ## Build from source
 
+### macOS
+
 Prerequisites: Rust (stable), Node.js 20+, Xcode command-line tools.
 
 ```bash
 git clone <this-repo>
-cd karlTerminal
+cd covenant
 npm install
 npm run tauri:dev      # dev build with hot reload
-npm run tauri:build    # release build → src-tauri/target/release/bundle/dmg/
+npm run tauri:build    # release build → target/release/bundle/macos/
 ```
 
-Run the test suite:
+### Linux (Ubuntu 24.04+ / Fedora 39+)
+
+Install system dependencies first:
+
+```bash
+# Ubuntu / Debian
+sudo apt install \
+    libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev \
+    libayatana-appindicator3-dev librsvg2-dev \
+    build-essential curl
+
+# Fedora
+sudo dnf install \
+    webkit2gtk4.1-devel openssl-devel gtk3-devel \
+    libappindicator-gtk3-devel librsvg2-devel
+
+# Install Rust if not already installed
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then build:
+
+```bash
+npm install
+npm run tauri:build    # produces .deb, .rpm, and AppImage
+# or install with:
+./scripts/install-linux.sh
+```
+
+### Tests
 
 ```bash
 cargo test --workspace

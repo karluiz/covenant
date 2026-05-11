@@ -64,9 +64,13 @@ body {
 
 /* Window background mode — body class set by main.ts on boot from
    settings.window.background. Only --surface-alpha changes; every
-   --bg-* derives from it via rgb(... / var(--surface-alpha)). */
+   --bg-* derives from it via rgb(... / var(--surface-alpha)).
+   bg-solid also sets an explicit background on body so Linux builds
+   (where the Tauri window is opaque, not transparent) don't fall
+   through to the WebKit default background on uncovered pixels. */
 body.bg-solid {
     --surface-alpha: 1;
+    background: #0b0d10; /* matches rgb(11 13 16) = --bg at alpha 1 */
 }
 body.bg-vibrant {
     --surface-alpha: 0.72;

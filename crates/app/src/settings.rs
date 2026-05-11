@@ -1,15 +1,16 @@
 //! Settings persistence for Covenant.
 //!
 //! Stored as JSON at `<config_dir>/config.json` where `<config_dir>` is
-//! Tauri's per-app `app_config_dir` (on macOS:
-//! `~/Library/Application Support/com.karluiz.covenant/`).
+//! Tauri's per-app `app_config_dir`:
+//!   - macOS: `~/Library/Application Support/com.karluiz.covenant/`
+//!   - Linux: `~/.config/com.karluiz.covenant/` (XDG, resolved by Tauri)
 //!
 //! Writes are atomic (tmp file + rename) and the on-disk file is
 //! chmod'd to 0600 so only the current user can read it.
 //!
-//! M3.5 will optionally migrate `anthropic_api_key` to the macOS
-//! Keychain via the `keyring` crate; this file stays as a fallback for
-//! portability and debugging.
+//! M3.5 will optionally migrate `anthropic_api_key` to a secure store
+//! via the `keyring` crate (macOS Keychain / Linux `libsecret`/KWallet);
+//! this file stays as a fallback for portability and debugging.
 
 use std::collections::HashMap;
 use std::fs;
@@ -249,14 +250,43 @@ mod familiars_tests {
 }
 
 /// Window appearance — controls how transparent the foreground surfaces
-/// are over the macOS NSVisualEffectView (vibrancy) that's always-on at
-/// the OS level. The frontend translates `background` into a body class
+/// are. On macOS, the window is backed by `NSVisualEffectView` (vibrancy)
+/// and the frontend translates `background` into a body class
 /// (`body.bg-solid` / `bg-vibrant` / `bg-translucent`) which sets the
 /// `--surface-alpha` custom property cascading through every `--bg-*`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WindowConfig {
-    #[serde(default)]
-    pub background: WindowBackground,
+///
+/// On Linux there is no system vibrancy API. The window is opaque
+/// (`transparent: false` via `tauri.linux.conf.json`) so only `Solid`
+/// is visually meaningful; users may enable transparency in settings
+/// if their compositor supports ARGB windows.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WindowBackground {
+    /// Fully opaque dark surface. Best for sunlit rooms, low-contrast
+    /// wallpapers, and Linux (where vibrancy is unavailable).
+    Solid,
+    /// Default on macOS. Moderate translucency — wallpaper visible but
+    /// text contrast stays comfortable on most desktops.
+    Vibrant,
+    /// Heavy translucency. Maximum "wow" but text legibility depends
+    /// on the wallpaper behind.
+    Translucent,
+}
+
+impl Default for WindowBackground {
+    fn default() -> Self {
+        // macOS: vibrancy is always available — use the translucent default.
+        // Linux: no system blur API; solid avoids black-window artefacts
+        //        on X11 setups without a compositor.
+        #[cfg(target_os = "macos")]
+        {
+            Self::Vibrant
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self::Solid
+        }
+    }
 }
 
 impl Default for WindowConfig {

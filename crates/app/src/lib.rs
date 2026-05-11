@@ -67,6 +67,11 @@ use world::SessionWorldModel;
 /// Bundled into the binary so the app is self-contained — no need to
 /// know the repo layout at runtime.
 const ZSH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.zsh");
+/// Bash OSC 133 integration — bundled alongside zsh/fish so Linux users
+/// on bash-default distros (Ubuntu, Fedora) get full block detection.
+const BASH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.bash");
+/// Fish OSC 133 integration — bundled for fish-default setups.
+const FISH_SNIPPET: &str = include_str!("../../../shell-integration/osc133.fish");
 
 /// Per-session backend state. The [`TempDir`] is held for the lifetime
 /// of the session so its `.zshrc` and snippet file stay readable if zsh
@@ -268,6 +273,34 @@ fn parse_id(id: &str) -> Result<SessionId, String> {
         .map_err(|e| format!("invalid session id {id:?}: {e}"))
 }
 
+/// Detect the user's preferred shell from `$SHELL`.
+/// Falls back to `/bin/sh` (never `/bin/zsh`) so the app doesn't
+/// crash on Linux systems where zsh is not installed by default.
+fn detect_user_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/bin/sh".to_string())
+}
+
+/// Classify a shell path by its binary name.
+/// Strips version suffixes (e.g. `bash-5.2` → `"bash"`).
+fn shell_kind(path: &str) -> &'static str {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if name.starts_with("zsh") {
+        "zsh"
+    } else if name.starts_with("bash") {
+        "bash"
+    } else if name.starts_with("fish") {
+        "fish"
+    } else {
+        "sh"
+    }
+}
+
 /// Materialize a private ZDOTDIR holding shim files that re-source the
 /// user's real dotfiles before layering our OSC 133 snippet on top:
 ///
@@ -307,6 +340,103 @@ fn build_zdotdir() -> Result<TempDir, std::io::Error> {
     Ok(dir)
 }
 
+/// Materialize a temp dir holding a custom `bashrc` that chains the
+/// user's real `~/.bashrc` then appends the OSC 133 snippet.
+///
+/// Session spawn passes `--rcfile <dir>/bashrc` to bash so the shim is
+/// sourced instead of `~/.bashrc` directly; our file re-sources the
+/// real one first, preserving all user aliases and prompt frameworks.
+fn build_bash_rcdir() -> Result<TempDir, std::io::Error> {
+    let dir = tempfile::Builder::new().prefix("karl-bash-rc-").tempdir()?;
+
+    let snippet_path = dir.path().join("osc133.bash");
+    std::fs::write(&snippet_path, BASH_SNIPPET)?;
+
+    let real_home = std::env::var("HOME").unwrap_or_default();
+    std::fs::write(
+        dir.path().join("bashrc"),
+        format!(
+            "[ -f \"{real_home}/.bashrc\" ] && source \"{real_home}/.bashrc\"\n\
+             source {}\n",
+            shell_quote(&snippet_path),
+        ),
+    )?;
+
+    Ok(dir)
+}
+
+/// Materialize a temp dir as a synthetic `XDG_CONFIG_HOME`.
+/// Fish reads `$XDG_CONFIG_HOME/fish/config.fish` at startup; our shim
+/// chains the user's real config.fish first, then appends the snippet.
+fn build_fish_dotdir() -> Result<TempDir, std::io::Error> {
+    let dir = tempfile::Builder::new().prefix("karl-fish-config-").tempdir()?;
+
+    let fish_cfg_dir = dir.path().join("fish");
+    std::fs::create_dir_all(&fish_cfg_dir)?;
+
+    let snippet_path = dir.path().join("osc133.fish");
+    std::fs::write(&snippet_path, FISH_SNIPPET)?;
+
+    let real_home = std::env::var("HOME").unwrap_or_default();
+    let real_xdg = std::env::var("XDG_CONFIG_HOME")
+        .unwrap_or_else(|_| format!("{real_home}/.config"));
+    std::fs::write(
+        fish_cfg_dir.join("config.fish"),
+        format!(
+            "if test -f \"{real_xdg}/fish/config.fish\"\n\
+             \tsource \"{real_xdg}/fish/config.fish\"\nend\nsource {}\n",
+            shell_quote(&snippet_path),
+        ),
+    )?;
+
+    Ok(dir)
+}
+
+/// Build the temporary shell environment dir and initial `SpawnOptions`
+/// for the detected shell. Returns `(temp_dir, spawn_opts)`.
+///
+/// Each shell uses a different injection mechanism:
+/// - **zsh**: private `ZDOTDIR` with shim rc files
+/// - **bash**: `--rcfile <dir>/bashrc` overrides `~/.bashrc`
+/// - **fish**: synthetic `XDG_CONFIG_HOME` pointing to our shim config
+/// - **other**: no injection; shell runs unaugmented (no OSC 133 blocks)
+fn build_shell_env(shell: &str) -> Result<(TempDir, SpawnOptions), std::io::Error> {
+    match shell_kind(shell) {
+        "zsh" => {
+            let dir = build_zdotdir()?;
+            let mut opts = SpawnOptions::for_shell(shell);
+            opts.args.push("--no-globalrcs".to_string());
+            opts.env
+                .push(("ZDOTDIR".to_string(), dir.path().display().to_string()));
+            Ok((dir, opts))
+        }
+        "bash" => {
+            let dir = build_bash_rcdir()?;
+            let rcfile = dir.path().join("bashrc").display().to_string();
+            let mut opts = SpawnOptions::for_shell(shell);
+            // Override args: --rcfile sources our shim instead of ~/.bashrc.
+            opts.args = vec!["--rcfile".to_string(), rcfile, "-i".to_string()];
+            Ok((dir, opts))
+        }
+        "fish" => {
+            let dir = build_fish_dotdir()?;
+            let mut opts = SpawnOptions::for_shell(shell);
+            opts.env.push((
+                "XDG_CONFIG_HOME".to_string(),
+                dir.path().display().to_string(),
+            ));
+            Ok((dir, opts))
+        }
+        _ => {
+            // Unknown / POSIX sh: spawn as-is. No OSC 133 block detection,
+            // but the terminal is still functional.
+            let dir = tempfile::Builder::new().prefix("karl-sh-").tempdir()?;
+            let opts = SpawnOptions::for_shell(shell);
+            Ok((dir, opts))
+        }
+    }
+}
+
 /// Single-quote a path for zsh source. Safe against spaces and most
 /// special chars; escapes embedded single quotes by closing-and-reopening.
 fn shell_quote(p: &Path) -> String {
@@ -323,11 +453,9 @@ async fn spawn_session(
     on_session_event: Channel<SessionUiEvent>,
     initial_cwd: Option<String>,
 ) -> Result<String, String> {
-    let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
-    let mut opts = SpawnOptions::zsh_interactive();
-    opts.args.push("--no-globalrcs".to_string());
-    opts.env
-        .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
+    let shell = detect_user_shell();
+    let (zdotdir, mut opts) =
+        build_shell_env(&shell).map_err(|e| format!("shell env setup: {e}"))?;
     // Persistence-restored cwd is set HERE (before spawn) instead of
     // injected as `cd <path>\r` after the first prompt. portable-pty
     // launches the shell directly in this directory — no visible
@@ -1541,13 +1669,15 @@ async fn list_operator_decisions(
         .map_err(|e| e.to_string())
 }
 
-/// One-shot Recall seeding from `~/.zsh_history`.
+/// One-shot Recall seeding from the user's shell history.
 ///
-/// Skipped when `settings.zsh_history_imported_at_unix_ms` is already
-/// set — Recall is meant to grow from the user's actual usage; we
-/// only seed the empty case. Runs in a detached task so startup
-/// stays snappy regardless of history file size.
-fn maybe_import_zsh_history(
+/// Reads from all history files present on disk regardless of the
+/// current shell — many users switch shells and have history in
+/// multiple files. Skipped when the `zsh_history_imported_at_unix_ms`
+/// flag is already set (name is a historical artifact; it guards all
+/// shell history imports, not just zsh). Runs in a detached task so
+/// startup stays snappy regardless of history file size.
+fn maybe_import_shell_history(
     storage: Storage,
     settings: Arc<Mutex<Settings>>,
     settings_path: PathBuf,
@@ -1564,48 +1694,74 @@ fn maybe_import_zsh_history(
         }
 
         let Ok(home) = std::env::var("HOME") else {
-            tracing::warn!("$HOME unset — skipping zsh history import");
+            tracing::warn!("$HOME unset — skipping shell history import");
             return;
         };
-        let path = PathBuf::from(home).join(".zsh_history");
-        if !path.exists() {
-            tracing::info!("no ~/.zsh_history — skipping import");
-            // Still mark as done so we don't re-check every launch.
-            mark_imported(&settings, &settings_path).await;
-            return;
-        }
-
+        let home = PathBuf::from(home);
         let now = now_unix_ms();
-        let entries = match tokio::task::spawn_blocking(move || {
-            history_import::read_and_parse(&path, now, 5_000)
-        })
-        .await
-        {
-            Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                tracing::warn!(error = %e, "failed to read ~/.zsh_history");
-                return;
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "history import join failed");
-                return;
-            }
-        };
 
-        let count = entries.len();
-        match storage.import_zsh_history(entries).await {
-            Ok(inserted) => {
-                tracing::info!(
-                    parsed = count,
-                    inserted,
-                    "imported ~/.zsh_history into Recall"
-                );
-                mark_imported(&settings, &settings_path).await;
+        // Candidate history files per shell. We try all that exist so
+        // users who switch shells still get their full Recall seed.
+        let candidates: &[(&str, PathBuf)] = &[
+            ("zsh", home.join(".zsh_history")),
+            ("bash", home.join(".bash_history")),
+            (
+                "fish",
+                dirs::data_local_dir()
+                    .unwrap_or_else(|| home.join(".local").join("share"))
+                    .join("fish")
+                    .join("fish_history"),
+            ),
+        ];
+
+        let mut any_found = false;
+        for (shell, path) in candidates {
+            if !path.exists() {
+                tracing::debug!(shell, "no history file — skipping");
+                continue;
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "zsh history import failed");
+            any_found = true;
+            let path_owned = path.clone();
+            let shell_name = *shell;
+            let entries = match tokio::task::spawn_blocking(move || match shell_name {
+                "zsh" => history_import::read_and_parse(&path_owned, now, 5_000),
+                "bash" => history_import::read_and_parse_bash(&path_owned, now, 5_000),
+                "fish" => history_import::read_and_parse_fish(&path_owned, now, 5_000),
+                _ => Ok(vec![]),
+            })
+            .await
+            {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => {
+                    tracing::warn!(shell, error = %e, "failed to read history file");
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(shell, error = %e, "history import join failed");
+                    continue;
+                }
+            };
+
+            let count = entries.len();
+            match storage.import_zsh_history(entries).await {
+                Ok(inserted) => {
+                    tracing::info!(
+                        shell,
+                        parsed = count,
+                        inserted,
+                        "imported shell history into Recall"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(shell, error = %e, "shell history import failed");
+                }
             }
         }
+
+        if !any_found {
+            tracing::info!("no shell history files found — skipping import");
+        }
+        mark_imported(&settings, &settings_path).await;
     });
 }
 
@@ -1796,7 +1952,7 @@ async fn set_settings(
 }
 
 const SYSTEM_PROMPT: &str = "\
-You are the super-agent for Covenant, a macOS terminal that coordinates \
+You are the super-agent for Covenant, an AI-native terminal that coordinates \
 between the user and executor agents (Claude Code, Copilot CLI, opencode, \
 aider…) running inside its PTYs. \
 The user is operating one or more shell sessions; you observe their \
@@ -2579,10 +2735,10 @@ pub fn run() {
             spawn_superpowers_watcher(app.handle().clone());
 
             // One-shot Recall seeding: on first launch, import the
-            // user's existing ~/.zsh_history so Recall isn't empty.
-            // Runs in the background — startup must not block on
-            // disk I/O for potentially-megabyte-sized history files.
-            maybe_import_zsh_history(
+            // Seed Recall with the user's existing shell history files
+            // (~/.zsh_history, ~/.bash_history, fish history) so Recall
+            // isn't empty on first launch. Runs in the background.
+            maybe_import_shell_history(
                 storage.clone(),
                 settings_arc.clone(),
                 path.clone(),
