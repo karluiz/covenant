@@ -324,7 +324,8 @@ async fn spawn_session(
     initial_cwd: Option<String>,
 ) -> Result<String, String> {
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
-    let mut opts = SpawnOptions::zsh_interactive();
+    let mut opts = SpawnOptions::from_default_shell()
+        .map_err(|e| format!("shell resolve: {e}"))?;
     opts.args.push("--no-globalrcs".to_string());
     opts.env
         .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
