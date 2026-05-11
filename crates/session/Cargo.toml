@@ -15,6 +15,9 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 strip-ansi-escapes = { workspace = true }
+vt100 = { workspace = true }
+regex = { workspace = true }
+libc = "0.2"
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

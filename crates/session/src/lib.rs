@@ -506,3 +506,18 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod vt100_state_tests {
+    use vt100::Parser;
+
+    #[test]
+    fn detects_alternate_screen_toggle() {
+        let mut p = Parser::new(24, 80, 0);
+        assert!(!p.screen().alternate_screen());
+        p.process(b"\x1b[?1049h");
+        assert!(p.screen().alternate_screen());
+        p.process(b"\x1b[?1049l");
+        assert!(!p.screen().alternate_screen());
+    }
+}
