@@ -14,6 +14,9 @@
 //! as fast as the shell produces bytes. Downstream processing is event
 //! driven on top of the channel.
 
+pub mod shell;
+pub use shell::{ShellError, ShellKind};
+
 use std::io::{Read, Write};
 use std::time::Duration;
 
