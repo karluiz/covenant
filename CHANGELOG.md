@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.3.1 — Windows support
+
+### Added
+
+- **PowerShell shell integration.** `shell-integration/osc133.ps1`
+  emits OSC 133 (A/B/C/D) + OSC 7 from the `prompt` function, so
+  block parsing works identically on pwsh and zsh/bash.
+- **ConPTY backend.** `portable-pty` resolves to ConPTY on
+  Windows 10 1809+. Smoke test exercises a pwsh round-trip.
+- **`ShellKind` enum** with per-platform resolution
+  (`from_default_shell`): pwsh > powershell > cmd on Windows,
+  zsh/bash/fish on Unix.
+- **Tauri MSI bundle** with WebView2 bootstrapper config.
+- **Windows release CI.** GH Actions workflow builds on
+  `windows-latest`, packages the MSI, runs a smoke test, and
+  auto-creates the GitHub release if missing before uploading.
+- **Docs.** Windows install and first-run guide.
+
+### Changed
+
+- **Cross-platform paths** throughout; sqlite is now bundled
+  rather than relying on a system install.
+- Unix-only code paths (idle detector, signal handling) gated
+  on `cfg(unix)` so the Windows build stays clean.
+
+## v0.3.0 — Agent idle detection
+
+### Added
+
+- **Idle detection for nested CLI agents.** PTY foreground-process
+  + vt100 screen heuristics (1 s tick, 3 s quiet window) detect
+  when `claude`, `codex`, `opencode`, or `copilot` is waiting on
+  user input inside a tab.
+- New `SessionEvent::AgentIdleWaiting` / `AgentIdleResumed`
+  events; tab chrome renders a badge while the nested agent is
+  idle, so you can tell which tab is asking for attention without
+  switching to it.
+
 ## v0.2.24 — Sidebar hierarchy polish
 
 ### Changed
