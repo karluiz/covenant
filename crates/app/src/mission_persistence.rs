@@ -126,6 +126,7 @@ pub fn lookup(path: &Path, cwd: &str) -> Option<MissionRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mission_pair::MissionKind;
 
     #[test]
     fn missing_file_returns_empty_map() {
