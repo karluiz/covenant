@@ -56,7 +56,7 @@ export function createSpecPromptState(): SpecPromptState {
   const state: SpecPromptState = {
     eligibleTabs(c, tabs) {
       return tabs.filter(
-        (t) => isUnder(t.cwd, c.repo_root) && !t.hasMission && t.hasOperator,
+        (t) => isUnder(t.cwd, c.repo_root) && !t.hasMission,
       );
     },
     recordCandidate(c, nowMs) {

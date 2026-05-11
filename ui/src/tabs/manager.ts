@@ -2498,10 +2498,20 @@ export class TabManager {
     id: string,
     opts: { skipIfSame?: boolean } = { skipIfSame: true },
   ): void {
-    if (opts.skipIfSame !== false && this.activeId === id) return;
-
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab) return;
+
+    // Clicking a tab should always reveal that tab's terminal content,
+    // even when its file-editor drawer is open. Close the drawer first
+    // so the re-click on the active tab still has a visible effect.
+    if (this.activeId === id) {
+      try {
+        tab.editor.close();
+      } catch {
+        /* ignore */
+      }
+      if (opts.skipIfSame !== false) return;
+    }
 
     this.hideAllPanes();
     tab.pane.hidden = false;

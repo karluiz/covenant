@@ -147,7 +147,7 @@ const tab = (over: Partial<TabSnapshot> = {}): TabSnapshot => ({
 });
 
 describe("specPromptState", () => {
-  it("returns eligible tabs only (cwd ⊂ repo, no mission, has operator)", () => {
+  it("returns eligible tabs only (cwd ⊂ repo, no mission)", () => {
     const s = createSpecPromptState();
     const tabs = [
       tab({ id: "ok" }),
@@ -156,7 +156,7 @@ describe("specPromptState", () => {
       tab({ id: "no-operator", hasOperator: false }),
     ];
     const elig = s.eligibleTabs(cand(), tabs);
-    expect(elig.map((t) => t.id)).toEqual(["ok"]);
+    expect(elig.map((t) => t.id).sort()).toEqual(["no-operator", "ok"]);
   });
 
   it("dismiss prevents future toasts for that tab/path", () => {
