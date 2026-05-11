@@ -17,11 +17,13 @@
 pub mod idle;
 
 use std::path::PathBuf;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use karl_blocks::{BlockEvent, BlockId, BlockParser};
-use karl_pty::{PtySession, SpawnOptions};
+use karl_pty::{foreground_process_name, PtySession, SpawnOptions};
+
+use crate::idle::{Decision, IdleDetector};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
@@ -320,7 +322,8 @@ impl Session {
         let (raw_tx, raw_rx) = mpsc::unbounded_channel::<Bytes>();
 
         let pump_events_tx = events_tx.clone();
-        tokio::spawn(pump(id, pty_rx, raw_tx, pump_events_tx));
+        let master_fd = pty.master_fd();
+        tokio::spawn(pump(id, pty_rx, raw_tx, pump_events_tx, master_fd));
 
         // Best-effort opened announcement. Subscribers attached after
         // spawn won't see this — that's the broadcast contract.
@@ -369,6 +372,7 @@ async fn pump(
     mut pty_rx: mpsc::UnboundedReceiver<Bytes>,
     raw_tx: mpsc::UnboundedSender<Bytes>,
     events_tx: broadcast::Sender<SessionEvent>,
+    master_fd: std::os::fd::RawFd,
 ) {
     let mut parser = BlockParser::new();
     // (block_id, command, cwd_at_submit, output_buf, started_at) of the
@@ -377,63 +381,98 @@ async fn pump(
     let mut current_block: Option<(BlockId, String, PathBuf, Vec<u8>, Instant)> = None;
     let mut current_cwd = PathBuf::new();
 
-    while let Some(chunk) = pty_rx.recv().await {
-        // 1. Forward raw bytes to the UI consumer. If the UI side has
-        //    dropped its receiver, we keep going — the agent (broadcast)
-        //    may still want events.
-        let _ = raw_tx.send(chunk.clone());
+    let mut vt = vt100::Parser::new(24, 80, 0);
+    let mut detector = IdleDetector::new();
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    // First tick fires immediately; skip it to avoid evaluating before any output.
+    tick.tick().await;
 
-        // 2. Accumulate output bytes against the in-flight block, if any.
-        if let Some((_, _, _, ref mut buf, _)) = current_block {
-            buf.extend_from_slice(&chunk);
-        }
+    loop {
+        tokio::select! {
+            maybe_chunk = pty_rx.recv() => {
+                let Some(chunk) = maybe_chunk else { break };
 
-        // 3. Parse for block events; lift to SessionEvents on the bus.
-        for event in parser.feed(&chunk) {
-            match event {
-                BlockEvent::PromptStart => {
-                    let _ = events_tx.send(SessionEvent::PromptStart { session: id });
+                // Feed vt100 first (cheap; needed by next tick).
+                vt.process(&chunk);
+                if matches!(detector.on_output(Instant::now()), Decision::Resumed) {
+                    let _ = events_tx.send(SessionEvent::AgentResumed { session: id });
                 }
-                BlockEvent::CwdChanged { path } => {
-                    current_cwd = path.clone();
-                    let _ = events_tx.send(SessionEvent::CwdChanged {
-                        session: id,
-                        cwd: path,
-                    });
+
+                // 1. Forward raw bytes to the UI consumer. If the UI side has
+                //    dropped its receiver, we keep going — the agent (broadcast)
+                //    may still want events.
+                let _ = raw_tx.send(chunk.clone());
+
+                // 2. Accumulate output bytes against the in-flight block, if any.
+                if let Some((_, _, _, ref mut buf, _)) = current_block {
+                    buf.extend_from_slice(&chunk);
                 }
-                BlockEvent::CommandSubmitted { command } => {
-                    let block = BlockId::new();
-                    current_block = Some((
-                        block,
-                        command.clone(),
-                        current_cwd.clone(),
-                        Vec::new(),
-                        Instant::now(),
-                    ));
-                    let _ = events_tx.send(SessionEvent::BlockSubmitted {
-                        session: id,
-                        block,
-                        command,
-                        cwd: current_cwd.clone(),
-                        started_at_unix_ms: now_ms(),
-                    });
+
+                // 3. Parse for block events; lift to SessionEvents on the bus.
+                for event in parser.feed(&chunk) {
+                    match event {
+                        BlockEvent::PromptStart => {
+                            let _ = events_tx.send(SessionEvent::PromptStart { session: id });
+                        }
+                        BlockEvent::CwdChanged { path } => {
+                            current_cwd = path.clone();
+                            let _ = events_tx.send(SessionEvent::CwdChanged {
+                                session: id,
+                                cwd: path,
+                            });
+                        }
+                        BlockEvent::CommandSubmitted { command } => {
+                            let block = BlockId::new();
+                            current_block = Some((
+                                block,
+                                command.clone(),
+                                current_cwd.clone(),
+                                Vec::new(),
+                                Instant::now(),
+                            ));
+                            let _ = events_tx.send(SessionEvent::BlockSubmitted {
+                                session: id,
+                                block,
+                                command,
+                                cwd: current_cwd.clone(),
+                                started_at_unix_ms: now_ms(),
+                            });
+                        }
+                        BlockEvent::CommandFinished { exit_code } => {
+                            if let Some((block, command, cwd, buf, started)) =
+                                current_block.take()
+                            {
+                                let stripped = strip_ansi_escapes::strip(&buf);
+                                let output_text =
+                                    String::from_utf8_lossy(&stripped).into_owned();
+                                let _ = events_tx.send(SessionEvent::BlockFinished {
+                                    session: id,
+                                    block,
+                                    command,
+                                    cwd,
+                                    exit_code,
+                                    duration_ms: started.elapsed().as_millis() as u64,
+                                    output_text,
+                                });
+                            }
+                        }
+                    }
                 }
-                BlockEvent::CommandFinished { exit_code } => {
-                    if let Some((block, command, cwd, buf, started)) =
-                        current_block.take()
-                    {
-                        let stripped = strip_ansi_escapes::strip(&buf);
-                        let output_text =
-                            String::from_utf8_lossy(&stripped).into_owned();
-                        let _ = events_tx.send(SessionEvent::BlockFinished {
-                            session: id,
-                            block,
-                            command,
-                            cwd,
-                            exit_code,
-                            duration_ms: started.elapsed().as_millis() as u64,
-                            output_text,
-                        });
+            }
+            _ = tick.tick() => {
+                let fg = foreground_process_name(master_fd);
+                let alt = vt.screen().alternate_screen();
+                // contents() can be expensive; only call when other gates pass.
+                if let Some(name) = fg.as_deref() {
+                    if alt && crate::idle::KNOWN_AGENTS.contains(&name) {
+                        let screen_text = vt.screen().contents();
+                        if let Decision::Idle { agent, prompt_text, quiet_ms } =
+                            detector.evaluate(Instant::now(), Some(name), alt, &screen_text)
+                        {
+                            let _ = events_tx.send(SessionEvent::AgentIdleWaiting {
+                                session: id, agent, prompt_text, quiet_ms,
+                            });
+                        }
                     }
                 }
             }
