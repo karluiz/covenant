@@ -184,6 +184,9 @@ interface Tab {
   /// Spec-pending badge handle. Destroyed on closeTab and recreated on
   /// each renderTabPill call to keep subscriptions symmetric.
   specBadge: SpecBadgeHandle | null;
+  /// Set when the agent in this tab has gone quiet apparently waiting on
+  /// the user. Cleared on `agent_resumed`. Drives the pulsing tab badge.
+  idleAgent?: { agent: string; sinceMs: number; promptText: string | null } | null;
 }
 
 interface TabGroup {
@@ -546,6 +549,24 @@ export class TabManager {
         `.tab-btn[data-tab-id="${tab.id}"]`,
       );
       if (pill) this.applyEscalationDot(pill, next.has(tab.sessionId));
+    }
+  }
+
+  /// Mount/remove the pulsing "agent idle waiting" badge on a tab's
+  /// chip. Idempotent — always strips any prior badge before re-adding,
+  /// so repeated agent_idle_waiting events don't stack DOM nodes.
+  private renderTabBadge(tab: Tab): void {
+    const pill = this.tabbarHost.querySelector<HTMLElement>(
+      `.tab-btn[data-tab-id="${tab.id}"]`,
+    );
+    if (!pill) return;
+    const existing = pill.querySelector(".tab-idle-badge");
+    if (existing) existing.remove();
+    if (tab.idleAgent) {
+      const badge = document.createElement("span");
+      badge.className = "tab-idle-badge";
+      badge.title = tab.idleAgent.promptText ?? `${tab.idleAgent.agent} waiting`;
+      pill.appendChild(badge);
     }
   }
 
@@ -1346,6 +1367,20 @@ export class TabManager {
                 void writeToSession(sessionId, enc.encode(`${cmd}\n`)).catch(
                   (err) => console.error("initial command write failed", err),
                 );
+              }
+            } else if (event.kind === "agent_idle_waiting") {
+              if (tabRef.current) {
+                tabRef.current.idleAgent = {
+                  agent: event.agent,
+                  sinceMs: Date.now() - event.quiet_ms,
+                  promptText: event.prompt_text,
+                };
+                this.renderTabBadge(tabRef.current);
+              }
+            } else if (event.kind === "agent_resumed") {
+              if (tabRef.current) {
+                tabRef.current.idleAgent = null;
+                this.renderTabBadge(tabRef.current);
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) tabRef.current.cwd = event.cwd;
