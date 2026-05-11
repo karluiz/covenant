@@ -15,6 +15,8 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 strip-ansi-escapes = { workspace = true }
+vt100 = { workspace = true }
+regex = { workspace = true }
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }
@@ -22,3 +24,4 @@ karl-blocks = { path = "../blocks" }
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = "3"
+serde_json = { workspace = true }

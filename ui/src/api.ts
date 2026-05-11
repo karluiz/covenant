@@ -40,7 +40,15 @@ export type SessionUiEvent =
       block: BlockId;
       command: string;
       rationale: string;
-    };
+    }
+  | {
+      kind: "agent_idle_waiting";
+      session: SessionId;
+      agent: string;
+      prompt_text: string | null;
+      quiet_ms: number;
+    }
+  | { kind: "agent_resumed"; session: SessionId };
 
 export interface SpawnHandlers {
   onOutput: OutputHandler;

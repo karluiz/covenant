@@ -93,6 +93,14 @@ fn event_kind(ev: &SessionEvent) -> String {
         SessionEvent::EscalationResolved { .. } => "EscalationResolved",
         SessionEvent::MissionCompleted { .. } => "MissionCompleted",
         SessionEvent::MissionFailed { .. } => "MissionFailed",
+        SessionEvent::AgentIdleWaiting { .. } => {
+            tracing::trace!("AgentIdleWaiting observer forwarding deferred to Task 6");
+            "AgentIdleWaiting"
+        }
+        SessionEvent::AgentResumed { .. } => {
+            tracing::trace!("AgentResumed observer forwarding deferred to Task 6");
+            "AgentResumed"
+        }
     }
     .into()
 }
@@ -109,7 +117,9 @@ fn event_session_id(ev: &SessionEvent) -> String {
         // TODO(telegram): handled in Task 5/6
         | SessionEvent::EscalationRequested { session, .. }
         | SessionEvent::MissionCompleted { session, .. }
-        | SessionEvent::MissionFailed { session, .. } => session.to_string(),
+        | SessionEvent::MissionFailed { session, .. }
+        | SessionEvent::AgentIdleWaiting { session, .. }
+        | SessionEvent::AgentResumed { session } => session.to_string(),
         // TODO(telegram): handled in Task 5/6 — no session id on this variant
         SessionEvent::EscalationResolved { .. } => String::new(),
     }
