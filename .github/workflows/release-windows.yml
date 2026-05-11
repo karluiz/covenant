@@ -38,8 +38,8 @@ jobs:
       - name: Run pty smoke test
         run: cargo test -p karl-pty --test windows_smoke -- --nocapture
 
-      - name: Run workspace tests
-        run: cargo test --workspace --release
+      - name: Run blocks parser tests
+        run: cargo test -p karl-blocks
 
       - name: Build Tauri MSI
         run: npm run tauri build

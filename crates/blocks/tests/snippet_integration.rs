@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! End-to-end check that the real `shell-integration/osc133.zsh` snippet,
 //! sourced from a sandboxed ZDOTDIR, makes zsh emit the OSC sequences
 //! `BlockParser` understands. Verifies both halves of the contract — the

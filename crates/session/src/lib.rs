@@ -523,6 +523,7 @@ mod tests {
     /// End-to-end: real zsh with our snippet, run a command, assert the
     /// bus emitted BlockSubmitted + BlockFinished with matching block id
     /// and the captured output text.
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn session_bus_emits_block_lifecycle() {
         let dir = tempfile::tempdir().expect("tempdir");
