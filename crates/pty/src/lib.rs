@@ -15,7 +15,11 @@
 //! driven on top of the channel.
 
 use std::io::{Read, Write};
+use std::os::fd::RawFd;
 use std::time::Duration;
+
+mod fg_proc;
+pub use fg_proc::foreground_process_name;
 
 use bytes::Bytes;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -94,6 +98,7 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
+    master_fd: RawFd,
 }
 
 impl PtySession {
@@ -119,6 +124,10 @@ impl PtySession {
 
         let writer = pair.master.take_writer()?;
         let reader = pair.master.try_clone_reader()?;
+        let master_fd = pair
+            .master
+            .as_raw_fd()
+            .ok_or_else(|| PtyError::Backend("pty master has no raw fd".to_string()))?;
 
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -150,6 +159,7 @@ impl PtySession {
                 master: pair.master,
                 writer,
                 child,
+                master_fd,
             },
             rx,
         ))
@@ -172,6 +182,12 @@ impl PtySession {
             pixel_height: 0,
         })?;
         Ok(())
+    }
+
+    /// Raw fd of the PTY master, for syscalls like `tcgetpgrp(2)`.
+    /// The fd is owned by `self.master`; do not close it.
+    pub fn master_fd(&self) -> RawFd {
+        self.master_fd
     }
 
     /// Best-effort kill of the child process.
