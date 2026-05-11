@@ -21,7 +21,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use karl_blocks::{BlockEvent, BlockId, BlockParser};
-use karl_pty::{foreground_process_name, PtySession, SpawnOptions};
+use karl_pty::{PtySession, SpawnOptions};
+#[cfg(unix)]
+use karl_pty::foreground_process_name;
 
 use crate::idle::{Decision, IdleDetector};
 use serde::{Deserialize, Serialize};
@@ -340,7 +342,10 @@ impl Session {
         let (raw_tx, raw_rx) = mpsc::unbounded_channel::<Bytes>();
 
         let pump_events_tx = events_tx.clone();
+        #[cfg(unix)]
         let master_fd = pty.master_fd();
+        #[cfg(not(unix))]
+        let master_fd: () = ();
         tokio::spawn(pump(id, pty_rx, raw_tx, pump_events_tx, master_fd));
 
         // Best-effort opened announcement. Subscribers attached after
@@ -390,7 +395,8 @@ async fn pump(
     mut pty_rx: mpsc::UnboundedReceiver<Bytes>,
     raw_tx: mpsc::UnboundedSender<Bytes>,
     events_tx: broadcast::Sender<SessionEvent>,
-    master_fd: std::os::fd::RawFd,
+    #[cfg(unix)] master_fd: std::os::fd::RawFd,
+    #[cfg(not(unix))] _master_fd: (),
 ) {
     let mut parser = BlockParser::new();
     // (block_id, command, cwd_at_submit, output_buf, started_at) of the
@@ -478,18 +484,21 @@ async fn pump(
                 }
             }
             _ = tick.tick() => {
-                let fg = foreground_process_name(master_fd);
-                let alt = vt.screen().alternate_screen();
-                // contents() can be expensive; only call when other gates pass.
-                if let Some(name) = fg.as_deref() {
-                    if alt && crate::idle::KNOWN_AGENTS.contains(&name) {
-                        let screen_text = vt.screen().contents();
-                        if let Decision::Idle { agent, prompt_text, quiet_ms } =
-                            detector.evaluate(Instant::now(), Some(name), alt, &screen_text)
-                        {
-                            let _ = events_tx.send(SessionEvent::AgentIdleWaiting {
-                                session: id, agent, prompt_text, quiet_ms,
-                            });
+                #[cfg(unix)]
+                {
+                    let fg = foreground_process_name(master_fd);
+                    let alt = vt.screen().alternate_screen();
+                    // contents() can be expensive; only call when other gates pass.
+                    if let Some(name) = fg.as_deref() {
+                        if alt && crate::idle::KNOWN_AGENTS.contains(&name) {
+                            let screen_text = vt.screen().contents();
+                            if let Decision::Idle { agent, prompt_text, quiet_ms } =
+                                detector.evaluate(Instant::now(), Some(name), alt, &screen_text)
+                            {
+                                let _ = events_tx.send(SessionEvent::AgentIdleWaiting {
+                                    session: id, agent, prompt_text, quiet_ms,
+                                });
+                            }
                         }
                     }
                 }

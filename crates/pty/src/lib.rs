@@ -18,10 +18,13 @@ pub mod shell;
 pub use shell::{ShellError, ShellKind};
 
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::time::Duration;
 
+#[cfg(unix)]
 mod fg_proc;
+#[cfg(unix)]
 pub use fg_proc::foreground_process_name;
 
 use bytes::Bytes;
@@ -129,6 +132,7 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
+    #[cfg(unix)]
     master_fd: RawFd,
 }
 
@@ -155,6 +159,7 @@ impl PtySession {
 
         let writer = pair.master.take_writer()?;
         let reader = pair.master.try_clone_reader()?;
+        #[cfg(unix)]
         let master_fd = pair
             .master
             .as_raw_fd()
@@ -190,6 +195,7 @@ impl PtySession {
                 master: pair.master,
                 writer,
                 child,
+                #[cfg(unix)]
                 master_fd,
             },
             rx,
@@ -217,6 +223,7 @@ impl PtySession {
 
     /// Raw fd of the PTY master, for syscalls like `tcgetpgrp(2)`.
     /// The fd is owned by `self.master`; do not close it.
+    #[cfg(unix)]
     pub fn master_fd(&self) -> RawFd {
         self.master_fd
     }

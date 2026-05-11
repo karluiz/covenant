@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Look up the foreground process group name for a PTY master fd.
 //! Used by the idle detector to know which CLI is currently in front.
 
