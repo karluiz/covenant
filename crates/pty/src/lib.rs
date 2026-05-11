@@ -103,6 +103,7 @@ impl SpawnOptions {
 
     /// Sensible default: interactive zsh, sized 80x24, with a TERM hint
     /// xterm.js can negotiate against.
+    #[cfg(unix)]
     pub fn zsh_interactive() -> Self {
         Self {
             program: "/bin/zsh".to_string(),
@@ -218,6 +219,7 @@ impl PtySession {
 ///
 /// This is the M0 acceptance check — exercises portable-pty end-to-end on
 /// the host, but does not yet wire anything into the event bus.
+#[cfg(unix)]
 pub fn smoke_zsh_echo() -> Result<String, PtyError> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(DEFAULT_SIZE)?;
@@ -267,6 +269,7 @@ pub fn smoke_zsh_echo() -> Result<String, PtyError> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn smoke_echoes_hello() {
         let out = smoke_zsh_echo().expect("pty smoke should succeed");
@@ -285,6 +288,7 @@ mod tests {
         assert!(opts.program.to_lowercase().ends_with("pwsh.exe"));
     }
 
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pty_session_round_trip() {
         let (mut session, mut rx) =
