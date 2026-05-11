@@ -225,6 +225,15 @@ pub enum SessionUiEvent {
         command: String,
         rationale: String,
     },
+    AgentIdleWaiting {
+        session: SessionId,
+        agent: String,
+        prompt_text: Option<String>,
+        quiet_ms: u64,
+    },
+    AgentResumed {
+        session: SessionId,
+    },
 }
 
 impl SessionEvent {
@@ -238,11 +247,20 @@ impl SessionEvent {
             | SessionEvent::EscalationRequested { .. }
             | SessionEvent::EscalationResolved { .. }
             | SessionEvent::MissionCompleted { .. }
-            | SessionEvent::MissionFailed { .. }
-            | SessionEvent::AgentIdleWaiting { .. }
-            | SessionEvent::AgentResumed { .. } => {
-                tracing::trace!("agent idle/resumed UI forwarding deferred to Task 6");
-                None
+            | SessionEvent::MissionFailed { .. } => None,
+            SessionEvent::AgentIdleWaiting {
+                session,
+                agent,
+                prompt_text,
+                quiet_ms,
+            } => Some(SessionUiEvent::AgentIdleWaiting {
+                session: *session,
+                agent: agent.clone(),
+                prompt_text: prompt_text.clone(),
+                quiet_ms: *quiet_ms,
+            }),
+            SessionEvent::AgentResumed { session } => {
+                Some(SessionUiEvent::AgentResumed { session: *session })
             }
             SessionEvent::PromptStart { session } => {
                 Some(SessionUiEvent::PromptStart { session: *session })
@@ -588,6 +606,35 @@ mod event_serde_tests {
         let ev = SessionEvent::AgentResumed { session: SessionId::new() };
         let json = serde_json::to_string(&ev).unwrap();
         assert!(json.contains(r#""kind":"agent_resumed""#));
+    }
+
+    #[test]
+    fn agent_idle_waiting_maps_to_ui() {
+        let id = SessionId::new();
+        let ev = SessionEvent::AgentIdleWaiting {
+            session: id,
+            agent: "claude".into(),
+            prompt_text: Some("(y/N)".into()),
+            quiet_ms: 4200,
+        };
+        let ui = ev.to_ui().expect("should produce SessionUiEvent");
+        match ui {
+            SessionUiEvent::AgentIdleWaiting { session, agent, prompt_text, quiet_ms } => {
+                assert_eq!(session, id);
+                assert_eq!(agent, "claude");
+                assert_eq!(prompt_text.as_deref(), Some("(y/N)"));
+                assert_eq!(quiet_ms, 4200);
+            }
+            other => panic!("expected AgentIdleWaiting, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_resumed_maps_to_ui() {
+        let id = SessionId::new();
+        let ev = SessionEvent::AgentResumed { session: id };
+        let ui = ev.to_ui().expect("should produce SessionUiEvent");
+        assert!(matches!(ui, SessionUiEvent::AgentResumed { session } if session == id));
     }
 }
 
