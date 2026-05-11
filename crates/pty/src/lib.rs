@@ -74,6 +74,33 @@ pub struct SpawnOptions {
 }
 
 impl SpawnOptions {
+    pub fn from_default_shell() -> Result<Self, crate::shell::ShellError> {
+        let shell = crate::shell::ShellKind::default_for_platform()?;
+        let program = shell.program().to_string_lossy().into_owned();
+        let args: Vec<String> = match &shell {
+            #[cfg(unix)]
+            crate::shell::ShellKind::Zsh { .. } | crate::shell::ShellKind::Bash { .. } => {
+                vec!["-i".to_string()]
+            }
+            #[cfg(windows)]
+            crate::shell::ShellKind::PowerShell { .. } => {
+                vec!["-NoLogo".to_string()]
+            }
+        };
+        let env = vec![
+            ("TERM".to_string(), "xterm-256color".to_string()),
+            ("LANG".to_string(), "en_US.UTF-8".to_string()),
+            ("COLORTERM".to_string(), "truecolor".to_string()),
+        ];
+        Ok(Self {
+            program,
+            args,
+            size: DEFAULT_SIZE,
+            env,
+            cwd: None,
+        })
+    }
+
     /// Sensible default: interactive zsh, sized 80x24, with a TERM hint
     /// xterm.js can negotiate against.
     pub fn zsh_interactive() -> Self {
@@ -247,6 +274,15 @@ mod tests {
             out.contains("hello"),
             "expected 'hello' in pty output, got: {out:?}"
         );
+    }
+
+    #[test]
+    fn spawn_options_from_default_shell_matches_platform() {
+        let opts = SpawnOptions::from_default_shell().expect("default shell options");
+        #[cfg(unix)]
+        assert!(opts.program.ends_with("zsh") || opts.program.ends_with("bash"));
+        #[cfg(windows)]
+        assert!(opts.program.to_lowercase().ends_with("pwsh.exe"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
