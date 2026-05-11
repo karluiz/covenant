@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -545,6 +546,7 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
 
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, body)?;
+    #[cfg(unix)]
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
     fs::rename(&tmp, path)?;
     Ok(())
@@ -586,6 +588,7 @@ mod tests {
         assert!(loaded.anthropic_api_key.is_none());
     }
 
+    #[cfg(unix)]
     #[test]
     fn saved_file_has_owner_only_perms() {
         let dir = tempfile::tempdir().unwrap();
