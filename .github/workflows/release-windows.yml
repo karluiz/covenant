@@ -1,0 +1,72 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Run pty smoke test
+        run: cargo test -p karl-pty --test windows_smoke -- --nocapture
+
+      - name: Run workspace tests
+        run: cargo test --workspace --release
+
+      - name: Build Tauri MSI
+        run: npm run tauri build
+        env:
+          # Unsigned build — TAURI_SIGNING_PRIVATE_KEY intentionally omitted.
+          RUST_BACKTRACE: 1
+
+      - name: Locate MSI
+        id: msi
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Recurse -Filter '*.msi' | Select-Object -First 1
+          if (-not $msi) { Write-Error 'no msi produced'; exit 1 }
+          "path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($msi.Name)"     >> $env:GITHUB_OUTPUT
+
+      - name: Upload MSI to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          gh release upload "${{ github.ref_name }}" "${{ steps.msi.outputs.path }}" --clobber
+
+      - name: Upload MSI as workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: covenant-windows-msi
+          path: ${{ steps.msi.outputs.path }}
