@@ -828,6 +828,7 @@ dependencies = [
  "ignore",
  "karl-agent",
  "karl-blocks",
+ "karl-capabilities",
  "karl-familiar",
  "karl-pty",
  "karl-session",
