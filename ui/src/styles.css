@@ -10190,3 +10190,30 @@ button.status-segment.status-tg:focus-visible {
   color: var(--muted);
   font-size: 12px;
 }
+
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(40, 60, 110, 0.95);
+  color: #f0f4ff;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.update-banner__text { flex: 1; }
+.update-banner__install {
+  background: #4a7dff; color: white; border: 0;
+  padding: 4px 12px; border-radius: 4px; cursor: pointer;
+}
+.update-banner__install:hover { background: #5a8aff; }
+.update-banner--installing .update-banner__install { opacity: 0.5; pointer-events: none; }
+.update-banner__dismiss {
+  background: transparent; border: 0; color: inherit;
+  cursor: pointer; font-size: 18px; padding: 0 4px;
+}
