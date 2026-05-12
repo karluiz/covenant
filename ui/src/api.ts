@@ -1030,3 +1030,68 @@ export type TelegramStatus = "disabled" | "ok" | "error";
 export async function telegramStatus(): Promise<TelegramStatus> {
   return invoke<TelegramStatus>("telegram_status");
 }
+
+// ── Capabilities (T7–T9) ────────────────────────────────────────────────────
+// Mirrors `capabilities_commands::CapabilityListItem` / `DetectResult` in
+// `crates/app/src/capabilities_commands.rs`. Keep in sync.
+
+export interface CapabilityListItem {
+  id: string;
+  tool: "claude" | "copilot" | "opencode" | "shared";
+  kind: "skill" | "command" | "hook" | "mcp" | "plugin" | "agent";
+  name: string;
+  description: string | null;
+  path: string;
+  scope_label: string;
+  read_only: boolean;
+}
+
+export interface CapabilitiesDetect {
+  claude: boolean;
+  copilot: boolean;
+  opencode: boolean;
+  shared: boolean;
+}
+
+export async function capabilitiesList(
+  projectRoot: string | null,
+): Promise<CapabilityListItem[]> {
+  return invoke<CapabilityListItem[]>("capabilities_list", {
+    projectRoot,
+  });
+}
+
+export async function capabilitiesRead(path: string): Promise<string> {
+  return invoke<string>("capabilities_read", { path });
+}
+
+export async function capabilitiesWrite(
+  path: string,
+  contents: string,
+): Promise<void> {
+  return invoke<void>("capabilities_write", { path, contents });
+}
+
+export async function capabilitiesDelete(path: string): Promise<void> {
+  return invoke<void>("capabilities_delete", { path });
+}
+
+export async function capabilitiesScaffold(
+  tool: string,
+  kind: string,
+  name: string,
+  description: string,
+  projectRoot: string | null,
+): Promise<string> {
+  return invoke<string>("capabilities_scaffold", {
+    tool,
+    kind,
+    name,
+    description,
+    projectRoot,
+  });
+}
+
+export async function capabilitiesDetect(): Promise<CapabilitiesDetect> {
+  return invoke<CapabilitiesDetect>("capabilities_detect");
+}

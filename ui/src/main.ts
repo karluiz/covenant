@@ -38,6 +38,7 @@ import { ReleasePanel } from "./release/panel";
 import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
+import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
@@ -436,6 +437,9 @@ async function boot(): Promise<void> {
 
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
+  const capabilitiesPage = requireEl<HTMLElement>("capabilities-page");
+  const capabilities = new CapabilitiesPanel(capabilitiesPage, workspace);
+  capabilities.onClosed = () => manager.refitActive();
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
   const operatorPage = requireEl<HTMLElement>("operator-page");
   const operator = new OperatorPanel(operatorPage, workspace, manager);
@@ -833,6 +837,14 @@ async function boot(): Promise<void> {
       shortcutsPanel.toggle();
       return;
     }
+    // ⌘⇧I → Capabilities panel (Skills / Commands / Hooks / MCPs across
+    // Claude / Copilot / opencode / Shared). Cmd+Shift+K was already taken
+    // by the Shortcuts modal, so the spec's keybinding was relocated to I.
+    if (e.metaKey && e.shiftKey && (e.key === "I" || e.key === "i")) {
+      e.preventDefault();
+      void capabilities.toggle();
+      return;
+    }
     // ⌘⇧L — toggle the Familiar roster (chat with the active tab's familiar).
     if (e.metaKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
       e.preventDefault();
@@ -960,6 +972,11 @@ async function boot(): Promise<void> {
       if (settings.isOpen()) {
         e.preventDefault();
         settings.close();
+        return;
+      }
+      if (capabilities.isOpen()) {
+        e.preventDefault();
+        capabilities.close();
         return;
       }
       if (agent.isOpen()) {

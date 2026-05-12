@@ -10,6 +10,7 @@
 //! the user's behalf.
 
 mod aom;
+mod capabilities_commands;
 mod connectivity;
 mod context;
 mod drafts;
@@ -2723,6 +2724,12 @@ pub fn run() {
             project_notes::project_docs_save,
             telegram_test_connection,
             telegram_status,
+            capabilities_commands::capabilities_list,
+            capabilities_commands::capabilities_read,
+            capabilities_commands::capabilities_write,
+            capabilities_commands::capabilities_delete,
+            capabilities_commands::capabilities_scaffold,
+            capabilities_commands::capabilities_detect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

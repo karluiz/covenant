@@ -37,6 +37,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "/"], label: "Docs hub", description: "Open in-app documentation. ⌘? also works." },
   { category: "Panels", keys: ["⌘", "⇧", "K"], label: "Keyboard shortcuts", description: "Show this list." },
   { category: "Panels", keys: ["⌘", "⇧", "N"], label: "Project notes", description: "Open the per-group project notes panel." },
+  { category: "Panels", keys: ["⌘", "⇧", "I"], label: "Capabilities", description: "Browse Skills / Commands / Hooks / MCPs across Claude, Copilot, opencode, Shared." },
 
   // Operator & AI — agent-driven features (super-agent, operators, mission, familiars)
   { category: "Operator & AI", keys: ["⌘", "K"], label: "Super-agent", description: "Toggle the agent chat panel." },
