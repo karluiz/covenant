@@ -217,6 +217,7 @@ export class SettingsPanel {
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
+      <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-familiars" data-target="sec-familiars">Familiars</a>
@@ -437,6 +438,20 @@ export class SettingsPanel {
               How much the model thinks before each decision. Less =
               cheaper and faster. More = better on ambiguous prompts.
             </small>
+          </label>
+        </section>
+        <section class="settings-section" id="sec-updates">
+          <h3 class="settings-section-title">Updates</h3>
+          <p class="settings-hint" style="margin: 0 0 6px;">
+            Checks GitHub Releases for a newer Covenant build. The app
+            also checks silently on launch.
+          </p>
+          <label class="settings-field">
+            <span class="settings-checkbox-row" style="cursor: default;">
+              <span>Check for updates</span>
+              <button type="button" class="settings-toggle" id="settings-check-updates">Check now</button>
+            </span>
+            <small class="settings-hint" id="settings-update-status">Checks GitHub for the latest version.</small>
           </label>
         </section>
         <section class="settings-section" id="sec-notifications">
@@ -741,6 +756,36 @@ export class SettingsPanel {
     form
       .querySelector<HTMLButtonElement>(".settings-cancel")!
       .addEventListener("click", () => this.close());
+
+    // Updates section — manual "Check now" trigger. Mirrors the silent
+    // boot-time check in main.ts but surfaces all three result kinds
+    // (available / uptodate / error) inline so the user gets feedback.
+    const checkBtn = form.querySelector<HTMLButtonElement>("#settings-check-updates");
+    const statusEl = form.querySelector<HTMLElement>("#settings-update-status");
+    if (checkBtn && statusEl) {
+      checkBtn.addEventListener("click", async () => {
+        checkBtn.disabled = true;
+        statusEl.textContent = "Checking…";
+        const { getVersion } = await import("@tauri-apps/api/app");
+        const { runUpdateCheck } = await import("../updater/check");
+        const { showUpdateBanner } = await import("../updater/banner");
+        const currentVersion = await getVersion();
+        const result = await runUpdateCheck({ currentVersion, silent: false });
+        switch (result.kind) {
+          case "available":
+            statusEl.textContent = `Update available: v${result.version}`;
+            showUpdateBanner(result.update);
+            break;
+          case "uptodate":
+            statusEl.textContent = `You're on the latest version (v${result.currentVersion}).`;
+            break;
+          case "error":
+            statusEl.textContent = `Check failed: ${result.message}`;
+            break;
+        }
+        checkBtn.disabled = false;
+      });
+    }
 
     // Sidebar nav: smooth-scroll to anchored fieldset on click, and
     // highlight whichever section is in view via IntersectionObserver.
