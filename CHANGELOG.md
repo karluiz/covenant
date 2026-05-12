@@ -6,6 +6,59 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.4.0 — Capabilities Browser
+
+Full UI for discovering and managing agent extensions across **Claude
+Code, Copilot CLI, opencode** and the shared `~/.agents/` ecosystem —
+skills, slash commands, hooks and MCP servers, all browseable, editable
+and creatable without leaving the terminal.
+
+### Added
+
+- New crate `karl-capabilities` with per-tool adapters that scan the
+  real on-disk locations (no unified abstraction — each tool's shape
+  is preserved):
+  - **Claude Code**: skills + slash commands across three scopes
+    (Plugin read-only, User, Project), hooks + MCP servers from
+    `settings.json`. Handles both versioned cache layout
+    (`~/.claude/plugins/cache/<mkt>/<plugin>/<ver>/skills/`) and
+    marketplace unversioned layout.
+  - **Copilot CLI**: MCP servers from `~/.copilot/mcp-config.json`,
+    installed plugins. Detects binary at `~/.copilot/`.
+  - **opencode**: agents (treated as skill analogue) and MCP servers
+    from `~/.config/opencode/` and `<repo>/.opencode/`.
+  - **Shared `~/.agents/`**: cross-tool skills standard
+    (skills.sh ecosystem, `npx skills` lockfile-aware).
+- Atomic writer with `.bak.<ts>` snapshot retention and a markdown
+  frontmatter builder.
+- Scaffolder with templates for new skills, slash commands, hook
+  snippets and MCP server snippets per supported (tool, kind) pair.
+- FS watcher (`notify` + `tokio::broadcast`) that emits `Added /
+  Modified / Removed` for any registered path set — wired but UI
+  still uses manual Refresh in v0.4.0.
+- Six Tauri commands (`capabilities_list / read / write / delete /
+  scaffold / detect`) bridging the Rust crate to the frontend.
+- New full-page Capabilities panel (`ui/src/capabilities/panel.ts`,
+  528 LOC) with tool tabs, section filters, scope filter (user /
+  project), search, in-place editor, Save / Delete / New, and a
+  manual project-root picker (folder dialog).
+- Keyboard shortcut **`Cmd+Shift+I`** to toggle the Capabilities
+  panel.
+
+### Changed
+
+- Workspace gained the `karl-capabilities` member; crate exposes
+  72 unit tests covering frontmatter parsing, all four adapters,
+  the watcher, atomic writes and the scaffolder.
+
+### Notes
+
+- Plugin-scoped items are read-only in v0.4.0 — a "Fork to user
+  scope" action is planned. Copilot CLI exposes no native skill /
+  command surface today, so its tab shows only MCPs + plugins.
+- Project root must be set manually (folder picker). Auto-derive
+  from the active tab's cwd (T10) is a follow-up.
+
 ## v0.3.1 — Windows support
 
 ### Added
