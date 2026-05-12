@@ -6853,9 +6853,9 @@ body.tabbar-left #tabbar-host {
     flex-direction: column;
     align-items: stretch;
     border-bottom: none;
-    border-right: 1px solid var(--border);
+    border-right: 0px solid var(--border);
     box-shadow: 1px 0 0 rgba(0, 0, 0, 0.5);
-    padding: 8px 8px 8px;
+    padding: 8px 0 8px 8px;
     gap: 6px;
     overflow: hidden;
 }
@@ -6870,28 +6870,26 @@ body.tabbar-left #tabs {
     overflow-x: hidden;
     min-height: 0;
     flex: 1;
-    padding-right: 6px;
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-    scrollbar-gutter: stable;
+    scrollbar-width: thin !important;
+    scrollbar-color: transparent transparent !important;
     transition: scrollbar-color 200ms ease;
 }
 
 body.tabbar-left #tabs:hover,
 body.tabbar-left #tabs:focus-within {
-    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent !important;
 }
 
 body.tabbar-left #tabs::-webkit-scrollbar {
-    display: none;
-    width: 0;
+    display: none !important;
+    width: 0 !important;
     background: transparent !important;
 }
 
 body.tabbar-left #tabs:hover::-webkit-scrollbar,
 body.tabbar-left #tabs:focus-within::-webkit-scrollbar {
-    display: block;
-    width: 6px;
+    display: block !important;
+    width: 6px !important;
 }
 
 body.tabbar-left #tabs::-webkit-scrollbar-track,
@@ -6906,6 +6904,11 @@ body.tabbar-left #tabs::-webkit-scrollbar-thumb {
     border: 0;
     border-radius: 3px;
     transition: background 200ms ease;
+}
+
+body.tabbar-left #tabs:hover::-webkit-scrollbar-thumb,
+body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22) !important;
 }
 
 body.tabbar-left #tabs:hover::-webkit-scrollbar-thumb,
@@ -7091,12 +7094,12 @@ body.tabbar-left .group-chip {
             var(--tab-border-hover)
         );
     border-left: 3px solid var(--group-color, var(--border));
-    padding: 0 14px 0 8px;
+    padding: 0 12px 0 8px;
     margin-top: 4px;
 }
 
 body.tabbar-left .tab-group-shell {
-    margin-right: 6px;
+    margin-right: 12px;
 }
 
 body.tabbar-left .group-chip-has-members {
