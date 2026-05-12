@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.4.1 — Capabilities Panel Layout Fixes
+
+Follow-up patch to v0.4.0 that fixes layout regressions in the
+Capabilities panel discovered after merging the redesign branch.
+
+### Fixed
+
+- Capabilities panel rebuilt 1:1 against the Settings panel pattern so
+  it composes correctly inside the main layout grid (no more
+  auto-shrink, no `display: contents` hack).
+- Pinned `#layout` to a single column so the right pane can't be
+  squeezed to zero width when the Capabilities panel mounts.
+- Header and body of the Capabilities panel now append directly to
+  `pageHost`, matching the Settings/Drafts mounting convention.
+- Used `position: fixed` where needed to break out of the grid's
+  auto-sizing for floating affordances.
+- Opaque backgrounds on Capabilities surfaces so the desktop wallpaper
+  no longer bleeds through translucent regions.
+
+### Changed
+
+- Refactored the Capabilities panel to mirror Settings/Drafts layout
+  exactly — same container shape, same sticky header pattern, same
+  scroll behavior. No behavior changes, layout-only.
+
 ## v0.4.0 — Capabilities Browser
 
 Full UI for discovering and managing agent extensions across **Claude
