@@ -7,5 +7,7 @@
 pub mod adapters;
 pub mod frontmatter;
 pub mod model;
+pub mod watcher;
 
 pub use model::{Tool, Kind, CapabilityError, CapabilityResult};
+pub use watcher::{CapabilityWatcher, CapabilityEvent, RecursiveMode};
