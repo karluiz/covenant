@@ -168,7 +168,7 @@ pub struct NotificationConfig {
     pub on_aom_error: bool,
     #[serde(default = "default_true")]
     pub on_aom_complete: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub on_executor_idle: bool,
     /// When the Covenant window is currently focused, suppress popups.
     /// The event is still logged via `tracing` regardless.
@@ -558,6 +558,19 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notification_config_default_enables_executor_idle() {
+        let cfg = NotificationConfig::default();
+        assert!(cfg.on_executor_idle, "executor idle notifications default on");
+    }
+
+    #[test]
+    fn notification_config_deserializes_without_executor_idle_field() {
+        let json = r#"{"on_operator_escalate":true,"on_aom_error":true,"on_aom_complete":true}"#;
+        let cfg: NotificationConfig = serde_json::from_str(json).expect("parse");
+        assert!(cfg.on_executor_idle, "missing field falls back to default true");
+    }
 
     #[test]
     fn missing_file_returns_defaults() {
