@@ -9,3 +9,6 @@ pub mod frontmatter;
 pub mod model;
 
 pub use model::{Tool, Kind, CapabilityError, CapabilityResult};
+
+pub mod writer;
+pub mod scaffold;
