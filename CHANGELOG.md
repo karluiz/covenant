@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.4.2 — Executor Idle Notifications
+
+Surface a native macOS notification (in addition to the existing
+pulsing tab badge) when an embedded CLI agent — `claude`, `copilot`,
+`opencode`, `codex`, `gemini`, or `aider` — goes idle waiting for
+user input. Works independently of Operator/AOM: you get pinged on
+any tab running one of those agents, even when nothing else is
+supervising the session.
+
+### Added
+
+- New `Trigger::ExecutorIdle` notification variant with **per-session**
+  30s throttle. Multiple tabs idle simultaneously each fire their own
+  notification; the same tab can't re-fire within 30s.
+- `executor_idle` subscriber task spawned per session: listens on the
+  session event bus, formats `{agent} is waiting` + the matched prompt
+  line, and fans out via the existing OS + email + Telegram dispatch.
+- `notifications.on_executor_idle` setting (default **on**, back-compat
+  for upgraded users via `serde(default = "default_true")`).
+- Settings → Notifications → "CLI agent is waiting" toggle row so users
+  can silence the OS popup while keeping the tab badge.
+
+### Changed
+
+- `ThrottleState` now tracks `last_fire_per_session: HashMap<(Trigger,
+  SessionId), Instant>` alongside the global throttle map. Existing
+  Operator/AOM triggers keep their global 30s window unchanged.
+
+### Tests
+
+- `notify::tests::executor_idle_throttle_is_per_session`
+- `notify::tests::executor_idle_is_enabled_respects_toggle`
+- `settings::tests::notification_config_default_enables_executor_idle`
+- `settings::tests::notification_config_deserializes_without_executor_idle_field`
+- `executor_idle::tests::format_uses_prompt_text_when_present`
+- `executor_idle::tests::format_falls_back_when_no_prompt_text`
+- `executor_idle::tests::format_handles_empty_prompt_text_as_missing`
+
 ## v0.4.1 — Capabilities Panel Layout Fixes
 
 Follow-up patch to v0.4.0 that fixes layout regressions in the
