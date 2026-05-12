@@ -9849,7 +9849,7 @@ button.status-segment.status-tg:focus-visible {
   display: grid;
   grid-template-rows: 56px 1fr;
   grid-template-columns: minmax(0, 1fr);
-  background: var(--bg);
+  background: #0b0d10;
   overflow: hidden;
   animation: settings-fade 0.12s ease-out;
   color: var(--text-primary);
@@ -9865,7 +9865,7 @@ button.status-segment.status-tg:focus-visible {
   justify-content: space-between;
   padding: 0 24px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-tabbar);
+  background: #0e1116;
 }
 .capabilities-page-header h2 {
   margin: 0;
@@ -9896,7 +9896,7 @@ button.status-segment.status-tg:focus-visible {
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--bg-tabbar) 70%, transparent);
+  background: #0d1014;
 }
 .cap-nav-group-title {
   margin: 14px 8px 4px;
@@ -9965,14 +9965,14 @@ button.status-segment.status-tg:focus-visible {
   overflow: hidden;
   min-height: 0;
   min-width: 0;
-  background: var(--bg-panel);
+  background: #0b0d10;
 }
 .cap-search-bar {
   display: flex;
   align-items: center;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: #0e1116;
 }
 .cap-search {
   flex: 1;
@@ -10070,7 +10070,7 @@ button.status-segment.status-tg:focus-visible {
 .capabilities-list {
   overflow-y: auto;
   border-right: 1px solid var(--border);
-  background: var(--bg);
+  background: #0b0d10;
   min-height: 0;
 }
 .cap-empty {
@@ -10131,7 +10131,7 @@ button.status-segment.status-tg:focus-visible {
 .capabilities-detail {
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
+  background: #0b0d10;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
