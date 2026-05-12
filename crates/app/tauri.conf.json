@@ -54,5 +54,15 @@
         "language": "en-US"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/karluiz/covenant/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERGNDIwNkI0MDZFRDlGNkIKUldScm4rMEd0QVpDMzV1QllnU1l3QTdtZGVLZU1BNm0xTzRHdzFsZllBZllwamRuUUY1b1g0dUEK"
+    }
   }
 }
