@@ -443,6 +443,16 @@ async fn spawn_session(
         bus_tx,
     );
 
+    // Executor-idle subscriber: on every AgentIdleWaiting, fires the
+    // OS+email notification fan-out (gated by the on_executor_idle
+    // setting and the per-session throttle inside `Notifier`).
+    let _ = executor_idle::spawn(
+        session.subscribe(),
+        state.notifier.clone(),
+        state.email_notifier.clone(),
+        state.settings.clone(),
+    );
+
     // Cross-session watcher: forwards this session's bus into the
     // global pump so M5 patterns across all open tabs can be detected.
     state
