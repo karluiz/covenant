@@ -148,16 +148,12 @@ export class CapabilitiesPanel {
 
   private render(): void {
     this.pageHost.innerHTML = "";
-    const root = document.createElement("div");
-    root.className = "capabilities-panel";
-    this.pageHost.appendChild(root);
-
-    root.appendChild(this.renderHeader());
+    this.pageHost.appendChild(this.renderHeader());
     const body = document.createElement("div");
     body.className = "capabilities-body";
     body.appendChild(this.renderNav());
     body.appendChild(this.renderMain());
-    root.appendChild(body);
+    this.pageHost.appendChild(body);
   }
 
   private renderHeader(): HTMLElement {

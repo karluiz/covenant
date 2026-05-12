@@ -166,7 +166,7 @@ export class BlockManager {
   private renderHistoricalSection(): string {
     if (this.historicalBlocks.length === 0) return "";
     const items = this.historicalBlocks
-      .map((b) => {
+      .map((b, idx) => {
         const codeText =
           b.exit_code === null || b.exit_code === undefined
             ? "?"
@@ -175,7 +175,7 @@ export class BlockManager {
         const dur = formatDuration(b.duration_ms);
         const when = formatRelativeAge(Date.now() - b.finished_at_unix_ms);
         return `
-          <li class="block-item block-item-history">
+          <li class="block-item block-item-history" data-history-idx="${idx}">
             <div class="block-cmd">$ ${escapeHtml(b.command)}</div>
             <div class="block-meta">
               <span class="block-exit ${ok ? "ok" : "fail"}">exit ${escapeHtml(codeText)}</span>
@@ -229,6 +229,7 @@ export class BlockManager {
       this.content.appendChild(empty);
     }
     this.wireToggle();
+    this.wireBlockContextMenus();
   }
 
   private render(): void {
@@ -296,9 +297,17 @@ export class BlockManager {
         });
       });
 
-    // Wire right-click context menu on each block item.
+    this.wireBlockContextMenus();
+
+    const list = this.content.querySelector<HTMLUListElement>(".blocks-list");
+    if (list) list.scrollTop = list.scrollHeight;
+  }
+
+  /// Wires right-click handlers on both current-session and historical
+  /// block items. Called after every render path that produces items.
+  private wireBlockContextMenus(): void {
     this.content
-      .querySelectorAll<HTMLElement>(".block-item")
+      .querySelectorAll<HTMLElement>(".block-item:not(.block-item-history)")
       .forEach((el) => {
         el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -309,8 +318,18 @@ export class BlockManager {
         });
       });
 
-    const list = this.content.querySelector<HTMLUListElement>(".blocks-list");
-    if (list) list.scrollTop = list.scrollHeight;
+    this.content
+      .querySelectorAll<HTMLElement>(".block-item-history")
+      .forEach((el) => {
+        el.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          const idxStr = el.dataset.historyIdx;
+          if (idxStr === undefined) return;
+          const hb = this.historicalBlocks[Number(idxStr)];
+          if (!hb) return;
+          this.openHistoricalContextMenu(hb, e.clientX, e.clientY);
+        });
+      });
   }
 
   private wireToggle(): void {
@@ -327,6 +346,15 @@ export class BlockManager {
         label: "Copy command",
         icon: Icons.copy(),
         onClick: () => copyToClipboard(block.command),
+      },
+      {
+        label: "Execute command",
+        icon: Icons.lightbulb(),
+        onClick: () =>
+          injectCommand(this.sessionId, block.command).catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error("inject_command failed", err);
+          }),
       },
       {
         label: "Copy output",
@@ -360,6 +388,29 @@ export class BlockManager {
             },
           ]
         : []),
+    ]);
+  }
+
+  private openHistoricalContextMenu(
+    hb: HistoricalBlockRow,
+    x: number,
+    y: number,
+  ): void {
+    this.menu.show(x, y, [
+      {
+        label: "Copy command",
+        icon: Icons.copy(),
+        onClick: () => copyToClipboard(hb.command),
+      },
+      {
+        label: "Execute command",
+        icon: Icons.lightbulb(),
+        onClick: () =>
+          injectCommand(this.sessionId, hb.command).catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error("inject_command failed", err);
+          }),
+      },
     ]);
   }
 }
