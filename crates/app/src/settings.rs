@@ -168,6 +168,8 @@ pub struct NotificationConfig {
     pub on_aom_error: bool,
     #[serde(default = "default_true")]
     pub on_aom_complete: bool,
+    #[serde(default)]
+    pub on_executor_idle: bool,
     /// When the Covenant window is currently focused, suppress popups.
     /// The event is still logged via `tracing` regardless.
     #[serde(default = "default_true")]
@@ -193,6 +195,7 @@ impl Default for NotificationConfig {
             on_operator_escalate: true,
             on_aom_error: true,
             on_aom_complete: true,
+            on_executor_idle: true,
             suppress_when_focused: true,
             email_enabled: false,
             email_from: None,
