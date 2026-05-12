@@ -2837,6 +2837,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "karl-capabilities"
+version = "0.3.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "karl-familiar"
 version = "0.3.1"
 dependencies = [
