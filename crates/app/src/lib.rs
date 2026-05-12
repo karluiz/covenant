@@ -20,6 +20,7 @@ pub mod notifications;
 mod cost;
 mod cross_session;
 mod embedder;
+mod executor_idle;
 mod familiar_commands;
 mod fix_proposer;
 mod history_import;
