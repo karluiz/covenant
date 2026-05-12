@@ -7,7 +7,9 @@
 pub mod adapters;
 pub mod frontmatter;
 pub mod model;
+pub mod scaffold;
 pub mod watcher;
+pub mod writer;
 
 pub use model::{Tool, Kind, CapabilityError, CapabilityResult};
 pub use watcher::{CapabilityWatcher, CapabilityEvent, RecursiveMode};
