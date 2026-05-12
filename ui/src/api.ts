@@ -614,6 +614,7 @@ export interface NotificationConfig {
   on_operator_escalate: boolean;
   on_aom_error: boolean;
   on_aom_complete: boolean;
+  on_executor_idle: boolean;
   suppress_when_focused: boolean;
   email_enabled: boolean;
   email_from?: string | null;

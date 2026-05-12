@@ -20,6 +20,7 @@ pub mod notifications;
 mod cost;
 mod cross_session;
 mod embedder;
+mod executor_idle;
 mod familiar_commands;
 mod fix_proposer;
 mod history_import;
@@ -440,6 +441,16 @@ async fn spawn_session(
         state.settings.clone(),
         session.subscribe(),
         bus_tx,
+    );
+
+    // Executor-idle subscriber: on every AgentIdleWaiting, fires the
+    // OS+email notification fan-out (gated by the on_executor_idle
+    // setting and the per-session throttle inside `Notifier`).
+    let _ = executor_idle::spawn(
+        session.subscribe(),
+        state.notifier.clone(),
+        state.email_notifier.clone(),
+        state.settings.clone(),
     );
 
     // Cross-session watcher: forwards this session's bus into the

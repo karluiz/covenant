@@ -39,6 +39,9 @@ pub enum Trigger {
     AomError,
     /// AOM session completed normally (user-stopped or mission done).
     AomComplete,
+    /// An executor (Claude Code, aider, …) in a session has gone idle
+    /// waiting for the user. Throttled per-session.
+    ExecutorIdle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +54,7 @@ impl Trigger {
     pub fn severity(self) -> Severity {
         match self {
             Trigger::OperatorEscalate | Trigger::AomError => Severity::Escalation,
-            Trigger::AomComplete => Severity::Info,
+            Trigger::AomComplete | Trigger::ExecutorIdle => Severity::Info,
         }
     }
 
@@ -60,6 +63,7 @@ impl Trigger {
             Trigger::OperatorEscalate => "operator_escalate",
             Trigger::AomError => "aom_error",
             Trigger::AomComplete => "aom_complete",
+            Trigger::ExecutorIdle => "executor_idle",
         }
     }
 
@@ -68,6 +72,7 @@ impl Trigger {
             Trigger::OperatorEscalate => cfg.on_operator_escalate,
             Trigger::AomError => cfg.on_aom_error,
             Trigger::AomComplete => cfg.on_aom_complete,
+            Trigger::ExecutorIdle => cfg.on_executor_idle,
         }
     }
 }
@@ -83,6 +88,7 @@ pub enum EmitOutcome {
 #[derive(Default)]
 struct ThrottleState {
     last_fire: HashMap<Trigger, Instant>,
+    last_fire_per_session: HashMap<(Trigger, SessionId), Instant>,
 }
 
 impl ThrottleState {
@@ -91,6 +97,22 @@ impl ThrottleState {
             Some(prev) if now.duration_since(prev) < THROTTLE_WINDOW => false,
             _ => {
                 self.last_fire.insert(trigger, now);
+                true
+            }
+        }
+    }
+
+    fn allow_per_session(
+        &mut self,
+        trigger: Trigger,
+        session: SessionId,
+        now: Instant,
+    ) -> bool {
+        let key = (trigger, session);
+        match self.last_fire_per_session.get(&key).copied() {
+            Some(prev) if now.duration_since(prev) < THROTTLE_WINDOW => false,
+            _ => {
+                self.last_fire_per_session.insert(key, now);
                 true
             }
         }
@@ -137,7 +159,7 @@ impl Notifier {
         let title = title.into();
         let body = body.into();
         let cfg = self.settings.lock().await.notifications.clone();
-        let outcome = self.decide(trigger, &cfg);
+        let outcome = self.decide(trigger, &cfg, session_id);
 
         tracing::info!(
             trigger = trigger.label(),
@@ -183,6 +205,7 @@ impl Notifier {
         &self,
         trigger: Trigger,
         cfg: &crate::settings::NotificationConfig,
+        session_id: Option<SessionId>,
     ) -> EmitOutcome {
         if !trigger.is_enabled(cfg) {
             return EmitOutcome::SuppressedByToggle;
@@ -190,18 +213,22 @@ impl Notifier {
         if cfg.suppress_when_focused && self.window_is_focused() {
             return EmitOutcome::SuppressedByFocus;
         }
-        if !self.allow_now(trigger) {
+        if !self.allow_now(trigger, session_id) {
             return EmitOutcome::SuppressedByThrottle;
         }
         EmitOutcome::Sent
     }
 
-    fn allow_now(&self, trigger: Trigger) -> bool {
+    fn allow_now(&self, trigger: Trigger, session_id: Option<SessionId>) -> bool {
         let mut t = match self.throttle.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        t.allow(trigger, Instant::now())
+        let now = Instant::now();
+        match (trigger, session_id) {
+            (Trigger::ExecutorIdle, Some(sid)) => t.allow_per_session(trigger, sid, now),
+            _ => t.allow(trigger, now),
+        }
     }
 
     fn window_is_focused(&self) -> bool {
@@ -282,5 +309,27 @@ mod tests {
         // Other triggers stay on.
         assert!(Trigger::AomError.is_enabled(&cfg));
         assert!(Trigger::AomComplete.is_enabled(&cfg));
+    }
+
+    #[test]
+    fn executor_idle_throttle_is_per_session() {
+        use karl_session::SessionId;
+        let mut state = ThrottleState::default();
+        let s1 = SessionId::new();
+        let s2 = SessionId::new();
+        let t0 = Instant::now();
+        assert!(state.allow_per_session(Trigger::ExecutorIdle, s1, t0));
+        assert!(!state.allow_per_session(Trigger::ExecutorIdle, s1, t0 + Duration::from_secs(5)));
+        assert!(state.allow_per_session(Trigger::ExecutorIdle, s2, t0 + Duration::from_secs(5)));
+        assert!(state.allow_per_session(Trigger::ExecutorIdle, s1, t0 + Duration::from_secs(31)));
+    }
+
+    #[test]
+    fn executor_idle_is_enabled_respects_toggle() {
+        let mut cfg = crate::settings::NotificationConfig::default();
+        cfg.on_executor_idle = true;
+        assert!(Trigger::ExecutorIdle.is_enabled(&cfg));
+        cfg.on_executor_idle = false;
+        assert!(!Trigger::ExecutorIdle.is_enabled(&cfg));
     }
 }

@@ -61,6 +61,7 @@ interface NotificationConfig {
   on_operator_escalate: boolean;
   on_aom_error: boolean;
   on_aom_complete: boolean;
+  on_executor_idle: boolean;
   suppress_when_focused: boolean;
   email_enabled: boolean;
   email_from?: string | null;
@@ -164,6 +165,7 @@ export class SettingsPanel {
           on_operator_escalate: true,
           on_aom_error: true,
           on_aom_complete: true,
+          on_executor_idle: true,
           suppress_when_focused: true,
           email_enabled: false,
           email_from: null,
@@ -466,6 +468,16 @@ export class SettingsPanel {
           </label>
           <label class="settings-field">
             <span class="settings-checkbox-row">
+              <input type="checkbox" name="notif_executor_idle" />
+              <span>CLI agent is waiting</span>
+            </span>
+            <small class="settings-hint">
+              Notify when an embedded agent (claude, copilot, opencode, …)
+              goes idle waiting for input.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-checkbox-row">
               <input type="checkbox" name="notif_suppress_focused" />
               <span>Don't pop notifications when Covenant is focused</span>
             </span>
@@ -560,6 +572,9 @@ export class SettingsPanel {
     const notifAomComplete = form.querySelector<HTMLInputElement>(
       'input[name="notif_aom_complete"]',
     )!;
+    const notifExecutorIdle = form.querySelector<HTMLInputElement>(
+      'input[name="notif_executor_idle"]',
+    )!;
     const notifSuppressFocused = form.querySelector<HTMLInputElement>(
       'input[name="notif_suppress_focused"]',
     )!;
@@ -615,11 +630,13 @@ export class SettingsPanel {
       on_operator_escalate: true,
       on_aom_error: true,
       on_aom_complete: true,
+      on_executor_idle: true,
       suppress_when_focused: true,
     };
     notifOpEscalate.checked = n.on_operator_escalate;
     notifAomError.checked = n.on_aom_error;
     notifAomComplete.checked = n.on_aom_complete;
+    notifExecutorIdle.checked = n.on_executor_idle ?? true;
     notifSuppressFocused.checked = n.suppress_when_focused;
     notifEmailEnabled.checked = n.email_enabled ?? false;
     sendgridKeyInput.value = this.current.sendgrid_api_key ?? "";
@@ -825,6 +842,7 @@ export class SettingsPanel {
           on_operator_escalate: notifOpEscalate.checked,
           on_aom_error: notifAomError.checked,
           on_aom_complete: notifAomComplete.checked,
+          on_executor_idle: notifExecutorIdle.checked,
           suppress_when_focused: notifSuppressFocused.checked,
           email_enabled: notifEmailEnabled.checked,
           email_from: notifEmailFrom.value.trim() || null,
