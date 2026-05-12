@@ -9839,7 +9839,7 @@ button.status-segment.status-tg:focus-visible {
   50%      { opacity: 0.35; }
 }
 
-/* ── Capabilities panel (T7–T9, settings-aligned layout) ──────────────── */
+/* ── Capabilities panel — mirrors #settings-page layout exactly ────── */
 #capabilities-page {
   display: grid;
   grid-template-rows: 56px 1fr;
@@ -9851,7 +9851,7 @@ button.status-segment.status-tg:focus-visible {
 }
 #capabilities-page[hidden] { display: none; }
 
-/* Header — mirrors .settings-page-header dimensions & tint. */
+/* Mirrors .settings-page-header */
 .capabilities-page-header {
   display: flex;
   align-items: center;
@@ -9873,7 +9873,7 @@ button.status-segment.status-tg:focus-visible {
   align-items: center;
 }
 
-/* Body grid = 220px nav + 1fr main, like .settings-body */
+/* Mirrors .settings-body */
 .capabilities-body {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
@@ -9881,7 +9881,7 @@ button.status-segment.status-tg:focus-visible {
   min-height: 0;
 }
 
-/* Left nav (Tool / Section / Scope) */
+/* Mirrors .settings-nav */
 .capabilities-nav {
   border-right: 1px solid var(--border);
   padding: 12px 10px;
@@ -9924,7 +9924,7 @@ button.status-segment.status-tg:focus-visible {
   cursor: not-allowed;
 }
 .cap-nav-scope {
-  margin: 4px 8px 4px;
+  margin: 6px 8px 4px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -9943,7 +9943,7 @@ button.status-segment.status-tg:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 .cap-nav-scope-actions {
   display: flex;
@@ -9951,13 +9951,14 @@ button.status-segment.status-tg:focus-visible {
   flex-wrap: wrap;
 }
 
-/* Right side: search bar + (optional new form) + split list/detail */
+/* Right side: equivalent of .settings-form but houses search + split. */
 .capabilities-main {
   display: flex;
   flex-direction: column;
-  min-height: 0;
   overflow: hidden;
-  background: var(--bg);
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-panel);
 }
 .cap-search-bar {
   display: flex;
@@ -9983,10 +9984,11 @@ button.status-segment.status-tg:focus-visible {
   grid-template-columns: 320px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
-/* Shared button styles (kept from previous design) */
+/* Button styles */
 .cap-btn {
   background: var(--bg-overlay);
   color: var(--text-primary);
@@ -10020,7 +10022,7 @@ button.status-segment.status-tg:focus-visible {
   border-radius: 6px;
 }
 
-/* New-item form (inline above the split) */
+/* New-item form (inline above split) */
 .cap-new-form {
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);

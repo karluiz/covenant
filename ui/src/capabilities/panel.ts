@@ -149,11 +149,13 @@ export class CapabilitiesPanel {
   private render(): void {
     this.pageHost.innerHTML = "";
     this.pageHost.appendChild(this.renderHeader());
+
     const body = document.createElement("div");
     body.className = "capabilities-body";
+    this.pageHost.appendChild(body);
+
     body.appendChild(this.renderNav());
     body.appendChild(this.renderMain());
-    this.pageHost.appendChild(body);
   }
 
   private renderHeader(): HTMLElement {
@@ -182,14 +184,13 @@ export class CapabilitiesPanel {
     const nav = document.createElement("nav");
     nav.className = "capabilities-nav";
 
-    // Tool group
+    nav.appendChild(navGroupTitle("Tool"));
     const tools: { key: ToolKey; label: string }[] = [
       { key: "claude", label: "Claude" },
       { key: "copilot", label: "Copilot" },
       { key: "opencode", label: "opencode" },
       { key: "shared", label: "Shared" },
     ];
-    nav.appendChild(navGroupTitle("Tool"));
     for (const t of tools) {
       const installed = this.detect ? this.detect[t.key] : true;
       const a = document.createElement("a");
@@ -206,7 +207,6 @@ export class CapabilitiesPanel {
       nav.appendChild(a);
     }
 
-    // Section group
     nav.appendChild(navGroupTitle("Section"));
     for (const s of SECTIONS_BY_TOOL[this.activeTool]) {
       const a = document.createElement("a");
@@ -221,7 +221,6 @@ export class CapabilitiesPanel {
       nav.appendChild(a);
     }
 
-    // Scope group
     nav.appendChild(navGroupTitle("Scope"));
     const scopeBox = document.createElement("div");
     scopeBox.className = "cap-nav-scope";
@@ -271,28 +270,28 @@ export class CapabilitiesPanel {
     const main = document.createElement("div");
     main.className = "capabilities-main";
 
-    // Search bar
     const searchBar = document.createElement("div");
     searchBar.className = "cap-search-bar";
-    searchBar.innerHTML = `
-      <input type="text" class="cap-search" placeholder="Filter by name, path or description" value="${escapeHtml(this.search)}">
-    `;
+    searchBar.innerHTML = `<input type="text" class="cap-search" placeholder="Filter by name, path or description" value="${escapeHtml(this.search)}">`;
     const input = searchBar.querySelector<HTMLInputElement>(".cap-search")!;
     input.oninput = () => {
       this.search = input.value;
-      this.renderBodyOnly();
+      this.renderSplitOnly();
     };
     main.appendChild(searchBar);
 
     if (this.newFormOpen) main.appendChild(this.renderNewForm());
 
+    main.appendChild(this.renderSplit());
+    return main;
+  }
+
+  private renderSplit(): HTMLElement {
     const split = document.createElement("div");
     split.className = "capabilities-split";
     split.appendChild(this.renderList());
     split.appendChild(this.renderDetail());
-    main.appendChild(split);
-
-    return main;
+    return split;
   }
 
   private renderNewForm(): HTMLElement {
@@ -371,17 +370,13 @@ export class CapabilitiesPanel {
   }
 
   // Re-renders only the list+detail split (used for fast search filtering).
-  private renderBodyOnly(): void {
+  private renderSplitOnly(): void {
     const old = this.pageHost.querySelector(".capabilities-split");
     if (!old) {
       this.render();
       return;
     }
-    const next = document.createElement("div");
-    next.className = "capabilities-split";
-    next.appendChild(this.renderList());
-    next.appendChild(this.renderDetail());
-    old.replaceWith(next);
+    old.replaceWith(this.renderSplit());
   }
 
   private renderList(): HTMLElement {
