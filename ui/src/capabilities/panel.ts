@@ -153,14 +153,16 @@ export class CapabilitiesPanel {
     this.pageHost.appendChild(root);
 
     root.appendChild(this.renderHeader());
-    root.appendChild(this.renderToolbar());
-    if (this.newFormOpen) root.appendChild(this.renderNewForm());
-    root.appendChild(this.renderBody());
+    const body = document.createElement("div");
+    body.className = "capabilities-body";
+    body.appendChild(this.renderNav());
+    body.appendChild(this.renderMain());
+    root.appendChild(body);
   }
 
   private renderHeader(): HTMLElement {
     const header = document.createElement("header");
-    header.className = "capabilities-header";
+    header.className = "capabilities-page-header";
     header.innerHTML = `
       <h2>Capabilities</h2>
       <div class="capabilities-header-actions">
@@ -180,75 +182,71 @@ export class CapabilitiesPanel {
     return header;
   }
 
-  private renderToolbar(): HTMLElement {
-    const wrap = document.createElement("div");
-    wrap.className = "capabilities-toolbar";
+  private renderNav(): HTMLElement {
+    const nav = document.createElement("nav");
+    nav.className = "capabilities-nav";
 
+    // Tool group
     const tools: { key: ToolKey; label: string }[] = [
       { key: "claude", label: "Claude" },
       { key: "copilot", label: "Copilot" },
       { key: "opencode", label: "opencode" },
       { key: "shared", label: "Shared" },
     ];
-    const toolRow = document.createElement("div");
-    toolRow.className = "cap-row";
-    toolRow.innerHTML = `<span class="cap-row-label">Tools:</span>`;
+    nav.appendChild(navGroupTitle("Tool"));
     for (const t of tools) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "cap-tab";
       const installed = this.detect ? this.detect[t.key] : true;
-      if (!installed) btn.classList.add("cap-tab-disabled");
-      if (this.activeTool === t.key) btn.classList.add("cap-tab-active");
-      btn.textContent = installed ? t.label : `${t.label} (not installed)`;
-      btn.onclick = () => {
+      const a = document.createElement("a");
+      a.className = "cap-nav-item";
+      if (this.activeTool === t.key) a.classList.add("active");
+      if (!installed) a.classList.add("disabled");
+      a.textContent = installed ? t.label : `${t.label} (not installed)`;
+      a.onclick = () => {
         this.activeTool = t.key;
-        // Reset section to first available for this tool.
         this.activeSection = SECTIONS_BY_TOOL[t.key][0].key;
         this.selectedId = null;
         this.render();
       };
-      toolRow.appendChild(btn);
+      nav.appendChild(a);
     }
-    wrap.appendChild(toolRow);
 
-    const sectionRow = document.createElement("div");
-    sectionRow.className = "cap-row";
-    sectionRow.innerHTML = `<span class="cap-row-label">Section:</span>`;
+    // Section group
+    nav.appendChild(navGroupTitle("Section"));
     for (const s of SECTIONS_BY_TOOL[this.activeTool]) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "cap-section";
-      if (this.activeSection === s.key) btn.classList.add("cap-section-active");
-      btn.textContent = s.label;
-      btn.onclick = () => {
+      const a = document.createElement("a");
+      a.className = "cap-nav-item";
+      if (this.activeSection === s.key) a.classList.add("active");
+      a.textContent = s.label;
+      a.onclick = () => {
         this.activeSection = s.key;
         this.selectedId = null;
         this.render();
       };
-      sectionRow.appendChild(btn);
+      nav.appendChild(a);
     }
-    wrap.appendChild(sectionRow);
 
-    const scopeRow = document.createElement("div");
-    scopeRow.className = "cap-row";
-    scopeRow.innerHTML = `
-      <span class="cap-row-label">Scope:</span>
+    // Scope group
+    nav.appendChild(navGroupTitle("Scope"));
+    const scopeBox = document.createElement("div");
+    scopeBox.className = "cap-nav-scope";
+    scopeBox.innerHTML = `
       <label class="cap-check"><input type="checkbox" data-scope="user" ${this.showUser ? "checked" : ""}> User</label>
       <label class="cap-check"><input type="checkbox" data-scope="project" ${this.showProject ? "checked" : ""}> Project</label>
-      <span class="cap-project-path">${this.projectRoot ? escapeHtml(this.projectRoot) : "none set"}</span>
-      <button type="button" class="cap-btn cap-btn-small" data-act="set-root">Set...</button>
-      ${this.projectRoot ? `<button type="button" class="cap-btn cap-btn-small" data-act="clear-root">Clear</button>` : ""}
+      <div class="cap-project-path" title="${this.projectRoot ? escapeHtml(this.projectRoot) : ""}">${this.projectRoot ? escapeHtml(this.projectRoot) : "no project root"}</div>
+      <div class="cap-nav-scope-actions">
+        <button type="button" class="cap-btn cap-btn-small" data-act="set-root">Set…</button>
+        ${this.projectRoot ? `<button type="button" class="cap-btn cap-btn-small" data-act="clear-root">Clear</button>` : ""}
+      </div>
     `;
-    scopeRow.querySelector<HTMLInputElement>('[data-scope="user"]')!.onchange = (e) => {
+    scopeBox.querySelector<HTMLInputElement>('[data-scope="user"]')!.onchange = (e) => {
       this.showUser = (e.target as HTMLInputElement).checked;
       this.render();
     };
-    scopeRow.querySelector<HTMLInputElement>('[data-scope="project"]')!.onchange = (e) => {
+    scopeBox.querySelector<HTMLInputElement>('[data-scope="project"]')!.onchange = (e) => {
       this.showProject = (e.target as HTMLInputElement).checked;
       this.render();
     };
-    scopeRow.querySelector<HTMLButtonElement>('[data-act="set-root"]')!.onclick = async () => {
+    scopeBox.querySelector<HTMLButtonElement>('[data-act="set-root"]')!.onclick = async () => {
       const picked = await openDialog({
         title: "Pick project root",
         multiple: false,
@@ -260,7 +258,7 @@ export class CapabilitiesPanel {
       localStorage.setItem(PROJECT_ROOT_KEY, picked);
       await this.refresh();
     };
-    const clearBtn = scopeRow.querySelector<HTMLButtonElement>('[data-act="clear-root"]');
+    const clearBtn = scopeBox.querySelector<HTMLButtonElement>('[data-act="clear-root"]');
     if (clearBtn) {
       clearBtn.onclick = async () => {
         this.projectRoot = null;
@@ -268,22 +266,37 @@ export class CapabilitiesPanel {
         await this.refresh();
       };
     }
-    wrap.appendChild(scopeRow);
+    nav.appendChild(scopeBox);
 
-    const searchRow = document.createElement("div");
-    searchRow.className = "cap-row";
-    searchRow.innerHTML = `
-      <span class="cap-row-label">Search:</span>
-      <input type="text" class="cap-search" placeholder="filter by name / path / description" value="${escapeHtml(this.search)}">
+    return nav;
+  }
+
+  private renderMain(): HTMLElement {
+    const main = document.createElement("div");
+    main.className = "capabilities-main";
+
+    // Search bar
+    const searchBar = document.createElement("div");
+    searchBar.className = "cap-search-bar";
+    searchBar.innerHTML = `
+      <input type="text" class="cap-search" placeholder="Filter by name, path or description" value="${escapeHtml(this.search)}">
     `;
-    const input = searchRow.querySelector<HTMLInputElement>(".cap-search")!;
+    const input = searchBar.querySelector<HTMLInputElement>(".cap-search")!;
     input.oninput = () => {
       this.search = input.value;
       this.renderBodyOnly();
     };
-    wrap.appendChild(searchRow);
+    main.appendChild(searchBar);
 
-    return wrap;
+    if (this.newFormOpen) main.appendChild(this.renderNewForm());
+
+    const split = document.createElement("div");
+    split.className = "capabilities-split";
+    split.appendChild(this.renderList());
+    split.appendChild(this.renderDetail());
+    main.appendChild(split);
+
+    return main;
   }
 
   private renderNewForm(): HTMLElement {
@@ -361,22 +374,17 @@ export class CapabilitiesPanel {
     return form;
   }
 
-  private renderBody(): HTMLElement {
-    const body = document.createElement("div");
-    body.className = "capabilities-body";
-    body.appendChild(this.renderList());
-    body.appendChild(this.renderDetail());
-    return body;
-  }
-
-  // Re-renders only the list+detail (used for fast search filtering).
+  // Re-renders only the list+detail split (used for fast search filtering).
   private renderBodyOnly(): void {
-    const old = this.pageHost.querySelector(".capabilities-body");
+    const old = this.pageHost.querySelector(".capabilities-split");
     if (!old) {
       this.render();
       return;
     }
-    const next = this.renderBody();
+    const next = document.createElement("div");
+    next.className = "capabilities-split";
+    next.appendChild(this.renderList());
+    next.appendChild(this.renderDetail());
     old.replaceWith(next);
   }
 
@@ -512,6 +520,13 @@ export class CapabilitiesPanel {
       textarea.value = `# read error: ${String(err)}`;
     }
   }
+}
+
+function navGroupTitle(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "cap-nav-group-title";
+  el.textContent = text;
+  return el;
 }
 
 function escapeHtml(s: string): string {
