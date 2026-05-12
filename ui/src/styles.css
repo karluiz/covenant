@@ -80,6 +80,7 @@ body.bg-translucent {
     /* Row 3 = status bar (3.7). `auto` so it collapses to 0 height when
      the bar is hidden (settings.status_bar_enabled === false). */
     grid-template-rows: 38px 1fr auto;
+    grid-template-columns: minmax(0, 1fr);
     height: 100%;
     width: 100%;
 }
@@ -9875,7 +9876,7 @@ button.status-segment.status-tg:focus-visible {
 /* Body grid = 220px nav + 1fr main, like .settings-body */
 .capabilities-body {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 220px minmax(0, 1fr);
   overflow: hidden;
   min-height: 0;
 }
@@ -9979,7 +9980,7 @@ button.status-segment.status-tg:focus-visible {
 
 .capabilities-split {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
