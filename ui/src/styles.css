@@ -9841,13 +9841,20 @@ button.status-segment.status-tg:focus-visible {
 
 /* ── Capabilities panel — mirrors #settings-page layout exactly ────── */
 #capabilities-page {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
   grid-template-rows: 56px 1fr;
+  grid-template-columns: minmax(0, 1fr);
   background: var(--bg);
   overflow: hidden;
   animation: settings-fade 0.12s ease-out;
   color: var(--text-primary);
   font-family: var(--ui-font);
+  z-index: 50;
 }
 #capabilities-page[hidden] { display: none; }
 
