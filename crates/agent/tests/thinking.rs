@@ -12,6 +12,7 @@ fn ask_request_thinking_budget_default_is_none() {
         user_message: "u".into(),
         max_tokens: 1024,
         thinking_budget: None,
+        force_tool: None,
     };
     assert!(req.thinking_budget.is_none());
 }
@@ -25,6 +26,7 @@ fn ask_request_with_thinking_budget_set() {
         user_message: "u".into(),
         max_tokens: 1024,
         thinking_budget: Some(2000),
+        force_tool: None,
     };
     assert_eq!(req.thinking_budget, Some(2000));
 }

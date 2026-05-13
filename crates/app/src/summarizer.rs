@@ -176,6 +176,7 @@ async fn regenerate(
         user_message,
         max_tokens: SUMMARY_MAX_TOKENS,
         thinking_budget: None,
+        force_tool: None,
     })
     .await
     .map_err(|e| e.to_string())?;

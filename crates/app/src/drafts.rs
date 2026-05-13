@@ -893,6 +893,7 @@ pub async fn suggest_draft_section(
         user_message: user_msg,
         max_tokens: SUGGEST_MAX_TOKENS,
         thinking_budget: None,
+        force_tool: None,
     })
     .await
     .map_err(|e| e.to_string())?;
