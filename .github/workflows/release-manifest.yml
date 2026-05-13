@@ -1,0 +1,76 @@
+name: Release Manifest
+
+on:
+  workflow_run:
+    workflows: ["Release macOS", "Release Windows"]
+    types: [completed]
+
+jobs:
+  aggregate:
+    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS fragment
+        uses: actions/download-artifact@v4
+        with:
+          name: manifest-darwin
+          path: fragments
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Download Windows fragment
+        uses: actions/download-artifact@v4
+        with:
+          name: manifest-windows
+          path: fragments
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Build aggregated latest.json
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          VERSION="${TAG#v}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          # Start from a previously-uploaded latest.json (carries the
+          # other platform's signature when this run only built one).
+          EXISTING="{}"
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest.json$'; then
+            gh release download "$TAG" -p latest.json -D /tmp
+            EXISTING="$(cat /tmp/latest.json)"
+          fi
+
+          if ls fragments/*.json >/dev/null 2>&1; then
+            MERGED_PLATFORMS=$(jq -s 'reduce .[] as $f ({}; . * $f)' fragments/*.json)
+          else
+            MERGED_PLATFORMS='{}'
+          fi
+
+          jq -n \
+            --arg v "$VERSION" \
+            --arg d "$DATE" \
+            --arg notes "See https://github.com/karluiz/covenant/releases/tag/$TAG" \
+            --argjson existing "$EXISTING" \
+            --argjson merged "$MERGED_PLATFORMS" \
+            '{version: $v, notes: $notes, pub_date: $d, platforms: (($existing.platforms // {}) * $merged)}' \
+            > latest.json
+
+          cat latest.json
+
+      - name: Upload latest.json to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          gh release upload "$TAG" latest.json --clobber

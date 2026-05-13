@@ -41,10 +41,11 @@ jobs:
       - name: Run blocks parser tests
         run: cargo test -p karl-blocks
 
-      - name: Build Tauri MSI
+      - name: Build Tauri MSI (signed for updater)
         run: npm run tauri build
         env:
-          # Unsigned build — TAURI_SIGNING_PRIVATE_KEY intentionally omitted.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RUST_BACKTRACE: 1
 
       - name: Locate MSI
@@ -55,6 +56,17 @@ jobs:
           if (-not $msi) { Write-Error 'no msi produced'; exit 1 }
           "path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
           "name=$($msi.Name)"     >> $env:GITHUB_OUTPUT
+
+      - name: Locate updater artifacts
+        id: updater
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Recurse -Filter '*.msi.zip' | Select-Object -First 1
+          $sig = Get-ChildItem -Recurse -Filter '*.msi.zip.sig' | Select-Object -First 1
+          if (-not $zip -or -not $sig) { Write-Error 'missing updater artifacts'; exit 1 }
+          "zip_path=$($zip.FullName)" >> $env:GITHUB_OUTPUT
+          "zip_name=$($zip.Name)"     >> $env:GITHUB_OUTPUT
+          "sig_path=$($sig.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Upload MSI to release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -67,6 +79,8 @@ jobs:
             gh release create $tag --title $tag --notes "Automated release. See CHANGELOG for details."
           }
           gh release upload $tag "${{ steps.msi.outputs.path }}" --clobber
+          gh release upload $tag "${{ steps.updater.outputs.zip_path }}" --clobber
+          gh release upload $tag "${{ steps.updater.outputs.sig_path }}" --clobber
 
       - name: Upload MSI as workflow artifact
         if: github.event_name == 'workflow_dispatch'
@@ -74,3 +88,18 @@ jobs:
         with:
           name: covenant-windows-msi
           path: ${{ steps.msi.outputs.path }}
+
+      - name: Emit per-platform manifest fragment
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path manifest-fragments -Force | Out-Null
+          $sig = Get-Content -Raw "${{ steps.updater.outputs.sig_path }}"
+          $url = "https://github.com/karluiz/covenant/releases/download/${{ github.ref_name }}/${{ steps.updater.outputs.zip_name }}"
+          $json = @{ "windows-x86_64" = @{ signature = $sig; url = $url } } | ConvertTo-Json -Depth 4
+          Set-Content -Path manifest-fragments/windows-x86_64.json -Value $json
+
+      - name: Upload manifest fragment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifest-windows
+          path: manifest-fragments/windows-x86_64.json

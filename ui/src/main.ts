@@ -5,9 +5,13 @@
 import "@xterm/xterm/css/xterm.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getVersion } from "@tauri-apps/api/app";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+
+import { runUpdateCheck } from "./updater/check";
+import { showUpdateBanner } from "./updater/banner";
 
 import { dismissBootSplash } from "./boot-splash";
 import { AgentPanel } from "./agent/panel";
@@ -1074,11 +1078,24 @@ roster.onDeliverDirective = async (sessionId, rendered) => {
 // contextually for the active tab's bound Familiar.
 document.addEventListener("familiars:open", () => roster.show());
 
-void boot().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error("covenant boot failed", err);
-  const workspace = document.getElementById("workspace");
-  if (workspace) workspace.textContent = `boot failed: ${String(err)}`;
-  // Clear the splash even on failure so the error message is visible.
-  dismissBootSplash();
-});
+async function startupUpdateCheck(): Promise<void> {
+  const currentVersion = await getVersion();
+  const result = await runUpdateCheck({ currentVersion, silent: true });
+  if (result.kind === "available") {
+    showUpdateBanner(result.update);
+  }
+  // "uptodate" and "error" are silent on boot.
+}
+
+void boot()
+  .then(() => {
+    void startupUpdateCheck();
+  })
+  .catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("covenant boot failed", err);
+    const workspace = document.getElementById("workspace");
+    if (workspace) workspace.textContent = `boot failed: ${String(err)}`;
+    // Clear the splash even on failure so the error message is visible.
+    dismissBootSplash();
+  });
