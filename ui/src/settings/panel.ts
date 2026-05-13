@@ -111,6 +111,14 @@ export class SettingsPanel {
   /// visible again.
   public onClosed: (() => void) | null = null;
 
+  /// Return the serialized tab manifest so the user can export their
+  /// workspace from this panel. Wired by main.ts.
+  public onExportWorkspace: (() => unknown) | null = null;
+
+  /// Replace the live tab manifest from a parsed JSON object. Wired by
+  /// main.ts; the panel passes the parsed payload straight through.
+  public onImportWorkspace: ((parsed: unknown) => Promise<void> | void) | null = null;
+
   constructor(
     private readonly pageHost: HTMLElement,
     private readonly workspace: HTMLElement,
