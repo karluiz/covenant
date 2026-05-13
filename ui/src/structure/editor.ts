@@ -460,7 +460,7 @@ export class StructureEditor {
   /// file open: CM6 is fastest when the state is constructed once
   /// per document instead of mutated piecemeal.
   private buildState(path: string, text: string): EditorState {
-    const lang = languageForPath(path);
+    const lang = languageForPath(path, text);
     const langExtension = lang ? [lang] : [];
 
     return EditorState.create({
