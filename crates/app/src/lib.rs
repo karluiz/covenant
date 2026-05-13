@@ -328,9 +328,15 @@ async fn spawn_session(
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::from_default_shell()
         .map_err(|e| format!("shell resolve: {e}"))?;
-    opts.args.push("--no-globalrcs".to_string());
-    opts.env
-        .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
+    // zsh-only args/env. On Windows the default shell is pwsh, where
+    // `--no-globalrcs` is parsed as the ambiguous `-no*` prefix and
+    // dumps the full help banner into the pty (v0.5.5 launch regression).
+    #[cfg(unix)]
+    {
+        opts.args.push("--no-globalrcs".to_string());
+        opts.env
+            .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
+    }
     // Persistence-restored cwd is set HERE (before spawn) instead of
     // injected as `cd <path>\r` after the first prompt. portable-pty
     // launches the shell directly in this directory — no visible

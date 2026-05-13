@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.6 — Windows launch fix (pwsh help banner)
+
+### Fixed
+
+- **Windows startup**: v0.5.5 spawned pwsh with the zsh-only
+  `--no-globalrcs` flag, which pwsh parsed as the ambiguous `-no*`
+  prefix and dumped the full usage banner into the pty on every new
+  tab. The flag and the matching `ZDOTDIR` env injection are now
+  gated to `#[cfg(unix)]` (`crates/app/src/lib.rs`).
+
 ## v0.5.5 — Horizontal tab bar overflow scroll
 
 ### Fixed
