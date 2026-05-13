@@ -18,7 +18,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -37,11 +37,11 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build + sign Tauri (universal bundle)
+      - name: Build + sign Tauri (aarch64 — Apple Silicon)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --target universal-apple-darwin
+        run: npm run tauri build -- --target aarch64-apple-darwin
 
       - name: Locate updater artifacts
         id: artifacts
@@ -70,9 +70,9 @@ jobs:
           mkdir -p manifest-fragments
           SIG_CONTENT=$(cat "${{ steps.artifacts.outputs.sig }}")
           TGZ_NAME=$(basename "${{ steps.artifacts.outputs.tgz }}")
-          cat > "manifest-fragments/darwin-universal.json" <<EOF
+          cat > "manifest-fragments/darwin-aarch64.json" <<EOF
           {
-            "darwin-universal": {
+            "darwin-aarch64": {
               "signature": "${SIG_CONTENT}",
               "url": "https://github.com/karluiz/covenant/releases/download/${{ github.ref_name }}/${TGZ_NAME}"
             }
@@ -83,4 +83,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: manifest-darwin
-          path: manifest-fragments/darwin-universal.json
+          path: manifest-fragments/darwin-aarch64.json
