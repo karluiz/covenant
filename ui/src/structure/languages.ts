@@ -11,6 +11,8 @@
 // grows past 25–30 grammars, revisit with `import()` per match.
 
 import type { Extension } from "@codemirror/state";
+import { sql, StandardSQL, PostgreSQL, MySQL, MSSQL, SQLite } from "@codemirror/lang-sql";
+import type { SQLDialect } from "@codemirror/lang-sql";
 import { rust } from "@codemirror/lang-rust";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
@@ -23,6 +25,105 @@ import { StreamLanguage } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+
+// ---------------------------------------------------------------------------
+// SQL dialect detection
+// ---------------------------------------------------------------------------
+
+interface DialectSpec {
+  name: "StandardSQL" | "PostgreSQL" | "MySQL" | "MSSQL" | "SQLite";
+  dialect: SQLDialect;
+}
+
+const DIALECT_BY_NAME: Record<DialectSpec["name"], SQLDialect> = {
+  StandardSQL,
+  PostgreSQL,
+  MySQL,
+  MSSQL,
+  SQLite,
+};
+
+const MARKER_RE = /^\s*--\s*dialect\s*:\s*([A-Za-z]+)\s*$/i;
+const MARKER_LOOKAHEAD_LINES = 20;
+const HEAD_HEURISTIC_BYTES = 4096;
+
+function dialectFromMarker(head: string): DialectSpec["name"] | null {
+  const lines = head.split("\n", MARKER_LOOKAHEAD_LINES);
+  for (const line of lines) {
+    const m = MARKER_RE.exec(line);
+    if (!m) continue;
+    const tag = m[1].toLowerCase();
+    if (tag === "postgres" || tag === "postgresql") return "PostgreSQL";
+    if (tag === "mysql" || tag === "mariadb") return "MySQL";
+    if (tag === "sqlite") return "SQLite";
+    if (tag === "mssql" || tag === "sqlserver") return "MSSQL";
+    if (tag === "standard" || tag === "ansi") return "StandardSQL";
+  }
+  return null;
+}
+
+function dialectFromHeuristic(head: string): DialectSpec["name"] | null {
+  const slice = head
+    .slice(0, HEAD_HEURISTIC_BYTES)
+    .split("\n")
+    .map((line) => {
+      const i = line.indexOf("--");
+      return i === -1 ? line : line.slice(0, i);
+    })
+    .join("\n");
+  if (
+    /\bIDENTITY\s*\(/i.test(slice) ||
+    /\bNVARCHAR\b/i.test(slice) ||
+    /\n\s*GO\s*\n/i.test(slice)
+  ) {
+    return "MSSQL";
+  }
+  if (
+    /\bAUTO_INCREMENT\b/i.test(slice) ||
+    /`[A-Za-z0-9_]+`/.test(slice) ||
+    /\bENGINE\s*=/i.test(slice)
+  ) {
+    return "MySQL";
+  }
+  if (
+    /\bRETURNING\b/i.test(slice) ||
+    /\bSERIAL\b/i.test(slice) ||
+    /\bBIGSERIAL\b/i.test(slice) ||
+    /\$\$/.test(slice) ||
+    /\bILIKE\b/i.test(slice)
+  ) {
+    return "PostgreSQL";
+  }
+  if (
+    /\bPRAGMA\b/i.test(slice) ||
+    /\bAUTOINCREMENT\b/i.test(slice) ||
+    /\bWITHOUT\s+ROWID\b/i.test(slice)
+  ) {
+    return "SQLite";
+  }
+  return null;
+}
+
+/// Detect the SQL dialect for a file, using extension, explicit marker
+/// comment, or content heuristics. Returns a DialectSpec with `.name`
+/// and `.dialect` for use with `sql({ dialect })`.
+export function sqlDialectFor(path: string, head: string): DialectSpec {
+  const base = (path.split("/").pop() ?? "").toLowerCase();
+  const ext = base.includes(".") ? base.slice(base.lastIndexOf(".") + 1) : "";
+  if (ext === "psql") return { name: "PostgreSQL", dialect: PostgreSQL };
+  if (ext === "mysql") return { name: "MySQL", dialect: MySQL };
+
+  const fromMarker = dialectFromMarker(head);
+  if (fromMarker) return { name: fromMarker, dialect: DIALECT_BY_NAME[fromMarker] };
+
+  const fromHeuristic = dialectFromHeuristic(head);
+  if (fromHeuristic) return { name: fromHeuristic, dialect: DIALECT_BY_NAME[fromHeuristic] };
+
+  return { name: "StandardSQL", dialect: StandardSQL };
+}
+
+/// SQL extensions that route through sqlDialectFor instead of BY_EXT.
+const SQL_EXTS = new Set(["sql", "psql", "mysql", "ddl", "dml"]);
 
 /// Lookup by lowercased extension. Multiple keys can map to the same
 /// language (`.ts` and `.tsx` both → typescript variant of JS).
@@ -67,7 +168,11 @@ const BY_NAME: Record<string, () => Extension> = {
 /// Resolve a CodeMirror language extension for `path`. Returns null
 /// when no supported language matches — caller falls back to plain
 /// text editing (still gets gutters, undo, search, just no colors).
-export function languageForPath(path: string): Extension | null {
+///
+/// `head` is the first few KB of the file content, used only for SQL
+/// dialect detection. It defaults to "" and is ignored for all other
+/// languages.
+export function languageForPath(path: string, head: string = ""): Extension | null {
   const base = path.split("/").pop() ?? "";
 
   const byName = BY_NAME[base];
@@ -81,6 +186,13 @@ export function languageForPath(path: string): Extension | null {
   const dot = base.lastIndexOf(".");
   if (dot <= 0) return null;
   const ext = base.slice(dot + 1).toLowerCase();
+
+  // SQL extensions route through dialect detection rather than BY_EXT,
+  // because the correct grammar depends on the file's content.
+  if (SQL_EXTS.has(ext)) {
+    return sql({ dialect: sqlDialectFor(path, head).dialect });
+  }
+
   const factory = BY_EXT[ext];
   return factory ? factory() : null;
 }

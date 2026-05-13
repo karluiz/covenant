@@ -6059,6 +6059,82 @@ button.status-segment.status-aom.status-aom-warn:hover {
     background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 
+/* ─── XLSX preview ─── */
+
+.structure-preview-xlsx {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.structure-preview-xlsx-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    flex: 0 0 auto;
+}
+
+.structure-preview-xlsx-tab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 10px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.structure-preview-xlsx-tab:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.structure-preview-xlsx-tab.active {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.structure-preview-xlsx-grid {
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 8px;
+}
+
+.structure-preview-xlsx-table {
+    border-collapse: collapse;
+    min-width: 100%;
+}
+
+.structure-preview-xlsx-table th,
+.structure-preview-xlsx-table td {
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    text-align: left;
+    vertical-align: top;
+    white-space: pre;
+}
+
+.structure-preview-xlsx-table th {
+    background: rgba(255, 255, 255, 0.04);
+    font-weight: 600;
+}
+
+.structure-preview-xlsx-more {
+    padding: 6px 4px;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.structure-preview-xlsx-placeholder {
+    padding: 16px;
+    opacity: 0.7;
+}
+
 /* Right-click context menu on tree rows. Floating popover anchored
    at the cursor; closed on outside click or Escape. */
 .structure-context-menu {
