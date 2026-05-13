@@ -6,6 +6,45 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.7 — ⌘K action palette + SQL/XLSX editor previews
+
+### Added
+
+- **⌘K action palette**: redesigned the ⌘K agent invocation to return
+  a structured response (explanation + proposed-command chip + risk
+  badge + follow-ups) instead of free-form markdown. New `respond`
+  tool schema with a streaming JSON accumulator on the Rust side
+  (`crates/agent/`) plus a risk classifier that grades proposed
+  commands against the safety blocklist. Frontend renders the chip
+  with ⏎ insert / ⌘⏎ run keybindings (`ui/src/api.ts`,
+  `ui/src/palette/*`, `ui/src/styles.css`).
+
+- **SQL syntax highlighting**: editor now detects SQL dialect
+  (SQLite/MySQL/Postgres) from file head when extension is ambiguous,
+  with comment stripping and case-insensitive heuristics
+  (`ui/src/editor/`, `@codemirror/lang-sql` dep).
+
+- **XLSX preview**: spreadsheet files render as multi-sheet tabs over
+  a virtualized grid via SheetJS, gated behind a size guard and
+  wired through the binary read path (`ui/src/editor/XlsxPreview.ts`,
+  `xlsx` dep).
+
+### Changed
+
+- **pnpm workspace**: committed `pnpm-workspace.yaml` and
+  `pnpm-lock.yaml` so the workspace is reproducible.
+
+### Fixed
+
+- **Spec-detect alerts scoped to tab**: AOM spec-detection alerts
+  now target only the tab that triggered them instead of broadcasting
+  across all tabs (`crates/aom/`, `ui/src/aom/`).
+
+- **Copilot plugin discovery**: capabilities drawer now parses
+  `config.json` for installed plugins with an fs fallback, and the
+  directory viewer renders manifest/README instead of a raw textarea
+  (`crates/app/src/capabilities/copilot.rs`, `ui/src/capabilities/panel.ts`).
+
 ## v0.5.6 — Windows launch fix (pwsh help banner)
 
 ### Fixed
