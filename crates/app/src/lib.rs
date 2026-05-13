@@ -1833,14 +1833,19 @@ doing.
 Be terse and technical. Reference specific commands, exit codes, and \
 files when relevant. Don't restate what's obvious from the world model. \
 When uncertain, say so briefly. No filler — go straight to the answer. \
-Plain text only (no markdown, no code fences).";
+Always respond by invoking the `respond` tool exactly once. \
+Put prose in `explanation`. If a single shell command would directly \
+help, put it in `command` with a one-sentence rationale. Prefer top-1: \
+do not list alternatives in prose. Suggest up to 3 short follow-up \
+questions the user might ask next. Keep everything terse.";
 
 #[tauri::command]
 async fn ask_agent(
     state: State<'_, AppState>,
     session_id: String,
     question: String,
-    on_token: Channel<String>,
+    on_explanation: Channel<String>,
+    on_response: Channel<serde_json::Value>,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
 
@@ -1893,8 +1898,7 @@ async fn ask_agent(
         }
     };
 
-    // 4. Stream the response. Forward each delta through the Channel;
-    //    return when the stream ends.
+    // 4. Stream the response, forcing the respond tool.
     let req = karl_agent::AskRequest {
         api_key,
         model: model_chat,
@@ -1902,22 +1906,42 @@ async fn ask_agent(
         user_message,
         max_tokens: 1024,
         thinking_budget: None,
+        force_tool: Some(karl_agent::respond_tool::tool_schema()),
     };
+
+    let acc = std::sync::Arc::new(std::sync::Mutex::new(
+        karl_agent::respond_tool::ToolInputAccumulator::default(),
+    ));
+    let acc_for_cb = acc.clone();
 
     karl_agent::ask_streaming(req, move |event| match event {
         karl_agent::AgentEvent::Delta(text) => {
-            let _ = on_token.send(text);
+            let _ = on_explanation.send(text);
         }
-        karl_agent::AgentEvent::Usage(_) => {
-            // ⌘K doesn't track cost yet — AOM does that downstream.
+        karl_agent::AgentEvent::ToolInputDelta { fragment, .. } => {
+            if !fragment.is_empty() {
+                acc_for_cb.lock().unwrap().push(&fragment);
+            }
         }
-        karl_agent::AgentEvent::Done => {
-            // Promise resolution on the JS side signals end-of-stream.
-        }
-        karl_agent::AgentEvent::ThinkingDelta(_) | karl_agent::AgentEvent::StopReason(_) => {}
+        karl_agent::AgentEvent::Usage(_)
+        | karl_agent::AgentEvent::Done
+        | karl_agent::AgentEvent::ThinkingDelta(_)
+        | karl_agent::AgentEvent::StopReason(_)
+        | karl_agent::AgentEvent::ToolInputDone { .. } => {}
     })
     .await
     .map_err(|e| e.to_string())?;
+
+    // Drain the accumulator and ship the parsed response.
+    let parsed = {
+        let inner = match std::sync::Arc::try_unwrap(acc) {
+            Ok(m) => m.into_inner().unwrap(),
+            Err(arc) => std::mem::take(&mut *arc.lock().unwrap()),
+        };
+        inner.finish().map_err(|e| format!("parse respond tool: {e}"))?
+    };
+    let value = serde_json::to_value(&parsed).map_err(|e| e.to_string())?;
+    let _ = on_response.send(value);
 
     Ok(())
 }

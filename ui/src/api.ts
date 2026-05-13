@@ -679,19 +679,34 @@ export async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
 }
 
-export type AgentTokenHandler = (delta: string) => void;
+export interface CommandAction {
+  cmd: string;
+  rationale: string;
+  risk: "safe" | "mutates" | "destructive";
+  cwd_hint?: string | null;
+}
+
+export interface AgentResponse {
+  explanation: string;
+  command: CommandAction | null;
+  followups: string[];
+}
 
 export async function askAgent(
   sessionId: SessionId,
   question: string,
-  onToken: AgentTokenHandler,
+  onExplanation: (delta: string) => void,
+  onResponse: (resp: AgentResponse) => void,
 ): Promise<void> {
-  const channel = new Channel<string>();
-  channel.onmessage = (delta) => onToken(delta);
+  const explChan = new Channel<string>();
+  explChan.onmessage = (delta) => onExplanation(delta);
+  const respChan = new Channel<AgentResponse>();
+  respChan.onmessage = (resp) => onResponse(resp);
   return invoke<void>("ask_agent", {
     sessionId,
     question,
-    onToken: channel,
+    onExplanation: explChan,
+    onResponse: respChan,
   });
 }
 

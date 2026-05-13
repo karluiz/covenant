@@ -2025,6 +2025,7 @@ async fn run_tick(
                 user_message: user_message.clone(),
                 max_tokens: 64,
                 thinking_budget: None,
+                force_tool: None,
             })
             .await;
             drop(_thinking);
@@ -2139,6 +2140,7 @@ async fn run_tick(
                 user_message,
                 max_tokens: effective_max_tokens,
                 thinking_budget,
+                force_tool: None,
             })
             .await
         };

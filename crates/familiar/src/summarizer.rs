@@ -128,6 +128,7 @@ impl Llm for AnthropicLlm {
             user_message: user.to_string(),
             max_tokens: 1024,
             thinking_budget: None,
+            force_tool: None,
         };
         let resp = karl_agent::ask_oneshot_with_usage(req).await
             .map_err(crate::FamiliarError::Agent)?;

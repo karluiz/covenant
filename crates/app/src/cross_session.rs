@@ -271,6 +271,7 @@ async fn check_for_pattern(
         user_message: user_msg,
         max_tokens: 180,
         thinking_budget: None,
+        force_tool: None,
     })
     .await
     .map_err(|e| e.to_string())?;

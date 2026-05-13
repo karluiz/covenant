@@ -6,6 +6,8 @@
 //! `covenant`. This separation keeps the agent reusable (CLI tool,
 //! tests, etc.) and the API surface deliberately small.
 
+pub mod respond_tool;
+pub mod safety;
 pub mod spec_author;
 
 use futures_util::StreamExt;
@@ -37,6 +39,9 @@ pub struct AskRequest {
     /// Enable Anthropic extended thinking with this token budget.
     /// `None` means thinking disabled (legacy behavior).
     pub thinking_budget: Option<u32>,
+    /// If `Some`, sent in the `tools` array and `tool_choice` is forced
+    /// to this name so the model must invoke it.
+    pub force_tool: Option<serde_json::Value>,
 }
 
 /// Events emitted as the response streams in.
@@ -60,6 +65,11 @@ pub enum AgentEvent {
     /// The stop_reason from message_delta. Common values:
     /// "end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal".
     StopReason(String),
+    /// Streaming JSON fragment of a tool_use input block.
+    ToolInputDelta { tool_name: String, fragment: String },
+    /// Tool_use content block closed. The accumulated JSON is parsed
+    /// upstream by the caller using `respond_tool::ToolInputAccumulator`.
+    ToolInputDone { tool_name: String },
 }
 
 /// Token counts for a single Messages API call. All fields are 0 if the
@@ -141,6 +151,8 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
                     *s = Some(r);
                 }
             }
+            AgentEvent::ToolInputDelta { .. } => {}
+            AgentEvent::ToolInputDone { .. } => {}
         }
     })
     .await?;
@@ -189,6 +201,11 @@ where
             { "role": "user", "content": req.user_message }
         ]
     });
+    if let Some(tool) = req.force_tool.as_ref() {
+        body["tools"] = serde_json::json!([tool]);
+        let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        body["tool_choice"] = serde_json::json!({ "type": "tool", "name": name });
+    }
     if let Some(budget) = req.thinking_budget {
         body["thinking"] = serde_json::json!({
             "type": "enabled",
@@ -265,7 +282,18 @@ where
                                     on_event(AgentEvent::ThinkingDelta(text.to_string()));
                                 }
                             }
-                            _ => {} // signature_delta, input_json_delta, etc.
+                            "input_json_delta" => {
+                                if let Some(frag) = delta
+                                    .and_then(|d| d.get("partial_json"))
+                                    .and_then(|t| t.as_str())
+                                {
+                                    on_event(AgentEvent::ToolInputDelta {
+                                        tool_name: String::new(),
+                                        fragment: frag.to_string(),
+                                    });
+                                }
+                            }
+                            _ => {} // signature_delta, etc.
                         }
                     }
                     "message_start" => {
@@ -296,6 +324,27 @@ where
                         {
                             on_event(AgentEvent::StopReason(reason.to_string()));
                         }
+                    }
+                    "content_block_start" => {
+                        let cb = value.get("content_block");
+                        if cb.and_then(|c| c.get("type")).and_then(|t| t.as_str())
+                            == Some("tool_use")
+                        {
+                            let name = cb
+                                .and_then(|c| c.get("name"))
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            on_event(AgentEvent::ToolInputDelta {
+                                tool_name: name,
+                                fragment: String::new(),
+                            });
+                        }
+                    }
+                    "content_block_stop" => {
+                        on_event(AgentEvent::ToolInputDone {
+                            tool_name: String::new(),
+                        });
                     }
                     "message_stop" => {
                         on_event(AgentEvent::Done);
