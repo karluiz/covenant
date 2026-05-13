@@ -231,6 +231,7 @@ export class SettingsPanel {
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-familiars" data-target="sec-familiars">Familiars</a>
+      <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
     `;
     body.appendChild(nav);
 
@@ -552,6 +553,20 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-telegram"></section>
         <section class="settings-section" id="familiars-host"></section>
+        <section class="settings-section" id="sec-workspace">
+          <h3 class="settings-section-title">Workspace</h3>
+          <div class="settings-field">
+            <span class="settings-label">Export / Import</span>
+            <div class="settings-input-row">
+              <button type="button" class="settings-toggle" data-ws-action="export">Export workspace…</button>
+              <button type="button" class="settings-toggle" data-ws-action="import">Import workspace…</button>
+              <input type="file" accept="application/json,.json" data-ws-file hidden />
+            </div>
+            <small class="settings-hint">
+              Saves all tabs, groups, and per-tab settings as a JSON file. Import replaces the current workspace.
+            </small>
+          </div>
+        </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
           <button type="button" class="settings-cancel">Cancel</button>
@@ -811,6 +826,57 @@ export class SettingsPanel {
         checkBtn.disabled = false;
       });
     }
+
+    // Workspace export/import buttons. Hooks are wired by main.ts.
+    const wsExportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="export"]');
+    const wsImportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="import"]');
+    const wsFile = form.querySelector<HTMLInputElement>('input[data-ws-file]');
+    wsExportBtn?.addEventListener("click", () => {
+      if (!this.onExportWorkspace) {
+        pushInfoToast({ message: "Export not available." });
+        return;
+      }
+      try {
+        const manifest = this.onExportWorkspace();
+        const json = JSON.stringify(manifest, null, 2);
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const ts = new Date().toISOString().replace(/[:.]/g, "-");
+        a.href = url;
+        a.download = `covenant-workspace-${ts}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        pushInfoToast({ message: "Workspace exported." });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("workspace export failed", err);
+        pushInfoToast({ message: `Export failed: ${String(err)}` });
+      }
+    });
+    wsImportBtn?.addEventListener("click", () => wsFile?.click());
+    wsFile?.addEventListener("change", async () => {
+      const file = wsFile.files?.[0];
+      if (!file) return;
+      if (!this.onImportWorkspace) {
+        pushInfoToast({ message: "Import not available." });
+        return;
+      }
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        await this.onImportWorkspace(parsed);
+        pushInfoToast({ message: "Workspace imported." });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("workspace import failed", err);
+        pushInfoToast({ message: `Import failed: ${String(err)}` });
+      } finally {
+        wsFile.value = "";
+      }
+    });
 
     // Sidebar nav: smooth-scroll to anchored fieldset on click, and
     // highlight whichever section is in view via IntersectionObserver.
