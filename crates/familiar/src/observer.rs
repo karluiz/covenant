@@ -101,6 +101,7 @@ fn event_kind(ev: &SessionEvent) -> String {
             tracing::trace!("AgentResumed observer forwarding deferred to Task 6");
             "AgentResumed"
         }
+        SessionEvent::ForegroundChanged { .. } => "ForegroundChanged",
     }
     .into()
 }
@@ -119,7 +120,8 @@ fn event_session_id(ev: &SessionEvent) -> String {
         | SessionEvent::MissionCompleted { session, .. }
         | SessionEvent::MissionFailed { session, .. }
         | SessionEvent::AgentIdleWaiting { session, .. }
-        | SessionEvent::AgentResumed { session } => session.to_string(),
+        | SessionEvent::AgentResumed { session }
+        | SessionEvent::ForegroundChanged { session, .. } => session.to_string(),
         // TODO(telegram): handled in Task 5/6 — no session id on this variant
         SessionEvent::EscalationResolved { .. } => String::new(),
     }

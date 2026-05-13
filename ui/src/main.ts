@@ -30,7 +30,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { injectCommand, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
+import { injectCommand, killSessionForeground, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -793,6 +793,21 @@ async function boot(): Promise<void> {
       if (draftsPanel.isOpen()) draftsPanel.close();
       if (operator.isOpen()) operator.close();
       void settings.toggle();
+      return;
+    }
+    // ⌘⇧. → force-kill foreground process tree of the active tab.
+    // For when Ctrl+C is swallowed (npm run dev, docker, watchers).
+    // Sends SIGTERM to the PTY's foreground pgrp, escalates to SIGKILL
+    // after 500ms. The shell itself survives (different pgrp).
+    if (e.metaKey && e.shiftKey && e.key === ".") {
+      e.preventDefault();
+      const sid = manager.activeSessionId();
+      if (sid) {
+        void killSessionForeground(sid).catch((err) =>
+          // eslint-disable-next-line no-console
+          console.error("kill_session_foreground failed", err),
+        );
+      }
       return;
     }
     // ⌘K → super-agent panel.

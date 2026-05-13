@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tab busy indicator — options</title>
+    <style>
+      :root {
+        --bg: #0b0d14;
+        --panel: #11141c;
+        --panel-2: #161a24;
+        --text: #d6d9e4;
+        --text-dim: #8a8fa3;
+        --text-mute: #5b5f70;
+        --accent: #6b7cff;
+        --busy: #4ade80;     /* green: app running */
+        --busy-warn: #fbbf24; /* amber: long-running > 30s */
+        --busy-err: #f87171;  /* red: just exited non-zero */
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 800px at 20% 0%, #131727 0%, #0b0d14 60%);
+        color: var(--text);
+        font: 13px/1.4 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+        padding: 40px 32px 80px;
+      }
+      h1 {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin: 0 0 4px;
+      }
+      .sub { color: var(--text-mute); margin-bottom: 28px; font-size: 12px; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 28px;
+      }
+      .col h2 {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--text);
+        margin: 0 0 6px;
+      }
+      .col p {
+        font-size: 12px;
+        color: var(--text-mute);
+        margin: 0 0 14px;
+        min-height: 32px;
+      }
+
+      /* ── sidebar look (mirrors covenant tabs) ───────────────────── */
+      .side {
+        background: #0d1018;
+        border-radius: 14px;
+        padding: 14px 10px;
+        border: 1px solid rgba(255,255,255,0.04);
+      }
+      .tab {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px 10px 18px;
+        margin: 6px 0;
+        background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.01));
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        font-size: 12px;
+      }
+      .tab .chev { color: var(--text-mute); font-size: 10px; }
+      .tab .name { flex: 1; }
+      .tab .count {
+        background: rgba(255,255,255,0.06);
+        color: var(--text-dim);
+        font-size: 10px;
+        padding: 2px 7px;
+        border-radius: 8px;
+      }
+      /* left gradient bar — like your screenshot */
+      .tab::before {
+        content: "";
+        position: absolute;
+        left: 4px; top: 8px; bottom: 8px;
+        width: 3px;
+        border-radius: 3px;
+        background: linear-gradient(180deg, var(--accent), #b06bff);
+      }
+      .tab.t-green::before { background: linear-gradient(180deg, #4ade80, #22c55e); }
+      .tab.t-amber::before { background: linear-gradient(180deg, #fbbf24, #f59e0b); }
+      .tab.t-pink::before  { background: linear-gradient(180deg, #f472b6, #d946ef); }
+      .tab.t-cyan::before  { background: linear-gradient(180deg, #67e8f9, #06b6d4); }
+
+      /* ── A: dot palpitante ──────────────────────────────────────── */
+      .dot {
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: var(--busy);
+        box-shadow: 0 0 6px rgba(74,222,128,0.7);
+        animation: pulse 1.4s ease-in-out infinite;
+        flex-shrink: 0;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.35; transform: scale(0.8); }
+        50%      { opacity: 1;    transform: scale(1.15); }
+      }
+      .dot.warn { background: var(--busy-warn); box-shadow: 0 0 6px rgba(251,191,36,0.7); }
+      .dot.err  { background: var(--busy-err);  box-shadow: 0 0 6px rgba(248,113,113,0.7); animation: none; }
+
+      /* ── B: glow en toda la tab ─────────────────────────────────── */
+      .tab.glow {
+        box-shadow:
+          inset 0 0 0 1px rgba(74,222,128,0.35),
+          0 0 16px -2px rgba(74,222,128,0.30);
+        animation: tab-glow 2.2s ease-in-out infinite;
+      }
+      @keyframes tab-glow {
+        0%, 100% {
+          box-shadow:
+            inset 0 0 0 1px rgba(74,222,128,0.20),
+            0 0 8px -2px rgba(74,222,128,0.18);
+        }
+        50% {
+          box-shadow:
+            inset 0 0 0 1px rgba(74,222,128,0.50),
+            0 0 18px -2px rgba(74,222,128,0.40);
+        }
+      }
+
+      /* ── C: chip con nombre del proceso ─────────────────────────── */
+      .chip {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        padding: 2px 6px;
+        border-radius: 5px;
+        background: rgba(74,222,128,0.13);
+        color: #86efac;
+        border: 1px solid rgba(74,222,128,0.25);
+        text-transform: lowercase;
+      }
+      .chip.amber { background: rgba(251,191,36,0.13); color: #fcd34d; border-color: rgba(251,191,36,0.25); }
+
+      /* ── D: barra inferior progress-like (indeterminada) ────────── */
+      .tab.bar { overflow: hidden; }
+      .tab.bar::after {
+        content: "";
+        position: absolute;
+        left: 8px; right: 8px; bottom: 3px;
+        height: 1.5px;
+        border-radius: 2px;
+        background: linear-gradient(90deg,
+          transparent 0%,
+          var(--busy) 35%,
+          var(--busy) 65%,
+          transparent 100%);
+        background-size: 200% 100%;
+        animation: bar-slide 1.8s linear infinite;
+      }
+      @keyframes bar-slide {
+        0%   { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      /* ── E: gradient bar de la tab pulsa ────────────────────────── */
+      .tab.bar-pulse::before {
+        background: linear-gradient(180deg, var(--busy), #22c55e) !important;
+        animation: bar-edge 1.4s ease-in-out infinite;
+        box-shadow: 0 0 8px rgba(74,222,128,0.6);
+      }
+      @keyframes bar-edge {
+        0%, 100% { opacity: 0.55; }
+        50%      { opacity: 1; }
+      }
+
+      footer {
+        margin-top: 36px;
+        color: var(--text-mute);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      footer code {
+        background: rgba(255,255,255,0.05);
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-size: 11.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Tab busy indicator</h1>
+    <div class="sub">5 opciones — todas leen <code>foreground_process_name(master_fd)</code> y marcan busy cuando ≠ shell.</div>
+
+    <div class="grid">
+
+      <!-- A -->
+      <div class="col">
+        <h2>A · Dot palpitante</h2>
+        <p>Punto verde con pulso suave junto al chevron. Discreto, lectura periférica.</p>
+        <div class="side">
+          <div class="tab t-green"><span class="chev">▸</span><span class="dot"></span><span class="name">RAVEN</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">KARLUIZ</span><span class="count">1</span></div>
+          <div class="tab t-amber"><span class="chev">▸</span><span class="dot warn"></span><span class="name">NXT</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">PULZEN</span><span class="count">4</span></div>
+          <div class="tab t-green"><span class="chev">▾</span><span class="dot"></span><span class="name">COVENANT</span><span class="count">5</span></div>
+        </div>
+      </div>
+
+      <!-- B -->
+      <div class="col">
+        <h2>B · Glow en toda la tab</h2>
+        <p>Halo verde alrededor del bloque. Más visible pero también más ruido visual.</p>
+        <div class="side">
+          <div class="tab t-green glow"><span class="chev">▸</span><span class="name">RAVEN</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">KARLUIZ</span><span class="count">1</span></div>
+          <div class="tab t-amber"><span class="chev">▸</span><span class="name">NXT</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">PULZEN</span><span class="count">4</span></div>
+          <div class="tab t-green glow"><span class="chev">▾</span><span class="name">COVENANT</span><span class="count">5</span></div>
+        </div>
+      </div>
+
+      <!-- C -->
+      <div class="col">
+        <h2>C · Chip con proceso</h2>
+        <p>Chip pequeño tipo <code>node</code> / <code>cargo</code>. Informativo; ocupa más ancho.</p>
+        <div class="side">
+          <div class="tab t-green"><span class="chev">▸</span><span class="name">RAVEN</span><span class="chip">node</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">KARLUIZ</span><span class="count">1</span></div>
+          <div class="tab t-amber"><span class="chev">▸</span><span class="name">NXT</span><span class="chip amber">cargo</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">PULZEN</span><span class="count">4</span></div>
+          <div class="tab t-green"><span class="chev">▾</span><span class="name">COVENANT</span><span class="chip">vite</span><span class="count">5</span></div>
+        </div>
+      </div>
+
+      <!-- D -->
+      <div class="col">
+        <h2>D · Barra inferior indeterminada</h2>
+        <p>Línea fina que recorre la base de la tab — como un progress bar indeterminate.</p>
+        <div class="side">
+          <div class="tab t-green bar"><span class="chev">▸</span><span class="name">RAVEN</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">KARLUIZ</span><span class="count">1</span></div>
+          <div class="tab t-amber bar"><span class="chev">▸</span><span class="name">NXT</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">PULZEN</span><span class="count">4</span></div>
+          <div class="tab t-green bar"><span class="chev">▾</span><span class="name">COVENANT</span><span class="count">5</span></div>
+        </div>
+      </div>
+
+      <!-- E -->
+      <div class="col">
+        <h2>E · La barra lateral palpita</h2>
+        <p>Reutiliza el gradient bar existente — cambia a verde y pulsa. Zero footprint nuevo.</p>
+        <div class="side">
+          <div class="tab bar-pulse"><span class="chev">▸</span><span class="name">RAVEN</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">KARLUIZ</span><span class="count">1</span></div>
+          <div class="tab bar-pulse"><span class="chev">▸</span><span class="name">NXT</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">PULZEN</span><span class="count">4</span></div>
+          <div class="tab bar-pulse"><span class="chev">▾</span><span class="name">COVENANT</span><span class="count">5</span></div>
+        </div>
+      </div>
+
+      <!-- F: A + C combo -->
+      <div class="col">
+        <h2>F · Dot + chip al hover</h2>
+        <p>Híbrido recomendado: dot siempre visible, chip con el nombre del proceso al pasar el mouse.</p>
+        <div class="side">
+          <div class="tab t-green"><span class="chev">▸</span><span class="dot"></span><span class="name">RAVEN</span><span class="chip" style="opacity:.0">node</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">KARLUIZ</span><span class="count">1</span></div>
+          <div class="tab t-amber"><span class="chev">▸</span><span class="dot warn"></span><span class="name">NXT</span><span class="chip amber">cargo</span><span class="count">4</span></div>
+          <div class="tab"><span class="chev">▸</span><span class="name">PULZEN</span><span class="count">4</span></div>
+          <div class="tab t-green"><span class="chev">▾</span><span class="dot"></span><span class="name">COVENANT</span><span class="count">5</span></div>
+        </div>
+        <p style="margin-top:10px; min-height:0;">↑ tab NXT muestra el estado "hover" (chip visible).</p>
+      </div>
+
+    </div>
+
+    <footer>
+      <strong>Estados (cualquier opción los soporta):</strong><br/>
+      🟢 verde = app corriendo &lt; 30s &nbsp;·&nbsp;
+      🟡 ámbar = long-running &gt; 30s &nbsp;·&nbsp;
+      🔴 rojo = última salida exit ≠ 0 (apagado, no parpadea)<br/><br/>
+      <strong>Backend ya disponible:</strong> <code>foreground_process_name(master_fd)</code> en <code>karl_pty::fg_proc</code>.
+      Solo falta emitir un <code>SessionEvent::ForegroundChanged { name }</code> y mapearlo en la UI.
+    </footer>
+  </body>
+</html>

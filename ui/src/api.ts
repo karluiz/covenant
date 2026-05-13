@@ -48,7 +48,13 @@ export type SessionUiEvent =
       prompt_text: string | null;
       quiet_ms: number;
     }
-  | { kind: "agent_resumed"; session: SessionId };
+  | { kind: "agent_resumed"; session: SessionId }
+  | {
+      kind: "foreground_changed";
+      session: SessionId;
+      name: string | null;
+      busy: boolean;
+    };
 
 export interface SpawnHandlers {
   onOutput: OutputHandler;
@@ -86,6 +92,13 @@ export async function resizeSession(
 
 export async function closeSession(id: SessionId): Promise<void> {
   return invoke<void>("close_session", { id });
+}
+
+/// Force-kill the foreground process tree of `id` (SIGTERM, escalates
+/// to SIGKILL after ~500ms). Use when Ctrl+C is being swallowed by a
+/// parent (e.g. npm) that doesn't propagate to its children.
+export async function killSessionForeground(id: SessionId): Promise<void> {
+  return invoke<void>("kill_session_foreground", { id });
 }
 
 export interface MindPreview {
@@ -593,11 +606,18 @@ export interface OperatorConfig {
   mind_thinking_budget: number;
 }
 
+export function readFontBytes(familyStack: string): Promise<Uint8Array> {
+  return invoke<number[]>("read_font_bytes", { familyStack }).then(
+    (arr) => new Uint8Array(arr),
+  );
+}
+
 export interface TerminalConfig {
   font_family: string;
   font_size: number;
   letter_spacing: number;
   line_height: number;
+  ligatures: boolean;
 }
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";

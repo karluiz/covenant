@@ -307,6 +307,14 @@ pub struct TerminalConfig {
     /// some breathing room without sacrificing density.
     #[serde(default = "default_line_height")]
     pub line_height: f32,
+    /// Opt-in font ligatures. The WebGL renderer cannot render
+    /// ligatures (texture-atlas is glyph-per-cell), so enabling this
+    /// makes the tab fall back to the canvas renderer + the
+    /// xterm-addon-ligatures shaping pass. Off by default to preserve
+    /// the fast path; users with Fira Code / JetBrains Mono / Comic
+    /// Code etc. flip it on.
+    #[serde(default)]
+    pub ligatures: bool,
 }
 
 impl Default for TerminalConfig {
@@ -316,6 +324,7 @@ impl Default for TerminalConfig {
             font_size: default_font_size(),
             letter_spacing: 0,
             line_height: default_line_height(),
+            ligatures: false,
         }
     }
 }

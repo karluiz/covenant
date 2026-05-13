@@ -580,6 +580,50 @@ async fn resize_session(
     managed.session.resize(cols, rows).map_err(|e| e.to_string())
 }
 
+/// Force-kill the foreground process group of a session's PTY.
+/// Sends SIGTERM, waits up to ~500ms, then escalates to SIGKILL.
+/// Designed for cases like `npm run tauri:dev` where Ctrl+C is caught
+/// by the parent but not propagated to its child processes. The shell
+/// itself is unaffected (it sits in its own pgrp).
+#[tauri::command]
+async fn kill_session_foreground(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let id = parse_id(&id)?;
+    #[cfg(unix)]
+    {
+        let master_fd = {
+            let sessions = state.sessions.lock().await;
+            let managed = sessions.get(&id).ok_or("session not found")?;
+            managed.session.master_fd()
+        };
+        let pgid = karl_pty::kill_foreground_pgrp(master_fd, libc::SIGTERM)
+            .map_err(|e| format!("SIGTERM failed: {e}"))?;
+        tracing::info!(session = %id, pgid, "kill_session_foreground: sent SIGTERM");
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            if !karl_pty::pgrp_alive(pgid) {
+                return Ok(());
+            }
+        }
+        match karl_pty::kill_foreground_pgrp(master_fd, libc::SIGKILL) {
+            Ok(_) => {
+                tracing::warn!(session = %id, pgid, "kill_session_foreground: escalated to SIGKILL");
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("SIGKILL failed: {e}")),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = state;
+        let _ = id;
+        Err("kill_session_foreground not supported on this platform".into())
+    }
+}
+
 #[tauri::command]
 async fn close_session(
     state: State<'_, AppState>,
@@ -2046,6 +2090,59 @@ async fn structure_write_binary_file(
 
 const MAX_BINARY_READ_BYTES_HARD_CAP: u64 = 16 * 1024 * 1024;
 
+/// Resolve a CSS font-family stack to the bytes of the first matching
+/// installed font file. The frontend feeds the bytes to `font-ligatures`
+/// (browser-side) so xterm can register a character joiner that picks
+/// up the *full* ligature table of the user's font — not just the
+/// addon's hardcoded fallback set.
+#[tauri::command]
+async fn read_font_bytes(family_stack: String) -> Result<Vec<u8>, String> {
+    tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        use fontdb::{Database, Family, Query};
+        let families: Vec<String> = family_stack
+            .split(',')
+            .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+            .filter(|s| {
+                !s.is_empty()
+                    && !matches!(
+                        s.to_ascii_lowercase().as_str(),
+                        "monospace"
+                            | "serif"
+                            | "sans-serif"
+                            | "ui-monospace"
+                            | "system-ui"
+                            | "cursive"
+                            | "fantasy"
+                    )
+            })
+            .collect();
+        if families.is_empty() {
+            return Err("no concrete font family in stack".into());
+        }
+        let mut db = Database::new();
+        db.load_system_fonts();
+        let family_refs: Vec<Family<'_>> =
+            families.iter().map(|n| Family::Name(n.as_str())).collect();
+        let id = db
+            .query(&Query {
+                families: &family_refs,
+                ..Default::default()
+            })
+            .ok_or_else(|| format!("no installed font matched {families:?}"))?;
+        let (src, _) = db.face_source(id).ok_or("font source unavailable")?;
+        match src {
+            fontdb::Source::File(path) => {
+                std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))
+            }
+            fontdb::Source::Binary(data) | fontdb::Source::SharedFile(_, data) => {
+                Ok(data.as_ref().as_ref().to_vec())
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("read_font_bytes join: {e}"))?
+}
+
 #[tauri::command]
 async fn structure_read_binary_file(
     path: String,
@@ -2678,10 +2775,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             spawn_session,
+            read_font_bytes,
             write_to_session,
             resize_session,
             close_session,
             close_session_check,
+            kill_session_foreground,
             inject_command,
             get_block_output,
             get_settings,

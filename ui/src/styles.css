@@ -10108,6 +10108,25 @@ button.status-segment.status-tg:focus-visible {
   50%      { opacity: 0.35; }
 }
 
+/* Palpitating dot: a non-shell process is running in this tab's PTY
+   (npm/node/cargo/vite/python/…). Lives on the left of the tab pill. */
+.tab-busy-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.7);
+  animation: busy-pulse 1.4s ease-in-out infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+@keyframes busy-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
 /* ── Capabilities panel — mirrors #settings-page layout exactly ────── */
 #capabilities-page {
   display: grid;
@@ -10436,6 +10455,71 @@ button.status-segment.status-tg:focus-visible {
 }
 .cap-editor:focus { outline: none; }
 .cap-editor:disabled { opacity: 0.7; cursor: not-allowed; }
+.cap-editor[hidden] { display: none; }
+.cap-mode-bar {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 2px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: fit-content;
+}
+.cap-mode-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cap-mode-btn:hover { color: var(--text-primary); }
+.cap-mode-btn.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.cap-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 20px;
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.cap-preview[hidden] { display: none; }
+.cap-preview h1, .cap-preview h2, .cap-preview h3 { margin: 0.8em 0 0.4em; }
+.cap-preview h1 { font-size: 1.4em; }
+.cap-preview h2 { font-size: 1.2em; }
+.cap-preview h3 { font-size: 1.05em; }
+.cap-preview p { margin: 0.6em 0; }
+.cap-preview code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.cap-preview pre {
+  background: var(--bg-elevated);
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow: auto;
+}
+.cap-preview pre code { background: transparent; padding: 0; }
+.cap-preview ul, .cap-preview ol { padding-left: 1.5em; margin: 0.6em 0; }
+.cap-preview blockquote {
+  margin: 0.6em 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}
+.cap-preview a { color: var(--accent); }
+.cap-preview hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+.cap-preview table { border-collapse: collapse; margin: 0.6em 0; }
+.cap-preview th, .cap-preview td { border: 1px solid var(--border); padding: 4px 8px; }
 .cap-detail-actions {
   padding: 10px 20px;
   border-top: 1px solid var(--border);

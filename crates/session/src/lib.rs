@@ -160,6 +160,14 @@ pub enum SessionEvent {
         session: SessionId,
         reason: String,
     },
+    /// Foreground process changed: the binary in front of the PTY is
+    /// no longer the same as last tick. `name = None` means we're back
+    /// at the shell prompt (or no foreground could be determined).
+    /// Emitted only on transitions, not every tick.
+    ForegroundChanged {
+        session: SessionId,
+        name: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +244,14 @@ pub enum SessionUiEvent {
     AgentResumed {
         session: SessionId,
     },
+    /// Foreground process changed. `busy = true` when a non-shell
+    /// binary occupies the PTY's foreground pgrp. Drives the
+    /// palpitating dot in the tab list.
+    ForegroundChanged {
+        session: SessionId,
+        name: Option<String>,
+        busy: bool,
+    },
 }
 
 impl SessionEvent {
@@ -309,8 +325,24 @@ impl SessionEvent {
                 command: command.clone(),
                 rationale: rationale.clone(),
             }),
+            SessionEvent::ForegroundChanged { session, name } => {
+                Some(SessionUiEvent::ForegroundChanged {
+                    session: *session,
+                    name: name.clone(),
+                    busy: name.as_deref().is_some_and(is_busy_proc),
+                })
+            }
         }
     }
+}
+
+/// True when `name` looks like a user-launched app (not the shell or
+/// trivial built-ins). Drives the busy indicator in the tab list.
+pub fn is_busy_proc(name: &str) -> bool {
+    !matches!(
+        name,
+        "zsh" | "bash" | "fish" | "sh" | "dash" | "ksh" | "tcsh" | "csh"
+    )
 }
 
 /// Streams the Tauri layer drains to feed per-session frontend channels.
@@ -388,6 +420,11 @@ impl Session {
     pub fn kill(&mut self) -> Result<(), SessionError> {
         self.pty.kill().map_err(Into::into)
     }
+
+    #[cfg(unix)]
+    pub fn master_fd(&self) -> std::os::fd::RawFd {
+        self.pty.master_fd()
+    }
 }
 
 async fn pump(
@@ -408,6 +445,8 @@ async fn pump(
     let mut vt = vt100::Parser::new(24, 80, 0);
     let mut detector = IdleDetector::new();
     let mut tick = tokio::time::interval(Duration::from_secs(1));
+    // Track foreground proc across ticks so we only emit on transitions.
+    let mut last_fg: Option<String> = None;
     // First tick fires immediately; skip it to avoid evaluating before any output.
     tick.tick().await;
 
@@ -487,6 +526,13 @@ async fn pump(
                 #[cfg(unix)]
                 {
                     let fg = foreground_process_name(master_fd);
+                    if fg != last_fg {
+                        let _ = events_tx.send(SessionEvent::ForegroundChanged {
+                            session: id,
+                            name: fg.clone(),
+                        });
+                        last_fg = fg.clone();
+                    }
                     let alt = vt.screen().alternate_screen();
                     // contents() can be expensive; only call when other gates pass.
                     if let Some(name) = fg.as_deref() {

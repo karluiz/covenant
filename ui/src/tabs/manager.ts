@@ -14,6 +14,11 @@
 import { Terminal, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { CanvasAddon } from "@xterm/addon-canvas";
+import {
+  attachLigatures,
+  type LigatureHandle,
+} from "../terminal/ligatures";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -156,6 +161,8 @@ interface Tab {
   /// when the font changes — the addon caches glyph bitmaps separately
   /// from the terminal options.
   webgl: WebglAddon | null;
+  canvas: CanvasAddon | null;
+  ligatures: LigatureHandle | null;
   blocks: BlockManager;
   recall: RecallManager;
   structure: StructureTree;
@@ -187,6 +194,10 @@ interface Tab {
   /// Set when the agent in this tab has gone quiet apparently waiting on
   /// the user. Cleared on `agent_resumed`. Drives the pulsing tab badge.
   idleAgent?: { agent: string; sinceMs: number; promptText: string | null } | null;
+  /// Foreground process (non-shell) currently occupying the PTY.
+  /// Drives the palpitating "app running" dot next to the tab label.
+  /// Null = idle at shell prompt.
+  busyProc?: string | null;
 }
 
 interface TabGroup {
@@ -573,6 +584,30 @@ export class TabManager {
       badge.className = "tab-idle-badge";
       badge.title = tab.idleAgent.promptText ?? `${tab.idleAgent.agent} waiting`;
       pill.appendChild(badge);
+    }
+  }
+
+  /// Mount/remove the palpitating "app running" dot — green pulse
+  /// next to the tab label when a non-shell process occupies the PTY's
+  /// foreground pgrp (npm, node, python, cargo, vite, …). Idempotent.
+  private renderTabBusyDot(tab: Tab): void {
+    const pill = this.tabbarHost.querySelector<HTMLElement>(
+      `.tab-btn[data-tab-id="${tab.id}"]`,
+    );
+    if (!pill) return;
+    const existing = pill.querySelector(".tab-busy-dot");
+    if (tab.busyProc) {
+      if (existing instanceof HTMLElement) {
+        existing.title = `${tab.busyProc} running`;
+        return;
+      }
+      const dot = document.createElement("span");
+      dot.className = "tab-busy-dot";
+      dot.title = `${tab.busyProc} running`;
+      // Prepend so it sits before the label (left side of the tab).
+      pill.insertBefore(dot, pill.firstChild);
+    } else if (existing) {
+      existing.remove();
     }
   }
 
@@ -1128,6 +1163,44 @@ export class TabManager {
           tab.term.options.letterSpacing = cfg.letter_spacing ?? 0;
           tab.term.options.lineHeight = cfg.line_height ?? 1.2;
 
+          // Ligatures pipeline: canvas renderer + custom font-ligatures
+          // joiner. Both must be installed/disposed together.
+          const wantLigaturesLive = !!cfg.ligatures;
+          if (wantLigaturesLive && !tab.canvas) {
+            try {
+              const c = new CanvasAddon();
+              tab.term.loadAddon(c);
+              tab.canvas = c;
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn("canvas load failed", err);
+            }
+            if (tab.canvas) {
+              void attachLigatures(tab.term, family).then((h) => {
+                if (h) tab.ligatures = h;
+              });
+            }
+          } else if (!wantLigaturesLive && (tab.canvas || tab.ligatures)) {
+            try {
+              tab.ligatures?.dispose();
+            } catch {
+              /* ignore */
+            }
+            tab.ligatures = null;
+            try {
+              tab.canvas?.dispose();
+            } catch {
+              /* ignore */
+            }
+            tab.canvas = null;
+          } else if (wantLigaturesLive && tab.canvas && !tab.ligatures) {
+            // Font family changed while already in canvas mode: re-attach
+            // ligatures against the new font.
+            void attachLigatures(tab.term, family).then((h) => {
+              if (h) tab.ligatures = h;
+            });
+          }
+
           // Surefire WebGL refresh: dispose the addon + load a fresh
           // one. clearTextureAtlas() alone is a silent no-op in xterm
           // 5.x when the font changes after open(); the dispose-and-
@@ -1377,6 +1450,27 @@ export class TabManager {
     // renderer respects the font option natively. M-OP perf hit is
     // negligible at terminal byte rates.
     const webgl: WebglAddon | null = null;
+    // Opt-in ligatures pipeline. Character joiners require the canvas
+    // (or webgl) renderer; the DOM renderer ignores them. The ligature
+    // ranges come from font-ligatures parsing the user's actual TTF —
+    // see ../terminal/ligatures.ts. The async font-bytes fetch races
+    // with tab creation; we kick it off here but only store the
+    // handle once the tab object exists (see `this.tabs.push(tab)`
+    // below — `attachLigaturesLater` runs after).
+    let canvas: CanvasAddon | null = null;
+    const ligatures: LigatureHandle | null = null;
+    if (termCfg?.ligatures) {
+      try {
+        canvas = new CanvasAddon();
+        term.loadAddon(canvas);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("canvas addon failed; ligatures disabled", err);
+        canvas = null;
+      }
+    }
+    const wantLigatures = !!(termCfg?.ligatures && canvas);
+    const ligatureFontStack = termCfg?.font_family || DEFAULT_FONT_FAMILY;
     fit.fit();
     // Re-fit once webfonts have actually loaded: the initial fit above
     // measures glyphs against fallback metrics, which can leave term.rows
@@ -1456,6 +1550,11 @@ export class TabManager {
               if (tabRef.current) {
                 tabRef.current.idleAgent = null;
                 this.renderTabBadge(tabRef.current);
+              }
+            } else if (event.kind === "foreground_changed") {
+              if (tabRef.current) {
+                tabRef.current.busyProc = event.busy ? event.name : null;
+                this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) tabRef.current.cwd = event.cwd;
@@ -1540,21 +1639,18 @@ export class TabManager {
     const navBlocks = document.createElement("button");
     navBlocks.type = "button";
     navBlocks.className = "sidebar-nav-btn sidebar-nav-active";
-    navBlocks.title = "Blocks";
     navBlocks.setAttribute("aria-label", "Blocks");
     navBlocks.innerHTML = `${Icons.terminal({ size: 13 })}<span>Blocks</span>`;
 
     const navStructure = document.createElement("button");
     navStructure.type = "button";
     navStructure.className = "sidebar-nav-btn";
-    navStructure.title = "Files";
     navStructure.setAttribute("aria-label", "Files");
     navStructure.innerHTML = `${Icons.folder({ size: 13 })}<span>Files</span>`;
 
     const navDrafts = document.createElement("button");
     navDrafts.type = "button";
     navDrafts.className = "sidebar-nav-btn";
-    navDrafts.title = "Drafts";
     navDrafts.setAttribute("aria-label", "Drafts");
     navDrafts.innerHTML = `${Icons.filePen({ size: 13 })}<span>Drafts</span>`;
     navDrafts.addEventListener("click", () => {
@@ -1918,6 +2014,8 @@ export class TabManager {
       term,
       fit,
       webgl,
+      canvas,
+      ligatures,
       blocks,
       recall,
       structure,
@@ -1998,6 +2096,11 @@ export class TabManager {
     tab.disposers.push(linkDispose);
 
     this.tabs.push(tab);
+    if (wantLigatures) {
+      void attachLigatures(term, ligatureFontStack).then((h) => {
+        if (h) tab.ligatures = h;
+      });
+    }
     // If spawned into an existing group, splice the tab next to the
     // group's last member so grouped tabs stay contiguous in `tabs[]`.
     // Without this, renderTabbar opens a second shell for the new tab

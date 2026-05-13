@@ -25,7 +25,7 @@ use std::time::Duration;
 #[cfg(unix)]
 mod fg_proc;
 #[cfg(unix)]
-pub use fg_proc::foreground_process_name;
+pub use fg_proc::{foreground_process_name, kill_foreground_pgrp, pgrp_alive};
 
 use bytes::Bytes;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};

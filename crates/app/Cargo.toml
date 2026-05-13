@@ -45,6 +45,10 @@ chrono = { version = "0.4", features = ["serde"] }
 trash = "5"
 async-trait = { workspace = true }
 reqwest = { workspace = true }
+fontdb = "0.23"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }

@@ -46,6 +46,7 @@ interface TerminalConfig {
   font_size: number;
   letter_spacing: number;
   line_height: number;
+  ligatures: boolean;
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
@@ -167,6 +168,7 @@ export class SettingsPanel {
           font_size: 13,
           letter_spacing: 0,
           line_height: 1.2,
+          ligatures: false,
         },
         window: { background: "vibrant" },
         aom: { default_budget_usd: 10 },
@@ -388,6 +390,15 @@ export class SettingsPanel {
             <input type="number" name="term_line_height" min="0.8" max="2" step="0.1" />
             <small class="settings-hint">Multiplier on cell height. 1.2 is the default.</small>
           </label>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="term_ligatures" />
+            <span class="settings-label">Font ligatures</span>
+            <small class="settings-hint">
+              Enable shaping for fonts like Fira Code, JetBrains Mono,
+              Comic Code. Slightly slower than the default renderer; off
+              by default.
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-operators">
           <h3 class="settings-section-title">Operators</h3>
@@ -590,6 +601,9 @@ export class SettingsPanel {
     const termLineHeight = form.querySelector<HTMLInputElement>(
       'input[name="term_line_height"]',
     )!;
+    const termLigatures = form.querySelector<HTMLInputElement>(
+      'input[name="term_ligatures"]',
+    )!;
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
@@ -655,6 +669,7 @@ export class SettingsPanel {
     termSize.value = String(this.current.terminal.font_size);
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);
     termLineHeight.value = String(this.current.terminal.line_height);
+    termLigatures.checked = !!this.current.terminal.ligatures;
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
       r.checked = r.value === currentBg;
@@ -944,6 +959,7 @@ export class SettingsPanel {
             0.8,
             Math.min(2, Number(termLineHeight.value) || 1.2),
           ),
+          ligatures: termLigatures.checked,
         },
         window: {
           background:

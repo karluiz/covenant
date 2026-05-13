@@ -6,6 +6,7 @@
 // integration (live updates) is also deferred — there's a manual Refresh.
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { marked } from "marked";
 
 import {
   type CapabilityListItem,
@@ -60,6 +61,7 @@ export class CapabilitiesPanel {
   private search = "";
   private selectedId: string | null = null;
   private dirty = false;
+  private viewMode: "source" | "preview" = "source";
   private newFormOpen = false;
   private projectRoot: string | null = null;
 
@@ -438,6 +440,9 @@ export class CapabilitiesPanel {
     }
     const isJsonSource = sel.kind === "hook" || sel.kind === "mcp";
     const isPlugin = sel.kind === "plugin";
+    const isMarkdown = !isJsonSource && !isPlugin && /\.mdx?$/i.test(sel.path);
+    if (!isMarkdown) this.viewMode = "source";
+    const mode = this.viewMode;
     detail.innerHTML = `
       <div class="cap-detail-meta">
         <div><strong>${escapeHtml(sel.name)}</strong>${sel.description ? ` <span class="cap-detail-desc">— ${escapeHtml(sel.description)}</span>` : ""}</div>
@@ -445,11 +450,20 @@ export class CapabilitiesPanel {
         <div class="cap-detail-row"><span class="cap-detail-key">Scope:</span> ${escapeHtml(sel.scope_label)}</div>
         <div class="cap-detail-row"><span class="cap-detail-key">Tool:</span> ${escapeHtml(sel.tool)} / ${escapeHtml(sel.kind)}</div>
         ${isJsonSource ? `<div class="cap-detail-row cap-warn">Editing the entire settings.json — be careful.</div>` : ""}
+        ${
+          isMarkdown
+            ? `<div class="cap-mode-bar">
+                 <button type="button" class="cap-mode-btn ${mode === "source" ? "active" : ""}" data-mode="source">Source</button>
+                 <button type="button" class="cap-mode-btn ${mode === "preview" ? "active" : ""}" data-mode="preview">Preview</button>
+               </div>`
+            : ""
+        }
       </div>
       ${
         isPlugin
           ? `<div class="cap-plugin-view"><div class="cap-plugin-listing">loading…</div></div>`
-          : `<textarea class="cap-editor" spellcheck="false" ${sel.read_only ? "disabled" : ""}></textarea>`
+          : `<textarea class="cap-editor" spellcheck="false" ${sel.read_only ? "disabled" : ""} ${isMarkdown && mode === "preview" ? "hidden" : ""}></textarea>
+             ${isMarkdown ? `<div class="cap-preview markdown-body" ${mode === "source" ? "hidden" : ""}></div>` : ""}`
       }
       <div class="cap-detail-actions">
         ${
@@ -474,6 +488,29 @@ export class CapabilitiesPanel {
         if (dirtyFlag) dirtyFlag.hidden = false;
       };
     }
+    const preview = detail.querySelector<HTMLElement>(".cap-preview");
+    const renderMarkdownPreview = () => {
+      if (!preview || !textarea) return;
+      const src = textarea.value.trim();
+      if (!src) {
+        preview.innerHTML = `<div class="cap-empty">Nothing to preview.</div>`;
+        return;
+      }
+      preview.innerHTML = marked.parse(src, { async: false }) as string;
+    };
+    detail.querySelectorAll<HTMLButtonElement>(".cap-mode-btn").forEach((btn) => {
+      btn.onclick = () => {
+        const next = (btn.dataset.mode as "source" | "preview") ?? "source";
+        if (next === this.viewMode) return;
+        this.viewMode = next;
+        detail.querySelectorAll<HTMLButtonElement>(".cap-mode-btn").forEach((b) => {
+          b.classList.toggle("active", b.dataset.mode === next);
+        });
+        if (textarea) textarea.hidden = next === "preview";
+        if (preview) preview.hidden = next === "source";
+        if (next === "preview") renderMarkdownPreview();
+      };
+    });
     if (saveBtn && textarea) {
       saveBtn.onclick = async () => {
         const cur = this.selected();
