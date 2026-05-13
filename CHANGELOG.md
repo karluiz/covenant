@@ -6,6 +6,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.9 — CI lockfile sync (v0.5.8 release fix)
+
+### Fixed
+
+- **CI lockfile drift**: v0.5.8 added xterm ligatures/canvas npm deps
+  to `package.json` without updating `package-lock.json`, so the macOS
+  and Windows release workflows both failed at `npm ci`. Lockfile
+  re-synced so the v0.5.9 tag actually builds and publishes installers.
+
 ## v0.5.8 — Force-kill foreground tree (⌘⇧.) + tab busy indicator
 
 ### Added
