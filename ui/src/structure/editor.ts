@@ -61,6 +61,7 @@ import {
   type PreviewKind,
   previewKindForPath,
   SvgPreview,
+  XlsxPreview,
 } from "./preview";
 import {
   loadSvgScale,
@@ -1012,6 +1013,8 @@ function makePreview(kind: PreviewKind): Preview {
       return new SvgPreview();
     case "png":
       return new PngPreview();
+    case "xlsx":
+      return new XlsxPreview();
   }
 }
 
