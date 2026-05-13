@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.5 — Horizontal tab bar overflow scroll
+
+### Fixed
+
+- **Tab bar overflow**: with many groups (10+), the trailing groups
+  were clipped and unreachable on the horizontal tab bar. The bar now
+  scrolls horizontally with a hidden scrollbar, and vertical wheel
+  input over the bar is mapped to horizontal scroll so every group
+  stays reachable (`ui/src/styles.css`, `ui/src/main.ts`).
+
 ## v0.5.4 — Capabilities auto-context + tab/group drag polish
 
 ### Added

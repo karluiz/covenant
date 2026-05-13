@@ -257,6 +257,13 @@ async function boot(): Promise<void> {
   applyTabbarCollapsed(localStorage.getItem(TABBAR_LEFT_COLLAPSED_KEY) === "1");
 
   const tabbar = requireEl<HTMLElement>("tabs");
+  tabbar.addEventListener("wheel", (e) => {
+    if (document.body.classList.contains("tabbar-left")) return;
+    const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (dx === 0) return;
+    tabbar.scrollLeft += dx;
+    e.preventDefault();
+  }, { passive: false });
   const workspace = requireEl<HTMLElement>("workspace");
   const newTabBtn = requireEl<HTMLElement>("new-tab");
   const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
