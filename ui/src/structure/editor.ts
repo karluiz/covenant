@@ -563,12 +563,13 @@ export class StructureEditor {
 
     this.show();
 
-    // Image-class files bypass the text-read path entirely. Their
-    // preview is the only useful view (no source-mode editing makes
-    // sense), so we read raw bytes and hand them straight to the
-    // PngPreview renderer.
-    if (previewKindForPath(path) === "png") {
-      await this.openImage(path);
+    // Binary-only preview kinds (images, spreadsheets) bypass the
+    // text-read path entirely. Their preview is the only useful view
+    // (no source-mode editing makes sense), so we read raw bytes and
+    // hand them straight to the appropriate renderer.
+    const kind = previewKindForPath(path);
+    if (kind === "png" || kind === "xlsx") {
+      await this.openBinary(path, kind);
       return;
     }
 
@@ -726,19 +727,21 @@ export class StructureEditor {
     }
   }
 
-  /// Image-only open path: read bytes, hand to PngPreview, no source
-  /// mode at all. Toggling source/preview is disabled for this kind.
-  private async openImage(path: string): Promise<void> {
+  /// Binary-only open path: read bytes, hand to the appropriate preview
+  /// renderer (PngPreview for images, XlsxPreview for spreadsheets).
+  /// No source mode at all. Toggling source/preview is disabled for
+  /// these kinds.
+  private async openBinary(path: string, kind: "png" | "xlsx"): Promise<void> {
     let result;
     try {
       result = await structureReadBinaryFile(path);
     } catch (err) {
-      this.showPlaceholder(`Failed to read image: ${err}`);
+      this.showPlaceholder(`Failed to read file: ${err}`);
       return;
     }
     if (result.kind === "too_large") {
       this.showPlaceholder(
-        `Image too large to preview (${formatBytes(result.size_bytes)}).`,
+        `File too large to preview (${formatBytes(result.size_bytes)}).`,
       );
       return;
     }
@@ -753,7 +756,7 @@ export class StructureEditor {
     }
     this.previewHostEl.innerHTML = "";
 
-    this.previewKind = "png";
+    this.previewKind = kind;
     this.viewMode = "preview";
     this.editorHostEl.hidden = true;
     this.previewHostEl.hidden = false;
@@ -762,14 +765,8 @@ export class StructureEditor {
     this.liveContent = "";
     this.dirty = false;
 
-    this.currentPreview = makePreview("png");
-    // PngPreview consumes the JSON-stringified byte array via its
-    // `content` param — keeping the Preview interface uniform across
-    // text and image kinds.
-    this.currentPreview.mount(
-      this.previewHostEl,
-      JSON.stringify(result.bytes),
-    );
+    this.currentPreview = makePreview(kind);
+    this.currentPreview.mount(this.previewHostEl, JSON.stringify(result.bytes));
 
     this.refreshPreviewButton();
     this.renderStatus();
@@ -780,7 +777,7 @@ export class StructureEditor {
   /// the keyboard shortcut firing on a non-previewable file). Images
   /// have no source view so we no-op for them too.
   private toggleViewMode(): void {
-    if (this.previewKind === "png") return;
+    if (this.previewKind === "png" || this.previewKind === "xlsx") return;
     if (!this.previewKind || !this.currentPath) return;
 
     // Snapshot the latest text before swapping. In source mode we read
@@ -811,7 +808,7 @@ export class StructureEditor {
   }
 
   private refreshPreviewButton(): void {
-    if (!this.previewKind) {
+    if (!this.previewKind || this.previewKind === "png" || this.previewKind === "xlsx") {
       this.previewBtn.hidden = true;
     } else {
       this.previewBtn.hidden = false;
