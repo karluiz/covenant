@@ -6,6 +6,7 @@
 //! `covenant`. This separation keeps the agent reusable (CLI tool,
 //! tests, etc.) and the API surface deliberately small.
 
+pub mod safety;
 pub mod spec_author;
 
 use futures_util::StreamExt;
