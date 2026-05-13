@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.0 — Auto-Updater
+
+Covenant now checks GitHub Releases at boot for new versions and offers
+to install + relaunch. A "Check for updates" button in Settings exposes
+the same flow manually. Updates are cryptographically signed; the
+client refuses to install any artifact whose signature doesn't match
+the embedded public key.
+
+### Added
+
+- `tauri-plugin-updater` + `tauri-plugin-process` integration.
+- Silent update check at app boot (failures logged, never toasted).
+- "Update available" banner with **Install now / Dismiss** actions.
+- Settings → "Check for updates" button with inline status feedback.
+- macOS release workflow (`release-macos.yml`) producing signed
+  `.app.tar.gz` + `.sig` for the updater on a universal-apple-darwin
+  bundle.
+- `release-windows.yml` now signs the MSI bundle and uploads
+  `.msi.zip` + `.sig` alongside the raw `.msi`.
+- `release-manifest.yml` aggregates per-platform signatures into a
+  single `latest.json` published to the release.
+
+### Operator notes
+
+See `docs/updater.md` for keypair rotation and the required GitHub
+Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
+
 ## v0.4.1 — Capabilities Panel Layout Fixes
 
 Follow-up patch to v0.4.0 that fixes layout regressions in the
