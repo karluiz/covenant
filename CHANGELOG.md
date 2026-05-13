@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.3 — Windows release pipeline fix
+
+### Fixed
+
+- `release-windows.yml` was looking for Tauri 1.x updater artifacts
+  (`*.msi.zip` + `*.msi.zip.sig`), which Tauri 2.x no longer produces.
+  The Windows build itself was fine — only the post-build artifact
+  locator step failed, blocking the Windows half of every release
+  since v0.5.0.
+- The workflow now locates `*.msi.sig` (Tauri 2.x signs the `.msi`
+  directly) and the `latest.json` manifest fragment points the
+  Windows updater at the raw `.msi` URL instead of a non-existent
+  `.msi.zip`.
+
+No app-code changes — pure CI fix to ship the Windows MSI + updater
+signature on the GitHub release.
+
 ## v0.5.1 — UX polish + HTML preview + workspace import/export
 
 ### Added
