@@ -13,6 +13,7 @@ import {
   capabilitiesDelete,
   capabilitiesDetect,
   capabilitiesList,
+  capabilitiesListDir,
   capabilitiesRead,
   capabilitiesScaffold,
   capabilitiesWrite,
@@ -436,15 +437,20 @@ export class CapabilitiesPanel {
       return detail;
     }
     const isJsonSource = sel.kind === "hook" || sel.kind === "mcp";
+    const isPlugin = sel.kind === "plugin";
     detail.innerHTML = `
       <div class="cap-detail-meta">
-        <div><strong>${escapeHtml(sel.name)}</strong></div>
+        <div><strong>${escapeHtml(sel.name)}</strong>${sel.description ? ` <span class="cap-detail-desc">— ${escapeHtml(sel.description)}</span>` : ""}</div>
         <div class="cap-detail-row"><span class="cap-detail-key">Path:</span> <code>${escapeHtml(sel.path)}</code></div>
         <div class="cap-detail-row"><span class="cap-detail-key">Scope:</span> ${escapeHtml(sel.scope_label)}</div>
         <div class="cap-detail-row"><span class="cap-detail-key">Tool:</span> ${escapeHtml(sel.tool)} / ${escapeHtml(sel.kind)}</div>
         ${isJsonSource ? `<div class="cap-detail-row cap-warn">Editing the entire settings.json — be careful.</div>` : ""}
       </div>
-      <textarea class="cap-editor" spellcheck="false" ${sel.read_only ? "disabled" : ""}></textarea>
+      ${
+        isPlugin
+          ? `<div class="cap-plugin-view"><div class="cap-plugin-listing">loading…</div></div>`
+          : `<textarea class="cap-editor" spellcheck="false" ${sel.read_only ? "disabled" : ""}></textarea>`
+      }
       <div class="cap-detail-actions">
         ${
           sel.read_only
@@ -457,16 +463,18 @@ export class CapabilitiesPanel {
         }
       </div>
     `;
-    const textarea = detail.querySelector<HTMLTextAreaElement>(".cap-editor")!;
+    const textarea = detail.querySelector<HTMLTextAreaElement>(".cap-editor");
     const saveBtn = detail.querySelector<HTMLButtonElement>('[data-act="save"]');
     const deleteBtn = detail.querySelector<HTMLButtonElement>('[data-act="delete"]');
     const dirtyFlag = detail.querySelector<HTMLElement>(".cap-dirty-flag");
-    textarea.oninput = () => {
-      this.dirty = true;
-      if (saveBtn) saveBtn.disabled = false;
-      if (dirtyFlag) dirtyFlag.hidden = false;
-    };
-    if (saveBtn) {
+    if (textarea) {
+      textarea.oninput = () => {
+        this.dirty = true;
+        if (saveBtn) saveBtn.disabled = false;
+        if (dirtyFlag) dirtyFlag.hidden = false;
+      };
+    }
+    if (saveBtn && textarea) {
       saveBtn.onclick = async () => {
         const cur = this.selected();
         if (!cur) return;
@@ -504,6 +512,10 @@ export class CapabilitiesPanel {
   private async loadSelectedIntoEditor(): Promise<void> {
     const sel = this.selected();
     if (!sel) return;
+    if (sel.kind === "plugin") {
+      await this.loadPluginListing(sel);
+      return;
+    }
     const textarea = this.pageHost.querySelector<HTMLTextAreaElement>(".cap-editor");
     if (!textarea) return;
     textarea.value = "loading...";
@@ -515,6 +527,35 @@ export class CapabilitiesPanel {
       textarea.value = `# read error: ${String(err)}`;
     }
   }
+
+  private async loadPluginListing(sel: CapabilityListItem): Promise<void> {
+    const host = this.pageHost.querySelector<HTMLElement>(".cap-plugin-listing");
+    if (!host) return;
+    host.textContent = "loading…";
+    try {
+      const entries = await capabilitiesListDir(sel.path);
+      if (entries.length === 0) {
+        host.innerHTML = `<div class="cap-empty">Empty plugin directory.</div>`;
+        return;
+      }
+      const rows = entries
+        .map((e) => {
+          const sizeLabel = e.is_dir ? "" : ` <span class="cap-plugin-size">${formatSize(e.size)}</span>`;
+          const icon = e.is_dir ? "📁" : "📄";
+          return `<div class="cap-plugin-row"><span class="cap-plugin-icon">${icon}</span><span class="cap-plugin-name">${escapeHtml(e.name)}</span>${sizeLabel}</div>`;
+        })
+        .join("");
+      host.innerHTML = rows;
+    } catch (err) {
+      host.innerHTML = `<div class="cap-empty">Failed to list: ${escapeHtml(String(err))}</div>`;
+    }
+  }
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function navGroupTitle(text: string): HTMLElement {

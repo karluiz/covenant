@@ -2777,6 +2777,7 @@ pub fn run() {
             telegram_test_connection,
             telegram_status,
             capabilities_commands::capabilities_list,
+            capabilities_commands::capabilities_list_dir,
             capabilities_commands::capabilities_read,
             capabilities_commands::capabilities_write,
             capabilities_commands::capabilities_delete,

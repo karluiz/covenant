@@ -4,7 +4,10 @@
 //! surface in the filesystem. It exposes only:
 //!
 //! - `~/.copilot/mcp-config.json` — MCP servers (JSON; either `mcpServers` or `servers` shape)
-//! - `~/.copilot/installed-plugins/` — directory whose immediate subdirs are installed plugins
+//! - `~/.copilot/config.json` — authoritative `installedPlugins[]` list (name, marketplace,
+//!   version, enabled, cache_path). Read first.
+//! - `~/.copilot/installed-plugins/<marketplace>/<plugin>/` — physical plugin dirs;
+//!   used as a fallback when `config.json` is absent or has no `installedPlugins`.
 //! - `~/.copilot/settings.json` — user settings (out of scope for v0)
 //!
 //! There is currently only one scope: `User`. Copilot has no project scope yet.
@@ -34,6 +37,9 @@ pub struct InstalledPlugin {
     pub name: String,
     pub path: PathBuf,
     pub scope: CopilotScope,
+    pub marketplace: Option<String>,
+    pub version: Option<String>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +63,11 @@ pub fn scan_user(home: &Path) -> CapabilityResult<Vec<Capability>> {
     }
     let mut out = Vec::new();
     scan_mcp_config(&root.join("mcp-config.json"), &mut out)?;
-    scan_installed_plugins(&root.join("installed-plugins"), &mut out)?;
+    let plugins_dir = root.join("installed-plugins");
+    let added = scan_plugins_from_config(&root.join("config.json"), &mut out)?;
+    if !added {
+        scan_installed_plugins_fs(&plugins_dir, &mut out)?;
+    }
     Ok(out)
 }
 
@@ -94,26 +104,84 @@ fn scan_mcp_config(path: &Path, out: &mut Vec<Capability>) -> CapabilityResult<(
     Ok(())
 }
 
-fn scan_installed_plugins(dir: &Path, out: &mut Vec<Capability>) -> CapabilityResult<()> {
+/// Read `~/.copilot/config.json` and emit one `InstalledPlugin` per entry in
+/// `installedPlugins[]`. Returns `Ok(true)` if the array existed (even if empty),
+/// so the caller knows not to fall back to a filesystem scan.
+fn scan_plugins_from_config(path: &Path, out: &mut Vec<Capability>) -> CapabilityResult<bool> {
+    if !path.is_file() {
+        return Ok(false);
+    }
+    let raw = std::fs::read_to_string(path)?;
+    // config.json may contain a leading `//` comment line; strip lines that start with `//`.
+    let cleaned: String = raw
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let value: serde_json::Value = serde_json::from_str(&cleaned)
+        .map_err(|e| CapabilityError::Json(path.display().to_string(), e))?;
+    let Some(arr) = value.get("installedPlugins").and_then(|v| v.as_array()) else {
+        return Ok(false);
+    };
+    for p in arr {
+        let Some(name) = p.get("name").and_then(|v| v.as_str()) else { continue };
+        let cache_path = p
+            .get("cache_path")
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let marketplace = p
+            .get("marketplace")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let version = p.get("version").and_then(|v| v.as_str()).map(str::to_string);
+        let enabled = p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+        out.push(Capability::InstalledPlugin(InstalledPlugin {
+            name: name.to_string(),
+            path: cache_path,
+            scope: CopilotScope::User,
+            marketplace,
+            version,
+            enabled,
+        }));
+    }
+    Ok(true)
+}
+
+/// Filesystem fallback: walk `installed-plugins/<marketplace>/<plugin>/`.
+/// Used only when `config.json` is missing or has no `installedPlugins`.
+fn scan_installed_plugins_fs(dir: &Path, out: &mut Vec<Capability>) -> CapabilityResult<()> {
     if !dir.is_dir() {
         return Ok(());
     }
-    let rd = std::fs::read_dir(dir)?;
-    for entry in rd.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let market_path = entry.path();
+        if !market_path.is_dir() {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
-        // Skip hidden dirs (.git, etc.)
-        if name.starts_with('.') {
+        let Some(marketplace) = market_path.file_name().and_then(|s| s.to_str()) else { continue };
+        if marketplace.starts_with('.') {
             continue;
         }
-        out.push(Capability::InstalledPlugin(InstalledPlugin {
-            name: name.to_string(),
-            path: path.clone(),
-            scope: CopilotScope::User,
-        }));
+        for sub in std::fs::read_dir(&market_path)?.flatten() {
+            let plugin_path = sub.path();
+            if !plugin_path.is_dir() {
+                continue;
+            }
+            let Some(name) = plugin_path.file_name().and_then(|s| s.to_str()) else { continue };
+            if name.starts_with('.') {
+                continue;
+            }
+            out.push(Capability::InstalledPlugin(InstalledPlugin {
+                name: name.to_string(),
+                path: plugin_path.clone(),
+                scope: CopilotScope::User,
+                marketplace: Some(marketplace.to_string()),
+                version: None,
+                enabled: true,
+            }));
+        }
     }
     Ok(())
 }
@@ -226,18 +294,84 @@ mod tests {
     }
 
     #[test]
-    fn installed_plugins_lists_subdirs_ignores_files() {
+    fn installed_plugins_from_config_json() {
         let tmp = TempDir::new().unwrap();
-        let plugins = tmp.path().join(".copilot/installed-plugins");
-        std::fs::create_dir_all(plugins.join("plugin-a")).unwrap();
-        std::fs::create_dir_all(plugins.join("plugin-b")).unwrap();
-        std::fs::write(plugins.join("README.md"), "not a plugin").unwrap();
+        let cfg = serde_json::json!({
+            "installedPlugins": [
+                {
+                    "name": "frontend-design",
+                    "marketplace": "claude-code-plugins",
+                    "version": "1.0.0",
+                    "enabled": true,
+                    "cache_path": "/abs/claude-code-plugins/frontend-design"
+                },
+                {
+                    "name": "anvil",
+                    "marketplace": "",
+                    "version": "1.0.0",
+                    "enabled": false,
+                    "cache_path": "/abs/_direct/burkeholland--anvil"
+                }
+            ]
+        });
+        write(&tmp.path().join(".copilot/config.json"), &cfg.to_string());
         let caps = scan_user(tmp.path()).unwrap();
         let mut plugins: Vec<_> = caps.iter().filter_map(|c| match c {
+            Capability::InstalledPlugin(p) => Some(p.clone()), _ => None
+        }).collect();
+        plugins.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(plugins.len(), 2);
+        assert_eq!(plugins[0].name, "anvil");
+        assert_eq!(plugins[0].marketplace, None);
+        assert!(!plugins[0].enabled);
+        assert_eq!(plugins[1].name, "frontend-design");
+        assert_eq!(plugins[1].marketplace.as_deref(), Some("claude-code-plugins"));
+        assert_eq!(plugins[1].version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn config_json_with_leading_comment_is_parsed() {
+        let tmp = TempDir::new().unwrap();
+        let body = "// managed automatically\n{\"installedPlugins\":[{\"name\":\"p\",\"marketplace\":\"m\",\"cache_path\":\"/x\"}]}";
+        write(&tmp.path().join(".copilot/config.json"), body);
+        let caps = scan_user(tmp.path()).unwrap();
+        let plugins: Vec<_> = caps.iter().filter_map(|c| match c {
             Capability::InstalledPlugin(p) => Some(p.name.clone()), _ => None
         }).collect();
-        plugins.sort();
-        assert_eq!(plugins, vec!["plugin-a", "plugin-b"]);
+        assert_eq!(plugins, vec!["p"]);
+    }
+
+    #[test]
+    fn fs_fallback_walks_marketplace_subdirs() {
+        let tmp = TempDir::new().unwrap();
+        let plugins = tmp.path().join(".copilot/installed-plugins");
+        std::fs::create_dir_all(plugins.join("claude-code-plugins/frontend-design")).unwrap();
+        std::fs::create_dir_all(plugins.join("_direct/burkeholland--anvil")).unwrap();
+        std::fs::write(plugins.join("README.md"), "stray").unwrap();
+        let caps = scan_user(tmp.path()).unwrap();
+        let mut names: Vec<_> = caps.iter().filter_map(|c| match c {
+            Capability::InstalledPlugin(p) => Some(p.name.clone()), _ => None
+        }).collect();
+        names.sort();
+        assert_eq!(names, vec!["burkeholland--anvil", "frontend-design"]);
+    }
+
+    #[test]
+    fn config_json_takes_precedence_over_fs() {
+        let tmp = TempDir::new().unwrap();
+        let plugins = tmp.path().join(".copilot/installed-plugins");
+        std::fs::create_dir_all(plugins.join("market/from-fs")).unwrap();
+        let cfg = serde_json::json!({
+            "installedPlugins": [
+                {"name": "from-config", "marketplace": "m", "cache_path": "/x"}
+            ]
+        });
+        write(&tmp.path().join(".copilot/config.json"), &cfg.to_string());
+        let caps = scan_user(tmp.path()).unwrap();
+        let names: Vec<_> = caps.iter().filter_map(|c| match c {
+            Capability::InstalledPlugin(p) => Some(p.name.clone()), _ => None
+        }).collect();
+        assert_eq!(names, vec!["from-config"]);
     }
 
     #[test]

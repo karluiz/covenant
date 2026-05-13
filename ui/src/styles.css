@@ -10453,6 +10453,46 @@ button.status-segment.status-tg:focus-visible {
   color: var(--muted);
   font-size: 12px;
 }
+.cap-detail-desc {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 12px;
+}
+.cap-plugin-view {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 20px;
+}
+.cap-plugin-listing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.cap-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.cap-plugin-row:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+}
+.cap-plugin-icon {
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+}
+.cap-plugin-name {
+  flex: 1;
+  font-family: var(--mono, monospace);
+}
+.cap-plugin-size {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
 
 .update-banner {
   position: fixed;

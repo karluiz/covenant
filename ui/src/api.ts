@@ -1081,6 +1081,18 @@ export async function capabilitiesRead(path: string): Promise<string> {
   return invoke<string>("capabilities_read", { path });
 }
 
+export interface CapabilityDirEntry {
+  name: string;
+  is_dir: boolean;
+  size: number;
+}
+
+export async function capabilitiesListDir(
+  path: string,
+): Promise<CapabilityDirEntry[]> {
+  return invoke<CapabilityDirEntry[]>("capabilities_list_dir", { path });
+}
+
 export async function capabilitiesWrite(
   path: string,
   contents: string,

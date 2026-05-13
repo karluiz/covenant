@@ -146,12 +146,27 @@ fn item_from_copilot(c: copilot::Capability) -> CapabilityListItem {
         }
         copilot::Capability::InstalledPlugin(p) => {
             let path = p.path.to_string_lossy().into_owned();
+            let mut desc_parts = Vec::new();
+            if let Some(m) = &p.marketplace {
+                desc_parts.push(m.clone());
+            }
+            if let Some(v) = &p.version {
+                desc_parts.push(format!("v{v}"));
+            }
+            if !p.enabled {
+                desc_parts.push("disabled".to_string());
+            }
+            let description = if desc_parts.is_empty() {
+                None
+            } else {
+                Some(desc_parts.join(" · "))
+            };
             CapabilityListItem {
                 id: format!("copilot:plugin:{path}"),
                 tool: "copilot".into(),
                 kind: "plugin".into(),
                 name: p.name,
-                description: None,
+                description,
                 path,
                 scope_label: "user".into(),
                 read_only: true,
@@ -300,6 +315,45 @@ pub async fn capabilities_list(
     tokio::task::spawn_blocking(move || aggregate(project_root))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DirEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub async fn capabilities_list_dir(path: String) -> Result<Vec<DirEntry>, String> {
+    let p = PathBuf::from(&path);
+    tokio::task::spawn_blocking(move || -> Result<Vec<DirEntry>, String> {
+        let rd = std::fs::read_dir(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        let mut out = Vec::new();
+        for entry in rd.flatten() {
+            let name = match entry.file_name().to_str() {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            out.push(DirEntry {
+                name,
+                is_dir: meta.is_dir(),
+                size: if meta.is_file() { meta.len() } else { 0 },
+            });
+        }
+        out.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        });
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
