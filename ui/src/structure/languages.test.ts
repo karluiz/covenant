@@ -59,4 +59,16 @@ describe("sqlDialectFor", () => {
   it("missing head defaults to StandardSQL for generic .sql", () => {
     expect(sqlDialectFor("/x/q.sql", "").name).toBe("StandardSQL");
   });
+
+  it("ignores dialect keywords inside line comments", () => {
+    const head =
+      "-- NOTE: MySQL does not support RETURNING\nINSERT INTO t(a) VALUES (1);";
+    expect(sqlDialectFor("/x/q.sql", head).name).toBe("StandardSQL");
+  });
+
+  it("heuristic: lowercase autoincrement → SQLite (case-insensitive)", () => {
+    expect(
+      sqlDialectFor("/x/q.sql", "CREATE TABLE t (id INTEGER PRIMARY KEY autoincrement);").name,
+    ).toBe("SQLite");
+  });
 });

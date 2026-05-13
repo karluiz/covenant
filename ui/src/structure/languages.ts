@@ -63,7 +63,14 @@ function dialectFromMarker(head: string): DialectSpec["name"] | null {
 }
 
 function dialectFromHeuristic(head: string): DialectSpec["name"] | null {
-  const slice = head.slice(0, HEAD_HEURISTIC_BYTES);
+  const slice = head
+    .slice(0, HEAD_HEURISTIC_BYTES)
+    .split("\n")
+    .map((line) => {
+      const i = line.indexOf("--");
+      return i === -1 ? line : line.slice(0, i);
+    })
+    .join("\n");
   if (
     /\bIDENTITY\s*\(/i.test(slice) ||
     /\bNVARCHAR\b/i.test(slice) ||
@@ -89,7 +96,7 @@ function dialectFromHeuristic(head: string): DialectSpec["name"] | null {
   }
   if (
     /\bPRAGMA\b/i.test(slice) ||
-    /\bAUTOINCREMENT\b/.test(slice) ||
+    /\bAUTOINCREMENT\b/i.test(slice) ||
     /\bWITHOUT\s+ROWID\b/i.test(slice)
   ) {
     return "SQLite";
