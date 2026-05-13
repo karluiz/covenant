@@ -12,7 +12,6 @@
 //   3. Add a factory call in StructureEditor.
 
 import { renderMarkdown } from "../release/markdown";
-import * as XLSXLib from "xlsx";
 
 export type PreviewKind = "markdown" | "svg" | "png" | "html" | "xlsx";
 
@@ -238,13 +237,24 @@ export class XlsxPreview implements Preview {
   private host: HTMLElement | null = null;
   private tabsEl: HTMLElement | null = null;
   private gridEl: HTMLElement | null = null;
-  private workbook: XLSXLib.WorkBook | null = null;
+  private workbook: import("xlsx").WorkBook | null = null;
   private activeSheet: string | null = null;
   private disposed = false;
+
+  private readyResolve: (() => void) | null = null;
+  public ready: Promise<void> = Promise.resolve();
 
   mount(host: HTMLElement, content: string): void {
     this.host = host;
     this.disposed = false;
+    this.ready = new Promise((resolve) => {
+      this.readyResolve = resolve;
+    });
+    const finish = () => {
+      this.readyResolve?.();
+      this.readyResolve = null;
+    };
+
     host.innerHTML = "";
     const root = document.createElement("div");
     root.className = "structure-preview-xlsx";
@@ -259,29 +269,44 @@ export class XlsxPreview implements Preview {
     const bytes = decodeBytes(content);
     if (!bytes) {
       this.renderPlaceholder("No se pudieron leer los bytes del archivo.");
+      finish();
       return;
     }
     if (bytes.length > XLSX_MAX_BYTES) {
       this.renderPlaceholder(
         `Archivo demasiado grande para previsualizar (${formatMB(bytes.length)}).`,
       );
+      finish();
       return;
     }
 
-    try {
-      const wb = XLSXLib.read(bytes, { type: "array" });
-      this.workbook = wb;
-      const names = wb.SheetNames;
-      if (names.length === 0) {
-        this.renderPlaceholder("Workbook vacío.");
-        return;
-      }
-      this.activeSheet = names[0];
-      this.renderTabs(names);
-      this.renderActiveSheet();
-    } catch (err) {
-      this.renderPlaceholder(`Error parseando XLSX: ${err}`);
-    }
+    import("xlsx")
+      .then((XLSX) => {
+        if (this.disposed) {
+          finish();
+          return;
+        }
+        try {
+          const wb = XLSX.read(bytes, { type: "array" });
+          this.workbook = wb;
+          const names = wb.SheetNames;
+          if (names.length === 0) {
+            this.renderPlaceholder("Workbook vacío.");
+            finish();
+            return;
+          }
+          this.activeSheet = names[0];
+          this.renderTabs(names, XLSX);
+          this.renderActiveSheet(XLSX);
+        } catch (err) {
+          this.renderPlaceholder(`Error parseando XLSX: ${err}`);
+        }
+        finish();
+      })
+      .catch((err) => {
+        this.renderPlaceholder(`Error cargando XLSX: ${err}`);
+        finish();
+      });
   }
 
   update(host: HTMLElement, content: string): void {
@@ -302,7 +327,7 @@ export class XlsxPreview implements Preview {
     this.host.innerHTML = `<div class="structure-preview-xlsx-placeholder">${escapeHtml(msg)}</div>`;
   }
 
-  private renderTabs(names: string[]): void {
+  private renderTabs(names: string[], XLSX: typeof import("xlsx")): void {
     if (!this.tabsEl) return;
     this.tabsEl.innerHTML = "";
     if (names.length <= 1) {
@@ -323,20 +348,35 @@ export class XlsxPreview implements Preview {
         for (const el of this.tabsEl.querySelectorAll(".structure-preview-xlsx-tab")) {
           el.classList.toggle("active", el.textContent === name);
         }
-        if (!this.disposed) this.renderActiveSheet();
+        // Re-arm ready so tests can await the re-render.
+        this.ready = new Promise((resolve) => {
+          this.readyResolve = resolve;
+        });
+        const finish = () => {
+          this.readyResolve?.();
+          this.readyResolve = null;
+        };
+        import("xlsx")
+          .then((XLSXInner) => {
+            if (!this.disposed) this.renderActiveSheet(XLSXInner);
+            finish();
+          })
+          .catch(finish);
       });
       this.tabsEl.appendChild(btn);
     }
+    // suppress unused-param lint — XLSX is passed for future consistency
+    void XLSX;
   }
 
-  private renderActiveSheet(_XLSX?: unknown): void {
+  private renderActiveSheet(XLSX: typeof import("xlsx")): void {
     if (!this.gridEl || !this.workbook || !this.activeSheet) return;
     const sheet = this.workbook.Sheets[this.activeSheet];
     if (!sheet) {
       this.gridEl.innerHTML = "";
       return;
     }
-    const rows = XLSXLib.utils.sheet_to_json<unknown[]>(sheet, {
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
       header: 1,
       raw: false,
       defval: "",
@@ -347,7 +387,7 @@ export class XlsxPreview implements Preview {
     const limit = Math.min(rows.length, 500);
     for (let r = 0; r < limit; r++) {
       const tr = document.createElement("tr");
-      const row = rows[r] as unknown[] ?? [];
+      const row = (rows[r] as unknown[]) ?? [];
       for (let c = 0; c < row.length; c++) {
         const cell = document.createElement(r === 0 ? "th" : "td");
         cell.textContent = String(row[c] ?? "");

@@ -39,7 +39,7 @@ describe("XlsxPreview", () => {
     const host = document.createElement("div");
     const p = new XlsxPreview();
     p.mount(host, fixtureBytes());
-    await new Promise((r) => setTimeout(r, 80));
+    await p.ready;
     expect(host.textContent).toContain("apples");
     expect(host.textContent).toContain("pears");
     p.dispose();
@@ -49,7 +49,7 @@ describe("XlsxPreview", () => {
     const host = document.createElement("div");
     const p = new XlsxPreview();
     p.mount(host, fixtureBytes());
-    await new Promise((r) => setTimeout(r, 80));
+    await p.ready;
     const tabs = host.querySelectorAll(".structure-preview-xlsx-tab");
     const names = Array.from(tabs).map((t) => t.textContent);
     expect(names).toEqual(["Inventory", "Notes"]);
@@ -60,12 +60,12 @@ describe("XlsxPreview", () => {
     const host = document.createElement("div");
     const p = new XlsxPreview();
     p.mount(host, fixtureBytes());
-    await new Promise((r) => setTimeout(r, 80));
+    await p.ready;
     const notesTab = Array.from(
       host.querySelectorAll<HTMLElement>(".structure-preview-xlsx-tab"),
     ).find((t) => t.textContent === "Notes")!;
     notesTab.click();
-    await new Promise((r) => setTimeout(r, 30));
+    await p.ready;
     expect(host.textContent).toContain("hello");
     expect(host.textContent).not.toContain("apples");
     p.dispose();
