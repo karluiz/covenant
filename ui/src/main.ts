@@ -47,7 +47,7 @@ import { StatusBar } from "./status/bar";
 import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
-import { TabManager } from "./tabs/manager";
+import { TabManager, type TabManifestV1 } from "./tabs/manager";
 
 /// Module-level reference to the singleton TabManager. Assigned during
 /// boot() and used by project-notes paste helper to resolve the active
@@ -504,6 +504,10 @@ async function boot(): Promise<void> {
   settings.onClosed = () => {
     manager.refitActive();
   };
+  settings.onExportWorkspace = () => manager.serializeManifest();
+  settings.onImportWorkspace = async (parsed) => {
+    await manager.replaceFromManifest(parsed as TabManifestV1);
+  };
 
   const toasts = new ToastHost(document.body, {
     onClick: (finding) => {
@@ -602,6 +606,21 @@ async function boot(): Promise<void> {
   const missionPanel = new MissionPage(missionPageHost, workspace);
   missionPanel.onClosed = () => { manager.refitActive(); };
   manager.setMissionPicker((opts) => missionPanel.open(opts));
+
+  // Selecting a tab implies "show me this terminal" — dismiss any
+  // fullscreen overlay panel so the terminal pane is actually visible.
+  manager.onTabActivated = () => {
+    if (capabilities.isOpen()) capabilities.close();
+    if (settings.isOpen()) settings.close();
+    if (release.isOpen()) release.close();
+    if (shortcutsPanel.isOpen()) shortcutsPanel.close();
+    if (aomReportPanel.isOpen()) aomReportPanel.close();
+    if (docsPanel.isOpen()) docsPanel.close();
+    if (draftsPanel.isOpen()) draftsPanel.close();
+    if (missionPanel.isOpen()) missionPanel.close();
+    if (operator.isOpen()) operator.close();
+    if (specChat.isOpen()) specChat.close();
+  };
 
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {

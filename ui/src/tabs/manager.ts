@@ -55,7 +55,7 @@ import { RecallManager } from "../recall/manager";
 import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
 import { Icons } from "../icons";
-import { ContextMenu, COLOR_SWATCHES } from "../menu/context-menu";
+import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL } from "../menu/context-menu";
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
@@ -429,6 +429,12 @@ export class TabManager {
 
   /// Fires when the user clicks the project-notes icon on a group chip.
   public onOpenProjectNotes: ((groupId: string, groupLabel: string, groupColor: string | null) => void) | null = null;
+
+  /// Fires whenever a tab is activated. Used by main.ts to dismiss any
+  /// overlay panels (docs, drafts, capabilities, settings, etc.) so the
+  /// terminal becomes visible — selecting a tab implies "show me this
+  /// terminal", which is impossible while a fullscreen panel covers it.
+  public onTabActivated: (() => void) | null = null;
 
   /// Update optional callbacks without reconstructing the manager.
   setOptions(opts: { onOpenProjectNotes?: (groupId: string, groupLabel: string, groupColor: string | null) => void }): void {
@@ -2461,6 +2467,21 @@ export class TabManager {
     this.pushExcludedToStatusBar();
   }
 
+  /// Import flow: tear down every existing tab + group without the
+  /// mind-loss confirm modal (the user already accepted at the settings
+  /// import prompt) and rebuild from the supplied manifest. Throws on
+  /// invalid manifest so callers can surface an error toast.
+  async replaceFromManifest(m: TabManifestV1): Promise<void> {
+    if (m.version !== 1 || !Array.isArray(m.tabs)) {
+      throw new Error("invalid manifest");
+    }
+    const existing = this.tabs.slice();
+    for (const t of existing) this.finalizeCloseTab(t.id);
+    this.groups.clear();
+    await this.restoreFromManifest(m);
+    this.scheduleSave();
+  }
+
   closeTab(id: string): void {
     const idx = this.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
@@ -2552,6 +2573,7 @@ export class TabManager {
     tab.pane.hidden = false;
     this.activeId = id;
     this.renderTabbar();
+    this.onTabActivated?.();
     this.onActiveContextChange?.(tab.cwd);
     this.emitActiveMission();
     this.emitActiveOperator();
@@ -3347,6 +3369,14 @@ export class TabManager {
           onClick: () => this.setColor(tab.id, sw.color),
         })),
       },
+      {
+        swatches: COLOR_SWATCHES_PASTEL.map((sw) => ({
+          color: sw.color,
+          title: sw.title,
+          onClick: () => this.setColor(tab.id, sw.color),
+        })),
+        pastelRow: true,
+      },
       { divider: true },
     ];
 
@@ -3506,6 +3536,14 @@ export class TabManager {
           title: sw.title,
           onClick: () => this.setGroupColor(group.id, sw.color),
         })),
+      },
+      {
+        swatches: COLOR_SWATCHES_PASTEL.map((sw) => ({
+          color: sw.color,
+          title: sw.title,
+          onClick: () => this.setGroupColor(group.id, sw.color),
+        })),
+        pastelRow: true,
       },
       { divider: true },
       {

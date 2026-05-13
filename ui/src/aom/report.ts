@@ -51,6 +51,7 @@ export class AomReportPanel {
       // Re-render in place: keep the overlay, swap the card body.
       const card = this.modal.querySelector<HTMLElement>(".aom-report-card");
       if (card) card.innerHTML = this.cardBody(report);
+      this.wireClose();
       return;
     }
 

@@ -2805,6 +2805,14 @@ body:not(.tabbar-left) #new-group {
     align-items: center;
 }
 
+/* Second swatch row (pastel variants): align under the colored swatches
+   of the row above by offsetting past the leading "no color" slot
+   (18px swatch + 6px gap), and pull tight against the row above. */
+.ctx-swatch-row-pastel {
+    padding-top: 0;
+    padding-left: 36px;
+}
+
 .ctx-swatch {
     width: 18px;
     height: 18px;
@@ -3394,6 +3402,27 @@ body:not(.tabbar-left) #new-group {
 
 .settings-save:hover {
     filter: brightness(1.1);
+}
+
+.settings-actions-row {
+    display: flex;
+    gap: 8px;
+    flex-direction: row;
+}
+
+.settings-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 16px;
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.settings-btn:hover {
+    background: var(--border);
 }
 
 /* ─── Agent (⌘K) overlay ───────────────────────────── */
@@ -5962,6 +5991,20 @@ button.status-segment.status-aom.status-aom-warn:hover {
 /* SVG viewer — checkered transparency background so users can see
    the actual extents of an SVG with transparent regions. Centered
    so small SVGs don't sit jammed in a corner. */
+.structure-preview-html {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    background: #fff;
+}
+.structure-preview-html-frame {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #fff;
+}
+
 .structure-preview-svg {
     min-height: 100%;
     display: flex;

@@ -18,6 +18,9 @@ export interface MenuItem {
     title: string;
     onClick: () => void;
   }>;
+  /// When true, render this swatch row aligned under the colored swatches
+  /// of the previous row (skipping the "no color" slot).
+  pastelRow?: boolean;
   danger?: boolean;
   disabled?: boolean;
   /// Optional keyboard-shortcut hint shown right-aligned (e.g. "⌘T").
@@ -119,6 +122,7 @@ export class ContextMenu {
     if (item.swatches) {
       const row = document.createElement("div");
       row.className = "ctx-swatch-row";
+      if (item.pastelRow) row.classList.add("ctx-swatch-row-pastel");
       for (const sw of item.swatches) {
         const dot = document.createElement("button");
         dot.type = "button";
@@ -190,4 +194,21 @@ export const COLOR_SWATCHES: Array<{ color: string | null; title: string }> = [
   { color: "#c678dd", title: "magenta" },
   { color: "#ff79c6", title: "pink" },
   { color: "#565f89", title: "slate" },
+];
+
+/// Soft pastel variants of the standard palette, rendered as a second row.
+export const COLOR_SWATCHES_PASTEL: Array<{ color: string; title: string }> = [
+  { color: "#ffb3ba", title: "red pastel" },
+  { color: "#ffd1a4", title: "orange pastel" },
+  { color: "#ffe9b3", title: "yellow pastel" },
+  { color: "#e4f5c1", title: "lime pastel" },
+  { color: "#c8e6a8", title: "green pastel" },
+  { color: "#b3e6dc", title: "teal pastel" },
+  { color: "#b9e3f5", title: "cyan pastel" },
+  { color: "#b9c9f5", title: "blue pastel" },
+  { color: "#b3b9e0", title: "indigo pastel" },
+  { color: "#d8c7f5", title: "purple pastel" },
+  { color: "#e4b9ee", title: "magenta pastel" },
+  { color: "#ffc9e0", title: "pink pastel" },
+  { color: "#aab0c2", title: "slate pastel" },
 ];

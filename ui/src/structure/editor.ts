@@ -54,6 +54,7 @@ import {
 } from "../api";
 import { languageForPath } from "./languages";
 import {
+  HtmlPreview,
   MarkdownPreview,
   PngPreview,
   type Preview,
@@ -1005,6 +1006,8 @@ function makePreview(kind: PreviewKind): Preview {
   switch (kind) {
     case "markdown":
       return new MarkdownPreview();
+    case "html":
+      return new HtmlPreview();
     case "svg":
       return new SvgPreview();
     case "png":

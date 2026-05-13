@@ -13,7 +13,7 @@
 
 import { renderMarkdown } from "../release/markdown";
 
-export type PreviewKind = "markdown" | "svg" | "png";
+export type PreviewKind = "markdown" | "svg" | "png" | "html";
 
 export interface Preview {
   /// Mount + render. The implementation OWNS `host.innerHTML` for
@@ -34,6 +34,7 @@ export function previewKindForPath(path: string): PreviewKind | null {
   if (dot <= 0) return null;
   const ext = base.slice(dot + 1).toLowerCase();
   if (ext === "md" || ext === "markdown" || ext === "mdx") return "markdown";
+  if (ext === "html" || ext === "htm") return "html";
   if (ext === "svg") return "svg";
   if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "webp") {
     return "png";
@@ -109,6 +110,56 @@ export class SvgPreview implements Preview {
   }
   dispose(): void {
     /* no listeners */
+  }
+}
+
+// ─── HTML ──────────────────────────────────────────────
+
+/// Renders the HTML document inside a sandboxed iframe via `srcdoc`.
+/// The sandbox allows scripts and same-origin so Tailwind CDN, Google
+/// Fonts, FontAwesome, and inline `<script>` blocks behave like a real
+/// browser open — but the iframe can't navigate the parent or touch
+/// our app's storage. Network is permitted for CDN assets.
+export class HtmlPreview implements Preview {
+  private iframeEl: HTMLIFrameElement | null = null;
+
+  mount(host: HTMLElement, content: string): void {
+    host.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "structure-preview-html";
+
+    const iframe = document.createElement("iframe");
+    iframe.className = "structure-preview-html-frame";
+    // allow-scripts + allow-same-origin: CDN scripts (Tailwind JIT,
+    // FontAwesome) need both. allow-popups/forms intentionally OFF —
+    // a preview shouldn't open windows or POST anywhere.
+    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin");
+    iframe.setAttribute("referrerpolicy", "no-referrer");
+    iframe.srcdoc = content;
+    iframe.style.width = "100%";
+    iframe.style.height = "100%";
+    iframe.style.border = "0";
+    iframe.style.background = "#fff";
+
+    wrap.appendChild(iframe);
+    host.appendChild(wrap);
+    this.iframeEl = iframe;
+  }
+  update(host: HTMLElement, content: string): void {
+    // Reusing the existing iframe avoids a full reload flash when the
+    // user toggles back-and-forth without changes. If content is the
+    // same we keep the current frame; otherwise replace srcdoc, which
+    // triggers a re-render.
+    if (this.iframeEl && this.iframeEl.srcdoc !== content) {
+      this.iframeEl.srcdoc = content;
+      return;
+    }
+    if (!this.iframeEl) {
+      this.mount(host, content);
+    }
+  }
+  dispose(): void {
+    this.iframeEl = null;
   }
 }
 

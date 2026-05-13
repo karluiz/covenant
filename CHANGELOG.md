@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.1 — UX polish + HTML preview + workspace import/export
+
+### Added
+
+- **HTML preview** in the Structure editor: `.html` / `.htm` files
+  render inside a sandboxed iframe (`allow-scripts allow-same-origin`,
+  `referrerpolicy=no-referrer`) so Tailwind CDN, FontAwesome and inline
+  scripts behave like a real browser open without touching parent
+  storage or navigation.
+- **Workspace export / import** wired into Settings (`onExportWorkspace`
+  / `onImportWorkspace`): serialize the live tab manifest to JSON and
+  restore it on demand.
+- **Pastel color swatches** as a second row in the tab/group color
+  context menu (`COLOR_SWATCHES_PASTEL`, `pastelRow` row alignment).
+
+### Fixed
+
+- Selecting a tab now dismisses any fullscreen overlay panel
+  (Capabilities, Settings, Release, Shortcuts, AOM report, Docs,
+  Drafts, Mission, Operator, Spec chat). Activating a tab implies
+  "show me this terminal" — covering it with a panel was a bug.
+- AOM report panel re-wires its close handler on in-place re-render,
+  so the close affordance keeps working after a report refresh.
+- Sidebar chips reach the right edge and badges have breathing room
+  again.
+- Capabilities panel sits beside the sidebar instead of overlapping;
+  hover-only scrollbars to match the rest of the chrome.
+
 ## v0.5.0 — Auto-Updater
 
 Covenant now checks GitHub Releases at boot for new versions and offers
