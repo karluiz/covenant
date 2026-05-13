@@ -674,9 +674,13 @@ export class TabManager {
       // can't clear the class from the new DOM. Sweep the live tree.
       this.dragging = null;
       this.tabbarHost
-        .querySelectorAll(".tab-dragging, .group-chip-dragging")
+        .querySelectorAll(".tab-dragging, .group-chip-dragging, .group-member-dragging")
         .forEach((el) =>
-          el.classList.remove("tab-dragging", "group-chip-dragging"),
+          el.classList.remove(
+            "tab-dragging",
+            "group-chip-dragging",
+            "group-member-dragging",
+          ),
         );
       sourceEl = null;
     };
@@ -704,16 +708,73 @@ export class TabManager {
         sourceEl.classList.add(
           src.kind === "tab" ? "tab-dragging" : "group-chip-dragging",
         );
-        ghost = sourceEl.cloneNode(true) as HTMLElement;
-        ghost.classList.add("tab-ghost");
-        const rect = sourceEl.getBoundingClientRect();
-        ghost.style.width = `${rect.width}px`;
-        ghost.style.height = `${rect.height}px`;
-        ghostOriginX = rect.left;
-        ghostOriginY = rect.top;
-        ghost.style.left = `${ghostOriginX}px`;
-        ghost.style.top = `${ghostOriginY}px`;
-        document.body.appendChild(ghost);
+        const vertical = document.body.classList.contains("tabbar-left");
+        if (src.kind === "group") {
+          // Lift the chip + every member pill together as one card so
+          // the user feels they're carrying the whole group, matching
+          // the tab drag's "picked up" affordance.
+          const memberIds = this.tabs
+            .filter((t) => t.groupId === src.id)
+            .map((t) => t.id);
+          const memberEls: HTMLElement[] = [];
+          for (const id of memberIds) {
+            const el = this.tabbarHost.querySelector<HTMLElement>(
+              `.tab-btn[data-tab-id="${id}"]`,
+            );
+            if (el) memberEls.push(el);
+          }
+          const parts = [sourceEl, ...memberEls];
+          const rects = parts.map((el) => el.getBoundingClientRect());
+          const minLeft = Math.min(...rects.map((r) => r.left));
+          const minTop = Math.min(...rects.map((r) => r.top));
+          const maxRight = Math.max(...rects.map((r) => r.right));
+          const maxBottom = Math.max(...rects.map((r) => r.bottom));
+
+          const wrap = document.createElement("div");
+          wrap.className = "tab-ghost tab-ghost-group";
+          wrap.style.width = `${maxRight - minLeft}px`;
+          wrap.style.height = `${maxBottom - minTop}px`;
+
+          parts.forEach((el, i) => {
+            const clone = el.cloneNode(true) as HTMLElement;
+            clone.classList.remove(
+              "tab-drop-left",
+              "tab-drop-right",
+              "group-chip-drop",
+            );
+            clone.querySelector(".tab-drop-anchor")?.remove();
+            clone.style.position = "absolute";
+            clone.style.left = `${rects[i].left - minLeft}px`;
+            clone.style.top = `${rects[i].top - minTop}px`;
+            clone.style.width = `${rects[i].width}px`;
+            clone.style.height = `${rects[i].height}px`;
+            clone.style.margin = "0";
+            wrap.appendChild(clone);
+          });
+
+          // Dim member pills at their source positions, just like the
+          // chip itself (so the whole run reads as "lifted").
+          for (const el of memberEls) el.classList.add("group-member-dragging");
+
+          ghost = wrap;
+          ghostOriginX = minLeft;
+          ghostOriginY = minTop;
+          ghost.style.left = `${ghostOriginX}px`;
+          ghost.style.top = `${ghostOriginY}px`;
+          document.body.appendChild(ghost);
+          void vertical; // currently unused, layout is absolute either way
+        } else {
+          ghost = sourceEl.cloneNode(true) as HTMLElement;
+          ghost.classList.add("tab-ghost");
+          const rect = sourceEl.getBoundingClientRect();
+          ghost.style.width = `${rect.width}px`;
+          ghost.style.height = `${rect.height}px`;
+          ghostOriginX = rect.left;
+          ghostOriginY = rect.top;
+          ghost.style.left = `${ghostOriginX}px`;
+          ghost.style.top = `${ghostOriginY}px`;
+          document.body.appendChild(ghost);
+        }
       }
     };
 
@@ -755,12 +816,20 @@ export class TabManager {
           !(src.kind === "tab" &&
             this.tabs.find((t) => t.id === src.id)?.groupId === groupId)
         ) {
-          chip.classList.add("group-chip-drop");
-          return {
-            kind: "chip",
-            el: chip,
-            side: sideOf(chip.getBoundingClientRect()),
-          };
+          const side = sideOf(chip.getBoundingClientRect());
+          if (src.kind === "group") {
+            // Group → group: show the same left/right rail + anchor
+            // used for tab pills, so the drop target reads identically
+            // to a tab reorder.
+            chip.classList.add(side === "left" ? "tab-drop-left" : "tab-drop-right");
+            const anchor = document.createElement("span");
+            anchor.className = "tab-drop-anchor";
+            chip.appendChild(anchor);
+          } else {
+            // Tab → chip: add-to-group, full-chip highlight.
+            chip.classList.add("group-chip-drop");
+          }
+          return { kind: "chip", el: chip, side };
         }
       }
 
@@ -2761,7 +2830,6 @@ export class TabManager {
       const chev = chip.querySelector<HTMLElement>(".group-chip-chev");
       if (chev) {
         const title = g.collapsed ? "Expand group" : "Collapse group";
-        chev.title = title;
         chev.setAttribute("aria-label", title);
       }
       const countEl = chip.querySelector<HTMLElement>(".group-chip-count");
@@ -3109,8 +3177,10 @@ export class TabManager {
     const chevron = document.createElement("button");
     chevron.type = "button";
     chevron.className = "group-chip-chev";
-    chevron.title = group.collapsed ? "Expand group" : "Collapse group";
-    chevron.setAttribute("aria-label", chevron.title);
+    chevron.setAttribute(
+      "aria-label",
+      group.collapsed ? "Expand group" : "Collapse group",
+    );
     chevron.innerHTML = Icons.chevronRight({ size: 12 });
     chevron.addEventListener("mousedown", (e) => e.stopPropagation());
     chevron.addEventListener("click", (e) => {

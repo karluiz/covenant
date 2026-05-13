@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.4 — Capabilities auto-context + tab/group drag polish
+
+### Added
+
+- **Capabilities drawer auto-context**: the drawer now derives its root
+  directory from the active tab on open, so plugin discovery reflects
+  what the user is currently working on without manual path entry
+  (`ui/src/capabilities/panel.ts`, `ui/src/main.ts`,
+  `crates/app/src/lib.rs`, `crates/app/capabilities/default.json`).
+
+### Changed
+
+- **Group drag indicators** now match the tab drag visual language:
+  aligned drop bars, consistent ghost animation, and removed redundant
+  sidebar tooltips for a cleaner reorder UX
+  (`ui/src/tabs/manager.ts`, `ui/src/styles.css`,
+  `ui/src/settings/panel.ts`).
+
 ## v0.5.3 — Windows release pipeline fix
 
 ### Fixed

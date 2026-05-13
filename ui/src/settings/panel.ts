@@ -11,6 +11,7 @@
 // paragraph edits to the operator persona are never lost by accident.
 
 import { invoke } from "@tauri-apps/api/core";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
@@ -831,7 +832,7 @@ export class SettingsPanel {
     const wsExportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="export"]');
     const wsImportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="import"]');
     const wsFile = form.querySelector<HTMLInputElement>('input[data-ws-file]');
-    wsExportBtn?.addEventListener("click", () => {
+    wsExportBtn?.addEventListener("click", async () => {
       if (!this.onExportWorkspace) {
         pushInfoToast({ message: "Export not available." });
         return;
@@ -839,16 +840,14 @@ export class SettingsPanel {
       try {
         const manifest = this.onExportWorkspace();
         const json = JSON.stringify(manifest, null, 2);
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
         const ts = new Date().toISOString().replace(/[:.]/g, "-");
-        a.href = url;
-        a.download = `covenant-workspace-${ts}.json`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const path = await saveDialog({
+          title: "Export workspace",
+          defaultPath: `covenant-workspace-${ts}.json`,
+          filters: [{ name: "JSON", extensions: ["json"] }],
+        });
+        if (!path) return;
+        await invoke<void>("write_text_file", { path, contents: json });
         pushInfoToast({ message: "Workspace exported." });
       } catch (err) {
         // eslint-disable-next-line no-console

@@ -865,7 +865,7 @@ async function boot(): Promise<void> {
     // by the Shortcuts modal, so the spec's keybinding was relocated to I.
     if (e.metaKey && e.shiftKey && (e.key === "I" || e.key === "i")) {
       e.preventDefault();
-      void capabilities.toggle();
+      void capabilities.toggle(manager.activeCwd());
       return;
     }
     // ⌘⇧L — toggle the Familiar roster (chat with the active tab's familiar).
@@ -1114,7 +1114,15 @@ void boot()
     // eslint-disable-next-line no-console
     console.error("covenant boot failed", err);
     const workspace = document.getElementById("workspace");
-    if (workspace) workspace.textContent = `boot failed: ${String(err)}`;
+    // When the app's own index.html is loaded inside a sandboxed iframe
+    // (e.g. our own HTML preview panel), the Tauri IPC bridge is absent
+    // by design. Show a friendly placeholder instead of the raw error.
+    const inIframe = window.parent !== window;
+    if (workspace) {
+      workspace.textContent = inIframe
+        ? "This is the Covenant app shell — preview it inside Tauri, not in the HTML preview."
+        : `boot failed: ${String(err)}`;
+    }
     // Clear the splash even on failure so the error message is visible.
     dismissBootSplash();
   });

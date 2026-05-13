@@ -1524,6 +1524,14 @@ async fn tab_manifest_save(
     tab_manifest::save(&state.tab_manifest_path, &body).map_err(|e| e.to_string())
 }
 
+/// Write a text payload to an arbitrary user-chosen path. Used by the
+/// workspace export flow after the user picks a destination via the
+/// native save dialog.
+#[tauri::command]
+async fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
 /// Recall: search the persisted block history for commands matching
 /// `query`, ranked by frequency × recency with cwd / success bonuses.
 /// Empty query → most-recent distinct commands. `cwd` is optional;
@@ -2679,6 +2687,7 @@ pub fn run() {
             zsh_autosuggestions_status,
             tab_manifest_load,
             tab_manifest_save,
+            write_text_file,
             recent_blocks_by_cwd,
             get_dir_context,
             resolve_existing_path,

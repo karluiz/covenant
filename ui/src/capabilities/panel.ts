@@ -75,13 +75,17 @@ export class CapabilitiesPanel {
     return this.isOpenState;
   }
 
-  async toggle(): Promise<void> {
+  async toggle(contextRoot?: string | null): Promise<void> {
     if (this.isOpen()) this.close();
-    else await this.open();
+    else await this.open(contextRoot);
   }
 
-  async open(): Promise<void> {
+  async open(contextRoot?: string | null): Promise<void> {
     if (this.isOpenState) return;
+    if (contextRoot && contextRoot !== this.projectRoot) {
+      this.projectRoot = contextRoot;
+      localStorage.setItem(PROJECT_ROOT_KEY, contextRoot);
+    }
     this.workspace.hidden = true;
     this.pageHost.hidden = false;
     this.isOpenState = true;
