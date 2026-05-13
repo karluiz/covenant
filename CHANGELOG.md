@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.8 — Force-kill foreground tree (⌘⇧.) + tab busy indicator
+
+### Added
+
+- **Force-kill foreground tree (⌘⇧.)**: pressing ⌘⇧. on the active
+  tab sends SIGTERM to the PTY's foreground process group and
+  escalates to SIGKILL after 500ms. Fixes the common case where
+  Ctrl+C is swallowed by a parent process (`npm run dev`, `docker`,
+  watchers) that doesn't propagate to children. The shell itself
+  survives in its own pgrp (`crates/pty/src/fg_proc.rs`,
+  `crates/session/src/lib.rs`, `crates/app/src/lib.rs`,
+  `ui/src/main.ts`).
+
+- **Tab busy indicator**: a palpitating green dot appears next to
+  the tab label whenever a non-shell process occupies the PTY
+  foreground, with a tooltip showing the process name (`node`,
+  `cargo`, `vite`, …). Emitted on transitions only via a new
+  `SessionEvent::ForegroundChanged` (`crates/familiar/src/observer.rs`,
+  `ui/src/tabs/manager.ts`, `ui/src/styles.css`).
+
+- **Ligatures + settings polish**: optional terminal ligature
+  rendering wired through settings, plus capabilities-panel and
+  settings-panel touch-ups (`ui/src/terminal/ligatures.ts`,
+  `ui/src/settings/panel.ts`, `ui/src/capabilities/panel.ts`,
+  `crates/app/src/settings.rs`).
+
 ## v0.5.7 — ⌘K action palette + SQL/XLSX editor previews
 
 ### Added
