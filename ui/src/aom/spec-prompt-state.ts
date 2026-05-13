@@ -12,11 +12,19 @@ const PENDING_TTL_MS = 10 * 60 * 1000;
 interface PendingEntry {
   candidate: SpecCandidate;
   receivedAtMs: number;
+  /**
+   * If set, the candidate is scoped to a single tab (the tab that was
+   * active when the spec was detected). Only that tab's badge/toast
+   * should surface it. If null/undefined, the candidate is broadcast
+   * to every eligible tab under the repo root (legacy behavior, kept
+   * so existing tests stay green).
+   */
+  targetTabId?: string | null;
 }
 
 export interface SpecPromptState {
   eligibleTabs(c: SpecCandidate, tabs: TabSnapshot[]): TabSnapshot[];
-  recordCandidate(c: SpecCandidate, nowMs: number): void;
+  recordCandidate(c: SpecCandidate, nowMs: number, targetTabId?: string | null): void;
   dismiss(tabId: string, path: string): void;
   isDismissed(tabId: string, path: string): boolean;
   acceptOnTab(tabId: string, path: string): void;
@@ -59,8 +67,12 @@ export function createSpecPromptState(): SpecPromptState {
         (t) => isUnder(t.cwd, c.repo_root) && !t.hasMission,
       );
     },
-    recordCandidate(c, nowMs) {
-      pending.set(c.path, { candidate: c, receivedAtMs: nowMs });
+    recordCandidate(c, nowMs, targetTabId) {
+      pending.set(c.path, {
+        candidate: c,
+        receivedAtMs: nowMs,
+        targetTabId: targetTabId ?? null,
+      });
       fire();
     },
     dismiss(tabId, path) {
@@ -79,6 +91,7 @@ export function createSpecPromptState(): SpecPromptState {
       for (const [path, entry] of pending) {
         if (nowMs - entry.receivedAtMs > PENDING_TTL_MS) continue;
         if (consumed.get(tab.id)?.has(path)) continue;
+        if (entry.targetTabId && entry.targetTabId !== tab.id) continue;
         const elig = state
           .eligibleTabs(entry.candidate, allTabs)
           .some((t) => t.id === tab.id);

@@ -72,14 +72,21 @@ function onCandidate(cand: SpecCandidate) {
   const state = getSpecPromptState();
   const host = hostRef;
   if (!host) return;
-  state.recordCandidate(cand, Date.now());
 
   const tabs = host.listTabs();
   const eligible = state.eligibleTabs(cand, tabs);
-  if (eligible.length === 0) return;
+  if (eligible.length === 0) {
+    state.recordCandidate(cand, Date.now());
+    return;
+  }
 
   const activeId = host.getActiveTabId();
   const target = eligible.find((t) => t.id === activeId) ?? eligible[0];
+
+  // Scope the pending candidate to the originating tab so the 📎 badge
+  // and toast only surface there — not on every sibling tab under the
+  // same repo root.
+  state.recordCandidate(cand, Date.now(), target.id);
 
   if (state.isDismissed(target.id, cand.path)) return;
   renderToast(host, target, cand);
