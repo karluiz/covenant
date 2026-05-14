@@ -353,6 +353,22 @@ export class TabManager {
   /// disk write 200ms later.
   private saveTimer: number | null = null;
 
+  /// Optional persistence callback installed by the WorkspaceManager.
+  /// When set, the workspace layer owns disk writes — TabManager will
+  /// invoke this instead of writing a bare V1 envelope, so the file on
+  /// disk always carries the V2 wrapper.
+  private onPersistRequest: (() => void) | null = null;
+
+  /// True while replaceFromManifest is tearing down + rebuilding tabs.
+  /// Guards `onAllTabsClosed` so a workspace switch (which transiently
+  /// empties this.tabs) doesn't fire the "no tabs left → close window"
+  /// handler that main.ts wired up.
+  private inReplace = false;
+
+  setOnPersistRequest(cb: (() => void) | null): void {
+    this.onPersistRequest = cb;
+  }
+
   /// 3.14 — set of sessionIds currently in convergence `blocked` state.
   /// Refreshed at 1 Hz by `blockedPollTimer`; drives the per-tab
   /// escalation dot. Diff-based updates avoid DOM churn for tabs whose
@@ -2518,6 +2534,16 @@ export class TabManager {
     }
     this.saveTimer = window.setTimeout(() => {
       this.saveTimer = null;
+      if (this.onPersistRequest) {
+        // WorkspaceManager owns the V2 envelope on disk; let it write.
+        try {
+          this.onPersistRequest();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("workspace persist callback failed", err);
+        }
+        return;
+      }
       const body = JSON.stringify(this.serializeManifest());
       void tabManifestSave(body).catch((err) => {
         // eslint-disable-next-line no-console
@@ -2647,10 +2673,15 @@ export class TabManager {
     if (m.version !== 1 || !Array.isArray(m.tabs)) {
       throw new Error("invalid manifest");
     }
-    const existing = this.tabs.slice();
-    for (const t of existing) this.finalizeCloseTab(t.id);
-    this.groups.clear();
-    await this.restoreFromManifest(m);
+    this.inReplace = true;
+    try {
+      const existing = this.tabs.slice();
+      for (const t of existing) this.finalizeCloseTab(t.id);
+      this.groups.clear();
+      await this.restoreFromManifest(m);
+    } finally {
+      this.inReplace = false;
+    }
     this.scheduleSave();
   }
 
@@ -2707,8 +2738,13 @@ export class TabManager {
       this.activeId = null;
       this.renderTabbar();
       this.emitActiveTab();
-      this.scheduleSave();
-      this.onAllTabsClosed();
+      if (!this.inReplace) {
+        // During workspace-switch teardown we transiently hit zero tabs;
+        // suppress the "last tab closed → close window" callback and the
+        // disk write that would clobber the in-flight manifest.
+        this.scheduleSave();
+        this.onAllTabsClosed();
+      }
       return;
     }
 

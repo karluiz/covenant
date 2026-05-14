@@ -48,11 +48,13 @@ import { Roster } from "./familiars/roster";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
+import { WorkspaceManager } from "./workspaces/manager";
 
 /// Module-level reference to the singleton TabManager. Assigned during
 /// boot() and used by project-notes paste helper to resolve the active
 /// session in a group without a Tauri round-trip.
 export let tabsManager: TabManager | null = null;
+export let workspacesManager: WorkspaceManager | null = null;
 import { CollapsedRail } from "./tabs/collapsed-rail";
 import { ConvergenceOverlay } from "./convergence/overlay";
 import { makeTabsBridge } from "./convergence/tabs-bridge";
@@ -307,6 +309,12 @@ async function boot(): Promise<void> {
   });
   tabsManager = manager;
 
+  // Construct the WorkspaceManager up-front so listeners wired before
+  // boot() (settings import/export, switcher chip) can reference it.
+  // Actual tab restoration happens later in workspaceManager.boot().
+  const workspaceManager = new WorkspaceManager(manager);
+  workspacesManager = workspaceManager;
+
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();
   });
@@ -511,9 +519,12 @@ async function boot(): Promise<void> {
   settings.onClosed = () => {
     manager.refitActive();
   };
-  settings.onExportWorkspace = () => manager.serializeManifest();
+  // Workspace import/export round-trips a single V1 manifest (current
+  // workspace contents). Keeps existing exported JSON files working —
+  // the V2 envelope on disk is a wrapper, not a new export format.
+  settings.onExportWorkspace = () => workspaceManager.exportActive();
   settings.onImportWorkspace = async (parsed) => {
-    await manager.replaceFromManifest(parsed as TabManifestV1);
+    await workspaceManager.importIntoActive(parsed as TabManifestV1);
   };
 
   const toasts = new ToastHost(document.body, {
@@ -699,28 +710,26 @@ async function boot(): Promise<void> {
     },
   );
 
-  // Restore tabs from the persisted manifest if there is one.
-  // Falls back to a single fresh tab when:
-  //   - no manifest exists yet (first run / cleared)
-  //   - manifest fails to parse (bad JSON, schema bump)
-  //   - manifest is structurally empty (no tabs array)
-  // restoreFromManifest spawns each tab AND injects `cd <cwd>` on
-  // its first prompt so the shell lands where it was last time.
-  let restored = false;
+  // Workspaces V2: load the persisted envelope (or migrate from V1, or
+  // fall back to a single Default workspace). WorkspaceManager owns
+  // restoration into the TabManager and all subsequent disk writes.
   try {
     const body = await tabManifestLoad();
-    if (body) {
-      const parsed = JSON.parse(body);
-      await manager.restoreFromManifest(parsed);
-      restored = manager.activeSessionId() !== null;
-    }
+    await workspaceManager.boot(body);
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("tab manifest restore failed; falling back to fresh tab", err);
+    console.warn("workspace boot failed; starting fresh", err);
+    await workspaceManager.boot(null);
   }
-  if (!restored) {
-    await manager.createTab();
-  }
+
+  // beforeunload flush: best-effort sync of the V2 envelope when the
+  // window closes. The Tauri command is async so it may not always land
+  // before teardown — the debounced save during normal use is what
+  // really keeps us durable. Still, this is the missing piece referenced
+  // by the older comment in tabs/manager.ts and worth wiring for real.
+  window.addEventListener("beforeunload", () => {
+    void workspaceManager.saveAll();
+  });
 
   // Tabs are mounted and the active terminal has its first paint
   // queued — fade out the boot splash. Wait one frame so xterm has
