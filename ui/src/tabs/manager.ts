@@ -3506,6 +3506,16 @@ export class TabManager {
       this.applyEscalationDot(pill, true);
     }
 
+    // Re-apply busy dot on rebuild so tab activation (which rebuilds the
+    // strip) doesn't drop it until the next foreground_changed event.
+    // Pill isn't in the DOM yet here — attach directly.
+    if (tab.busyProc) {
+      const dot = document.createElement("span");
+      dot.className = "tab-busy-dot";
+      dot.title = `${tab.busyProc} running`;
+      pill.insertBefore(dot, pill.firstChild);
+    }
+
     return pill;
   }
 

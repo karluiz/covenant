@@ -336,12 +336,26 @@ impl SessionEvent {
     }
 }
 
-/// True when `name` looks like a user-launched app (not the shell or
-/// trivial built-ins). Drives the busy indicator in the tab list.
+/// True when `name` looks like a long-running dev server or build/runtime
+/// process worth surfacing in the tab list. Allowlist — interactive CLIs
+/// like `claude`, `copilot`, `opencode`, editors, pagers, git, etc. are
+/// intentionally excluded so the pulse dot only fires on actual work.
 pub fn is_busy_proc(name: &str) -> bool {
-    !matches!(
+    matches!(
         name,
-        "zsh" | "bash" | "fish" | "sh" | "dash" | "ksh" | "tcsh" | "csh"
+        // Node / JS
+        "node" | "npm" | "pnpm" | "yarn" | "bun" | "deno"
+        | "vite" | "next" | "nuxt" | "webpack" | "rollup" | "esbuild" | "tsc"
+        // Python
+        | "python" | "python3" | "uvicorn" | "gunicorn" | "hypercorn"
+        | "flask" | "django" | "django-admin" | "manage.py" | "pytest"
+        // Go
+        | "go" | "air" | "gofmt"
+        // Rust
+        | "cargo" | "rustc" | "trunk" | "wasm-pack"
+        // Misc dev servers / build tools
+        | "make" | "cmake" | "ninja" | "bazel" | "gradle" | "mvn"
+        | "docker" | "docker-compose" | "kubectl"
     )
 }
 
