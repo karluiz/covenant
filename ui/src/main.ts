@@ -49,6 +49,7 @@ import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { WorkspaceManager } from "./workspaces/manager";
+import { WorkspaceSwitcher } from "./workspaces/switcher";
 
 /// Module-level reference to the singleton TabManager. Assigned during
 /// boot() and used by project-notes paste helper to resolve the active
@@ -314,6 +315,13 @@ async function boot(): Promise<void> {
   // Actual tab restoration happens later in workspaceManager.boot().
   const workspaceManager = new WorkspaceManager(manager);
   workspacesManager = workspaceManager;
+
+  // Mount the workspace switcher chip into the tabbar brand row,
+  // next to the "Covenant" wordmark. The chip auto-rerenders via
+  // WorkspaceManager.onChange.
+  const brandRow = document.getElementById("tabbar-brand-row");
+  const switcher = new WorkspaceSwitcher(workspaceManager);
+  if (brandRow) switcher.mount(brandRow);
 
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();
@@ -760,6 +768,24 @@ async function boot(): Promise<void> {
       e.preventDefault();
       const sid = manager.activeSessionId();
       if (sid) void operatorPicker.open(sid);
+      return;
+    }
+  });
+
+  // Workspaces shortcuts.
+  //   ⌘⇧P  — toggle workspace picker (⌘⇧O was already the Operator
+  //          picker, so the spec's preferred binding was relocated).
+  //   ⌘⌥N — new workspace (⌘⇧N is Project Notes, ⌘N is spec-chat).
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "P" || e.key === "p")) {
+      e.preventDefault();
+      switcher.togglePopover();
+      return;
+    }
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N" || e.key === "˜")) {
+      // macOS substitutes ⌥N with "˜" (dead-key for n-with-tilde); accept both.
+      e.preventDefault();
+      void switcher.createAndSwitch();
       return;
     }
   });
