@@ -6,6 +6,47 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.11 — Workspaces (top-level project containers)
+
+### Added
+
+- **Workspaces**: a new top-level layer above the existing Group → Tab
+  hierarchy. Each workspace owns its own tabs, groups, and active-tab
+  state; switching kills the outgoing PTYs and respawns the incoming
+  workspace from its persisted manifest (cwd, mission, operator pin,
+  color, custom name all preserved). Persisted on disk in a new
+  `TabManifestV2` envelope that auto-migrates existing V1 manifests
+  into a single "Default" workspace on first launch.
+
+- **Switcher in the tabbar action row**: icon-only button next to
+  `+ New tab` / `+ New group`, with `⌘⇧P` keyboard shortcut. Popover
+  opens upward and lists workspaces with tab count + last-used time;
+  `+ New workspace` auto-names "Workspace N" and switches immediately.
+  Busy pulse on the chip + info toast (`Switching to X…`) give feedback
+  during PTY respawn.
+
+- **Per-workspace actions**: right-click any row in the popover for
+  inline rename (Tauri's webview suppresses `window.prompt`, so renames
+  happen via an inline `<input>`), duplicate, set color, **Set root
+  dir…** (final-fallback cwd for new tabs, after `tab.cwd` and
+  `group.rootDir`), and delete. Deleting the active workspace switches
+  to the most-recently-used remaining one; deleting the last workspace
+  is refused.
+
+- **Move group to workspace…**: the group context menu now has a
+  submenu listing every workspace except the current one. Picking a
+  target moves the whole group (with its tabs and all per-tab
+  metadata) into the destination workspace's persisted state; PTYs in
+  the current workspace are killed. If moving the last tab leaves the
+  source workspace empty, a fresh tab is spawned automatically.
+
+### Fixed
+
+- **Manifest flush on window close**: added the `beforeunload` listener
+  that was always referenced in code comments but never wired up. The
+  debounced 200 ms save no longer drops late edits (e.g. setting a
+  group's root dir then immediately quitting).
+
 ## v0.5.10 — Busy dot allowlist + persist across tab rebuilds
 
 ### Fixed
