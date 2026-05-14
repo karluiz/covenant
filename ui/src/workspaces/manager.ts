@@ -285,6 +285,38 @@ export class WorkspaceManager {
     this.emitChange();
   }
 
+  /// Move a group (and every tab belonging to it) from the active
+  /// workspace into the target workspace. The group's PTYs in the
+  /// active workspace are killed — PTYs don't survive the boundary;
+  /// the target workspace will respawn them next time it becomes
+  /// active. If the move empties the active workspace, a fresh tab
+  /// is spawned so we never sit on a workspace with zero tabs.
+  async moveGroupTo(groupId: string, targetWorkspaceId: string): Promise<void> {
+    if (targetWorkspaceId === this.activeId) return;
+    const target = this.workspaces.find((w) => w.id === targetWorkspaceId);
+    if (!target) return;
+    const snapshot = this.tabManager.snapshotGroupForMove(groupId);
+    if (!snapshot) return;
+
+    // Append into the target workspace's persisted body. Tabs keep their
+    // original group_id since the group ulid travels with them.
+    target.groups.push(snapshot.group);
+    for (const t of snapshot.tabs) target.tabs.push(t);
+    target.last_used_at = nowMs();
+
+    // Tear down in the active workspace (kills PTYs, removes group).
+    this.tabManager.removeGroupAndTabs(groupId);
+
+    // If the active workspace has no tabs left, spawn one so we
+    // don't sit on an empty workspace.
+    if (this.tabManager.activeSessionId() === null) {
+      await this.tabManager.createTab();
+    }
+
+    await this.saveAll();
+    this.emitChange();
+  }
+
   async delete(id: string): Promise<void> {
     if (this.workspaces.length <= 1) {
       // Refuse: at least one workspace must always exist.

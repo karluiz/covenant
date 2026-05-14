@@ -316,6 +316,15 @@ async function boot(): Promise<void> {
   const workspaceManager = new WorkspaceManager(manager);
   workspacesManager = workspaceManager;
 
+  // Thread workspace context into the TabManager so the group context
+  // menu can populate the "Move to workspace…" submenu and createTab
+  // can fall back to the active workspace's root_dir when no tab/group
+  // cwd is set.
+  manager.setWorkspaceCatalog(
+    () => workspaceManager.list().map((w) => ({ id: w.id, name: w.name, active: w.active })),
+    (groupId, wsId) => workspaceManager.moveGroupTo(groupId, wsId),
+  );
+
   // Mount the workspace switcher chip into the tabbar brand row,
   // next to the "Covenant" wordmark. The chip auto-rerenders via
   // WorkspaceManager.onChange.
