@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.10 — Busy dot allowlist + persist across tab rebuilds
+
+### Fixed
+
+- **Busy dot no longer fires for interactive CLIs**: `is_busy_proc` in
+  `crates/session/src/lib.rs` switched from a shell blacklist to an
+  explicit allowlist of dev servers and build tools (node, npm, pnpm,
+  yarn, bun, deno, vite, next, nuxt, webpack, rollup, esbuild, tsc,
+  python/uvicorn/gunicorn/flask/django/pytest, go/air, cargo/rustc/trunk,
+  make/cmake/ninja/bazel/gradle/mvn, docker/kubectl). Interactive agents
+  like `claude`, `copilot`, `opencode`, plus editors, git, and pagers
+  no longer trigger the pulse dot.
+
+- **Busy dot persists across tab strip rebuilds**: `renderTabPill` in
+  `ui/src/tabs/manager.ts` now re-attaches the `.tab-busy-dot` element
+  when `tab.busyProc` is set. Previously `renderTabbar` wiped
+  `innerHTML` on every activation and the dot only came back on the
+  next `foreground_changed` event — so clicking another tab silently
+  dropped the indicator until the foreground process next changed.
+
 ## v0.5.9 — CI lockfile sync (v0.5.8 release fix)
 
 ### Fixed
