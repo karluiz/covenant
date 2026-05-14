@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.12 — Resize + executor UX polish
+
+### Fixed
+
+- **Selection stays put on resize**: xterm's selection is now cleared
+  before `fit()` reflows the grid, so the highlight rectangle no longer
+  drifts to the wrong row when the window is resized.
+
+- **Recall suppressed under agent executors**: the Recall sidebar
+  (typed input) and the ⌘P command-history palette are both disabled
+  while an agent CLI (claude / copilot / codex / opencode / …) owns
+  the PTY. Their TUIs don't read shell history, so the popup was just
+  noise. Any open Recall view is torn down the moment an executor is
+  detected.
+
+- **Pulse "app running" dot suppressed under agents**: agent CLIs
+  routinely spawn dev-tool subprocesses (node / next / npm / …) that
+  briefly own the PTY foreground and slipped past the Rust busy-proc
+  allowlist, double-lighting the tab with both the executor chip and
+  the pulse dot. The dot is now strictly for user-initiated dev tools;
+  while an executor is active the chip is the single source of truth.
+
 ## v0.5.11 — Workspaces (top-level project containers)
 
 ### Added
