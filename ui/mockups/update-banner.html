@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Covenant — Update Banner Mockup</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --bg-2: #0f1830;
+        --chrome: #111a30;
+        --fg: #e6edf7;
+        --muted: #8a96b3;
+        --line: rgba(255, 255, 255, 0.06);
+        --accent: #7aa2ff;
+        --accent-2: #5b8cff;
+        --good: #6ee7b7;
+        --warn: #fbbf24;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+        color: var(--fg);
+        background:
+          radial-gradient(1200px 600px at 20% 0%, #1a2a55 0%, transparent 60%),
+          radial-gradient(900px 500px at 90% 10%, #0d4b46 0%, transparent 55%),
+          #060912;
+        min-height: 100vh;
+        padding: 48px 32px 64px;
+      }
+
+      h1 { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin: 32px 0 12px; }
+      h1:first-of-type { margin-top: 0; }
+      .note { color: var(--muted); font-size: 12px; max-width: 720px; margin: 0 0 16px; }
+
+      /* ---------- Fake terminal window chrome ---------- */
+      .window {
+        width: min(1080px, 100%);
+        margin: 0 auto;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+        background: var(--bg);
+      }
+      .titlebar {
+        display: flex; align-items: center; gap: 8px;
+        height: 36px; padding: 0 14px;
+        background: linear-gradient(180deg, #16223f, #0f1830);
+        border-bottom: 1px solid var(--line);
+        position: relative;
+      }
+      .traffic { display: flex; gap: 8px; }
+      .dot { width: 12px; height: 12px; border-radius: 50%; }
+      .dot.r { background: #ff5f57; } .dot.y { background: #febc2e; } .dot.g { background: #28c840; }
+      .titlebar__title {
+        position: absolute; left: 0; right: 0; text-align: center;
+        font-weight: 600; font-size: 13px; color: #cdd6e6; pointer-events: none;
+      }
+      .breadcrumb {
+        display: flex; align-items: center; gap: 10px;
+        height: 30px; padding: 0 14px;
+        background: var(--chrome);
+        border-bottom: 1px solid var(--line);
+        font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+        color: #b8c4dd;
+      }
+      .breadcrumb .path { color: #9bb1e6; }
+      .breadcrumb .branch { color: var(--muted); }
+      .breadcrumb .branch::before { content: "["; } .breadcrumb .branch::after { content: "]"; }
+      .breadcrumb .blocks-tag { margin-left: auto; color: var(--muted); }
+      .body {
+        display: grid; grid-template-columns: 220px 1fr 260px;
+        min-height: 260px;
+      }
+      .sidebar, .blocks { background: rgba(255,255,255,0.015); border-right: 1px solid var(--line); padding: 14px; }
+      .blocks { border-right: none; border-left: 1px solid var(--line); }
+      .term { padding: 14px 18px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: #cdd6e6; }
+      .group { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; }
+      .group .arrow { color: var(--good); }
+      .group .name { font-weight: 600; letter-spacing: 0.04em; }
+      .group .count { margin-left: auto; background: rgba(255,255,255,0.06); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--muted); }
+      .blocks .heading { color: var(--muted); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+      .blocks .sub { color: var(--muted); opacity: 0.7; font-size: 11px; margin-top: 6px; }
+
+      /* ---------- Current (overlapping) banner ---------- */
+      .banner-current {
+        position: absolute; left: 0; right: 0; top: 36px;
+        display: flex; align-items: center; gap: 12px;
+        padding: 6px 12px;
+        background: rgba(7, 12, 28, 0.85);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--line);
+      }
+      .banner-current .msg { font-weight: 600; }
+      .banner-current .install { margin-left: auto; background: var(--accent-2); color: white; border: 0; border-radius: 6px; padding: 6px 12px; font-weight: 600; cursor: pointer; }
+      .banner-current .x { background: transparent; border: 0; color: #cdd6e6; font-size: 18px; cursor: pointer; }
+
+      /* ---------- Proposal A: dedicated row, version is the entry point ---------- */
+      .updatebar {
+        display: flex; align-items: center; gap: 12px;
+        height: 34px; padding: 0 14px;
+        background: linear-gradient(180deg, rgba(122,162,255,0.10), rgba(122,162,255,0.04));
+        border-bottom: 1px solid rgba(122,162,255,0.18);
+        color: #dbe6ff;
+        font-size: 12px;
+      }
+      .updatebar .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 rgba(122,162,255,0.6); animation: pulse 2.2s ease-out infinite; }
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(122,162,255,0.55); }
+        70% { box-shadow: 0 0 0 8px rgba(122,162,255,0); }
+        100% { box-shadow: 0 0 0 0 rgba(122,162,255,0); }
+      }
+      .updatebar .label { color: #aebbdc; }
+      .updatebar .version {
+        font-weight: 600; color: #ffffff;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 2px 8px; border-radius: 999px;
+        cursor: pointer; transition: background 0.15s ease;
+      }
+      .updatebar .version:hover { background: rgba(255,255,255,0.10); }
+      .updatebar .whatsnew {
+        color: var(--accent); text-decoration: none; cursor: pointer; font-weight: 500;
+        display: inline-flex; align-items: center; gap: 4px;
+      }
+      .updatebar .whatsnew:hover { text-decoration: underline; }
+      .updatebar .spacer { flex: 1; }
+      .updatebar .meta { color: var(--muted); font-size: 11px; }
+      .updatebar .btn-ghost, .updatebar .btn-primary {
+        height: 24px; padding: 0 12px; border-radius: 6px; font-size: 12px; font-weight: 600;
+        border: 1px solid transparent; cursor: pointer;
+      }
+      .updatebar .btn-ghost { background: transparent; color: #b8c4dd; border-color: rgba(255,255,255,0.10); }
+      .updatebar .btn-ghost:hover { background: rgba(255,255,255,0.05); }
+      .updatebar .btn-primary { background: var(--accent-2); color: white; }
+      .updatebar .btn-primary:hover { background: var(--accent); }
+
+      /* ---------- Proposal B: compact pill, top-right of titlebar ---------- */
+      .pill {
+        position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+        display: inline-flex; align-items: center; gap: 8px;
+        height: 22px; padding: 0 10px; border-radius: 999px;
+        background: rgba(122,162,255,0.14);
+        border: 1px solid rgba(122,162,255,0.30);
+        color: #dbe6ff; font-size: 11px; font-weight: 600;
+        cursor: pointer;
+      }
+      .pill:hover { background: rgba(122,162,255,0.22); }
+      .pill .dotmini { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+      /* ---------- Release notes modal ---------- */
+      .modal-wrap {
+        margin-top: 16px;
+        width: min(560px, 100%);
+        margin-left: auto; margin-right: auto;
+        background: #0e1730;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+        overflow: hidden;
+      }
+      .modal-head {
+        display: flex; align-items: center; gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .modal-head .ver-chip {
+        font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+        background: rgba(110,231,183,0.12); color: var(--good);
+        padding: 2px 8px; border-radius: 999px;
+        border: 1px solid rgba(110,231,183,0.30);
+      }
+      .modal-head .title { font-weight: 600; font-size: 14px; }
+      .modal-head .from { color: var(--muted); font-size: 11px; }
+      .modal-head .close { margin-left: auto; background: transparent; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; }
+      .modal-body {
+        padding: 14px 16px 6px;
+        max-height: 320px; overflow: auto;
+        font-size: 12.5px; line-height: 1.55;
+      }
+      .modal-body h4 {
+        margin: 14px 0 6px; font-size: 11px; letter-spacing: 0.1em;
+        text-transform: uppercase; color: var(--muted); font-weight: 600;
+      }
+      .modal-body h4:first-child { margin-top: 0; }
+      .modal-body ul { margin: 0; padding-left: 18px; }
+      .modal-body li { margin: 3px 0; color: #d6dff2; }
+      .modal-body code { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; }
+      .modal-foot {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px; border-top: 1px solid var(--line);
+        background: rgba(0,0,0,0.15);
+      }
+      .modal-foot .meta { color: var(--muted); font-size: 11px; }
+      .modal-foot .spacer { flex: 1; }
+      .modal-foot .btn {
+        height: 30px; padding: 0 14px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent;
+      }
+      .modal-foot .btn.ghost { background: transparent; color: #b8c4dd; border-color: rgba(255,255,255,0.10); }
+      .modal-foot .btn.ghost:hover { background: rgba(255,255,255,0.05); }
+      .modal-foot .btn.primary { background: var(--accent-2); color: white; }
+      .modal-foot .btn.primary:hover { background: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <h1>Current</h1>
+    <p class="note">The banner is absolutely positioned and overlaps the breadcrumb row. The version is presented as plain text; "Install now" is the only signal of what's happening.</p>
+    <div class="window" style="position: relative;">
+      <div class="titlebar">
+        <div class="traffic"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="titlebar__title">Covenant</div>
+      </div>
+      <div class="banner-current">
+        <span class="msg">Covenant 0.5.10 is available.</span>
+        <button class="install">Install now</button>
+        <button class="x">×</button>
+      </div>
+      <div class="breadcrumb">
+        <span class="path">~/Sources/karlTerminal/</span>
+        <span class="branch">main</span>
+        <span class="blocks-tag">&gt;_ Blocks</span>
+      </div>
+      <div class="body">
+        <div class="sidebar">
+          <div class="group">
+            <span class="arrow">›</span>
+            <span class="name">RAVEN</span>
+            <span class="count">4</span>
+          </div>
+        </div>
+        <div class="term">$ <span style="opacity:0.6">_</span></div>
+        <div class="blocks">
+          <div class="heading">» Blocks</div>
+          <div class="sub">From previous sessions in this dir</div>
+        </div>
+      </div>
+    </div>
+
+    <h1>Proposal A — dedicated row, version is the entry point</h1>
+    <p class="note">Banner gets its own row between the titlebar and breadcrumb (nothing is occluded). The version is a clickable chip that opens release notes. Primary action stays on the right; a quiet "Later" sits next to it.</p>
+    <div class="window">
+      <div class="titlebar">
+        <div class="traffic"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="titlebar__title">Covenant</div>
+      </div>
+      <div class="updatebar">
+        <span class="pulse"></span>
+        <span class="label">Update available</span>
+        <span class="version" title="View release notes">v0.5.10</span>
+        <a class="whatsnew">What's new ›</a>
+        <span class="spacer"></span>
+        <span class="meta">~3.2 MB · signed</span>
+        <button class="btn-ghost">Later</button>
+        <button class="btn-primary">Install &amp; Relaunch</button>
+      </div>
+      <div class="breadcrumb">
+        <span class="path">~/Sources/karlTerminal/</span>
+        <span class="branch">main</span>
+        <span class="blocks-tag">&gt;_ Blocks</span>
+      </div>
+      <div class="body">
+        <div class="sidebar">
+          <div class="group">
+            <span class="arrow">›</span>
+            <span class="name">RAVEN</span>
+            <span class="count">4</span>
+          </div>
+        </div>
+        <div class="term">$ <span style="opacity:0.6">_</span></div>
+        <div class="blocks">
+          <div class="heading">» Blocks</div>
+          <div class="sub">From previous sessions in this dir</div>
+        </div>
+      </div>
+    </div>
+
+    <h1>Proposal B — compact pill (zero footprint)</h1>
+    <p class="note">For users who never want a banner: a pulsing pill anchored top-right of the titlebar. Click → opens the release-notes modal below. No layout reflow at all.</p>
+    <div class="window" style="position: relative;">
+      <div class="titlebar">
+        <div class="traffic"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="titlebar__title">Covenant</div>
+        <div class="pill"><span class="dotmini"></span>v0.5.10 available</div>
+      </div>
+      <div class="breadcrumb">
+        <span class="path">~/Sources/karlTerminal/</span>
+        <span class="branch">main</span>
+        <span class="blocks-tag">&gt;_ Blocks</span>
+      </div>
+      <div class="body">
+        <div class="sidebar">
+          <div class="group">
+            <span class="arrow">›</span>
+            <span class="name">RAVEN</span>
+            <span class="count">4</span>
+          </div>
+        </div>
+        <div class="term">$ <span style="opacity:0.6">_</span></div>
+        <div class="blocks">
+          <div class="heading">» Blocks</div>
+          <div class="sub">From previous sessions in this dir</div>
+        </div>
+      </div>
+    </div>
+
+    <h1>Release notes modal (shared by A &amp; B)</h1>
+    <p class="note">Pulled from <code>update.body</code> (Tauri updater's <code>notes</code> field, populated from CHANGELOG.md during the release workflow). Markdown rendered; "Install &amp; Relaunch" is primary.</p>
+    <div class="modal-wrap">
+      <div class="modal-head">
+        <span class="ver-chip">v0.5.10</span>
+        <div>
+          <div class="title">Busy dot allowlist + persist across tab rebuilds</div>
+          <div class="from">Released today · from v0.5.9</div>
+        </div>
+        <button class="close">×</button>
+      </div>
+      <div class="modal-body">
+        <h4>Fixed</h4>
+        <ul>
+          <li>Pulse dot now uses an explicit allowlist (<code>node</code>, <code>npm</code>, <code>vite</code>, <code>python</code>, <code>uvicorn</code>, <code>go</code>, <code>cargo</code>, <code>docker</code>), excluding agent CLIs like Claude / Copilot / opencode.</li>
+          <li>Tab busy indicator survives tab tree rebuilds instead of flickering off.</li>
+        </ul>
+        <h4>Changed</h4>
+        <ul>
+          <li><code>is_busy_proc</code> (lib.rs:341) switched from deny-list heuristics to a strict allowlist.</li>
+        </ul>
+        <h4>Internal</h4>
+        <ul>
+          <li>macOS + Windows release workflows verified end-to-end.</li>
+        </ul>
+      </div>
+      <div class="modal-foot">
+        <span class="meta">~3.2 MB · signed by Covenant</span>
+        <span class="spacer"></span>
+        <button class="btn ghost">Later</button>
+        <button class="btn primary">Install &amp; Relaunch</button>
+      </div>
+    </div>
+  </body>
+</html>

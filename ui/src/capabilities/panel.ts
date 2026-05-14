@@ -563,6 +563,15 @@ export class CapabilitiesPanel {
     } catch (err) {
       textarea.value = `# read error: ${String(err)}`;
     }
+    if (this.viewMode === "preview") {
+      const preview = this.pageHost.querySelector<HTMLElement>(".cap-preview");
+      if (preview) {
+        const src = textarea.value.trim();
+        preview.innerHTML = src
+          ? (marked.parse(src, { async: false }) as string)
+          : `<div class="cap-empty">Nothing to preview.</div>`;
+      }
+    }
   }
 
   private async loadPluginListing(sel: CapabilityListItem): Promise<void> {
