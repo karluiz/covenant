@@ -326,12 +326,12 @@ async function boot(): Promise<void> {
   );
   manager.setActiveWorkspaceRootDirGetter(() => workspaceManager.getActive().root_dir);
 
-  // Mount the workspace switcher chip into the tabbar brand row,
-  // next to the "Covenant" wordmark. The chip auto-rerenders via
-  // WorkspaceManager.onChange.
-  const brandRow = document.getElementById("tabbar-brand-row");
+  // Mount the workspace switcher chip into its own row above the
+  // Covenant wordmark so the brand text isn't truncated. Chip
+  // auto-rerenders via WorkspaceManager.onChange.
+  const tabbarActions = document.getElementById("tabbar-actions");
   const switcher = new WorkspaceSwitcher(workspaceManager);
-  if (brandRow) switcher.mount(brandRow);
+  if (tabbarActions) switcher.mount(tabbarActions);
 
   newGroupBtn.addEventListener("click", () => {
     manager.createEmptyGroup();

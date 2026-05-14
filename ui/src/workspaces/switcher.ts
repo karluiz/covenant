@@ -5,6 +5,8 @@
 // a "+ New workspace" affordance, and per-row right-click for rename /
 // duplicate / set root dir / set color / delete.
 
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { pushInfoToast } from "../notifications/toast";
 import { WorkspaceManager } from "./manager";
 
 const KBD_NEW = "⌘⌥N";
@@ -83,11 +85,25 @@ export class WorkspaceSwitcher {
   }
 
   /// Create a new workspace and switch to it. Bound to ⌘⌥N in main.ts.
+  /// Auto-names "Workspace N" — Tauri's webview suppresses window.prompt,
+  /// so we skip it and let the user rename via the row context menu.
   async createAndSwitch(): Promise<void> {
-    const name = window.prompt("New workspace name", "Workspace");
-    if (name === null) return;
+    const existing = this.ws.list().length;
+    const name = `Workspace ${existing + 1}`;
     const id = this.ws.create(name);
-    await this.ws.switchTo(id);
+    await this.runSwitch(id, name);
+  }
+
+  /// Wraps switchTo with a busy state on the chip + a toast so the user
+  /// has feedback during PTY teardown/respawn (can take a second).
+  async runSwitch(id: string, name: string): Promise<void> {
+    this.chip?.classList.add("workspace-chip-busy");
+    pushInfoToast({ message: `Switching to ${name}…` });
+    try {
+      await this.ws.switchTo(id);
+    } finally {
+      this.chip?.classList.remove("workspace-chip-busy");
+    }
   }
 
   private renderChip(): void {
@@ -97,13 +113,17 @@ export class WorkspaceSwitcher {
       this.chip.innerHTML = "";
       return;
     }
-    const dotStyle = active.color
-      ? `background:${esc(active.color)};`
-      : "background:var(--chip-dot, #888);";
+    this.chip.title = `${active.name} — Workspaces (${KBD_PICK})`;
+    const tint = active.color ? esc(active.color) : "currentColor";
     this.chip.innerHTML = `
-      <span class="workspace-chip-dot" style="${dotStyle}"></span>
-      <span class="workspace-chip-name">${esc(active.name)}</span>
-      <span class="workspace-chip-caret">▾</span>
+      <span class="new-tab-plus">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+             stroke="${tint}" stroke-width="1.4" aria-hidden="true">
+          <rect x="2.5" y="2.5" width="7" height="7" rx="1.4"></rect>
+          <rect x="6.5" y="6.5" width="7" height="7" rx="1.4"></rect>
+        </svg>
+      </span>
+      <kbd class="new-tab-kbd">${esc(KBD_PICK)}</kbd>
     `;
   }
 
@@ -115,8 +135,10 @@ export class WorkspaceSwitcher {
 
     const rect = this.chip.getBoundingClientRect();
     pop.style.position = "fixed";
-    pop.style.top = `${rect.bottom + 4}px`;
+    pop.style.bottom = `${window.innerHeight - rect.top + 4}px`;
     pop.style.left = `${rect.left}px`;
+    pop.style.maxHeight = `${rect.top - 12}px`;
+    pop.style.overflowY = "auto";
     pop.style.zIndex = "1000";
 
     document.body.appendChild(pop);
@@ -178,7 +200,10 @@ export class WorkspaceSwitcher {
     for (const row of this.popover.querySelectorAll<HTMLElement>(".workspace-row")) {
       const id = row.dataset.id ?? "";
       row.addEventListener("click", () => {
-        void this.ws.switchTo(id).then(() => this.closePopover());
+        const target = this.ws.list().find((w) => w.id === id);
+        if (!target || target.active) { this.closePopover(); return; }
+        this.closePopover();
+        void this.runSwitch(id, target.name);
       });
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -193,6 +218,35 @@ export class WorkspaceSwitcher {
       });
   }
 
+  /// Replace the row's name span with an input. window.prompt is
+  /// suppressed by the Tauri webview, so renames happen inline.
+  private startInlineRename(id: string): void {
+    if (!this.popover) return;
+    const row = this.popover.querySelector<HTMLElement>(
+      `.workspace-row[data-id="${CSS.escape(id)}"]`,
+    );
+    const nameEl = row?.querySelector<HTMLElement>(".workspace-row-name");
+    const ws = this.ws.list().find((w) => w.id === id);
+    if (!row || !nameEl || !ws) return;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = ws.name;
+    input.className = "workspace-row-rename";
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+    const commit = (save: boolean): void => {
+      const v = input.value.trim();
+      if (save && v !== "" && v !== ws.name) this.ws.rename(id, v);
+      else this.renderPopover();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(true); }
+      else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    });
+    input.addEventListener("blur", () => commit(true));
+  }
+
   private showRowMenu(x: number, y: number, id: string): void {
     // Minimalist contextual menu — keeps the dependency footprint of
     // the switcher self-contained rather than reusing ContextMenu which
@@ -202,8 +256,7 @@ export class WorkspaceSwitcher {
     const menu = document.createElement("div");
     menu.className = "workspace-rowmenu";
     menu.style.position = "fixed";
-    menu.style.top = `${y}px`;
-    menu.style.left = `${x}px`;
+    menu.style.visibility = "hidden";
     menu.style.zIndex = "1001";
     const colorRows = COLOR_OPTIONS.map(
       (c) =>
@@ -221,6 +274,19 @@ export class WorkspaceSwitcher {
       <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="delete">Delete</div>
     `;
     document.body.appendChild(menu);
+    // Clamp inside viewport (8px gutter). Prefer placing left of the
+    // cursor when there's no room on the right.
+    const rect = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const PAD = 8;
+    let left = x;
+    let top = y;
+    if (left + rect.width + PAD > vw) left = Math.max(PAD, x - rect.width);
+    if (top + rect.height + PAD > vh) top = Math.max(PAD, vh - rect.height - PAD);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.visibility = "visible";
     const cleanup = () => menu.remove();
     const onAway = (e: MouseEvent) => {
       if (!menu.contains(e.target as Node)) {
@@ -231,6 +297,10 @@ export class WorkspaceSwitcher {
     setTimeout(() => document.addEventListener("click", onAway), 0);
 
     menu.addEventListener("click", (e) => {
+      // Keep the popover open: the doc-level listener that closes it
+      // treats anything outside .workspace-popover as "outside", and
+      // this menu lives in document.body.
+      e.stopPropagation();
       const target = e.target as HTMLElement;
       const colorEl = target.closest<HTMLElement>(".workspace-rowmenu-color");
       if (colorEl) {
@@ -244,20 +314,21 @@ export class WorkspaceSwitcher {
       const action = item.dataset.action;
       cleanup();
       if (action === "rename") {
-        const name = window.prompt("Rename workspace", ws.name);
-        if (name !== null && name.trim() !== "") this.ws.rename(id, name);
+        this.startInlineRename(id);
       } else if (action === "duplicate") {
         this.ws.duplicate(id);
       } else if (action === "root-dir") {
-        const dir = window.prompt(
-          "Root directory (final-fallback cwd for new tabs)",
-          ws.root_dir ?? "",
-        );
-        if (dir !== null) this.ws.setRootDir(id, dir.trim() === "" ? null : dir);
+        void openDialog({
+          title: `Root dir for workspace '${ws.name}'`,
+          multiple: false,
+          directory: true,
+          defaultPath: ws.root_dir ?? undefined,
+        }).then((picked) => {
+          if (typeof picked === "string") this.ws.setRootDir(id, picked);
+          else if (picked === null) this.ws.setRootDir(id, null);
+        });
       } else if (action === "delete") {
-        if (window.confirm(`Delete workspace '${ws.name}'? PTYs will be killed.`)) {
-          void this.ws.delete(id);
-        }
+        void this.ws.delete(id);
       }
     });
   }

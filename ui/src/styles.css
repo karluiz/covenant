@@ -6948,7 +6948,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
    animation switches axis from width to height. */
 
 body.tabbar-left {
-    --tabbar-w: 200px;
+    --tabbar-w: 232px;
 }
 
 body.tabbar-left #layout {
@@ -7295,6 +7295,7 @@ body.tabbar-left #tabbar-actions > button {
 #tabbar-brand-row {
     display: none;
 }
+
 
 body.tabbar-left #tabbar-brand-actions {
     display: inline-flex;
@@ -10745,31 +10746,44 @@ body.has-update-banner #layout { padding-top: 34px; }
 
 /* Workspace switcher chip + popover. The chip lives in the tabbar
    brand row to the right of the "Covenant" wordmark. */
+.workspace-row-rename {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 6px;
+  outline: none;
+}
+
 .workspace-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 8px;
-  margin-left: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text, #d6d8db);
-  font: inherit;
-  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  height: 28px;
   cursor: pointer;
-  white-space: nowrap;
-  max-width: 180px;
+  border-radius: 6px;
+  padding: 0 8px 0 6px;
+  line-height: 1;
+  transition: background 0.12s ease-out, color 0.12s ease-out;
 }
-.workspace-chip:hover { background: rgba(255, 255, 255, 0.08); }
-.workspace-chip-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  flex: 0 0 8px;
+.workspace-chip:hover { background: var(--tab-bg-hover); color: #fff; }
+.workspace-chip-busy { animation: workspace-chip-pulse 1s ease-in-out infinite; pointer-events: none; }
+@keyframes workspace-chip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
-.workspace-chip-name {
-  overflow: hidden; text-overflow: ellipsis;
+.workspace-chip:hover .new-tab-kbd {
+  color: #c8ccd2;
+  border-color: rgba(255, 255, 255, 0.12);
 }
-.workspace-chip-caret { opacity: 0.6; font-size: 10px; }
+.workspace-chip .new-tab-plus { display: inline-flex; align-items: center; }
 
 .workspace-popover {
   min-width: 260px;
@@ -10812,6 +10826,9 @@ body.has-update-banner #layout { padding-top: 34px; }
 
 .workspace-rowmenu {
   min-width: 180px;
+  max-width: 220px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   background: rgba(24, 26, 30, 0.98);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
