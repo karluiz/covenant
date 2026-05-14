@@ -369,6 +369,59 @@ export class TabManager {
     this.onPersistRequest = cb;
   }
 
+  /// Workspace integration hooks. The workspace layer injects:
+  ///  - `listWorkspaces`: returns the catalog (id+name+active) so the
+  ///    group context menu can render a "Move to workspace…" submenu.
+  ///  - `moveGroupToWorkspace`: performs the actual cross-workspace move.
+  ///  - `activeWorkspaceRootDir`: the active workspace's root_dir (or
+  ///    null), used as the final cwd fallback in createTab.
+  private listWorkspaces: (() => Array<{ id: string; name: string; active: boolean }>) | null = null;
+  private moveGroupToWorkspace: ((groupId: string, workspaceId: string) => Promise<void>) | null = null;
+  private activeWorkspaceRootDir: (() => string | null) | null = null;
+
+  setWorkspaceCatalog(
+    list: () => Array<{ id: string; name: string; active: boolean }>,
+    move: (groupId: string, workspaceId: string) => Promise<void>,
+  ): void {
+    this.listWorkspaces = list;
+    this.moveGroupToWorkspace = move;
+  }
+
+  setActiveWorkspaceRootDirGetter(getter: () => string | null): void {
+    this.activeWorkspaceRootDir = getter;
+  }
+
+  /// Read-only snapshot of a group and the tabs that belong to it, in
+  /// the SerializedTab/SerializedGroup shape used by `serializeManifest`.
+  /// Returns null if the group doesn't exist.
+  snapshotGroupForMove(
+    groupId: string,
+  ): { group: SerializedGroup; tabs: SerializedTab[] } | null {
+    const g = this.groups.get(groupId);
+    if (!g) return null;
+    const manifest = this.serializeManifest();
+    const groupSer = manifest.groups.find((sg) => sg.id === groupId);
+    if (!groupSer) return null;
+    const tabs = manifest.tabs.filter((t) => t.group_id === groupId);
+    return { group: groupSer, tabs };
+  }
+
+  /// Tear down every tab in `groupId` plus the group itself, without the
+  /// mind-loss confirm modal (the workspace move flow has its own UX).
+  /// Mirrors the bypass used by `replaceFromManifest`.
+  removeGroupAndTabs(groupId: string): void {
+    const ids = this.tabs.filter((t) => t.groupId === groupId).map((t) => t.id);
+    this.inReplace = true;
+    try {
+      for (const id of ids) this.finalizeCloseTab(id);
+      this.groups.delete(groupId);
+    } finally {
+      this.inReplace = false;
+    }
+    this.renderTabbar();
+    this.scheduleSave();
+  }
+
   /// 3.14 — set of sessionIds currently in convergence `blocked` state.
   /// Refreshed at 1 Hz by `blockedPollTimer`; drives the per-tab
   /// escalation dot. Diff-based updates avoid DOM churn for tabs whose
@@ -3706,6 +3759,16 @@ export class TabManager {
   }
 
   private openGroupContextMenu(group: TabGroup, x: number, y: number): void {
+    const wsList = this.listWorkspaces?.() ?? [];
+    const others = wsList.filter((w) => !w.active);
+    const moveSubmenu = others.length === 0
+      ? [{ label: "(no other workspaces)", disabled: true }]
+      : others.map((w) => ({
+          label: w.name,
+          onClick: () => {
+            void this.moveGroupToWorkspace?.(group.id, w.id);
+          },
+        }));
     this.menu.show(x, y, [
       {
         label: "New tab in group",
@@ -3763,6 +3826,12 @@ export class TabManager {
           onClick: () => this.setGroupColor(group.id, sw.color),
         })),
         pastelRow: true,
+      },
+      { divider: true },
+      {
+        label: "Move to workspace…",
+        icon: Icons.folder(),
+        submenu: moveSubmenu,
       },
       { divider: true },
       {

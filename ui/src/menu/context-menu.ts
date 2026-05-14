@@ -25,6 +25,10 @@ export interface MenuItem {
   disabled?: boolean;
   /// Optional keyboard-shortcut hint shown right-aligned (e.g. "⌘T").
   shortcut?: string;
+  /// When set, clicking re-opens the menu populated with these items.
+  /// Indicated to the user with a trailing chevron. `onClick` is ignored
+  /// when `submenu` is provided.
+  submenu?: MenuItem[];
 }
 
 export class ContextMenu {
@@ -167,7 +171,19 @@ export class ContextMenu {
       btn.appendChild(kbd);
     }
 
-    if (item.onClick && !item.disabled) {
+    if (item.submenu && !item.disabled) {
+      const chev = document.createElement("span");
+      chev.className = "ctx-item-shortcut";
+      chev.textContent = "›";
+      btn.appendChild(chev);
+      btn.addEventListener("click", () => {
+        const sub = item.submenu ?? [];
+        const rect = btn.getBoundingClientRect();
+        const x = rect.right;
+        const y = rect.top;
+        this.show(x, y, sub);
+      });
+    } else if (item.onClick && !item.disabled) {
       btn.addEventListener("click", async () => {
         const cb = item.onClick;
         this.dismiss();

@@ -50,6 +50,20 @@ function makeMockTabManager(initial?: TabManifestV1): {
     setOnPersistRequest(_cb: (() => void) | null): void {
       /* noop for tests */
     },
+    snapshotGroupForMove(groupId: string) {
+      const g = state.manifest.groups.find((sg) => sg.id === groupId);
+      if (!g) return null;
+      const tabs = state.manifest.tabs.filter((t) => t.group_id === groupId);
+      return JSON.parse(JSON.stringify({ group: g, tabs }));
+    },
+    removeGroupAndTabs(groupId: string): void {
+      state.manifest.tabs = state.manifest.tabs.filter(
+        (t) => t.group_id !== groupId,
+      );
+      state.manifest.groups = state.manifest.groups.filter(
+        (g) => g.id !== groupId,
+      );
+    },
   };
   return { manager, state };
 }
@@ -171,6 +185,130 @@ describe("WorkspaceManager.switchTo", () => {
     await ws.switchTo(firstId);
     const restored = state.replaceCalls[state.replaceCalls.length - 1];
     expect(restored.tabs.some((t) => t.custom_name === "first-tab")).toBe(true);
+  });
+});
+
+describe("WorkspaceManager.moveGroupTo", () => {
+  beforeEach(() => saveSpy.mockClear());
+
+  it("moves a group and its tabs into the target workspace, clearing the source", async () => {
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(null);
+    const sourceId = ws.list()[0].id;
+    const targetId = ws.create("Target");
+
+    // Seed the active (source) workspace with one group + 2 tabs in it
+    // plus a sibling ungrouped tab that must stay behind.
+    state.manifest.groups = [
+      { id: "g1", name: "Project", color: null, collapsed: false, root_dir: "/work" },
+    ];
+    state.manifest.tabs = [
+      {
+        custom_name: "outsider",
+        cwd: null,
+        color: null,
+        group_id: null,
+        mission_path: null,
+        operator_id: null,
+      } as TabManifestV1["tabs"][number],
+      {
+        custom_name: "inside-a",
+        cwd: "/work/a",
+        color: "#7aa2f7",
+        group_id: "g1",
+        mission_path: null,
+        operator_id: null,
+        aom_excluded: true,
+      } as TabManifestV1["tabs"][number],
+      {
+        custom_name: "inside-b",
+        cwd: "/work/b",
+        color: null,
+        group_id: "g1",
+        mission_path: null,
+        operator_id: "op-x",
+      } as TabManifestV1["tabs"][number],
+    ];
+
+    await ws.moveGroupTo("g1", targetId);
+
+    // Source: group gone, only "outsider" remains.
+    expect(state.manifest.groups).toHaveLength(0);
+    expect(state.manifest.tabs.map((t) => t.custom_name)).toEqual(["outsider"]);
+
+    // Target: gets the group + both tabs with metadata preserved.
+    const v2 = ws.serializeV2();
+    const target = v2.workspaces.find((w) => w.id === targetId)!;
+    expect(target.groups).toHaveLength(1);
+    expect(target.groups[0].id).toBe("g1");
+    expect(target.groups[0].root_dir).toBe("/work");
+    expect(target.tabs.map((t) => t.custom_name).sort()).toEqual([
+      "inside-a",
+      "inside-b",
+    ]);
+    const a = target.tabs.find((t) => t.custom_name === "inside-a")!;
+    expect(a.cwd).toBe("/work/a");
+    expect(a.color).toBe("#7aa2f7");
+    expect(a.aom_excluded).toBe(true);
+    const b = target.tabs.find((t) => t.custom_name === "inside-b")!;
+    expect(b.operator_id).toBe("op-x");
+
+    // Persisted.
+    expect(saveSpy).toHaveBeenCalled();
+    void sourceId;
+  });
+
+  it("spawns a fresh tab if moving empties the source workspace", async () => {
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(null);
+    const targetId = ws.create("Target");
+
+    state.manifest.groups = [
+      { id: "g1", name: "Solo", color: null, collapsed: false },
+    ];
+    state.manifest.tabs = [
+      {
+        custom_name: "only",
+        cwd: null,
+        color: null,
+        group_id: "g1",
+        mission_path: null,
+        operator_id: null,
+      } as TabManifestV1["tabs"][number],
+    ];
+
+    const beforeCreate = state.createTabCalls;
+    await ws.moveGroupTo("g1", targetId);
+
+    // Source got cleared then refilled with one fresh tab.
+    expect(state.createTabCalls).toBe(beforeCreate + 1);
+  });
+
+  it("is a no-op when target is the active workspace", async () => {
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(null);
+    const sourceId = ws.list()[0].id;
+
+    state.manifest.groups = [
+      { id: "g1", name: "g", color: null, collapsed: false },
+    ];
+    state.manifest.tabs = [
+      {
+        custom_name: "x",
+        cwd: null,
+        color: null,
+        group_id: "g1",
+        mission_path: null,
+        operator_id: null,
+      } as TabManifestV1["tabs"][number],
+    ];
+
+    await ws.moveGroupTo("g1", sourceId);
+    expect(state.manifest.groups).toHaveLength(1);
+    expect(state.manifest.tabs).toHaveLength(1);
   });
 });
 
