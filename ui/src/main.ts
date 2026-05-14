@@ -875,9 +875,13 @@ async function boot(): Promise<void> {
       return;
     }
     // ⌘P → Recall palette (search command history explicitly).
+    // Suppressed while an agent executor (claude/copilot/codex/…) owns
+    // the PTY: their TUIs don't read shell history.
     if (e.metaKey && !e.shiftKey && e.key === "p") {
       e.preventDefault();
-      recallPalette.toggle();
+      if (!manager.activeExecutor()) {
+        recallPalette.toggle();
+      }
       return;
     }
     // ⌘⇧F → global file-content search across the active tab's cwd.

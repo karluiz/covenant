@@ -1148,6 +1148,14 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
     requestAnimationFrame(() => {
+      // Drop any active selection before reflowing: xterm caches selection
+      // by buffer coords, and fit() can change cols/rows, leaving the
+      // highlight rectangle floating on the wrong row after resize.
+      try {
+        tab.term.clearSelection();
+      } catch {
+        /* ignore */
+      }
       try {
         tab.fit.fit();
       } catch (err) {
@@ -1349,6 +1357,16 @@ export class TabManager {
   activeCwd(): string | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     return tab?.cwd ?? null;
+  }
+
+  /// Name of the agent executor currently running in the active tab
+  /// (claude/copilot/codex/opencode/…), or null when the shell is idle
+  /// or running a non-agent command. ⌘P/Recall is suppressed while
+  /// this is non-null — agent TUIs don't have a shell prompt to insert
+  /// history into.
+  activeExecutor(): string | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    return tab?.executor ?? null;
   }
 
   /// Open `path` in the active tab's editor and (optionally) jump to a
@@ -1582,6 +1600,17 @@ export class TabManager {
                 if (tabRef.current.id === this.activeId) {
                   this.statusBar?.setExecutor(next);
                 }
+                // Tear down any Recall popup the moment an executor
+                // takes over the PTY: its buffer is now stale shell
+                // input that no longer maps to a prompt.
+                if (next) recall?.notifyPromptStart();
+                // Drop any pulse dot left over from a pre-agent dev
+                // tool; while an executor owns the PTY, the chip is
+                // the canonical "running" indicator.
+                if (next && tabRef.current.busyProc) {
+                  tabRef.current.busyProc = null;
+                  this.renderTabBusyDot(tabRef.current);
+                }
               }
             } else if (event.kind === "block_finished") {
               if (tabRef.current && tabRef.current.executor !== null) {
@@ -1622,7 +1651,16 @@ export class TabManager {
               }
             } else if (event.kind === "foreground_changed") {
               if (tabRef.current) {
-                tabRef.current.busyProc = event.busy ? event.name : null;
+                // Agent CLIs (copilot/claude/codex/…) routinely spawn
+                // dev-tool subprocesses (`node`, `next`, `npm`, …) that
+                // briefly own the PTY foreground. Those slip past the
+                // Rust allowlist and light the pulse dot, but the
+                // executor chip already conveys "agent running here" —
+                // doubling up is just noise. Keep the dot strictly for
+                // user-initiated dev tools.
+                const isAgent = !!tabRef.current.executor;
+                tabRef.current.busyProc =
+                  event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "cwd_changed") {
@@ -1979,7 +2017,12 @@ export class TabManager {
         // eslint-disable-next-line no-console
         console.error("write failed", e),
       );
-      recall?.notifyInput(data);
+      // Suppress Recall while an agent executor (claude/copilot/codex/
+      // opencode/…) holds the PTY. Their TUIs don't run a shell prompt,
+      // so the suggestion popup is just noise overlaying the agent UI.
+      if (!tabRef.current?.executor) {
+        recall?.notifyInput(data);
+      }
     });
     // Shift+Enter → Alt+Enter (`\x1b\r`). xterm.js's default for
     // Shift+Enter is the same as Enter (just `\r`), which submits in
