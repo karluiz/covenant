@@ -324,6 +324,7 @@ async function boot(): Promise<void> {
     () => workspaceManager.list().map((w) => ({ id: w.id, name: w.name, active: w.active })),
     (groupId, wsId) => workspaceManager.moveGroupTo(groupId, wsId),
   );
+  manager.setActiveWorkspaceRootDirGetter(() => workspaceManager.getActive().root_dir);
 
   // Mount the workspace switcher chip into the tabbar brand row,
   // next to the "Covenant" wordmark. The chip auto-rerenders via

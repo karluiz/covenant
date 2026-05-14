@@ -1648,7 +1648,9 @@ export class TabManager {
         {
           initialCwd:
             opts?.cwd ??
-            (opts?.groupId ? this.groups.get(opts.groupId)?.rootDir ?? null : null),
+            (opts?.groupId ? this.groups.get(opts.groupId)?.rootDir ?? null : null) ??
+            this.activeWorkspaceRootDir?.() ??
+            null,
         },
       );
     } catch (err) {
