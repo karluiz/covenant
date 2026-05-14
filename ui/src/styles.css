@@ -10742,3 +10742,99 @@ body.has-update-banner #layout { padding-top: 34px; }
 .update-modal__later:hover { background: rgba(255, 255, 255, 0.05); }
 .update-modal__install { background: #5b8cff; color: white; }
 .update-modal__install:hover { background: #7aa2ff; }
+
+/* Workspace switcher chip + popover. The chip lives in the tabbar
+   brand row to the right of the "Covenant" wordmark. */
+.workspace-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  margin-left: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #d6d8db);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 180px;
+}
+.workspace-chip:hover { background: rgba(255, 255, 255, 0.08); }
+.workspace-chip-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex: 0 0 8px;
+}
+.workspace-chip-name {
+  overflow: hidden; text-overflow: ellipsis;
+}
+.workspace-chip-caret { opacity: 0.6; font-size: 10px; }
+
+.workspace-popover {
+  min-width: 260px;
+  max-width: 340px;
+  background: rgba(20, 22, 26, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  color: var(--text, #d6d8db);
+  font-size: 12px;
+}
+.workspace-popover-list { max-height: 320px; overflow-y: auto; }
+.workspace-row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.workspace-row:hover { background: rgba(255, 255, 255, 0.06); }
+.workspace-row-active { background: rgba(91, 140, 255, 0.14); }
+.workspace-row-dot { width: 10px; height: 10px; border-radius: 50%; }
+.workspace-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-row-meta { font-size: 10px; opacity: 0.6; }
+
+.workspace-popover-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 8px; margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.workspace-new-btn {
+  background: transparent; border: 0; color: var(--text, #d6d8db);
+  cursor: pointer; font: inherit; font-size: 12px; padding: 2px 4px;
+}
+.workspace-new-btn:hover { color: #fff; }
+.workspace-popover-kbd { opacity: 0.5; font-size: 10px; }
+
+.workspace-rowmenu {
+  min-width: 180px;
+  background: rgba(24, 26, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  color: var(--text, #d6d8db);
+  font-size: 12px;
+}
+.workspace-rowmenu-item {
+  padding: 5px 10px; border-radius: 4px; cursor: pointer;
+}
+.workspace-rowmenu-item:hover { background: rgba(255, 255, 255, 0.07); }
+.workspace-rowmenu-danger:hover { background: rgba(239, 68, 68, 0.18); }
+.workspace-rowmenu-sub { padding: 5px 10px; }
+.workspace-rowmenu-colors {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-top: 4px;
+}
+.workspace-rowmenu-color {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; border-radius: 4px; cursor: pointer;
+}
+.workspace-rowmenu-color:hover { background: rgba(255, 255, 255, 0.06); }
+.workspace-rowmenu-swatch {
+  width: 10px; height: 10px; border-radius: 50%;
+  display: inline-block;
+}
