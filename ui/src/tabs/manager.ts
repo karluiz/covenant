@@ -47,6 +47,8 @@ import {
   setSessionMission,
   setTabTitle,
   spawnSession,
+  replayScrollback,
+  deleteScrollback,
   tabManifestSave,
   writeToSession,
   type MissionInfo,
@@ -123,6 +125,11 @@ function buildTerminalOptions(font: TerminalConfig | null): Record<string, unkno
 
 interface Tab {
   id: string;
+  /// Stable identifier for scrollback persistence. Unlike `id`, this is
+  /// persisted in the tab manifest and survives app restarts — used to
+  /// key `<data_dir>/scrollback/<replayKey>.log` so closed-and-reopened
+  /// tabs replay their last PTY bytes into xterm.
+  replayKey: string;
   sessionId: SessionId;
   /// Default name from the spawn sequence ("zsh 1"). Always present.
   defaultTitle: string;
@@ -237,6 +244,10 @@ interface SerializedTab {
   /// AOM exclusion persisted for this tab. Optional for backward compat
   /// — old manifests that lack the field default to false on restore.
   aom_excluded?: boolean;
+  /// Stable scrollback-log key. Optional for backward compat — old
+  /// manifests without it get a fresh key on first restore (so the
+  /// first reopen has no replay, which is the correct behavior).
+  replay_key?: string;
 }
 
 interface SerializedGroup {
@@ -1477,8 +1488,12 @@ export class TabManager {
     // createTab still self-pushes/wires, but activation + tabbar render
     // are deferred to the caller so they happen ONCE in manifest order.
     skipActivate?: boolean;
+    /// Stable scrollback key from a previous run. Brand-new tabs leave
+    /// this undefined and a fresh key is generated.
+    replayKey?: string | null;
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
+    const replayKey = opts?.replayKey ?? id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
 
     const pane = document.createElement("div");
@@ -1615,6 +1630,17 @@ export class TabManager {
     // write the command on the FIRST prompt_start (i.e. once the
     // shell has finished its rc-file work and shown a usable prompt).
     let initialCmdPending: string | null = opts?.initialCommand ?? null;
+    // Replay persisted scrollback into xterm BEFORE the live channel
+    // attaches. Brand-new tabs see an empty array; reopened tabs see
+    // the last ~2 MiB of bytes from their previous session.
+    try {
+      const tail = await replayScrollback(replayKey);
+      if (tail.byteLength > 0) {
+        term.write(tail);
+      }
+    } catch (err) {
+      console.warn("replay_scrollback failed", err);
+    }
     try {
       sessionId = await spawnSession(
         {
@@ -1721,6 +1747,7 @@ export class TabManager {
             (opts?.groupId ? this.groups.get(opts.groupId)?.rootDir ?? null : null) ??
             this.activeWorkspaceRootDir?.() ??
             null,
+          replayKey,
         },
       );
     } catch (err) {
@@ -2164,6 +2191,7 @@ export class TabManager {
 
     const tab: Tab = {
       id,
+      replayKey,
       sessionId,
       defaultTitle: `zsh ${seq}`,
       customName: opts?.customName ?? null,
@@ -2722,6 +2750,7 @@ export class TabManager {
         mission_path: t.mission?.path ?? null,
         operator_id: t.operator_id,
         aom_excluded: t.aomExcluded,
+        replay_key: t.replayKey,
       })),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
@@ -2767,6 +2796,7 @@ export class TabManager {
           groupId: t.group_id,
           cwd: t.cwd,
           skipActivate: true,
+          replayKey: t.replay_key ?? null,
         }),
       ),
     );
@@ -2904,6 +2934,13 @@ export class TabManager {
     tab.specBadge = null;
     for (const d of tab.disposers) d.dispose();
     void closeSession(tab.sessionId).catch(() => {});
+    // Drop the persisted scrollback log — the tab is gone for good.
+    // Workspace-switch teardown also flows through here, which is the
+    // wrong behavior for those tabs (they reopen in another workspace).
+    // Suppress during in-flight replace.
+    if (!this.inReplace) {
+      void deleteScrollback(tab.replayKey).catch(() => {});
+    }
     tab.term.dispose();
     if (tab.pane.parentElement === this.workspace) {
       this.workspace.removeChild(tab.pane);
