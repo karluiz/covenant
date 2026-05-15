@@ -21,8 +21,8 @@ import {
 } from "../api";
 import { pushInfoToast } from "../notifications/toast";
 
-type ToolKey = "claude" | "copilot" | "opencode" | "shared";
-type SectionKey = "skills" | "commands" | "hooks" | "mcps" | "plugins" | "agents";
+type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "shared";
+type SectionKey = "skills" | "commands" | "hooks" | "mcps" | "plugins" | "agents" | "memory";
 
 const PROJECT_ROOT_KEY = "capabilities.projectRoot";
 
@@ -46,6 +46,11 @@ const SECTIONS_BY_TOOL: Record<ToolKey, SectionDef[]> = {
   opencode: [
     { key: "agents", label: "Agents", kinds: ["agent"] },
     { key: "mcps", label: "MCPs", kinds: ["mcp"] },
+  ],
+  codex: [
+    { key: "commands", label: "Prompts", kinds: ["command"] },
+    { key: "mcps", label: "MCPs", kinds: ["mcp"] },
+    { key: "memory", label: "Memory", kinds: ["memory"] },
   ],
   shared: [{ key: "skills", label: "Skills", kinds: ["skill"] }],
 };
@@ -117,7 +122,7 @@ export class CapabilitiesPanel {
     } catch (err) {
       console.error("capabilities refresh failed", err);
       pushInfoToast({ message: `Capabilities: ${String(err)}` });
-      this.detect = { claude: false, copilot: false, opencode: false, shared: false };
+      this.detect = { claude: false, copilot: false, opencode: false, codex: false, shared: false };
       this.items = [];
     }
     // Reset selection if it's no longer present.
@@ -196,6 +201,7 @@ export class CapabilitiesPanel {
       { key: "claude", label: "Claude" },
       { key: "copilot", label: "Copilot" },
       { key: "opencode", label: "opencode" },
+      { key: "codex", label: "Codex" },
       { key: "shared", label: "Shared" },
     ];
     for (const t of tools) {
@@ -318,6 +324,12 @@ export class CapabilitiesPanel {
       if (tool === "opencode") return [{ value: "skill", label: "Agent / skill" }];
       if (tool === "shared") return [{ value: "skill", label: "Skill" }];
       if (tool === "copilot") return [{ value: "mcp", label: "MCP server (snippet file)" }];
+      if (tool === "codex") {
+        return [
+          { value: "command", label: "Prompt (slash command)" },
+          { value: "mcp", label: "MCP server (snippet)" },
+        ];
+      }
       return [];
     })();
     form.innerHTML = `
