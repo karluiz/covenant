@@ -44,7 +44,7 @@ import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
-import { Roster } from "./familiars/roster";
+import { FamiliarPanel } from "./familiars/panel";
 import { FamiliarStatusIndicator } from "./familiars/status_indicator";
 import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
@@ -375,6 +375,9 @@ async function boot(): Promise<void> {
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
     rebindFamiliarIndicator();
+  };
+  manager.onActiveSessionChange = (sessionId) => {
+    void familiarPanel.bindToSession(sessionId);
   };
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
@@ -939,10 +942,10 @@ async function boot(): Promise<void> {
       void capabilities.toggle(manager.activeCwd());
       return;
     }
-    // ⌘⇧L — toggle the Familiar roster (chat with the active tab's familiar).
+    // ⌘⇧L — toggle the Familiar side panel (chat with the active tab's familiar).
     if (e.metaKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
       e.preventDefault();
-      roster.toggle();
+      familiarPanel.toggle();
       return;
     }
     // ⌘⇧A — pure AOM toggle: off ↔ on.
@@ -1155,18 +1158,17 @@ async function boot(): Promise<void> {
   });
 }
 
-const roster = new Roster();
+const familiarPanel = new FamiliarPanel();
 // Hook to deliver an approved directive into the operator session. The
 // project's operator-input command is `write_to_session`, which accepts
 // raw bytes; encode the rendered string as UTF-8.
-roster.onDeliverDirective = async (sessionId, rendered) => {
+familiarPanel.onDeliverDirective = async (sessionId, rendered) => {
   const bytes = new TextEncoder().encode(rendered);
   await invoke("write_to_session", { id: sessionId, data: Array.from(bytes) });
 };
 
-// Status-bar Familiar dot dispatches this on click to open the roster
-// contextually for the active tab's bound Familiar.
-document.addEventListener("familiars:open", () => roster.show());
+// Status-bar Familiar dot dispatches this on click; toggle the panel.
+document.addEventListener("familiars:open", () => familiarPanel.toggle());
 
 async function startupUpdateCheck(): Promise<void> {
   const currentVersion = await getVersion();
