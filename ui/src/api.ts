@@ -63,7 +63,7 @@ export interface SpawnHandlers {
 
 export async function spawnSession(
   handlers: SpawnHandlers,
-  opts?: { initialCwd?: string | null },
+  opts?: { initialCwd?: string | null; replayKey?: string | null },
 ): Promise<SessionId> {
   const outputChannel = new Channel<number[]>();
   outputChannel.onmessage = (data) => handlers.onOutput(new Uint8Array(data));
@@ -75,7 +75,20 @@ export async function spawnSession(
     onOutput: outputChannel,
     onSessionEvent: sessionEventChannel,
     initialCwd: opts?.initialCwd ?? null,
+    replayKey: opts?.replayKey ?? null,
   });
+}
+
+/// Fetch the tail of a tab's persisted scrollback. Returns an empty
+/// array for unknown / new tabs. Write the bytes into xterm BEFORE
+/// `spawnSession` attaches its live channel.
+export async function replayScrollback(replayKey: string): Promise<Uint8Array> {
+  const data = await invoke<number[]>("replay_scrollback", { replayKey });
+  return new Uint8Array(data);
+}
+
+export async function deleteScrollback(replayKey: string): Promise<void> {
+  await invoke<void>("delete_scrollback", { replayKey });
 }
 
 export async function writeToSession(id: SessionId, data: Uint8Array): Promise<void> {

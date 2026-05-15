@@ -33,6 +33,7 @@ pub mod operator_mind;
 pub mod operator_registry;
 mod project_notes;
 mod safety;
+mod scrollback;
 pub mod settings;
 mod spec_detector;
 pub mod storage;
@@ -96,6 +97,9 @@ pub(crate) struct AppState {
     /// Path to the tab manifest JSON. Read once at boot, written
     /// (debounced) every time the user reorders/renames/colors/etc.
     tab_manifest_path: PathBuf,
+    /// App data dir (same dir holding `history.db`). Scrollback logs
+    /// live under `<data_dir>/scrollback/`.
+    data_dir: PathBuf,
     /// 3.7 status-bar — git/runtime detection cache shared across all
     /// `get_dir_context` calls. Tiny LRU, 5s TTL, no fs watcher.
     dir_context_cache: Arc<ContextCache>,
@@ -324,6 +328,7 @@ async fn spawn_session(
     on_output: Channel<Vec<u8>>,
     on_session_event: Channel<SessionUiEvent>,
     initial_cwd: Option<String>,
+    replay_key: Option<String>,
 ) -> Result<String, String> {
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::from_default_shell()
@@ -507,10 +512,17 @@ async fn spawn_session(
     // for a stuck prompt.
     let SessionStreams { mut raw_bytes } = streams;
     let op_state_for_pump = op_state.clone();
+    let mut scrollback_writer = replay_key
+        .as_deref()
+        .and_then(|k| scrollback::open_writer(&state.data_dir, k))
+        .map(scrollback::Writer::new);
     tauri::async_runtime::spawn(async move {
         while let Some(chunk) = raw_bytes.recv().await {
             if let Ok(mut st) = op_state_for_pump.lock() {
                 st.observe(&chunk);
+            }
+            if let Some(w) = scrollback_writer.as_mut() {
+                w.append(&chunk);
             }
             if on_output.send(chunk.to_vec()).is_err() {
                 tracing::debug!("output channel closed by frontend");
@@ -651,6 +663,28 @@ async fn close_session(
     if let Err(e) = state.storage.close_session(id, now_unix_ms()).await {
         tracing::warn!(session = %id, error = %e, "close_session persist failed");
     }
+    Ok(())
+}
+
+/// Return the last ~2 MiB of persisted PTY bytes for a tab, in order
+/// so the frontend can replay them into xterm before live output
+/// starts. Empty vec for unknown keys.
+#[tauri::command]
+async fn replay_scrollback(
+    state: State<'_, AppState>,
+    replay_key: String,
+) -> Result<Vec<u8>, String> {
+    Ok(scrollback::read_tail(&state.data_dir, &replay_key))
+}
+
+/// Drop the scrollback log for a closed tab. Best-effort; missing
+/// files are not an error.
+#[tauri::command]
+async fn delete_scrollback(
+    state: State<'_, AppState>,
+    replay_key: String,
+) -> Result<(), String> {
+    scrollback::delete(&state.data_dir, &replay_key);
     Ok(())
 }
 
@@ -2790,6 +2824,7 @@ pub fn run() {
             );
 
             let tab_manifest_path = dir.join("tab_manifest.json");
+            let data_dir = dir.clone();
             let gc_storage = storage.clone();
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
@@ -2801,6 +2836,7 @@ pub fn run() {
                 storage,
                 aom: aom_handle,
                 tab_manifest_path,
+                data_dir,
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
                 email_notifier,
@@ -2826,6 +2862,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             spawn_session,
+            replay_scrollback,
+            delete_scrollback,
             read_font_bytes,
             write_to_session,
             resize_session,
