@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use karl_capabilities::adapters::{claude, copilot, opencode, shared};
+use karl_capabilities::adapters::{claude, codex, copilot, opencode, shared};
 use karl_capabilities::model::{Kind, Tool};
 use karl_capabilities::scaffold::{render, ScaffoldRequest};
 use karl_capabilities::writer::{delete_with_backup, write_atomic};
@@ -32,6 +32,7 @@ pub struct DetectResult {
     pub claude: bool,
     pub copilot: bool,
     pub opencode: bool,
+    pub codex: bool,
     pub shared: bool,
 }
 
@@ -222,6 +223,70 @@ fn item_from_opencode(c: opencode::Capability) -> CapabilityListItem {
     }
 }
 
+fn item_from_codex(c: codex::Capability) -> CapabilityListItem {
+    let scope_label = |s: &codex::CodexScope| match s {
+        codex::CodexScope::User => "user".to_string(),
+        codex::CodexScope::Project(p) => format!(
+            "project:{}",
+            p.file_name().and_then(|s| s.to_str()).unwrap_or("project")
+        ),
+    };
+    match c {
+        codex::Capability::McpServer(m) => {
+            let path = m.source_file.to_string_lossy().into_owned();
+            let lbl = scope_label(&m.scope);
+            let desc = m
+                .command
+                .map(|c| {
+                    format!(
+                        "{c} {}",
+                        m.args.as_ref().map(|a| a.join(" ")).unwrap_or_default()
+                    )
+                })
+                .or(m.url)
+                .unwrap_or_default();
+            CapabilityListItem {
+                id: format!("codex:mcp:{path}:{}", m.name),
+                tool: "codex".into(),
+                kind: "mcp".into(),
+                name: m.name,
+                description: Some(desc),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+        codex::Capability::Prompt(p) => {
+            let path = p.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&p.scope);
+            CapabilityListItem {
+                id: format!("codex:prompt:{path}"),
+                tool: "codex".into(),
+                kind: "command".into(),
+                name: p.name,
+                description: Some(p.description),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+        codex::Capability::Memory(m) => {
+            let path = m.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&m.scope);
+            CapabilityListItem {
+                id: format!("codex:memory:{path}"),
+                tool: "codex".into(),
+                kind: "memory".into(),
+                name: m.name,
+                description: Some("AGENTS.md memory".to_string()),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+    }
+}
+
 fn item_from_shared(s: shared::SharedSkill) -> CapabilityListItem {
     let path = s.path.to_string_lossy().into_owned();
     let scope_label = match (s.source.as_deref(), s.version.as_deref()) {
@@ -275,6 +340,14 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
             .map(item_from_opencode),
     );
 
+    // Codex: user scope (config.toml, prompts, AGENTS.md).
+    out.extend(
+        codex::scan_user(&home)
+            .map_err(|e| format!("codex scan_user: {e}"))?
+            .into_iter()
+            .map(item_from_codex),
+    );
+
     // Shared ~/.agents/skills.
     out.extend(
         shared::scan(&home)
@@ -297,6 +370,12 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
                     .map_err(|e| format!("opencode scan_project: {e}"))?
                     .into_iter()
                     .map(item_from_opencode),
+            );
+            out.extend(
+                codex::scan_project(&p)
+                    .map_err(|e| format!("codex scan_project: {e}"))?
+                    .into_iter()
+                    .map(item_from_codex),
             );
         }
     }
@@ -396,6 +475,7 @@ fn parse_tool(s: &str) -> Result<Tool, String> {
         "claude" => Ok(Tool::Claude),
         "copilot" => Ok(Tool::Copilot),
         "opencode" => Ok(Tool::Opencode),
+        "codex" => Ok(Tool::Codex),
         "shared" => Ok(Tool::Shared),
         other => Err(format!("unknown tool: {other}")),
     }
@@ -435,6 +515,12 @@ fn scaffold_target(
             None => home.join(".config/opencode/agent").join(format!("{name}.md")),
         },
         (Tool::Shared, Kind::Skill) => home.join(".agents/skills").join(name).join("SKILL.md"),
+        (Tool::Codex, Kind::SlashCommand) => {
+            home.join(".codex/prompts").join(format!("{name}.md"))
+        }
+        (Tool::Codex, Kind::McpServer) => {
+            home.join(format!(".codex/scaffolded-{name}.json"))
+        }
         // Hooks / MCPs: write a snippet file for the user to paste into their settings.json.
         // We intentionally do NOT auto-merge in v0 (avoids clobbering hand-edited JSON).
         (Tool::Claude, Kind::Hook) | (Tool::Claude, Kind::McpServer) | (Tool::Copilot, Kind::McpServer) => {
@@ -483,6 +569,7 @@ pub async fn capabilities_detect() -> Result<DetectResult, String> {
         copilot: h_clone.join(".copilot").is_dir(),
         opencode: h_clone.join(".config/opencode").is_dir()
             || h_clone.join(".opencode/bin/opencode").is_file(),
+        codex: codex::detect(&h_clone),
         shared: shared::detect(&h_clone),
     })
     .await
@@ -505,7 +592,7 @@ mod tests {
     async fn detect_returns_struct() {
         let r = capabilities_detect().await.unwrap();
         // Fields are bool; just confirm we can read them.
-        let _ = (r.claude, r.copilot, r.opencode, r.shared);
+        let _ = (r.claude, r.copilot, r.opencode, r.codex, r.shared);
     }
 
     #[test]
