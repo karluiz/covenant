@@ -652,7 +652,11 @@ export class TabManager {
       const badge = document.createElement("span");
       badge.className = "tab-idle-badge";
       badge.title = tab.idleAgent.promptText ?? `${tab.idleAgent.agent} waiting`;
-      pill.appendChild(badge);
+      // Insert before the close button so the pulse sits next to the
+      // label, not past the X.
+      const close = pill.querySelector(".tab-close");
+      if (close) pill.insertBefore(badge, close);
+      else pill.appendChild(badge);
     }
   }
 
@@ -1487,9 +1491,23 @@ export class TabManager {
     pane.appendChild(editorHost);
 
     const blocksHost = document.createElement("div");
-    blocksHost.className = "tab-blocks";
+    blocksHost.className = "tab-blocks blocks-host";
+    // Pre-apply the persisted collapsed state so the sidebar column
+    // renders at its final width (28px or 240px) from the first paint.
+    // Without this, the pane briefly shows the default 240px column and
+    // animates to 28px once BlockManager's constructor (which runs later,
+    // after async terminal setup) adds the class — visible as a flicker
+    // for every tab restored during a workspace switch.
+    if (localStorage.getItem("covenant.blocks-sidebar-collapsed") === "1") {
+      blocksHost.classList.add("blocks-collapsed");
+    }
     pane.appendChild(blocksHost);
 
+    // Keep the new pane hidden until activate() reveals it. hideAllPanes
+    // only iterates this.tabs (the new tab isn't pushed yet), so without
+    // this the freshly appended pane would be visible during the ~hundreds
+    // of ms of async setup below.
+    pane.hidden = true;
     this.hideAllPanes();
     this.workspace.appendChild(pane);
 
@@ -1910,6 +1928,24 @@ export class TabManager {
         editorHost.hidden = true;
         showSplitter(false);
         refitAfterLayoutTransition();
+      },
+      onApplySpec: (path) => {
+        void (async () => {
+          const tab = this.tabs.find((t) => t.id === this.activeId);
+          if (!tab) return;
+          try {
+            await this.setMissionPathForActiveTab(path);
+            const name = path.split("/").pop() ?? path;
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: `Spec attached: ${name}`, severity: "info" },
+              }),
+            );
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error("apply spec failed", err);
+          }
+        })();
       },
     });
 
@@ -3648,6 +3684,15 @@ export class TabManager {
       dot.className = "tab-busy-dot";
       dot.title = `${tab.busyProc} running`;
       pill.insertBefore(dot, pill.firstChild);
+    }
+
+    // Same idea for the agent-idle badge: re-attach on rebuild, before
+    // the close button so it sits beside the label.
+    if (tab.idleAgent) {
+      const badge = document.createElement("span");
+      badge.className = "tab-idle-badge";
+      badge.title = tab.idleAgent.promptText ?? `${tab.idleAgent.agent} waiting`;
+      pill.insertBefore(badge, close);
     }
 
     return pill;

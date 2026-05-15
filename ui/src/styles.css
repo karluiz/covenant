@@ -5887,6 +5887,26 @@ button.status-segment.status-aom.status-aom-warn:hover {
     background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
 }
 
+/* Apply-spec button — same chip style; only visible for markdown
+   files under a `specs/` directory. Click attaches the file to the
+   active tab as its mission. */
+.structure-editor-apply-spec-btn {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
+    border-radius: 3px;
+    color: color-mix(in srgb, var(--accent, #b794f4) 70%, #fff);
+    padding: 1px 8px;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: var(--ui-font);
+    cursor: pointer;
+    margin-left: 4px;
+}
+.structure-editor-apply-spec-btn:hover {
+    background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
+}
+
 /* PNG export button — same chip style as the preview toggle, with
    a slightly different accent so the two controls are visually
    distinct without being loud. */
@@ -7137,18 +7157,33 @@ body.tabbar-left .tab-grouped:hover:not(.active) {
     border-color: transparent;
     color: var(--tab-fg-rest);
 }
+/* Ribbon active state: no enclosing border (would echo the group's
+   own outline). Instead a soft left-to-right fade plus a glowing
+   accent ribbon flush against the tree-line. Reads as emphasis, not
+   as a second container. */
 body.tabbar-left .tab-grouped.active {
-    background: color-mix(
-        in srgb,
-        var(--group-color, var(--accent)) 28%,
-        transparent
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--group-color, var(--accent)) 18%, transparent) 0%,
+        transparent 75%
     );
-    border-color: color-mix(
-        in srgb,
-        var(--group-color, var(--accent)) 60%,
-        transparent
-    );
+    border-color: transparent;
     color: #fff;
+}
+body.tabbar-left .tab-grouped.active::before {
+    display: block;
+    content: "";
+    position: absolute;
+    top: 5px;
+    bottom: 5px;
+    left: -3px;
+    right: auto;
+    width: 3px;
+    height: auto;
+    border-radius: 2px;
+    background: var(--group-color, var(--accent));
+    box-shadow: 0 0 8px
+        color-mix(in srgb, var(--group-color, var(--accent)) 70%, transparent);
 }
 
 /* Restore vertical-stack body for sidebar (horizontal default uses row). */

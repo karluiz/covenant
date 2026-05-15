@@ -75,6 +75,20 @@ export interface EditorCallbacks {
   onSave?: (path: string) => void;
   onClose?: () => void;
   toast?: (message: string, severity?: "info" | "error") => void;
+  /// Attach the currently open spec file to the active tab as its
+  /// mission. Wired from the "Apply spec" header button; only invoked
+  /// when the open file looks like a spec (see `isSpecPath`).
+  onApplySpec?: (path: string) => void;
+}
+
+/// Heuristic: a file is "spec-like" when it's markdown and lives under
+/// a directory named `specs` (project specs, .superpowers/specs, etc.).
+/// Used to decide whether to surface the "Apply spec" button.
+export function isSpecPath(path: string | null | undefined): boolean {
+  if (!path) return false;
+  const lower = path.toLowerCase();
+  if (!(lower.endsWith(".md") || lower.endsWith(".markdown"))) return false;
+  return /\/specs\//.test(path) || /\/specs\\/.test(path);
 }
 
 const SIZE_THRESHOLD_BYTES = 1024 * 1024; // 1 MiB per spec.
@@ -146,6 +160,11 @@ export class StructureEditor {
   private currentPreview: Preview | null = null;
   private readonly previewHostEl: HTMLElement;
   private readonly previewBtn: HTMLButtonElement;
+
+  /// "Apply spec" button — attaches the currently open file to the
+  /// active tab as its mission spec. Shown only for spec-like paths
+  /// (markdown under a `specs/` dir) and when a callback is wired.
+  private readonly applySpecBtn: HTMLButtonElement;
 
   /// PNG export controls — sibling pair to `previewBtn`. Only shown
   /// when `previewKind === "svg"`; hidden for markdown/code so the
@@ -234,6 +253,18 @@ export class StructureEditor {
     this.previewBtn.hidden = true;
     this.previewBtn.addEventListener("click", () => this.toggleViewMode());
     this.headerEl.appendChild(this.previewBtn);
+
+    this.applySpecBtn = document.createElement("button");
+    this.applySpecBtn.type = "button";
+    this.applySpecBtn.className = "structure-editor-apply-spec-btn";
+    this.applySpecBtn.textContent = "Apply spec";
+    this.applySpecBtn.title = "Attach this spec to the active tab's mission";
+    this.applySpecBtn.hidden = true;
+    this.applySpecBtn.addEventListener("click", () => {
+      if (!this.currentPath) return;
+      this.callbacks.onApplySpec?.(this.currentPath);
+    });
+    this.headerEl.appendChild(this.applySpecBtn);
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
@@ -824,6 +855,9 @@ export class StructureEditor {
     const isSvg = this.previewKind === "svg";
     this.pngBtn.hidden = !isSvg;
     this.pngScaleSelect.hidden = !isSvg;
+
+    this.applySpecBtn.hidden =
+      !this.callbacks.onApplySpec || !isSpecPath(this.currentPath);
   }
 
   /// Rasterize the open SVG to <basename>.png next to the source.
