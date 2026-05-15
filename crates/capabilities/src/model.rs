@@ -6,6 +6,7 @@ pub enum Tool {
     Claude,
     Copilot,
     Opencode,
+    Codex,
     Shared,
 }
 
