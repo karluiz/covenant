@@ -6,6 +6,54 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.17 — Per-tab scrollback persistence + zoom/idle fixes
+
+### Added
+
+- **Per-tab scrollback persistence**: every tab now keeps a stable
+  `replayKey` in the tab manifest and the backend appends PTY bytes to
+  `<data_dir>/scrollback/<key>.log` (capped at 2 MiB, trimmed from the
+  front on reopen). On tab spawn the UI calls `replay_scrollback` and
+  writes the tail into xterm **before** the live channel attaches, so
+  closed-and-reopened tabs come back with their previous output. Logs
+  are deleted on explicit tab close; workspace switches preserve them.
+  New module `crates/app/src/scrollback.rs`; Tauri commands
+  `replay_scrollback` and `delete_scrollback`; manifest field
+  `replay_key` (optional, backward-compatible).
+
+### Changed
+
+- **Zoom rescales xterm cell metrics, not CSS**: ⌘+/⌘-/⌘0 used to refit
+  on top of a `zoom`-transformed terminal host, which left xterm's
+  pointer→cell coords out of sync with the rendered grid (clicks/
+  selections landed in the wrong cell). The terminal subtree now
+  counter-zooms (`zoom: calc(1 / var(--ui-zoom, 1))` on `.tab-terminal`)
+  and `buildTerminalOptions` / `applyTerminalSettings` multiply the
+  configured `fontSize` by `zoom.level()` instead. Zoom changes run the
+  full `applyTerminalSettings` pipeline (font, atlas rebuild, fit,
+  PTY resize) for every open tab.
+- **"Move to group" collapses into a submenu**: the tab context menu
+  used to render one `Move to "<name>"` row per group, blowing up the
+  top level as workspaces grew. Now a single `Move to group…` entry
+  opens a submenu listing every other group.
+- **Boot splash removed**: the inline `#boot-splash` overlay and its
+  `dismissBootSplash()` hook were dropped from `ui/index.html` and
+  `ui/src/main.ts` — first paint now goes directly to the workspace.
+
+### Fixed
+
+- **Claude Code idle detection**: Claude Code v2.1+ overwrites its own
+  kernel `p_comm` with its version string (e.g. `2.1.143`), so
+  `libproc::name()` returned the version and the idle pump never
+  matched `KNOWN_AGENTS`. `crates/pty/src/fg_proc.rs` now falls back
+  to argv-based logical lookup whenever comm isn't a known CLI (not
+  only for `node`/`python`). `crates/session/src/idle.rs` adds an
+  `INLINE_AGENTS` set for CLIs that render without alt-screen
+  (`claude`, `codex`), bypasses the alt-screen gate for them while
+  still requiring a prompt-text match, scans the full screen in
+  `match_prompt`, and adds patterns for `> `, `bypass permissions on`,
+  `for agents`, `shift+tab to cycle`, `commands · ? help`.
+
 ## v0.5.16 — Windows build fix (karl-* dep scoping)
 
 ### Fixed
