@@ -12,8 +12,6 @@ import { listen } from "@tauri-apps/api/event";
 
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
-
-import { dismissBootSplash } from "./boot-splash";
 import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
@@ -30,7 +28,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { injectCommand, killSessionForeground, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
+import { getSettings, injectCommand, killSessionForeground, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -521,6 +519,17 @@ async function boot(): Promise<void> {
     open: (path, line) => manager.openFileAtLine(path, line),
   });
 
+  // Cmd+/- changes the zoom level — re-run the full apply pipeline so
+  // every open tab's xterm fontSize scales, the WebGL atlas is rebuilt,
+  // fit() recomputes cols/rows, and the PTY is resized. A plain refit
+  // isn't enough: pointer/selection coords get out of sync if the cell
+  // metrics shift without xterm being told.
+  zoom.onChange(() => {
+    void getSettings()
+      .then((s) => manager.applyTerminalSettings(s.terminal))
+      .catch(() => undefined);
+  });
+
   // Live-apply terminal font/size and window background to open tabs
   // whenever settings save. Background mode swaps a body class — pure
   // CSS reflow, no need to re-init xterm.
@@ -752,13 +761,7 @@ async function boot(): Promise<void> {
     void workspaceManager.saveAll();
   });
 
-  // Tabs are mounted and the active terminal has its first paint
-  // queued — fade out the boot splash. Wait one frame so xterm has
-  // actually drawn before the splash leaves, otherwise on slow boots
-  // the user briefly sees the empty workspace under the fading overlay.
-  requestAnimationFrame(() => dismissBootSplash());
-
-  // Populate operator cache once the backend is up and tabs are
+// Populate operator cache once the backend is up and tabs are
   // restored — chips in the tab strip and status bar need this.
   void manager.refreshOperatorCache();
 
@@ -811,25 +814,21 @@ async function boot(): Promise<void> {
     if (e.metaKey && !e.shiftKey && (e.key === "=" || e.key === "+")) {
       e.preventDefault();
       zoom.zoomIn();
-      manager.refitActive();
       return;
     }
     if (e.metaKey && e.shiftKey && (e.key === "+" || e.key === "=")) {
       e.preventDefault();
       zoom.zoomIn();
-      manager.refitActive();
       return;
     }
     if (e.metaKey && !e.shiftKey && e.key === "-") {
       e.preventDefault();
       zoom.zoomOut();
-      manager.refitActive();
       return;
     }
     if (e.metaKey && !e.shiftKey && e.key === "0") {
       e.preventDefault();
       zoom.reset();
-      manager.refitActive();
       return;
     }
     // ⌘, → settings (macOS Preferences convention). Open or toggle.

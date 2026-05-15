@@ -5,43 +5,9 @@
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Covenant</title>
-    <style>
-      /* Inline so the splash paints on the first frame, before
-         /src/styles.css finishes loading. Full polish lives in
-         styles.css under .boot-splash. */
-      #boot-splash {
-        position: fixed;
-        inset: 0;
-        z-index: 2000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #0d0e10;
-        color: #f5f6f7;
-        font-family:
-          ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-        transition: opacity 320ms ease-out;
-      }
-      #boot-splash.is-leaving { opacity: 0; pointer-events: none; }
-    </style>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <div id="boot-splash" role="status" aria-live="polite" aria-label="Covenant is starting">
-      <div class="boot-splash-card">
-        <div class="boot-splash-orb" aria-hidden="true">
-          <span class="boot-splash-orb-core"></span>
-          <span class="boot-splash-orb-ring"></span>
-          <span class="boot-splash-orb-ring boot-splash-orb-ring--two"></span>
-        </div>
-        <div class="boot-splash-headline">COVENANT</div>
-        <div class="boot-splash-sub">AI-NATIVE TERMINAL</div>
-        <div class="boot-splash-meta">
-          <span class="boot-splash-meta-dot"></span>
-          <span class="boot-splash-meta-text">Booting</span>
-        </div>
-      </div>
-    </div>
     <main id="layout">
       <header id="tabbar-host">
         <div id="tabbar-brand-row">

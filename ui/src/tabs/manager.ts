@@ -70,6 +70,7 @@ import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
 import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
+import { zoom } from "../zoom";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -104,9 +105,10 @@ const TERMINAL_THEME = {
 } as const;
 
 function buildTerminalOptions(font: TerminalConfig | null): Record<string, unknown> {
+  const baseSize = font?.font_size || DEFAULT_FONT_SIZE;
   return {
     fontFamily: font?.font_family || DEFAULT_FONT_FAMILY,
-    fontSize: font?.font_size || DEFAULT_FONT_SIZE,
+    fontSize: baseSize * zoom.level(),
     lineHeight: font?.line_height ?? 1.2,
     letterSpacing: font?.letter_spacing ?? 0,
     cursorBlink: true,
@@ -1244,7 +1246,8 @@ export class TabManager {
   ///   5. Resync the backend PTY.
   applyTerminalSettings(cfg: TerminalConfig): void {
     const family = cfg.font_family || DEFAULT_FONT_FAMILY;
-    const size = cfg.font_size || DEFAULT_FONT_SIZE;
+    const baseSize = cfg.font_size || DEFAULT_FONT_SIZE;
+    const size = baseSize * zoom.level();
 
     void document.fonts.ready.then(() => {
       for (const tab of this.tabs) {
@@ -3784,16 +3787,20 @@ export class TabManager {
       { divider: true },
     ];
 
-    // Group operations. Show "Move to: <existing groups>" then "New
-    // group from this tab" then "Remove from group" if applicable.
+    // Group operations. Collapse "Move to <group>" into a single
+    // submenu so the context menu stays compact as workspaces grow.
     const otherGroups = Array.from(this.groups.values()).filter(
       (g) => g.id !== tab.groupId,
     );
-    for (const g of otherGroups) {
+    if (otherGroups.length > 0) {
       items.push({
-        label: `Move to "${g.name}"`,
+        label: "Move to group…",
         icon: Icons.arrowRight(),
-        onClick: () => this.addTabToGroup(tab.id, g.id),
+        submenu: otherGroups.map((g) => ({
+          label: g.name,
+          icon: Icons.arrowRight(),
+          onClick: () => this.addTabToGroup(tab.id, g.id),
+        })),
       });
     }
     items.push({

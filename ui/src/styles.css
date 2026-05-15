@@ -5785,6 +5785,17 @@ button.status-segment.status-aom.status-aom-warn:hover {
    on a wrong character on click. We counter-zoom the editor so CM6
    internally sees zoom: 1 (hit-testing works) and re-scale visually
    via font-size, which CM6 measures from on every layout. */
+/* Counter-zoom the terminal host for the same reason as CodeMirror:
+   xterm.js computes pointer→cell coords from getBoundingClientRect()
+   in CSS-pixel space. Under CSS `zoom`, those rects scale but xterm's
+   internal cell metrics don't, so click/selection lands in the wrong
+   cell. We undo the html-level zoom on the terminal subtree and
+   instead scale the cell size by rescaling `fontSize` in JS (see
+   TabManager.buildTerminalOptions / applyTerminalSettings). */
+.tab-terminal {
+    zoom: calc(1 / var(--ui-zoom, 1));
+}
+
 .structure-editor-cm {
     flex: 1;
     /* min-* same flex-shrink trick as before — without these, CM6's
