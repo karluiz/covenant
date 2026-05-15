@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.18 — Boot splash cleanup + editor autocomplete
+
+### Fixed
+
+- **Release build (TS2304 on `dismissBootSplash`)**: v0.5.17 removed the
+  `#boot-splash` overlay from `ui/index.html` and the `dismissBootSplash`
+  import, but left an orphan call in `ui/src/main.ts:1199`. The frontend
+  `tsc` step in both `Release macOS` and `Release Windows` failed
+  before `vite build` could run, so no v0.5.17 artifacts were ever
+  published. Drop the call (and the now-dead `ui/src/boot-splash.ts`
+  module) so the release workflow type-checks.
+
+### Added
+
+- **Structure editor: language-aware autocomplete + bracket closing**.
+  CodeMirror `@codemirror/autocomplete` is wired into `StructureEditor`
+  with `activateOnTyping`, `closeOnBlur`, and bracket auto-close. Uses
+  the existing per-language packs (rust/ts/py/json/css/html/sql/yaml/
+  md) plus buffer-word fallback. No network calls. Ctrl-Space opens
+  the popup manually; Tab/Enter accepts.
+
 ## v0.5.17 — Per-tab scrollback persistence + zoom/idle fixes
 
 ### Added

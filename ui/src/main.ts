@@ -1195,6 +1195,4 @@ void boot()
         ? "This is the Covenant app shell — preview it inside Tauri, not in the HTML preview."
         : `boot failed: ${String(err)}`;
     }
-    // Clear the splash even on failure so the error message is visible.
-    dismissBootSplash();
   });

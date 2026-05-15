@@ -44,6 +44,12 @@ import {
   searchKeymap,
   highlightSelectionMatches,
 } from "@codemirror/search";
+import {
+  autocompletion,
+  completionKeymap,
+  closeBrackets,
+  closeBracketsKeymap,
+} from "@codemirror/autocomplete";
 
 import { Icons } from "../icons";
 import {
@@ -518,7 +524,17 @@ export class StructureEditor {
         // Editing.
         history(),
         bracketMatching(),
+        closeBrackets(),
         indentOnInput(),
+        // Local autocomplete: language-aware completions where the
+        // CM6 language pack provides them (rust/ts/py/json/css/html/
+        // sql/yaml/md), plus buffer-word fallback. No network calls.
+        // Ctrl-Space opens the popup manually; Tab/Enter accepts.
+        autocompletion({
+          activateOnTyping: true,
+          closeOnBlur: true,
+          maxRenderedOptions: 20,
+        }),
         indentUnit.of("  "), // 2-space indent — matches the previous textarea behaviour.
         EditorView.lineWrapping,
 
@@ -540,6 +556,8 @@ export class StructureEditor {
               return true;
             },
           },
+          ...closeBracketsKeymap,
+          ...completionKeymap,
           ...searchKeymap,
           ...historyKeymap,
           ...foldKeymap,
