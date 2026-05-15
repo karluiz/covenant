@@ -23,7 +23,12 @@ pub fn foreground_process_name(master_fd: RawFd) -> Option<String> {
     let comm = libproc::proc_pid::name(pgid)
         .map_err(|e| tracing::trace!(pgid, error = %e, "libproc::name failed"))
         .ok()?;
-    if is_generic_runtime(&comm) {
+    // Some CLIs (Claude Code v2.1+) overwrite their own comm with their
+    // version string (e.g. "2.1.143"). Always try argv when comm doesn't
+    // already match a known logical CLI — covers both runtime-hosted
+    // agents (`node`, `python`) and self-renamed binaries.
+    let comm_is_known = LOGICAL_CLIS.iter().any(|c| comm.contains(c));
+    if !comm_is_known || is_generic_runtime(&comm) {
         if let Some(logical) = logical_name_from_argv(pgid) {
             return Some(logical);
         }

@@ -13,6 +13,11 @@ pub const KNOWN_AGENTS: &[&str] = &[
     "claude", "codex", "opencode", "copilot", "gh-copilot", "aider", "gemini",
 ];
 
+/// Agents that render inline (no alternate screen). For these we skip the
+/// alt-screen gate but require a prompt-text regex match to avoid firing
+/// while the agent is mid-thought.
+pub const INLINE_AGENTS: &[&str] = &["claude", "codex"];
+
 const QUIET_THRESHOLD: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +42,13 @@ impl IdleDetector {
             r"^❯\s+\d+\.",
             r"(?i)waiting for|awaiting your",
             r"(?i)choose an option",
+            // Claude Code inline prompt: "> " at start of an otherwise empty
+            // input line, or its footer hints.
+            r"^\s*[›>]\s*$",
+            r"commands\s*·\s*\?\s*help",
+            r"(?i)bypass permissions on",
+            r"(?i)for agents",
+            r"(?i)shift\+tab to cycle",
         ];
         Self {
             last_output_at: Instant::now(),
@@ -75,9 +87,15 @@ impl IdleDetector {
         if quiet < QUIET_THRESHOLD { return Decision::NoChange; }
         let Some(name) = fg_proc else { return Decision::NoChange; };
         if !KNOWN_AGENTS.contains(&name) { return Decision::NoChange; }
-        if !in_alt_screen { return Decision::NoChange; }
+        let inline = INLINE_AGENTS.contains(&name);
+        if !in_alt_screen && !inline { return Decision::NoChange; }
 
         let prompt_text = self.match_prompt(screen_text);
+        // Inline agents have no alt-screen boundary; require a prompt
+        // match to avoid firing while the agent is still composing output.
+        if inline && !in_alt_screen && prompt_text.is_none() {
+            return Decision::NoChange;
+        }
         self.notified = true;
         Decision::Idle {
             agent: name.to_string(),
@@ -87,11 +105,15 @@ impl IdleDetector {
     }
 
     fn match_prompt(&self, screen_text: &str) -> Option<String> {
-        let last_lines: Vec<&str> = screen_text.lines().rev().take(5).collect();
-        for line in last_lines.iter().rev() {
+        // Scan the whole visible screen — inline agents (Claude Code) put
+        // their prompt + status hints anywhere on the grid, not just at
+        // the bottom.
+        for line in screen_text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
             for re in &self.prompt_regexes {
                 if re.is_match(line) {
-                    return Some(line.trim().to_string());
+                    return Some(trimmed.to_string());
                 }
             }
         }

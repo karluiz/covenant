@@ -550,7 +550,9 @@ async fn pump(
                     let alt = vt.screen().alternate_screen();
                     // contents() can be expensive; only call when other gates pass.
                     if let Some(name) = fg.as_deref() {
-                        if alt && crate::idle::KNOWN_AGENTS.contains(&name) {
+                        let is_known = crate::idle::KNOWN_AGENTS.contains(&name);
+                        let is_inline = crate::idle::INLINE_AGENTS.contains(&name);
+                        if is_known && (alt || is_inline) {
                             let screen_text = vt.screen().contents();
                             if let Decision::Idle { agent, prompt_text, quiet_ms } =
                                 detector.evaluate(Instant::now(), Some(name), alt, &screen_text)
