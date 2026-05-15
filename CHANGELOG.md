@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.15 — Codex executor + workspace-switch polish
+
+### Added
+
+- **Codex as executor agent**: OpenAI Codex CLI joins Claude, Copilot, and
+  opencode as a first-class agent. New adapter in
+  `crates/capabilities/src/adapters/codex.rs` scans `~/.codex/config.toml`
+  (`[mcp_servers]` tables via the `toml` crate), `~/.codex/prompts/*.md`
+  (treated as slash commands), and AGENTS.md memory at user
+  (`~/.codex/AGENTS.md`) and project (`<repo>/AGENTS.md`) scopes. A new
+  `Tool::Codex` variant flows through `crates/capabilities/src/model.rs`,
+  `scaffold.rs` (prompt + MCP snippet templates), and
+  `crates/app/src/capabilities_commands.rs` (detect, aggregate,
+  `parse_tool`, `scaffold_target`). The Capabilities panel
+  (`ui/src/capabilities/panel.ts`) gains a Codex tool tab with Prompts,
+  MCPs, and Memory sections; `ui/src/api.ts` extends `CapabilitiesDetect`
+  and `CapabilityListItem["kind"]` with `codex` and `memory`. Pre-existing
+  wiring (executor regex, brand icon, status-bar color, idle detection,
+  `LOGICAL_CLIS`) was already in place from prior work and remained
+  unchanged.
+
+### Fixed
+
+- **Workspace-switch polish**: the right sidebar no longer dances when
+  switching workspaces — `.blocks-collapsed` and the pane hide are now
+  pre-applied before the switch in `ui/src/tabs/manager.ts`. The
+  `workspace-switching` class is removed synchronously after the switch
+  to unblock clicks (previously a `requestAnimationFrame` could pause on
+  window blur, causing the double-click bug). Tab-idle badge is reordered
+  before the close button so the close affordance stays on the trailing
+  edge. Companion CSS lives in `ui/src/styles.css`.
+
 ## v0.5.14 — Crash logger for release-only panics
 
 ### Fixed
