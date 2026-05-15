@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.16 — Windows build fix (karl-* dep scoping)
+
+### Fixed
+
+- **Windows release build**: workspace crate paths (`karl-pty`, `karl-blocks`,
+  `karl-session`, `karl-agent`, `karl-familiar`, `karl-capabilities`) in
+  `crates/app/Cargo.toml` were declared **after** the
+  `[target.'cfg(unix)'.dependencies]` table, so TOML scoped them to
+  unix-only targets. macOS built fine; Windows failed with 98
+  `E0433 unresolved import` errors since v0.5.11. Moved the karl-* deps
+  back into the main `[dependencies]` block and pushed `libc` to the end.
+
 ## v0.5.15 — Codex executor + workspace-switch polish
 
 ### Added
