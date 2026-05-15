@@ -25,14 +25,16 @@ pub fn render(req: &ScaffoldRequest) -> Option<String> {
             &[("name", req.name), ("description", req.description)],
             SKILL_BODY,
         )),
-        (Tool::Claude, Kind::SlashCommand) => Some(build_frontmatter_md(
-            &[("name", req.name), ("description", req.description)],
-            SLASH_BODY,
-        )),
-        (Tool::Claude, Kind::Hook) => Some(HOOK_JSON.to_string()),
-        (Tool::Claude, Kind::McpServer) | (Tool::Copilot, Kind::McpServer) => {
-            Some(MCP_JSON.to_string())
+        (Tool::Claude, Kind::SlashCommand) | (Tool::Codex, Kind::SlashCommand) => {
+            Some(build_frontmatter_md(
+                &[("name", req.name), ("description", req.description)],
+                SLASH_BODY,
+            ))
         }
+        (Tool::Claude, Kind::Hook) => Some(HOOK_JSON.to_string()),
+        (Tool::Claude, Kind::McpServer)
+        | (Tool::Copilot, Kind::McpServer)
+        | (Tool::Codex, Kind::McpServer) => Some(MCP_JSON.to_string()),
         _ => None,
     }
 }
@@ -102,6 +104,18 @@ mod tests {
     #[test]
     fn copilot_skill_is_unsupported() {
         assert!(render(&req(Tool::Copilot, Kind::Skill, "x", "y")).is_none());
+    }
+
+    #[test]
+    fn codex_slash_roundtrips() {
+        let s = render(&req(Tool::Codex, Kind::SlashCommand, "review", "code review")).unwrap();
+        let fm = frontmatter::parse(&s);
+        assert_eq!(fm.name(), Some("review"));
+    }
+
+    #[test]
+    fn codex_skill_is_unsupported() {
+        assert!(render(&req(Tool::Codex, Kind::Skill, "x", "y")).is_none());
     }
 
     #[test]
