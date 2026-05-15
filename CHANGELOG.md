@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.14 — Crash logger for release-only panics
+
+### Fixed
+
+- **Crash diagnostics**: release builds use `panic = "abort"` plus
+  `strip = true`, so the two recent crashes observed when killing a
+  PTY child with `Ctrl+C` left no panic message or symbols in the
+  macOS `.ips` report. `install_crash_logger` in
+  `crates/app/src/lib.rs` now sets a `std::panic::set_hook` that
+  appends thread name, panic location, message, app version, and a
+  forced `Backtrace` to `~/.karlTerminal/crash.log` before the
+  default abort handler runs. The release profile in `Cargo.toml`
+  switches `strip = true` → `strip = "none"` and adds
+  `debug = "line-tables-only"` so the captured backtrace carries
+  `file:line` for every Rust frame without inflating the bundle.
+
 ## v0.5.13 — Familiar side panel + Apply spec button
 
 ### Added
