@@ -501,6 +501,14 @@ export class TabManager {
       } | null) => void)
     | null = null;
 
+  /// Fires whenever the active tab changes (including when the active tab
+  /// closes and there is no replacement). Receives the new active tab's
+  /// sessionId, or null when no tab is active. Used by FamiliarPanel to
+  /// re-bind its chat/status/audit to the per-tab Familiar.
+  public onActiveSessionChange:
+    | ((sessionId: SessionId | null) => void)
+    | null = null;
+
   /// Fires after every tabbar re-render so the collapsed-rail (the
   /// thin sidebar shown in vertical mode when the user folds the
   /// tabbar) can rebuild its dot/cell view from the same source of
@@ -1096,6 +1104,7 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) {
       this.onActiveTabChange?.(null);
+      this.onActiveSessionChange?.(null);
       return;
     }
     const group = tab.groupId ? this.groups.get(tab.groupId) ?? null : null;
@@ -1105,6 +1114,7 @@ export class TabManager {
       groupName: group?.name ?? null,
       groupColor: group?.color ?? null,
     });
+    this.onActiveSessionChange?.(tab?.sessionId ?? null);
   }
 
   /// Push the active tab's mission to whoever is listening (status bar).
