@@ -2304,11 +2304,62 @@ async fn telegram_status(
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Install a panic hook that appends panic location + message + backtrace to
+/// `~/.karlTerminal/crash.log` before the default handler runs. With
+/// `panic = "abort"` + `strip = true` in release the process dies without
+/// leaving any panic info in the macOS .ips, so this is the only way to
+/// recover the panic site post-mortem.
+fn install_crash_logger() {
+    let log_path = dirs::home_dir()
+        .map(|h| h.join(".karlTerminal").join("crash.log"))
+        .unwrap_or_else(|| std::path::PathBuf::from("crash.log"));
+    if let Some(parent) = log_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".into());
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("<non-string panic payload>");
+        let thread = std::thread::current();
+        let tname = thread.name().unwrap_or("<unnamed>");
+        let bt = std::backtrace::Backtrace::force_capture();
+        let entry = format!(
+            "\n===== PANIC {ts} =====\nthread: {tname}\nlocation: {loc}\nmessage: {msg}\nversion: {}\nbacktrace:\n{bt}\n",
+            env!("CARGO_PKG_VERSION"),
+        );
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = f.write_all(entry.as_bytes());
+            let _ = f.flush();
+        }
+        eprintln!("{entry}");
+        default(info);
+    }));
+}
+
 pub fn run() {
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .with(fmt::layer().with_target(false))
         .init();
+
+    install_crash_logger();
 
     tracing::info!("covenant starting");
 
