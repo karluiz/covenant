@@ -113,7 +113,10 @@ body {
     /* Critical: html/body must be transparent so NSVisualEffectView can
      paint through. Surfaces inside the layout supply their own tints. */
     background: transparent;
+    display: flex;
 }
+#layout { flex: 1; min-width: 0; }
+body.familiar-panel-open #familiar-panel { width: 380px; flex: 0 0 380px; }
 
 /* Window background mode — body class set by main.ts on boot from
    settings.window.background. Only --surface-alpha changes; every
@@ -10890,3 +10893,60 @@ body.has-update-banner #layout { padding-top: 34px; }
   width: 10px; height: 10px; border-radius: 50%;
   display: inline-block;
 }
+
+/* ─── Familiar side panel (replaces overlay roster) ─────────────── */
+.familiar-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-elevated, #16181d);
+    border-left: 1px solid var(--border, #2a2a2f);
+    color: #e5e7eb;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+    height: 100vh;
+}
+.familiar-panel.hidden { display: none; }
+
+.familiar-panel__header {
+    display: flex; align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border, #2a2a2f);
+}
+.familiar-panel__title { flex: 1; font-weight: 600; }
+.familiar-panel__close {
+    background: transparent; border: none; color: #9ca3af;
+    cursor: pointer; font-size: 14px; padding: 2px 6px;
+}
+
+.familiar-panel__tabs {
+    display: flex; gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border, #2a2a2f);
+}
+.familiar-panel__tab {
+    background: transparent; border: 1px solid transparent;
+    color: #9ca3af; padding: 4px 10px; border-radius: 4px;
+    cursor: pointer; font-size: 12px;
+}
+.familiar-panel__tab:hover:not(:disabled) { background: #1a2230; color: #e5e7eb; }
+.familiar-panel__tab:disabled { opacity: 0.4; cursor: default; }
+.familiar-panel__tab--active {
+    background: #1f2937; color: #fff; border-color: #374151;
+}
+
+.familiar-panel__body {
+    flex: 1; min-height: 0;
+    padding: 10px 12px;
+    position: relative;
+    overflow: hidden;
+}
+.familiar-panel__view { height: 100%; overflow: auto; }
+.familiar-panel__view[hidden] { display: none; }
+
+.familiar-panel__empty {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 24px;
+    color: #6b7280;
+}
+.familiar-panel__empty[hidden] { display: none; }
