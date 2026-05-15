@@ -1473,7 +1473,11 @@ export class TabManager {
     groupId?: string | null;
     cwd?: string | null;
     initialCommand?: string | null;
-  }): Promise<void> {
+    // Restore path uses this when spawning many tabs in parallel: each
+    // createTab still self-pushes/wires, but activation + tabbar render
+    // are deferred to the caller so they happen ONCE in manifest order.
+    skipActivate?: boolean;
+  }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const seq = this.nextSeq++;
 
@@ -1724,8 +1728,9 @@ export class TabManager {
       console.error("spawn_session failed", err);
       term.dispose();
       this.workspace.removeChild(pane);
-      if (this.activeId) this.activate(this.activeId, { skipIfSame: false });
-      return;
+      if (!opts?.skipActivate && this.activeId)
+        this.activate(this.activeId, { skipIfSame: false });
+      return null;
     }
     blocks = new BlockManager(blocksHost, sessionId);
     recall = new RecallManager(
@@ -2283,8 +2288,9 @@ export class TabManager {
     // tab. Without this, the bar keeps showing the previous tab's
     // mission/cwd until the user switches tabs and back, since the
     // activate() path is where those callbacks live.
-    this.activate(id, { skipIfSame: false });
+    if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
     this.scheduleSave();
+    return tab;
   }
 
   /// Flip the per-session live flag. M-OP3: when on AND operator is
@@ -2749,58 +2755,82 @@ export class TabManager {
         rootDir: g.root_dir ?? null,
       });
     }
-    // Sequential spawns — concurrent would race the order of tabs[].
-    for (const t of m.tabs) {
-      await this.createTab({
-        customName: t.custom_name,
-        color: t.color,
-        groupId: t.group_id,
-        cwd: t.cwd,
-      });
-      const created = this.tabs[this.tabs.length - 1];
-      if (created && t.mission_path) {
-        try {
-          const info = await setSessionMission(created.sessionId, {
-            kind: "covenant",
-            spec_path: t.mission_path,
-            plan_path: null,
-          });
-          created.mission = info;
-        } catch (err) {
-          // Spec file may have moved/been deleted since save — restore
-          // the tab anyway, just without a mission.
-          // eslint-disable-next-line no-console
-          console.warn(
-            `mission restore failed for ${t.mission_path}; tab restored without mission`,
-            err,
+    // Parallel spawns: fire every createTab at once and rebuild order
+    // afterward. Each createTab still self-pushes to this.tabs, so the
+    // final array reflects spawn-resolution order — we resort it to
+    // manifest order before activating.
+    const created = await Promise.all(
+      m.tabs.map((t) =>
+        this.createTab({
+          customName: t.custom_name,
+          color: t.color,
+          groupId: t.group_id,
+          cwd: t.cwd,
+          skipActivate: true,
+        }),
+      ),
+    );
+    // Reorder this.tabs to match manifest order. Tabs that failed to
+    // spawn (createTab returned null) are dropped from the manifest
+    // slot but any other tabs already in this.tabs (shouldn't happen
+    // under replaceFromManifest, which tore them down first) survive.
+    const orderedIds = new Set(created.filter((t): t is Tab => !!t).map((t) => t.id));
+    const before = this.tabs.filter((t) => !orderedIds.has(t.id));
+    const ordered: Tab[] = [];
+    for (const t of created) if (t) ordered.push(t);
+    this.tabs.splice(0, this.tabs.length, ...before, ...ordered);
+    this.renderTabbar();
+
+    // Post-spawn setup (mission / operator / aom) in parallel across
+    // all tabs. Each Promise handles its own errors so one bad mission
+    // path doesn't abort the others.
+    await Promise.all(
+      m.tabs.map(async (t, i) => {
+        const tab = created[i];
+        if (!tab) return;
+        const tasks: Promise<unknown>[] = [];
+        if (t.mission_path) {
+          tasks.push(
+            setSessionMission(tab.sessionId, {
+              kind: "covenant",
+              spec_path: t.mission_path,
+              plan_path: null,
+            })
+              .then((info) => {
+                tab.mission = info;
+              })
+              .catch((err) => {
+                console.warn(
+                  `mission restore failed for ${t.mission_path}; tab restored without mission`,
+                  err,
+                );
+              }),
           );
         }
-      }
-      if (created) {
-        created.operator_id = t.operator_id ?? null;
-        if (created.operator_id) {
-          try {
-            await sessionSetOperator(created.sessionId, created.operator_id);
-          } catch (e) {
-            console.warn("session_set_operator failed on restore", e);
-          }
+        tab.operator_id = t.operator_id ?? null;
+        if (tab.operator_id) {
+          tasks.push(
+            sessionSetOperator(tab.sessionId, tab.operator_id).catch((e) => {
+              console.warn("session_set_operator failed on restore", e);
+            }),
+          );
         }
-      }
-      if (created) {
-        // Always call setAomExcluded with the persisted value (defaulting
-        // to false if missing) — the backend's default at attach time
-        // depends on whether AOM is currently running, so explicitly
-        // pinning the value avoids subtle drift across restarts.
+        // Always pin the persisted value: backend default at attach time
+        // depends on whether AOM is currently running, which drifts.
         const persistedExcluded = t.aom_excluded ?? false;
-        try {
-          await setAomExcluded(created.sessionId, persistedExcluded);
-          created.aomExcluded = persistedExcluded;
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn("aom_excluded restore failed", err);
-        }
-      }
-    }
+        tasks.push(
+          setAomExcluded(tab.sessionId, persistedExcluded)
+            .then(() => {
+              tab.aomExcluded = persistedExcluded;
+            })
+            .catch((err) => {
+              console.warn("aom_excluded restore failed", err);
+            }),
+        );
+        await Promise.all(tasks);
+      }),
+    );
+
     // Restore active selection.
     const idx = Math.min(m.active_index ?? 0, this.tabs.length - 1);
     if (this.tabs[idx]) {
@@ -2818,6 +2848,7 @@ export class TabManager {
       throw new Error("invalid manifest");
     }
     this.inReplace = true;
+    document.body.classList.add("workspace-switching");
     try {
       const existing = this.tabs.slice();
       for (const t of existing) this.finalizeCloseTab(t.id);
@@ -2825,6 +2856,7 @@ export class TabManager {
       await this.restoreFromManifest(m);
     } finally {
       this.inReplace = false;
+      document.body.classList.remove("workspace-switching");
     }
     this.scheduleSave();
   }

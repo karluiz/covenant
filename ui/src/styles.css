@@ -10782,6 +10782,32 @@ body.has-update-banner #layout { padding-top: 34px; }
 }
 .workspace-chip:hover { background: var(--tab-bg-hover); color: #fff; }
 .workspace-chip-busy { animation: workspace-chip-pulse 1s ease-in-out infinite; pointer-events: none; }
+/* While a workspace switch rebuilds tabs (sequential PTY spawns), keep
+   the tab strip + workspace hidden so the user does not see tabs
+   appearing one-by-one. Layout is preserved via visibility:hidden. */
+body.workspace-switching #tabbar-host,
+body.workspace-switching #workspace { visibility: hidden; }
+body.workspace-switching #workspace-switch-overlay { display: flex; }
+#workspace-switch-overlay {
+  position: fixed; inset: 0;
+  display: none;
+  align-items: center; justify-content: center;
+  flex-direction: column; gap: 14px;
+  background: var(--bg, #0c0f14);
+  z-index: 9999;
+  pointer-events: none;
+}
+#workspace-switch-overlay .workspace-switch-spinner {
+  width: 28px; height: 28px;
+  border: 2px solid rgba(255,255,255,0.12);
+  border-top-color: rgba(255,255,255,0.65);
+  border-radius: 50%;
+  animation: workspace-switch-spin 0.8s linear infinite;
+}
+#workspace-switch-overlay .workspace-switch-label {
+  font-size: 12px; color: var(--muted, #8a93a3); letter-spacing: 0.04em;
+}
+@keyframes workspace-switch-spin { to { transform: rotate(360deg); } }
 @keyframes workspace-chip-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
