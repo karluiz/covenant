@@ -46,10 +46,6 @@ trash = "5"
 async-trait = { workspace = true }
 reqwest = { workspace = true }
 fontdb = "0.23"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
 karl-pty = { path = "../pty" }
 karl-blocks = { path = "../blocks" }
 karl-session = { path = "../session" }
@@ -57,6 +53,9 @@ karl-agent = { path = "../agent" }
 karl-familiar = { path = "../familiar" }
 karl-capabilities = { path = "../capabilities" }
 dirs = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
