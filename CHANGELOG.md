@@ -6,6 +6,56 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.13 — Familiar side panel + Apply spec button
+
+### Added
+
+- **Familiar side panel** (replaces full-screen roster overlay): the
+  Familiar chat now lives as a 380px-wide panel on the right side of
+  the window, persistent and toggleable with `⌘⇧L` or the status-bar
+  Familiar dot. The body has a tab strip — **Chat / Status / Audit** —
+  so the rolling summary and directives audit log are one click away
+  without losing the operator. The panel re-binds to whichever tab is
+  active (per-workspace), shows an empty state when no Familiar is
+  bound, and persists open/closed state plus active sub-tab across
+  reloads (`ui/src/familiars/panel.ts`, `ui/index.html`,
+  `ui/src/styles.css`).
+
+- **Active-session tab event**: `TabManager` now emits
+  `onActiveSessionChange(sessionId | null)` alongside
+  `onActiveTabChange`, used by the Familiar panel to re-bind its
+  chat/status/audit when the user switches tabs
+  (`ui/src/tabs/manager.ts`).
+
+- **"Apply spec" button in the structure editor**: when a markdown
+  file under a `specs/` directory is open, the editor header surfaces
+  an *Apply spec* button that attaches the file to the active tab as
+  its mission, reusing the existing mission/operator wiring
+  (`ui/src/structure/editor.ts`, `ui/src/tabs/manager.ts`,
+  `ui/src/styles.css`).
+
+### Changed
+
+- **Body layout switches to flex**: with the Familiar panel as a real
+  sibling of `#layout`, `body` becomes a horizontal flex row. The
+  panel claims 380px when `body.familiar-panel-open` is set and is
+  fully removed (`display:none`) otherwise — no ghost overlay, no
+  translucency leaking the underlying UI (`ui/src/styles.css`).
+
+- **`localStorage` polyfill for tests**: this project's jsdom ships an
+  empty `localStorage` object without methods, which silently broke
+  `project-notes/panel.test.ts` and blocked the new panel tests. A
+  small in-memory `Storage` polyfill in `vitest.setup.ts` (wired via
+  `vitest.config.ts`) restores the API so every suite using
+  localStorage passes (`vitest.setup.ts`, `vitest.config.ts`).
+
+- **Roster overlay removed**: deleted `ui/src/familiars/roster.ts` and
+  `ui/src/familiars/list.ts` along with the `#familiars-roster`,
+  `.roster-*`, `.familiar-row*`, `.familiar-name`, and
+  `.familiar-session` rules. `.familiar-dot` is preserved — it's
+  shared by the status-bar indicator (`ui/src/familiars/`,
+  `ui/src/styles.css`).
+
 ## v0.5.12 — Resize + executor UX polish
 
 ### Fixed
