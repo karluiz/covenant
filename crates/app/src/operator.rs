@@ -1682,7 +1682,6 @@ async fn run_tick(
     }
 
     let (
-        api_key,
         executor_patterns_str,
         deny_extra_global,
         idle_threshold,
@@ -1693,12 +1692,12 @@ async fn run_tick(
         mind_thinking_budget_setting,
     ) = {
         let s = settings.lock().await;
-        let key = match s.anthropic_api_key.clone() {
-            Some(k) if !k.trim().is_empty() => k,
-            _ => return Ok(()), // no key — operator silently inactive
-        };
+        // Early exit if neither the Operator nor Triage route is resolvable —
+        // keeps the operator silently inactive when no provider is configured.
+        if crate::provider_resolve::resolve_route(&s, crate::settings::Role::Operator).is_err() {
+            return Ok(());
+        }
         (
-            key,
             s.operator.executor_patterns.clone(),
             s.operator.deny_extra_patterns.clone(),
             Duration::from_secs(s.operator.idle_threshold_secs.max(1)),
@@ -2018,16 +2017,32 @@ async fn run_tick(
                 inner_lock.set_phase(session_id, OperatorPhase::Triaging);
             }
             let _thinking = ThinkingGuard::new(&thinking_flag);
-            let triage_result = karl_agent::triage_oneshot(karl_agent::AskRequest {
-                api_key: api_key.clone(),
-                model: triage_model.clone(),
-                system_prompt: system_prompt.clone(),
-                user_message: user_message.clone(),
-                max_tokens: 64,
-                thinking_budget: None,
-                force_tool: None,
-            })
-            .await;
+            let resolved_t = {
+                let s = settings.lock().await;
+                crate::provider_resolve::resolve_route(&s, crate::settings::Role::Triage)
+            };
+            let triage_result = match resolved_t {
+                Ok(rt) => {
+                    karl_agent::provider::triage_via_provider(
+                        &*rt.provider,
+                        karl_agent::AskRequest {
+                            api_key: String::new(),
+                            model: rt.model.clone(),
+                            system_prompt: system_prompt.clone(),
+                            user_message: user_message.clone(),
+                            max_tokens: 64,
+                            thinking_budget: None,
+                            force_tool: None,
+                        },
+                    )
+                    .await
+                }
+                Err(e) => {
+                    tracing::warn!(?e, session = %session_id, "operator: triage provider unavailable — falling back to decision model");
+                    // Fall through to decision model — treated same as triage error.
+                    Err(karl_agent::AgentError::Api { status: 0, body: e.to_string() })
+                }
+            };
             drop(_thinking);
             match triage_result {
                 Ok((verdict, usage)) => {
@@ -2133,16 +2148,33 @@ async fn run_tick(
                 Some(b) => max_tokens_for_call.max(b.saturating_add(1024)),
                 None => max_tokens_for_call,
             };
-            karl_agent::ask_oneshot_with_usage(karl_agent::AskRequest {
-                api_key: api_key.clone(),
-                model: model.clone(),
-                system_prompt,
-                user_message,
-                max_tokens: effective_max_tokens,
-                thinking_budget,
-                force_tool: None,
-            })
-            .await
+            {
+                let resolved = {
+                    let s = settings.lock().await;
+                    crate::provider_resolve::resolve_route(&s, crate::settings::Role::Operator)
+                };
+                match resolved {
+                    Ok(rd) => {
+                        karl_agent::provider::collect_oneshot(
+                            &*rd.provider,
+                            karl_agent::AskRequest {
+                                api_key: String::new(),
+                                model: rd.model.clone(),
+                                system_prompt,
+                                user_message,
+                                max_tokens: effective_max_tokens,
+                                thinking_budget,
+                                force_tool: None,
+                            },
+                        )
+                        .await
+                    }
+                    Err(e) => {
+                        tracing::warn!(?e, session = %session_id, "operator: decision provider unavailable");
+                        Err(karl_agent::AgentError::Api { status: 0, body: e.to_string() })
+                    }
+                }
+            }
         };
         // Ask completed (success or error) — fall back to Observing
         // until the next tick re-evaluates. We touch the phase even on

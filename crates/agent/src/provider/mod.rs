@@ -108,6 +108,22 @@ pub async fn collect_oneshot(
     })
 }
 
+/// Trait-based variant of `crate::triage_oneshot`. Appends the structured-
+/// output instructions, clamps max_tokens, runs the call via the provider,
+/// parses the verdict.
+pub async fn triage_via_provider(
+    provider: &dyn LlmProvider,
+    mut req: AskRequest,
+) -> Result<(crate::TriageVerdict, crate::TokenUsage), AgentError> {
+    req.system_prompt.push_str(crate::TRIAGE_OUTPUT_INSTRUCTIONS);
+    if req.max_tokens == 0 || req.max_tokens > 128 {
+        req.max_tokens = 64;
+    }
+    let resp = collect_oneshot(provider, req).await?;
+    let verdict = crate::parse_triage_reply(&resp.text)?;
+    Ok((verdict, resp.usage))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
