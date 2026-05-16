@@ -31,6 +31,7 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+pub mod provider_resolve;
 mod project_notes;
 mod safety;
 mod scrollback;
