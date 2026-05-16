@@ -2,16 +2,23 @@ import "./styles.css";
 import { CommandsTab } from "./commands-tab";
 import { NotesTab } from "./notes-tab";
 import { DocsTab } from "./docs-tab";
+import { DraftsTab } from "./drafts-tab";
 
-export type PanelTab = "commands" | "notes" | "docs";
+export type PanelTab = "commands" | "notes" | "docs" | "drafts";
 
 export interface PanelOpts {
   groupId: string;
   groupLabel: string;
   /** Optional group accent color — drives the left-edge bar and title dot. */
   groupColor?: string | null;
+  /** Active group's root dir; needed by the drafts tab. Null when unset. */
+  groupRootDir?: string | null;
   defaultTab?: PanelTab;
   onClose?: () => void;
+  /** Open an absolute file path in the editor (called from drafts tab). */
+  onOpenFile?: (absolutePath: string) => void;
+  /** Open the AI spec wizard for the given repo root (called from drafts tab). */
+  onOpenWizard?: (repoRoot: string) => void;
 }
 
 const LAST_TAB_STORAGE_KEY = "covenant.project-notes.last-tab";
@@ -19,7 +26,7 @@ const LAST_TAB_STORAGE_KEY = "covenant.project-notes.last-tab";
 function readLastTab(groupId: string): PanelTab {
   try {
     const raw = localStorage.getItem(`${LAST_TAB_STORAGE_KEY}:${groupId}`);
-    if (raw === "commands" || raw === "notes" || raw === "docs") return raw;
+    if (raw === "commands" || raw === "notes" || raw === "docs" || raw === "drafts") return raw;
   } catch {}
   return "commands";
 }
@@ -67,7 +74,7 @@ export class ProjectNotesPanel {
     const tabs = document.createElement("div");
     tabs.className = "pn-tabs";
     this.tabButtons = {} as Record<PanelTab, HTMLButtonElement>;
-    for (const t of ["commands", "notes", "docs"] as PanelTab[]) {
+    for (const t of ["commands", "notes", "docs", "drafts"] as PanelTab[]) {
       const b = document.createElement("button");
       b.textContent = t[0].toUpperCase() + t.slice(1);
       b.dataset.tab = t;
@@ -122,8 +129,15 @@ export class ProjectNotesPanel {
       new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
     } else if (this.currentTab === "notes") {
       new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
-    } else {
+    } else if (this.currentTab === "docs") {
       void new DocsTab({ groupId: this.opts.groupId }).mount(this.body);
+    } else {
+      new DraftsTab({
+        groupId: this.opts.groupId,
+        groupRootDir: this.opts.groupRootDir ?? null,
+        onOpenFile: (p) => this.opts.onOpenFile?.(p),
+        onOpenWizard: (r) => this.opts.onOpenWizard?.(r),
+      }).mount(this.body);
     }
   }
 
