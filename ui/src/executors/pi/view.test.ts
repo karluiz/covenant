@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => {
     sendPrompt: vi.fn().mockResolvedValue(undefined),
     abort: vi.fn().mockResolvedValue(undefined),
     closeSession: vi.fn().mockResolvedValue(undefined),
+    steer: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -25,6 +27,8 @@ vi.mock("../../api", () => ({
   piSendPrompt: mocks.sendPrompt,
   piAbort: mocks.abort,
   closePiSession: mocks.closeSession,
+  piSteer: mocks.steer,
+  piFollowUp: mocks.followUp,
 }));
 
 const sendPromptMock = mocks.sendPrompt;
@@ -36,7 +40,7 @@ const fireEvent = (event: unknown): void => {
 };
 const lastHandlerExists = (): boolean => mocks.state.lastHandler !== null;
 
-import { PiChatView, assistantText } from "./view";
+import { PiChatView, assistantText, extractToolText } from "./view";
 
 function mountHost(): HTMLElement {
   document.body.innerHTML = `<div id="pi-host" style="height:400px;width:600px"></div>`;
@@ -55,6 +59,8 @@ describe("PiChatView", () => {
     sendPromptMock.mockClear();
     abortMock.mockClear();
     closePiSessionMock.mockClear();
+    mocks.steer.mockClear();
+    mocks.followUp.mockClear();
     mocks.state.lastHandler = null;
     // jsdom doesn't implement scrollTo or rAF scrolling; stub rAF to
     // run synchronously so scrollToBottom doesn't pollute timers.
@@ -181,6 +187,193 @@ describe("PiChatView", () => {
     view.destroy();
     expect(host.innerHTML).toBe("");
     expect(lastHandlerExists()).toBe(false);
+  });
+
+  it("renders tool_execution_* lifecycle and updates body", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    fireEvent({
+      type: "tool_execution_start",
+      toolCallId: "call_1",
+      toolName: "bash",
+      args: { command: "ls -la" },
+    });
+    let card = host.querySelector(".pi-tool");
+    expect(card?.classList.contains("pi-tool-running")).toBe(true);
+    expect(host.querySelector(".pi-tool-name")?.textContent).toBe("bash");
+
+    fireEvent({
+      type: "tool_execution_update",
+      toolCallId: "call_1",
+      toolName: "bash",
+      args: { command: "ls -la" },
+      partialResult: { content: [{ type: "text", text: "Cargo.toml\n" }] },
+    });
+    expect(host.querySelector(".pi-tool-body")?.textContent).toBe("Cargo.toml\n");
+
+    fireEvent({
+      type: "tool_execution_end",
+      toolCallId: "call_1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "Cargo.toml\nsrc/\n" }] },
+      isError: false,
+    });
+    card = host.querySelector(".pi-tool");
+    expect(card?.classList.contains("pi-tool-done")).toBe(true);
+    expect(host.querySelector(".pi-tool-body")?.textContent).toBe("Cargo.toml\nsrc/\n");
+  });
+
+  it("marks tool as error when isError true", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    fireEvent({
+      type: "tool_execution_start",
+      toolCallId: "call_1",
+      toolName: "bash",
+      args: { command: "false" },
+    });
+    fireEvent({
+      type: "tool_execution_end",
+      toolCallId: "call_1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "exit 1" }] },
+      isError: true,
+    });
+    expect(host.querySelector(".pi-tool")?.classList.contains("pi-tool-error")).toBe(true);
+  });
+
+  it("falls back to JSON when tool result has no text content", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    fireEvent({
+      type: "tool_execution_start",
+      toolCallId: "c",
+      toolName: "weather",
+      args: {},
+    });
+    fireEvent({
+      type: "tool_execution_end",
+      toolCallId: "c",
+      toolName: "weather",
+      result: { temp_c: 23 },
+    });
+    expect(host.querySelector(".pi-tool-body")?.textContent).toMatch(/"temp_c": 23/);
+  });
+
+  it("renders thinking_delta into a collapsible block", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    fireEvent({
+      type: "message_update",
+      message: { role: "assistant", content: [] },
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "Let me " },
+    });
+    fireEvent({
+      type: "message_update",
+      message: { role: "assistant", content: [] },
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "think." },
+    });
+    expect(host.querySelector(".pi-thinking-body")?.textContent).toBe("Let me think.");
+  });
+
+  it("shows queue indicator when queue_update has pending items", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    const queue = host.querySelector(".pi-chat-queue") as HTMLElement;
+    expect(queue.hidden).toBe(true);
+    fireEvent({ type: "queue_update", steering: ["focus harder"], followUp: ["wrap up"] });
+    expect(queue.hidden).toBe(false);
+    expect(queue.textContent).toContain("steering (1)");
+    expect(queue.textContent).toContain("follow-up (1)");
+    fireEvent({ type: "queue_update", steering: [], followUp: [] });
+    expect(queue.hidden).toBe(true);
+  });
+
+  it("hides queue and clears tools on agent_end", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    fireEvent({ type: "queue_update", steering: ["x"], followUp: [] });
+    fireEvent({
+      type: "tool_execution_start",
+      toolCallId: "c",
+      toolName: "x",
+      args: {},
+    });
+    fireEvent({ type: "agent_end", messages: [] });
+    const queue = host.querySelector(".pi-chat-queue") as HTMLElement;
+    expect(queue.hidden).toBe(true);
+  });
+
+  it("Steer button is hidden idle, visible while busy, and sends piSteer", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    const steerBtn = host.querySelector<HTMLButtonElement>(".pi-chat-steer")!;
+    expect(steerBtn.hidden).toBe(true);
+    fireEvent({ type: "agent_start" });
+    expect(steerBtn.hidden).toBe(false);
+    const ta = host.querySelector<HTMLTextAreaElement>(".pi-chat-textarea")!;
+    ta.value = "focus on tests";
+    steerBtn.click();
+    await flush();
+    expect(mocks.steer).toHaveBeenCalledWith("s1", "focus on tests");
+    expect(host.querySelector(".pi-msg-system")?.textContent).toContain("steer:");
+  });
+
+  it("Follow-up button sends piFollowUp", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    const followBtn = host.querySelector<HTMLButtonElement>(".pi-chat-followup")!;
+    const ta = host.querySelector<HTMLTextAreaElement>(".pi-chat-textarea")!;
+    ta.value = "then commit";
+    followBtn.click();
+    await flush();
+    expect(mocks.followUp).toHaveBeenCalledWith("s1", "then commit");
+  });
+
+  it("Steer with empty input flashes placeholder and does NOT call piSteer", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({ type: "agent_start" });
+    const steerBtn = host.querySelector<HTMLButtonElement>(".pi-chat-steer")!;
+    steerBtn.click();
+    await flush();
+    expect(mocks.steer).not.toHaveBeenCalled();
+    const ta = host.querySelector<HTMLTextAreaElement>(".pi-chat-textarea")!;
+    expect(ta.classList.contains("pi-chat-textarea-flash")).toBe(true);
+  });
+});
+
+describe("extractToolText()", () => {
+  it("returns concatenated text from content array", () => {
+    expect(
+      extractToolText({
+        content: [
+          { type: "text", text: "a " },
+          { type: "image", url: "x" },
+          { type: "text", text: "b" },
+        ],
+      }),
+    ).toBe("a b");
+  });
+  it("returns null for non-text payloads", () => {
+    expect(extractToolText({ temp: 1 })).toBeNull();
+    expect(extractToolText(null)).toBeNull();
+    expect(extractToolText("string")).toBeNull();
   });
 });
 
