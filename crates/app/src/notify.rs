@@ -245,12 +245,22 @@ impl Notifier {
 
 fn truncate_for_log(s: &str) -> String {
     if s.len() <= 200 {
-        s.to_string()
-    } else {
-        let mut out = s[..200].to_string();
-        out.push_str("…");
-        out
+        return s.to_string();
     }
+    let cut = (0..=200).rev().find(|i| s.is_char_boundary(*i)).unwrap_or(0);
+    let mut out = s[..cut].to_string();
+    out.push('…');
+    out
+}
+
+#[cfg(test)]
+#[test]
+fn truncate_for_log_handles_multibyte_boundary() {
+    // 199 bytes of ASCII then a 4-byte emoji straddling byte 200
+    let s = format!("{}{}", "a".repeat(199), "😀");
+    let out = truncate_for_log(&s);
+    assert!(out.ends_with('…'));
+    assert!(out.is_char_boundary(out.len()));
 }
 
 #[cfg(test)]
