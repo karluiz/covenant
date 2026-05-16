@@ -59,33 +59,6 @@ export function subscribeOnline(fn: Listener): () => void {
 }
 
 /**
- * Mount a small floating pill that says "AOM paused — offline" while
- * the OS reports no network. Owned entirely by this module so it does
- * NOT conflict with the AOM banner being refactored in parallel; once
- * the banner integrates `subscribeOnline` directly we can drop this.
- *
- * Placed at top-center, fixed position, hidden when online.
- */
-export function mountOfflinePill(host: HTMLElement = document.body): () => void {
-  const el = document.createElement("div");
-  el.className = "aom-offline-pill";
-  el.hidden = true;
-  el.setAttribute("role", "status");
-  el.textContent = "AOM paused — offline";
-  host.appendChild(el);
-
-  const apply = (on: boolean) => {
-    el.hidden = on;
-  };
-  apply(isOnline());
-  const unsub = subscribeOnline(apply);
-  return () => {
-    unsub();
-    el.remove();
-  };
-}
-
-/**
  * Install the window listeners and seed the backend with the current
  * `navigator.onLine` value. Idempotent — safe to call from main()
  * regardless of hot-reload state.

@@ -16,7 +16,7 @@ import { showUpdateBanner } from "./updater/banner";
 import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
-import { installConnectivityBridge, mountOfflinePill } from "./aom/connectivity";
+import { installConnectivityBridge } from "./aom/connectivity";
 import { playAomEntrySplash, playAomExitSplash } from "./aom/entry-splash";
 import { AomReportPanel } from "./aom/report";
 import {
@@ -588,10 +588,6 @@ async function boot(): Promise<void> {
   // hot-reload. Backend `set_connectivity` is a no-op when state is
   // unchanged.
   installConnectivityBridge();
-  // Free-standing offline indicator. Decoupled from the AOM banner
-  // (Task 3 is refactoring it in parallel) so the offline UX ships
-  // independently of phase rendering.
-  mountOfflinePill(document.body);
 
   const aomBanner = new AomBanner(document.body);
   manager.setAomBanner(aomBanner);

@@ -38,6 +38,7 @@ import {
 import { Icons } from "../icons";
 import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
+import { isOnline, subscribeOnline } from "../aom/connectivity";
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
@@ -106,6 +107,11 @@ export class StatusBar {
   private modal: MissionViewerModal | null = null;
   /// Last polled Telegram status. Drives the .tg-status pill class.
   private currentTgStatus: TelegramStatus = "disabled";
+  /// Network connectivity. Mirrors navigator.onLine via the AOM
+  /// connectivity bridge. When false, the executor chip dims and
+  /// gains a "no internet" reason tag; a standalone offline chip is
+  /// surfaced when no executor is running.
+  private online: boolean = isOnline();
 
   /// Wired by main.ts to TabManager. Fires when the user clicks the
   /// "+ Mission" affordance on the status bar (only shown when no
@@ -135,6 +141,11 @@ export class StatusBar {
     this.host.setAttribute("role", "status");
     this.host.setAttribute("aria-live", "off");
     this.startTelegramPolling();
+    subscribeOnline((online) => {
+      if (this.online === online) return;
+      this.online = online;
+      this.render(this.lastDirCtx);
+    });
   }
 
   private startTelegramPolling(): void {
@@ -586,7 +597,9 @@ export class StatusBar {
       );
     }
     if (this.currentExecutor) {
-      this.host.appendChild(executorSegment(this.currentExecutor));
+      this.host.appendChild(executorSegment(this.currentExecutor, this.online));
+    } else if (!this.online) {
+      this.host.appendChild(offlineSegment());
     }
     if (this.currentAom) {
       this.host.appendChild(
@@ -920,14 +933,22 @@ function executorBrand(name: string): { color: string; label: string } | null {
   }
 }
 
-function executorSegment(name: string): HTMLElement {
+function executorSegment(name: string, online: boolean = true): HTMLElement {
   const el = document.createElement("span");
   const brand = executorBrand(name);
-  el.className = brand
+  const offlineCls = online ? "" : " status-executor--offline";
+  el.className = (brand
     ? "status-segment status-executor status-executor-brand"
-    : "status-segment status-executor";
-  el.title = `Running ${brand?.label ?? name} in this tab`;
-  el.setAttribute("aria-label", `Executor: ${brand?.label ?? name}`);
+    : "status-segment status-executor") + offlineCls;
+  el.title = online
+    ? `Running ${brand?.label ?? name} in this tab`
+    : `${brand?.label ?? name} unavailable — no internet`;
+  el.setAttribute(
+    "aria-label",
+    online
+      ? `Executor: ${brand?.label ?? name}`
+      : `Executor: ${brand?.label ?? name} (offline)`,
+  );
   if (brand) {
     el.style.setProperty("--executor-brand", brand.color);
   }
@@ -964,6 +985,26 @@ function executorSegment(name: string): HTMLElement {
     text.textContent = name;
     el.appendChild(text);
   }
+  if (!online) {
+    const reason = document.createElement("span");
+    reason.className = "status-executor__reason";
+    reason.textContent = "no internet";
+    el.appendChild(reason);
+  }
+  return el;
+}
+
+/// Standalone connectivity chip. Surfaced only when offline AND no
+/// executor is running (otherwise the executor chip itself carries
+/// the offline state via .status-executor--offline + reason tag).
+function offlineSegment(): HTMLElement {
+  const el = document.createElement("span");
+  el.className = "status-segment status-offline";
+  el.title = "No internet connection — Claude unavailable";
+  el.setAttribute("aria-label", "Offline — no internet connection");
+  el.innerHTML =
+    '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>' +
+    '<span class="status-text">no internet</span>';
   return el;
 }
 
