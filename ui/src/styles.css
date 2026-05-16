@@ -3170,6 +3170,58 @@ body:not(.tabbar-left) #new-group {
     background: var(--bg-hover, rgba(255, 255, 255, 0.04));
     color: #fff;
 }
+.add-provider-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.add-provider-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+.add-provider-form select,
+.add-provider-form input {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #fff;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.add-provider-form .add-provider-preset {
+    min-width: 240px;
+}
+.add-provider-form .add-provider-id {
+    width: 140px;
+}
+.add-provider-form .add-provider-url {
+    flex: 1;
+    min-width: 220px;
+}
+.add-provider-form .add-provider-confirm {
+    background: #4a7dff;
+    border: 1px solid #4a7dff;
+    color: #fff;
+}
+.add-provider-form .add-provider-confirm:hover {
+    background: #5d8aff;
+}
+.add-provider-form .add-provider-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: #c8ccd2;
+    font-size: 12px;
+    cursor: pointer;
+}
 
 /* Models per-role rows */
 .model-route-row {

@@ -15,23 +15,77 @@ export function renderProvidersTab(
   }
   root.appendChild(list);
 
+  const addBar = document.createElement("div");
+  addBar.className = "add-provider-bar";
+
   const addBtn = document.createElement("button");
   addBtn.type = "button";
   addBtn.textContent = "+ Add provider";
   addBtn.className = "btn-secondary";
+  addBar.appendChild(addBtn);
+
+  const formWrap = document.createElement("div");
+  formWrap.className = "add-provider-form";
+  formWrap.style.display = "none";
+  formWrap.innerHTML = `
+    <select class="add-provider-preset">
+      <option value="ollama">Ollama (http://localhost:11434/v1)</option>
+      <option value="lmstudio">LM Studio (http://localhost:1234/v1)</option>
+      <option value="custom">Custom OpenAI-compatible…</option>
+    </select>
+    <input class="add-provider-id" type="text" placeholder="id (e.g. ollama)" />
+    <input class="add-provider-url" type="text" placeholder="base URL" />
+    <button type="button" class="btn-secondary add-provider-confirm">Add</button>
+    <button type="button" class="add-provider-cancel">Cancel</button>
+  `;
+  addBar.appendChild(formWrap);
+
+  const preset = formWrap.querySelector<HTMLSelectElement>(".add-provider-preset")!;
+  const idInput = formWrap.querySelector<HTMLInputElement>(".add-provider-id")!;
+  const urlInput = formWrap.querySelector<HTMLInputElement>(".add-provider-url")!;
+  const confirmBtn = formWrap.querySelector<HTMLButtonElement>(".add-provider-confirm")!;
+  const cancelBtn = formWrap.querySelector<HTMLButtonElement>(".add-provider-cancel")!;
+
+  const applyPreset = () => {
+    if (preset.value === "ollama") {
+      idInput.value = "ollama";
+      urlInput.value = "http://localhost:11434/v1";
+    } else if (preset.value === "lmstudio") {
+      idInput.value = "lmstudio";
+      urlInput.value = "http://localhost:1234/v1";
+    } else {
+      idInput.value = "";
+      urlInput.value = "http://localhost:8080/v1";
+    }
+  };
+  applyPreset();
+  preset.onchange = applyPreset;
+
   addBtn.onclick = () => {
-    const id = prompt("Provider id (e.g. ollama, lmstudio):")?.trim();
-    if (!id || settings.providers?.[id]) return;
+    addBtn.style.display = "none";
+    formWrap.style.display = "flex";
+    idInput.focus();
+  };
+  cancelBtn.onclick = () => {
+    addBtn.style.display = "";
+    formWrap.style.display = "none";
+  };
+  confirmBtn.onclick = () => {
+    const id = idInput.value.trim();
+    const url = urlInput.value.trim();
+    if (!id) { idInput.focus(); return; }
+    if (settings.providers?.[id]) { idInput.focus(); return; }
     const next = JSON.parse(JSON.stringify(settings)) as Settings;
     next.providers = { ...(next.providers ?? {}) };
     next.providers[id] = {
       kind: "openai_compat",
       label: id,
-      base_url: "http://localhost:11434/v1",
+      base_url: url || "http://localhost:11434/v1",
     };
     onChange(next);
   };
-  root.appendChild(addBtn);
+
+  root.appendChild(addBar);
 }
 
 function renderProviderCard(
@@ -93,7 +147,6 @@ function renderProviderCard(
     del.type = "button";
     del.className = "btn-danger";
     del.onclick = () => {
-      if (!confirm(`Delete provider "${id}"?`)) return;
       const next = JSON.parse(JSON.stringify(settings)) as Settings;
       next.providers = { ...next.providers };
       delete next.providers![id];
