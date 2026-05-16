@@ -20,6 +20,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = { workspace = true }
 async-trait = { workspace = true }
 once_cell = "1"
+karl-score = { path = "../score" }
 regex = { workspace = true }
 
 [dev-dependencies]

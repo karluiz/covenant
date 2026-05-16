@@ -62,6 +62,11 @@ pub async fn collect_oneshot(
     provider: &dyn LlmProvider,
     req: AskRequest,
 ) -> Result<crate::AskResponse, AgentError> {
+    let executor_label = match provider.kind() {
+        ProviderKind::Anthropic => "anthropic",
+        ProviderKind::OpenAiCompat => "openai_compat",
+    };
+    karl_score::record_prompt(executor_label);
     let buffer = Arc::new(Mutex::new(String::new()));
     let usage = Arc::new(Mutex::new(crate::TokenUsage::default()));
     let stop_reason = Arc::new(Mutex::new(Option::<String>::None));
