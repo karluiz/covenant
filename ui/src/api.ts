@@ -655,6 +655,18 @@ export interface NotificationConfig {
   email_digest_window_minutes: number;
 }
 
+export interface ProviderEntry {
+  kind: "anthropic" | "openai_compat";
+  label: string;
+  api_key?: string | null;
+  base_url?: string | null;
+}
+
+export interface RouteEntry {
+  provider_id: string;
+  model: string;
+}
+
 export interface Settings {
   anthropic_api_key: string | null;
   sendgrid_api_key?: string | null;
@@ -678,6 +690,10 @@ export interface Settings {
   familiars_enabled: boolean;
   /// Premium gate for Familiars (and any other premium-only features).
   is_premium: boolean;
+  /// Local LLM provider registry. Keys are provider ids.
+  providers?: Record<string, ProviderEntry>;
+  /// Model routing table mapping role names to provider+model.
+  model_routes?: Record<string, RouteEntry>;
 }
 
 export async function validateSendGridKey(apiKey: string): Promise<boolean> {
@@ -1176,4 +1192,16 @@ export async function capabilitiesScaffold(
 
 export async function capabilitiesDetect(): Promise<CapabilitiesDetect> {
   return invoke<CapabilitiesDetect>("capabilities_detect");
+}
+
+// ── Local LLM provider model listing ────────────────────────────────────────
+
+export type ModelInfo = { id: string; label: string | null };
+
+export async function listModelsAnthropic(): Promise<ModelInfo[]> {
+  return invoke<ModelInfo[]>("list_models_anthropic");
+}
+
+export async function listModelsOpenAiCompat(baseUrl: string): Promise<ModelInfo[]> {
+  return invoke<ModelInfo[]>("list_models_openai_compat", { baseUrl });
 }

@@ -31,6 +31,7 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+pub mod provider_resolve;
 mod project_notes;
 mod safety;
 mod scrollback;
@@ -38,6 +39,7 @@ pub mod settings;
 mod spec_detector;
 pub mod storage;
 mod structure;
+mod providers_cmd;
 mod summarizer;
 mod tab_manifest;
 pub mod telegram;
@@ -2986,6 +2988,8 @@ pub fn run() {
             capabilities_commands::capabilities_delete,
             capabilities_commands::capabilities_scaffold,
             capabilities_commands::capabilities_detect,
+            providers_cmd::list_models_anthropic,
+            providers_cmd::list_models_openai_compat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

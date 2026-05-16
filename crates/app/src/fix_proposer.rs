@@ -122,15 +122,12 @@ async fn propose_fix(
     output: &str,
 ) -> Result<Option<(String, String)>, String> {
     // Snapshot what we need without holding the lock across the http call.
-    let (api_key, model) = {
+    let resolved = {
         let s = settings.lock().await;
-        let key = match s.anthropic_api_key.clone() {
-            Some(k) if !k.trim().is_empty() => k,
-            _ => return Ok(None), // no key → silently skip
-        };
-        // Reuse the cheaper summary model — fix suggestions are short
-        // and the latency budget is tight.
-        (key, s.agent.model_summary.clone())
+        match crate::provider_resolve::resolve_route(&s, crate::settings::Role::Chat) {
+            Ok(r) => r,
+            Err(_) => return Ok(None), // no provider → silently skip
+        }
     };
 
     let user_msg = format!(
@@ -145,17 +142,19 @@ async fn propose_fix(
     );
 
     let started = Instant::now();
-    let response = karl_agent::ask_oneshot(karl_agent::AskRequest {
-        api_key,
-        model,
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
         system_prompt: FIX_SYSTEM_PROMPT.to_string(),
         user_message: user_msg,
         max_tokens: SUGGEST_MAX_TOKENS,
         thinking_budget: None,
         force_tool: None,
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    };
+    let response = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?
+        .text;
 
     tracing::info!(
         latency_ms = started.elapsed().as_millis() as u64,

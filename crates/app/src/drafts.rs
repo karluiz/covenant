@@ -864,14 +864,15 @@ pub async fn suggest_draft_section(
     slug: String,
     section: SuggestSection,
 ) -> Result<Vec<String>, String> {
-    let (api_key, model) = {
+    let resolved = {
         let s = state.settings.lock().await;
-        let key = s
-            .anthropic_api_key
-            .clone()
-            .filter(|k| !k.trim().is_empty())
-            .ok_or_else(|| "no API key".to_string())?;
-        (key, s.agent.model_summary.clone())
+        match crate::provider_resolve::resolve_route(&s, crate::settings::Role::Chat) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(?e, "suggest_draft_section: provider unavailable");
+                return Err("provider unavailable".to_string());
+            }
+        }
     };
 
     // Read draft + check cap.
@@ -886,17 +887,19 @@ pub async fn suggest_draft_section(
     }
 
     let user_msg = build_suggest_user_message(section, &doc.body);
-    let response = karl_agent::ask_oneshot(karl_agent::AskRequest {
-        api_key,
-        model,
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
         system_prompt: SUGGEST_SYSTEM_PROMPT.to_string(),
         user_message: user_msg,
         max_tokens: SUGGEST_MAX_TOKENS,
         thinking_budget: None,
         force_tool: None,
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    };
+    let response = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?
+        .text;
 
     // Increment llm_calls in frontmatter (best-effort, non-fatal).
     let path = PathBuf::from(&repo_root);
