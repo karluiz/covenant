@@ -412,14 +412,26 @@ async function boot(): Promise<void> {
     groupId: string,
     groupLabel: string,
     groupColor: string | null,
+    opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
   ): void {
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
+    const g = manager.activeGroup();
+    const groupRootDir = g?.id === groupId ? g.rootDir : null;
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
       groupLabel,
       groupColor,
+      groupRootDir,
+      defaultTab: opts?.defaultTab,
       onClose: () => {
         activeProjectNotesPanel = null;
+      },
+      onOpenFile: (absolutePath) => {
+        manager.openFileAtLine(absolutePath);
+        activeProjectNotesPanel?.close();
+      },
+      onOpenWizard: (repoRoot) => {
+        window.dispatchEvent(new CustomEvent("drafts:open-wizard", { detail: { repoRoot } }));
       },
     }).mount(document.body);
   }
