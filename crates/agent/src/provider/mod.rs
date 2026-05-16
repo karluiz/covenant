@@ -3,6 +3,7 @@
 //! live in `provider/anthropic.rs` and `provider/openai_compat.rs`.
 
 pub mod anthropic;
+pub mod openai_compat;
 
 use crate::{AgentError, AgentEvent, AskRequest};
 use async_trait::async_trait;
