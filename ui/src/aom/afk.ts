@@ -36,8 +36,8 @@ interface DecisionEvent {
 
 export interface AfkOverlayDeps {
   manager: TabManager;
-  /// Open the morning report panel (⌘⇧R surface). AFK calls this when
-  /// the user clicks "Run complete — open report?" after AOM ends.
+  /// Open the morning report panel. AFK calls this when the user
+  /// clicks "Run complete — open report?" after AOM ends.
   openReport: () => void;
   /// Called when AFK exits — main.ts uses this to refit the active
   /// terminal so xterm cell metrics are accurate after the overlay

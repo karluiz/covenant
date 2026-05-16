@@ -135,7 +135,7 @@ export function playAomExitSplash(status: AomStatus): Promise<void> {
       <div class="aom-splash-headline">AOM STOPPED</div>
       <div class="aom-splash-sub">${formatRunSummary(status)}</div>
       <div class="aom-splash-meta">
-        <kbd>⌘⇧R</kbd> for the morning report
+        See the AOM panel for the morning report.
       </div>
     </div>
   `;

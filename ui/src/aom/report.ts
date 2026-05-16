@@ -3,7 +3,7 @@
 // Aggregates the most recent AOM session: header (when it ran, why it
 // ended, $ spent vs budget), action breakdown (reply/executed/escalate),
 // the escalations that need attention, and a per-tab digest (decisions,
-// cost, recent commands). Bound to ⌘⇧R.
+// cost, recent commands).
 //
 // Read-only — the panel is for orientation, not action. If the user
 // wants to inspect a specific decision, ⌘O has the full audit trail.

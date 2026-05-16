@@ -616,9 +616,9 @@ async function boot(): Promise<void> {
   const aomFeed = new AomActivityFeed(document.body);
   void aomFeed.start();
 
-  // Morning report panel — what you read when AOM ended. Bound to
-  // ⌘⇧R, also auto-opens after a budget-hit auto-stop so you don't
-  // have to remember the shortcut at 6am.
+  // Morning report panel — what you read when AOM ended. Auto-opens
+  // after a budget-hit auto-stop; otherwise reachable from the AOM
+  // panel.
   const aomReportPanel = new AomReportPanel(document.body);
   const afk = new AfkOverlay(document.body, {
     manager,
@@ -1013,14 +1013,6 @@ async function boot(): Promise<void> {
           });
         }
       }
-      return;
-    }
-    // ⌘⇧E — toggle AOM exclusion for the active tab. Silent no-op
-    // when AOM is off; the badge is the discoverable affordance and
-    // the shortcut just shaves a click for users who know it exists.
-    if (e.metaKey && e.shiftKey && (e.key === "E" || e.key === "e")) {
-      e.preventDefault();
-      void manager.toggleAomExcludedActive();
       return;
     }
     // ⌘⇧D → Drafts panel. Mutually exclusive with settings and docs.

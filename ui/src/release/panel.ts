@@ -1,4 +1,4 @@
-// Release log modal — ⌘⇧V or status-bar version chip.
+// Release log modal — status-bar version chip.
 //
 // Renders the bundled CHANGELOG.md (inlined at build time as
 // `__APP_CHANGELOG__`). Pure read-only; no fetch, no editing.

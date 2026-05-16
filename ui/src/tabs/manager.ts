@@ -2638,8 +2638,8 @@ export class TabManager {
   }
 
   /// Wrapper around toggleAomExcluded keyed off the currently active
-  /// tab. Used by the ⌘⇧E global shortcut. Silent no-op when AOM is
-  /// off, no active tab, or the active tab is not Operator-enabled.
+  /// tab. Silent no-op when AOM is off, no active tab, or the active
+  /// tab is not Operator-enabled.
   async toggleAomExcludedActive(): Promise<void> {
     if (!this.aomBanner?.isOn()) return;
     if (!this.activeId) return;
@@ -2694,7 +2694,7 @@ export class TabManager {
   /// Recompute the StatusBar exclusion list from current tab state and
   /// push. Three call sites — keep them in sync if the set can change
   /// from a new path:
-  ///   1. `toggleAomExcluded` — user-initiated toggle (badge / ⌘⇧E /
+  ///   1. `toggleAomExcluded` — user-initiated toggle (badge /
   ///      right-click / setAomExcludedFor / includeAllInAom).
   ///   2. `refreshAllOperatorState` — AOM banner transitions on/off.
   ///   3. `restoreFromManifest` — app launch with persisted exclusions.
@@ -3658,7 +3658,7 @@ export class TabManager {
     //   - operator on, AOM off  → colored tab border (per-tab color)
     //   - operator on, AOM on, driving this tab → animated gradient ring
     //   - operator on, AOM on, excluded → muted/dashed "disabled" ring
-    // Toggling exclusion still happens via the context menu / ⌘⇧E.
+    // Toggling exclusion happens via the context menu.
     if (tab.operatorEnabled) {
       const aomOn = this.aomBanner?.isOn() ?? false;
       const excluded = tab.aomExcluded;

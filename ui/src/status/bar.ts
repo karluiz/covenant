@@ -853,7 +853,7 @@ function versionSegment(version: string, onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
   el.className = "status-segment status-version";
-  el.title = `Covenant v${version} — click for release log (⌘⇧V)`;
+  el.title = `Covenant v${version} — click for release log`;
   el.setAttribute("aria-label", `Version ${version}. Open release log.`);
 
   const text = document.createElement("span");
