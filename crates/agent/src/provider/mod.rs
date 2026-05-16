@@ -54,6 +54,60 @@ pub trait LlmProvider: Send + Sync {
     ) -> Result<(), AgentError>;
 }
 
+use std::sync::{Arc, Mutex};
+
+/// Collect a streamed call into a single String + final usage. Mirrors
+/// the legacy `ask_oneshot_with_usage` but goes through the trait.
+pub async fn collect_oneshot(
+    provider: &dyn LlmProvider,
+    req: AskRequest,
+) -> Result<crate::AskResponse, AgentError> {
+    let buffer = Arc::new(Mutex::new(String::new()));
+    let usage = Arc::new(Mutex::new(crate::TokenUsage::default()));
+    let stop_reason = Arc::new(Mutex::new(Option::<String>::None));
+    let thinking = Arc::new(Mutex::new(String::new()));
+    let buf_cb = buffer.clone();
+    let usage_cb = usage.clone();
+    let stop_cb = stop_reason.clone();
+    let think_cb = thinking.clone();
+    provider
+        .ask_streaming(
+            req,
+            Box::new(move |evt| match evt {
+                AgentEvent::Delta(t) => {
+                    if let Ok(mut b) = buf_cb.lock() { b.push_str(&t); }
+                }
+                AgentEvent::ThinkingDelta(t) => {
+                    if let Ok(mut b) = think_cb.lock() { b.push_str(&t); }
+                }
+                AgentEvent::Usage(u) => {
+                    if let Ok(mut e) = usage_cb.lock() {
+                        e.input_tokens = e.input_tokens.max(u.input_tokens);
+                        e.output_tokens = e.output_tokens.max(u.output_tokens);
+                        e.cache_creation_input_tokens =
+                            e.cache_creation_input_tokens.max(u.cache_creation_input_tokens);
+                        e.cache_read_input_tokens =
+                            e.cache_read_input_tokens.max(u.cache_read_input_tokens);
+                    }
+                }
+                AgentEvent::StopReason(r) => {
+                    if let Ok(mut s) = stop_cb.lock() { *s = Some(r); }
+                }
+                _ => {}
+            }),
+        )
+        .await?;
+    let thinking_full = thinking.lock().map(|t| t.clone()).unwrap_or_default();
+    let thinking_summary: String = thinking_full.chars().take(200).collect();
+    Ok(crate::AskResponse {
+        text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),
+        usage: usage.lock().map(|u| *u).unwrap_or_default(),
+        stop_reason: stop_reason.lock().map(|s| s.clone()).unwrap_or_default(),
+        thinking_summary,
+        thinking_full: if thinking_full.is_empty() { vec![] } else { vec![thinking_full] },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

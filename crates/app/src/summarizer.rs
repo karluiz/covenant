@@ -20,7 +20,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use karl_session::{SessionEvent, SessionId};
 use tokio::sync::{broadcast, Mutex};
 
-use crate::settings::Settings;
+use crate::provider_resolve::{resolve_route, ResolveError};
+use crate::settings::{Role, Settings};
 use crate::storage::Storage;
 use crate::world::SessionWorldModel;
 
@@ -117,13 +118,16 @@ async fn regenerate(
     storage: &Storage,
 ) -> Result<(), String> {
     // Snapshot inputs without holding any locks across the http call.
-    let (api_key, model) = {
+    let resolved = {
         let s = settings.lock().await;
-        let key = match s.anthropic_api_key.clone() {
-            Some(k) if !k.trim().is_empty() => k,
-            _ => return Ok(()), // no key → silently skip
-        };
-        (key, s.agent.model_summary.clone())
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => return Ok(()), // no route → silently skip
+            Err(e) => {
+                tracing::warn!(?e, "summary: provider unavailable, skipping");
+                return Ok(());
+            }
+        }
     };
 
     let (prev_summary, blocks_text) = {
@@ -169,17 +173,19 @@ async fn regenerate(
     );
 
     let started = Instant::now();
-    let summary = karl_agent::ask_oneshot(karl_agent::AskRequest {
-        api_key,
-        model,
+    let req = karl_agent::AskRequest {
+        api_key: String::new(), // unused on the trait path
+        model: resolved.model.clone(),
         system_prompt: SUMMARY_SYSTEM_PROMPT.to_string(),
         user_message,
         max_tokens: SUMMARY_MAX_TOKENS,
         thinking_budget: None,
         force_tool: None,
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    };
+    let summary = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map(|r| r.text)
+        .map_err(|e| e.to_string())?;
 
     let trimmed = summary.trim().to_string();
     let tokens_estimate = trimmed.len() / 4;
