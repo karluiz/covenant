@@ -33,6 +33,7 @@ export interface MenuItem {
 
 export class ContextMenu {
   private el: HTMLElement | null = null;
+  private submenuEl: HTMLElement | null = null;
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
 
@@ -44,7 +45,7 @@ export class ContextMenu {
 
     const menu = document.createElement("div");
     menu.className = "ctx-menu";
-    for (const item of items) menu.appendChild(this.renderItem(item));
+    for (const item of items) menu.appendChild(this.renderItem(item, menu));
 
     // Reserve room at the bottom for the macOS Dock, which overlays the
     // window and is invisible to the WebView (innerHeight includes the
@@ -79,9 +80,10 @@ export class ContextMenu {
     // doesn't dismiss us immediately.
     setTimeout(() => {
       const handler = (e: MouseEvent): void => {
-        if (this.el && !this.el.contains(e.target as Node)) {
-          this.dismiss();
-        }
+        const target = e.target as Node;
+        const inMain = this.el?.contains(target) ?? false;
+        const inSub = this.submenuEl?.contains(target) ?? false;
+        if (!inMain && !inSub) this.dismiss();
       };
       this.outsideClickHandler = handler;
       document.addEventListener("mousedown", handler);
@@ -98,6 +100,10 @@ export class ContextMenu {
   }
 
   dismiss(): void {
+    if (this.submenuEl) {
+      this.submenuEl.remove();
+      this.submenuEl = null;
+    }
     if (this.el) {
       this.el.remove();
       this.el = null;
@@ -116,7 +122,54 @@ export class ContextMenu {
     return this.el !== null;
   }
 
-  private renderItem(item: MenuItem): HTMLElement {
+  private openSubmenu(
+    triggerBtn: HTMLElement,
+    items: MenuItem[],
+    parentMenu: HTMLElement | undefined,
+  ): void {
+    if (items.length === 0) return;
+    if (this.submenuEl) {
+      this.submenuEl.remove();
+      this.submenuEl = null;
+    }
+
+    const sub = document.createElement("div");
+    sub.className = "ctx-menu ctx-submenu";
+    for (const item of items) sub.appendChild(this.renderItem(item, sub));
+
+    const SAFE_BOTTOM = 90;
+    const maxH = window.innerHeight - 16 - SAFE_BOTTOM;
+    sub.style.maxHeight = `${maxH}px`;
+    // Render off-screen first so we can measure, then place adjacent
+    // to the triggering item.
+    sub.style.left = `-9999px`;
+    sub.style.top = `0px`;
+    this.host.appendChild(sub);
+
+    const btnRect = triggerBtn.getBoundingClientRect();
+    const parentRect = (parentMenu ?? triggerBtn).getBoundingClientRect();
+    const subRect = sub.getBoundingClientRect();
+    const PAD = 8;
+
+    // Prefer right of the parent menu; flip to the left if it would
+    // overflow the viewport.
+    let left = parentRect.right;
+    if (left + subRect.width + PAD > window.innerWidth) {
+      left = parentRect.left - subRect.width;
+    }
+    left = Math.max(PAD, left);
+
+    let top = btnRect.top;
+    if (top + subRect.height + PAD > window.innerHeight - SAFE_BOTTOM) {
+      top = Math.max(PAD, window.innerHeight - subRect.height - SAFE_BOTTOM);
+    }
+
+    sub.style.left = `${left}px`;
+    sub.style.top = `${top}px`;
+    this.submenuEl = sub;
+  }
+
+  private renderItem(item: MenuItem, parentMenu?: HTMLElement): HTMLElement {
     if (item.divider) {
       const d = document.createElement("div");
       d.className = "ctx-divider";
@@ -178,10 +231,7 @@ export class ContextMenu {
       btn.appendChild(chev);
       btn.addEventListener("click", () => {
         const sub = item.submenu ?? [];
-        const rect = btn.getBoundingClientRect();
-        const x = rect.right;
-        const y = rect.top;
-        this.show(x, y, sub);
+        this.openSubmenu(btn, sub, parentMenu);
       });
     } else if (item.onClick && !item.disabled) {
       btn.addEventListener("click", async () => {
