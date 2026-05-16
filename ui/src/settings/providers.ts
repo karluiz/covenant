@@ -16,6 +16,7 @@ export function renderProvidersTab(
   root.appendChild(list);
 
   const addBtn = document.createElement("button");
+  addBtn.type = "button";
   addBtn.textContent = "+ Add provider";
   addBtn.className = "btn-secondary";
   addBtn.onclick = () => {
