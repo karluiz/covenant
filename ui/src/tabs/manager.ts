@@ -555,6 +555,12 @@ export class TabManager {
       : null;
   }
 
+  /// Lookup the `rootDir` of a group by id. Returns null if the group
+  /// doesn't exist or has no root dir set.
+  groupRootDirFor(groupId: string): string | null {
+    return this.groups.get(groupId)?.rootDir ?? null;
+  }
+
   constructor(
     private readonly tabbarHost: HTMLElement,
     private readonly workspace: HTMLElement,

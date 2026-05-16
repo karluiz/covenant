@@ -415,8 +415,7 @@ async function boot(): Promise<void> {
     opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
   ): void {
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
-    const g = manager.activeGroup();
-    const groupRootDir = g?.id === groupId ? g.rootDir : null;
+    const groupRootDir = manager.groupRootDirFor(groupId);
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
       groupLabel,
