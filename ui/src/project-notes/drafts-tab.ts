@@ -54,11 +54,18 @@ export class DraftsTab {
       this.renderList(root, drafts);
     } catch (err) {
       console.error("drafts list failed", err);
-      this.listEl.innerHTML =
-        `<div class="pn-empty pn-empty-inline">
-           <div class="pn-empty-title">Failed to load drafts</div>
-           <div class="pn-empty-hint">${(err as Error).message ?? "Unknown error"}</div>
-         </div>`;
+      this.listEl.innerHTML = "";
+      const wrap = document.createElement("div");
+      wrap.className = "pn-empty pn-empty-inline";
+      const title = document.createElement("div");
+      title.className = "pn-empty-title";
+      title.textContent = "Failed to load drafts";
+      const hint = document.createElement("div");
+      hint.className = "pn-empty-hint";
+      hint.textContent = (err as Error)?.message ?? "Unknown error";
+      wrap.appendChild(title);
+      wrap.appendChild(hint);
+      this.listEl.appendChild(wrap);
     }
   }
 
