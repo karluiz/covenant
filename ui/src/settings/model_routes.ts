@@ -101,8 +101,10 @@ function renderRoleRow(
     if (role === "operator" && entry?.kind === "openai_compat") {
       warn.textContent =
         "⚠ Local providers don't translate Anthropic tool-use yet — operator will fall back to SuggestOnly.";
+      warn.classList.add("is-warning");
     } else {
       warn.textContent = ROLE_HINT[role];
+      warn.classList.remove("is-warning");
     }
   };
 

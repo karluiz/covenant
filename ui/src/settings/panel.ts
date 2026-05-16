@@ -244,7 +244,6 @@ export class SettingsPanel {
     nav.className = "settings-nav";
     nav.innerHTML = `
       <a href="#sec-providers" data-target="sec-providers">Providers</a>
-      <a href="#sec-anthropic" data-target="sec-anthropic">Anthropic</a>
       <a href="#sec-models" data-target="sec-models">Models</a>
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
@@ -266,30 +265,11 @@ export class SettingsPanel {
         <section class="settings-section" id="sec-providers">
           <h3 class="settings-section-title">Providers</h3>
           <p class="settings-section-desc">
-            Configure LLM providers. The built-in Anthropic provider uses your
-            API key below. Add OpenAI-compatible endpoints (Ollama, LM Studio,
-            etc.) to route models locally.
+            Configure where LLM calls go. Anthropic is built-in — paste your API
+            key in its card below. Add OpenAI-compatible endpoints (Ollama, LM
+            Studio, llama.cpp) to route models locally.
           </p>
           <div id="providers-tab-root"></div>
-        </section>
-        <section class="settings-section" id="sec-anthropic">
-          <h3 class="settings-section-title">Anthropic</h3>
-          <label class="settings-field">
-            <span class="settings-label">API key</span>
-            <div class="settings-input-row">
-              <input
-                type="password"
-                name="api_key"
-                placeholder="sk-ant-..."
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <button type="button" class="settings-toggle" data-target="api_key">show</button>
-            </div>
-            <small class="settings-hint">
-              Stored locally at <code>~/Library/Application Support/com.karluiz.covenant/config.json</code> (chmod 600).
-            </small>
-          </label>
         </section>
         <section class="settings-section" id="sec-models">
           <h3 class="settings-section-title">Models</h3>
@@ -605,7 +585,6 @@ export class SettingsPanel {
         </div>
     `;
 
-    const apiKey = form.querySelector<HTMLInputElement>('input[name="api_key"]')!;
     const maxCalls = form.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
     const aomBudget = form.querySelector<HTMLInputElement>('input[name="aom_budget"]')!;
     const mindV2Input = form.querySelector<HTMLInputElement>('input[name="mind_v2"]')!;
@@ -667,7 +646,6 @@ export class SettingsPanel {
     const emailIncompleteWarn = form.querySelector<HTMLElement>('#email-incomplete-warn')!;
     const sendgridKeyWarn = form.querySelector<HTMLElement>('#sendgrid-key-warn')!;
 
-    apiKey.value = this.current.anthropic_api_key ?? "";
     maxCalls.value = String(this.current.agent.max_calls_per_minute);
     aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
     mindV2Input.checked = this.current.operator.mind_v2;
@@ -762,8 +740,6 @@ export class SettingsPanel {
     })();
 
     updateEmailIncompleteWarn();
-
-    apiKey.focus();
 
     const providersRoot = form.querySelector<HTMLElement>("#providers-tab-root");
     if (providersRoot && this.current) {
@@ -970,7 +946,9 @@ export class SettingsPanel {
       e.preventDefault();
       const prevOp = this.current!.operator;
       const next: Settings = {
-        anthropic_api_key: apiKey.value.trim() === "" ? null : apiKey.value,
+        anthropic_api_key: this.current!.providers?.anthropic?.api_key?.trim()
+          ? this.current!.providers.anthropic.api_key
+          : null,
         sendgrid_api_key: sendgridKeyInput.value.trim() === "" ? null : sendgridKeyInput.value,
         agent: {
           model_summary: this.current!.agent.model_summary,
