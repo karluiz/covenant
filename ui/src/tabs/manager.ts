@@ -4037,7 +4037,7 @@ export class TabManager {
     items.push({ divider: true });
     items.push({
       label: (tab.operatorEnabled || tab.operator_id) ? "Remove operator" : "Set operator",
-      icon: Icons.bot(),
+      icon: Icons.headphones(),
       onClick: () => {
         if (tab.operatorEnabled || tab.operator_id) {
           // Unpin + disable in one shot. setTabOperator(null) flips
@@ -4059,7 +4059,7 @@ export class TabManager {
           label: tab.aomExcluded
             ? "Operator: dry-run (excluded from AOM)"
             : "Operator: AOM is driving this tab (LIVE)",
-          icon: Icons.bot(),
+          icon: Icons.headphones(),
           disabled: true,
           onClick: () => {
             /* informational only */
@@ -4069,7 +4069,7 @@ export class TabManager {
           label: tab.aomExcluded
             ? "Include in AOM"
             : "Exclude from AOM (keep this tab manual)",
-          icon: Icons.bot(),
+          icon: Icons.headphones(),
           onClick: () => this.toggleAomExcluded(tab.id),
         });
       } else {
@@ -4078,7 +4078,7 @@ export class TabManager {
           label: tab.operatorLive
             ? "Operator: stop typing (back to dry-run)"
             : "Operator: start typing into this tab (LIVE)",
-          icon: Icons.bot(),
+          icon: Icons.headphones(),
           danger: !tab.operatorLive,
           onClick: () => this.toggleOperatorLive(tab.id),
         });

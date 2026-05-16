@@ -891,7 +891,7 @@ function operatorSegment(state: { enabled: boolean; live: boolean }): HTMLElemen
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
-  icon.innerHTML = Icons.bot({ size: 12 });
+  icon.innerHTML = Icons.headphones({ size: 12 });
   el.appendChild(icon);
 
   const text = document.createElement("span");
@@ -1098,7 +1098,7 @@ function addOperatorSegment(onClick: () => void): HTMLElement {
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
-  icon.innerHTML = Icons.bot({ size: 12 });
+  icon.innerHTML = Icons.headphones({ size: 12 });
   el.appendChild(icon);
 
   const text = document.createElement("span");

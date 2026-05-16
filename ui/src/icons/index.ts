@@ -23,10 +23,21 @@ function svg(paths: string, opts?: IconOptions): string {
 }
 
 export const Icons = {
-  /** Robot — operator / autonomous agent. */
+  /** Robot — used historically for operator/agent. Kept for back-compat;
+   * new operator-context call sites should prefer `headphones`. */
   bot: (o?: IconOptions): string =>
     svg(
       `<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>`,
+      o,
+    ),
+
+  /** Headphones — primary glyph for "operator" (the switchboard
+   * metaphor: a person at a console driving the session). Replaces
+   * `bot` in operator chips, the Set-operator menu entry, and the
+   * convergence inbox empty state. */
+  headphones: (o?: IconOptions): string =>
+    svg(
+      `<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H4a1 1 0 0 1-1-1v-9a9 9 0 0 1 18 0v9a1 1 0 0 1-1 1h-2a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>`,
       o,
     ),
 
