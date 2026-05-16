@@ -17,7 +17,33 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use karl_agent::provider::ProviderKind;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    Summary,
+    Chat,
+    Operator,
+    Triage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderEntry {
+    pub kind: ProviderKind,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteEntry {
+    pub provider_id: String,
+    pub model: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -29,6 +55,12 @@ pub struct Settings {
     /// whitespace-only values are normalized to `None` on save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sendgrid_api_key: Option<String>,
+
+    #[serde(default)]
+    pub providers: HashMap<String, ProviderEntry>,
+
+    #[serde(default = "default_model_routes")]
+    pub model_routes: HashMap<Role, RouteEntry>,
 
     #[serde(default)]
     pub agent: AgentConfig,
@@ -213,11 +245,62 @@ fn default_digest_window() -> u32 {
     15
 }
 
+fn default_model_routes() -> HashMap<Role, RouteEntry> {
+    let mut m = HashMap::new();
+    m.insert(Role::Summary, RouteEntry {
+        provider_id: "anthropic".into(),
+        model: "claude-sonnet-4-6".into(),
+    });
+    m.insert(Role::Chat, RouteEntry {
+        provider_id: "anthropic".into(),
+        model: "claude-opus-4-7".into(),
+    });
+    m.insert(Role::Operator, RouteEntry {
+        provider_id: "anthropic".into(),
+        model: "claude-sonnet-4-6".into(),
+    });
+    m.insert(Role::Triage, RouteEntry {
+        provider_id: "anthropic".into(),
+        model: karl_agent::DEFAULT_TRIAGE_MODEL.into(),
+    });
+    m
+}
+
+fn default_anthropic_entry(api_key: Option<String>) -> ProviderEntry {
+    ProviderEntry {
+        kind: ProviderKind::Anthropic,
+        label: "Anthropic".into(),
+        api_key,
+        base_url: None,
+    }
+}
+
+fn migrate_legacy(mut s: Settings) -> Settings {
+    if !s.providers.contains_key("anthropic") {
+        s.providers.insert(
+            "anthropic".into(),
+            default_anthropic_entry(s.anthropic_api_key.clone()),
+        );
+    } else if let Some(entry) = s.providers.get_mut("anthropic") {
+        if entry.api_key.is_none() {
+            entry.api_key = s.anthropic_api_key.clone();
+        }
+    }
+    if s.model_routes.is_empty() {
+        s.model_routes = default_model_routes();
+    }
+    s
+}
+
 impl Default for Settings {
     fn default() -> Self {
+        let mut providers = HashMap::new();
+        providers.insert("anthropic".into(), default_anthropic_entry(None));
         Self {
             anthropic_api_key: None,
             sendgrid_api_key: None,
+            providers,
+            model_routes: default_model_routes(),
             agent: AgentConfig::default(),
             operator: OperatorConfig::default(),
             terminal: TerminalConfig::default(),
@@ -514,14 +597,14 @@ fn default_max_decisions_per_minute() -> u32 {
 /// file silently).
 pub fn load(path: &Path) -> Settings {
     match fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
+        Ok(text) => migrate_legacy(serde_json::from_str(&text).unwrap_or_else(|e| {
             tracing::warn!(
                 error = ?e,
                 path = %path.display(),
                 "settings file unparseable, using defaults — not overwriting"
             );
             Settings::default()
-        }),
+        })),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
         Err(e) => {
             tracing::warn!(
@@ -683,6 +766,44 @@ mod tests {
         let d: OperatorConfig = serde_json::from_str(&s).unwrap();
         assert!(d.mind_v2);
         assert_eq!(d.mind_thinking_budget, 1500);
+    }
+
+    #[test]
+    fn migrates_legacy_anthropic_key_into_providers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path,
+            r#"{"anthropic_api_key":"sk-ant-legacy"}"#).unwrap();
+        let s = load(&path);
+        let anthropic = s.providers.get("anthropic").expect("default anthropic entry");
+        assert_eq!(anthropic.api_key.as_deref(), Some("sk-ant-legacy"));
+    }
+
+    #[test]
+    fn model_routes_default_to_anthropic_provider() {
+        let s = Settings::default();
+        let summary = s.model_routes.get(&Role::Summary).expect("summary route");
+        assert_eq!(summary.provider_id, "anthropic");
+        assert_eq!(summary.model, "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn round_trip_preserves_ollama_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut s = Settings::default();
+        s.providers.insert(
+            "ollama".into(),
+            ProviderEntry {
+                kind: karl_agent::provider::ProviderKind::OpenAiCompat,
+                api_key: None,
+                base_url: Some("http://localhost:11434/v1".into()),
+                label: "Ollama (local)".into(),
+            },
+        );
+        save(&path, &s).unwrap();
+        let loaded = load(&path);
+        assert!(loaded.providers.contains_key("ollama"));
     }
 
     #[test]
