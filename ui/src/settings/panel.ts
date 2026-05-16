@@ -673,12 +673,16 @@ export class SettingsPanel {
       r.checked = r.value === currentTabbarPos;
     });
     uiFont.value = this.current.ui_font_family ?? "";
-    const n = this.current.notifications ?? {
+    const n: NotificationConfig = this.current.notifications ?? {
       on_operator_escalate: true,
       on_aom_error: true,
       on_aom_complete: true,
       on_executor_idle: true,
       suppress_when_focused: true,
+      email_enabled: false,
+      email_from: null,
+      email_to: null,
+      email_digest_window_minutes: 15,
     };
     notifOpEscalate.checked = n.on_operator_escalate;
     notifAomError.checked = n.on_aom_error;
