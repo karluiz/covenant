@@ -2972,6 +2972,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "karl-score"
+version = "0.5.20"
+dependencies = [
+ "chrono",
+ "once_cell",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "karl-session"
 version = "0.5.20"
 dependencies = [

@@ -1,0 +1,53 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventKind {
+    Prompt,
+    Commit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreEvent {
+    pub timestamp_ms: i64,
+    pub kind: EventKind,
+    /// "anthropic" / "openai_compat" / "<repo>:<sha7>" for commits
+    pub executor: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyCell {
+    /// ISO date (YYYY-MM-DD), local tz of recording device.
+    pub day: String,
+    pub prompts: u32,
+    pub commits: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Summary {
+    pub total_prompts: u64,
+    pub total_commits: u64,
+    pub today_prompts: u32,
+    pub today_commits: u32,
+    pub current_streak: u32,
+    pub longest_streak: u32,
+}
+
+pub fn day_from_ms_local(ms: i64) -> String {
+    let dt: DateTime<Utc> = DateTime::from_timestamp_millis(ms).unwrap_or_default();
+    let local = dt.with_timezone(&chrono::Local);
+    local.format("%Y-%m-%d").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn day_format_matches_iso() {
+        let d = day_from_ms_local(0);
+        // 1970-01-01 in any tz produces YYYY-MM-DD shape
+        assert_eq!(d.len(), 10);
+        assert_eq!(&d[4..5], "-");
+    }
+}
