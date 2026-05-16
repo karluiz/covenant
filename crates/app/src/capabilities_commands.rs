@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use karl_capabilities::adapters::{claude, codex, copilot, opencode, shared};
+use karl_capabilities::adapters::{claude, codex, copilot, opencode, pi, shared};
 use karl_capabilities::model::{Kind, Tool};
 use karl_capabilities::scaffold::{render, ScaffoldRequest};
 use karl_capabilities::writer::{delete_with_backup, write_atomic};
@@ -33,6 +33,7 @@ pub struct DetectResult {
     pub copilot: bool,
     pub opencode: bool,
     pub codex: bool,
+    pub pi: bool,
     pub shared: bool,
 }
 
@@ -287,6 +288,74 @@ fn item_from_codex(c: codex::Capability) -> CapabilityListItem {
     }
 }
 
+fn item_from_pi(c: pi::Capability) -> CapabilityListItem {
+    let scope_label = |s: &pi::PiScope| match s {
+        pi::PiScope::User => "user".to_string(),
+        pi::PiScope::Project(p) => format!(
+            "project:{}",
+            p.file_name().and_then(|s| s.to_str()).unwrap_or("project")
+        ),
+    };
+    match c {
+        pi::Capability::Extension(e) => {
+            let path = e.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&e.scope);
+            CapabilityListItem {
+                id: format!("pi:extension:{path}"),
+                tool: "pi".into(),
+                kind: "extension".into(),
+                name: e.name,
+                description: Some("Pi extension".to_string()),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+        pi::Capability::Skill(s) => {
+            let path = s.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&s.scope);
+            CapabilityListItem {
+                id: format!("pi:skill:{path}"),
+                tool: "pi".into(),
+                kind: "skill".into(),
+                name: s.name,
+                description: Some(s.description),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+        pi::Capability::Prompt(p) => {
+            let path = p.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&p.scope);
+            CapabilityListItem {
+                id: format!("pi:prompt:{path}"),
+                tool: "pi".into(),
+                kind: "command".into(),
+                name: p.name,
+                description: Some(p.description),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+        pi::Capability::Config(c) => {
+            let path = c.path.to_string_lossy().into_owned();
+            let lbl = scope_label(&c.scope);
+            CapabilityListItem {
+                id: format!("pi:config:{path}"),
+                tool: "pi".into(),
+                kind: "config".into(),
+                name: "config.json".to_string(),
+                description: Some("Pi agent configuration".to_string()),
+                path,
+                scope_label: lbl,
+                read_only: false,
+            }
+        }
+    }
+}
+
 fn item_from_shared(s: shared::SharedSkill) -> CapabilityListItem {
     let path = s.path.to_string_lossy().into_owned();
     let scope_label = match (s.source.as_deref(), s.version.as_deref()) {
@@ -346,6 +415,14 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
             .map_err(|e| format!("codex scan_user: {e}"))?
             .into_iter()
             .map(item_from_codex),
+    );
+
+    // Pi: user scope (~/.pi/{extensions,skills,prompts,config.json}).
+    out.extend(
+        pi::scan_user(&home)
+            .map_err(|e| format!("pi scan_user: {e}"))?
+            .into_iter()
+            .map(item_from_pi),
     );
 
     // Shared ~/.agents/skills.
@@ -570,6 +647,7 @@ pub async fn capabilities_detect() -> Result<DetectResult, String> {
         opencode: h_clone.join(".config/opencode").is_dir()
             || h_clone.join(".opencode/bin/opencode").is_file(),
         codex: codex::detect(&h_clone),
+        pi: pi::detect(&h_clone),
         shared: shared::detect(&h_clone),
     })
     .await
@@ -592,7 +670,7 @@ mod tests {
     async fn detect_returns_struct() {
         let r = capabilities_detect().await.unwrap();
         // Fields are bool; just confirm we can read them.
-        let _ = (r.claude, r.copilot, r.opencode, r.codex, r.shared);
+        let _ = (r.claude, r.copilot, r.opencode, r.codex, r.pi, r.shared);
     }
 
     #[test]
