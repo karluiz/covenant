@@ -660,7 +660,10 @@ async function boot(): Promise<void> {
   manager.onTabActivated = () => {
     if (capabilities.isOpen()) capabilities.close();
     if (settings.isOpen()) settings.close();
-    if (release.isOpen()) release.close();
+    // Note: don't dismiss the release modal here. It's a centered
+    // "what's new" dialog auto-shown on version bump — during boot,
+    // tab restoration fires onTabActivated and would close it the
+    // moment it appeared. The user closes it via ×, ESC, or backdrop.
     if (shortcutsPanel.isOpen()) shortcutsPanel.close();
     if (aomReportPanel.isOpen()) aomReportPanel.close();
     if (docsPanel.isOpen()) docsPanel.close();
@@ -886,7 +889,8 @@ async function boot(): Promise<void> {
       }
       return;
     }
-    // ⌘⇧F → global file-content search across the active tab's cwd.
+    // ⌘⇧F → search palette. Default mode is content (grep); Tab inside
+    // the overlay toggles to fuzzy filename mode.
     if (e.metaKey && e.shiftKey && (e.key === "F" || e.key === "f")) {
       e.preventDefault();
       searchPalette.toggle();

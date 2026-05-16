@@ -390,6 +390,141 @@ pub fn search(root: &Path, query: &str, limit: u32) -> Result<Vec<SearchHit>, St
     Ok(hits)
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FileHit {
+    /// Absolute path on disk.
+    pub path: String,
+    /// Path relative to the search root, with forward slashes — what the UI shows.
+    pub rel_path: String,
+    /// Char offsets within `rel_path` where the fuzzy subsequence matched.
+    /// Empty when the query is empty (we never return hits in that case).
+    pub match_indices: Vec<u32>,
+}
+
+/// Fuzzy filename finder over `root`. Honors the same ignore set as
+/// `search`. Match is a case-insensitive subsequence of `query` against
+/// `rel_path`; results are scored so basename hits and contiguous runs
+/// rank above scattered matches deep in the tree.
+///
+/// Empty query → Ok(vec![]). Useful for the UI's debounced calls.
+pub fn find_files(root: &Path, query: &str, limit: u32) -> Result<Vec<FileHit>, String> {
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !root.is_dir() {
+        return Err(format!("not a directory: {}", root.display()));
+    }
+    let needle: Vec<char> = query.to_lowercase().chars().collect();
+    let limit = limit as usize;
+
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .git_global(false)
+        .require_git(false)
+        .filter_entry(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .map(|n| !HARDCODED_IGNORES.iter().any(|h| *h == n))
+                .unwrap_or(true)
+        })
+        .build();
+
+    // (score, hit) — keep the best `limit` overall, sorted by score desc.
+    let mut scored: Vec<(i32, FileHit)> = Vec::new();
+
+    for entry in walker {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let ft = match entry.file_type() {
+            Some(ft) => ft,
+            None => continue,
+        };
+        if !ft.is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let rel = path.strip_prefix(root).unwrap_or(path);
+        let rel_str: String = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        if rel_str.is_empty() {
+            continue;
+        }
+        let (score, indices) = match fuzzy_score(&rel_str, &needle) {
+            Some(v) => v,
+            None => continue,
+        };
+        scored.push((
+            score,
+            FileHit {
+                path: path.display().to_string(),
+                rel_path: rel_str,
+                match_indices: indices.into_iter().map(|c| c as u32).collect(),
+            },
+        ));
+    }
+
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.rel_path.cmp(&b.1.rel_path)));
+    scored.truncate(limit);
+    Ok(scored.into_iter().map(|(_, h)| h).collect())
+}
+
+/// Case-insensitive subsequence match. Returns (score, char_indices_in_haystack)
+/// or None if any needle char can't be matched in order.
+///
+/// Scoring (higher is better):
+///   +50 per char that lands in the basename (after the last '/')
+///   +20 per char that is contiguous with the previous match
+///   +30 if the first match is at the basename start
+///   −1  per char of haystack length (shorter paths win on ties)
+fn fuzzy_score(haystack: &str, needle: &[char]) -> Option<(i32, Vec<usize>)> {
+    if needle.is_empty() {
+        return None;
+    }
+    let hay: Vec<char> = haystack.chars().collect();
+    let hay_lower: Vec<char> = haystack.to_lowercase().chars().collect();
+    let basename_start = haystack
+        .rfind('/')
+        .map(|b| haystack[..=b].chars().count())
+        .unwrap_or(0);
+
+    let mut indices = Vec::with_capacity(needle.len());
+    let mut score: i32 = 0;
+    let mut hi = 0usize;
+    let mut last_idx: Option<usize> = None;
+    for &nc in needle {
+        while hi < hay_lower.len() && hay_lower[hi] != nc {
+            hi += 1;
+        }
+        if hi == hay_lower.len() {
+            return None;
+        }
+        if hi >= basename_start {
+            score += 50;
+        }
+        if let Some(prev) = last_idx {
+            if hi == prev + 1 {
+                score += 20;
+            }
+        }
+        if indices.is_empty() && hi == basename_start {
+            score += 30;
+        }
+        indices.push(hi);
+        last_idx = Some(hi);
+        hi += 1;
+    }
+    score -= hay.len() as i32;
+    Some((score, indices))
+}
+
 /// If the line is short enough, return as-is. Otherwise crop a window
 /// around the match (with a leading ellipsis if we cut from the left,
 /// trailing ellipsis if from the right) and adjust the match offsets

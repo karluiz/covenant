@@ -2876,12 +2876,19 @@ export class TabManager {
   /// mind-loss confirm modal (the user already accepted at the settings
   /// import prompt) and rebuild from the supplied manifest. Throws on
   /// invalid manifest so callers can surface an error toast.
-  async replaceFromManifest(m: TabManifestV1): Promise<void> {
+  async replaceFromManifest(
+    m: TabManifestV1,
+    opts?: { silent?: boolean },
+  ): Promise<void> {
     if (m.version !== 1 || !Array.isArray(m.tabs)) {
       throw new Error("invalid manifest");
     }
     this.inReplace = true;
-    document.body.classList.add("workspace-switching");
+    // First-boot restore passes `silent: true` so the workspace-switch
+    // loader doesn't flash on app launch — that overlay is meant for
+    // explicit user-driven workspace swaps, not for initial hydration.
+    const showLoader = !opts?.silent;
+    if (showLoader) document.body.classList.add("workspace-switching");
     try {
       const existing = this.tabs.slice();
       for (const t of existing) this.finalizeCloseTab(t.id);
@@ -2889,7 +2896,7 @@ export class TabManager {
       await this.restoreFromManifest(m);
     } finally {
       this.inReplace = false;
-      document.body.classList.remove("workspace-switching");
+      if (showLoader) document.body.classList.remove("workspace-switching");
     }
     this.scheduleSave();
   }

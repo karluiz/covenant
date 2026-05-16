@@ -1686,6 +1686,23 @@ body:not(.tabbar-left) #new-group {
   flex-shrink: 0;
 }
 
+.global-search-mode {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  background: var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.global-search-file-hit {
+  padding-left: 14px;
+}
+
 .global-search-results {
   flex: 1;
   overflow-y: auto;

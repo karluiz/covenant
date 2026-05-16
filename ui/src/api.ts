@@ -859,6 +859,26 @@ export async function structureSearch(
   return invoke<SearchHit[]>("structure_search", { cwd, query, limit });
 }
 
+/// One match from a fuzzy filename search. `match_indices` are CHAR
+/// offsets within `rel_path` where the needle subsequence landed —
+/// the UI bolds those positions.
+export interface FileHit {
+  path: string;
+  rel_path: string;
+  match_indices: number[];
+}
+
+/// Fuzzy filename search across `cwd`, honoring the same ignores as
+/// `structureSearch`. Empty query returns []. Results are pre-sorted
+/// by score (basename + contiguous-run boosts) on the server.
+export async function structureFindFiles(
+  cwd: string,
+  query: string,
+  limit: number,
+): Promise<FileHit[]> {
+  return invoke<FileHit[]>("structure_find_files", { cwd, query, limit });
+}
+
 // 3.8 Convergence Mode -----------------------------------------------------
 
 export type TileStatus =

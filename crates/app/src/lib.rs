@@ -2223,6 +2223,20 @@ async fn structure_search(
         .map_err(|e| format!("search join: {e}"))?
 }
 
+/// Fuzzy filename finder over `cwd`. Pairs with `structure_search`:
+/// same ignore rules, but matches against paths instead of contents.
+#[tauri::command]
+async fn structure_find_files(
+    cwd: String,
+    query: String,
+    limit: u32,
+) -> Result<Vec<structure::FileHit>, String> {
+    let p = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || structure::find_files(&p, &query, limit))
+        .await
+        .map_err(|e| format!("find_files join: {e}"))?
+}
+
 // ── 3.18 Spec Author — DTOs & Tauri commands ─────────────────────────────────
 
 #[derive(serde::Serialize)]
@@ -2918,6 +2932,7 @@ pub fn run() {
             structure_rename_path,
             structure_trash_path,
             structure_search,
+            structure_find_files,
             drafts::list_drafts,
             drafts::read_draft,
             drafts::save_draft,

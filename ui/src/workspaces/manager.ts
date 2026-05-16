@@ -112,13 +112,13 @@ export class WorkspaceManager {
       if (active.tabs.length === 0) {
         // Empty workspace (fresh boot or migration-from-nothing). Spin
         // up one fresh tab via the standard createTab path.
-        await this.tabManager.replaceFromManifest(workspaceAsV1Body(active));
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(active), { silent: true });
         // replaceFromManifest with zero tabs leaves us empty; createTab.
         if (this.tabManager.activeSessionId() === null) {
           await this.tabManager.createTab();
         }
       } else {
-        await this.tabManager.replaceFromManifest(workspaceAsV1Body(active));
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(active), { silent: true });
       }
       active.last_used_at = nowMs();
     } finally {
