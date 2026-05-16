@@ -19,6 +19,7 @@ import { renderFamiliarsSettings } from "../familiars/settings_panel";
 import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
 import { renderProvidersTab } from "./providers";
+import { renderModelsTab } from "./model_routes";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -292,16 +293,7 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-models">
           <h3 class="settings-section-title">Models</h3>
-          <label class="settings-field">
-            <span class="settings-label">Summary model</span>
-            <input type="text" name="model_summary" autocomplete="off" spellcheck="false" />
-            <small class="settings-hint">Used for per-session rolling summaries (frequent, cheap).</small>
-          </label>
-          <label class="settings-field">
-            <span class="settings-label">Chat model (⌘K)</span>
-            <input type="text" name="model_chat" autocomplete="off" spellcheck="false" />
-            <small class="settings-hint">Used when you ask the agent a question.</small>
-          </label>
+          <div id="models-routes-root"></div>
           <label class="settings-field">
             <span class="settings-label">Max calls / minute / session</span>
             <input type="number" name="max_calls" min="1" max="60" />
@@ -614,8 +606,6 @@ export class SettingsPanel {
     `;
 
     const apiKey = form.querySelector<HTMLInputElement>('input[name="api_key"]')!;
-    const modelSummary = form.querySelector<HTMLInputElement>('input[name="model_summary"]')!;
-    const modelChat = form.querySelector<HTMLInputElement>('input[name="model_chat"]')!;
     const maxCalls = form.querySelector<HTMLInputElement>('input[name="max_calls"]')!;
     const aomBudget = form.querySelector<HTMLInputElement>('input[name="aom_budget"]')!;
     const mindV2Input = form.querySelector<HTMLInputElement>('input[name="mind_v2"]')!;
@@ -678,8 +668,6 @@ export class SettingsPanel {
     const sendgridKeyWarn = form.querySelector<HTMLElement>('#sendgrid-key-warn')!;
 
     apiKey.value = this.current.anthropic_api_key ?? "";
-    modelSummary.value = this.current.agent.model_summary;
-    modelChat.value = this.current.agent.model_chat;
     maxCalls.value = String(this.current.agent.max_calls_per_minute);
     aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
     mindV2Input.checked = this.current.operator.mind_v2;
@@ -787,6 +775,18 @@ export class SettingsPanel {
         });
       };
       renderProviders();
+    }
+
+    const modelsRoutesRoot = form.querySelector<HTMLElement>("#models-routes-root");
+    if (modelsRoutesRoot && this.current) {
+      const renderModels = (): void => {
+        if (!this.current || !modelsRoutesRoot) return;
+        renderModelsTab(modelsRoutesRoot, this.current, (next) => {
+          this.current = next;
+          renderModels();
+        });
+      };
+      renderModels();
     }
 
     const opMount = form.querySelector<HTMLElement>("#operators-pane");
@@ -973,8 +973,8 @@ export class SettingsPanel {
         anthropic_api_key: apiKey.value.trim() === "" ? null : apiKey.value,
         sendgrid_api_key: sendgridKeyInput.value.trim() === "" ? null : sendgridKeyInput.value,
         agent: {
-          model_summary: modelSummary.value.trim() || "claude-sonnet-4-6",
-          model_chat: modelChat.value.trim() || "claude-opus-4-7",
+          model_summary: this.current!.agent.model_summary,
+          model_chat: this.current!.agent.model_chat,
           max_calls_per_minute: Math.max(
             1,
             Math.min(60, Number(maxCalls.value) || 6),
