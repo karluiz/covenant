@@ -18,6 +18,7 @@ import { pushInfoToast } from "../notifications/toast";
 import { renderFamiliarsSettings } from "../familiars/settings_panel";
 import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
+import { renderProvidersTab } from "./providers";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -71,6 +72,18 @@ interface NotificationConfig {
   email_digest_window_minutes: number;
 }
 
+interface ProviderEntry {
+  kind: "anthropic" | "openai_compat";
+  label: string;
+  api_key?: string | null;
+  base_url?: string | null;
+}
+
+interface RouteEntry {
+  provider_id: string;
+  model: string;
+}
+
 interface Settings {
   anthropic_api_key: string | null;
   sendgrid_api_key?: string | null;
@@ -79,13 +92,16 @@ interface Settings {
   terminal: TerminalConfig;
   window: WindowConfig;
   aom: AomConfig;
-  notifications: NotificationConfig;
+  notifications?: NotificationConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
   familiars_enabled: boolean;
+  is_premium: boolean;
   telegram?: TelegramSettings;
+  providers?: Record<string, ProviderEntry>;
+  model_routes?: Record<string, RouteEntry>;
 }
 
 type TabbarPosition = "top" | "left";
@@ -187,6 +203,7 @@ export class SettingsPanel {
         tabbar_position: "top",
         ui_font_family: null,
         familiars_enabled: false,
+        is_premium: false,
       };
     }
     this.workspace.hidden = true;
@@ -225,6 +242,7 @@ export class SettingsPanel {
     const nav = document.createElement("nav");
     nav.className = "settings-nav";
     nav.innerHTML = `
+      <a href="#sec-providers" data-target="sec-providers">Providers</a>
       <a href="#sec-anthropic" data-target="sec-anthropic">Anthropic</a>
       <a href="#sec-models" data-target="sec-models">Models</a>
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
@@ -244,6 +262,15 @@ export class SettingsPanel {
     body.appendChild(form);
 
     form.innerHTML = `
+        <section class="settings-section" id="sec-providers">
+          <h3 class="settings-section-title">Providers</h3>
+          <p class="settings-section-desc">
+            Configure LLM providers. The built-in Anthropic provider uses your
+            API key below. Add OpenAI-compatible endpoints (Ollama, LM Studio,
+            etc.) to route models locally.
+          </p>
+          <div id="providers-tab-root"></div>
+        </section>
         <section class="settings-section" id="sec-anthropic">
           <h3 class="settings-section-title">Anthropic</h3>
           <label class="settings-field">
@@ -750,6 +777,18 @@ export class SettingsPanel {
 
     apiKey.focus();
 
+    const providersRoot = form.querySelector<HTMLElement>("#providers-tab-root");
+    if (providersRoot && this.current) {
+      const renderProviders = (): void => {
+        if (!this.current || !providersRoot) return;
+        renderProvidersTab(providersRoot, this.current, (next) => {
+          this.current = next;
+          renderProviders();
+        });
+      };
+      renderProviders();
+    }
+
     const opMount = form.querySelector<HTMLElement>("#operators-pane");
     if (opMount) {
       this.operatorsPane = new OperatorsPane(opMount);
@@ -989,7 +1028,10 @@ export class SettingsPanel {
             ?.value as TabbarPosition) || "top",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
         familiars_enabled: this.current!.familiars_enabled,
+        is_premium: this.current!.is_premium,
         telegram: this.current!.telegram,
+        providers: this.current!.providers,
+        model_routes: this.current!.model_routes,
       };
       try {
         await setSettings(next);
