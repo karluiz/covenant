@@ -103,6 +103,37 @@ pub fn read_tail(data_dir: &Path, key: &str) -> Vec<u8> {
     }
     let mut buf = Vec::with_capacity((len - start) as usize);
     let _ = file.read_to_end(&mut buf);
+    trim_after_last_command_finish(buf)
+}
+
+/// Cut everything after the terminator of the last OSC 133;D marker.
+///
+/// Without this, every reopen replays the trailing prompt the previous
+/// shell drew before exit — and since the freshly-spawned shell draws
+/// its own prompt on top, tabs that never ran a command accumulate one
+/// stacked `~ %` line per session. By trimming to the last "command
+/// finished" boundary we keep the history of real output and let the
+/// live shell own the next prompt.
+///
+/// If no `D` marker is present (tab never ran a command), returns an
+/// empty vec — nothing useful to replay.
+fn trim_after_last_command_finish(buf: Vec<u8>) -> Vec<u8> {
+    const MARKER: &[u8] = b"\x1b]133;D";
+    let Some(start) = buf.windows(MARKER.len()).rposition(|w| w == MARKER) else {
+        return Vec::new();
+    };
+    // Find the OSC terminator after the marker: BEL (0x07) or ST (ESC \).
+    let mut i = start + MARKER.len();
+    while i < buf.len() {
+        if buf[i] == 0x07 {
+            return buf[..=i].to_vec();
+        }
+        if buf[i] == 0x1b && i + 1 < buf.len() && buf[i + 1] == b'\\' {
+            return buf[..=i + 1].to_vec();
+        }
+        i += 1;
+    }
+    // Marker without a terminator in the tail — fall back to whole buf.
     buf
 }
 
@@ -153,8 +184,11 @@ mod tests {
             let mut w = Writer::new(open_writer(dir.path(), key).unwrap());
             w.append(b"hello ");
             w.append(b"world");
+            // Trim is keyed on OSC 133;D — include one so read_tail
+            // doesn't (correctly) discard a pre-command tail.
+            w.append(b"\x1b]133;D;0\x07");
         }
-        assert_eq!(read_tail(dir.path(), key), b"hello world");
+        assert_eq!(read_tail(dir.path(), key), b"hello world\x1b]133;D;0\x07");
     }
 
     #[test]
@@ -168,6 +202,35 @@ mod tests {
         let _ = open_writer(dir.path(), key).unwrap();
         let meta = fs::metadata(&path).unwrap();
         assert_eq!(meta.len(), MAX_BYTES);
+    }
+
+    #[test]
+    fn replay_trims_trailing_prompt_after_last_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = "01TRIM";
+        let mut log = Vec::new();
+        log.extend_from_slice(b"\x1b]133;A\x07prompt$ \x1b]133;B\x07ls\r\n");
+        log.extend_from_slice(b"file1 file2\r\n");
+        log.extend_from_slice(b"\x1b]133;D;0\x07");
+        // Trailing prompt the old shell drew before exit — must be cut.
+        log.extend_from_slice(b"\x1b]133;A\x07prompt$ ");
+        let path = path_for(dir.path(), key);
+        fs::create_dir_all(dir_for(dir.path())).unwrap();
+        fs::write(&path, &log).unwrap();
+        let tail = read_tail(dir.path(), key);
+        assert!(tail.ends_with(b"\x1b]133;D;0\x07"));
+        assert!(!tail.windows(8).any(|w| w == b"prompt$ " && tail.ends_with(w)));
+    }
+
+    #[test]
+    fn replay_empty_when_no_command_ever_finished() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = "01EMPTY";
+        let path = path_for(dir.path(), key);
+        fs::create_dir_all(dir_for(dir.path())).unwrap();
+        // Just a prompt, no command finished marker.
+        fs::write(&path, b"\x1b]133;A\x07prompt$ ").unwrap();
+        assert!(read_tail(dir.path(), key).is_empty());
     }
 
     #[test]
