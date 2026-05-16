@@ -45,3 +45,29 @@ fn streak_increments_for_consecutive_days_and_breaks_on_gap() {
     let s = store.summary().unwrap();
     assert_eq!(s.current_streak, 4);
 }
+
+use karl_score::commit_scanner::scan_repo_since;
+use std::process::Command;
+
+#[test]
+fn scan_repo_since_counts_new_commits() {
+    let repo = tempdir().unwrap();
+    let run = |args: &[&str]| {
+        Command::new("git").args(args).current_dir(repo.path()).output().unwrap();
+    };
+    run(&["init", "-q"]);
+    run(&["config", "user.email", "test@x.com"]);
+    run(&["config", "user.name", "test"]);
+    std::fs::write(repo.path().join("a.txt"), "1").unwrap();
+    run(&["add", "."]);
+    run(&["commit", "-m", "one"]);
+    std::fs::write(repo.path().join("a.txt"), "2").unwrap();
+    run(&["commit", "-am", "two"]);
+
+    let dir = tempdir().unwrap();
+    let store = karl_score::ScoreStore::open(dir.path()).unwrap();
+    let n = scan_repo_since(repo.path(), "test@x.com", 0, &store).unwrap();
+    assert_eq!(n, 2);
+    let s = store.summary().unwrap();
+    assert_eq!(s.total_commits, 2);
+}
