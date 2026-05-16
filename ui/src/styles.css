@@ -1,4 +1,5 @@
 @import "./project-notes/styles.css";
+@import "./executors/pi/pi.css";
 
 /* Global scrollbar reset: WKWebView on macOS with the system setting
    "Show scroll bars: Always" renders the native scrollbar on top of
