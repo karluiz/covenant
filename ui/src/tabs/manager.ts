@@ -67,6 +67,8 @@ import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } f
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
+import { PiChatView } from "../executors/pi/view";
+import { spawnPiSession } from "../api";
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
@@ -127,10 +129,17 @@ function buildTerminalOptions(font: TerminalConfig | null): Record<string, unkno
 
 interface Tab {
   id: string;
+  /// Tab kind discriminator. "shell" (default, also for legacy manifests
+  /// that lack the field) drives the existing xterm + blocks + recall +
+  /// editor pipeline. "pi" hosts a PiChatView in `pane` instead — all
+  /// xterm-specific fields below are undefined for "pi" tabs and every
+  /// xterm-touching method early-returns on `kind === "pi"`.
+  kind: "shell" | "pi";
   /// Stable identifier for scrollback persistence. Unlike `id`, this is
   /// persisted in the tab manifest and survives app restarts — used to
   /// key `<data_dir>/scrollback/<replayKey>.log` so closed-and-reopened
-  /// tabs replay their last PTY bytes into xterm.
+  /// tabs replay their last PTY bytes into xterm. Pi tabs use this as a
+  /// no-op key (Pi owns its own session JSONL).
   replayKey: string;
   sessionId: SessionId;
   /// Default name from the spawn sequence ("zsh 1"). Always present.
@@ -162,26 +171,31 @@ interface Tab {
   /// escalate, File boundaries → constraints. Tab badge surfaces this.
   mission: MissionInfo | null;
   pane: HTMLElement;
-  termHost: HTMLElement;
-  blocksHost: HTMLElement;
-  term: Terminal;
-  fit: FitAddon;
+  /// xterm-specific fields below — populated for "shell" tabs, left
+  /// undefined for "pi" tabs (the pane hosts a PiChatView instead).
+  termHost?: HTMLElement;
+  blocksHost?: HTMLElement;
+  term?: Terminal;
+  fit?: FitAddon;
   /// Held so applyTerminalSettings can call webgl.clearTextureAtlas()
   /// when the font changes — the addon caches glyph bitmaps separately
   /// from the terminal options.
-  webgl: WebglAddon | null;
-  canvas: CanvasAddon | null;
-  ligatures: LigatureHandle | null;
-  blocks: BlockManager;
-  recall: RecallManager;
-  structure: StructureTree;
-  editor: StructureEditor;
+  webgl?: WebglAddon | null;
+  canvas?: CanvasAddon | null;
+  ligatures?: LigatureHandle | null;
+  blocks?: BlockManager;
+  recall?: RecallManager;
+  structure?: StructureTree;
+  editor?: StructureEditor;
   /// All-in-one "open this file in the editor" entry point — handles
   /// un-hiding the editor host + splitter, restoring the persisted
   /// splitter width, opening the file, and refitting the terminal.
   /// Stored as a closure so it can capture the per-tab `showSplitter`
   /// helper without forcing every caller to know the dance.
-  openEditor: (path: string, opts?: { line?: number }) => void;
+  openEditor?: (path: string, opts?: { line?: number }) => void;
+  /// Pi-specific — set when `kind === "pi"`. Subscribes to the Pi RPC
+  /// event stream and renders the chat panel inside `pane`.
+  piView?: PiChatView;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure";
@@ -231,6 +245,9 @@ export interface TabManifestV1 {
 }
 
 interface SerializedTab {
+  /// Tab kind. Optional for backward compat — old manifests default to
+  /// "shell" on restore so existing installs upgrade seamlessly.
+  kind?: "shell" | "pi";
   custom_name: string | null;
   cwd: string | null;
   color: string | null;
@@ -1162,8 +1179,14 @@ export class TabManager {
   focusActive(): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
+    if (tab.kind === "pi") {
+      // Pi tabs focus their own textarea; nothing for the terminal path.
+      const ta = tab.pane.querySelector<HTMLTextAreaElement>(".pi-chat-textarea");
+      ta?.focus();
+      return;
+    }
     try {
-      tab.term.focus();
+      tab.term?.focus();
     } catch {
       /* term may be disposed mid-call */
     }
@@ -1174,25 +1197,27 @@ export class TabManager {
   refitActive(): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
+    if (tab.kind === "pi") return; // no terminal to refit
+    const term = tab.term;
+    const fit = tab.fit;
+    if (!term || !fit) return;
     requestAnimationFrame(() => {
       // Drop any active selection before reflowing: xterm caches selection
       // by buffer coords, and fit() can change cols/rows, leaving the
       // highlight rectangle floating on the wrong row after resize.
       try {
-        tab.term.clearSelection();
+        term.clearSelection();
       } catch {
         /* ignore */
       }
       try {
-        tab.fit.fit();
+        fit.fit();
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn("fit failed on refitActive", err);
       }
-      void resizeSession(tab.sessionId, tab.term.cols, tab.term.rows).catch(
-        () => {},
-      );
-      tab.term.focus();
+      void resizeSession(tab.sessionId, term.cols, term.rows).catch(() => {});
+      term.focus();
     });
   }
 
@@ -1201,6 +1226,8 @@ export class TabManager {
   /// atlas was sized for the old DPR and renders garbled otherwise.
   rebuildWebglAtlases(): void {
     for (const tab of this.tabs) {
+      if (tab.kind === "pi" || !tab.term) continue;
+      const term = tab.term;
       if (tab.webgl) {
         try {
           tab.webgl.dispose();
@@ -1209,7 +1236,7 @@ export class TabManager {
         }
         try {
           const next = new WebglAddon();
-          tab.term.loadAddon(next);
+          term.loadAddon(next);
           tab.webgl = next;
         } catch {
           tab.webgl = null;
@@ -1219,24 +1246,24 @@ export class TabManager {
         // fontSize. xterm has no public clearTextureAtlas for non-WebGL
         // renderers, but option setters force a renderer re-measure.
         try {
-          const size = tab.term.options.fontSize ?? DEFAULT_FONT_SIZE;
-          tab.term.options.fontSize = size + 0.0001;
-          tab.term.options.fontSize = size;
+          const size = term.options.fontSize ?? DEFAULT_FONT_SIZE;
+          term.options.fontSize = size + 0.0001;
+          term.options.fontSize = size;
         } catch {
           /* ignore */
         }
       }
       requestAnimationFrame(() => {
         try {
-          tab.fit.fit();
+          tab.fit?.fit();
         } catch {
           /* ignore */
         }
-        tab.term.refresh(0, tab.term.rows - 1);
+        term.refresh(0, term.rows - 1);
         void resizeSession(
           tab.sessionId,
-          tab.term.cols,
-          tab.term.rows,
+          term.cols,
+          term.rows,
         ).catch(() => {});
       });
     }
@@ -1262,11 +1289,13 @@ export class TabManager {
 
     void document.fonts.ready.then(() => {
       for (const tab of this.tabs) {
+        if (tab.kind === "pi" || !tab.term) continue;
+        const term = tab.term;
         try {
-          tab.term.options.fontFamily = family;
-          tab.term.options.fontSize = size;
-          tab.term.options.letterSpacing = cfg.letter_spacing ?? 0;
-          tab.term.options.lineHeight = cfg.line_height ?? 1.2;
+          term.options.fontFamily = family;
+          term.options.fontSize = size;
+          term.options.letterSpacing = cfg.letter_spacing ?? 0;
+          term.options.lineHeight = cfg.line_height ?? 1.2;
 
           // Ligatures pipeline: canvas renderer + custom font-ligatures
           // joiner. Both must be installed/disposed together.
@@ -1274,14 +1303,14 @@ export class TabManager {
           if (wantLigaturesLive && !tab.canvas) {
             try {
               const c = new CanvasAddon();
-              tab.term.loadAddon(c);
+              term.loadAddon(c);
               tab.canvas = c;
             } catch (err) {
               // eslint-disable-next-line no-console
               console.warn("canvas load failed", err);
             }
             if (tab.canvas) {
-              void attachLigatures(tab.term, family).then((h) => {
+              void attachLigatures(term, family).then((h) => {
                 if (h) tab.ligatures = h;
               });
             }
@@ -1301,7 +1330,7 @@ export class TabManager {
           } else if (wantLigaturesLive && tab.canvas && !tab.ligatures) {
             // Font family changed while already in canvas mode: re-attach
             // ligatures against the new font.
-            void attachLigatures(tab.term, family).then((h) => {
+            void attachLigatures(term, family).then((h) => {
               if (h) tab.ligatures = h;
             });
           }
@@ -1333,15 +1362,15 @@ export class TabManager {
 
           requestAnimationFrame(() => {
             try {
-              tab.fit.fit();
+              tab.fit?.fit();
             } catch {
               /* ignore */
             }
-            tab.term.refresh(0, tab.term.rows - 1);
+            term.refresh(0, term.rows - 1);
             void resizeSession(
               tab.sessionId,
-              tab.term.cols,
-              tab.term.rows,
+              term.cols,
+              term.rows,
             ).catch(() => {});
           });
         } catch (err) {
@@ -1405,7 +1434,8 @@ export class TabManager {
   openFileAtLine(path: string, line?: number): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
-    tab.openEditor(path, line !== undefined ? { line } : undefined);
+    if (tab.kind === "pi") return; // Pi tabs have no editor
+    tab.openEditor?.(path, line !== undefined ? { line } : undefined);
   }
 
   activateByIndex(index: number): void {
@@ -1727,7 +1757,7 @@ export class TabManager {
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) tabRef.current.cwd = event.cwd;
               recall?.setCwd(event.cwd);
-              if (tabRef.current?.structure.isVisible()) {
+              if (tabRef.current?.structure?.isVisible()) {
                 void tabRef.current.structure.setCwd(event.cwd);
               }
               this.scheduleSave();
@@ -1778,12 +1808,12 @@ export class TabManager {
           const view = t?.sidebarView ?? "blocks";
           if (show) {
             blocks!.hide();
-            t?.structure.hide();
+            t?.structure?.hide();
             recall!.show();
           } else {
             recall!.hide();
             if (view === "blocks") blocks!.show();
-            else t?.structure.show();
+            else t?.structure?.show();
           }
         },
         focusTerminal: () => {
@@ -2194,6 +2224,7 @@ export class TabManager {
 
     const tab: Tab = {
       id,
+      kind: "shell",
       replayKey,
       sessionId,
       defaultTitle: `zsh ${seq}`,
@@ -2275,7 +2306,7 @@ export class TabManager {
               void resolveExistingPath(pathPart, cwd)
                 .then((abs) => {
                   if (!abs) return;
-                  tabRef.current?.openEditor(
+                  tabRef.current?.openEditor?.(
                     abs,
                     lineNum !== undefined ? { line: lineNum } : undefined,
                   );
@@ -2319,6 +2350,90 @@ export class TabManager {
     // tab. Without this, the bar keeps showing the previous tab's
     // mission/cwd until the user switches tabs and back, since the
     // activate() path is where those callbacks live.
+    if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
+    this.scheduleSave();
+    return tab;
+  }
+
+  /// Create a Pi RPC tab. Bypasses all xterm/blocks/recall/structure/
+  /// editor setup — the pane hosts a PiChatView wired to a freshly-
+  /// spawned `pi --mode rpc` session. The tab still participates in
+  /// activation, grouping, drag-drop, tabbar render, and manifest
+  /// persistence; xterm-touching methods early-return on `kind: "pi"`.
+  async createPiTab(opts?: {
+    customName?: string | null;
+    color?: string | null;
+    groupId?: string | null;
+    cwd?: string | null;
+    skipActivate?: boolean;
+    provider?: string;
+    model?: string;
+  }): Promise<Tab | null> {
+    const id = crypto.randomUUID();
+    const replayKey = id.replace(/-/g, "").slice(0, 26);
+    const seq = this.nextSeq++;
+
+    const pane = document.createElement("div");
+    pane.className = "tab-pane tab-pane-pi";
+    pane.dataset.tabId = id;
+    pane.hidden = true;
+    this.hideAllPanes();
+    this.workspace.appendChild(pane);
+
+    let sessionId: SessionId;
+    try {
+      sessionId = await spawnPiSession({
+        cwd: opts?.cwd ?? undefined,
+        provider: opts?.provider,
+        model: opts?.model,
+      });
+    } catch (err) {
+      // Spawn failed — surface in-place and drop the pane so we don't
+      // leave dangling DOM. Caller gets null; the tabbar stays clean.
+      pane.remove();
+      console.error("spawnPiSession failed", err);
+      alert(`Could not start Pi: ${String(err)}`);
+      return null;
+    }
+
+    const view = new PiChatView({ sessionId, host: pane });
+
+    const tab: Tab = {
+      id,
+      kind: "pi",
+      replayKey,
+      sessionId,
+      defaultTitle: `pi ${seq}`,
+      customName: opts?.customName ?? null,
+      color: opts?.color ?? null,
+      groupId: opts?.groupId ?? null,
+      operatorEnabled: false,
+      operatorLive: false,
+      aomExcluded: true, // Pi sessions never enter AOM (no shell to drive)
+      mission: null,
+      pane,
+      piView: view,
+      sidebarView: "blocks",
+      cwd: opts?.cwd ?? null,
+      operator_id: null,
+      executor: "pi",
+      disposers: [],
+      specBadge: null,
+    };
+
+    this.tabs.push(tab);
+    if (tab.groupId) {
+      const myIdx = this.tabs.length - 1;
+      let lastGroupIdx = -1;
+      for (let i = 0; i < myIdx; i++) {
+        if (this.tabs[i].groupId === tab.groupId) lastGroupIdx = i;
+      }
+      if (lastGroupIdx >= 0 && lastGroupIdx + 1 !== myIdx) {
+        const [moved] = this.tabs.splice(myIdx, 1);
+        this.tabs.splice(lastGroupIdx + 1, 0, moved);
+      }
+    }
+    this.rememberSessionName(sessionId, tabDisplayName(tab));
     if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
     this.scheduleSave();
     return tab;
@@ -2746,6 +2861,7 @@ export class TabManager {
           )
         : 0,
       tabs: this.tabs.map((t) => ({
+        kind: t.kind,
         custom_name: t.customName,
         cwd: t.cwd,
         color: t.color,
@@ -2792,16 +2908,30 @@ export class TabManager {
     // final array reflects spawn-resolution order — we resort it to
     // manifest order before activating.
     const created = await Promise.all(
-      m.tabs.map((t) =>
-        this.createTab({
+      m.tabs.map((t) => {
+        if (t.kind === "pi") {
+          // Pi tabs restore by spawning a fresh `pi --mode rpc` session.
+          // Pi's own --session-dir would let us reattach to an existing
+          // JSONL conversation; v1 just opens a clean session in the
+          // persisted cwd. Real conversation restore needs Pi to confirm
+          // its session-dir convention and ships in a follow-up.
+          return this.createPiTab({
+            customName: t.custom_name,
+            color: t.color,
+            groupId: t.group_id,
+            cwd: t.cwd,
+            skipActivate: true,
+          });
+        }
+        return this.createTab({
           customName: t.custom_name,
           color: t.color,
           groupId: t.group_id,
           cwd: t.cwd,
           skipActivate: true,
           replayKey: t.replay_key ?? null,
-        }),
-      ),
+        });
+      }),
     );
     // Reorder this.tabs to match manifest order. Tabs that failed to
     // spawn (createTab returned null) are dropped from the manifest
@@ -2943,15 +3073,21 @@ export class TabManager {
     tab.specBadge?.destroy();
     tab.specBadge = null;
     for (const d of tab.disposers) d.dispose();
-    void closeSession(tab.sessionId).catch(() => {});
-    // Drop the persisted scrollback log — the tab is gone for good.
-    // Workspace-switch teardown also flows through here, which is the
-    // wrong behavior for those tabs (they reopen in another workspace).
-    // Suppress during in-flight replace.
-    if (!this.inReplace) {
-      void deleteScrollback(tab.replayKey).catch(() => {});
+    if (tab.kind === "pi") {
+      // PiSession owns its own backend lifecycle; PiChatView destroy
+      // also fires closePiSession via closeSession().
+      void tab.piView?.closeSession().catch(() => {});
+    } else {
+      void closeSession(tab.sessionId).catch(() => {});
+      // Drop the persisted scrollback log — the tab is gone for good.
+      // Workspace-switch teardown also flows through here, which is the
+      // wrong behavior for those tabs (they reopen in another workspace).
+      // Suppress during in-flight replace.
+      if (!this.inReplace) {
+        void deleteScrollback(tab.replayKey).catch(() => {});
+      }
+      tab.term?.dispose();
     }
-    tab.term.dispose();
     if (tab.pane.parentElement === this.workspace) {
       this.workspace.removeChild(tab.pane);
     }
@@ -2993,7 +3129,7 @@ export class TabManager {
     // so the re-click on the active tab still has a visible effect.
     if (this.activeId === id) {
       try {
-        tab.editor.close();
+        tab.editor?.close();
       } catch {
         /* ignore */
       }
@@ -3011,6 +3147,18 @@ export class TabManager {
     this.emitActiveTab();
     this.statusBar?.setExecutor(tab.executor);
 
+    if (tab.kind === "pi") {
+      // Pi tabs have no xterm to fit/resize; just hand focus to the
+      // chat textarea so the next keystroke lands in the prompt.
+      const ta = tab.pane.querySelector<HTMLTextAreaElement>(".pi-chat-textarea");
+      ta?.focus();
+      return;
+    }
+
+    const term = tab.term;
+    const fit = tab.fit;
+    if (!term || !fit) return;
+
     // Double-rAF refit. The first pass fits against layout from the
     // synchronous reflow triggered by toggling `pane.hidden`; the second
     // pass corrects for any sub-pixel/cell-metric drift that lands on
@@ -3021,7 +3169,7 @@ export class TabManager {
     // reach the actual last line.
     const doFit = (): void => {
       try {
-        tab.fit.fit();
+        fit.fit();
       } catch (err) {
         // eslint-disable-next-line no-console
         console.warn("fit failed on activation", err);
@@ -3031,11 +3179,9 @@ export class TabManager {
       doFit();
       requestAnimationFrame(() => {
         doFit();
-        void resizeSession(tab.sessionId, tab.term.cols, tab.term.rows).catch(
-          () => {},
-        );
-        tab.term.scrollToBottom();
-        tab.term.focus();
+        void resizeSession(tab.sessionId, term.cols, term.rows).catch(() => {});
+        term.scrollToBottom();
+        term.focus();
       });
     });
   }

@@ -957,12 +957,15 @@ async function boot(): Promise<void> {
       familiarPanel.toggle();
       return;
     }
-    // ⌘⌥P — toggle the Pi panel. Spawns a fresh `pi --mode rpc` session
-    // the first time it's opened; subsequent opens reuse it until close.
-    // PI-5 MVP entry point until Pi becomes a first-class TabKind in PI-6.
-    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "P" || e.key === "p" || e.key === "π")) {
+    // ⌘⌥P — toggle the Pi overlay panel (transient session).
+    // ⌘⌥⇧P — create a permanent Pi tab in the tabbar.
+    if (e.metaKey && e.altKey && (e.key === "P" || e.key === "p" || e.key === "π")) {
       e.preventDefault();
-      void piPanel.toggle({ cwd: manager.activeCwd() ?? null });
+      if (e.shiftKey) {
+        void manager.createPiTab({ cwd: manager.activeCwd() ?? null });
+      } else {
+        void piPanel.toggle({ cwd: manager.activeCwd() ?? null });
+      }
       return;
     }
     // ⌘⇧A — pure AOM toggle: off ↔ on.
