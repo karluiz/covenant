@@ -18,4 +18,4 @@ pub use protocol::{
     PiSessionStats, PiState, StopReason, StreamingBehavior, ThinkingLevel, ToolResultContent,
     ToolResultMessage, UiMethod, UserMessage,
 };
-pub use session::{PiSession, PiSpawnOpts, PiSpawnError};
+pub use session::{parse_session_stats, parse_state, PiSession, PiSpawnError, PiSpawnOpts};
