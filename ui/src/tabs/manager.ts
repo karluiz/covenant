@@ -546,11 +546,13 @@ export class TabManager {
 
   /// Returns the group that owns the currently active tab, or null if
   /// the active tab has no group (or no tabs exist).
-  activeGroup(): { id: string; name: string; color: string | null } | null {
+  activeGroup(): { id: string; name: string; color: string | null; rootDir: string | null } | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab?.groupId) return null;
     const g = this.groups.get(tab.groupId);
-    return g ? { id: g.id, name: g.name, color: g.color ?? null } : null;
+    return g
+      ? { id: g.id, name: g.name, color: g.color ?? null, rootDir: g.rootDir ?? null }
+      : null;
   }
 
   constructor(
