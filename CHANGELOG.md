@@ -6,6 +6,40 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.19 — Filename fuzzy finder in ⌘⇧F + boot polish
+
+### Added
+
+- **Filename mode in the search palette (`ui/src/search/palette.ts`)**:
+  ⌘⇧F now toggles between *content* (grep, the existing behavior) and
+  *files* (fuzzy filename) modes via **Tab**. A mode chip in the header
+  shows which is active and the placeholder swaps to match. The new
+  backend command `structure_find_files` (`crates/app/src/structure.rs`,
+  `crates/app/src/lib.rs`) reuses the same `.gitignore`-honoring walker
+  as `structure_search`; scoring boosts basename hits, contiguous-run
+  matches, and basename-start anchors, while penalizing long paths so
+  short relative paths win on ties. Frontend wrapper `structureFindFiles`
+  added in `ui/src/api.ts`.
+
+### Fixed
+
+- **Boot loader flashed on first launch**: `replaceFromManifest` in
+  `ui/src/tabs/manager.ts` unconditionally added the
+  `body.workspace-switching` class while restoring tabs, which painted
+  the spinner+"Switching workspace…" overlay during initial hydration.
+  The overlay is meant for explicit user-driven workspace swaps; first
+  boot now passes `{ silent: true }` from `ui/src/workspaces/manager.ts`
+  so the loader is skipped. Real switches (`switchTo`, `importIntoActive`)
+  keep the existing UX.
+- **"What's new" modal dismissed itself on boot**: `manager.onTabActivated`
+  in `ui/src/main.ts` called `release.close()` alongside the other
+  fullscreen-panel teardowns. During app launch, tab restoration fires
+  `onTabActivated` for the first restored tab, which closed the release
+  modal the moment it appeared — users saw the loader flash, the modal
+  flash, then everything vanish. The release modal is centered (not a
+  page), so it's been removed from the auto-dismiss set; close via ×,
+  ESC, or backdrop click.
+
 ## v0.5.18 — Boot splash cleanup + editor autocomplete
 
 ### Fixed
