@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.20 — Restore Covenant boot splash + workspace popover anchor
+
+### Fixed
+
+- **Covenant boot splash restored (`ui/index.html`, `ui/src/boot-splash.ts`,
+  `ui/src/styles.css`, `ui/src/main.ts`)**: v0.5.18/.19 removed the branded
+  orb splash along with the unwanted workspace-switch loader, but only the
+  loader was meant to go. The boot splash (orb + "COVENANT" wordmark +
+  "BOOTING…" meta) now paints on the first frame again via inline styles in
+  `index.html`, and `dismissBootSplash()` fades it out after `boot()`
+  resolves. The workspace-switch loader stays suppressed on initial
+  hydration via the `silent` flag on `replaceFromManifest`.
+
+- **Workspace switcher popover anchored mid-screen**: `openPopover` in
+  `ui/src/workspaces/switcher.ts` positioned the popover with
+  `bottom: innerHeight - rect.top` against the chip, but the sticky
+  `#tabbar-actions` container (with `backdrop-filter`) promoted the chip's
+  containing block — so `position: fixed` resolved against the wrong origin
+  and the popover floated mid-screen instead of just above the chip. Now
+  we render the popover off-screen, measure its actual height, and anchor
+  `top` deterministically so it sits 4px above the chip in all layouts.
+
 ## v0.5.19 — Filename fuzzy finder in ⌘⇧F + boot polish
 
 ### Added
