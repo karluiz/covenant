@@ -10,6 +10,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+import { dismissBootSplash } from "./boot-splash";
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
 import { AgentPanel } from "./agent/panel";
@@ -1184,6 +1185,7 @@ async function startupUpdateCheck(): Promise<void> {
 
 void boot()
   .then(() => {
+    dismissBootSplash();
     void startupUpdateCheck();
   })
   .catch((err) => {
@@ -1199,4 +1201,6 @@ void boot()
         ? "This is the Covenant app shell — preview it inside Tauri, not in the HTML preview."
         : `boot failed: ${String(err)}`;
     }
+    // Clear the splash even on failure so the error message is visible.
+    dismissBootSplash();
   });
