@@ -31,6 +31,7 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+mod pi_commands;
 pub mod provider_resolve;
 mod project_notes;
 mod safety;
@@ -151,6 +152,10 @@ pub(crate) struct AppState {
     #[allow(dead_code)]
     telegram_inbound_tx:
         tokio::sync::mpsc::UnboundedSender<crate::telegram::InboundEvent>,
+    /// Pi RPC executor sessions. Independent of `sessions` (PTY-backed)
+    /// because Pi tabs don't go through portable-pty. Lives on AppState
+    /// so every `pi_*` Tauri command can address sessions by id.
+    pub(crate) pi_sessions: pi_commands::PiRegistry,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -2863,6 +2868,7 @@ pub fn run() {
                 connectivity: connectivity_handle,
                 telegram_inbound_handle: tg_inbound_handle,
                 telegram_inbound_tx: tg_inbound_tx,
+                pi_sessions: pi_commands::PiRegistry::new(),
             });
 
             // Operator-mind orphan GC on startup. Best-effort; log only.
@@ -2990,6 +2996,20 @@ pub fn run() {
             capabilities_commands::capabilities_detect,
             providers_cmd::list_models_anthropic,
             providers_cmd::list_models_openai_compat,
+            pi_commands::spawn_pi_session,
+            pi_commands::close_pi_session,
+            pi_commands::pi_send_prompt,
+            pi_commands::pi_steer,
+            pi_commands::pi_follow_up,
+            pi_commands::pi_abort,
+            pi_commands::pi_new_session,
+            pi_commands::pi_get_state,
+            pi_commands::pi_set_model,
+            pi_commands::pi_get_available_models,
+            pi_commands::pi_set_thinking_level,
+            pi_commands::pi_compact,
+            pi_commands::pi_get_session_stats,
+            pi_commands::pi_extension_ui_response,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

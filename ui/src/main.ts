@@ -61,6 +61,7 @@ import { makeTabsBridge } from "./convergence/tabs-bridge";
 import { zoom } from "./zoom";
 import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
+import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
 
 type LastCallChoice = "use" | "without" | "cancel";
@@ -483,6 +484,10 @@ async function boot(): Promise<void> {
   const capabilitiesPage = requireEl<HTMLElement>("capabilities-page");
   const capabilities = new CapabilitiesPanel(capabilitiesPage, workspace);
   capabilities.onClosed = () => manager.refitActive();
+  // Pi RPC overlay — singleton, lazy-spawns the backend session on first
+  // open. Wired only as a keybinding entry (⌘⌥P) for PI-5; PI-6 will
+  // promote it to a first-class TabKind.
+  const piPanel = getPiPanel();
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
   const operatorPage = requireEl<HTMLElement>("operator-page");
   const operator = new OperatorPanel(operatorPage, workspace, manager);
@@ -950,6 +955,17 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
       e.preventDefault();
       familiarPanel.toggle();
+      return;
+    }
+    // ⌘⌥P — toggle the Pi overlay panel (transient session).
+    // ⌘⌥⇧P — create a permanent Pi tab in the tabbar.
+    if (e.metaKey && e.altKey && (e.key === "P" || e.key === "p" || e.key === "π")) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        void manager.createPiTab({ cwd: manager.activeCwd() ?? null });
+      } else {
+        void piPanel.toggle({ cwd: manager.activeCwd() ?? null });
+      }
       return;
     }
     // ⌘⇧A — pure AOM toggle: off ↔ on.

@@ -21,8 +21,17 @@ import {
 } from "../api";
 import { pushInfoToast } from "../notifications/toast";
 
-type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "shared";
-type SectionKey = "skills" | "commands" | "hooks" | "mcps" | "plugins" | "agents" | "memory";
+type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared";
+type SectionKey =
+  | "skills"
+  | "commands"
+  | "hooks"
+  | "mcps"
+  | "plugins"
+  | "agents"
+  | "memory"
+  | "extensions"
+  | "config";
 
 const PROJECT_ROOT_KEY = "capabilities.projectRoot";
 
@@ -51,6 +60,12 @@ const SECTIONS_BY_TOOL: Record<ToolKey, SectionDef[]> = {
     { key: "commands", label: "Prompts", kinds: ["command"] },
     { key: "mcps", label: "MCPs", kinds: ["mcp"] },
     { key: "memory", label: "Memory", kinds: ["memory"] },
+  ],
+  pi: [
+    { key: "extensions", label: "Extensions", kinds: ["extension"] },
+    { key: "skills", label: "Skills", kinds: ["skill"] },
+    { key: "commands", label: "Prompts", kinds: ["command"] },
+    { key: "config", label: "Config", kinds: ["config"] },
   ],
   shared: [{ key: "skills", label: "Skills", kinds: ["skill"] }],
 };
@@ -122,7 +137,7 @@ export class CapabilitiesPanel {
     } catch (err) {
       console.error("capabilities refresh failed", err);
       pushInfoToast({ message: `Capabilities: ${String(err)}` });
-      this.detect = { claude: false, copilot: false, opencode: false, codex: false, shared: false };
+      this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false };
       this.items = [];
     }
     // Reset selection if it's no longer present.
@@ -202,6 +217,7 @@ export class CapabilitiesPanel {
       { key: "copilot", label: "Copilot" },
       { key: "opencode", label: "opencode" },
       { key: "codex", label: "Codex" },
+      { key: "pi", label: "Pi" },
       { key: "shared", label: "Shared" },
     ];
     for (const t of tools) {

@@ -1122,8 +1122,17 @@ export async function telegramStatus(): Promise<TelegramStatus> {
 
 export interface CapabilityListItem {
   id: string;
-  tool: "claude" | "copilot" | "opencode" | "codex" | "shared";
-  kind: "skill" | "command" | "hook" | "mcp" | "plugin" | "agent" | "memory";
+  tool: "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared";
+  kind:
+    | "skill"
+    | "command"
+    | "hook"
+    | "mcp"
+    | "plugin"
+    | "agent"
+    | "memory"
+    | "extension"
+    | "config";
   name: string;
   description: string | null;
   path: string;
@@ -1136,6 +1145,7 @@ export interface CapabilitiesDetect {
   copilot: boolean;
   opencode: boolean;
   codex: boolean;
+  pi: boolean;
   shared: boolean;
 }
 
@@ -1204,4 +1214,294 @@ export async function listModelsAnthropic(): Promise<ModelInfo[]> {
 
 export async function listModelsOpenAiCompat(baseUrl: string): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("list_models_openai_compat", { baseUrl });
+}
+
+// ---------------------------------------------------------------------------
+// Pi RPC executor — see crates/agent/src/pi_rpc/* and crates/app/src/pi_commands.rs
+//
+// Types mirror Pi's wire format verbatim. Discriminants are snake_case;
+// field names are camelCase. Do NOT rename without updating the Rust side.
+// ---------------------------------------------------------------------------
+
+export type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type PiQueueMode = "all" | "one-at-a-time";
+export type PiStreamingBehavior = "steer" | "followUp";
+export type PiCompactionReason = "manual" | "threshold" | "overflow";
+export type PiStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
+export type PiUiMethod =
+  | "select"
+  | "confirm"
+  | "input"
+  | "editor"
+  | "notify"
+  | "setStatus"
+  | "setWidget"
+  | "setTitle"
+  | "setEditorText";
+
+export interface PiSpawnOpts {
+  cwd?: string;
+  provider?: string;
+  model?: string;
+  sessionDir?: string;
+  noSession?: boolean;
+  extraArgs?: string[];
+  program?: string;
+}
+
+export interface PiState {
+  model?: unknown;
+  thinkingLevel?: PiThinkingLevel;
+  isStreaming?: boolean;
+  sessionPath?: string;
+  messageCount?: number;
+}
+
+export interface PiSessionStats {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalCost?: number;
+  contextWindowUsed?: number;
+}
+
+export interface PiAssistantContentText {
+  type: "text";
+  text: string;
+}
+export interface PiAssistantContentThinking {
+  type: "thinking";
+  thinking: string;
+}
+export interface PiAssistantContentToolCall {
+  type: "toolCall";
+  id: string;
+  name: string;
+  arguments?: unknown;
+}
+export type PiAssistantContent =
+  | PiAssistantContentText
+  | PiAssistantContentThinking
+  | PiAssistantContentToolCall
+  | { type: string; [k: string]: unknown };
+
+export interface PiAssistantMessage {
+  role: "assistant";
+  content: PiAssistantContent[];
+  model?: string;
+  stopReason?: PiStopReason;
+  usage?: unknown;
+  timestamp?: number;
+}
+export interface PiUserMessage {
+  role: "user";
+  content: string;
+  timestamp?: number;
+  attachments?: unknown[];
+}
+export interface PiToolResultMessage {
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: Array<{ type: string; text?: string }>;
+  isError?: boolean;
+  timestamp?: number;
+}
+export interface PiBashExecutionMessage {
+  role: "bashExecution";
+  command: string;
+  output: string;
+  exitCode?: number;
+  cancelled?: boolean;
+  truncated?: boolean;
+  timestamp?: number;
+}
+export type PiAgentMessage =
+  | PiUserMessage
+  | PiAssistantMessage
+  | PiToolResultMessage
+  | PiBashExecutionMessage;
+
+/// Streaming delta variants inside `message_update.assistantMessageEvent`.
+export type PiDeltaEvent =
+  | { type: "start" }
+  | { type: "text_start"; contentIndex: number }
+  | { type: "text_delta"; contentIndex: number; delta: string; partial?: unknown }
+  | { type: "text_end"; contentIndex: number }
+  | { type: "thinking_start"; contentIndex: number }
+  | { type: "thinking_delta"; contentIndex: number; delta: string }
+  | { type: "thinking_end"; contentIndex: number }
+  | { type: "toolcall_start"; contentIndex: number }
+  | { type: "toolcall_delta"; contentIndex: number; delta: string }
+  | { type: "toolcall_end"; contentIndex: number }
+  | { type: "done" }
+  | { type: "error"; message: string }
+  | { type: string; [k: string]: unknown };
+
+/// Discriminated union of every event the backend forwards from a Pi
+/// session. Subscribe via [`subscribePiEvents`]. Extra event types added
+/// by future Pi releases arrive as `{ type: "unknown" }` (the Rust side
+/// downgrades unknowns to a sentinel rather than dropping the line).
+export type PiEvent =
+  | { type: "agent_start" }
+  | { type: "agent_end"; messages: PiAgentMessage[] }
+  | { type: "turn_start" }
+  | {
+      type: "turn_end";
+      message: PiAssistantMessage;
+      toolResults: PiToolResultMessage[];
+    }
+  | { type: "message_start"; message: PiAgentMessage }
+  | {
+      type: "message_update";
+      message: PiAgentMessage;
+      assistantMessageEvent: PiDeltaEvent;
+    }
+  | { type: "message_end"; message: PiAgentMessage }
+  | {
+      type: "tool_execution_start";
+      toolCallId: string;
+      toolName: string;
+      args: unknown;
+    }
+  | {
+      type: "tool_execution_update";
+      toolCallId: string;
+      toolName: string;
+      args: unknown;
+      partialResult: unknown;
+    }
+  | {
+      type: "tool_execution_end";
+      toolCallId: string;
+      toolName: string;
+      result: unknown;
+      isError?: boolean;
+    }
+  | { type: "queue_update"; steering: string[]; followUp: string[] }
+  | { type: "compaction_start"; reason: PiCompactionReason }
+  | {
+      type: "compaction_end";
+      reason: PiCompactionReason;
+      result?: { summary?: string; firstKeptEntryId?: string; tokensBefore?: number };
+      aborted: boolean;
+      willRetry: boolean;
+    }
+  | {
+      type: "auto_retry_start";
+      attempt: number;
+      maxAttempts: number;
+      delayMs: number;
+      errorMessage?: string;
+    }
+  | { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
+  | {
+      type: "extension_error";
+      extensionPath: string;
+      event: string;
+      error: string;
+    }
+  | ({
+      type: "extension_ui_request";
+      id: string;
+      method: PiUiMethod;
+    } & Record<string, unknown>)
+  | { type: "process_exited"; code: number | null }
+  | { type: "unknown" };
+
+export async function spawnPiSession(
+  opts: PiSpawnOpts = {},
+): Promise<SessionId> {
+  const result = await invoke<{ sessionId: SessionId }>("spawn_pi_session", { opts });
+  return result.sessionId;
+}
+
+export async function closePiSession(sessionId: SessionId): Promise<void> {
+  return invoke<void>("close_pi_session", { sessionId });
+}
+
+export async function piSendPrompt(
+  sessionId: SessionId,
+  text: string,
+  streamingBehavior?: PiStreamingBehavior,
+): Promise<void> {
+  return invoke<void>("pi_send_prompt", { sessionId, text, streamingBehavior });
+}
+
+export async function piSteer(sessionId: SessionId, text: string): Promise<void> {
+  return invoke<void>("pi_steer", { sessionId, text });
+}
+
+export async function piFollowUp(sessionId: SessionId, text: string): Promise<void> {
+  return invoke<void>("pi_follow_up", { sessionId, text });
+}
+
+export async function piAbort(sessionId: SessionId): Promise<void> {
+  return invoke<void>("pi_abort", { sessionId });
+}
+
+export async function piNewSession(
+  sessionId: SessionId,
+  parentSession?: string,
+): Promise<void> {
+  return invoke<void>("pi_new_session", { sessionId, parentSession });
+}
+
+export async function piGetState(sessionId: SessionId): Promise<PiState> {
+  return invoke<PiState>("pi_get_state", { sessionId });
+}
+
+export async function piSetModel(
+  sessionId: SessionId,
+  provider: string,
+  modelId: string,
+): Promise<void> {
+  return invoke<void>("pi_set_model", { sessionId, provider, modelId });
+}
+
+export async function piGetAvailableModels(sessionId: SessionId): Promise<unknown> {
+  return invoke<unknown>("pi_get_available_models", { sessionId });
+}
+
+export async function piSetThinkingLevel(
+  sessionId: SessionId,
+  level: PiThinkingLevel,
+): Promise<void> {
+  return invoke<void>("pi_set_thinking_level", { sessionId, level });
+}
+
+export async function piCompact(
+  sessionId: SessionId,
+  customInstructions?: string,
+): Promise<void> {
+  return invoke<void>("pi_compact", { sessionId, customInstructions });
+}
+
+export async function piGetSessionStats(sessionId: SessionId): Promise<PiSessionStats> {
+  return invoke<PiSessionStats>("pi_get_session_stats", { sessionId });
+}
+
+export async function piExtensionUiResponse(
+  sessionId: SessionId,
+  requestId: string,
+  payload: { value?: string; confirmed?: boolean; cancelled?: boolean },
+): Promise<void> {
+  return invoke<void>("pi_extension_ui_response", {
+    sessionId,
+    requestId,
+    value: payload.value,
+    confirmed: payload.confirmed,
+    cancelled: payload.cancelled,
+  });
+}
+
+/// Subscribe to a Pi session's event stream. Returns an unlisten fn that
+/// must be called to detach. Topic: `session://{sessionId}/pi`.
+export async function subscribePiEvents(
+  sessionId: SessionId,
+  handler: (event: PiEvent) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const topic = `session://${sessionId}/pi`;
+  const unlisten = await listen<PiEvent>(topic, (e) => handler(e.payload));
+  return unlisten;
 }
