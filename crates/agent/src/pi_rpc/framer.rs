@@ -1,9 +1,5 @@
-//! Pi RPC executor — JSONL protocol over stdin/stdout for the `pi` coding
-//! agent (https://pi.dev). See `docs/superpowers/specs/2026-05-16-pi-rpc-executor-design.md`.
-//!
-//! This module currently ships PI-0: the byte-exact JSONL framer and a smoke
-//! test gate for spawning `pi --mode rpc`. Command/event enums and the full
-//! reader task land in PI-1.
+//! Byte-exact JSONL line framer for Pi RPC. See module-level docs in
+//! [`super`] for context.
 //!
 //! ## Why a custom framer
 //!
@@ -198,79 +194,3 @@ mod tests {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Smoke test: spawn the real `pi` binary. Gated behind an env flag so it
-// doesn't run in CI / on machines without Pi installed. Run with:
-//
-//     PI_RPC_SMOKE=1 cargo test -p karl-agent pi_rpc -- --ignored --nocapture
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod smoke {
-    use super::*;
-    use std::process::Stdio;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::process::Command;
-
-    #[tokio::test]
-    #[ignore = "requires `pi` binary on PATH; gate with PI_RPC_SMOKE=1"]
-    async fn spawn_pi_and_get_state() {
-        if std::env::var("PI_RPC_SMOKE").ok().as_deref() != Some("1") {
-            eprintln!("set PI_RPC_SMOKE=1 to run this test");
-            return;
-        }
-
-        let mut child = Command::new("pi")
-            .args(["--mode", "rpc"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("spawn pi --mode rpc");
-
-        let mut stdin = child.stdin.take().expect("stdin");
-        let mut stdout = child.stdout.take().expect("stdout");
-
-        stdin
-            .write_all(b"{\"type\":\"get_state\",\"id\":\"smoke-1\"}\n")
-            .await
-            .expect("write get_state");
-        stdin.flush().await.expect("flush");
-
-        let mut framer = LineFramer::new();
-        let mut chunk = [0u8; 4096];
-        let mut got_response = false;
-
-        // Read for up to 5s; bail as soon as we see a response with our id.
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        while tokio::time::Instant::now() < deadline {
-            let read_fut = stdout.read(&mut chunk);
-            let timeout = tokio::time::sleep_until(deadline);
-            tokio::select! {
-                n = read_fut => {
-                    let n = n.expect("read");
-                    if n == 0 { break; }
-                    framer.feed(&chunk[..n]);
-                    while let Some(line) = framer.pop_line() {
-                        let s = String::from_utf8_lossy(&line);
-                        eprintln!("pi> {s}");
-                        if s.contains("\"id\":\"smoke-1\"") && s.contains("\"type\":\"response\"") {
-                            got_response = true;
-                            break;
-                        }
-                    }
-                    if got_response { break; }
-                }
-                _ = timeout => break,
-            }
-        }
-
-        // Graceful shutdown.
-        let _ = stdin.write_all(b"{\"type\":\"abort\"}\n").await;
-        drop(stdin);
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await;
-        let _ = child.start_kill();
-
-        assert!(got_response, "did not receive get_state response within 5s");
-    }
-}
