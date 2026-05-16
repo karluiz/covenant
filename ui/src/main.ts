@@ -396,6 +396,10 @@ async function boot(): Promise<void> {
   // file-picker prompt is a single shared flow with the tab menu.
   statusBar.onMissionSetRequested = (sessionId) =>
     manager.promptAndSetMissionForSession(sessionId);
+  statusBar.onMissionEditRequested = (sessionId) =>
+    manager.promptAndSetMissionForSession(sessionId);
+  statusBar.onMissionClearRequested = (sessionId) =>
+    manager.clearMissionForSession(sessionId);
 
   // Post-publish toast "Open in Set Mission" fires this event with the
   // published spec path so we can wire it directly into the active tab

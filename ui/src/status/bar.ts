@@ -114,6 +114,12 @@ export class StatusBar {
   /// menu's "Set mission…" so both routes end in one code path.
   public onMissionSetRequested: ((sessionId: SessionId) => void) | null = null;
 
+  /// Right-click on the mission chip: change mission (reuses the same
+  /// picker as "Set mission") or remove it. Wired by main.ts to
+  /// TabManager so the behavior matches the tab context menu.
+  public onMissionEditRequested: ((sessionId: SessionId) => void) | null = null;
+  public onMissionClearRequested: ((sessionId: SessionId) => void) | null = null;
+
   /// Wired by main.ts. Fires when the user clicks the version chip;
   /// opens the release-log modal. Decoupling the StatusBar from the
   /// ReleasePanel directly so the bar stays a thin renderer.
@@ -548,7 +554,11 @@ export class StatusBar {
     }
     if (this.currentMission && this.currentSessionId) {
       this.host.appendChild(
-        missionSegment(this.currentMission, () => this.openMission()),
+        missionSegment(
+          this.currentMission,
+          () => this.openMission(),
+          (x, y) => this.openMissionContextMenu(x, y),
+        ),
       );
     } else if (
       this.currentSessionId &&
@@ -603,6 +613,51 @@ export class StatusBar {
     const sessionId = this.currentSessionId;
     if (!mission || !sessionId) return;
     await this.openMissionFor(mission, sessionId);
+  }
+
+  /// Right-click on the mission chip: small popover with "Change
+  /// mission…" and "Remove mission". Reuses .workspace-rowmenu styles
+  /// for visual consistency with the workspace switcher.
+  private openMissionContextMenu(x: number, y: number): void {
+    const sessionId = this.currentSessionId;
+    if (!this.currentMission || !sessionId) return;
+    const menu = document.createElement("div");
+    menu.className = "workspace-rowmenu";
+    menu.style.position = "fixed";
+    menu.style.visibility = "hidden";
+    menu.style.zIndex = "1001";
+    menu.innerHTML = `
+      <div class="workspace-rowmenu-item" data-action="edit">Change mission…</div>
+      <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="clear">Remove mission</div>
+    `;
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const PAD = 8;
+    let left = x;
+    let top = y - rect.height;
+    if (left + rect.width + PAD > vw) left = Math.max(PAD, x - rect.width);
+    if (top < PAD) top = Math.min(y, vh - rect.height - PAD);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.visibility = "visible";
+    const cleanup = () => {
+      menu.remove();
+      document.removeEventListener("click", onAway, true);
+    };
+    const onAway = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) cleanup();
+    };
+    setTimeout(() => document.addEventListener("click", onAway, true), 0);
+    menu.addEventListener("click", (e) => {
+      const action = (e.target as HTMLElement).closest<HTMLElement>("[data-action]")
+        ?.dataset.action;
+      if (!action) return;
+      cleanup();
+      if (action === "edit") this.onMissionEditRequested?.(sessionId);
+      else if (action === "clear") this.onMissionClearRequested?.(sessionId);
+    });
   }
 
   /// Public entry point for the modal — also called from the tab
@@ -912,7 +967,11 @@ function executorSegment(name: string): HTMLElement {
   return el;
 }
 
-function missionSegment(mission: MissionInfo, onClick: () => void): HTMLElement {
+function missionSegment(
+  mission: MissionInfo,
+  onClick: () => void,
+  onContextMenu: (x: number, y: number) => void,
+): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
   // Kind-aware modifier so Superpowers missions read distinctly from
@@ -947,6 +1006,11 @@ function missionSegment(mission: MissionInfo, onClick: () => void): HTMLElement 
     e.preventDefault();
     e.stopPropagation();
     onClick();
+  });
+  el.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e.clientX, e.clientY);
   });
   return el;
 }

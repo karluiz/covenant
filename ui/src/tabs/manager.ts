@@ -2397,6 +2397,14 @@ export class TabManager {
     void this.promptAndSetMission(tab.id);
   }
 
+  /// SessionId-keyed clear so the status bar's mission context menu
+  /// can remove the active tab's mission without leaking tabIds.
+  clearMissionForSession(sessionId: SessionId): void {
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    if (!tab) return;
+    void this.clearMission(tab.id);
+  }
+
   setMissionPicker(fn: (opts: MissionPageOpts) => Promise<PageResult>): void {
     this.missionPicker = fn;
   }
