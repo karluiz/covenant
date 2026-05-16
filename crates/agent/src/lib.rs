@@ -11,11 +11,7 @@ pub mod respond_tool;
 pub mod safety;
 pub mod spec_author;
 
-use futures_util::StreamExt;
 use thiserror::Error;
-
-const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 #[derive(Debug, Error)]
 pub enum AgentError {
@@ -175,190 +171,20 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
 
 /// Drive a streaming Messages API call. `on_event` is called from the
 /// same task as the caller (no spawn between them).
-pub async fn ask_streaming<F>(req: AskRequest, mut on_event: F) -> Result<(), AgentError>
+pub async fn ask_streaming<F>(req: AskRequest, on_event: F) -> Result<(), AgentError>
 where
     F: FnMut(AgentEvent) + Send + 'static,
 {
-    if req.api_key.trim().is_empty() {
-        return Err(AgentError::MissingKey);
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
-        .build()?;
-
-    let mut body = serde_json::json!({
-        "model": req.model,
-        "max_tokens": req.max_tokens,
-        "stream": true,
-        "system": [
-            {
-                "type": "text",
-                "text": req.system_prompt,
-                "cache_control": { "type": "ephemeral" }
-            }
-        ],
-        "messages": [
-            { "role": "user", "content": req.user_message }
-        ]
-    });
-    if let Some(tool) = req.force_tool.as_ref() {
-        body["tools"] = serde_json::json!([tool]);
-        let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("");
-        body["tool_choice"] = serde_json::json!({ "type": "tool", "name": name });
-    }
-    if let Some(budget) = req.thinking_budget {
-        body["thinking"] = serde_json::json!({
-            "type": "enabled",
-            "budget_tokens": budget,
-        });
-    }
-
-    let response = client
-        .post(ANTHROPIC_URL)
-        .header("x-api-key", &req.api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(AgentError::Api {
-            status: status.as_u16(),
-            body,
-        });
-    }
-
-    let mut stream = response.bytes_stream();
-    let mut buffer: Vec<u8> = Vec::with_capacity(8 * 1024);
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        buffer.extend_from_slice(&chunk);
-
-        // SSE events are terminated by a blank line. Drain complete
-        // events from the buffer; keep partial trailing bytes.
-        while let Some(idx) = find_double_newline(&buffer) {
-            let raw: Vec<u8> = buffer.drain(..idx + 2).collect();
-            let text = String::from_utf8_lossy(&raw);
-
-            for line in text.lines() {
-                let Some(data) = line.strip_prefix("data:") else {
-                    continue;
-                };
-                let data = data.trim_start();
-                if data.is_empty() || data == "[DONE]" {
-                    continue;
-                }
-                let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
-                    tracing::trace!(payload = %data, "skipping unparseable sse data");
-                    continue;
-                };
-                let event_type =
-                    value.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                match event_type {
-                    "content_block_delta" => {
-                        let delta = value.get("delta");
-                        let delta_type = delta
-                            .and_then(|d| d.get("type"))
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("");
-                        match delta_type {
-                            "text_delta" => {
-                                if let Some(text) = delta
-                                    .and_then(|d| d.get("text"))
-                                    .and_then(|t| t.as_str())
-                                {
-                                    on_event(AgentEvent::Delta(text.to_string()));
-                                }
-                            }
-                            "thinking_delta" => {
-                                if let Some(text) = delta
-                                    .and_then(|d| d.get("thinking"))
-                                    .and_then(|t| t.as_str())
-                                {
-                                    on_event(AgentEvent::ThinkingDelta(text.to_string()));
-                                }
-                            }
-                            "input_json_delta" => {
-                                if let Some(frag) = delta
-                                    .and_then(|d| d.get("partial_json"))
-                                    .and_then(|t| t.as_str())
-                                {
-                                    on_event(AgentEvent::ToolInputDelta {
-                                        tool_name: String::new(),
-                                        fragment: frag.to_string(),
-                                    });
-                                }
-                            }
-                            _ => {} // signature_delta, etc.
-                        }
-                    }
-                    "message_start" => {
-                        // First usage snapshot — has input_tokens +
-                        // cache_*_input_tokens; output_tokens is a
-                        // placeholder (typically 1) until message_delta.
-                        if let Some(usage) = value
-                            .get("message")
-                            .and_then(|m| m.get("usage"))
-                            .and_then(parse_usage)
-                        {
-                            on_event(AgentEvent::Usage(usage));
-                        }
-                    }
-                    "message_delta" => {
-                        // Final-output update. Has the real
-                        // output_tokens; input fields may be 0 here, so
-                        // the collector must max-merge across events.
-                        if let Some(usage) =
-                            value.get("usage").and_then(parse_usage)
-                        {
-                            on_event(AgentEvent::Usage(usage));
-                        }
-                        if let Some(reason) = value
-                            .get("delta")
-                            .and_then(|d| d.get("stop_reason"))
-                            .and_then(|r| r.as_str())
-                        {
-                            on_event(AgentEvent::StopReason(reason.to_string()));
-                        }
-                    }
-                    "content_block_start" => {
-                        let cb = value.get("content_block");
-                        if cb.and_then(|c| c.get("type")).and_then(|t| t.as_str())
-                            == Some("tool_use")
-                        {
-                            let name = cb
-                                .and_then(|c| c.get("name"))
-                                .and_then(|n| n.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            on_event(AgentEvent::ToolInputDelta {
-                                tool_name: name,
-                                fragment: String::new(),
-                            });
-                        }
-                    }
-                    "content_block_stop" => {
-                        on_event(AgentEvent::ToolInputDone {
-                            tool_name: String::new(),
-                        });
-                    }
-                    "message_stop" => {
-                        on_event(AgentEvent::Done);
-                        return Ok(());
-                    }
-                    _ => {} // content_block_start/stop, ping — ignore
-                }
-            }
+    use crate::provider::{LlmProvider, ProviderConfig, ProviderKind};
+    let provider = crate::provider::anthropic::AnthropicProvider::new(
+        ProviderConfig {
+            kind: ProviderKind::Anthropic,
+            api_key: Some(req.api_key.clone()),
+            base_url: None,
         }
-    }
-
-    on_event(AgentEvent::Done);
-    Ok(())
+        .with_defaults(),
+    );
+    provider.ask_streaming(req, Box::new(on_event)).await
 }
 
 /// Default model for the cheap triage tier (Task 2 of the AOM
@@ -505,27 +331,6 @@ pub async fn triage_oneshot(req: AskRequest) -> Result<(TriageVerdict, TokenUsag
     Ok((verdict, resp.usage))
 }
 
-fn find_double_newline(buf: &[u8]) -> Option<usize> {
-    buf.windows(2).position(|w| w == b"\n\n")
-}
-
-/// Map an Anthropic `usage` JSON object to our TokenUsage. Missing
-/// fields default to 0 — the API has added fields over time and we
-/// want to keep accepting older shapes.
-fn parse_usage(v: &serde_json::Value) -> Option<TokenUsage> {
-    let get = |k: &str| {
-        v.get(k)
-            .and_then(|x| x.as_u64())
-            .map(|n| n as u32)
-            .unwrap_or(0)
-    };
-    Some(TokenUsage {
-        input_tokens: get("input_tokens"),
-        output_tokens: get("output_tokens"),
-        cache_creation_input_tokens: get("cache_creation_input_tokens"),
-        cache_read_input_tokens: get("cache_read_input_tokens"),
-    })
-}
 
 #[cfg(test)]
 mod triage_tests {
