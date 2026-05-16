@@ -688,23 +688,27 @@ async function boot(): Promise<void> {
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {
     openWizardWithBody: (body) => {
-      draftsPanel.open();
-      draftsPanel.openWizard(null, { initialBody: body });
+      draftsPanel.open({ slug: null, initialBody: body });
     },
     openBlankWizard: () => {
-      draftsPanel.open();
-      draftsPanel.openWizard(null);
+      draftsPanel.open({ slug: null });
     },
   });
 
   window.addEventListener("spec-chat:open", () => specChat.open());
 
-  window.addEventListener("drafts:toggle", () => draftsPanel.toggle());
+  // Open the spec-author wizard for a given repoRoot (no slug → fresh draft).
+  // Fired by ProjectNotesPanel's "+ New spec (AI-assisted)" button.
+  window.addEventListener("drafts:open-wizard", (e: Event) => {
+    const detail = (e as CustomEvent<{ repoRoot?: string; slug?: string | null }>).detail;
+    draftsPanel.open({ repoRoot: detail?.repoRoot, slug: detail?.slug ?? null });
+  });
+  // Existing event: open the wizard pre-loaded with a specific slug
+  // (used by the spec-chat flow). Kept for back-compat.
   window.addEventListener("drafts:open", (e: Event) => {
     const detail = (e as CustomEvent<{ slug: string; autoPublish?: boolean }>).detail;
     if (!detail || typeof detail.slug !== "string") return;
-    draftsPanel.open();
-    draftsPanel.openWizard(detail.slug, { autoPublish: detail.autoPublish });
+    draftsPanel.open({ slug: detail.slug, autoPublish: detail.autoPublish });
   });
 
   // Auto-stop notification: when the Operator hits the AOM budget,
@@ -1048,13 +1052,15 @@ async function boot(): Promise<void> {
       release.toggle();
       return;
     }
-    // ⌘⇧D → Drafts panel. Mutually exclusive with settings and docs.
+    // ⌘⇧D → open ProjectNotesPanel for the active group on the drafts tab.
+    // (Drafts review now lives inside ProjectNotesPanel; the spec-author
+    // wizard is launched from there via "+ New spec".)
     if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
-      e.preventDefault();
-      if (settings.isOpen()) settings.close();
-      if (docsPanel.isOpen()) docsPanel.close();
-      if (operator.isOpen()) operator.close();
-      draftsPanel.toggle();
+      const g = manager.activeGroup();
+      if (g) {
+        e.preventDefault();
+        openProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+      }
       return;
     }
     // ⌘? (Shift+/) and ⌘/ both toggle the in-app docs hub. Two

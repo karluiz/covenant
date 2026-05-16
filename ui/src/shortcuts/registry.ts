@@ -47,7 +47,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Operator & AI", keys: ["⌘", "⇧", "O"], label: "Operator picker", description: "Pick an operator preset (style, budget, autonomy) for the active tab." },
   { category: "Operator & AI", keys: ["⌘", "M"], label: "Mission picker", description: "Open the mission picker — set or edit the active tab's mission." },
   { category: "Operator & AI", keys: ["⌘", "N"], label: "Spec-chat", description: "Open the spec-chat panel to draft specs and plans." },
-  { category: "Operator & AI", keys: ["⌘", "⇧", "D"], label: "Drafts", description: "Open the drafts panel (pending specs/plans/notes)." },
+  { category: "Operator & AI", keys: ["⌘", "⇧", "D"], label: "Drafts tab", description: "Open Project Notes for the active group on the Drafts tab." },
   { category: "Operator & AI", keys: ["⌘", "⇧", "L"], label: "Familiar roster", description: "Open the Familiar chat (per-tab companion agent). Use /summary for a session recap." },
 
   // AOM — autonomous overnight mode
