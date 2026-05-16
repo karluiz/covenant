@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## Unreleased
+
+### Added
+
+- **Local LLM providers (Phase 1)**: Summary, Chat, and Triage roles can
+  now route to any OpenAI-compatible local runtime (Ollama, LM Studio,
+  llama.cpp `server`, vLLM). Configure under Settings → Providers, then
+  assign per role under Settings → Models. Operator role keeps Anthropic
+  as the default; routing it to a local provider degrades to SuggestOnly
+  until tool-use translation lands in Phase 2. Legacy `anthropic_api_key`
+  is migrated automatically into the new providers map on first launch.
+
 ## v0.5.20 — Restore Covenant boot splash + workspace popover anchor
 
 ### Fixed
