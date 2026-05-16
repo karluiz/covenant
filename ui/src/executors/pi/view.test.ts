@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     closeSession: vi.fn().mockResolvedValue(undefined),
     steer: vi.fn().mockResolvedValue(undefined),
     followUp: vi.fn().mockResolvedValue(undefined),
+    extUi: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -29,6 +30,7 @@ vi.mock("../../api", () => ({
   closePiSession: mocks.closeSession,
   piSteer: mocks.steer,
   piFollowUp: mocks.followUp,
+  piExtensionUiResponse: mocks.extUi,
 }));
 
 const sendPromptMock = mocks.sendPrompt;
@@ -61,6 +63,7 @@ describe("PiChatView", () => {
     closePiSessionMock.mockClear();
     mocks.steer.mockClear();
     mocks.followUp.mockClear();
+    mocks.extUi.mockClear();
     mocks.state.lastHandler = null;
     // jsdom doesn't implement scrollTo or rAF scrolling; stub rAF to
     // run synchronously so scrollToBottom doesn't pollute timers.
@@ -355,6 +358,105 @@ describe("PiChatView", () => {
     expect(mocks.steer).not.toHaveBeenCalled();
     const ta = host.querySelector<HTMLTextAreaElement>(".pi-chat-textarea")!;
     expect(ta.classList.contains("pi-chat-textarea-flash")).toBe(true);
+  });
+
+  it("renders a select extension dialog and dispatches piExtensionUiResponse", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({
+      type: "extension_ui_request",
+      id: "u1",
+      method: "select",
+      title: "Pick one",
+      options: ["Allow", "Block"],
+    });
+    expect(host.querySelector(".pi-ext-dialog")).toBeTruthy();
+    const allow = host.querySelectorAll<HTMLButtonElement>(".pi-ext-option")[0];
+    allow.click();
+    await flush();
+    expect(mocks.extUi).toHaveBeenCalledWith("s1", "u1", { value: "Allow" });
+    expect(host.querySelector(".pi-ext-dialog")).toBeNull();
+  });
+
+  it("Select Cancel sends cancelled:true", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({
+      type: "extension_ui_request",
+      id: "u2",
+      method: "select",
+      title: "Pick",
+      options: ["A", "B"],
+    });
+    host.querySelector<HTMLButtonElement>(".pi-ext-cancel")!.click();
+    await flush();
+    expect(mocks.extUi).toHaveBeenCalledWith("s1", "u2", { cancelled: true });
+  });
+
+  it("Confirm dialog OK sends confirmed:true", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({
+      type: "extension_ui_request",
+      id: "u3",
+      method: "confirm",
+      title: "Proceed?",
+      message: "This will delete the file.",
+    });
+    host.querySelector<HTMLButtonElement>(".pi-ext-ok")!.click();
+    await flush();
+    expect(mocks.extUi).toHaveBeenCalledWith("s1", "u3", { confirmed: true });
+  });
+
+  it("Confirm dialog Cancel sends confirmed:false (not cancelled)", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({
+      type: "extension_ui_request",
+      id: "u4",
+      method: "confirm",
+      title: "Proceed?",
+    });
+    host.querySelector<HTMLButtonElement>(".pi-ext-cancel")!.click();
+    await flush();
+    expect(mocks.extUi).toHaveBeenCalledWith("s1", "u4", { confirmed: false });
+  });
+
+  it("notify-class methods append a system note without prompting", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({
+      type: "extension_ui_request",
+      id: "u5",
+      method: "notify",
+      message: "Blocked dangerous command",
+    });
+    expect(host.querySelector(".pi-ext-dialog")).toBeNull();
+    const note = host.querySelector(".pi-msg-system")?.textContent;
+    expect(note).toContain("Blocked dangerous command");
+    expect(mocks.extUi).not.toHaveBeenCalled();
+  });
+
+  it("Unsupported blocking methods auto-cancel with a system note", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    fireEvent({
+      type: "extension_ui_request",
+      id: "u6",
+      method: "editor",
+      title: "Edit",
+      prefill: "Line 1",
+    });
+    await flush();
+    expect(mocks.extUi).toHaveBeenCalledWith("s1", "u6", { cancelled: true });
+    const note = host.querySelector(".pi-msg-system-error")?.textContent;
+    expect(note).toMatch(/editor.*not yet supported/);
   });
 });
 

@@ -305,6 +305,79 @@
   100% { background: rgba(255, 255, 255, 0.04); }
 }
 
+/* ---- Extension UI dialogs (select / confirm) ---- */
+.pi-ext-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.pi-ext-dialog {
+  background: rgba(28, 30, 36, 0.99);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 16px;
+  min-width: 280px;
+  max-width: 480px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.pi-ext-dialog h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pi-ext-dialog p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  opacity: 0.85;
+  line-height: 1.45;
+}
+.pi-ext-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.pi-ext-option,
+.pi-ext-ok,
+.pi-ext-cancel {
+  padding: 7px 12px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.pi-ext-option:hover,
+.pi-ext-ok:hover,
+.pi-ext-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.pi-ext-option:focus,
+.pi-ext-ok:focus {
+  outline: none;
+  border-color: rgba(120, 175, 255, 0.6);
+}
+.pi-ext-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.pi-ext-ok {
+  background: rgba(56, 139, 253, 0.22) !important;
+  border-color: rgba(56, 139, 253, 0.45) !important;
+  color: rgb(150, 195, 255) !important;
+}
+
+/* PiChatView relative so the absolute overlay scopes inside the view. */
+.pi-chat-view { position: relative; }
+
 .pi-chat-input {
   flex: 0 0 auto;
   display: flex;

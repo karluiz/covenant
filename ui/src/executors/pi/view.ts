@@ -29,6 +29,7 @@ import type {
 import {
   closePiSession,
   piAbort,
+  piExtensionUiResponse,
   piFollowUp,
   piSendPrompt,
   piSteer,
@@ -260,6 +261,9 @@ export class PiChatView {
       case "queue_update":
         this.renderQueue({ steering: event.steering, followUp: event.followUp });
         break;
+      case "extension_ui_request":
+        this.openExtensionUi(event);
+        break;
       case "auto_retry_start":
         this.setStatus(
           "retry",
@@ -455,6 +459,158 @@ export class PiChatView {
       turn.root.classList.add(`pi-msg-stop-${message.stopReason}`);
     }
     this.scrollToBottom();
+  }
+
+  // -------------------------------------------------------------------------
+  // Extension UI requests (PI-9 — select + confirm only; other methods
+  // get logged + ignored. The full surface arrives in a follow-up).
+  // -------------------------------------------------------------------------
+
+  private openExtensionUi(
+    event: { id: string; method: string } & Record<string, unknown>,
+  ): void {
+    const respond = (payload: { value?: string; confirmed?: boolean; cancelled?: boolean }) => {
+      void piExtensionUiResponse(this.sessionId, event.id, payload).catch((err) => {
+        // Cancellation already sent or session gone — log + move on.
+        console.warn("piExtensionUiResponse failed", err);
+      });
+    };
+
+    if (event.method === "select") {
+      this.showSelectDialog(event, respond);
+      return;
+    }
+    if (event.method === "confirm") {
+      this.showConfirmDialog(event, respond);
+      return;
+    }
+
+    // Fire-and-forget UI methods we don't render yet (notify / setStatus /
+    // setWidget / setTitle / set_editor_text). Pi doesn't wait for a
+    // response on these — surface the payload as a system note so the
+    // user at least sees the extension is doing something.
+    if (
+      event.method === "notify" ||
+      event.method === "setStatus" ||
+      event.method === "setWidget" ||
+      event.method === "setTitle" ||
+      event.method === "setEditorText"
+    ) {
+      const summary =
+        typeof event.message === "string"
+          ? event.message
+          : typeof event.title === "string"
+            ? event.title
+            : typeof event.statusText === "string"
+              ? event.statusText
+              : `(${event.method})`;
+      this.appendSystemNote(`extension: ${summary}`, "info");
+      return;
+    }
+
+    // Blocking methods we don't handle yet — `input` / `editor`. Auto-
+    // cancel so the extension doesn't hang waiting forever.
+    this.appendSystemNote(
+      `extension requested ${event.method} (not yet supported) — auto-cancelled`,
+      "error",
+    );
+    respond({ cancelled: true });
+  }
+
+  private showSelectDialog(
+    event: { id: string } & Record<string, unknown>,
+    respond: (payload: { value?: string; cancelled?: boolean }) => void,
+  ): void {
+    const title = typeof event.title === "string" ? event.title : "Select";
+    const options = Array.isArray(event.options)
+      ? event.options.filter((o): o is string => typeof o === "string")
+      : [];
+    if (options.length === 0) {
+      respond({ cancelled: true });
+      return;
+    }
+    const overlay = this.makeDialogOverlay();
+    const optionsHtml = options
+      .map((o, i) => {
+        return `<button type="button" class="pi-ext-option" data-index="${i}">${escapeHtml(o)}</button>`;
+      })
+      .join("");
+    overlay.innerHTML = `
+      <div class="pi-ext-dialog" role="dialog" aria-label="${escapeHtml(title)}">
+        <h3>${escapeHtml(title)}</h3>
+        <div class="pi-ext-options">${optionsHtml}</div>
+        <button type="button" class="pi-ext-cancel">Cancel</button>
+      </div>
+    `;
+    const close = (payload: { value?: string; cancelled?: boolean }) => {
+      respond(payload);
+      overlay.remove();
+    };
+    overlay.querySelectorAll<HTMLButtonElement>(".pi-ext-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = Number(btn.dataset.index);
+        close({ value: options[i] });
+      });
+    });
+    overlay
+      .querySelector<HTMLButtonElement>(".pi-ext-cancel")!
+      .addEventListener("click", () => close({ cancelled: true }));
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close({ cancelled: true });
+      }
+    });
+    this.host.appendChild(overlay);
+    overlay.querySelector<HTMLButtonElement>(".pi-ext-option")?.focus();
+  }
+
+  private showConfirmDialog(
+    event: { id: string } & Record<string, unknown>,
+    respond: (payload: { confirmed?: boolean; cancelled?: boolean }) => void,
+  ): void {
+    const title = typeof event.title === "string" ? event.title : "Confirm";
+    const message = typeof event.message === "string" ? event.message : "";
+    const overlay = this.makeDialogOverlay();
+    overlay.innerHTML = `
+      <div class="pi-ext-dialog" role="dialog" aria-label="${escapeHtml(title)}">
+        <h3>${escapeHtml(title)}</h3>
+        ${message ? `<p>${escapeHtml(message)}</p>` : ""}
+        <div class="pi-ext-actions">
+          <button type="button" class="pi-ext-cancel">Cancel</button>
+          <button type="button" class="pi-ext-ok">OK</button>
+        </div>
+      </div>
+    `;
+    const close = (payload: { confirmed?: boolean; cancelled?: boolean }) => {
+      respond(payload);
+      overlay.remove();
+    };
+    overlay
+      .querySelector<HTMLButtonElement>(".pi-ext-ok")!
+      .addEventListener("click", () => close({ confirmed: true }));
+    overlay
+      .querySelector<HTMLButtonElement>(".pi-ext-cancel")!
+      .addEventListener("click", () => close({ confirmed: false }));
+    overlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close({ cancelled: true });
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        close({ confirmed: true });
+      }
+    });
+    this.host.appendChild(overlay);
+    overlay.querySelector<HTMLButtonElement>(".pi-ext-ok")?.focus();
+  }
+
+  private makeDialogOverlay(): HTMLElement {
+    const overlay = document.createElement("div");
+    overlay.className = "pi-ext-overlay";
+    overlay.tabIndex = -1;
+    return overlay;
   }
 
   // -------------------------------------------------------------------------
