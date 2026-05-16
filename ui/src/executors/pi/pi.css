@@ -1,4 +1,79 @@
-/* PiChatView — scoped styles. Imported once from main.ts. */
+/* PiChatView + PiPanel — scoped styles. Imported once from main.ts. */
+
+/* PiPanel overlay — fixed full-screen scrim with a centered card. */
+.pi-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 40px;
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+.pi-panel-overlay.pi-panel-opening,
+.pi-panel-overlay.pi-panel-closing {
+  opacity: 0;
+}
+.pi-panel {
+  position: relative;
+  flex: 1 1 auto;
+  max-width: 920px;
+  max-height: 100%;
+  background: rgba(20, 22, 27, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(0);
+  transition: transform 150ms ease;
+}
+.pi-panel-opening .pi-panel,
+.pi-panel-closing .pi-panel {
+  transform: translateY(8px);
+}
+.pi-panel-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pi-panel-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.pi-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.pi-panel-body > .pi-chat-view {
+  flex: 1 1 auto;
+  border-radius: 0;
+}
+.pi-panel-spawn-status {
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+}
+.pi-panel-spawn-status[data-kind="error"] {
+  color: rgb(255, 140, 140);
+}
+
 
 .pi-chat-view {
   display: flex;
