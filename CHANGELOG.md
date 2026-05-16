@@ -6,17 +6,72 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## Unreleased
+## v0.5.21 — UTF-8 crash fix + local LLM providers + Pi RPC
 
 ### Added
 
-- **Local LLM providers (Phase 1)**: Summary, Chat, and Triage roles can
-  now route to any OpenAI-compatible local runtime (Ollama, LM Studio,
-  llama.cpp `server`, vLLM). Configure under Settings → Providers, then
-  assign per role under Settings → Models. Operator role keeps Anthropic
-  as the default; routing it to a local provider degrades to SuggestOnly
-  until tool-use translation lands in Phase 2. Legacy `anthropic_api_key`
-  is migrated automatically into the new providers map on first launch.
+- **Local LLM providers (Phase 1)** (`crates/agent/src/providers/*`,
+  `crates/app/src/settings.rs`, `ui/src/settings/providers.ts`): Summary,
+  Chat, and Triage roles can now route to any OpenAI-compatible local
+  runtime (Ollama, LM Studio, llama.cpp `server`, vLLM). New `LlmProvider`
+  trait abstracts Anthropic and OpenAI-compatible backends; settings
+  expose a Providers tab (add/test/delete), per-role model dropdowns, and
+  per-route connectivity badges (reachable / unreachable / model-found).
+  Tauri commands cover provider catalogue + Ollama probing.
+  `provider_resolve` routes summarizer, drafts, cross-session, fix
+  proposer, and operator decision/triage calls through the trait.
+  Operator role keeps Anthropic as default; routing it to a local
+  provider degrades to SuggestOnly until tool-use translation lands in
+  Phase 2. Legacy `anthropic_api_key` migrates automatically into the
+  providers map on first launch.
+
+- **Pi RPC executor (PI-0…PI-9)** (`crates/agent/src/pi/*`,
+  `ui/src/pi/*`, `crates/app/src/lib.rs`): Pi is now a first-class
+  `TabKind` with a byte-exact JSONL framer, persistent session manifest,
+  streaming chat view, tool execution + thinking + queue + steer /
+  follow-up, capabilities adapter with UI filter pill, extension UI
+  dialogs (select + confirm), and a `PiPanel` overlay bound to ⌘⌥P.
+
+- **Headphones operator glyph** (`ui/src/icons/index.ts`,
+  `ui/src/status/bar.ts`, `ui/src/tabs/manager.ts`): switchboard-operator
+  metaphor replaces the robot icon in status-bar operator chips, the
+  Set/Remove-operator tab context-menu entries, and AOM dry-run / live
+  indicators. The old `Icons.bot` glyph stays for back-compat.
+
+### Changed
+
+- **Shortcut cleanup** (`ui/src/keymap.ts`, docs): removed unused ⌘⇧V
+  (Release log), ⌘⇧R (AOM morning report), and ⌘⇧E (per-tab AOM toggle),
+  and scrubbed stale references throughout the codebase.
+
+- **Mission chip context menu** (`ui/src/status/bar.ts`): right-click on
+  the mission status-bar chip now opens an edit/remove menu.
+
+- **AGENTS.md contributor guide** (`AGENTS.md`): repo-level overview of
+  structure, build/test commands, coding style, and PR conventions.
+
+### Fixed
+
+- **UTF-8 boundary panic in notification logging**
+  (`crates/app/src/notify.rs`): `truncate_for_log` did `s[..200]`, which
+  panicked when byte 200 landed inside a multi-byte UTF-8 character
+  (emoji or accented chars in a notification body). The panicking tokio
+  worker aborted the process and SIGABRT-crashed the whole app — this is
+  the cause of the spontaneous Covenant crashes reported on 0.5.20. Fix
+  walks back to the nearest char boundary before slicing; regression
+  test covers an emoji straddling byte 200.
+
+- **Scrollback replay trims tail to last OSC 133;D marker**
+  (`crates/app/src/scrollback.rs`): prevents partial command output
+  from being replayed past the last completed command boundary.
+
+- **Settings UI hardening** (`ui/src/settings/providers.ts`,
+  `ui/src/settings/forms.ts`): replaced `prompt()` / `confirm()` (Tauri
+  webview blocks them) with an inline form; marked the **+ Add provider**
+  button as `type="button"` so it no longer submits the surrounding form;
+  removed duplicate Anthropic section and restyled providers/models
+  panels; offline indicator now lives inline in the status bar with the
+  Claude chip dimmed and tagged "no internet".
 
 ## v0.5.20 — Restore Covenant boot splash + workspace popover anchor
 
