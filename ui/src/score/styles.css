@@ -1,0 +1,51 @@
+.score-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+}
+.score-modal {
+  background: #0a0d11;
+  border: 1px solid #1a2128;
+  border-radius: 10px;
+  padding: 28px;
+  color: #c8d4dc;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 12px;
+  width: 760px; max-width: 92vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 40px rgba(95,179,196,0.06);
+}
+.score-modal h3 { color: #e8f1f5; font-size: 16px; margin: 0 0 4px; }
+.score-modal .sub { color: #5a6873; font-size: 11px; margin-bottom: 18px; }
+.score-stat-row { display: flex; gap: 14px; margin-bottom: 18px; }
+.score-stat { flex: 1; padding: 12px; background: rgba(95,179,196,0.04);
+  border: 1px solid #1a2a30; border-radius: 6px; }
+.score-stat .v { font-size: 22px; color: #7dd3e0; font-weight: 500; }
+.score-stat .l { font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.12em; color: #4a5860; margin-top: 4px; }
+.score-heatmap { display: grid; grid-template-columns: repeat(53, 10px);
+  gap: 3px; padding: 4px 0; }
+.score-cell { width: 10px; height: 10px; border-radius: 2px;
+  background: #0f1419; border: 1px solid #1a2128; }
+.score-cell.l1 { background: rgba(95,179,196,0.2); border-color: rgba(95,179,196,0.3); }
+.score-cell.l2 { background: rgba(95,179,196,0.4); border-color: rgba(95,179,196,0.5); }
+.score-cell.l3 { background: rgba(95,179,196,0.65);
+  border-color: rgba(95,179,196,0.75);
+  box-shadow: 0 0 4px rgba(95,179,196,0.4); }
+.score-cell.l4 { background: #5fe8d6; border-color: #5fe8d6;
+  box-shadow: 0 0 8px rgba(95,232,214,0.7); }
+.score-legend { display: flex; align-items: center; gap: 6px; font-size: 10px;
+  color: #5a6873; justify-content: flex-end; margin-top: 8px; }
+.score-cta { margin-top: 18px; padding: 14px;
+  border: 1px solid #2a5a64; border-radius: 8px;
+  background: linear-gradient(180deg, rgba(95,179,196,0.06), rgba(95,179,196,0.02));
+  display: flex; align-items: center; gap: 14px; }
+.score-cta .text { flex: 1; }
+.score-cta h4 { color: #e8f1f5; font-size: 13px; margin: 0 0 4px; }
+.score-cta p { color: #7a8893; font-size: 11px; margin: 0; line-height: 1.5; }
+.score-cta button { background: #1a2128; border: 1px solid #2a3540;
+  color: #e8f1f5; border-radius: 6px; padding: 10px 16px;
+  font-family: inherit; font-size: 12px; cursor: pointer; }
+.score-cta button:hover:not([disabled]) { background: #232b34; border-color: #3a4854; }
+.score-cta button[disabled] { opacity: 0.5; cursor: not-allowed; }

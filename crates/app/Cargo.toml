@@ -52,6 +52,7 @@ karl-session = { path = "../session" }
 karl-agent = { path = "../agent" }
 karl-familiar = { path = "../familiar" }
 karl-capabilities = { path = "../capabilities" }
+karl-score = { path = "../score" }
 dirs = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

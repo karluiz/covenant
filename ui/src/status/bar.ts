@@ -39,6 +39,8 @@ import { Icons } from "../icons";
 import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
+import { makeScoreChip, type ScoreChip } from "../score/chip";
+import { openScoreModal } from "../score/modal";
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
@@ -107,6 +109,7 @@ export class StatusBar {
   private modal: MissionViewerModal | null = null;
   /// Last polled Telegram status. Drives the .tg-status pill class.
   private currentTgStatus: TelegramStatus = "disabled";
+  private scoreChip: ScoreChip | null = null;
   /// Network connectivity. Mirrors navigator.onLine via the AOM
   /// connectivity bridge. When false, the executor chip dims and
   /// gains a "no internet" reason tag; a standalone offline chip is
@@ -613,6 +616,16 @@ export class StatusBar {
     // Telegram status pill — Disabled / Ok / Error. Click opens the
     // settings panel scrolled to the Telegram section.
     this.host.appendChild(telegramSegment(this.currentTgStatus));
+
+    // Covenant Score chip — sits between telegram and version. Click
+    // opens the Score modal with heatmap + stats.
+    if (!this.scoreChip) {
+      this.scoreChip = makeScoreChip();
+      this.scoreChip.setOnClick(() => { void openScoreModal(); });
+    }
+    void this.scoreChip.refresh();
+    this.host.appendChild(this.scoreChip.el);
+
     // Version chip lives at the trailing edge — informational, click
     // opens the release log. Always rendered so the user always has a
     // glanceable "what build am I on" indicator.
