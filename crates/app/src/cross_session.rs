@@ -193,13 +193,12 @@ async fn check_for_pattern(
     trigger_id: SessionId,
 ) -> Result<(), String> {
     // Snapshot state without holding any lock across the http call.
-    let (api_key, model) = {
+    let resolved = {
         let s = settings.lock().await;
-        let key = match s.anthropic_api_key.clone() {
-            Some(k) if !k.trim().is_empty() => k,
-            _ => return Ok(()),
-        };
-        (key, s.agent.model_summary.clone())
+        match crate::provider_resolve::resolve_route(&s, crate::settings::Role::Chat) {
+            Ok(r) => r,
+            Err(_) => return Ok(()),
+        }
     };
 
     // Need at least 2 sessions to find a CROSS-session pattern. Single-
@@ -264,17 +263,19 @@ async fn check_for_pattern(
     }
 
     let started = Instant::now();
-    let response = karl_agent::ask_oneshot(karl_agent::AskRequest {
-        api_key,
-        model,
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
         system_prompt: SYSTEM_PROMPT.to_string(),
         user_message: user_msg,
         max_tokens: 180,
         thinking_budget: None,
         force_tool: None,
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    };
+    let response = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?
+        .text;
 
     tracing::info!(
         latency_ms = started.elapsed().as_millis() as u64,
