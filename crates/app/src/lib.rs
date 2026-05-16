@@ -35,6 +35,7 @@ mod pi_commands;
 pub mod provider_resolve;
 mod project_notes;
 mod safety;
+mod score_commands;
 mod scrollback;
 pub mod settings;
 mod spec_detector;
@@ -2846,6 +2847,42 @@ pub fn run() {
 
             let tab_manifest_path = dir.join("tab_manifest.json");
             let data_dir = dir.clone();
+
+            // Covenant Score — open store and install global recorder so
+            // the agent crate's collect_oneshot can call
+            // karl_score::record_prompt() without holding a State handle.
+            let score_store = Arc::new(
+                karl_score::ScoreStore::open(&data_dir)
+                    .expect("open score store"),
+            );
+            karl_score::set_recorder(score_store.clone());
+            app.manage(score_commands::ScoreState(score_store.clone()));
+
+            // Periodic commit scanner — every 5 minutes scan the process
+            // cwd for new commits by the local git user. CS-1 keeps this
+            // narrow; multi-repo scan is CS-1b.
+            let scanner_store = score_store.clone();
+            tauri::async_runtime::spawn(async move {
+                use std::time::Duration;
+                let mut since = (chrono::Utc::now() - chrono::Duration::hours(24))
+                    .timestamp();
+                loop {
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    let email = std::process::Command::new("git")
+                        .args(["config", "--global", "user.email"])
+                        .output().ok()
+                        .and_then(|o| String::from_utf8(o.stdout).ok())
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default();
+                    if email.is_empty() { continue; }
+                    if let Ok(cwd) = std::env::current_dir() {
+                        let _ = karl_score::commit_scanner::scan_repo_since(
+                            &cwd, &email, since, &scanner_store);
+                    }
+                    since = chrono::Utc::now().timestamp();
+                }
+            });
+
             let gc_storage = storage.clone();
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
@@ -2883,6 +2920,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            score_commands::score_summary,
+            score_commands::score_heatmap,
             spawn_session,
             replay_scrollback,
             delete_scrollback,
