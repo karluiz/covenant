@@ -135,14 +135,22 @@ export class WorkspaceSwitcher {
 
     const rect = this.chip.getBoundingClientRect();
     pop.style.position = "fixed";
-    pop.style.bottom = `${window.innerHeight - rect.top + 4}px`;
     pop.style.left = `${rect.left}px`;
     pop.style.maxHeight = `${rect.top - 12}px`;
     pop.style.overflowY = "auto";
     pop.style.zIndex = "1000";
-
+    // Render off-screen first so we can measure actual height, then
+    // anchor `top` so the popover sits exactly 4px above the chip.
+    // Using `bottom` arithmetic broke under some ancestor stacking
+    // contexts (sticky #tabbar-actions + backdrop-filter promoted the
+    // chip's containing block, so `position: fixed` resolved against
+    // the wrong origin and the popover floated mid-screen).
+    pop.style.top = `-9999px`;
     document.body.appendChild(pop);
     this.renderPopover();
+    const popHeight = pop.getBoundingClientRect().height;
+    const top = Math.max(8, rect.top - popHeight - 4);
+    pop.style.top = `${top}px`;
 
     const onDocClick = (e: MouseEvent) => {
       if (!this.popover) return;
