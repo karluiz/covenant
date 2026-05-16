@@ -3271,6 +3271,15 @@ body:not(.tabbar-left) #new-group {
 .field-warning.is-warning {
     color: #ffb080;
 }
+.route-status {
+    font-size: 11.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin-top: 2px;
+}
+.route-status.is-ok { color: #6ce39a; }
+.route-status.is-warn { color: #ffb080; }
+.route-status.is-err { color: #ff8080; }
+.route-status.is-idle { color: #9aa0a6; font-style: italic; }
 
 .settings-label {
     font-size: 12px;

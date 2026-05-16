@@ -51,17 +51,27 @@ function renderRoleRow(
   }
 
   const modelSel = document.createElement("select");
+  const status = document.createElement("span");
+  status.className = "route-status";
   const warn = document.createElement("p");
   warn.className = "field-warning";
+
+  const setStatus = (kind: "ok" | "warn" | "err" | "idle", text: string) => {
+    status.textContent = text;
+    status.classList.remove("is-ok", "is-warn", "is-err", "is-idle");
+    status.classList.add(`is-${kind}`);
+  };
 
   const refreshModels = async () => {
     const providerId = providerSel.value;
     const entry = settings.providers?.[providerId];
     modelSel.innerHTML = "";
     if (!entry) {
+      setStatus("err", "provider not configured");
       updateWarning();
       return;
     }
+    setStatus("idle", "checking…");
     let models;
     try {
       if (entry.kind === "anthropic") {
@@ -72,8 +82,10 @@ function renderRoleRow(
     } catch (e) {
       const opt = document.createElement("option");
       opt.value = route.model;
-      opt.textContent = `${route.model || "(none)"} (couldn't probe: ${e})`;
+      opt.textContent = `${route.model || "(none)"} (unreachable)`;
       modelSel.appendChild(opt);
+      const msg = String(e).replace(/^Error:\s*/, "");
+      setStatus("err", `✗ unreachable: ${msg.slice(0, 80)}`);
       updateWarning();
       return;
     }
@@ -84,12 +96,21 @@ function renderRoleRow(
       if (m.id === route.model) opt.selected = true;
       modelSel.appendChild(opt);
     }
-    if (route.model && ![...modelSel.options].some((o) => o.value === route.model)) {
+    const modelPresent =
+      route.model && [...modelSel.options].some((o) => o.value === route.model);
+    if (route.model && !modelPresent) {
       const opt = document.createElement("option");
       opt.value = route.model;
-      opt.textContent = `${route.model} (current)`;
+      opt.textContent = `${route.model} (not found)`;
       modelSel.appendChild(opt);
       modelSel.value = route.model;
+    }
+    if (!route.model) {
+      setStatus("warn", `⚠ ${models.length} models — pick one`);
+    } else if (!modelPresent && entry.kind !== "anthropic") {
+      setStatus("warn", `⚠ "${route.model}" not in ${models.length} listed models`);
+    } else {
+      setStatus("ok", `✓ ${entry.kind === "anthropic" ? "anthropic" : `reachable, ${models.length} models`}`);
     }
     updateWarning();
   };
@@ -123,10 +144,12 @@ function renderRoleRow(
       model: modelSel.value,
     };
     onChange(next);
+    void refreshModels();
   };
 
   wrap.appendChild(labeled("Provider", providerSel));
   wrap.appendChild(labeled("Model", modelSel));
+  wrap.appendChild(status);
   wrap.appendChild(warn);
 
   void refreshModels();
