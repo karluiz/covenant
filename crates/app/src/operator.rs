@@ -2027,7 +2027,11 @@ async fn run_tick(
                         &*rt.provider,
                         karl_agent::AskRequest {
                             api_key: String::new(),
-                            model: rt.model.clone(),
+                            model: if !triage_model.trim().is_empty() {
+                                triage_model.clone()
+                            } else {
+                                rt.model.clone()
+                            },
                             system_prompt: system_prompt.clone(),
                             user_message: user_message.clone(),
                             max_tokens: 64,
@@ -2159,7 +2163,11 @@ async fn run_tick(
                             &*rd.provider,
                             karl_agent::AskRequest {
                                 api_key: String::new(),
-                                model: rd.model.clone(),
+                                model: if !model.trim().is_empty() {
+                                    model.clone()
+                                } else {
+                                    rd.model.clone()
+                                },
                                 system_prompt,
                                 user_message,
                                 max_tokens: effective_max_tokens,
