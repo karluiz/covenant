@@ -1023,20 +1023,6 @@ async function boot(): Promise<void> {
       void manager.toggleAomExcludedActive();
       return;
     }
-    // ⌘⇧R → AOM morning report. Read-only digest of the most recent
-    // AOM session. Doesn't depend on AOM being active.
-    if (e.metaKey && e.shiftKey && (e.key === "R" || e.key === "r")) {
-      e.preventDefault();
-      aomReportPanel.toggle();
-      return;
-    }
-    // ⌘⇧V → release log / version history. Same modal that auto-pops
-    // on a fresh-version launch.
-    if (e.metaKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
-      e.preventDefault();
-      release.toggle();
-      return;
-    }
     // ⌘⇧D → Drafts panel. Mutually exclusive with settings and docs.
     if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
       e.preventDefault();

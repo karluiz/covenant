@@ -33,7 +33,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "P"], label: "Recall palette", description: "Search command history (zsh import)." },
   { category: "Panels", keys: ["⌘", "⇧", "F"], label: "Global file search", description: "Search file contents in the active tab's cwd." },
   { category: "Panels", keys: ["⌘", "⇧", "M"], label: "Convergence Mode", description: "Full-window overlay with one tile per session." },
-  { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Show the version history / changelog." },
   { category: "Panels", keys: ["⌘", "/"], label: "Docs hub", description: "Open in-app documentation. ⌘? also works." },
   { category: "Panels", keys: ["⌘", "⇧", "K"], label: "Keyboard shortcuts", description: "Show this list." },
   { category: "Panels", keys: ["⌘", "⇧", "N"], label: "Project notes", description: "Open the per-group project notes panel." },
@@ -52,7 +51,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
 
   // AOM — autonomous overnight mode
   { category: "AOM", keys: ["⌘", "⇧", "A"], label: "Toggle AOM", description: "Start or stop autonomous overnight mode." },
-  { category: "AOM", keys: ["⌘", "⇧", "R"], label: "AOM morning report", description: "Read-only digest of the most recent AOM run." },
   { category: "AOM", keys: ["⌘", "⇧", "E"], label: "Toggle AOM for active tab", description: "Include/exclude the active tab from AOM. Visible feedback via the tab's bot badge (slashed = excluded)." },
 
   // Navigation / view
