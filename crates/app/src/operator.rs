@@ -2359,22 +2359,48 @@ async fn run_tick(
                     (op_action, Some(model_resp.mind_update))
                 }
                 Err(e) => {
+                    // Parse failures aren't user-actionable — there's
+                    // nothing to "Approve" or "Reject". Retry silently
+                    // up to PARSE_FAIL_RETRY_LIMIT; only after that
+                    // surface a single, plain-English escalation, and
+                    // mark it as internal so the Telegram approval
+                    // buttons are suppressed downstream.
+                    const PARSE_FAIL_RETRY_LIMIT: u32 = 3;
+                    let failures = {
+                        let mut inner_lock = inner.lock().await;
+                        let n = inner_lock
+                            .sessions
+                            .get_mut(&session_id)
+                            .map(|att| {
+                                att.consecutive_parse_failures =
+                                    att.consecutive_parse_failures.saturating_add(1);
+                                att.consecutive_parse_failures
+                            })
+                            .unwrap_or(0);
+                        n
+                    };
                     tracing::warn!(
                         session = %session_id,
                         error = %e,
+                        failures,
                         raw = %truncate(&response, 240),
-                        "operator_mind v2 parse failed; downgrading to ESCALATE"
+                        "operator_mind v2 parse failed"
                     );
-                    {
-                        let mut inner_lock = inner.lock().await;
-                        if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
-                            att.consecutive_parse_failures =
-                                att.consecutive_parse_failures.saturating_add(1);
-                        }
+                    if failures < PARSE_FAIL_RETRY_LIMIT {
+                        // Skip this turn — next tick the model gets
+                        // another shot. No Escalate, no Telegram.
+                        continue;
                     }
+                    // Threshold hit: emit ONE user-facing notification
+                    // explaining the operator paused itself due to
+                    // repeated malformed model output. Prefix is
+                    // load-bearing — the dispatch path uses it to skip
+                    // the Telegram approve/reject bus event.
                     let action = OperatorAction::Escalate {
-                        notification: format!("v2 parse failed: {e}"),
-                        rationale: String::new(),
+                        notification: format!(
+                            "internal: operator paused — model returned malformed responses {failures}× in a row ({e})"
+                        ),
+                        rationale: "parse-failure circuit breaker".into(),
                     };
                     (action, None)
                 }
@@ -2891,29 +2917,38 @@ async fn run_tick(
                 // Telegram/UI: publish escalation event on the bus.
                 // Heuristically classify by message/rationale prefix
                 // (the dispatch above already sent the OS notification).
-                let kind = if msg.starts_with("blocked:") {
-                    EscalationKind::Blocklist
-                } else if rationale
-                    .as_deref()
-                    .map(|r| r.starts_with("loop guard"))
-                    .unwrap_or(false)
-                {
-                    EscalationKind::Loop
-                } else {
-                    EscalationKind::Blocked
-                };
-                let escalation_id = ulid::Ulid::new().to_string();
-                let _ = escalation_tx.send(SessionEvent::EscalationRequested {
-                    session: session_id,
-                    escalation_id,
-                    kind,
-                    summary: strip_ansi_escapes::strip_str(msg),
-                    actions: vec![
-                        EscalationAction::Approve,
-                        EscalationAction::Reject,
-                        EscalationAction::Snooze10m,
-                    ],
-                });
+                //
+                // Internal-error escalations (prefix `internal:`) are
+                // not user-actionable — there's nothing to Approve or
+                // Reject for a parse-failure circuit-break. Skip the
+                // bus event entirely so the OS notification stands
+                // alone and Telegram stays quiet.
+                let is_internal = msg.starts_with("internal:");
+                if !is_internal {
+                    let kind = if msg.starts_with("blocked:") {
+                        EscalationKind::Blocklist
+                    } else if rationale
+                        .as_deref()
+                        .map(|r| r.starts_with("loop guard"))
+                        .unwrap_or(false)
+                    {
+                        EscalationKind::Loop
+                    } else {
+                        EscalationKind::Blocked
+                    };
+                    let escalation_id = ulid::Ulid::new().to_string();
+                    let _ = escalation_tx.send(SessionEvent::EscalationRequested {
+                        session: session_id,
+                        escalation_id,
+                        kind,
+                        summary: strip_ansi_escapes::strip_str(msg),
+                        actions: vec![
+                            EscalationAction::Approve,
+                            EscalationAction::Reject,
+                            EscalationAction::Snooze10m,
+                        ],
+                    });
+                }
             }
         }
 

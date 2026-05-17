@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Operator-in-tab proposals</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --panel: #14171d;
+    --tab-bg-rest: transparent;
+    --tab-bg-active: #1b1f27;
+    --tab-bg-hover: #181c23;
+    --tab-fg-rest: #c8ccd2;
+    --tab-fg-active: #ffffff;
+    --tab-fg-muted: #6d747f;
+    --accent: #8aa0ff;
+    --group-color: #8aa0ff;
+    --border: #1f242c;
+    --muted: #6d747f;
+  }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: #d8dce3;
+    font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+    font-size: 13px;
+  }
+  body {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    padding: 32px;
+    min-height: 100vh;
+  }
+  .col h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  .col h3 {
+    font-size: 14px;
+    margin: 0 0 14px;
+    color: #fff;
+    font-weight: 600;
+  }
+  .col p {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #9aa0aa;
+    margin: 0 0 18px;
+  }
+
+  /* ── Sidebar frame (mimics body.tabbar-left) ─────────────────────── */
+  .sidebar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    width: 260px;
+  }
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 10px;
+    margin-bottom: 6px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--group-color);
+    background: rgba(138, 160, 255, 0.04);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .group-header .chev {
+    color: var(--accent);
+    font-size: 10px;
+  }
+  .group-body {
+    position: relative;
+    padding-top: 2px;
+  }
+  /* tree-line — same geometry as the real app */
+  .group-body::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--group-color) 70%, transparent);
+    pointer-events: none;
+  }
+  .tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    margin: 1px 0 1px 26px;
+    width: calc(100% - 30px);
+    padding: 0 24px 0 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    color: color-mix(in srgb, var(--tab-fg-rest) 75%, transparent);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+  }
+  .tab.active {
+    background: var(--tab-bg-active);
+    border-color: var(--border);
+    color: var(--tab-fg-active);
+    font-weight: 500;
+  }
+  .tab .close {
+    position: absolute;
+    right: 8px;
+    color: var(--tab-fg-muted);
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0;
+  }
+  .tab.active .close { opacity: 1; }
+
+  /* ── Shared avatar primitives ─────────────────────────────────────── */
+  .av {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4a5cff, #1a2566);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #fff;
+    flex: 0 0 auto;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+  .lvl {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    min-width: 12px;
+    height: 12px;
+    padding: 0 3px;
+    border-radius: 6px;
+    background: #0f1116;
+    border: 1px solid #2a2f38;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  .avwrap { position: relative; display: inline-flex; line-height: 0; }
+
+  /* ─────────────────────────────────────────────────────────────────
+     A — Avatar on the rail (current direction, refined)
+     Avatar overlays the group tree-line. Active tab gets a soft glow
+     ring on the avatar so it doubles as the active indicator.
+     ───────────────────────────────────────────────────────────────── */
+  .a .tab .leading {
+    position: absolute;
+    left: -20px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+  }
+  .a .tab.active .av {
+    box-shadow:
+      0 0 0 2px var(--panel),
+      0 0 0 3px var(--accent),
+      0 2px 6px rgba(138,160,255,0.45);
+  }
+  .a .tab.no-op { padding-left: 12px; }
+
+  /* ─────────────────────────────────────────────────────────────────
+     B — Avatar inside the pill, colored fill from operator
+     Avatar lives at the leading edge of the pill (inline, not on rail).
+     The pill tints with the operator's color at low alpha so you can
+     scan operator presence from the pill body itself. No level chip —
+     level moves to a tooltip; the dot stays minimal.
+     ───────────────────────────────────────────────────────────────── */
+  .b .tab.has-op {
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--op-color, var(--accent)) 18%, transparent),
+      transparent 60%
+    );
+    border-left: 2px solid var(--op-color, var(--accent));
+    padding-left: 6px;
+  }
+  .b .tab.has-op.active {
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--op-color, var(--accent)) 28%, transparent),
+        transparent 70%),
+      var(--tab-bg-active);
+  }
+  .b .tab .leading-inline {
+    display: inline-flex;
+    align-items: center;
+  }
+  .b .av { width: 16px; height: 16px; font-size: 10px; }
+
+  /* ─────────────────────────────────────────────────────────────────
+     C — Trailing micro-stack (avatar + status dot at the right edge)
+     Title stays flush-left, untouched. Avatar shrinks to 14px and
+     sits trailing, paired with a tiny status dot (idle / working /
+     error). Lets you scan many tabs vertically and read "who" without
+     the title shifting at all.
+     ───────────────────────────────────────────────────────────────── */
+  .c .tab .trailing {
+    position: absolute;
+    right: 26px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .c .trailing .av {
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+  }
+  .c .trailing .lvl-pill {
+    font-size: 9px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .c .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #6d747f;
+    box-shadow: 0 0 0 2px var(--panel);
+  }
+  .c .status-dot.working {
+    background: #6fd49b;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .c .status-dot.error { background: #e07c7c; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--panel), 0 0 0 0 rgba(111,212,155,0.5); }
+    50%      { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px rgba(111,212,155,0.0); }
+  }
+
+  /* shared avatar art (just colored circles with initials — stand-in
+     for the real renderAvatarHtml output) */
+  .av.op-1 { background: linear-gradient(135deg, #4a5cff, #1a2566); }
+  .av.op-2 { background: linear-gradient(135deg, #ff7a59, #6a1d10); }
+  .av.op-3 { background: linear-gradient(135deg, #6fd49b, #1e5a3a); }
+</style>
+</head>
+<body>
+
+<!-- ───── Proposal A ───── -->
+<div class="col a">
+  <h2>Proposal A</h2>
+  <h3>Avatar on the rail</h3>
+  <p>Avatar straddles the group tree-line (current direction, refined). Active tab gets a glow ring on the avatar so it doubles as the active indicator — no separate stripe. Title stays at its original x.</p>
+  <div class="sidebar">
+    <div class="group-header"><span class="chev">▾</span> COVENANT</div>
+    <div class="group-body">
+      <div class="tab no-op"><span>enhances</span><span class="close">×</span></div>
+      <div class="tab no-op"><span>drafts</span><span class="close">×</span></div>
+      <div class="tab active has-op">
+        <span class="leading"><span class="avwrap"><span class="av op-1">S</span><span class="lvl">1</span></span></span>
+        <span>score</span><span class="close">×</span>
+      </div>
+      <div class="tab has-op">
+        <span class="leading"><span class="avwrap"><span class="av op-2">M</span><span class="lvl">3</span></span></span>
+        <span>crashes</span><span class="close">×</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───── Proposal B ───── -->
+<div class="col b">
+  <h2>Proposal B</h2>
+  <h3>Operator tint + leading dot</h3>
+  <p>Pill body tints with the operator's color (gradient fade); a thin colored left edge replaces the active-stripe when operator is present. Avatar sits inline, smaller. Level moves to the tooltip — the pill itself signals "operator: yes/who/which color".</p>
+  <div class="sidebar">
+    <div class="group-header"><span class="chev">▾</span> COVENANT</div>
+    <div class="group-body">
+      <div class="tab"><span>enhances</span><span class="close">×</span></div>
+      <div class="tab"><span>drafts</span><span class="close">×</span></div>
+      <div class="tab active has-op" style="--op-color:#4a5cff">
+        <span class="leading-inline"><span class="av op-1">S</span></span>
+        <span>score</span><span class="close">×</span>
+      </div>
+      <div class="tab has-op" style="--op-color:#ff7a59">
+        <span class="leading-inline"><span class="av op-2">M</span></span>
+        <span>crashes</span><span class="close">×</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───── Proposal C ───── -->
+<div class="col c">
+  <h2>Proposal C</h2>
+  <h3>Trailing micro-stack</h3>
+  <p>Title stays flush-left, completely undisturbed. Avatar + status dot sit at the trailing edge (before the close button). Status dot shows idle / working (pulse) / error so the tab is also an at-a-glance health monitor. Reads well in tall sidebar lists.</p>
+  <div class="sidebar">
+    <div class="group-header"><span class="chev">▾</span> COVENANT</div>
+    <div class="group-body">
+      <div class="tab"><span>enhances</span><span class="close">×</span></div>
+      <div class="tab"><span>drafts</span><span class="close">×</span></div>
+      <div class="tab active has-op">
+        <span>score</span>
+        <span class="trailing">
+          <span class="status-dot working"></span>
+          <span class="avwrap"><span class="av op-1">S</span></span>
+        </span>
+        <span class="close">×</span>
+      </div>
+      <div class="tab has-op">
+        <span>crashes</span>
+        <span class="trailing">
+          <span class="status-dot error"></span>
+          <span class="avwrap"><span class="av op-2">M</span></span>
+        </span>
+        <span class="close">×</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -3812,6 +3812,24 @@ export class TabManager {
       if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
     }
 
+    // Operator chip renders to the LEFT of the title so the avatar is the
+    // first thing the eye lands on when a tab has a pinned operator.
+    if (tab.operator_id) {
+      const op = this.operatorCache.get(tab.operator_id) ?? null;
+      if (op) {
+        const opChip = document.createElement("span");
+        opChip.className = "tab-op-chip tab-op-chip-leading";
+        const level = operatorLevelFromXp(op.xp ?? 0);
+        opChip.title = `${op.name} — Lv ${level} · ${op.xp ?? 0} XP`;
+        opChip.innerHTML =
+          `<span class="tab-op-avatar-wrap">` +
+            `${renderAvatarHtml(op.emoji, 18)}` +
+            `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
+          `</span>`;
+        pill.appendChild(opChip);
+      }
+    }
+
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");
       input.type = "text";
@@ -3850,25 +3868,6 @@ export class TabManager {
       label.className = "tab-label";
       label.textContent = tabDisplayName(tab);
       pill.appendChild(label);
-    }
-
-    // Operator chip — shows avatar of the pinned operator.
-    // Only rendered when the tab has an operator_id that we have
-    // cached; absent otherwise (no cache hit = chip stays hidden).
-    if (tab.operator_id) {
-      const op = this.operatorCache.get(tab.operator_id) ?? null;
-      if (op) {
-        const opChip = document.createElement("span");
-        opChip.className = "tab-op-chip";
-        const level = operatorLevelFromXp(op.xp ?? 0);
-        opChip.title = `${op.name} — Lv ${level} · ${op.xp ?? 0} XP`;
-        opChip.innerHTML =
-          `<span class="tab-op-avatar-wrap">` +
-            `${renderAvatarHtml(op.emoji, 18)}` +
-            `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
-          `</span>`;
-        pill.appendChild(opChip);
-      }
     }
 
     // Spec-pending badge. Mounted here so it sits before the close button.

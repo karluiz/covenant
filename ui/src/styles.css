@@ -8425,6 +8425,53 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
   gap: 3px;
 }
 
+/* Leading variant: chip sits before the tab label, so flip the margin. */
+.tab-op-chip-leading {
+  margin-left: 0;
+  margin-right: 6px;
+}
+
+/* In the left sidebar the avatar overlays the colored accent stripe at
+   the left edge of the pill instead of consuming inline space — keeps
+   the tab title from being pushed in when an operator is pinned. */
+body.tabbar-left .tab-op-chip-leading {
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+/* Grouped tabs sit 26px right of the tree-line (which is at x=14 on the
+   parent, center x=15). In pill coords the line center sits at x=-11, so
+   anchor the 18px avatar centered on it (left = -11 - 9 = -20). */
+body.tabbar-left .tab-grouped .tab-op-chip-leading {
+  left: -20px;
+}
+body.tabbar-left .tab-op-chip-leading .tab-op-avatar-wrap {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+/* Hide the active-tab left stripe when the avatar is overlaying it —
+   the avatar already provides the visual anchor. */
+body.tabbar-left .tab-btn.active:has(.tab-op-chip-leading)::before {
+  display: none;
+}
+/* Proposal A: when the active tab has an operator, the avatar doubles
+   as the active indicator via a soft accent glow ring. Avoids stacking
+   two competing signals (stripe + avatar). */
+body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--panel, #14171d),
+    0 0 0 3px var(--accent),
+    0 2px 8px color-mix(in srgb, var(--accent) 50%, transparent);
+  pointer-events: none;
+}
+
 /* 3.12 — operator level badge.
    In the tab strip the badge is overlaid on the avatar's bottom-right
    corner so it adds zero horizontal space (tab name keeps priority).

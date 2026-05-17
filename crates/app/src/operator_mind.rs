@@ -60,6 +60,11 @@ pub enum TurnAction {
     Reply { text: String },
     Execute { command: String },
     Escalate { notification: String },
+    // Model frequently emits `Wait` (matches the internal
+    // `OperatorAction::Wait` name it sees in logs/code) or lowercased
+    // forms instead of `Ignore`. Accept the aliases so a cosmetic
+    // mismatch doesn't take the operator down with a parse error.
+    #[serde(alias = "Wait", alias = "wait", alias = "ignore", alias = "noop", alias = "NoOp")]
     Ignore,
 }
 
@@ -583,6 +588,21 @@ mod tests {
         let r = parse_model_response(text).unwrap();
         assert_eq!(r.mind_update.belief, Some("executor finished task 4".into()));
         assert_eq!(r.action, TurnAction::Reply { text: "yes".into() });
+    }
+
+    #[test]
+    fn parse_model_response_accepts_wait_as_ignore_alias() {
+        // Real-world failure mode: model emits `Wait` (matches the
+        // internal OperatorAction::Wait it sees in code/logs) instead
+        // of `Ignore`. Must parse cleanly, not blow up the operator.
+        for kind in ["Wait", "wait", "ignore", "noop", "NoOp", "Ignore"] {
+            let text = format!(
+                r#"{{ "mind_update": {{}}, "action": {{ "kind": "{kind}" }} }}"#
+            );
+            let r = parse_model_response(&text)
+                .unwrap_or_else(|e| panic!("alias `{kind}` failed: {e}"));
+            assert_eq!(r.action, TurnAction::Ignore, "alias `{kind}` should map to Ignore");
+        }
     }
 
     #[test]
