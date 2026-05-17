@@ -10433,19 +10433,23 @@ button.status-segment.status-tg:focus-visible {
 .status-tg.tg-ok .status-icon { color: #4ade80; }
 .status-tg.tg-error .status-icon { color: #f59e0b; }
 
+/* "Agent idle waiting" indicator: thin pulsing stripe on the tab's left
+   edge instead of a noisy dot. Much calmer when many tabs are in this
+   state at once. */
 .tab-idle-badge {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 6px;
-  border-radius: 50%;
+  position: absolute;
+  left: -3px;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  border-radius: 2px;
   background: #f5a524;
-  box-shadow: 0 0 6px rgba(245, 165, 36, 0.7);
-  animation: idle-pulse 1.4s ease-in-out infinite;
-  vertical-align: middle;
+  box-shadow: 0 0 8px rgba(245, 165, 36, 0.6);
+  animation: idle-pulse 1.6s ease-in-out infinite;
+  pointer-events: none;
 }
 @keyframes idle-pulse {
-  0%, 100% { opacity: 1; }
+  0%, 100% { opacity: 0.9; }
   50%      { opacity: 0.35; }
 }
 
