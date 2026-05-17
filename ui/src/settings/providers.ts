@@ -108,7 +108,9 @@ function renderProviderCard(
     keyInput.value = entry.api_key ?? "";
     keyInput.oninput = () => {
       const next = JSON.parse(JSON.stringify(settings)) as Settings;
-      next.providers![id] = { ...entry, api_key: keyInput.value };
+      // Trim — pasted keys often pick up trailing whitespace which
+      // Anthropic rejects without a clear error.
+      next.providers![id] = { ...entry, api_key: keyInput.value.trim() };
       onChange(next);
     };
     card.appendChild(labeled("API key", keyInput));
