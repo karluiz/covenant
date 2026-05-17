@@ -6,6 +6,95 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.6.1 — Custom macOS titlebar + notch & settings polish
+
+### Added
+
+- **Custom macOS title bar with sidebar toggles** (`crates/app/tauri.conf.json`,
+  `crates/app/capabilities/default.json`, `ui/index.html`, `ui/src/main.ts`,
+  `ui/src/styles.css`, `ui/src/tabs/manager.ts`, `ui/src/blocks/manager.ts`,
+  `ui/src/icons/index.ts`): replaced the native title bar with a 38px overlay
+  bar in sidebar color. Left side hosts the panel-toggle + collapse-all
+  buttons (LM Studio panel-toggle icons); the centre carries the COVENANT
+  brand; the right side holds the Blocks/Files switcher and a panel-right
+  toggle that collapses the right sidebar globally via
+  `body.blocks-globally-collapsed`. Window drag goes through
+  `getCurrentWindow().startDragging()` on mousedown, dblclick toggles
+  maximize, and the layout drops the 84px traffic-light gutter when macOS
+  hides the lights (`body.app-fullscreen`). The in-sidebar BLOCKS/FILES tab
+  row and inner BLOCKS label are gone — both moved into the title bar.
+
+### Changed
+
+- **Hide Familiars surface across the app** (`ui/src/main.ts`,
+  `ui/src/settings/panel.ts`, `ui/src/settings/tabs.ts`,
+  `ui/src/shortcuts/registry.ts`, `ui/src/docs/panel.ts`,
+  `ui/src/docs/content/familiars.ts`): the Familiars feature is hidden from
+  Settings (nav + section), shortcuts (⌘⇧L), docs, status bar, and the panel
+  mount while we focus on Operators. Backend code is untouched. Dead doc file
+  and the orphaned `"familiars-host"` mapping were also removed so
+  `tsc --noEmit` is clean again.
+
+- **Drafts → spec-chat for new specs** (`ui/src/main.ts`): the "+ New spec
+  (AI-assisted)" entry in project notes now opens the spec-chat flow directly
+  instead of the form wizard.
+
+- **Softer done chime** (`ui/src/main.ts`, `docs/mockups/done-sounds.html`):
+  replaced the descending B5→E5 sine bell — which read as creepy in actual
+  use — with a soft 880 Hz pop. Mockup HTML retained for future iteration.
+
+- **Settings save bar pins to bottom** (`ui/src/styles.css`): `.settings-form`
+  is a flex column with `margin-top: auto` on `.settings-actions`, so
+  Save/Cancel always sits at the bottom of the form viewport even when the
+  content is short.
+
+### Fixed
+
+- **Operator escalations with "anthropic api key is empty"**
+  (`crates/agent/src/provider/anthropic.rs`): `AnthropicProvider` was reading
+  the key exclusively from `req.api_key` and erroring with `MissingKey` when
+  it was empty. All resolver-driven call sites — operator triage and
+  decision, familiar commands routed through `provider_resolve`, etc. —
+  leave `req.api_key` empty on purpose and expect the provider, instantiated
+  with a `ProviderConfig` that already carries the key from settings, to
+  supply it. Result: the operator escalated every action no matter how many
+  times the user saved their key. Honor `req.api_key` when non-empty
+  (legacy direct callers in `crates/app/src/lib.rs:2014`) and fall back to
+  `self.config.api_key` otherwise.
+
+- **Notch pill flicker on PTY output** (`ui/notch/store.ts`,
+  `ui/notch/render.ts`): two compounding causes. `store.apply()` emitted on
+  every PTY `OutputChunk` even when only `lastEventAt` changed, and
+  `mountRender` replaced `stack.innerHTML` on every emit — tearing down each
+  pill element and restarting the `slideIn` entry animation plus the `pulse`
+  loader mid-cycle. Skip the emit when phase + tab metadata are identical,
+  and replace the wipe-and-rebuild render with a keyed reconciler that
+  reuses pill nodes across updates and patches inner DOM only on phase or
+  meta changes.
+
+- **Covenant Score widget missing in Settings → Covenant**
+  (`ui/src/settings/panel.ts`, `ui/src/main.ts`): the Score panel was only
+  mounted by the statusbar pill click handler in `main.ts`. Opening
+  Settings normally and clicking the "Covenant" nav item just showed the
+  section header with an empty `#covenant-page-root` underneath. Mount is
+  now owned by `SettingsPanel`: `mountCovenantOnce()` fires when the
+  Covenant tab is activated (initial tab or nav click) and resets on close
+  so the next open re-mounts against the freshly rebuilt DOM.
+
+- **Activity heatmap overflowing as a single row** (`ui/src/score/styles.css`):
+  the 12-month grid declared 53 explicit columns and `grid-auto-flow: column`
+  but never constrained rows, so column-flow had no row ceiling and every
+  cell ended up on row 1, overflowing horizontally. Flipped the template to
+  7 explicit rows + auto-columns for a GitHub-style 7×53 contributions grid,
+  with `justify-content: start` to keep natural width and `overflow-x: auto`
+  as a narrow-viewport safety net.
+
+- **GitHub device-flow signin button** (`ui/src/score/signin.ts`):
+  `window.open` is a no-op inside the Tauri webview, so the device-flow
+  authorize button silently did nothing. Switched to
+  `@tauri-apps/plugin-opener` `openUrl` which routes through the system
+  browser as expected.
+
 ## v0.6.0 — Covenant Score v2: per-repo/branch tracking + Settings page
 
 ### Added
