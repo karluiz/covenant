@@ -1093,8 +1093,9 @@ export interface SpecDraftSummary {
 export async function specAuthorStep(
   draftId: string | null,
   userMsg: string,
+  cwd?: string | null,
 ): Promise<SpecStepResult> {
-  return invoke<SpecStepResult>("spec_author_step", { draftId, userMsg });
+  return invoke<SpecStepResult>("spec_author_step", { draftId, userMsg, cwd: cwd ?? null });
 }
 
 export async function specAuthorLoadDraft(id: string): Promise<SpecDraftSummary> {

@@ -410,7 +410,7 @@ async function boot(): Promise<void> {
     void manager.setMissionPathForActiveTab(detail.path);
   });
 
-  // Project Notes panel — singleton overlay, opened from group-chip or ⌘⇧N.
+  // Project Notes panel — singleton overlay, opened from group-chip or ⌘⇧J.
   let activeProjectNotesPanel: ProjectNotesPanel | null = null;
 
   function openProjectNotes(
@@ -435,6 +435,7 @@ async function boot(): Promise<void> {
         activeProjectNotesPanel?.close();
       },
       onOpenWizard: (repoRoot) => {
+        activeProjectNotesPanel?.close();
         window.dispatchEvent(new CustomEvent("drafts:open-wizard", { detail: { repoRoot } }));
       },
     }).mount(document.body);
@@ -465,9 +466,9 @@ async function boot(): Promise<void> {
   });
 
   document.addEventListener("keydown", (e) => {
-    // ⌘⇧N — open Project Notes panel for the active group.
-    // (⌘M is reserved for the Mission picker.)
-    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "n" || e.key === "N")) {
+    // ⌘⇧J — open Project Notes panel for the active group.
+    // (⌘⇧N is the Notch overlay global shortcut; ⌘M is the Mission picker.)
+    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "j" || e.key === "J")) {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();
@@ -718,6 +719,7 @@ async function boot(): Promise<void> {
     openBlankWizard: () => {
       draftsPanel.open({ slug: null });
     },
+    getCwd: () => manager.activeCwd() ?? null,
   });
 
   window.addEventListener("spec-chat:open", () => specChat.open());
@@ -835,7 +837,7 @@ async function boot(): Promise<void> {
   // Workspaces shortcuts.
   //   ⌘⇧P  — toggle workspace picker (⌘⇧O was already the Operator
   //          picker, so the spec's preferred binding was relocated).
-  //   ⌘⌥N — new workspace (⌘⇧N is Project Notes, ⌘N is spec-chat).
+  //   ⌘⌥N — new workspace (⌘⇧N is the Notch overlay, ⌘⇧J is Project Notes, ⌘N is spec-chat).
   window.addEventListener("keydown", (e) => {
     if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "P" || e.key === "p")) {
       e.preventDefault();

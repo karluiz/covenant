@@ -363,6 +363,111 @@ pub async fn step<D: Dispatcher>(
     })
 }
 
+/// Build a short repository context block (cwd, key files, top-level listing)
+/// to give the agent enough grounding to skip generic discovery questions.
+pub fn build_repo_context(cwd: &Path) -> Option<String> {
+    if !cwd.is_dir() {
+        return None;
+    }
+    let mut out = String::new();
+    out.push_str("\n\n---\n\n## Repository context (auto-attached)\n\n");
+    out.push_str(&format!("Working directory: `{}`\n\n", cwd.display()));
+
+    // Top-level entries (1 level deep, max 40 items).
+    if let Ok(rd) = std::fs::read_dir(cwd) {
+        let mut entries: Vec<(String, bool)> = rd
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') && name != ".github" {
+                    return None;
+                }
+                let is_dir = e.file_type().ok().map(|t| t.is_dir()).unwrap_or(false);
+                Some((name, is_dir))
+            })
+            .collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        entries.truncate(40);
+        if !entries.is_empty() {
+            out.push_str("### Top-level entries\n\n");
+            for (name, is_dir) in &entries {
+                out.push_str(&format!("- {}{}\n", name, if *is_dir { "/" } else { "" }));
+            }
+            out.push('\n');
+        }
+    }
+
+    // First-200-line snippets of key docs.
+    for fname in ["CLAUDE.md", "AGENTS.md", "README.md"] {
+        let p = cwd.join(fname);
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            let snippet: String = text.lines().take(200).collect::<Vec<_>>().join("\n");
+            out.push_str(&format!("### `{}` (first 200 lines)\n\n```\n{}\n```\n\n", fname, snippet));
+        }
+    }
+
+    out.push_str(
+        "Use this context to avoid asking questions whose answers are obvious from the layout \
+         (file structure, settings module names, technology stack). When file boundaries come up, \
+         propose specific paths drawn from the listing above and let the coordinator correct you.\n",
+    );
+    Some(out)
+}
+
+/// Same as [`step`] but augments the system prompt with a repo-context block
+/// when `cwd` is provided. The augmentation is only included on the very first
+/// turn of a draft (when there is no prior history) to keep prompt-cache hits
+/// stable on subsequent turns.
+pub async fn step_with_context<D: Dispatcher>(
+    dispatcher: &D,
+    draft: &mut SpecDraft,
+    user_msg: String,
+    base_dir: &std::path::Path,
+    cwd: Option<&std::path::Path>,
+) -> Result<StepOutput> {
+    let is_first_turn = draft.messages.is_empty();
+    let system: String = match (is_first_turn, cwd) {
+        (true, Some(p)) => match build_repo_context(p) {
+            Some(ctx) => format!("{}{}", SYSTEM_PROMPT, ctx),
+            None => SYSTEM_PROMPT.to_string(),
+        },
+        _ => SYSTEM_PROMPT.to_string(),
+    };
+
+    draft.messages.push(DraftMessage {
+        role: MessageRole::User,
+        content: user_msg,
+    });
+    let response = dispatcher.dispatch(&system, &draft.messages).await?;
+    draft.messages.push(DraftMessage {
+        role: MessageRole::Assistant,
+        content: response.clone(),
+    });
+
+    if let Some(markdown) = extract_spec(&response) {
+        validate_spec_markdown(&markdown)?;
+        draft.partial_md = Some(markdown.clone());
+        draft.status = DraftStatus::Ready;
+        draft.last_updated = Utc::now();
+        save_draft(base_dir, draft)?;
+        return Ok(StepOutput::Final { markdown });
+    }
+
+    let current_phase = match &draft.status {
+        DraftStatus::InProgress { phase } => phase.clone(),
+        _ => Phase::Emit,
+    };
+    let advanced_phase = next_phase(&current_phase);
+    draft.status = DraftStatus::InProgress { phase: advanced_phase.clone() };
+    draft.last_updated = Utc::now();
+    save_draft(base_dir, draft)?;
+
+    Ok(StepOutput::Question {
+        phase: advanced_phase,
+        text: response,
+    })
+}
+
 /// Mark a draft as published. Loads, mutates status, saves.
 pub fn mark_published(id: Ulid, base_dir: &Path) -> Result<()> {
     let mut draft = load_draft(base_dir, id)?;

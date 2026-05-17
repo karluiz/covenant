@@ -3964,22 +3964,6 @@ export class TabManager {
         onClick: () => this.startTabRename(tab.id),
       },
       { divider: true },
-      {
-        swatches: COLOR_SWATCHES.map((sw) => ({
-          color: sw.color,
-          title: sw.title,
-          onClick: () => this.setColor(tab.id, sw.color),
-        })),
-      },
-      {
-        swatches: COLOR_SWATCHES_PASTEL.map((sw) => ({
-          color: sw.color,
-          title: sw.title,
-          onClick: () => this.setColor(tab.id, sw.color),
-        })),
-        pastelRow: true,
-      },
-      { divider: true },
     ];
 
     // Group operations. Collapse "Move to <group>" into a single
@@ -4114,7 +4098,7 @@ export class TabManager {
       },
       { divider: true },
       {
-        label: "Open notes (⌘⇧N)",
+        label: "Open notes (⌘⇧J)",
         icon: Icons.clipboard(),
         onClick: () =>
           this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),

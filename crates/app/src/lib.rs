@@ -2318,6 +2318,7 @@ async fn spec_author_step(
     state: State<'_, AppState>,
     draft_id: Option<String>,
     user_msg: String,
+    cwd: Option<String>,
 ) -> Result<StepResultDto, String> {
     let api_key = {
         let s = state.settings.lock().await;
@@ -2350,9 +2351,16 @@ async fn spec_author_step(
         model: "claude-sonnet-4-6".into(),
     };
 
-    let output = karl_agent::spec_author::step(&dispatcher, &mut draft, user_msg, &base_dir)
-        .await
-        .map_err(|e| e.to_string())?;
+    let cwd_path = cwd.as_ref().map(std::path::PathBuf::from);
+    let output = karl_agent::spec_author::step_with_context(
+        &dispatcher,
+        &mut draft,
+        user_msg,
+        &base_dir,
+        cwd_path.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     let output_dto = match &output {
         karl_agent::spec_author::StepOutput::Question { phase, text } => StepOutputDto::Question {

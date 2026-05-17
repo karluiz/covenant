@@ -10176,7 +10176,9 @@ body[data-aom-phase="triaging"]
   color: var(--text-primary);
   padding: 4px 0;
   max-width: 100%;
+  white-space: normal;
 }
+.spec-chat-msg-user { white-space: pre-wrap; }
 
 .spec-chat-input-row {
   display: flex; align-items: flex-end; gap: 6px;
@@ -10221,16 +10223,54 @@ body[data-aom-phase="triaging"]
 }
 .spec-chat-send[disabled] { opacity: 0.4; cursor: not-allowed; }
 
-.spec-chat-spinner {
-  display: inline-flex; align-items: center;
-  color: var(--muted);
-  padding: 0 4px;
-  animation: spec-chat-spin 1.2s linear infinite;
+.spec-chat-typing {
+  display: inline-flex !important; align-items: center; gap: 4px;
+  padding: 8px 12px !important;
+  background: transparent !important;
 }
-@keyframes spec-chat-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.spec-chat-typing-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--muted);
+  opacity: 0.4;
+  animation: spec-chat-blink 1.2s infinite ease-in-out;
 }
+.spec-chat-typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.spec-chat-typing-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes spec-chat-blink {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* Inline markdown styles inside assistant bubbles. */
+.spec-chat-msg-assistant p { margin: 0 0 8px; }
+.spec-chat-msg-assistant p:last-child { margin-bottom: 0; }
+.spec-chat-msg-assistant ul,
+.spec-chat-msg-assistant ol { margin: 4px 0 8px; padding-left: 20px; }
+.spec-chat-msg-assistant li { margin: 2px 0; }
+.spec-chat-msg-assistant .spec-chat-h {
+  font-size: 13px; font-weight: 600;
+  margin: 6px 0 4px; color: var(--text-primary);
+}
+.spec-chat-msg-assistant .spec-chat-icode {
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.spec-chat-msg-assistant .spec-chat-code {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  overflow-x: auto;
+  font-family: var(--mono-font, ui-monospace, monospace);
+  font-size: 12px;
+  white-space: pre;
+}
+.spec-chat-msg-assistant strong { font-weight: 600; }
 
 .spec-chat-error {
   padding: 6px 14px 8px;

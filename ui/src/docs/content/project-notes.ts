@@ -31,7 +31,7 @@ export const projectNotesDoc: DocSection = {
 
     <h3>How to open it</h3>
     <ul>
-      <li><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>N</kbd> — opens the panel for the
+      <li><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>J</kbd> — opens the panel for the
           group of the active tab. Closes with <kbd>Esc</kbd>.</li>
       <li>Right-click a group chip → <em>Open notes</em>.</li>
       <li>Click <kbd>⤢</kbd> in the panel header to expand to fullscreen
