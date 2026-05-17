@@ -114,16 +114,26 @@ impl ScoreStore {
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
     }
 
-    pub fn unsynced_events(&self, after_id: i64, limit: usize) -> Result<Vec<(i64, i64, EventKind, String)>> {
+    pub fn unsynced_events(
+        &self, after_id: i64, limit: usize,
+    ) -> Result<Vec<(i64, i64, EventKind, String, Option<String>, Option<String>, Option<String>)>> {
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(
-            "SELECT id, timestamp_ms, kind, executor FROM score_events
+            "SELECT id, timestamp_ms, kind, executor, repo, branch, group_name FROM score_events
              WHERE id > ?1 ORDER BY id ASC LIMIT ?2"
         )?;
         let rows = stmt.query_map(params![after_id, limit as i64], |r| {
             let kind: String = r.get(2)?;
             let kind = if kind == "prompt" { EventKind::Prompt } else { EventKind::Commit };
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, kind, r.get::<_, String>(3)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                kind,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(6)?,
+            ))
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
     }

@@ -13,6 +13,12 @@ struct PushEvent<'a> {
     kind: &'static str,
     executor: &'a str,
     day: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repo: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_name: Option<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,14 +52,17 @@ pub async fn push_once(store: &ScoreStore) -> std::result::Result<u64, SyncError
         store.set_sync_cursor(last_id, server_cursor, now)?;
         return Ok(0);
     }
-    let max_id = rows.iter().map(|(id, _, _, _)| *id).max().unwrap_or(last_id);
-    let events: Vec<PushEvent> = rows.iter().map(|(_id, ts, kind, exec)| {
+    let max_id = rows.iter().map(|(id, ..)| *id).max().unwrap_or(last_id);
+    let events: Vec<PushEvent> = rows.iter().map(|(_id, ts, kind, exec, repo, branch, group)| {
         let day = chrono::Local.timestamp_millis_opt(*ts).unwrap().format("%Y-%m-%d").to_string();
         PushEvent {
             client_ts_ms: *ts,
             kind: match kind { EventKind::Prompt => "prompt", EventKind::Commit => "commit" },
             executor: exec.as_str(),
             day,
+            repo: repo.as_deref(),
+            branch: branch.as_deref(),
+            group_name: group.as_deref(),
         }
     }).collect();
 
