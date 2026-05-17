@@ -75,8 +75,8 @@ impl NotchHub {
 pub fn spawn_bridge(
     app: AppHandle,
     mut rx: broadcast::Receiver<SessionEvent>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+) -> tauri::async_runtime::JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
         let mut buffer: Vec<SessionEvent> = Vec::with_capacity(16);
         loop {
             match rx.recv().await {
