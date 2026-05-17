@@ -30,10 +30,10 @@ type StatePayload = {
 
 listen<StatePayload>("notch:state", (ev) => {
   const sid = ev.payload.session;
-  // Idle / Thinking carry no actionable info — never spawn a pill for
-  // them. Idle from the backend also doubles as "drop this pill" when
-  // a previous tool-call pill exists.
-  if (ev.payload.phase.kind === "idle" || ev.payload.phase.kind === "thinking") {
+  // Idle is the explicit "agent stopped" signal — drop any existing pill.
+  // Thinking from the backend is now whitelist-only (Claude Code's
+  // explicit processing-status line) so it's high-signal: render it.
+  if (ev.payload.phase.kind === "idle") {
     store.drop(sid);
     return;
   }

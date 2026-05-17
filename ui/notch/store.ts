@@ -107,21 +107,11 @@ export class StackStore {
   }
 
   private recomputeCompact(): void {
-    const now = Date.now();
-    const arr = [...this.map.values()];
-    const nonWaiting = arr.filter((p) => p.phase.kind !== "waiting");
-    const overflow = nonWaiting.length >= COMPACT_THRESHOLD;
-    for (const p of arr) {
-      if (p.phase.kind === "waiting") {
-        p.compact = false;
-        continue;
-      }
-      if (p.expandStickyUntil && now < p.expandStickyUntil) {
-        p.compact = false;
-        continue;
-      }
-      const stable = now - p.phaseStartedAt > STABLE_MS;
-      p.compact = overflow || stable;
+    // Compact mode disabled — pills always render expanded. The shrink
+    // animation read as a glitch ("error") in actual use, so the UX is
+    // simpler with one consistent pill size.
+    for (const p of this.map.values()) {
+      p.compact = false;
     }
   }
 }

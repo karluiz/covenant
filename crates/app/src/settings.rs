@@ -86,6 +86,13 @@ pub struct Settings {
     #[serde(default = "default_status_bar_enabled")]
     pub status_bar_enabled: bool,
 
+    /// Executor notch overlay — floating bottom-right pills that show
+    /// what Claude/Codex/Pi is currently doing (Thinking, Reading file,
+    /// Running command, Done). When false, the detector skips ingest
+    /// entirely so there's zero overhead. Default true.
+    #[serde(default = "default_notch_enabled")]
+    pub notch_enabled: bool,
+
     /// Layout of the tabbar — horizontal across the top (default) or a
     /// fixed vertical column on the left, à la Wave Terminal. Frontend
     /// toggles `body.tabbar-left` from this value.
@@ -154,6 +161,10 @@ impl Settings {
 }
 
 fn default_status_bar_enabled() -> bool {
+    true
+}
+
+fn default_notch_enabled() -> bool {
     true
 }
 
@@ -308,6 +319,7 @@ impl Default for Settings {
             aom: AomConfig::default(),
             notifications: NotificationConfig::default(),
             status_bar_enabled: default_status_bar_enabled(),
+            notch_enabled: default_notch_enabled(),
             tabbar_position: TabbarPosition::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,

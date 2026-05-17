@@ -21,6 +21,7 @@ static RE_READ_TOOL: OnceLock<Regex> = OnceLock::new();
 static RE_READ_HEADER: OnceLock<Regex> = OnceLock::new();
 static RE_RUNNING_TOOL: OnceLock<Regex> = OnceLock::new();
 static RE_RUNNING_HEADER: OnceLock<Regex> = OnceLock::new();
+static RE_THINKING: OnceLock<Regex> = OnceLock::new();
 static RE_WAITING: OnceLock<Regex> = OnceLock::new();
 
 /// Cap on target string length so a missing newline (Claude Code v2.1
@@ -70,6 +71,26 @@ fn re_running_tool() -> &'static Regex {
 fn re_running_header() -> &'static Regex {
     RE_RUNNING_HEADER
         .get_or_init(|| Regex::new(r"^Running(?:\.{2,}|\s+\d+\s+commands?)").unwrap())
+}
+/// Claude Code's processing-status spinner (ACTIVE form only).
+///
+/// Present-participle gerund + ellipsis is the live indicator:
+///
+///   `Hyperspacing…`              — just-started
+///   `Imagining… (3s · ↓ 73 tokens · thinking with low effort)`
+///   `Drizzling… (42s · ↓ 1.8k tokens · thinking some more)`
+///
+/// Past-tense recap (`Cooked for 7s` / `Worked for 10s`) means CC is
+/// done with the turn — that's matched by `re_done` and routed to Done,
+/// not Thinking.
+fn re_thinking() -> &'static Regex {
+    RE_THINKING.get_or_init(|| Regex::new(r"\b[A-Z][a-zA-Z]+ing…").unwrap())
+}
+static RE_DONE: OnceLock<Regex> = OnceLock::new();
+/// Claude Code's "turn finished" recap: a past-tense verb + `for Ns`.
+/// Examples: `* Worked for 10s`, `* Cooked for 7s`, `* Crunched for 13s`.
+fn re_done() -> &'static Regex {
+    RE_DONE.get_or_init(|| Regex::new(r"\b[A-Z][a-zA-Z]+ed\s+for\s+\d+s\b").unwrap())
 }
 fn re_waiting() -> &'static Regex {
     RE_WAITING.get_or_init(|| {
@@ -155,14 +176,22 @@ impl ExecutorPhaseDetector {
             }
         }
 
-        // After a terminal phase (Idle / Done) any new byte means a new turn
-        // started — bounce back to Thinking. Otherwise preserve the current
-        // phase so transient output doesn't flap us back from
-        // Running/Writing/etc.
-        match self.phase {
-            ExecutorPhase::Idle | ExecutorPhase::Done { .. } => ExecutorPhase::Thinking,
-            _ => self.phase.clone(),
+        // Whitelist-format scan over the raw (post-ANSI) chunk. CC redraws
+        // with cursor positioning so a chunk often has no newlines — scan
+        // the entire text, not per line. Done wins over Thinking when both
+        // appear in the same chunk (final recap supersedes spinner).
+        let raw = strip_ansi(&text);
+        if re_done().is_match(&raw) {
+            return ExecutorPhase::Done { summary: None };
         }
+        if re_thinking().is_match(&raw) {
+            return ExecutorPhase::Thinking;
+        }
+
+        // No tool-call, no processing indicator → keep current phase.
+        // (Don't fall back to Thinking on plain output any more — that
+        // was the source of the "stuck on Thinking forever" bug.)
+        self.phase.clone()
     }
 }
 
@@ -183,18 +212,55 @@ mod tests {
     }
 
     #[test]
-    fn transitions_to_thinking_on_first_chunk() {
+    fn stays_idle_on_plain_output() {
+        // Whitelist-only Thinking: bare banner output must NOT promote
+        // the detector to Thinking — only an explicit Claude Code status
+        // line (e.g. "Hyperspacing… (3s)") does.
         let mut d = ExecutorPhaseDetector::new();
         let changed = d.feed(b"some agent banner\n");
-        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+        assert_eq!(d.phase(), &ExecutorPhase::Idle);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn detects_thinking_from_claude_code_spinner() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("✻ Hyperspacing… (3s · ↓ 73 tokens)\n".as_bytes());
         assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn detects_done_from_cooked_for_n_seconds() {
+        // Past-tense `<Verb>ed for Ns` is CC's "turn finished" recap.
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed(b"* Cooked for 7s\n");
+        assert!(changed);
+        assert!(matches!(d.phase(), ExecutorPhase::Done { .. }));
+    }
+
+    #[test]
+    fn detects_done_from_brewed_for_n_seconds() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed(b"* Brewed for 3s\n");
+        assert!(changed);
+        assert!(matches!(d.phase(), ExecutorPhase::Done { .. }));
+    }
+
+    #[test]
+    fn done_supersedes_thinking_in_same_chunk() {
+        // If a chunk happens to contain both an active spinner and a
+        // past-tense recap, Done wins (the recap is later in the stream).
+        let mut d = ExecutorPhaseDetector::new();
+        d.feed("✻ Imagining… (3s)\n* Worked for 10s\n".as_bytes());
+        assert!(matches!(d.phase(), ExecutorPhase::Done { .. }));
     }
 
     #[test]
     fn feed_returns_false_when_phase_unchanged() {
         let mut d = ExecutorPhaseDetector::new();
         d.feed(b"banner\n");
-        let changed = d.feed(b"more thinking output\n");
+        let changed = d.feed(b"more output\n");
         assert!(!changed);
     }
 

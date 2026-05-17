@@ -1931,7 +1931,9 @@ async fn set_settings(
             || cur.telegram.bot_token != settings.telegram.bot_token
             || cur.telegram.chat_id != settings.telegram.chat_id
     };
+    let notch_enabled = settings.notch_enabled;
     *state.settings.lock().await = settings;
+    state.notch_hub.set_enabled(notch_enabled).await;
     if telegram_changed {
         let mut slot = state.telegram_inbound_handle.lock().await;
         if let Some(h) = slot.take() {
@@ -2984,6 +2986,16 @@ pub fn run() {
                 let state: tauri::State<AppState> = app.state();
                 let rx = state.notch_hub.subscribe();
                 notch::spawn_bridge(app.handle().clone(), rx);
+                // Seed the hub's enabled flag from persisted settings so
+                // a user who turned the notch off on the previous run
+                // doesn't see pills for one boot before the toggle is
+                // re-applied through `set_settings`.
+                let hub = state.notch_hub.clone();
+                let settings_arc = state.settings.clone();
+                tauri::async_runtime::spawn(async move {
+                    let enabled = settings_arc.lock().await.notch_enabled;
+                    hub.set_enabled(enabled).await;
+                });
             }
 
             // Operator-mind orphan GC on startup. Best-effort; log only.

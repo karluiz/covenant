@@ -96,6 +96,9 @@ interface Settings {
   notifications?: NotificationConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
+  /// Floating bottom-right notch overlay showing executor phase pills
+  /// (Thinking / Reading / Running / Writing / Done). Default true.
+  notch_enabled: boolean;
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
   familiars_enabled: boolean;
@@ -201,6 +204,7 @@ export class SettingsPanel {
           email_digest_window_minutes: 15,
         },
         status_bar_enabled: true,
+        notch_enabled: true,
         tabbar_position: "top",
         ui_font_family: null,
         familiars_enabled: false,
@@ -313,6 +317,18 @@ export class SettingsPanel {
             </span>
             <small class="settings-hint">
               Detection is cwd-driven and runs only when the bar is visible.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Executor notch</span>
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notch_enabled" />
+              <span>Show floating pills for Claude/Codex/Pi activity</span>
+            </span>
+            <small class="settings-hint">
+              Bottom-right overlay surfacing the agent's current phase
+              (Thinking, Reading, Running, Writing, Done). When off, the
+              detector is skipped entirely — no overhead.
             </small>
           </label>
           <fieldset class="settings-field">
@@ -606,6 +622,9 @@ export class SettingsPanel {
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
+    const notchEnabled = form.querySelector<HTMLInputElement>(
+      'input[name="notch_enabled"]',
+    )!;
     const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tabbar_position"]',
     );
@@ -668,6 +687,7 @@ export class SettingsPanel {
       r.checked = r.value === currentBg;
     });
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
+    notchEnabled.checked = this.current.notch_enabled ?? true;
     const currentTabbarPos = this.current.tabbar_position ?? "top";
     tabbarPosRadios.forEach((r) => {
       r.checked = r.value === currentTabbarPos;
@@ -1005,6 +1025,7 @@ export class SettingsPanel {
           email_digest_window_minutes: Math.max(5, Math.min(60, Number(notifEmailDigest.value) || 15)),
         },
         status_bar_enabled: statusBarEnabled.checked,
+        notch_enabled: notchEnabled.checked,
         tabbar_position:
           (Array.from(tabbarPosRadios).find((r) => r.checked)
             ?.value as TabbarPosition) || "top",

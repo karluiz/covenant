@@ -54,25 +54,28 @@ export class ContextMenu {
     const SAFE_BOTTOM = 90;
     const maxH = window.innerHeight - 16 - SAFE_BOTTOM;
     menu.style.maxHeight = `${maxH}px`;
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
+    // Render off-screen first to measure final size without the
+    // animation's initial scale(0.97) skewing the bounding rect.
+    menu.style.left = `-9999px`;
+    menu.style.top = `0px`;
     this.host.appendChild(menu);
 
-    // Clamp inside viewport. If the menu is larger than the viewport,
-    // pin it to the top/left edge so the first items remain reachable
-    // (CSS provides max-height + scroll for vertical overflow).
     const rect = menu.getBoundingClientRect();
-    if (rect.right > window.innerWidth - 4) {
-      const left = Math.max(8, window.innerWidth - rect.width - 8);
-      menu.style.left = `${left}px`;
+    const PAD = 8;
+    // Prefer right of cursor; flip to the left (anchor menu's right
+    // edge to cursor) when it would overflow the viewport. Matches
+    // native macOS context-menu behavior near the right edge.
+    let left = x;
+    if (left + rect.width + PAD > window.innerWidth) {
+      left = x - rect.width;
+      if (left < PAD) left = Math.max(PAD, window.innerWidth - rect.width - PAD);
     }
-    if (rect.bottom > window.innerHeight - SAFE_BOTTOM) {
-      const top = Math.max(
-        8,
-        window.innerHeight - rect.height - SAFE_BOTTOM,
-      );
-      menu.style.top = `${top}px`;
+    let top = y;
+    if (top + rect.height + PAD > window.innerHeight - SAFE_BOTTOM) {
+      top = Math.max(PAD, window.innerHeight - rect.height - SAFE_BOTTOM);
     }
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
 
     this.el = menu;
 

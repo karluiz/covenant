@@ -1,6 +1,7 @@
 //! Per-session ExecutorPhaseDetector wired to the SessionEvent bus.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use karl_blocks::executor_phase::ExecutorPhaseDetector;
@@ -30,6 +31,10 @@ pub struct NotchHub {
     /// buses (which serve familiars, world model, etc.) so the notch
     /// window can subscribe to one stream covering every session.
     notch_tx: broadcast::Sender<SessionEvent>,
+    /// Settings toggle — when false, `ingest` returns immediately without
+    /// touching the detector, and `set_enabled(false)` clears any pills
+    /// already on screen. Mirrors `settings.notch_enabled`.
+    enabled: AtomicBool,
 }
 
 impl NotchHub {
@@ -39,7 +44,37 @@ impl NotchHub {
             sessions: Mutex::new(HashMap::new()),
             labels: Mutex::new(HashMap::new()),
             notch_tx,
+            enabled: AtomicBool::new(true),
         })
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Toggle the feature at runtime. When transitioning from on→off,
+    /// emits Idle for every registered session so existing pills clear
+    /// without waiting for the PTY to produce more bytes.
+    pub async fn set_enabled(&self, enabled: bool) {
+        let prev = self.enabled.swap(enabled, Ordering::Relaxed);
+        if prev && !enabled {
+            // Clear screen: synthesize Idle for every session that
+            // currently has an agent in foreground.
+            let labels = self.labels.lock().await;
+            let sessions = self.sessions.lock().await;
+            for (sid, entry) in sessions.iter() {
+                if entry.agent.is_none() {
+                    continue;
+                }
+                let ev = SessionEvent::ExecutorStateChanged {
+                    session: *sid,
+                    phase: karl_session::ExecutorPhase::Idle,
+                    tab_label: labels.get(sid).cloned(),
+                };
+                let _ = entry.bus.send(ev.clone());
+                let _ = self.notch_tx.send(ev);
+            }
+        }
     }
 
     pub async fn set_tab_label(&self, session: SessionId, label: String) {
@@ -73,8 +108,10 @@ impl NotchHub {
         if entry.agent != agent {
             entry.agent = agent;
             entry.detector = ExecutorPhaseDetector::default();
-            entry.last_emit = std::time::Instant::now()
+            let stale = std::time::Instant::now()
                 - std::time::Duration::from_secs(60);
+            entry.last_emit = stale;
+            entry.last_change = stale;
             // Emit an Idle event so any existing pill clears when the
             // agent quits and the user returns to a plain shell.
             let tab_label = self.labels.lock().await.get(&session).cloned();
@@ -88,6 +125,11 @@ impl NotchHub {
     }
 
     pub async fn ingest(&self, session: SessionId, bytes: &[u8]) {
+        // Feature disabled in settings → bail before touching state.
+        // Zero overhead beyond the atomic load.
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
         let mut map = self.sessions.lock().await;
         let Some(entry) = map.get_mut(&session) else {
             tracing::debug!(target: "notch", session = %session, bytes = bytes.len(), "ingest: no detector entry (race?)");
@@ -98,14 +140,40 @@ impl NotchHub {
             return;
         }
         let changed = entry.detector.feed(bytes);
-        // Suppress bare Thinking: only surface phases where the agent is
-        // actually doing something (Running/Reading/Writing/Waiting/Done).
-        // Thinking before any tool call has the lowest signal and was
-        // making the notch look stuck on "Thinking" forever.
-        let is_thinking = matches!(
-            entry.detector.phase(),
-            karl_session::ExecutorPhase::Thinking
-        );
+        if changed {
+            entry.last_change = std::time::Instant::now();
+        }
+        // Thinking is now only produced by the detector's whitelist of
+        // Claude Code processing-status verbs (Hyperspacing/Cooked/…), so
+        // every Thinking emission is high-signal. No suppression needed.
+        let is_thinking = false;
+        // Stale-phase clear: if the detector has stayed in the same
+        // Running/Reading/Writing phase for >8s without any transition,
+        // Claude Code is almost certainly just redrawing its status bar
+        // while idle. Emit Idle once to clear the pill.
+        let stale_active = !changed
+            && entry.last_change.elapsed() > std::time::Duration::from_secs(8)
+            && matches!(
+                entry.detector.phase(),
+                karl_session::ExecutorPhase::Running { .. }
+                    | karl_session::ExecutorPhase::Reading { .. }
+                    | karl_session::ExecutorPhase::Writing { .. }
+                    | karl_session::ExecutorPhase::Thinking
+            );
+        if stale_active {
+            entry.detector = ExecutorPhaseDetector::default();
+            entry.last_change = std::time::Instant::now();
+            entry.last_emit = std::time::Instant::now();
+            let tab_label = self.labels.lock().await.get(&session).cloned();
+            let ev = SessionEvent::ExecutorStateChanged {
+                session,
+                phase: karl_session::ExecutorPhase::Idle,
+                tab_label,
+            };
+            let _ = entry.bus.send(ev.clone());
+            let _ = self.notch_tx.send(ev);
+            return;
+        }
         // Heartbeat: re-emit current phase every 3s while bytes are still
         // flowing, so the JS-side TTL doesn't clear pills for sessions
         // that are continuously active but not transitioning phases.

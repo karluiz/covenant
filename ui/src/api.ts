@@ -678,6 +678,9 @@ export interface Settings {
   notifications?: NotificationConfig;
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
+  /// Floating executor notch overlay (pills showing Claude/Codex/Pi
+  /// activity). Default true.
+  notch_enabled: boolean;
   /// Tabbar layout: "top" (default, horizontal across the top) or
   /// "left" (fixed vertical sidebar à la Wave Terminal).
   tabbar_position: TabbarPosition;
