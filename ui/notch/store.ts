@@ -41,6 +41,10 @@ export class StackStore {
     const prev = this.map.get(input.sessionId);
     const samePhase =
       prev && JSON.stringify(prev.phase) === JSON.stringify(input.phase);
+    const sameMeta =
+      prev &&
+      prev.tabLabel === input.tabLabel &&
+      prev.tabColor === input.tabColor;
     const now = Date.now();
     const pill: Pill = {
       ...input,
@@ -51,6 +55,10 @@ export class StackStore {
     };
     this.map.set(input.sessionId, pill);
     this.recomputeCompact();
+    // Skip re-render when nothing visible changed. lastEventAt-only updates
+    // (e.g. every OutputChunk) would otherwise restart CSS animations and
+    // make the pill flicker.
+    if (prev && samePhase && sameMeta) return;
     this.emit();
   }
 
