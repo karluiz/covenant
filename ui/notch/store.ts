@@ -16,6 +16,7 @@ export interface PillInput {
 
 export interface Pill extends PillInput {
   phaseStartedAt: number;
+  lastEventAt: number;
   expandStickyUntil?: number;
   compact: boolean;
 }
@@ -23,6 +24,7 @@ export interface Pill extends PillInput {
 const STABLE_MS = 5000;
 const COMPACT_THRESHOLD = 4;
 const DONE_TTL_MS = 2500;
+const THINKING_STALE_MS = 8000;
 const STICKY_MS = 8000;
 
 export class StackStore {
@@ -41,9 +43,11 @@ export class StackStore {
     const prev = this.map.get(input.sessionId);
     const samePhase =
       prev && JSON.stringify(prev.phase) === JSON.stringify(input.phase);
+    const now = Date.now();
     const pill: Pill = {
       ...input,
-      phaseStartedAt: samePhase ? prev!.phaseStartedAt : Date.now(),
+      phaseStartedAt: samePhase ? prev!.phaseStartedAt : now,
+      lastEventAt: now,
       expandStickyUntil: prev?.expandStickyUntil,
       compact: false,
     };
@@ -68,12 +72,26 @@ export class StackStore {
     }
   }
 
-  /** Remove Done pills past TTL. Call on a 500ms timer in main.ts. */
+  /// Force-remove a pill regardless of phase. Used when the backend signals
+  /// Idle (agent quit / returned to plain shell).
+  drop(sessionId: string): void {
+    if (this.map.delete(sessionId)) this.emit();
+  }
+
+  /** Remove Done pills past their TTL, and stale Thinking pills that
+   * never got a follow-up state change (almost always scrollback replay
+   * or restored sessions that aren't really doing anything). */
   gc(): void {
     const now = Date.now();
     let changed = false;
     for (const [k, p] of this.map) {
       if (p.phase.kind === "done" && now - p.phaseStartedAt > DONE_TTL_MS) {
+        this.map.delete(k);
+        changed = true;
+      } else if (
+        p.phase.kind === "thinking" &&
+        now - p.lastEventAt > THINKING_STALE_MS
+      ) {
         this.map.delete(k);
         changed = true;
       }

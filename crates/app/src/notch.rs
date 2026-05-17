@@ -11,6 +11,16 @@ use tokio::sync::{broadcast, Mutex};
 struct Entry {
     detector: ExecutorPhaseDetector,
     bus: broadcast::Sender<SessionEvent>,
+    last_emit: std::time::Instant,
+    /// Wall-clock of the most recent phase *transition* (changed = true).
+    /// Used to time out stale Running/Reading/Writing phases that keep
+    /// heartbeating but never get a new tool call — common when Claude
+    /// Code redraws the same status line while idle.
+    last_change: std::time::Instant,
+    /// Name of the executor agent currently running in foreground, if any
+    /// (`claude`, `codex`, `copilot`, etc.). `None` when the user is at
+    /// a plain shell prompt — we don't surface notch pills for those.
+    agent: Option<String>,
 }
 
 pub struct NotchHub {
@@ -41,20 +51,78 @@ impl NotchHub {
     }
 
     pub async fn register(&self, session: SessionId, bus: broadcast::Sender<SessionEvent>) {
+        let stale = std::time::Instant::now() - std::time::Duration::from_secs(60);
         self.sessions.lock().await.insert(
             session,
-            Entry { detector: ExecutorPhaseDetector::default(), bus },
+            Entry {
+                detector: ExecutorPhaseDetector::default(),
+                bus,
+                last_emit: stale,
+                last_change: stale,
+                agent: None,
+            },
         );
+    }
+
+    /// Update the agent currently running in foreground for a session.
+    /// Resets the detector when the agent transitions to/from None so
+    /// stale phases don't leak across executor lifecycles.
+    pub async fn set_foreground_agent(&self, session: SessionId, agent: Option<String>) {
+        let mut map = self.sessions.lock().await;
+        let Some(entry) = map.get_mut(&session) else { return };
+        if entry.agent != agent {
+            entry.agent = agent;
+            entry.detector = ExecutorPhaseDetector::default();
+            entry.last_emit = std::time::Instant::now()
+                - std::time::Duration::from_secs(60);
+            // Emit an Idle event so any existing pill clears when the
+            // agent quits and the user returns to a plain shell.
+            let tab_label = self.labels.lock().await.get(&session).cloned();
+            let ev = SessionEvent::ExecutorStateChanged {
+                session,
+                phase: karl_session::ExecutorPhase::Idle,
+                tab_label,
+            };
+            let _ = self.notch_tx.send(ev);
+        }
     }
 
     pub async fn ingest(&self, session: SessionId, bytes: &[u8]) {
         let mut map = self.sessions.lock().await;
-        let Some(entry) = map.get_mut(&session) else { return };
-        if entry.detector.feed(bytes) {
+        let Some(entry) = map.get_mut(&session) else {
+            tracing::debug!(target: "notch", session = %session, bytes = bytes.len(), "ingest: no detector entry (race?)");
+            return;
+        };
+        // Skip sessions where no executor agent is currently in foreground.
+        if entry.agent.is_none() {
+            return;
+        }
+        let changed = entry.detector.feed(bytes);
+        // Suppress bare Thinking: only surface phases where the agent is
+        // actually doing something (Running/Reading/Writing/Waiting/Done).
+        // Thinking before any tool call has the lowest signal and was
+        // making the notch look stuck on "Thinking" forever.
+        let is_thinking = matches!(
+            entry.detector.phase(),
+            karl_session::ExecutorPhase::Thinking
+        );
+        // Heartbeat: re-emit current phase every 3s while bytes are still
+        // flowing, so the JS-side TTL doesn't clear pills for sessions
+        // that are continuously active but not transitioning phases.
+        let heartbeat = !changed
+            && entry.last_emit.elapsed() > std::time::Duration::from_secs(3)
+            && !matches!(entry.detector.phase(), karl_session::ExecutorPhase::Idle)
+            && !is_thinking;
+        if (changed && !is_thinking) || heartbeat {
+            let phase = entry.detector.phase().clone();
+            entry.last_emit = std::time::Instant::now();
+            if changed {
+                tracing::info!(target: "notch", session = %session, ?phase, "phase changed");
+            }
             let tab_label = self.labels.lock().await.get(&session).cloned();
             let ev = SessionEvent::ExecutorStateChanged {
                 session,
-                phase: entry.detector.phase().clone(),
+                phase,
                 tab_label,
             };
             let _ = entry.bus.send(ev.clone());
@@ -66,10 +134,28 @@ impl NotchHub {
         self.sessions.lock().await.remove(session);
         self.labels.lock().await.remove(session);
     }
+
+    /// Snapshot every session's current phase + tab label. Used to seed
+    /// the notch webview on boot — `win.emit` fires into the void if
+    /// the JS listener isn't attached yet, so events emitted during
+    /// app startup are otherwise lost.
+    pub async fn snapshot(&self) -> Vec<SessionEvent> {
+        let sessions = self.sessions.lock().await;
+        let labels = self.labels.lock().await;
+        sessions
+            .iter()
+            .filter(|(_, e)| !matches!(e.detector.phase(), karl_session::ExecutorPhase::Idle))
+            .map(|(sid, entry)| SessionEvent::ExecutorStateChanged {
+                session: *sid,
+                phase: entry.detector.phase().clone(),
+                tab_label: labels.get(sid).cloned(),
+            })
+            .collect()
+    }
 }
 
 /// Spawn the long-lived task that forwards `ExecutorStateChanged`
-/// to the notch webview as `notch://state` events. Buffers up to 16
+/// to the notch webview as `notch:state` events. Buffers up to 16
 /// events while the window isn't yet visible (it boots lazily on first
 /// real activity).
 pub fn spawn_bridge(
@@ -81,20 +167,22 @@ pub fn spawn_bridge(
         loop {
             match rx.recv().await {
                 Ok(ev @ SessionEvent::ExecutorStateChanged { .. }) => {
+                    tracing::info!(target: "notch", "bridge: forwarding ExecutorStateChanged to webview");
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
                         if !visible {
-                            let w = win.clone();
-                            let _ = win.run_on_main_thread(move || {
-                                let _ = w.show();
-                                position_bottom_right(&w);
-                                apply_macos_collection_behavior(&w);
-                            });
+                            show_notch(&win);
                         }
+                        // Emit via the AppHandle (global) instead of the
+                        // webview — Tauri v2's WebviewWindow::emit targets
+                        // only listeners that registered through the same
+                        // window handle, which the JS-side `listen()` from
+                        // `@tauri-apps/api/event` does NOT do by default.
                         for b in buffer.drain(..) {
-                            let _ = win.emit("notch://state", &b);
+                            let _ = app.emit("notch:state", &b);
                         }
-                        let _ = win.emit("notch://state", &ev);
+                        let _ = app.emit("notch:state", &ev);
+                        let _ = win;
                     } else {
                         if buffer.len() == buffer.capacity() {
                             buffer.remove(0);
@@ -108,6 +196,17 @@ pub fn spawn_bridge(
             }
         }
     })
+}
+
+/// Show the notch window in the right place with the right macOS collection
+/// behavior. Safe to call from any thread — hops to the main thread.
+pub fn show_notch(win: &tauri::WebviewWindow) {
+    let w = win.clone();
+    let _ = win.run_on_main_thread(move || {
+        let _ = w.show();
+        position_bottom_right(&w);
+        apply_macos_collection_behavior(&w);
+    });
 }
 
 /// Set NSWindowCollectionBehavior so the notch window appears on all Spaces
@@ -152,6 +251,23 @@ pub async fn notch_set_passthrough(
         .map_err(|e| e.to_string())
 }
 
+/// Called by the notch webview once its listener is mounted. Replays
+/// the current phase of every active session so pills appear even for
+/// sessions that started before the WebView was ready.
+#[tauri::command]
+pub async fn notch_ready(
+    window: tauri::Window,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<(), String> {
+    let snap = state.notch_hub.snapshot().await;
+    tracing::info!(target: "notch", n = snap.len(), "notch_ready: replaying snapshot");
+    let app = window.app_handle();
+    for ev in snap {
+        let _ = app.emit("notch:state", &ev);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,25 +279,29 @@ mod tests {
         let hub = NotchHub::new();
         let sid = SessionId::new();
         hub.register(sid, tx).await;
-        hub.ingest(sid, b"thinking...\n").await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        // drain the Idle event emitted by the agent transition
+        while rx.try_recv().is_ok() {}
+        hub.ingest(sid, b"$ cargo build\n").await;
         let ev = rx.recv().await.expect("event");
         match ev {
             SessionEvent::ExecutorStateChanged { phase, .. } => {
-                assert_eq!(phase, ExecutorPhase::Thinking);
+                assert!(matches!(phase, ExecutorPhase::Running { .. }));
             }
             other => panic!("unexpected: {other:?}"),
         }
     }
 
     #[tokio::test]
-    async fn ingest_silent_when_phase_same() {
+    async fn ingest_suppresses_thinking() {
         let (tx, mut rx) = broadcast::channel(16);
         let hub = NotchHub::new();
         let sid = SessionId::new();
         hub.register(sid, tx).await;
-        hub.ingest(sid, b"thinking...\n").await;
-        let _ = rx.recv().await;
-        hub.ingest(sid, b"more thinking\n").await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        while rx.try_recv().is_ok() {}
+        // Bare banner → detector reports Thinking; hub must NOT emit.
+        hub.ingest(sid, b"some banner output\n").await;
         assert!(rx.try_recv().is_err());
     }
 
@@ -192,10 +312,12 @@ mod tests {
         let mut nrx = hub.subscribe();
         let sid = SessionId::new();
         hub.register(sid, tx).await;
-        hub.ingest(sid, b"thinking\n").await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        while nrx.try_recv().is_ok() {}
+        hub.ingest(sid, b"$ ls\n").await;
         match nrx.recv().await.unwrap() {
             SessionEvent::ExecutorStateChanged { phase, .. } => {
-                assert_eq!(phase, ExecutorPhase::Thinking);
+                assert!(matches!(phase, ExecutorPhase::Running { .. }));
             }
             other => panic!("{other:?}"),
         }
@@ -220,7 +342,9 @@ mod tests {
         let sid = SessionId::new();
         hub.register(sid, tx).await;
         hub.set_tab_label(sid, "claude · tab 1".into()).await;
-        hub.ingest(sid, b"thinking\n").await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        while nrx.try_recv().is_ok() {}
+        hub.ingest(sid, b"$ git status\n").await;
         match nrx.recv().await.unwrap() {
             SessionEvent::ExecutorStateChanged { tab_label, .. } => {
                 assert_eq!(tab_label.as_deref(), Some("claude · tab 1"));

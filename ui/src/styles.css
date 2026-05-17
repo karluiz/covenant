@@ -4886,6 +4886,16 @@ button.status-segment.status-version:focus-visible {
     color: #fff;
 }
 
+button.status-segment.status-version-dev {
+    color: #ffb13a;
+    border-color: rgba(255, 177, 58, 0.35);
+    background: rgba(255, 177, 58, 0.08);
+    font-weight: 600;
+}
+button.status-segment.status-version-dev:hover {
+    background: rgba(255, 177, 58, 0.16);
+}
+
 /* "+ Set mission" affordance — same chip metrics as status-mission so
    the bar layout doesn't shift when a mission is later attached.
    Lower opacity in rest so it reads as "you could do this" without

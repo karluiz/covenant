@@ -28,8 +28,15 @@ type StatePayload = {
   tab_label?: string | null;
 };
 
-listen<StatePayload>("notch://state", (ev) => {
+listen<StatePayload>("notch:state", (ev) => {
   const sid = ev.payload.session;
+  // Idle / Thinking carry no actionable info — never spawn a pill for
+  // them. Idle from the backend also doubles as "drop this pill" when
+  // a previous tool-call pill exists.
+  if (ev.payload.phase.kind === "idle" || ev.payload.phase.kind === "thinking") {
+    store.drop(sid);
+    return;
+  }
   const input: PillInput = {
     sessionId: sid,
     tabLabel: ev.payload.tab_label ?? `session ${sid.slice(0, 6)}`,
@@ -40,6 +47,23 @@ listen<StatePayload>("notch://state", (ev) => {
 });
 
 setInterval(() => store.gc(), 500);
+
+// Replay phases from sessions that started before this WebView mounted.
+invoke("notch_ready").catch(() => {});
+
+// Hotkey probe: when the user toggles the notch open and there are no
+// active executor pills, drop a short-lived "ready" hint so the window
+// is visibly there. Auto-dismisses via the Done TTL path.
+listen("notch:probe", () => {
+  if (store.pills().length === 0) {
+    store.apply({
+      sessionId: "__probe__",
+      tabLabel: "notch",
+      tabColor: "#7c5cff",
+      phase: { kind: "done", summary: "ready — no active agents" },
+    });
+  }
+});
 
 const setPassthrough = (pass: boolean) =>
   invoke("notch_set_passthrough", { passthrough: pass }).catch(() => {});

@@ -865,13 +865,16 @@ function telegramSegment(status: TelegramStatus): HTMLElement {
 function versionSegment(version: string, onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
-  el.className = "status-segment status-version";
-  el.title = `Covenant v${version} — click for release log`;
-  el.setAttribute("aria-label", `Version ${version}. Open release log.`);
+  const isDev = import.meta.env.DEV;
+  el.className = isDev ? "status-segment status-version status-version-dev" : "status-segment status-version";
+  el.title = isDev
+    ? `Covenant v${version} (dev build) — click for release log`
+    : `Covenant v${version} — click for release log`;
+  el.setAttribute("aria-label", `Version ${version}${isDev ? " dev" : ""}. Open release log.`);
 
   const text = document.createElement("span");
   text.className = "status-text";
-  text.textContent = `v${version}`;
+  text.textContent = isDev ? `v${version} [dev]` : `v${version}`;
   el.appendChild(text);
 
   el.addEventListener("click", (e) => {

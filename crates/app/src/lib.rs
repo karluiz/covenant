@@ -381,6 +381,27 @@ async fn spawn_session(
         let bus_for_notch = bus_tx.clone();
         tauri::async_runtime::spawn(async move { hub.register(id, bus_for_notch).await });
     }
+    // Drive the notch's per-session executor-agent state off ForegroundChanged.
+    // The notch only surfaces pills for sessions where a known agent CLI
+    // (claude/codex/copilot/…) is currently in the PTY foreground.
+    {
+        let hub = notch_hub.clone();
+        let mut rx = session.subscribe();
+        tauri::async_runtime::spawn(async move {
+            while let Ok(ev) = rx.recv().await {
+                if let karl_session::SessionEvent::ForegroundChanged { session, name } = ev {
+                    let agent = name.and_then(|n| {
+                        if karl_session::idle::KNOWN_AGENTS.contains(&n.as_str()) {
+                            Some(n)
+                        } else {
+                            None
+                        }
+                    });
+                    hub.set_foreground_agent(session, agent).await;
+                }
+            }
+        });
+    }
 
     // Persist the session row immediately so block FK references resolve.
     let started_unix_ms = now_unix_ms();
@@ -2450,7 +2471,12 @@ pub fn run() {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         if let Some(win) = app.get_webview_window("notch") {
                             let visible = win.is_visible().unwrap_or(false);
-                            let _ = if visible { win.hide() } else { win.show() };
+                            if visible {
+                                let _ = win.hide();
+                            } else {
+                                notch::show_notch(&win);
+                                let _ = win.emit("notch:probe", ());
+                            }
                         }
                     }
                 })
@@ -3108,6 +3134,7 @@ pub fn run() {
             score_sync_commands::score_sync_now,
             score_sync_commands::score_sync_status,
             notch::notch_set_passthrough,
+            notch::notch_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

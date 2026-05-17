@@ -30,7 +30,6 @@ html, body, .notch-body {
   color: #fff;
   font: 500 12.5px -apple-system;
   min-width: 210px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   animation: slideIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   transition: all 0.25s;
 }
@@ -70,7 +69,6 @@ html, body, .notch-body {
   gap: 9px;
   color: #e8e8f0;
   font: 600 11.5px -apple-system;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
   transition: all 0.25s;
   cursor: pointer;
 }
