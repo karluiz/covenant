@@ -86,6 +86,31 @@ fn append_with_context_stores_fields() {
     assert_eq!(row, ("karlTerminal".into(), "notch".into(), "main".into()));
 }
 
+#[test]
+fn summary_filtered_by_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = karl_score::ScoreStore::open(dir.path()).unwrap();
+    let kt = karl_score::Context { repo: Some("kt".into()), branch: Some("n".into()), group_name: None };
+    let cs = karl_score::Context { repo: Some("cs".into()), branch: Some("m".into()), group_name: None };
+    for _ in 0..3 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt).unwrap(); }
+    for _ in 0..7 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs).unwrap(); }
+    let s = store.summary_filtered(&karl_score::ScoreFilter { repo: Some("kt".into()), ..Default::default() }).unwrap();
+    assert_eq!(s.total_prompts, 3);
+}
+
+#[test]
+fn heatmap_filtered_by_repo() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = karl_score::ScoreStore::open(dir.path()).unwrap();
+    let kt = karl_score::Context { repo: Some("kt".into()), branch: None, group_name: None };
+    for _ in 0..4 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt).unwrap(); }
+    let cs = karl_score::Context { repo: Some("cs".into()), branch: None, group_name: None };
+    for _ in 0..2 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs).unwrap(); }
+    let cells = store.heatmap_filtered(&karl_score::ScoreFilter { repo: Some("kt".into()), ..Default::default() }).unwrap();
+    let total: u32 = cells.iter().map(|c| c.prompts).sum();
+    assert_eq!(total, 4);
+}
+
 use karl_score::commit_scanner::scan_repo_since;
 use std::process::Command;
 

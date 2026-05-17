@@ -153,6 +153,54 @@ impl ScoreStore {
         Ok(())
     }
 
+    pub fn heatmap_filtered(&self, f: &crate::ScoreFilter) -> Result<Vec<DailyCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT day,
+                    SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END) AS p,
+                    SUM(CASE WHEN kind='commit' THEN 1 ELSE 0 END) AS k
+             FROM score_events
+             WHERE {}
+             GROUP BY day
+             ORDER BY day ASC",
+            w.sql
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| Ok(DailyCell {
+            day: r.get(0)?,
+            prompts: r.get::<_, i64>(1)? as u32,
+            commits: r.get::<_, i64>(2)? as u32,
+        }))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn summary_filtered(&self, f: &crate::ScoreFilter) -> Result<Summary> {
+        let cells = self.heatmap_filtered(f)?;
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let mut total_p: u64 = 0;
+        let mut total_c: u64 = 0;
+        let mut today_p = 0u32;
+        let mut today_c = 0u32;
+        for cell in &cells {
+            total_p += cell.prompts as u64;
+            total_c += cell.commits as u64;
+            if cell.day == today {
+                today_p = cell.prompts;
+                today_c = cell.commits;
+            }
+        }
+        let (current_streak, longest_streak) = compute_streaks(&cells, &today);
+        Ok(Summary {
+            total_prompts: total_p,
+            total_commits: total_c,
+            today_prompts: today_p,
+            today_commits: today_c,
+            current_streak,
+            longest_streak,
+        })
+    }
+
     pub fn summary(&self) -> Result<Summary> {
         let cells = self.heatmap_all()?;
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
