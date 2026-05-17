@@ -809,16 +809,24 @@ pub async fn read_draft(repo_root: String, slug: String) -> Result<DraftDocument
 
 #[tauri::command]
 pub async fn save_draft(
+    app: tauri::AppHandle,
     repo_root: String,
     slug: String,
     title: String,
     body: String,
 ) -> Result<DraftDocumentDto, String> {
-    let path = PathBuf::from(repo_root);
+    use tauri::Emitter;
+    let path = PathBuf::from(repo_root.clone());
     let doc = tokio::task::spawn_blocking(move || save_draft_sync(&path, &slug, &title, &body))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
+    let payload = serde_json::json!({
+        "repoRoot": repo_root,
+        "slug": doc.frontmatter.slug,
+        "title": doc.frontmatter.title,
+    });
+    let _ = app.emit("draft:saved", payload);
     Ok(DraftDocumentDto::from(doc))
 }
 
