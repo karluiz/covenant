@@ -6,6 +6,87 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.6.0 — Covenant Score v2: per-repo/branch tracking + Settings page
+
+### Added
+
+- **Context-aware prompt + commit tracking** (`crates/score/src/context.rs`,
+  `crates/score/src/types.rs`, `crates/score/src/lib.rs`,
+  `crates/score/src/store.rs`, `crates/app/src/score_commands.rs`,
+  `ui/src/tabs/manager.ts`): every prompt and commit is now attributed
+  to its `(repo, branch, group_name)` automatically. A new
+  `ContextResolver` with a 5-second LRU shells out to `git rev-parse`
+  / `git branch --show-current` (or `detached:<sha7>` on a detached
+  HEAD) and caches per session. The active tab's `(sessionId, cwd,
+  groupName)` is pushed into karl-score via a `score_set_current_session`
+  Tauri command on every tab focus and cwd change, so the recorder
+  always has fresh context. `commit_scanner` attributes commits to
+  the branch they were made on.
+
+- **Covenant Score Settings page** (`ui/src/score/page.ts`,
+  `ui/src/score/breakdowns.ts`, `ui/src/score/styles.css`,
+  `ui/src/score/chip.ts`, `ui/src/status/bar.ts`, `ui/src/main.ts`):
+  the chip-modal is gone. The status-bar chip now opens
+  `Settings → Covenant`, a full page with filter chips (time range
+  cyclable through all/30d/7d, plus repo/branch/group/day),
+  4 stat cards, the 53-week heatmap (click a cell → filter by day),
+  per-repo stacked bars (click to drill in), top-branches list
+  inside the selected repo, per-group bars, a recent-sessions feed,
+  and a sync card.
+
+- **Tauri commands for filtered + breakdown queries**
+  (`crates/app/src/score_commands.rs`): six new commands —
+  `score_summary_filtered`, `score_heatmap_filtered`,
+  `score_breakdown_repos`, `score_breakdown_branches`,
+  `score_breakdown_groups`, `score_recent_sessions` — back the new
+  UI. All accept a `ScoreFilter { range, repo?, branch?, group?, day? }`.
+
+- **Local SQLite v2 migration** (`crates/score/src/store.rs`):
+  `score_events` gains nullable `repo`, `branch`, `group_name`
+  columns plus supporting indexes, gated by `PRAGMA user_version`
+  so it's idempotent on reopen. Historical rows keep working with
+  NULL context — no backfill.
+
+- **Server-side context columns + breakdown endpoints**
+  (covenant-server: `migrations/0002_context.sql`, `src/sync.rs`,
+  `src/breakdown.rs`): Postgres `score_events` mirrors the new
+  columns. `/sync/events` accepts optional `repo`/`branch`/`group_name`
+  per event (`#[serde(default)]` keeps old clients working). Four new
+  authenticated GETs ship behind the `/api/` namespace:
+  `breakdown/repos`, `breakdown/branches?repo=…`, `breakdown/groups`,
+  `sessions/recent?limit=…`. Recent-sessions uses a window-function
+  CTE to bucket events into sessions on a strict `>15-min` gap per
+  `(repo, branch)`.
+
+- **Session-pushed context on sync** (`crates/score/src/sync.rs`,
+  `crates/score/src/store.rs`): the local→server uploader now
+  reads the three new columns out of `unsynced_events` and
+  serializes them on each `PushEvent` (skipped when None for a
+  clean wire format).
+
+### Changed
+
+- **Settings panel tabbed** (`ui/src/settings/panel.ts`,
+  `ui/src/settings/tabs.ts`): the long scrolling settings page is
+  now mutually-exclusive tabs. A single `activateTab(root, tab)`
+  helper drives section visibility from the sidebar nav, and
+  `SettingsPanel.open(tab?)` accepts an optional initial tab so the
+  Covenant chip and the Telegram pill can route to the right view.
+  The previous `IntersectionObserver`-based scroll tracking is gone.
+
+### Fixed
+
+- **Trim pasted API keys** (`ui/src/settings/providers.ts`):
+  pasted Anthropic keys often pick up trailing whitespace which the
+  API rejects without a clear error. The provider card's API-key
+  input now `.trim()`s on every keystroke.
+
+- **Session boundary aligned with server** (`crates/score/src/store.rs`,
+  `crates/score/tests/breakdown.rs`): client `recent_sessions`
+  previously bucketed on `>= 900000 ms` while the server used `>`.
+  Aligned both to strict `>` so events spaced exactly 15 min apart
+  belong to the same session. Test gap bumped from 16 → 17 min.
+
 ## v0.5.28 — Notch settings: corner + chime + fullscreen-aware rack
 
 ### Added
