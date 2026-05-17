@@ -3145,6 +3145,7 @@ pub fn run() {
             score_auth_commands::score_signout,
             score_sync_commands::score_sync_now,
             score_sync_commands::score_sync_status,
+            score_commands::score_set_current_session,
             notch::notch_set_passthrough,
             notch::notch_ready,
         ])

@@ -41,6 +41,7 @@ import {
   operatorList,
   resizeSession,
   resolveExistingPath,
+  scoreSetCurrentSession,
   setAomExcluded,
   sessionSetOperator,
   setOperatorLive,
@@ -1143,6 +1144,7 @@ export class TabManager {
     if (!tab) {
       this.onActiveTabChange?.(null);
       this.onActiveSessionChange?.(null);
+      scoreSetCurrentSession(null, null, null);
       return;
     }
     const group = tab.groupId ? this.groups.get(tab.groupId) ?? null : null;
@@ -1153,6 +1155,11 @@ export class TabManager {
       groupColor: group?.color ?? null,
     });
     this.onActiveSessionChange?.(tab?.sessionId ?? null);
+    scoreSetCurrentSession(
+      tab.sessionId ?? null,
+      tab.cwd ?? null,
+      group?.name ?? null,
+    );
   }
 
   /// Push the active tab's mission to whoever is listening (status bar).
@@ -1773,6 +1780,7 @@ export class TabManager {
               // Background tabs cd'ing don't shift what the user sees.
               if (tabRef.current && tabRef.current.id === this.activeId) {
                 this.onActiveContextChange?.(event.cwd);
+                this.emitActiveTab();
               }
             }
           },
