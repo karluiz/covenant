@@ -25,6 +25,8 @@
 //! may yield a slightly off command string. Good enough for M1; iTerm-
 //! style `OSC 133 ; C ; cmdline=…` extension is a future upgrade.
 
+pub mod executor_phase;
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};

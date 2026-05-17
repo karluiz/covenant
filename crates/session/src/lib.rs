@@ -68,17 +68,7 @@ pub enum SessionError {
     Pty(#[from] karl_pty::PtyError),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ExecutorPhase {
-    Idle,
-    Thinking,
-    Running { cmd: String },
-    Writing { file: String },
-    Reading { file: String },
-    Waiting { reason: String },
-    Done { summary: Option<String> },
-}
+pub use karl_blocks::executor_phase::ExecutorPhase;
 
 /// High-level events broadcast on a session's bus. Designed for the
 /// agent's world model — every variant is small enough to log/serialize
