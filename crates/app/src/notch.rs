@@ -84,9 +84,12 @@ pub fn spawn_bridge(
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
                         if !visible {
-                            let _ = win.show();
-                            position_bottom_right(&win);
-                            apply_macos_collection_behavior(&win);
+                            let w = win.clone();
+                            let _ = win.run_on_main_thread(move || {
+                                let _ = w.show();
+                                position_bottom_right(&w);
+                                apply_macos_collection_behavior(&w);
+                            });
                         }
                         for b in buffer.drain(..) {
                             let _ = win.emit("notch://state", &b);
