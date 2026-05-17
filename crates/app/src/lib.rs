@@ -3021,6 +3021,39 @@ pub fn run() {
                 notch_hub: notch::NotchHub::new(),
             });
 
+            // Fullscreen-aware notch: when the main Covenant window
+            // enters fullscreen the floating overlay is intrusive, so
+            // we hide it and ask the main UI to render an inline pill
+            // rack in its own dead-space. Restore the overlay on exit.
+            if let Some(main_win) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                main_win.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::Resized(_) = ev {
+                        let h = handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let fullscreen = h
+                                .get_webview_window("main")
+                                .and_then(|w| w.is_fullscreen().ok())
+                                .unwrap_or(false);
+                            if let Some(notch) = h.get_webview_window("notch") {
+                                if fullscreen {
+                                    let _ = notch.hide();
+                                } else if notch.is_visible().unwrap_or(false) {
+                                    // already shown
+                                } else {
+                                    // overlay was hidden — let the bridge
+                                    // re-show on the next event naturally
+                                }
+                            }
+                            let _ = h.emit(
+                                "notch:inline-mode",
+                                serde_json::json!({ "enabled": fullscreen }),
+                            );
+                        });
+                    }
+                });
+            }
+
             // Notch bridge: subscribe to the hub's fan-out and forward
             // every ExecutorStateChanged event to the notch webview.
             {

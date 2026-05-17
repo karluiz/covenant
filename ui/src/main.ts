@@ -357,6 +357,9 @@ async function boot(): Promise<void> {
   const statusBarHost = requireEl<HTMLElement>("status-bar");
   const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
+  // Inline notch rack — appears in the status-bar host when Covenant
+  // enters fullscreen and the floating overlay is suppressed.
+  void import("./inline-notch").then((m) => m.mountInlineNotch(statusBarHost));
   // Familiar status dot — single instance, mounted on the status-bar
   // host. Rebound whenever the active tab changes (or the registry
   // updates for the currently-active session).

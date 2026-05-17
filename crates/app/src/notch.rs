@@ -255,9 +255,16 @@ pub fn spawn_bridge(
             match rx.recv().await {
                 Ok(ev @ SessionEvent::ExecutorStateChanged { .. }) => {
                     tracing::info!(target: "notch", "bridge: forwarding ExecutorStateChanged to webview");
+                    // When Covenant is in fullscreen the main UI renders
+                    // inline pills — keep the overlay hidden but still
+                    // fan the event out so the inline rack updates.
+                    let main_fullscreen = app
+                        .get_webview_window("main")
+                        .and_then(|w| w.is_fullscreen().ok())
+                        .unwrap_or(false);
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
-                        if !visible {
+                        if !visible && !main_fullscreen {
                             let corner = settings.lock().await.notch_corner;
                             show_notch(&win, corner);
                         }
