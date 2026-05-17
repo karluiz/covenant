@@ -77,12 +77,17 @@ pub fn record_prompt(executor: &str) {
     record_prompt_with_context(executor)
 }
 
-pub fn record_commit(repo: &str, sha7: &str) {
+pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>) {
     let now = chrono::Utc::now().timestamp_millis();
     let exec = format!("{repo}:{sha7}");
+    let ctx = Context { repo: Some(repo.to_string()), branch, group_name: None };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
-            let _ = store.append(now, EventKind::Commit, &exec);
+            let _ = store.append_with_context(now, EventKind::Commit, &exec, &ctx);
         }
     }
+}
+
+pub fn record_commit(repo: &str, sha7: &str) {
+    record_commit_with_context(repo, sha7, None)
 }
