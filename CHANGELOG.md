@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.27 — Fix release build (unused TS constants)
+
+### Fixed
+
+- **TS strict-mode build** (`ui/notch/store.ts`): removed unused
+  `STABLE_MS` / `COMPACT_THRESHOLD` constants that broke the
+  release-macos / release-windows workflows for v0.5.26.
+
 ## v0.5.26 — Notch detection rewrite + drafts in project notes
 
 ### Added

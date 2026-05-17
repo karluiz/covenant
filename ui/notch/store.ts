@@ -21,8 +21,6 @@ export interface Pill extends PillInput {
   compact: boolean;
 }
 
-const STABLE_MS = 5000;
-const COMPACT_THRESHOLD = 4;
 const DONE_TTL_MS = 2500;
 const THINKING_STALE_MS = 8000;
 const STICKY_MS = 8000;
