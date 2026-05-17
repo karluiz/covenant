@@ -37,9 +37,22 @@ impl LlmProvider for AnthropicProvider {
         req: AskRequest,
         mut on_event: Box<dyn FnMut(AgentEvent) + Send>,
     ) -> Result<(), AgentError> {
-        if req.api_key.trim().is_empty() {
-            return Err(AgentError::MissingKey);
-        }
+        // Resolver-driven callers (operator, familiars, etc.) leave
+        // `req.api_key` empty and expect the provider to use the key
+        // baked into its `ProviderConfig` at construction time. Honor
+        // the per-request key when present (legacy direct callers),
+        // otherwise fall back to the config.
+        let api_key = if req.api_key.trim().is_empty() {
+            self.config
+                .api_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+                .map(str::to_string)
+                .ok_or(AgentError::MissingKey)?
+        } else {
+            req.api_key.clone()
+        };
 
         let base_url = self
             .config
@@ -81,7 +94,7 @@ impl LlmProvider for AnthropicProvider {
 
         let response = client
             .post(&url)
-            .header("x-api-key", &req.api_key)
+            .header("x-api-key", &api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
             .json(&body)

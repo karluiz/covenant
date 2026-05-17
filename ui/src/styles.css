@@ -3045,7 +3045,8 @@ body:not(.tabbar-left) #new-group {
 .settings-form {
     overflow-y: auto;
     background: var(--bg-panel);
-    display: block;
+    display: flex;
+    flex-direction: column;
     /* As a grid item, the form's default min-height: auto would
      expand to its content height — defeating overflow-y:auto and
      leaving scrollIntoView/IntersectionObserver no real viewport.
@@ -3055,6 +3056,11 @@ body:not(.tabbar-left) #new-group {
      can land it at the top of the viewport even when it's the final one. */
     scroll-padding-top: 24px;
 }
+
+/* Push the action bar to the bottom of the form viewport when content
+   is shorter than the available height. Long content still scrolls and
+   the sticky `bottom: 0` keeps the bar visible. */
+.settings-form > .settings-actions { margin-top: auto; }
 
 /* Last section needs room so the anchor can scroll it to the top of the
    viewport. Scope by id to avoid affecting non-final sections. */
