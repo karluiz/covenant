@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.24 — Fix notch startup panic
+
+### Fixed
+
+- **Notch bridge startup panic** (`crates/app/src/notch.rs`):
+  `spawn_bridge` called `tokio::spawn` from Tauri's synchronous `setup`
+  closure, where no Tokio reactor is active. On launch the app aborted
+  with *"there is no reactor running, must be called from the context
+  of a Tokio 1.x runtime"* (visible in `~/.karlTerminal/crash.log`),
+  triggering SIGABRT during `did_finish_launching`. Switched to
+  `tauri::async_runtime::spawn`, matching every other background task
+  spawned from `setup` in `lib.rs`.
+
 ## v0.5.23 — Notch executor status overlay
 
 ### Added
