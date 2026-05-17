@@ -1,7 +1,7 @@
 import { runDeviceFlow } from "./signin";
 import { getCurrentUser, setCurrentUser } from "./user";
-import { scoreSignout, scoreHeatmap, scoreSummary, type DailyCell, type User }
-  from "./api";
+import { scoreSignout, scoreHeatmap, scoreSummary, scoreSyncNow, scoreSyncStatus,
+  type DailyCell, type User, type SyncStatus } from "./api";
 
 function intensityClass(prompts: number): string {
   if (prompts === 0) return "";
@@ -55,7 +55,7 @@ function renderHeader(user: User | null): string {
     </div>`;
 }
 
-function renderFooter(user: User | null): string {
+function renderFooter(user: User | null, sync: SyncStatus | null): string {
   if (!user) return `
     <div class="score-cta">
       <div class="text">
@@ -64,18 +64,35 @@ function renderFooter(user: User | null): string {
       </div>
       <button type="button" class="signin-trigger">Sign in with GitHub</button>
     </div>`;
+  const syncedText = formatSync(sync);
   return `
     <div class="score-footer">
-      <a href="#" class="signout">Disconnect GitHub</a>
+      <span class="sync-status">${syncedText}</span>
+      <a href="#" class="sync-now">Sync now</a>
+      <a href="#" class="signout">Disconnect</a>
     </div>`;
+}
+
+function formatSync(sync: SyncStatus | null): string {
+  if (!sync || !sync.signed_in) return "Not synced";
+  if (sync.last_synced_at_ms === 0) return "Pending first sync…";
+  const ageMs = Date.now() - sync.last_synced_at_ms;
+  const ageMin = Math.floor(ageMs / 60000);
+  const ageStr = ageMin === 0 ? "just now" :
+                  ageMin < 60 ? `${ageMin}m ago` :
+                  `${Math.floor(ageMin/60)}h ago`;
+  if (sync.pending_events > 0) return `Synced ${ageStr} · ${sync.pending_events} pending`;
+  return `Synced ${ageStr}`;
 }
 
 export async function openScoreModal(): Promise<void> {
   const existing = document.querySelector(".score-modal-backdrop");
   if (existing) { existing.remove(); return; }
 
-  const [summary, cells, user] = await Promise.all([
-    scoreSummary(), scoreHeatmap(), getCurrentUser(),
+  const user = await getCurrentUser();
+  const syncP = user ? scoreSyncStatus().catch(() => null as SyncStatus | null) : Promise.resolve(null);
+  const [summary, cells, sync] = await Promise.all([
+    scoreSummary(), scoreHeatmap(), syncP,
   ]);
 
   const back = document.createElement("div");
@@ -108,13 +125,25 @@ export async function openScoreModal(): Promise<void> {
       <span class="score-cell l4"></span>
       <span>More</span>
     </div>
-    ${renderFooter(user)}
+    ${renderFooter(user, sync)}
   `;
   modal.querySelector(".score-heatmap-wrap")!.appendChild(renderHeatmap(cells));
 
   modal.querySelector(".signin-trigger")?.addEventListener("click", async () => {
     const u = await runDeviceFlow();
     if (u) { back.remove(); void openScoreModal(); }
+  });
+  modal.querySelector(".sync-now")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const status = modal.querySelector(".sync-status") as HTMLElement;
+    status.textContent = "Syncing…";
+    try {
+      await scoreSyncNow();
+      back.remove();
+      void openScoreModal();
+    } catch (err) {
+      status.textContent = `Sync failed: ${err}`;
+    }
   });
   modal.querySelector(".signout")?.addEventListener("click", async (e) => {
     e.preventDefault();

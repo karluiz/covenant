@@ -37,6 +37,7 @@ mod project_notes;
 mod safety;
 mod score_auth_commands;
 mod score_commands;
+mod score_sync_commands;
 mod scrollback;
 pub mod settings;
 mod spec_detector;
@@ -2884,6 +2885,18 @@ pub fn run() {
                 }
             });
 
+            // Periodic push-sync to covenant-server.
+            let sync_store = score_store.clone();
+            tauri::async_runtime::spawn(async move {
+                use std::time::Duration;
+                loop {
+                    tokio::time::sleep(Duration::from_secs(300)).await;
+                    if let Err(e) = karl_score::sync::push_once(&sync_store).await {
+                        tracing::debug!(error = %e, "periodic sync skipped");
+                    }
+                }
+            });
+
             let gc_storage = storage.clone();
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
@@ -3054,6 +3067,8 @@ pub fn run() {
             score_auth_commands::score_signin_poll,
             score_auth_commands::score_current_user,
             score_auth_commands::score_signout,
+            score_sync_commands::score_sync_now,
+            score_sync_commands::score_sync_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
