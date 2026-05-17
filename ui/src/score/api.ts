@@ -22,3 +22,36 @@ export async function scoreSummary(): Promise<Summary> {
 export async function scoreHeatmap(): Promise<DailyCell[]> {
   return invoke<DailyCell[]>("score_heatmap");
 }
+
+export interface User {
+  github_id: number;
+  login: string;
+  avatar_url: string;
+  connected_at_ms: number;
+}
+
+export interface DeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  interval: number;
+  expires_in: number;
+}
+
+export async function scoreSigninStart(): Promise<DeviceCodeResponse> {
+  return invoke<DeviceCodeResponse>("score_signin_start");
+}
+
+export async function scoreSigninPoll(
+  device_code: string,
+): Promise<User | null> {
+  return invoke<User | null>("score_signin_poll", { deviceCode: device_code });
+}
+
+export async function scoreCurrentUser(): Promise<User | null> {
+  return invoke<User | null>("score_current_user");
+}
+
+export async function scoreSignout(): Promise<void> {
+  return invoke<void>("score_signout");
+}
