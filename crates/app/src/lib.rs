@@ -1098,7 +1098,21 @@ async fn set_tab_title(
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
     state.operator.set_tab_title(id, title.clone()).await;
+    // Also seed the notch label so it's populated even if the frontend
+    // forgets to call notch_set_label. notchSetLabel overrides this
+    // with the group-prefixed version.
     state.notch_hub.set_tab_label(id, title).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn notch_set_label(
+    state: State<'_, AppState>,
+    session_id: String,
+    label: String,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.notch_hub.set_tab_label(id, label).await;
     Ok(())
 }
 
@@ -1922,18 +1936,39 @@ async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
 #[tauri::command]
 async fn set_settings(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     settings: Settings,
 ) -> Result<(), String> {
     settings::save(&state.settings_path, &settings).map_err(|e| e.to_string())?;
-    let telegram_changed = {
+    let (telegram_changed, notch_corner_changed, notch_sound_changed) = {
         let cur = state.settings.lock().await;
-        cur.telegram.enabled != settings.telegram.enabled
+        let tg = cur.telegram.enabled != settings.telegram.enabled
             || cur.telegram.bot_token != settings.telegram.bot_token
-            || cur.telegram.chat_id != settings.telegram.chat_id
+            || cur.telegram.chat_id != settings.telegram.chat_id;
+        let corner = cur.notch_corner != settings.notch_corner;
+        let sound = cur.notch_sound_on_done != settings.notch_sound_on_done;
+        (tg, corner, sound)
     };
     let notch_enabled = settings.notch_enabled;
+    let new_corner = settings.notch_corner;
+    let new_sound = settings.notch_sound_on_done;
     *state.settings.lock().await = settings;
     state.notch_hub.set_enabled(notch_enabled).await;
+    if notch_corner_changed {
+        if let Some(win) = app.get_webview_window("notch") {
+            notch::reposition_notch(&win, new_corner);
+        }
+        let _ = app.emit(
+            "notch:corner",
+            serde_json::json!({ "corner": new_corner }),
+        );
+    }
+    if notch_sound_changed {
+        let _ = app.emit(
+            "notch:sound",
+            serde_json::json!({ "sound_on_done": new_sound }),
+        );
+    }
     if telegram_changed {
         let mut slot = state.telegram_inbound_handle.lock().await;
         if let Some(h) = slot.take() {
@@ -2318,6 +2353,7 @@ async fn spec_author_step(
     state: State<'_, AppState>,
     draft_id: Option<String>,
     user_msg: String,
+    cwd: Option<String>,
 ) -> Result<StepResultDto, String> {
     let api_key = {
         let s = state.settings.lock().await;
@@ -2350,9 +2386,16 @@ async fn spec_author_step(
         model: "claude-sonnet-4-6".into(),
     };
 
-    let output = karl_agent::spec_author::step(&dispatcher, &mut draft, user_msg, &base_dir)
-        .await
-        .map_err(|e| e.to_string())?;
+    let cwd_path = cwd.as_ref().map(std::path::PathBuf::from);
+    let output = karl_agent::spec_author::step_with_context(
+        &dispatcher,
+        &mut draft,
+        user_msg,
+        &base_dir,
+        cwd_path.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     let output_dto = match &output {
         karl_agent::spec_author::StepOutput::Question { phase, text } => StepOutputDto::Question {
@@ -2476,7 +2519,13 @@ pub fn run() {
                             if visible {
                                 let _ = win.hide();
                             } else {
-                                notch::show_notch(&win);
+                                let state: tauri::State<AppState> = app.state();
+                                let settings = state.settings.clone();
+                                let win_clone = win.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    let corner = settings.lock().await.notch_corner;
+                                    notch::show_notch(&win_clone, corner);
+                                });
                                 let _ = win.emit("notch:probe", ());
                             }
                         }
@@ -2980,12 +3029,45 @@ pub fn run() {
                 notch_hub: notch::NotchHub::new(),
             });
 
+            // Fullscreen-aware notch: when the main Covenant window
+            // enters fullscreen the floating overlay is intrusive, so
+            // we hide it and ask the main UI to render an inline pill
+            // rack in its own dead-space. Restore the overlay on exit.
+            if let Some(main_win) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                main_win.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::Resized(_) = ev {
+                        let h = handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let fullscreen = h
+                                .get_webview_window("main")
+                                .and_then(|w| w.is_fullscreen().ok())
+                                .unwrap_or(false);
+                            if let Some(notch) = h.get_webview_window("notch") {
+                                if fullscreen {
+                                    let _ = notch.hide();
+                                } else if notch.is_visible().unwrap_or(false) {
+                                    // already shown
+                                } else {
+                                    // overlay was hidden — let the bridge
+                                    // re-show on the next event naturally
+                                }
+                            }
+                            let _ = h.emit(
+                                "notch:inline-mode",
+                                serde_json::json!({ "enabled": fullscreen }),
+                            );
+                        });
+                    }
+                });
+            }
+
             // Notch bridge: subscribe to the hub's fan-out and forward
             // every ExecutorStateChanged event to the notch webview.
             {
                 let state: tauri::State<AppState> = app.state();
                 let rx = state.notch_hub.subscribe();
-                notch::spawn_bridge(app.handle().clone(), rx);
+                notch::spawn_bridge(app.handle().clone(), state.settings.clone(), rx);
                 // Seed the hub's enabled flag from persisted settings so
                 // a user who turned the notch off on the previous run
                 // doesn't see pills for one boot before the toggle is
@@ -3033,6 +3115,7 @@ pub fn run() {
             is_operator_live,
             set_aom_excluded,
             set_tab_title,
+            notch_set_label,
             is_aom_excluded,
             clear_all_aom_excluded,
             set_session_mission,

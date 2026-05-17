@@ -31,11 +31,14 @@ type StatePayload = {
 listen<StatePayload>("notch:state", (ev) => {
   const sid = ev.payload.session;
   // Idle is the explicit "agent stopped" signal — drop any existing pill.
-  // Thinking from the backend is now whitelist-only (Claude Code's
-  // explicit processing-status line) so it's high-signal: render it.
   if (ev.payload.phase.kind === "idle") {
     store.drop(sid);
     return;
+  }
+  // Backend already dedupes Done per turn, so any Done that reaches us
+  // is the *first* one for this turn — safe to chime unconditionally.
+  if (ev.payload.phase.kind === "done") {
+    playDoneChime();
   }
   const input: PillInput = {
     sessionId: sid,
@@ -48,8 +51,53 @@ listen<StatePayload>("notch:state", (ev) => {
 
 setInterval(() => store.gc(), 500);
 
+type NotchCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+type NotchReady = { corner: NotchCorner; sound_on_done: boolean };
+const applyCorner = (corner: NotchCorner) => {
+  document.body.dataset.corner = corner;
+};
+applyCorner("bottom-right");
+
+// Done chime — short synthesized two-note descending bell. Generated
+// on demand via Web Audio so we don't ship an MP3.
+let soundOnDone = true;
+function playDoneChime(): void {
+  if (!soundOnDone) return;
+  try {
+    const ctx = new (window.AudioContext ||
+      // @ts-expect-error webkit prefix
+      window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(988, now);          // B5
+    osc.frequency.exponentialRampToValueAtTime(659, now + 0.18); // E5
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  } catch {
+    // No-op: webview without audio support.
+  }
+}
+
 // Replay phases from sessions that started before this WebView mounted.
-invoke("notch_ready").catch(() => {});
+// Also returns the current corner + sound preference from settings.
+invoke<NotchReady>("notch_ready")
+  .then((r) => {
+    if (!r) return;
+    applyCorner(r.corner);
+    soundOnDone = r.sound_on_done;
+  })
+  .catch(() => {});
+
+listen<{ corner: NotchCorner }>("notch:corner", (ev) => applyCorner(ev.payload.corner));
+listen<{ sound_on_done: boolean }>("notch:sound", (ev) => {
+  soundOnDone = ev.payload.sound_on_done;
+});
 
 // Hotkey probe: when the user toggles the notch open and there are no
 // active executor pills, drop a short-lived "ready" hint so the window

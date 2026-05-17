@@ -100,14 +100,14 @@ export function mountSpecChatPanel(
       sendBtn.setAttribute("aria-label", "Send");
       sendBtn.innerHTML = Icons.arrowRight({ size: 14 });
 
-      const spinner = document.createElement("span");
-      spinner.className = "spec-chat-spinner";
-      spinner.innerHTML = Icons.refresh({ size: 14 });
-      spinner.hidden = true;
+      // Typing indicator — appended into the messages stream while awaiting.
+      const typing = document.createElement("div");
+      typing.className = "spec-chat-msg spec-chat-msg-assistant spec-chat-typing";
+      typing.innerHTML = `<span class="spec-chat-typing-dot"></span><span class="spec-chat-typing-dot"></span><span class="spec-chat-typing-dot"></span>`;
+      typing.hidden = true;
 
       inputRow.appendChild(textarea);
       inputRow.appendChild(sendBtn);
-      inputRow.appendChild(spinner);
 
       const errorDiv = document.createElement("div");
       errorDiv.className = "spec-chat-error";
@@ -184,14 +184,21 @@ export function mountSpecChatPanel(
         for (const msg of msgs) {
           messages.appendChild(renderMessage(msg));
         }
-        emptyState.hidden = msgs.length > 0;
-        messages.hidden = msgs.length === 0;
 
         // Awaiting state
         const awaiting = state.awaitingAnswer();
         textarea.disabled = awaiting;
         sendBtn.disabled = awaiting;
-        spinner.hidden = !awaiting;
+        typing.hidden = !awaiting;
+        if (awaiting) messages.appendChild(typing);
+
+        emptyState.hidden = msgs.length > 0 || awaiting;
+        messages.hidden = msgs.length === 0 && !awaiting;
+
+        // Scroll to bottom so the latest user/assistant message is visible.
+        requestAnimationFrame(() => {
+          messages.scrollTop = messages.scrollHeight;
+        });
 
         // Phase
         const phase = state.phase();

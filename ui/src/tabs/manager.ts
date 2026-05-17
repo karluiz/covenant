@@ -47,6 +47,7 @@ import {
   setOperatorLive,
   setSessionMission,
   setTabTitle,
+  notchSetLabel,
   spawnSession,
   replayScrollback,
   deleteScrollback,
@@ -1496,6 +1497,13 @@ export class TabManager {
     void setTabTitle(sessionId as SessionId, name).catch((err) => {
       console.warn("setTabTitle failed", err);
     });
+    // Tell the notch overlay the *display* label (group › tab) so the
+    // pill shows "COVENANT › notch" instead of just "notch". AOM keeps
+    // using the bare name above for slug generation.
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const group = tab?.groupId ? this.groups.get(tab.groupId) : null;
+    const label = group ? `${group.name} › ${name}` : name;
+    void notchSetLabel(sessionId as SessionId, label).catch(() => {});
   }
 
   /// 3.6 — focus the tab whose backend session matches `sessionId`. Used
@@ -3210,15 +3218,6 @@ export class TabManager {
     return this.renaming?.kind === "group" && this.renaming.id === id;
   }
 
-  private setColor(id: string, color: string | null): void {
-    const tab = this.tabs.find((t) => t.id === id);
-    if (!tab) return;
-    tab.color = color;
-    this.renderTabbar();
-    if (id === this.activeId) this.emitActiveTab();
-    this.scheduleSave();
-  }
-
   private setGroupColor(groupId: string, color: string | null): void {
     const g = this.groups.get(groupId);
     if (!g) return;
@@ -3972,22 +3971,6 @@ export class TabManager {
         onClick: () => this.startTabRename(tab.id),
       },
       { divider: true },
-      {
-        swatches: COLOR_SWATCHES.map((sw) => ({
-          color: sw.color,
-          title: sw.title,
-          onClick: () => this.setColor(tab.id, sw.color),
-        })),
-      },
-      {
-        swatches: COLOR_SWATCHES_PASTEL.map((sw) => ({
-          color: sw.color,
-          title: sw.title,
-          onClick: () => this.setColor(tab.id, sw.color),
-        })),
-        pastelRow: true,
-      },
-      { divider: true },
     ];
 
     // Group operations. Collapse "Move to <group>" into a single
@@ -4122,7 +4105,7 @@ export class TabManager {
       },
       { divider: true },
       {
-        label: "Open notes (⌘⇧N)",
+        label: "Open notes (⌘⇧J)",
         icon: Icons.clipboard(),
         onClick: () =>
           this.onOpenProjectNotes?.(group.id, group.name, group.color ?? null),

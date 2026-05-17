@@ -39,9 +39,11 @@ export interface SpecChatState {
 export function createSpecChatState(deps?: {
   step?: typeof import('../api').specAuthorStep;
   loadDraft?: typeof import('../api').specAuthorLoadDraft;
+  getCwd?: () => string | null;
 }): SpecChatState {
   const step = deps?.step ?? defaultStep;
   const loadDraft = deps?.loadDraft ?? defaultLoadDraft;
+  const getCwd = deps?.getCwd ?? (() => null);
 
   let _draftId: string | null = null;
   let _messages: ChatMessage[] = [];
@@ -71,7 +73,7 @@ export function createSpecChatState(deps?: {
 
       let result: SpecStepResult;
       try {
-        result = await step(_draftId, text);
+        result = await step(_draftId, text, getCwd());
       } catch (err) {
         _awaitingAnswer = false;
         fire();

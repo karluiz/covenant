@@ -6,6 +6,49 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.28 — Notch settings: corner + chime + fullscreen-aware rack
+
+### Added
+
+- **Notch corner setting** (`crates/app/src/settings.rs`,
+  `crates/app/src/notch.rs`, `ui/src/settings/panel.ts`,
+  `ui/notch/styles.css`): new `notch_corner` setting picks where the
+  floating overlay anchors (bottom-right default, plus BL/TR/TL). The
+  overlay repositions live when changed; the stack CSS flips
+  alignment to match. Surfaced as a dropdown in the settings panel.
+
+- **Group prefix on pill labels** (`ui/src/tabs/manager.ts`,
+  `ui/src/api.ts`, `crates/app/src/lib.rs`): the pill's tabchip now
+  reads `GROUP › tab` instead of just `tab`, via a new
+  `notch_set_label` Tauri command. AOM session-name slugs still use
+  the bare title — only the notch display is prefixed.
+
+- **Done chime + per-turn dedupe** (`crates/app/src/notch.rs`,
+  `ui/notch/main.ts`, `crates/app/src/settings.rs`): a short
+  synthesized bell plays when an executor finishes a turn. Backend
+  tracks `done_emitted` per session so successive OSC 133;D markers
+  inside the same turn never re-fire it. New `notch_sound_on_done`
+  setting toggle.
+
+- **Fullscreen-aware inline rack** (`crates/app/src/lib.rs`,
+  `ui/src/inline-notch.ts`, `ui/src/main.ts`): when the main Covenant
+  window enters fullscreen, the OS-level overlay is suppressed and
+  pills render inline in the status-bar host instead. Avoids the
+  floating overlay covering terminal content. Restores automatically
+  on exit.
+
+### Changed
+
+- **Sidebar idle-agent indicator** (`ui/src/styles.css`, sidebar
+  components): the per-tab idle dot is now a left-edge stripe that
+  matches the active-tab indicator style, for visual consistency.
+
+- **Tabs cleanup** (`ui/src/tabs/manager.ts`): removed dead
+  `setColor` method (was unreferenced; tripped TS6133).
+
+- **Covenant Score v2 spec** (`docs/superpowers/specs/`): design
+  notes for context-aware tracking + dedicated Settings page.
+
 ## v0.5.27 — Fix release build (unused TS constants)
 
 ### Fixed

@@ -15,6 +15,8 @@ import { mountSpecChatPanel } from "./panel";
 export interface SpecChatDeps {
   openWizardWithBody: (body: string) => void;
   openBlankWizard: () => void;
+  /** Resolves the active workspace cwd so the agent gets repo grounding. */
+  getCwd?: () => string | null;
 }
 
 export interface SpecChatController {
@@ -75,7 +77,7 @@ export function mountSpecChat(
   const listDrafts = apis?.listDrafts ?? defaultListDrafts;
   const markPublished = apis?.markPublished ?? defaultMarkPublished;
   const panelFactory = apis?.mountPanel ?? mountSpecChatPanel;
-  const stateFactory = apis?.createState ?? createSpecChatState;
+  const stateFactory = apis?.createState ?? (() => createSpecChatState({ getCwd: deps.getCwd }));
 
   let chooserEl: HTMLElement | null = null;
   let panelMounted = false;

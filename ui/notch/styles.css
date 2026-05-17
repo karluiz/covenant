@@ -9,12 +9,33 @@ html, body, .notch-body {
 }
 .stack {
   position: fixed;
+  display: flex;
+  gap: 8px;
+}
+body[data-corner="bottom-right"] .stack,
+body:not([data-corner]) .stack {
   right: 16px;
   bottom: 16px;
-  display: flex;
   flex-direction: column-reverse;
-  gap: 8px;
   align-items: flex-end;
+}
+body[data-corner="bottom-left"] .stack {
+  left: 16px;
+  bottom: 16px;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+}
+body[data-corner="top-right"] .stack {
+  right: 16px;
+  top: 16px;
+  flex-direction: column;
+  align-items: flex-end;
+}
+body[data-corner="top-left"] .stack {
+  left: 16px;
+  top: 16px;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .pill.expanded {
@@ -40,14 +61,27 @@ html, body, .notch-body {
   color: var(--tab, #7c5cff);
   font-weight: 700;
 }
+.pill.expanded { max-width: 320px; }
 .pill.expanded .verb { color: #fff; font-weight: 600; }
-.pill.expanded .target { color: #a8a8b4; font-weight: 400; }
+.pill.expanded .target {
+  color: #a8a8b4;
+  font-weight: 400;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
 .pill.expanded .col {
   display: flex;
   flex-direction: column;
   line-height: 1.2;
   gap: 1px;
+  min-width: 0;
+  overflow: hidden;
 }
+.pill.expanded .col > span { min-width: 0; overflow: hidden; }
 .pill.expanded .ico {
   width: 22px;
   height: 22px;
