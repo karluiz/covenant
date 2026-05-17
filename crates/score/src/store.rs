@@ -49,6 +49,19 @@ impl ScoreStore {
                 last_synced_at_ms INTEGER NOT NULL DEFAULT 0
             );",
         )?;
+        // v2: context columns (idempotent via PRAGMA user_version)
+        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
+        if v < 2 {
+            conn.execute_batch(
+                "ALTER TABLE score_events ADD COLUMN repo TEXT;
+                 ALTER TABLE score_events ADD COLUMN branch TEXT;
+                 ALTER TABLE score_events ADD COLUMN group_name TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_events_repo   ON score_events(repo);
+                 CREATE INDEX IF NOT EXISTS idx_events_branch ON score_events(repo, branch);
+                 CREATE INDEX IF NOT EXISTS idx_events_group  ON score_events(group_name);
+                 PRAGMA user_version = 2;"
+            )?;
+        }
         Ok(Self { conn: Arc::new(Mutex::new(conn)), path })
     }
 
