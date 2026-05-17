@@ -42,10 +42,51 @@ pub struct User {
     pub connected_at_ms: i64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Context {
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub group_name: Option<String>,
+}
+
 pub fn day_from_ms_local(ms: i64) -> String {
     let dt: DateTime<Utc> = DateTime::from_timestamp_millis(ms).unwrap_or_default();
     let local = dt.with_timezone(&chrono::Local);
     local.format("%Y-%m-%d").to_string()
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeRange { All, Last7d, Last30d }
+impl Default for TimeRange { fn default() -> Self { Self::All } }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ScoreFilter {
+    #[serde(default)] pub range: TimeRange,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub group_name: Option<String>,
+    pub day: Option<String>, // "YYYY-MM-DD"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoCell   { pub repo: String, pub prompts: u32, pub commits: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchCell { pub branch: String, pub prompts: u32, pub commits: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupCell  { pub group_name: String, pub prompts: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRow {
+    pub start_ts: i64,
+    pub end_ts: i64,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub group_name: Option<String>,
+    pub prompts: u32,
+    pub commits: u32,
 }
 
 #[cfg(test)]

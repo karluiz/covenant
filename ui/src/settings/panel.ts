@@ -20,6 +20,7 @@ import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
 import { renderProvidersTab } from "./providers";
 import { renderModelsTab } from "./model_routes";
+import { activateTab, type SettingsTab } from "./tabs";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -124,6 +125,7 @@ export class SettingsPanel {
   private isOpenState = false;
   private current: Settings | null = null;
   private operatorsPane: OperatorsPane | null = null;
+  private panelBody: HTMLElement | null = null;
 
   /// Optional callback fired whenever settings are saved. Used by main
   /// to push live updates (terminal font, operator state, etc.) into
@@ -160,7 +162,7 @@ export class SettingsPanel {
     }
   }
 
-  async open(): Promise<void> {
+  async open(tab: SettingsTab = "providers"): Promise<void> {
     if (this.isOpen()) return;
     try {
       this.current = await getSettings();
@@ -218,7 +220,7 @@ export class SettingsPanel {
     this.workspace.hidden = true;
     this.pageHost.hidden = false;
     this.isOpenState = true;
-    await this.render();
+    await this.render(tab);
   }
 
   close(): void {
@@ -231,7 +233,7 @@ export class SettingsPanel {
     if (this.onClosed) this.onClosed();
   }
 
-  private async render(): Promise<void> {
+  private async render(tab: SettingsTab = "providers"): Promise<void> {
     if (!this.current) return;
 
     this.pageHost.innerHTML = "";
@@ -247,6 +249,7 @@ export class SettingsPanel {
     const body = document.createElement("div");
     body.className = "settings-body";
     this.pageHost.appendChild(body);
+    this.panelBody = body;
 
     const nav = document.createElement("nav");
     nav.className = "settings-nav";
@@ -259,7 +262,8 @@ export class SettingsPanel {
       <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
-      <a href="#sec-familiars" data-target="sec-familiars">Familiars</a>
+      <a href="#sec-covenant" data-target="sec-covenant">Covenant</a>
+      <a href="#familiars-host" data-target="familiars-host">Familiars</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
     `;
     body.appendChild(nav);
@@ -607,6 +611,11 @@ export class SettingsPanel {
           </label>
         </section>
         <section class="settings-section" id="sec-telegram"></section>
+        <section class="settings-section" id="sec-covenant">
+          <h3 class="settings-section-title">Covenant Score</h3>
+          <p class="settings-section-desc">Track prompts and commits across your repos.</p>
+          <div id="covenant-page-root"></div>
+        </section>
         <section class="settings-section" id="familiars-host"></section>
         <section class="settings-section" id="sec-workspace">
           <h3 class="settings-section-title">Workspace</h3>
@@ -967,40 +976,18 @@ export class SettingsPanel {
       }
     });
 
-    // Sidebar nav: smooth-scroll to anchored fieldset on click, and
-    // highlight whichever section is in view via IntersectionObserver.
-    const navLinks = nav.querySelectorAll<HTMLAnchorElement>("a[data-target]");
-    navLinks.forEach((a) => {
-      a.addEventListener("click", (e) => {
-        e.preventDefault();
-        const target = a.dataset.target;
-        if (!target) return;
-        const fs = form.querySelector<HTMLElement>(`#${target}`);
-        fs?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
+    // Sidebar nav: clicking a link shows only that section (tab mode).
+    nav.addEventListener("click", (e) => {
+      const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("[data-target]");
+      if (!a) return;
+      e.preventDefault();
+      const sectionId = a.dataset.target ?? "";
+      const derivedTab = sectionId.replace(/^sec-/, "").replace(/^familiars-host$/, "familiars") as SettingsTab;
+      if (this.panelBody) activateTab(this.panelBody, derivedTab);
     });
 
-    const sectionEls = Array.from(
-      form.querySelectorAll<HTMLElement>("section.settings-section[id^='sec-']"),
-    );
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // Pick the entry closest to the top of the viewport.
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort(
-            (a, b) =>
-              a.boundingClientRect.top - b.boundingClientRect.top,
-          );
-        if (visible.length === 0) return;
-        const id = visible[0].target.id;
-        navLinks.forEach((a) => {
-          a.classList.toggle("active", a.dataset.target === id);
-        });
-      },
-      { root: form, rootMargin: "0px 0px -60% 0px", threshold: 0 },
-    );
-    sectionEls.forEach((el) => observer.observe(el));
+    // Activate the initial tab.
+    activateTab(body, tab);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();

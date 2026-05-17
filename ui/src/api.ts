@@ -1510,6 +1510,16 @@ export async function piExtensionUiResponse(
   });
 }
 
+/// Notify the score crate which session/cwd/group is currently active.
+/// Fire-and-forget; pass nulls to clear.
+export function scoreSetCurrentSession(
+  sessionId: string | null,
+  cwd: string | null,
+  groupName: string | null,
+): void {
+  void invoke<void>("score_set_current_session", { sessionId, cwd, groupName });
+}
+
 /// Subscribe to a Pi session's event stream. Returns an unlisten fn that
 /// must be called to detach. Topic: `session://{sessionId}/pi`.
 export async function subscribePiEvents(

@@ -3228,6 +3228,13 @@ pub fn run() {
             score_auth_commands::score_signout,
             score_sync_commands::score_sync_now,
             score_sync_commands::score_sync_status,
+            score_commands::score_set_current_session,
+            score_commands::score_summary_filtered,
+            score_commands::score_heatmap_filtered,
+            score_commands::score_breakdown_repos,
+            score_commands::score_breakdown_branches,
+            score_commands::score_breakdown_groups,
+            score_commands::score_recent_sessions,
             notch::notch_set_passthrough,
             notch::notch_ready,
         ])
