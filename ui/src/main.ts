@@ -34,7 +34,7 @@ import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
-import { setSharedToastHost, ToastHost } from "./notifications/toast";
+import { pushInfoToast, setSharedToastHost, ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
@@ -437,6 +437,26 @@ async function boot(): Promise<void> {
 
   manager.setOptions({
     onOpenProjectNotes: openProjectNotes,
+  });
+
+  void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {
+    const { repoRoot, slug, title } = e.payload;
+    if (activeProjectNotesPanel) {
+      const openGroupId = activeProjectNotesPanel.groupId;
+      const openRoot = manager.groupRootDirFor(openGroupId);
+      if (openRoot === repoRoot) {
+        const g = manager.activeGroup();
+        if (g && g.id === openGroupId) {
+          openProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+        }
+      }
+    }
+    pushInfoToast({
+      message: `Draft saved: ${title}`,
+      onClick: () => {
+        manager.openFileAtLine(`${repoRoot}/docs/specs/${slug}.md`);
+      },
+    });
   });
 
   document.addEventListener("keydown", (e) => {
