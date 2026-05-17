@@ -587,14 +587,7 @@ async function boot(): Promise<void> {
     if (docsPanel.isOpen()) docsPanel.close();
     if (draftsPanel.isOpen()) draftsPanel.close();
     if (operator.isOpen()) operator.close();
-    void settings.open("covenant").then(() => {
-      requestAnimationFrame(() => {
-        const root = document.getElementById("covenant-page-root");
-        if (root) {
-          void import("./score/page").then((m) => m.mountCovenantPage(root));
-        }
-      });
-    });
+    void settings.open("covenant");
   });
   // Statusbar Telegram pill click → open Settings, scroll to Telegram section.
   window.addEventListener("covenant:open-telegram-settings", () => {

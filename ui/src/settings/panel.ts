@@ -125,6 +125,15 @@ export class SettingsPanel {
   private current: Settings | null = null;
   private operatorsPane: OperatorsPane | null = null;
   private panelBody: HTMLElement | null = null;
+  private covenantMounted = false;
+
+  private mountCovenantOnce(): void {
+    if (this.covenantMounted) return;
+    const root = document.getElementById("covenant-page-root");
+    if (!root) return;
+    this.covenantMounted = true;
+    void import("../score/page").then((m) => m.mountCovenantPage(root));
+  }
 
   /// Optional callback fired whenever settings are saved. Used by main
   /// to push live updates (terminal font, operator state, etc.) into
@@ -229,6 +238,7 @@ export class SettingsPanel {
     this.workspace.hidden = false;
     this.isOpenState = false;
     this.current = null;
+    this.covenantMounted = false;
     if (this.onClosed) this.onClosed();
   }
 
@@ -960,10 +970,12 @@ export class SettingsPanel {
       const sectionId = a.dataset.target ?? "";
       const derivedTab = sectionId.replace(/^sec-/, "") as SettingsTab;
       if (this.panelBody) activateTab(this.panelBody, derivedTab);
+      if (derivedTab === "covenant") this.mountCovenantOnce();
     });
 
     // Activate the initial tab.
     activateTab(body, tab);
+    if (tab === "covenant") this.mountCovenantOnce();
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
