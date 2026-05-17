@@ -42,6 +42,13 @@ pub struct User {
     pub connected_at_ms: i64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Context {
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub group_name: Option<String>,
+}
+
 pub fn day_from_ms_local(ms: i64) -> String {
     let dt: DateTime<Utc> = DateTime::from_timestamp_millis(ms).unwrap_or_default();
     let local = dt.with_timezone(&chrono::Local);

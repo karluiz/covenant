@@ -68,6 +68,24 @@ fn migration_adds_context_columns_on_existing_db() {
     assert_eq!(cnt, 1);
 }
 
+#[test]
+fn append_with_context_stores_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = karl_score::ScoreStore::open(dir.path()).unwrap();
+    let ctx = karl_score::Context {
+        repo: Some("karlTerminal".into()),
+        branch: Some("notch".into()),
+        group_name: Some("main".into()),
+    };
+    store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "anthropic", &ctx).unwrap();
+    let c = store.connection();
+    let g = c.lock().unwrap();
+    let row: (String, String, String) = g.query_row(
+        "SELECT repo, branch, group_name FROM score_events", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    ).unwrap();
+    assert_eq!(row, ("karlTerminal".into(), "notch".into(), "main".into()));
+}
+
 use karl_score::commit_scanner::scan_repo_since;
 use std::process::Command;
 

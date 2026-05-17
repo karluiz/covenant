@@ -8,7 +8,7 @@ pub mod types;
 pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
-pub use types::{DailyCell, EventKind, ScoreEvent, Summary, User};
+pub use types::{Context, DailyCell, EventKind, ScoreEvent, Summary, User};
 
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex};

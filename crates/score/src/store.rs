@@ -1,4 +1,4 @@
-use crate::types::{day_from_ms_local, DailyCell, EventKind, Summary};
+use crate::types::{day_from_ms_local, Context, DailyCell, EventKind, Summary};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -76,6 +76,20 @@ impl ScoreStore {
         c.execute(
             "INSERT INTO score_events(timestamp_ms, kind, executor, day) VALUES (?1, ?2, ?3, ?4)",
             params![timestamp_ms, kind_s, executor, day],
+        )?;
+        Ok(())
+    }
+
+    pub fn append_with_context(
+        &self, timestamp_ms: i64, kind: EventKind, executor: &str, ctx: &Context,
+    ) -> Result<()> {
+        let day = day_from_ms_local(timestamp_ms);
+        let kind_s = match kind { EventKind::Prompt => "prompt", EventKind::Commit => "commit" };
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![timestamp_ms, kind_s, executor, day, ctx.repo, ctx.branch, ctx.group_name],
         )?;
         Ok(())
     }
