@@ -40,6 +40,13 @@ export default defineConfig(async () => ({
     outDir: "../dist",
     emptyOutDir: true,
     target: "esnext",
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "ui/index.html"),
+        notch: resolve(__dirname, "ui/notch/index.html"),
+        notchDev: resolve(__dirname, "ui/notch/dev.html"),
+      },
+    },
   },
   server: {
     port: 1420,

@@ -18,5 +18,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["ui/src", "ui/index.html"]
+  "include": ["ui/src", "ui/index.html", "ui/notch"]
 }

@@ -1,0 +1,18 @@
+html, body, .notch-body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, system-ui, sans-serif;
+  color: #fff;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  align-items: flex-end;
+}
