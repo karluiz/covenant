@@ -12,7 +12,6 @@ const TAB_OF_SECTION: Record<string, SettingsTab> = {
   "sec-updates":       "updates",
   "sec-notifications": "notifications",
   "sec-telegram":      "telegram",
-  "familiars-host":    "familiars",
   "sec-workspace":     "workspace",
   "sec-covenant":      "covenant",
 };

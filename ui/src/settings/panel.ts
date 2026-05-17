@@ -958,7 +958,7 @@ export class SettingsPanel {
       if (!a) return;
       e.preventDefault();
       const sectionId = a.dataset.target ?? "";
-      const derivedTab = sectionId.replace(/^sec-/, "").replace(/^familiars-host$/, "familiars") as SettingsTab;
+      const derivedTab = sectionId.replace(/^sec-/, "") as SettingsTab;
       if (this.panelBody) activateTab(this.panelBody, derivedTab);
     });
 
