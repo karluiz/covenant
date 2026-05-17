@@ -70,3 +70,50 @@ export async function scoreSyncNow(): Promise<number> {
 export async function scoreSyncStatus(): Promise<SyncStatus> {
   return invoke<SyncStatus>("score_sync_status");
 }
+
+export type TimeRange = "all" | "last7d" | "last30d";
+
+export interface ScoreFilter {
+  range?: TimeRange;
+  repo?: string | null;
+  branch?: string | null;
+  group_name?: string | null;
+  day?: string | null;
+}
+
+export interface RepoCell { repo: string; prompts: number; commits: number }
+export interface BranchCell { branch: string; prompts: number; commits: number }
+export interface GroupCell { group_name: string; prompts: number }
+export interface SessionRow {
+  start_ts: number;
+  end_ts: number;
+  repo: string | null;
+  branch: string | null;
+  group_name: string | null;
+  prompts: number;
+  commits: number;
+}
+
+export async function scoreSummaryFiltered(filter: ScoreFilter): Promise<Summary> {
+  return invoke<Summary>("score_summary_filtered", { filter });
+}
+
+export async function scoreHeatmapFiltered(filter: ScoreFilter): Promise<DailyCell[]> {
+  return invoke<DailyCell[]>("score_heatmap_filtered", { filter });
+}
+
+export async function scoreBreakdownRepos(filter: ScoreFilter): Promise<RepoCell[]> {
+  return invoke<RepoCell[]>("score_breakdown_repos", { filter });
+}
+
+export async function scoreBreakdownBranches(repo: string, filter: ScoreFilter): Promise<BranchCell[]> {
+  return invoke<BranchCell[]>("score_breakdown_branches", { repo, filter });
+}
+
+export async function scoreBreakdownGroups(filter: ScoreFilter): Promise<GroupCell[]> {
+  return invoke<GroupCell[]>("score_breakdown_groups", { filter });
+}
+
+export async function scoreRecentSessions(limit = 10): Promise<SessionRow[]> {
+  return invoke<SessionRow[]>("score_recent_sessions", { limit });
+}
