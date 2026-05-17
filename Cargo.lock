@@ -844,6 +844,7 @@ dependencies = [
  "karl-capabilities",
  "karl-familiar",
  "karl-pty",
+ "karl-score",
  "karl-session",
  "libc",
  "notify",
@@ -2891,6 +2892,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "futures-util",
+ "karl-score",
  "once_cell",
  "regex",
  "reqwest 0.12.28",
@@ -2973,7 +2975,7 @@ dependencies = [
 
 [[package]]
 name = "karl-score"
-version = "0.5.20"
+version = "0.5.21"
 dependencies = [
  "chrono",
  "once_cell",
