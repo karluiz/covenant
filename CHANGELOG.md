@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## Unreleased
+
+### Added
+
+- **Notch overlay** (`crates/blocks/src/executor_phase.rs`,
+  `crates/app/src/notch.rs`, `ui/notch/*`): floating, always-on-top,
+  transparent Tauri window that shows one Whirr-style pill per active
+  executor agent. Each pill displays the agent's current phase
+  (Thinking, Running, Writing, Reading, Waiting, Done) plus an optional
+  target (file path or command), with a per-phase animated loader and a
+  tab-coloured accent bar. State is detected heuristically from the
+  executor PTY stream (`ExecutorPhaseDetector`) and fanned out as
+  `SessionEvent::ExecutorStateChanged`. The stack auto-collapses pills
+  to a compact form when there are 4+ active or a state lingers >5s;
+  `Waiting` stays expanded. Click-through everywhere except over the
+  pills; ⌘⇧N toggles visibility. Cross-space on macOS.
+
 ## v0.5.21 — UTF-8 crash fix + local LLM providers + Pi RPC
 
 ### Added
