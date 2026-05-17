@@ -276,7 +276,7 @@ impl ScoreStore {
               FROM score_events
             ),
             marked AS (
-              SELECT *, CASE WHEN prev_ts IS NULL OR timestamp_ms - prev_ts >= 900000 THEN 1 ELSE 0 END AS new_sess
+              SELECT *, CASE WHEN prev_ts IS NULL OR timestamp_ms - prev_ts > 900000 THEN 1 ELSE 0 END AS new_sess
               FROM ordered
             ),
             labeled AS (

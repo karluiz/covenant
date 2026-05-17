@@ -53,7 +53,7 @@ fn recent_sessions_bucket_by_15min_gap() {
     let t0 = 1_700_000_000_000;
     seed(&s, t0,               EventKind::Prompt, "kt", "notch", Some("g"));
     seed(&s, t0 + 60_000,      EventKind::Prompt, "kt", "notch", Some("g"));   // same session
-    seed(&s, t0 + 16 * 60_000, EventKind::Prompt, "kt", "notch", Some("g"));   // new session
+    seed(&s, t0 + 17 * 60_000, EventKind::Prompt, "kt", "notch", Some("g"));   // new session (>15 min gap)
     let rows = s.recent_sessions(10).unwrap();
     assert_eq!(rows.len(), 2);
 }
