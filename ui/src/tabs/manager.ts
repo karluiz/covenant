@@ -3210,15 +3210,6 @@ export class TabManager {
     return this.renaming?.kind === "group" && this.renaming.id === id;
   }
 
-  private setColor(id: string, color: string | null): void {
-    const tab = this.tabs.find((t) => t.id === id);
-    if (!tab) return;
-    tab.color = color;
-    this.renderTabbar();
-    if (id === this.activeId) this.emitActiveTab();
-    this.scheduleSave();
-  }
-
   private setGroupColor(groupId: string, color: string | null): void {
     const g = this.groups.get(groupId);
     if (!g) return;
