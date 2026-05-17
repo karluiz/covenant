@@ -1,9 +1,11 @@
+pub mod auth;
 pub mod commit_scanner;
+pub mod session;
 pub mod store;
 pub mod types;
 
 pub use store::{ScoreError, ScoreStore};
-pub use types::{DailyCell, EventKind, ScoreEvent, Summary};
+pub use types::{DailyCell, EventKind, ScoreEvent, Summary, User};
 
 use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex};

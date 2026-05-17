@@ -66,3 +66,31 @@
   font-family: inherit; font-size: 12px; cursor: pointer; }
 .score-cta button:hover:not([disabled]) { background: #232b34; border-color: #3a4854; }
 .score-cta button[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.score-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.score-avatar { width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid #2a5a64; }
+.score-chip-avatar { width: 12px; height: 12px; border-radius: 50%;
+  vertical-align: middle; margin-right: 4px; }
+.score-footer { margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid #1a2128; text-align: right; }
+.score-footer .signout { color: #5a6873; font-size: 11px;
+  text-decoration: none; border-bottom: 1px dotted #3a4854; }
+.score-footer .signout:hover { color: #c8d4dc; }
+
+.score-signin { width: 480px; text-align: center; }
+.score-signin .signin-code { display: inline-flex; gap: 6px;
+  margin: 18px 0; font-size: 28px; letter-spacing: 0.05em;
+  color: #7dd3e0; font-weight: 500; }
+.score-signin .signin-code span { padding: 6px 10px;
+  border: 1px solid #2a5a64; border-radius: 6px;
+  background: rgba(95,179,196,0.04); }
+.score-signin .signin-actions { display: flex; gap: 10px;
+  justify-content: center; margin-bottom: 14px; }
+.score-signin .signin-actions button {
+  background: #1a2128; border: 1px solid #2a3540;
+  color: #e8f1f5; border-radius: 6px; padding: 8px 14px;
+  font-family: inherit; font-size: 11px; cursor: pointer; }
+.score-signin .signin-actions button:hover {
+  background: #232b34; border-color: #3a4854; }
+.score-signin .signin-status { color: #5a6873; font-size: 11px; }

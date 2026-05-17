@@ -34,6 +34,14 @@ pub struct Summary {
     pub longest_streak: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub github_id: i64,
+    pub login: String,
+    pub avatar_url: String,
+    pub connected_at_ms: i64,
+}
+
 pub fn day_from_ms_local(ms: i64) -> String {
     let dt: DateTime<Utc> = DateTime::from_timestamp_millis(ms).unwrap_or_default();
     let local = dt.with_timezone(&chrono::Local);

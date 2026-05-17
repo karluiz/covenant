@@ -35,6 +35,7 @@ mod pi_commands;
 pub mod provider_resolve;
 mod project_notes;
 mod safety;
+mod score_auth_commands;
 mod score_commands;
 mod scrollback;
 pub mod settings;
@@ -3049,6 +3050,10 @@ pub fn run() {
             pi_commands::pi_compact,
             pi_commands::pi_get_session_stats,
             pi_commands::pi_extension_ui_response,
+            score_auth_commands::score_signin_start,
+            score_auth_commands::score_signin_poll,
+            score_auth_commands::score_current_user,
+            score_auth_commands::score_signout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
