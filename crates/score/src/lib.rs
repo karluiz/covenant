@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod context;
 pub mod commit_scanner;
 pub mod session;
 pub mod store;
