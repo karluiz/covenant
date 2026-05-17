@@ -55,6 +55,20 @@ pub fn day_from_ms_local(ms: i64) -> String {
     local.format("%Y-%m-%d").to_string()
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TimeRange { All, Last7d, Last30d }
+impl Default for TimeRange { fn default() -> Self { Self::All } }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ScoreFilter {
+    #[serde(default)] pub range: TimeRange,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub group_name: Option<String>,
+    pub day: Option<String>, // "YYYY-MM-DD"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

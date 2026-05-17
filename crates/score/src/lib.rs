@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod context;
 pub mod commit_scanner;
+pub mod filter;
 pub mod session;
 pub mod store;
 pub mod sync;
@@ -9,7 +10,7 @@ pub mod types;
 pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
-pub use types::{Context, DailyCell, EventKind, ScoreEvent, Summary, User};
+pub use types::{Context, DailyCell, EventKind, ScoreEvent, ScoreFilter, Summary, TimeRange, User};
 
 use crate::context::ContextResolver;
 use once_cell::sync::OnceCell;
