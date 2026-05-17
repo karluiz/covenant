@@ -563,11 +563,19 @@ export class TabManager {
 
   /// Returns the group that owns the currently active tab, or null if
   /// the active tab has no group (or no tabs exist).
-  activeGroup(): { id: string; name: string; color: string | null } | null {
+  activeGroup(): { id: string; name: string; color: string | null; rootDir: string | null } | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab?.groupId) return null;
     const g = this.groups.get(tab.groupId);
-    return g ? { id: g.id, name: g.name, color: g.color ?? null } : null;
+    return g
+      ? { id: g.id, name: g.name, color: g.color ?? null, rootDir: g.rootDir ?? null }
+      : null;
+  }
+
+  /// Lookup the `rootDir` of a group by id. Returns null if the group
+  /// doesn't exist or has no root dir set.
+  groupRootDirFor(groupId: string): string | null {
+    return this.groups.get(groupId)?.rootDir ?? null;
   }
 
   constructor(
@@ -1850,18 +1858,8 @@ export class TabManager {
     navStructure.setAttribute("aria-label", "Files");
     navStructure.innerHTML = `${Icons.folder({ size: 13 })}<span>Files</span>`;
 
-    const navDrafts = document.createElement("button");
-    navDrafts.type = "button";
-    navDrafts.className = "sidebar-nav-btn";
-    navDrafts.setAttribute("aria-label", "Drafts");
-    navDrafts.innerHTML = `${Icons.filePen({ size: 13 })}<span>Drafts</span>`;
-    navDrafts.addEventListener("click", () => {
-      window.dispatchEvent(new CustomEvent("drafts:toggle"));
-    });
-
     navEl.appendChild(navBlocks);
     navEl.appendChild(navStructure);
-    navEl.appendChild(navDrafts);
     blocksHost.insertBefore(navEl, blocksHost.firstChild);
 
     // Editor splitter: when the editor is open, the pane uses a 4-col

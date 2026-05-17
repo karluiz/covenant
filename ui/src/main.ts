@@ -34,7 +34,7 @@ import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
-import { setSharedToastHost, ToastHost } from "./notifications/toast";
+import { pushInfoToast, setSharedToastHost, ToastHost } from "./notifications/toast";
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
@@ -417,20 +417,51 @@ async function boot(): Promise<void> {
     groupId: string,
     groupLabel: string,
     groupColor: string | null,
+    opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
   ): void {
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
+    const groupRootDir = manager.groupRootDirFor(groupId);
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
       groupLabel,
       groupColor,
+      groupRootDir,
+      defaultTab: opts?.defaultTab,
       onClose: () => {
         activeProjectNotesPanel = null;
+      },
+      onOpenFile: (absolutePath) => {
+        manager.openFileAtLine(absolutePath);
+        activeProjectNotesPanel?.close();
+      },
+      onOpenWizard: (repoRoot) => {
+        window.dispatchEvent(new CustomEvent("drafts:open-wizard", { detail: { repoRoot } }));
       },
     }).mount(document.body);
   }
 
   manager.setOptions({
     onOpenProjectNotes: openProjectNotes,
+  });
+
+  void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {
+    const { repoRoot, slug, title } = e.payload;
+    if (activeProjectNotesPanel) {
+      const openGroupId = activeProjectNotesPanel.groupId;
+      const openRoot = manager.groupRootDirFor(openGroupId);
+      if (openRoot === repoRoot) {
+        const g = manager.activeGroup();
+        if (g && g.id === openGroupId) {
+          openProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+        }
+      }
+    }
+    pushInfoToast({
+      message: `Draft saved: ${title}`,
+      onClick: () => {
+        manager.openFileAtLine(`${repoRoot}/docs/specs/${slug}.md`);
+      },
+    });
   });
 
   document.addEventListener("keydown", (e) => {
@@ -682,23 +713,27 @@ async function boot(): Promise<void> {
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {
     openWizardWithBody: (body) => {
-      draftsPanel.open();
-      draftsPanel.openWizard(null, { initialBody: body });
+      draftsPanel.open({ slug: null, initialBody: body });
     },
     openBlankWizard: () => {
-      draftsPanel.open();
-      draftsPanel.openWizard(null);
+      draftsPanel.open({ slug: null });
     },
   });
 
   window.addEventListener("spec-chat:open", () => specChat.open());
 
-  window.addEventListener("drafts:toggle", () => draftsPanel.toggle());
+  // Open the spec-author wizard for a given repoRoot (no slug → fresh draft).
+  // Fired by ProjectNotesPanel's "+ New spec (AI-assisted)" button.
+  window.addEventListener("drafts:open-wizard", (e: Event) => {
+    const detail = (e as CustomEvent<{ repoRoot?: string; slug?: string | null }>).detail;
+    draftsPanel.open({ repoRoot: detail?.repoRoot, slug: detail?.slug ?? null });
+  });
+  // Existing event: open the wizard pre-loaded with a specific slug
+  // (used by the spec-chat flow). Kept for back-compat.
   window.addEventListener("drafts:open", (e: Event) => {
     const detail = (e as CustomEvent<{ slug: string; autoPublish?: boolean }>).detail;
     if (!detail || typeof detail.slug !== "string") return;
-    draftsPanel.open();
-    draftsPanel.openWizard(detail.slug, { autoPublish: detail.autoPublish });
+    draftsPanel.open({ slug: detail.slug, autoPublish: detail.autoPublish });
   });
 
   // Auto-stop notification: when the Operator hits the AOM budget,
@@ -1031,13 +1066,35 @@ async function boot(): Promise<void> {
       }
       return;
     }
-    // ⌘⇧D → Drafts panel. Mutually exclusive with settings and docs.
-    if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+    // ⌘⇧E — toggle AOM exclusion for the active tab. Silent no-op
+    // when AOM is off; the badge is the discoverable affordance and
+    // the shortcut just shaves a click for users who know it exists.
+    if (e.metaKey && e.shiftKey && (e.key === "E" || e.key === "e")) {
       e.preventDefault();
-      if (settings.isOpen()) settings.close();
-      if (docsPanel.isOpen()) docsPanel.close();
-      if (operator.isOpen()) operator.close();
-      draftsPanel.toggle();
+      void manager.toggleAomExcludedActive();
+      return;
+    }
+    // ⌘⇧R → AOM morning report. Read-only digest of the most recent
+    // AOM session. Doesn't depend on AOM being active.
+    if (e.metaKey && e.shiftKey && (e.key === "R" || e.key === "r")) {
+      e.preventDefault();
+      aomReportPanel.toggle();
+      return;
+    }
+    // ⌘⇧V → release log / version history. Same modal that auto-pops
+    // on a fresh-version launch.
+    if (e.metaKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
+      e.preventDefault();
+      release.toggle();
+      return;
+    }
+    // ⌘⇧D → open ProjectNotesPanel for the active group on the drafts tab.
+    if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+      const g = manager.activeGroup();
+      if (g) {
+        e.preventDefault();
+        openProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+      }
       return;
     }
     // ⌘? (Shift+/) and ⌘/ both toggle the in-app docs hub. Two
