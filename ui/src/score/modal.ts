@@ -1,4 +1,6 @@
-import { scoreHeatmap, scoreSummary, type DailyCell, type Summary }
+import { runDeviceFlow } from "./signin";
+import { getCurrentUser, setCurrentUser } from "./user";
+import { scoreSignout, scoreHeatmap, scoreSummary, type DailyCell, type User }
   from "./api";
 
 function intensityClass(prompts: number): string {
@@ -35,12 +37,46 @@ function renderHeatmap(cells: DailyCell[]): HTMLElement {
   return grid;
 }
 
+function formatDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function renderHeader(user: User | null): string {
+  if (!user) return `
+    <h3>Covenant Score</h3>
+    <div class="sub">Tracking local · No sincronizado</div>`;
+  return `
+    <div class="score-header">
+      <img class="score-avatar" src="${user.avatar_url}" alt="">
+      <div>
+        <h3>${user.login}</h3>
+        <div class="sub">Connected ${formatDate(user.connected_at_ms)}</div>
+      </div>
+    </div>`;
+}
+
+function renderFooter(user: User | null): string {
+  if (!user) return `
+    <div class="score-cta">
+      <div class="text">
+        <h4>Conecta GitHub para sincronizar</h4>
+        <p>Backup, multi-dispositivo, y perfil público (próximamente).</p>
+      </div>
+      <button type="button" class="signin-trigger">Sign in with GitHub</button>
+    </div>`;
+  return `
+    <div class="score-footer">
+      <a href="#" class="signout">Disconnect GitHub</a>
+    </div>`;
+}
+
 export async function openScoreModal(): Promise<void> {
   const existing = document.querySelector(".score-modal-backdrop");
   if (existing) { existing.remove(); return; }
 
-  const [summary, cells]: [Summary, DailyCell[]] =
-    await Promise.all([scoreSummary(), scoreHeatmap()]);
+  const [summary, cells, user] = await Promise.all([
+    scoreSummary(), scoreHeatmap(), getCurrentUser(),
+  ]);
 
   const back = document.createElement("div");
   back.className = "score-modal-backdrop";
@@ -51,8 +87,7 @@ export async function openScoreModal(): Promise<void> {
   const modal = document.createElement("div");
   modal.className = "score-modal";
   modal.innerHTML = `
-    <h3>Covenant Score</h3>
-    <div class="sub">Tracking local · No sincronizado</div>
+    ${renderHeader(user)}
     <div class="score-stat-row">
       <div class="score-stat"><div class="v">${summary.total_prompts}</div>
         <div class="l">Total prompts</div></div>
@@ -73,17 +108,21 @@ export async function openScoreModal(): Promise<void> {
       <span class="score-cell l4"></span>
       <span>More</span>
     </div>
-    <div class="score-cta">
-      <div class="text">
-        <h4>Conecta GitHub para sincronizar</h4>
-        <p>Backup, multi-dispositivo, y perfil público (próximamente).</p>
-      </div>
-      <button type="button" disabled title="Sign-in shipping in CS-2">
-        Sign in with GitHub
-      </button>
-    </div>
+    ${renderFooter(user)}
   `;
   modal.querySelector(".score-heatmap-wrap")!.appendChild(renderHeatmap(cells));
+
+  modal.querySelector(".signin-trigger")?.addEventListener("click", async () => {
+    const u = await runDeviceFlow();
+    if (u) { back.remove(); void openScoreModal(); }
+  });
+  modal.querySelector(".signout")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    await scoreSignout();
+    setCurrentUser(null);
+    back.remove();
+    void openScoreModal();
+  });
 
   back.appendChild(modal);
   document.body.appendChild(back);
