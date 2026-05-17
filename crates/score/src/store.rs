@@ -34,9 +34,20 @@ impl ScoreStore {
                 day TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_events_day ON score_events(day);
-            CREATE INDEX IF NOT EXISTS idx_events_kind ON score_events(kind);",
+            CREATE INDEX IF NOT EXISTS idx_events_kind ON score_events(kind);
+            CREATE TABLE IF NOT EXISTS user_session (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                github_id INTEGER NOT NULL,
+                login TEXT NOT NULL,
+                avatar_url TEXT NOT NULL,
+                connected_at_ms INTEGER NOT NULL
+            );",
         )?;
         Ok(Self { conn: Arc::new(Mutex::new(conn)), path })
+    }
+
+    pub fn connection(&self) -> Arc<Mutex<Connection>> {
+        self.conn.clone()
     }
 
     pub fn append(&self, timestamp_ms: i64, kind: EventKind, executor: &str) -> Result<()> {
