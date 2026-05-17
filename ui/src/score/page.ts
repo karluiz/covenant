@@ -1,0 +1,323 @@
+import type { ScoreFilter, Summary, DailyCell } from "./api";
+import * as api from "./api";
+import { renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
+import { getCurrentUser } from "./user";
+import { runDeviceFlow } from "./signin";
+import { scoreSignout, scoreSyncNow, scoreSyncStatus } from "./api";
+
+interface State {
+  filter: ScoreFilter;
+  mounted: boolean;
+}
+
+const TEMPLATE = /* html */ `
+  <div class="covenant-page">
+    <div class="cov-filters" data-role="filters"></div>
+    <div class="cov-stats" data-role="stats"></div>
+    <div class="cov-card cov-heatmap-card">
+      <h4>Activity · last 12 months <span class="hint">click a cell to filter by day</span></h4>
+      <div class="cov-heatmap" data-role="heatmap"></div>
+      <div class="cov-legend">Less <span class="cov-cell"></span><span class="cov-cell l1"></span><span class="cov-cell l2"></span><span class="cov-cell l3"></span><span class="cov-cell l4"></span> More</div>
+    </div>
+    <div class="cov-two">
+      <div class="cov-card">
+        <h4>By repo · last 30d <span class="hint">click to drill in</span></h4>
+        <div data-role="repos"></div>
+        <div class="cov-card-foot">
+          <span class="seg-key seg-p"></span> prompts &nbsp; <span class="seg-key seg-c"></span> commits
+        </div>
+      </div>
+      <div class="cov-card">
+        <h4 data-role="branches-title">Top branches <span class="hint">pick a repo</span></h4>
+        <div data-role="branches"></div>
+      </div>
+    </div>
+    <div class="cov-card">
+      <h4>By group <span class="hint">karlTerminal tab groups</span></h4>
+      <div data-role="groups"></div>
+    </div>
+    <div class="cov-card">
+      <h4>Recent sessions</h4>
+      <div data-role="sessions"></div>
+    </div>
+    <div class="cov-sync" data-role="sync"></div>
+  </div>
+`;
+
+export function mountCovenantPage(host: HTMLElement): void {
+  if (host.dataset.mounted === "true") {
+    const state = (host as unknown as { __cov: State }).__cov;
+    void refresh(host, state);
+    return;
+  }
+  host.innerHTML = TEMPLATE;
+  host.dataset.mounted = "true";
+  const state: State = { filter: { range: "all" }, mounted: true };
+  (host as unknown as { __cov: State }).__cov = state;
+  void refresh(host, state);
+}
+
+async function refresh(host: HTMLElement, state: State): Promise<void> {
+  const filtersHost = host.querySelector<HTMLElement>("[data-role=filters]")!;
+  const statsHost = host.querySelector<HTMLElement>("[data-role=stats]")!;
+  const heatmapHost = host.querySelector<HTMLElement>("[data-role=heatmap]")!;
+  const reposHost = host.querySelector<HTMLElement>("[data-role=repos]")!;
+  const branchesHost = host.querySelector<HTMLElement>("[data-role=branches]")!;
+  const branchesTitle = host.querySelector<HTMLElement>("[data-role=branches-title]")!;
+  const groupsHost = host.querySelector<HTMLElement>("[data-role=groups]")!;
+  const sessionsHost = host.querySelector<HTMLElement>("[data-role=sessions]")!;
+  const syncHost = host.querySelector<HTMLElement>("[data-role=sync]")!;
+
+  const [summary, heatmap, repos, groups, sessions, user] = await Promise.all([
+    api.scoreSummaryFiltered(state.filter),
+    api.scoreHeatmapFiltered(state.filter),
+    api.scoreBreakdownRepos(state.filter),
+    api.scoreBreakdownGroups(state.filter),
+    api.scoreRecentSessions(10),
+    getCurrentUser(),
+  ]);
+
+  renderFilters(filtersHost, state, host);
+  renderStats(statsHost, summary);
+  renderHeatmap(heatmapHost, heatmap, (day) => {
+    state.filter.day = day;
+    void refresh(host, state);
+  });
+  renderRepoBars(reposHost, repos, state.filter.repo ?? null, (repo) => {
+    state.filter.repo = repo;
+    state.filter.branch = null;
+    void refresh(host, state);
+  });
+
+  if (state.filter.repo) {
+    const branches = await api.scoreBreakdownBranches(state.filter.repo, state.filter);
+    branchesTitle.innerHTML = `${escHtml(state.filter.repo)} · top branches <span class="hint">last ${rangeLabel(state.filter)}</span>`;
+    renderBranchList(branchesHost, state.filter.repo, branches, (b) => {
+      state.filter.branch = b;
+      void refresh(host, state);
+    });
+  } else {
+    branchesTitle.innerHTML = `Top branches <span class="hint">pick a repo</span>`;
+    branchesHost.innerHTML = `<div class="cov-empty">Pick a repo to see top branches</div>`;
+  }
+
+  renderGroupBars(groupsHost, groups);
+  renderSessions(sessionsHost, sessions);
+  renderSync(syncHost, user, host, state);
+}
+
+// ── Filter chips ─────────────────────────────────────────────────────────────
+
+function renderFilters(host: HTMLElement, state: State, page: HTMLElement): void {
+  host.innerHTML = "";
+  host.appendChild(
+    chipButton(`Range: ${rangeLabel(state.filter)}`, () => {
+      state.filter.range =
+        state.filter.range === "all" ? "last30d" :
+        state.filter.range === "last30d" ? "last7d" : "all";
+      void refresh(page, state);
+    }),
+  );
+  if (state.filter.repo) {
+    host.appendChild(
+      chipDismiss(`Repo: ${state.filter.repo}`, () => {
+        state.filter.repo = null;
+        state.filter.branch = null;
+        void refresh(page, state);
+      }),
+    );
+  }
+  if (state.filter.branch) {
+    host.appendChild(
+      chipDismiss(`Branch: ${state.filter.branch}`, () => {
+        state.filter.branch = null;
+        void refresh(page, state);
+      }),
+    );
+  }
+  if (state.filter.group_name) {
+    host.appendChild(
+      chipDismiss(`Group: ${state.filter.group_name}`, () => {
+        state.filter.group_name = null;
+        void refresh(page, state);
+      }),
+    );
+  }
+  if (state.filter.day) {
+    host.appendChild(
+      chipDismiss(`Day: ${state.filter.day}`, () => {
+        state.filter.day = null;
+        void refresh(page, state);
+      }),
+    );
+  }
+}
+
+function chipButton(label: string, onClick: () => void): HTMLElement {
+  const btn = document.createElement("button");
+  btn.className = "cov-chip active";
+  btn.textContent = label;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function chipDismiss(label: string, onDismiss: () => void): HTMLElement {
+  const btn = document.createElement("button");
+  btn.className = "cov-chip";
+  btn.innerHTML = `${escHtml(label)} <span class="x">✕</span>`;
+  btn.addEventListener("click", onDismiss);
+  return btn;
+}
+
+// ── Stat cards ────────────────────────────────────────────────────────────────
+
+function renderStats(host: HTMLElement, summary: Summary): void {
+  const delta = summary.today_prompts > 0
+    ? `<span class="delta">+${summary.today_prompts} today</span>`
+    : "";
+  host.innerHTML = `
+    <div class="cov-stat">
+      <div class="v">${summary.total_prompts.toLocaleString()}</div>
+      <div class="l">Total prompts ${delta}</div>
+    </div>
+    <div class="cov-stat">
+      <div class="v">${summary.today_prompts}</div>
+      <div class="l">Today</div>
+    </div>
+    <div class="cov-stat">
+      <div class="v">${summary.current_streak}d</div>
+      <div class="l">Current streak 🔥</div>
+    </div>
+    <div class="cov-stat">
+      <div class="v">${summary.total_commits.toLocaleString()}</div>
+      <div class="l">Total commits</div>
+    </div>
+  `;
+}
+
+// ── Heatmap ───────────────────────────────────────────────────────────────────
+
+function intensityClass(prompts: number): string {
+  if (prompts === 0) return "";
+  if (prompts <= 5) return "l1";
+  if (prompts <= 15) return "l2";
+  if (prompts <= 40) return "l3";
+  return "l4";
+}
+
+function renderHeatmap(
+  host: HTMLElement,
+  cells: DailyCell[],
+  onClick: (day: string) => void,
+): void {
+  host.innerHTML = "";
+  const byDay = new Map<string, number>();
+  for (const c of cells) byDay.set(c.day, c.prompts);
+
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 52 * 7 - today.getDay());
+
+  for (let week = 0; week < 53; week++) {
+    for (let day = 0; day < 7; day++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + week * 7 + day);
+      const key = d.toISOString().slice(0, 10);
+      const count = byDay.get(key) ?? 0;
+      const cell = document.createElement("div");
+      const cls = intensityClass(count);
+      cell.className = `cov-cell${cls ? " " + cls : ""}`;
+      cell.title = `${key} — ${count} prompts`;
+      cell.dataset.day = key;
+      cell.addEventListener("click", () => onClick(key));
+      host.appendChild(cell);
+    }
+  }
+}
+
+// ── Sync card ─────────────────────────────────────────────────────────────────
+
+function renderSync(
+  host: HTMLElement,
+  user: import("./api").User | null,
+  page: HTMLElement,
+  state: State,
+): void {
+  host.innerHTML = "";
+
+  if (!user) {
+    const wrap = document.createElement("div");
+    wrap.className = "cov-sync";
+    wrap.innerHTML = `
+      <div class="l"><b>Not connected</b>Sign in to sync across devices and see your public profile.</div>
+      <button class="btn cov-signin-btn">Sign in with GitHub</button>
+    `;
+    wrap.querySelector(".cov-signin-btn")!.addEventListener("click", async () => {
+      const u = await runDeviceFlow();
+      if (u) void refresh(page, state);
+    });
+    host.appendChild(wrap);
+    return;
+  }
+
+  const syncStatusP = scoreSyncStatus().catch(() => null);
+  const wrap = document.createElement("div");
+  wrap.className = "cov-sync";
+  wrap.innerHTML = `
+    <div class="l">
+      <b>Synced as @${escHtml(user.login)}</b>
+      <span class="cov-sync-status">Checking sync status…</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn ghost cov-sync-now-btn">Sync now</button>
+      <button class="btn ghost cov-disconnect-btn">Disconnect</button>
+    </div>
+  `;
+  host.appendChild(wrap);
+
+  void syncStatusP.then((sync) => {
+    const statusEl = wrap.querySelector<HTMLElement>(".cov-sync-status");
+    if (statusEl) statusEl.textContent = formatSync(sync);
+  });
+
+  wrap.querySelector(".cov-sync-now-btn")!.addEventListener("click", async () => {
+    const statusEl = wrap.querySelector<HTMLElement>(".cov-sync-status");
+    if (statusEl) statusEl.textContent = "Syncing…";
+    try {
+      await scoreSyncNow();
+      void refresh(page, state);
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Sync failed: ${String(err)}`;
+    }
+  });
+
+  wrap.querySelector(".cov-disconnect-btn")!.addEventListener("click", async () => {
+    await scoreSignout();
+    void refresh(page, state);
+  });
+}
+
+function formatSync(sync: import("./api").SyncStatus | null): string {
+  if (!sync || !sync.signed_in) return "Not synced";
+  if (sync.last_synced_at_ms === 0) return "Pending first sync…";
+  const ageMs = Date.now() - sync.last_synced_at_ms;
+  const ageMin = Math.floor(ageMs / 60000);
+  const ageStr =
+    ageMin === 0 ? "just now" :
+    ageMin < 60 ? `${ageMin}m ago` :
+    `${Math.floor(ageMin / 60)}h ago`;
+  if (sync.pending_events > 0) return `Synced ${ageStr} · ${sync.pending_events} pending`;
+  return `Synced ${ageStr}`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function rangeLabel(filter: ScoreFilter): string {
+  if (filter.range === "last30d") return "30 days";
+  if (filter.range === "last7d") return "7 days";
+  return "all time";
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}

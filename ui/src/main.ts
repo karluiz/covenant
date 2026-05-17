@@ -528,6 +528,20 @@ async function boot(): Promise<void> {
   const release = new ReleasePanel(document.body);
   const shortcutsPanel = new ShortcutsPanel(document.body);
   statusBar.onVersionChipClick = () => release.toggle();
+  // Statusbar Covenant chip click → open Settings, covenant tab.
+  window.addEventListener("covenant:open-covenant-settings", () => {
+    if (docsPanel.isOpen()) docsPanel.close();
+    if (draftsPanel.isOpen()) draftsPanel.close();
+    if (operator.isOpen()) operator.close();
+    void settings.open("covenant").then(() => {
+      requestAnimationFrame(() => {
+        const root = document.getElementById("covenant-page-root");
+        if (root) {
+          void import("./score/page").then((m) => m.mountCovenantPage(root));
+        }
+      });
+    });
+  });
   // Statusbar Telegram pill click → open Settings, scroll to Telegram section.
   window.addEventListener("covenant:open-telegram-settings", () => {
     if (docsPanel.isOpen()) docsPanel.close();

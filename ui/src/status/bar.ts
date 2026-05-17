@@ -40,7 +40,6 @@ import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
-import { openScoreModal } from "../score/modal";
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
@@ -621,7 +620,9 @@ export class StatusBar {
     // opens the Score modal with heatmap + stats.
     if (!this.scoreChip) {
       this.scoreChip = makeScoreChip();
-      this.scoreChip.setOnClick(() => { void openScoreModal(); });
+      this.scoreChip.setOnClick(() => {
+        window.dispatchEvent(new CustomEvent("covenant:open-covenant-settings"));
+      });
     }
     void this.scoreChip.refresh();
     this.host.appendChild(this.scoreChip.el);

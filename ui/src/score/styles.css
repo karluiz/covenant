@@ -100,3 +100,266 @@
 .score-signin .signin-actions button:hover {
   background: #232b34; border-color: #3a4854; }
 .score-signin .signin-status { color: #5a6873; font-size: 11px; }
+
+/* ── Covenant Settings Page ─────────────────────────────────────────────── */
+
+.covenant-page {
+  padding: 4px 0 32px;
+  color: #d6e2e6;
+  font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Filter chips row */
+.cov-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.cov-chip {
+  font-size: 11px;
+  padding: 5px 10px;
+  border: 1px solid #243036;
+  border-radius: 6px;
+  color: #6c8088;
+  cursor: pointer;
+  background: #131a1e;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  line-height: 1;
+}
+.cov-chip:hover { color: #d6e2e6; border-color: #324048; }
+.cov-chip.active {
+  color: #5eead4;
+  border-color: #1f4a44;
+  background: rgba(94,234,212,0.06);
+}
+.cov-chip .x { color: #4a5b63; margin-left: 2px; }
+
+/* Stat cards */
+.cov-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 22px;
+}
+.cov-stat {
+  background: #131a1e;
+  border: 1px solid #1c252b;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.cov-stat .v {
+  font-size: 24px;
+  color: #5eead4;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+.cov-stat .l {
+  font-size: 9px;
+  color: #6c8088;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.cov-stat .delta { font-size: 10px; color: #22c55e; margin-left: 6px; }
+
+/* Section card */
+.cov-card {
+  background: #131a1e;
+  border: 1px solid #1c252b;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.cov-card h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #6c8088;
+  margin: 0 0 12px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.cov-card h4 .hint { font-size: 9px; color: #4a5b63; text-transform: none; letter-spacing: 0.3px; }
+.cov-card-foot {
+  font-size: 10px;
+  color: #4a5b63;
+  margin-top: 8px;
+}
+
+/* Heatmap */
+.cov-heatmap-card { }
+.cov-heatmap {
+  display: grid;
+  grid-template-columns: repeat(53, 11px);
+  grid-auto-rows: 11px;
+  gap: 2px;
+  grid-auto-flow: column;
+}
+.cov-cell {
+  background: #131a1e;
+  border-radius: 2px;
+  border: 1px solid #182025;
+  cursor: pointer;
+  width: 11px;
+  height: 11px;
+}
+.cov-cell.l1 { background: #0f3530; border-color: #134039; }
+.cov-cell.l2 { background: #14564e; border-color: #1a6b60; }
+.cov-cell.l3 { background: #1f8a7a; border-color: #25a293; }
+.cov-cell.l4 { background: #5eead4; border-color: #7ff5dd; box-shadow: 0 0 4px rgba(94,234,212,0.18); }
+.cov-cell:hover { border-color: #5eead4; }
+.cov-legend {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 9px;
+  color: #6c8088;
+}
+
+/* Two-column layout */
+.cov-two {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.cov-two .cov-card { margin-bottom: 0; }
+
+/* Bar chart rows */
+.bar-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 70px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.bar-row .name {
+  color: #d6e2e6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.bar-row .name .dotc { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.bar-row .name:hover { color: #5eead4; }
+.bar-row.active .name { color: #5eead4; }
+.bar {
+  height: 14px;
+  background: #0a0f12;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+}
+.bar .seg-p { background: #5eead4; }
+.bar .seg-c { background: #1f4a44; }
+.bar-row .meta { font-size: 10px; color: #6c8088; text-align: right; }
+.seg-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.seg-key.seg-p { background: #5eead4; }
+.seg-key.seg-c { background: #1f4a44; }
+
+/* Branch list */
+.branch {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #d6e2e6;
+  cursor: pointer;
+}
+.branch:hover { background: #131a1e; }
+.branch .b-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.branch .b-name .ico { color: #4a5b63; }
+.branch .b-meta { font-size: 10px; color: #6c8088; }
+.branch .b-meta b { color: #5eead4; font-weight: 500; }
+
+/* Sessions feed */
+.session {
+  display: grid;
+  grid-template-columns: 120px 1fr 90px 90px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  border-top: 1px solid #1c252b;
+  font-size: 12px;
+}
+.session:first-of-type { border-top: 0; }
+.session .when { color: #6c8088; font-size: 11px; }
+.session .what { color: #d6e2e6; }
+.session .what .repo { color: #5eead4; }
+.session .what .slash { color: #4a5b63; margin: 0 4px; }
+.session .what .branch { color: #6c8088; }
+.session .what .group {
+  font-size: 10px;
+  color: #4a5b63;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border: 1px solid #243036;
+  border-radius: 4px;
+}
+.session .nums { font-size: 10px; color: #6c8088; text-align: right; }
+.session .nums b { color: #5eead4; font-weight: 500; }
+
+/* Sync card */
+.cov-sync {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(90deg, rgba(94,234,212,0.04), transparent);
+  border: 1px solid #1f4a44;
+  border-radius: 10px;
+  padding: 14px 18px;
+  gap: 12px;
+}
+.cov-sync .l { font-size: 11px; color: #6c8088; }
+.cov-sync .l b { color: #d6e2e6; display: block; margin-bottom: 2px; font-weight: 500; font-size: 13px; }
+.cov-sync-status { font-size: 11px; color: #6c8088; }
+.covenant-page .btn {
+  background: #5eead4;
+  color: #04201c;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.covenant-page .btn.ghost {
+  background: transparent;
+  color: #6c8088;
+  border: 1px solid #243036;
+}
+.covenant-page .btn:hover { opacity: 0.85; }
+.covenant-page .btn.ghost:hover { color: #d6e2e6; border-color: #324048; }
+
+/* Empty state */
+.cov-empty {
+  color: #4a5b63;
+  font-size: 11px;
+  padding: 12px 0;
+  text-align: center;
+}
