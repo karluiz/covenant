@@ -100,6 +100,7 @@ interface Settings {
   /// (Thinking / Reading / Running / Writing / Done). Default true.
   notch_enabled: boolean;
   notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  notch_sound_on_done?: boolean;
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
   familiars_enabled: boolean;
@@ -207,6 +208,7 @@ export class SettingsPanel {
         status_bar_enabled: true,
         notch_enabled: true,
         notch_corner: "bottom-right",
+        notch_sound_on_done: true,
         tabbar_position: "top",
         ui_font_family: null,
         familiars_enabled: false,
@@ -343,6 +345,18 @@ export class SettingsPanel {
             </select>
             <small class="settings-hint">
               Screen corner where the floating overlay anchors.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Done chime</span>
+            <span class="settings-checkbox-row">
+              <input type="checkbox" name="notch_sound_on_done" />
+              <span>Play a short bell when an executor finishes</span>
+            </span>
+            <small class="settings-hint">
+              Server-side deduped so a single agent turn never chimes
+              twice, even if the agent emits multiple end-of-output
+              markers.
             </small>
           </label>
           <fieldset class="settings-field">
@@ -642,6 +656,9 @@ export class SettingsPanel {
     const notchCorner = form.querySelector<HTMLSelectElement>(
       'select[name="notch_corner"]',
     )!;
+    const notchSoundOnDone = form.querySelector<HTMLInputElement>(
+      'input[name="notch_sound_on_done"]',
+    )!;
     const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tabbar_position"]',
     );
@@ -706,6 +723,7 @@ export class SettingsPanel {
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
     notchEnabled.checked = this.current.notch_enabled ?? true;
     notchCorner.value = this.current.notch_corner ?? "bottom-right";
+    notchSoundOnDone.checked = this.current.notch_sound_on_done ?? true;
     const currentTabbarPos = this.current.tabbar_position ?? "top";
     tabbarPosRadios.forEach((r) => {
       r.checked = r.value === currentTabbarPos;
@@ -1045,6 +1063,7 @@ export class SettingsPanel {
         status_bar_enabled: statusBarEnabled.checked,
         notch_enabled: notchEnabled.checked,
         notch_corner: notchCorner.value as Settings["notch_corner"],
+        notch_sound_on_done: notchSoundOnDone.checked,
         tabbar_position:
           (Array.from(tabbarPosRadios).find((r) => r.checked)
             ?.value as TabbarPosition) || "top",

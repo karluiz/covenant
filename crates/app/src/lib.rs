@@ -1940,16 +1940,18 @@ async fn set_settings(
     settings: Settings,
 ) -> Result<(), String> {
     settings::save(&state.settings_path, &settings).map_err(|e| e.to_string())?;
-    let (telegram_changed, notch_corner_changed) = {
+    let (telegram_changed, notch_corner_changed, notch_sound_changed) = {
         let cur = state.settings.lock().await;
         let tg = cur.telegram.enabled != settings.telegram.enabled
             || cur.telegram.bot_token != settings.telegram.bot_token
             || cur.telegram.chat_id != settings.telegram.chat_id;
         let corner = cur.notch_corner != settings.notch_corner;
-        (tg, corner)
+        let sound = cur.notch_sound_on_done != settings.notch_sound_on_done;
+        (tg, corner, sound)
     };
     let notch_enabled = settings.notch_enabled;
     let new_corner = settings.notch_corner;
+    let new_sound = settings.notch_sound_on_done;
     *state.settings.lock().await = settings;
     state.notch_hub.set_enabled(notch_enabled).await;
     if notch_corner_changed {
@@ -1959,6 +1961,12 @@ async fn set_settings(
         let _ = app.emit(
             "notch:corner",
             serde_json::json!({ "corner": new_corner }),
+        );
+    }
+    if notch_sound_changed {
+        let _ = app.emit(
+            "notch:sound",
+            serde_json::json!({ "sound_on_done": new_sound }),
         );
     }
     if telegram_changed {

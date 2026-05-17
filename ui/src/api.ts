@@ -692,6 +692,7 @@ export interface Settings {
   /// activity). Default true.
   notch_enabled: boolean;
   notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  notch_sound_on_done?: boolean;
   /// Tabbar layout: "top" (default, horizontal across the top) or
   /// "left" (fixed vertical sidebar à la Wave Terminal).
   tabbar_position: TabbarPosition;

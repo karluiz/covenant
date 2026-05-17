@@ -98,6 +98,12 @@ pub struct Settings {
     #[serde(default)]
     pub notch_corner: NotchCorner,
 
+    /// Play a short chime when an executor finishes a turn (Done).
+    /// Deduplicated server-side so a single turn never plays twice.
+    /// Default true.
+    #[serde(default = "default_notch_sound_on_done")]
+    pub notch_sound_on_done: bool,
+
     /// Layout of the tabbar — horizontal across the top (default) or a
     /// fixed vertical column on the left, à la Wave Terminal. Frontend
     /// toggles `body.tabbar-left` from this value.
@@ -177,6 +183,10 @@ pub enum NotchCorner {
     BottomLeft,
     TopRight,
     TopLeft,
+}
+
+fn default_notch_sound_on_done() -> bool {
+    true
 }
 
 fn default_notch_enabled() -> bool {
@@ -336,6 +346,7 @@ impl Default for Settings {
             status_bar_enabled: default_status_bar_enabled(),
             notch_enabled: default_notch_enabled(),
             notch_corner: NotchCorner::default(),
+            notch_sound_on_done: default_notch_sound_on_done(),
             tabbar_position: TabbarPosition::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,

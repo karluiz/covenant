@@ -22,6 +22,11 @@ struct Entry {
     /// (`claude`, `codex`, `copilot`, etc.). `None` when the user is at
     /// a plain shell prompt — we don't surface notch pills for those.
     agent: Option<String>,
+    /// True after we've emitted a Done for the current turn. Reset when
+    /// the phase transitions back out of Done (i.e. a new turn begins).
+    /// Prevents the Done chime from re-firing on subsequent OSC 133;D
+    /// markers within the same agent response.
+    done_emitted: bool,
 }
 
 pub struct NotchHub {
@@ -95,6 +100,7 @@ impl NotchHub {
                 last_emit: stale,
                 last_change: stale,
                 agent: None,
+                done_emitted: false,
             },
         );
     }
@@ -183,7 +189,19 @@ impl NotchHub {
             && !is_thinking;
         if (changed && !is_thinking) || heartbeat {
             let phase = entry.detector.phase().clone();
+            let is_done = matches!(phase, karl_session::ExecutorPhase::Done { .. });
+            // Done dedupe: skip if we've already emitted Done for this turn.
+            // Clear the flag when leaving Done (= a new turn started).
+            if !is_done {
+                entry.done_emitted = false;
+            }
+            if is_done && entry.done_emitted {
+                return;
+            }
             entry.last_emit = std::time::Instant::now();
+            if is_done {
+                entry.done_emitted = true;
+            }
             if changed {
                 tracing::info!(target: "notch", session = %session, ?phase, "phase changed");
             }
@@ -343,13 +361,19 @@ pub async fn notch_ready(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<serde_json::Value, String> {
     let snap = state.notch_hub.snapshot().await;
-    let corner = state.settings.lock().await.notch_corner;
+    let (corner, sound_on_done) = {
+        let s = state.settings.lock().await;
+        (s.notch_corner, s.notch_sound_on_done)
+    };
     tracing::info!(target: "notch", n = snap.len(), "notch_ready: replaying snapshot");
     let app = window.app_handle();
     for ev in snap {
         let _ = app.emit("notch:state", &ev);
     }
-    Ok(serde_json::json!({ "corner": corner }))
+    Ok(serde_json::json!({
+        "corner": corner,
+        "sound_on_done": sound_on_done,
+    }))
 }
 
 #[cfg(test)]
