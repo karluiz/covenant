@@ -201,6 +201,110 @@ impl ScoreStore {
         })
     }
 
+    pub fn breakdown_repos(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::RepoCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT repo,
+                    SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN kind='commit' THEN 1 ELSE 0 END)
+             FROM score_events
+             WHERE repo IS NOT NULL AND {}
+             GROUP BY repo
+             ORDER BY 2 DESC",
+            w.sql
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| Ok(crate::RepoCell {
+            repo: r.get(0)?,
+            prompts: r.get::<_, i64>(1)? as u32,
+            commits: r.get::<_, i64>(2)? as u32,
+        }))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn breakdown_branches(&self, repo: &str, f: &crate::ScoreFilter) -> Result<Vec<crate::BranchCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT branch,
+                    SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN kind='commit' THEN 1 ELSE 0 END)
+             FROM score_events
+             WHERE repo = ? AND branch IS NOT NULL AND {}
+             GROUP BY branch
+             ORDER BY 2 DESC
+             LIMIT 20",
+            w.sql
+        );
+        let mut params: Vec<rusqlite::types::Value> = vec![repo.to_string().into()];
+        params.extend(w.params.iter().cloned());
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| Ok(crate::BranchCell {
+            branch: r.get(0)?,
+            prompts: r.get::<_, i64>(1)? as u32,
+            commits: r.get::<_, i64>(2)? as u32,
+        }))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT group_name,
+                    SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END)
+             FROM score_events
+             WHERE group_name IS NOT NULL AND {}
+             GROUP BY group_name
+             ORDER BY 2 DESC",
+            w.sql
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| Ok(crate::GroupCell {
+            group_name: r.get(0)?,
+            prompts: r.get::<_, i64>(1)? as u32,
+        }))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn recent_sessions(&self, limit: u32) -> Result<Vec<crate::SessionRow>> {
+        let sql = r#"
+            WITH ordered AS (
+              SELECT timestamp_ms, kind, repo, branch, group_name,
+                     LAG(timestamp_ms) OVER (PARTITION BY repo, branch ORDER BY timestamp_ms) AS prev_ts
+              FROM score_events
+            ),
+            marked AS (
+              SELECT *, CASE WHEN prev_ts IS NULL OR timestamp_ms - prev_ts >= 900000 THEN 1 ELSE 0 END AS new_sess
+              FROM ordered
+            ),
+            labeled AS (
+              SELECT *, SUM(new_sess) OVER (PARTITION BY repo, branch ORDER BY timestamp_ms) AS sid
+              FROM marked
+            )
+            SELECT MIN(timestamp_ms), MAX(timestamp_ms), repo, branch, group_name,
+                   SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END),
+                   SUM(CASE WHEN kind='commit' THEN 1 ELSE 0 END)
+            FROM labeled
+            GROUP BY repo, branch, group_name, sid
+            ORDER BY MAX(timestamp_ms) DESC
+            LIMIT ?1
+        "#;
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(sql)?;
+        let rows = stmt.query_map(params![limit as i64], |r| Ok(crate::SessionRow {
+            start_ts: r.get(0)?,
+            end_ts: r.get(1)?,
+            repo: r.get(2)?,
+            branch: r.get(3)?,
+            group_name: r.get(4)?,
+            prompts: r.get::<_, i64>(5)? as u32,
+            commits: r.get::<_, i64>(6)? as u32,
+        }))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
     pub fn summary(&self) -> Result<Summary> {
         let cells = self.heatmap_all()?;
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();

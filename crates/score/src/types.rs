@@ -69,6 +69,26 @@ pub struct ScoreFilter {
     pub day: Option<String>, // "YYYY-MM-DD"
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoCell   { pub repo: String, pub prompts: u32, pub commits: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchCell { pub branch: String, pub prompts: u32, pub commits: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupCell  { pub group_name: String, pub prompts: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRow {
+    pub start_ts: i64,
+    pub end_ts: i64,
+    pub repo: Option<String>,
+    pub branch: Option<String>,
+    pub group_name: Option<String>,
+    pub prompts: u32,
+    pub commits: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,7 +10,7 @@ pub mod types;
 pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
-pub use types::{Context, DailyCell, EventKind, ScoreEvent, ScoreFilter, Summary, TimeRange, User};
+pub use types::{BranchCell, Context, DailyCell, EventKind, GroupCell, RepoCell, ScoreEvent, ScoreFilter, SessionRow, Summary, TimeRange, User};
 
 use crate::context::ContextResolver;
 use once_cell::sync::OnceCell;
