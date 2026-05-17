@@ -46,6 +46,7 @@ import {
   setOperatorLive,
   setSessionMission,
   setTabTitle,
+  notchSetLabel,
   spawnSession,
   replayScrollback,
   deleteScrollback,
@@ -1489,6 +1490,13 @@ export class TabManager {
     void setTabTitle(sessionId as SessionId, name).catch((err) => {
       console.warn("setTabTitle failed", err);
     });
+    // Tell the notch overlay the *display* label (group › tab) so the
+    // pill shows "COVENANT › notch" instead of just "notch". AOM keeps
+    // using the bare name above for slug generation.
+    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const group = tab?.groupId ? this.groups.get(tab.groupId) : null;
+    const label = group ? `${group.name} › ${name}` : name;
+    void notchSetLabel(sessionId as SessionId, label).catch(() => {});
   }
 
   /// 3.6 — focus the tab whose backend session matches `sessionId`. Used

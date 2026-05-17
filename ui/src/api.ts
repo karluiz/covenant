@@ -208,6 +208,16 @@ export async function setTabTitle(
   return invoke<void>("set_tab_title", { sessionId, title });
 }
 
+/// Push the *display* label for this session to the notch overlay.
+/// Includes the group prefix (e.g. "COVENANT › notch"). Separate from
+/// `setTabTitle` so AOM session-name slugs don't get the prefix.
+export async function notchSetLabel(
+  sessionId: SessionId,
+  label: string,
+): Promise<void> {
+  return invoke<void>("notch_set_label", { sessionId, label });
+}
+
 /// "Include all" backend hook — flips every tab's `aom_excluded` to
 /// false in one call. Surfaced in the AOM popover when ≥1 tabs are
 /// excluded. Use sparingly; the per-tab toggle is the daily affordance.
@@ -681,6 +691,8 @@ export interface Settings {
   /// Floating executor notch overlay (pills showing Claude/Codex/Pi
   /// activity). Default true.
   notch_enabled: boolean;
+  notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
+  notch_sound_on_done?: boolean;
   /// Tabbar layout: "top" (default, horizontal across the top) or
   /// "left" (fixed vertical sidebar à la Wave Terminal).
   tabbar_position: TabbarPosition;

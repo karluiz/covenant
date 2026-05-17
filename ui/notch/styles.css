@@ -9,12 +9,33 @@ html, body, .notch-body {
 }
 .stack {
   position: fixed;
+  display: flex;
+  gap: 8px;
+}
+body[data-corner="bottom-right"] .stack,
+body:not([data-corner]) .stack {
   right: 16px;
   bottom: 16px;
-  display: flex;
   flex-direction: column-reverse;
-  gap: 8px;
   align-items: flex-end;
+}
+body[data-corner="bottom-left"] .stack {
+  left: 16px;
+  bottom: 16px;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+}
+body[data-corner="top-right"] .stack {
+  right: 16px;
+  top: 16px;
+  flex-direction: column;
+  align-items: flex-end;
+}
+body[data-corner="top-left"] .stack {
+  left: 16px;
+  top: 16px;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .pill.expanded {
