@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.25 — Fix notch main-thread crash on launch
+
+### Fixed
+
+- **Notch AppKit calls from tokio worker** (`crates/app/src/notch.rs`):
+  v0.5.24 switched the spawner to `tauri::async_runtime::spawn` but that
+  still runs on a tokio worker thread. The bridge then called
+  `setCollectionBehavior` / `show` / `position_bottom_right` directly on
+  the `NSWindow`, hitting AppKit's main-thread assertion and triggering
+  `EXC_BREAKPOINT` (`Must only be used from the main thread`) during the
+  first `ExecutorStateChanged` event. Wrapped the show/position/collection-
+  behavior block in `win.run_on_main_thread(...)` so all AppKit calls
+  marshal back to the main thread.
+
 ## v0.5.24 — Fix notch startup panic
 
 ### Fixed
