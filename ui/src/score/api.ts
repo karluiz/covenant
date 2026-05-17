@@ -55,3 +55,18 @@ export async function scoreCurrentUser(): Promise<User | null> {
 export async function scoreSignout(): Promise<void> {
   return invoke<void>("score_signout");
 }
+
+export interface SyncStatus {
+  signed_in: boolean;
+  last_synced_at_ms: number;
+  last_server_cursor_ms: number;
+  pending_events: number;
+}
+
+export async function scoreSyncNow(): Promise<number> {
+  return invoke<number>("score_sync_now");
+}
+
+export async function scoreSyncStatus(): Promise<SyncStatus> {
+  return invoke<SyncStatus>("score_sync_status");
+}

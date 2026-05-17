@@ -72,11 +72,17 @@
   border: 1px solid #2a5a64; }
 .score-chip-avatar { width: 12px; height: 12px; border-radius: 50%;
   vertical-align: middle; margin-right: 4px; }
-.score-footer { margin-top: 16px; padding-top: 12px;
-  border-top: 1px solid #1a2128; text-align: right; }
-.score-footer .signout { color: #5a6873; font-size: 11px;
-  text-decoration: none; border-bottom: 1px dotted #3a4854; }
-.score-footer .signout:hover { color: #c8d4dc; }
+.score-footer {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid #1a2128;
+  font-size: 11px;
+}
+.score-footer .sync-status { color: #5a6873; margin-right: auto; }
+.score-footer a { color: #5fb3c4; text-decoration: none;
+  border-bottom: 1px dotted #3a7a85; padding-bottom: 1px; }
+.score-footer a.signout { color: #5a6873; border-bottom-color: #2a3540; }
+.score-footer a:hover { color: #c8d4dc; border-bottom-color: #c8d4dc; }
 
 .score-signin { width: 480px; text-align: center; }
 .score-signin .signin-code { display: inline-flex; gap: 6px;
