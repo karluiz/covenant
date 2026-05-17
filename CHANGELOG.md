@@ -6,6 +6,69 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.5.26 — Notch detection rewrite + drafts in project notes
+
+### Added
+
+- **Settings toggle for the notch** (`crates/app/src/settings.rs`,
+  `crates/app/src/notch.rs`, `ui/src/settings/panel.ts`): new
+  `notch_enabled` boolean (default `true`) gates the entire feature.
+  `NotchHub::ingest` now bails on an atomic load when disabled — zero
+  overhead. Flipping the toggle off at runtime emits `Idle` for every
+  active session so existing pills clear immediately. UI checkbox lives
+  in Settings → Display alongside the status-bar toggle.
+- **Drafts tab in ProjectNotesPanel** (`ui/src/project-notes/`,
+  `ui/src/main.ts`): drafts are now scoped per group and live inside
+  ProjectNotesPanel instead of the old standalone DraftsPanel. ⌘⇧D
+  retargeted to open the drafts tab. New `groupRootDirFor()` accessor
+  on TabManager and `activeGroup()` now returns `rootDir` so the tab
+  can resolve the right path. Cross-window `draft:saved` Tauri event
+  triggers toast + refresh.
+- **`[dev]` indicator in status bar** (`ui/src/status/bar.ts`,
+  `ui/src/styles.css`): the version chip renders as `v0.5.26 [dev]`
+  with an amber tint when `import.meta.env.DEV` is true, so it's
+  unambiguous which build is in focus during development.
+
+### Changed
+
+- **Notch phase detection rewritten** (`crates/blocks/src/executor_phase.rs`):
+  matches Claude Code v2.1 output. New patterns for tool-call forms
+  (`⏺ Bash/Task/Agent/Explore/WebFetch/WebSearch(...)` → Running;
+  `⏺ Read/Grep/Glob/LS(...)` → Reading; `⏺ Update/Write/Create/Edit/
+  MultiEdit/NotebookEdit(...)` → Writing) plus collapsed-summary headers
+  (`Read N file`, `Listing N directories`, `Listed N directories`,
+  `Searching`). Thinking is now whitelist-only — gerund + ellipsis +
+  duration (`Hyperspacing… (3s · …)`) — so plain output no longer
+  promotes the detector to Thinking. Past-tense `<Verb>ed for Ns`
+  (`Cooked for 7s`, `Worked for 10s`, `Brewed for 3s`) routes to Done
+  instead of Thinking. All captured targets pass through
+  `clamp_target(60)` so cursor-redrawn chunks without newlines can't
+  smear an entire status screen into one pill.
+- **Notch stale-clear** (`crates/app/src/notch.rs`): if the detector
+  stays in the same Running/Reading/Writing/Thinking phase for >8s
+  without any transition, the hub now emits `Idle` automatically. CC's
+  status-bar redraw loop no longer leaves pills stuck on "Reading 1
+  file…" after the agent has finished.
+- **Notch pills always expanded** (`ui/notch/store.ts`): the compact-mode
+  shrink animation read as a glitch in actual use, so `recomputeCompact`
+  now leaves every pill `expanded`. Constants remain for future use.
+- **DraftsPanel trimmed to wizard-only** (`ui/src/drafts/`): the standalone
+  drafts list and its sidebar nav button were removed; the wizard remains
+  the entry point for drafting from anywhere. Listing is owned by the
+  new project-notes tab.
+
+### Fixed
+
+- **Notch shadow / oversized empty pill** (`ui/notch/styles.css`,
+  `ui/notch/main.ts`): removed the heavy box-shadows on both pill
+  variants. `Idle` and `Thinking` events from the backend no longer
+  spawn empty pills — `Idle` triggers `store.drop(sid)` so a previous
+  tool-call pill clears the moment the agent quits.
+- **Context menu flipped to left of cursor at right edge**
+  (`ui/src/menu/context-menu.ts`): measure the menu off-screen first,
+  then flip horizontally when opening near the right edge so options
+  no longer get clipped by the window border.
+
 ## v0.5.25 — Fix notch main-thread crash on launch
 
 ### Fixed
