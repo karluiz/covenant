@@ -10,6 +10,7 @@ description = "OSC 133 block parser and Block types for karl-terminal"
 [dependencies]
 bytes = { workspace = true }
 strip-ansi-escapes = { workspace = true }
+regex = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }
 serde = { workspace = true }

@@ -1,0 +1,194 @@
+html, body, .notch-body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: -apple-system, system-ui, sans-serif;
+  color: #fff;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.pill.expanded {
+  background: rgba(20, 20, 28, 0.72);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--tab, #7c5cff);
+  border-radius: 12px;
+  padding: 9px 14px 9px 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font: 500 12.5px -apple-system;
+  min-width: 210px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  animation: slideIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: all 0.25s;
+}
+.pill.expanded .tabchip {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tab, #7c5cff);
+  font-weight: 700;
+}
+.pill.expanded .verb { color: #fff; font-weight: 600; }
+.pill.expanded .target { color: #a8a8b4; font-weight: 400; }
+.pill.expanded .col {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  gap: 1px;
+}
+.pill.expanded .ico {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pill.compact {
+  background: rgba(14, 14, 18, 0.78);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-left: 3px solid var(--tab, #7c5cff);
+  border-radius: 999px;
+  padding: 6px 14px 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #e8e8f0;
+  font: 600 11.5px -apple-system;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  transition: all 0.25s;
+  cursor: pointer;
+}
+.pill.compact:hover {
+  padding: 9px 14px 9px 11px;
+  border-radius: 12px;
+  min-width: 210px;
+}
+.pill.compact .target {
+  color: #9b9ba8;
+  font-weight: 400;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pill.compact .ico {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  to { opacity: 1; transform: none; }
+}
+
+.ld-think {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #c8b5ff 0%, #7c5cff 60%, transparent 70%);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(0.7); opacity: 0.6; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+.ld-run {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #2a2a35;
+  border-top-color: #5ad1ff;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.ld-write {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 14px;
+}
+.ld-write span {
+  width: 2px;
+  background: #7cffb2;
+  border-radius: 1px;
+  animation: wbar 1s ease-in-out infinite;
+}
+.ld-write span:nth-child(1) { height: 6px; }
+.ld-write span:nth-child(2) { height: 10px; animation-delay: 0.15s; }
+.ld-write span:nth-child(3) { height: 8px; animation-delay: 0.3s; }
+.ld-write span:nth-child(4) { height: 12px; animation-delay: 0.45s; }
+@keyframes wbar {
+  0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+.ld-read {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #1a1a22;
+  position: relative;
+  overflow: hidden;
+}
+.ld-read::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -2px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ffcb5a, transparent);
+  animation: scan 1.2s ease-in-out infinite;
+}
+@keyframes scan {
+  0% { top: -2px; }
+  100% { top: 14px; }
+}
+.ld-wait {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffb13a;
+  box-shadow: 0 0 0 0 rgba(255, 177, 58, 0.6);
+  animation: wait 1.6s ease-out infinite;
+}
+@keyframes wait {
+  0% { box-shadow: 0 0 0 0 rgba(255, 177, 58, 0.6); }
+  80%, 100% { box-shadow: 0 0 0 8px rgba(255, 177, 58, 0); }
+}
+.ld-done {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #7cffb2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ld-done svg {
+  width: 10px;
+  height: 10px;
+  stroke: #0a1a12;
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

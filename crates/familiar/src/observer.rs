@@ -102,6 +102,7 @@ fn event_kind(ev: &SessionEvent) -> String {
             "AgentResumed"
         }
         SessionEvent::ForegroundChanged { .. } => "ForegroundChanged",
+        SessionEvent::ExecutorStateChanged { .. } => "ExecutorStateChanged",
     }
     .into()
 }
@@ -121,7 +122,8 @@ fn event_session_id(ev: &SessionEvent) -> String {
         | SessionEvent::MissionFailed { session, .. }
         | SessionEvent::AgentIdleWaiting { session, .. }
         | SessionEvent::AgentResumed { session }
-        | SessionEvent::ForegroundChanged { session, .. } => session.to_string(),
+        | SessionEvent::ForegroundChanged { session, .. }
+        | SessionEvent::ExecutorStateChanged { session, .. } => session.to_string(),
         // TODO(telegram): handled in Task 5/6 — no session id on this variant
         SessionEvent::EscalationResolved { .. } => String::new(),
     }

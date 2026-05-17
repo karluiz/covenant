@@ -11,6 +11,7 @@
 
 mod aom;
 mod capabilities_commands;
+pub mod notch;
 mod connectivity;
 mod context;
 mod drafts;
@@ -159,6 +160,9 @@ pub(crate) struct AppState {
     /// because Pi tabs don't go through portable-pty. Lives on AppState
     /// so every `pi_*` Tauri command can address sessions by id.
     pub(crate) pi_sessions: pi_commands::PiRegistry,
+    /// Notch overlay: per-session executor phase detector, bridged to each
+    /// session's broadcast bus as ExecutorStateChanged events.
+    notch_hub: Arc<notch::NotchHub>,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -371,6 +375,13 @@ async fn spawn_session(
     let id_str = id.to_string();
     let bus_tx = session.event_sender();
 
+    let notch_hub = state.notch_hub.clone();
+    {
+        let hub = notch_hub.clone();
+        let bus_for_notch = bus_tx.clone();
+        tauri::async_runtime::spawn(async move { hub.register(id, bus_for_notch).await });
+    }
+
     // Persist the session row immediately so block FK references resolve.
     let started_unix_ms = now_unix_ms();
     if let Err(e) = state.storage.save_session(id, started_unix_ms).await {
@@ -526,6 +537,7 @@ async fn spawn_session(
         .as_deref()
         .and_then(|k| scrollback::open_writer(&state.data_dir, k))
         .map(scrollback::Writer::new);
+    let notch_hub_for_pump = notch_hub.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(chunk) = raw_bytes.recv().await {
             if let Ok(mut st) = op_state_for_pump.lock() {
@@ -534,6 +546,7 @@ async fn spawn_session(
             if let Some(w) = scrollback_writer.as_mut() {
                 w.append(&chunk);
             }
+            notch_hub_for_pump.ingest(id, &chunk).await;
             if on_output.send(chunk.to_vec()).is_err() {
                 tracing::debug!("output channel closed by frontend");
                 break;
@@ -670,6 +683,7 @@ async fn close_session(
             tracing::warn!(session = %id, error = %e, "mind_delete failed");
         }
     }
+    state.notch_hub.drop_session(&id).await;
     if let Err(e) = state.storage.close_session(id, now_unix_ms()).await {
         tracing::warn!(session = %id, error = %e, "close_session persist failed");
     }
@@ -1062,7 +1076,8 @@ async fn set_tab_title(
     title: String,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
-    state.operator.set_tab_title(id, title).await;
+    state.operator.set_tab_title(id, title.clone()).await;
+    state.notch_hub.set_tab_label(id, title).await;
     Ok(())
 }
 
@@ -2427,6 +2442,20 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcut("CmdOrCtrl+Shift+N")
+                .expect("valid shortcut string")
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(win) = app.get_webview_window("notch") {
+                            let visible = win.is_visible().unwrap_or(false);
+                            let _ = if visible { win.hide() } else { win.show() };
+                        }
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // app_config_dir on macOS resolves to
             //   ~/Library/Application Support/<bundle identifier>/
@@ -2920,7 +2949,16 @@ pub fn run() {
                 telegram_inbound_handle: tg_inbound_handle,
                 telegram_inbound_tx: tg_inbound_tx,
                 pi_sessions: pi_commands::PiRegistry::new(),
+                notch_hub: notch::NotchHub::new(),
             });
+
+            // Notch bridge: subscribe to the hub's fan-out and forward
+            // every ExecutorStateChanged event to the notch webview.
+            {
+                let state: tauri::State<AppState> = app.state();
+                let rx = state.notch_hub.subscribe();
+                notch::spawn_bridge(app.handle().clone(), rx);
+            }
 
             // Operator-mind orphan GC on startup. Best-effort; log only.
             tauri::async_runtime::spawn(async move {
@@ -3069,6 +3107,7 @@ pub fn run() {
             score_auth_commands::score_signout,
             score_sync_commands::score_sync_now,
             score_sync_commands::score_sync_status,
+            notch::notch_set_passthrough,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

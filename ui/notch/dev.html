@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Notch — dev harness</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      html, body { background: radial-gradient(circle at 30% 20%, #1a1530, #070709 70%); }
+    </style>
+  </head>
+  <body class="notch-body">
+    <div id="stack" class="stack"></div>
+    <script type="module">
+      import { StackStore } from "./store";
+      import { mountRender } from "./render";
+
+      const store = new StackStore();
+      mountRender(document.getElementById("stack"), store);
+      const apply = (id, phase, label, color) =>
+        store.apply({ sessionId: id, tabLabel: label, tabColor: color, phase });
+
+      apply("a", { kind: "thinking" }, "claude · tab 1", "#7c5cff");
+      setTimeout(() => apply("a", { kind: "running", cmd: "cargo build --release" }, "claude · tab 1", "#7c5cff"), 1500);
+      setTimeout(() => apply("b", { kind: "writing", file: "profile.rs" }, "copilot · tab 2", "#7cffb2"), 2500);
+      setTimeout(() => apply("c", { kind: "reading", file: "session.rs" }, "codex · tab 3", "#5ad1ff"), 3500);
+      setTimeout(() => apply("d", { kind: "waiting", reason: "Continue? [y/N]" }, "claude · tab 4", "#ffb13a"), 4500);
+      setTimeout(() => apply("a", { kind: "done" }, "claude · tab 1", "#7c5cff"), 7000);
+      setInterval(() => store.gc(), 500);
+    </script>
+  </body>
+</html>

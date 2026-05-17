@@ -29,6 +29,21 @@
           "effects": ["hudWindow"],
           "state": "followsWindowActiveState"
         }
+      },
+      {
+        "label": "notch",
+        "url": "notch/index.html",
+        "title": "Notch",
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "resizable": false,
+        "focus": false,
+        "visible": false,
+        "width": 360,
+        "height": 440
       }
     ],
     "security": {

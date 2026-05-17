@@ -68,6 +68,8 @@ pub enum SessionError {
     Pty(#[from] karl_pty::PtyError),
 }
 
+pub use karl_blocks::executor_phase::ExecutorPhase;
+
 /// High-level events broadcast on a session's bus. Designed for the
 /// agent's world model — every variant is small enough to log/serialize
 /// freely. `BlockFinished::output_text` is the one heavy field; agents
@@ -167,6 +169,11 @@ pub enum SessionEvent {
     ForegroundChanged {
         session: SessionId,
         name: Option<String>,
+    },
+    ExecutorStateChanged {
+        session: SessionId,
+        phase: ExecutorPhase,
+        tab_label: Option<String>,
     },
 }
 
@@ -325,6 +332,7 @@ impl SessionEvent {
                 command: command.clone(),
                 rationale: rationale.clone(),
             }),
+            SessionEvent::ExecutorStateChanged { .. } => None,
             SessionEvent::ForegroundChanged { session, name } => {
                 Some(SessionUiEvent::ForegroundChanged {
                     session: *session,
@@ -699,6 +707,19 @@ mod event_serde_tests {
             }
             other => panic!("expected AgentIdleWaiting, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn executor_state_changed_serializes() {
+        use crate::{ExecutorPhase, SessionEvent, SessionId};
+        let ev = SessionEvent::ExecutorStateChanged {
+            session: SessionId::new(),
+            phase: ExecutorPhase::Writing { file: "profile.rs".into() },
+            tab_label: None,
+        };
+        let json = serde_json::to_string(&ev).expect("serialize");
+        assert!(json.contains("executor_state_changed"));
+        assert!(json.contains("profile.rs"));
     }
 
     #[test]
