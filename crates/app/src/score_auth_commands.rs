@@ -22,8 +22,9 @@ pub async fn score_signin_poll(
     {
         DeviceTokenResponse::Pending { .. } => Ok(None),
         DeviceTokenResponse::Success { access_token, .. } => {
-            let user = auth::finalize_signin(GITHUB_API_BASE, &access_token, &store)
-                .await.map_err(|e| e.to_string())?;
+            let user = auth::finalize_signin(
+                GITHUB_API_BASE, &auth::backend_url(), &access_token, &store
+            ).await.map_err(|e| e.to_string())?;
             Ok(Some(user))
         }
     }

@@ -1,5 +1,5 @@
 use crate::types::{day_from_ms_local, DailyCell, EventKind, Summary};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
@@ -41,6 +41,12 @@ impl ScoreStore {
                 login TEXT NOT NULL,
                 avatar_url TEXT NOT NULL,
                 connected_at_ms INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sync_cursor (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_pushed_event_id INTEGER NOT NULL DEFAULT 0,
+                last_server_cursor_ms INTEGER NOT NULL DEFAULT 0,
+                last_synced_at_ms INTEGER NOT NULL DEFAULT 0
             );",
         )?;
         Ok(Self { conn: Arc::new(Mutex::new(conn)), path })
@@ -79,6 +85,45 @@ impl ScoreStore {
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn unsynced_events(&self, after_id: i64, limit: usize) -> Result<Vec<(i64, i64, EventKind, String)>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT id, timestamp_ms, kind, executor FROM score_events
+             WHERE id > ?1 ORDER BY id ASC LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![after_id, limit as i64], |r| {
+            let kind: String = r.get(2)?;
+            let kind = if kind == "prompt" { EventKind::Prompt } else { EventKind::Commit };
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, kind, r.get::<_, String>(3)?))
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    /// Returns `(last_pushed_event_id, last_server_cursor_ms, last_synced_at_ms)`.
+    pub fn get_sync_cursor(&self) -> Result<(i64, i64, i64)> {
+        let c = self.conn.lock().unwrap();
+        let row = c.query_row(
+            "SELECT last_pushed_event_id, last_server_cursor_ms, last_synced_at_ms FROM sync_cursor WHERE id = 1",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+        ).optional()?;
+        Ok(row.unwrap_or((0, 0, 0)))
+    }
+
+    pub fn set_sync_cursor(&self, last_pushed_event_id: i64, server_cursor_ms: i64, synced_at_ms: i64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO sync_cursor(id, last_pushed_event_id, last_server_cursor_ms, last_synced_at_ms)
+             VALUES (1, ?1, ?2, ?3)
+             ON CONFLICT(id) DO UPDATE SET
+                last_pushed_event_id = excluded.last_pushed_event_id,
+                last_server_cursor_ms = excluded.last_server_cursor_ms,
+                last_synced_at_ms = excluded.last_synced_at_ms",
+            params![last_pushed_event_id, server_cursor_ms, synced_at_ms],
+        )?;
+        Ok(())
     }
 
     pub fn summary(&self) -> Result<Summary> {
