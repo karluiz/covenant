@@ -15,6 +15,7 @@ struct Entry {
 
 pub struct NotchHub {
     sessions: Mutex<HashMap<SessionId, Entry>>,
+    labels: Mutex<HashMap<SessionId, String>>,
     /// Hub-owned fan-out for the notch bridge. Distinct from per-session
     /// buses (which serve familiars, world model, etc.) so the notch
     /// window can subscribe to one stream covering every session.
@@ -26,8 +27,13 @@ impl NotchHub {
         let (notch_tx, _) = broadcast::channel(64);
         Arc::new(Self {
             sessions: Mutex::new(HashMap::new()),
+            labels: Mutex::new(HashMap::new()),
             notch_tx,
         })
+    }
+
+    pub async fn set_tab_label(&self, session: SessionId, label: String) {
+        self.labels.lock().await.insert(session, label);
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
@@ -45,9 +51,11 @@ impl NotchHub {
         let mut map = self.sessions.lock().await;
         let Some(entry) = map.get_mut(&session) else { return };
         if entry.detector.feed(bytes) {
+            let tab_label = self.labels.lock().await.get(&session).cloned();
             let ev = SessionEvent::ExecutorStateChanged {
                 session,
                 phase: entry.detector.phase().clone(),
+                tab_label,
             };
             let _ = entry.bus.send(ev.clone());
             let _ = self.notch_tx.send(ev);
@@ -56,6 +64,7 @@ impl NotchHub {
 
     pub async fn drop_session(&self, session: &SessionId) {
         self.sessions.lock().await.remove(session);
+        self.labels.lock().await.remove(session);
     }
 }
 
@@ -173,8 +182,26 @@ mod tests {
         let ev = SessionEvent::ExecutorStateChanged {
             session: SessionId::new(),
             phase: ExecutorPhase::Done { summary: None },
+            tab_label: None,
         };
         let json = serde_json::to_value(&ev).expect("json");
         assert_eq!(json["phase"]["kind"], "done");
+    }
+
+    #[tokio::test]
+    async fn event_includes_tab_label() {
+        let (tx, _rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let mut nrx = hub.subscribe();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.set_tab_label(sid, "claude · tab 1".into()).await;
+        hub.ingest(sid, b"thinking\n").await;
+        match nrx.recv().await.unwrap() {
+            SessionEvent::ExecutorStateChanged { tab_label, .. } => {
+                assert_eq!(tab_label.as_deref(), Some("claude · tab 1"));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

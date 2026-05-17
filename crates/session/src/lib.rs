@@ -173,6 +173,7 @@ pub enum SessionEvent {
     ExecutorStateChanged {
         session: SessionId,
         phase: ExecutorPhase,
+        tab_label: Option<String>,
     },
 }
 
@@ -714,6 +715,7 @@ mod event_serde_tests {
         let ev = SessionEvent::ExecutorStateChanged {
             session: SessionId::new(),
             phase: ExecutorPhase::Writing { file: "profile.rs".into() },
+            tab_label: None,
         };
         let json = serde_json::to_string(&ev).expect("serialize");
         assert!(json.contains("executor_state_changed"));

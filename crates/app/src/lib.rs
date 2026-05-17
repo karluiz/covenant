@@ -1073,7 +1073,8 @@ async fn set_tab_title(
     title: String,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
-    state.operator.set_tab_title(id, title).await;
+    state.operator.set_tab_title(id, title.clone()).await;
+    state.notch_hub.set_tab_label(id, title).await;
     Ok(())
 }
 
