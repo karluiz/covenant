@@ -11,6 +11,7 @@
 
 mod aom;
 mod capabilities_commands;
+pub mod notch;
 mod connectivity;
 mod context;
 mod drafts;
@@ -156,6 +157,9 @@ pub(crate) struct AppState {
     /// because Pi tabs don't go through portable-pty. Lives on AppState
     /// so every `pi_*` Tauri command can address sessions by id.
     pub(crate) pi_sessions: pi_commands::PiRegistry,
+    /// Notch overlay: per-session executor phase detector, bridged to each
+    /// session's broadcast bus as ExecutorStateChanged events.
+    notch_hub: Arc<notch::NotchHub>,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -368,6 +372,13 @@ async fn spawn_session(
     let id_str = id.to_string();
     let bus_tx = session.event_sender();
 
+    let notch_hub = state.notch_hub.clone();
+    {
+        let hub = notch_hub.clone();
+        let bus_for_notch = bus_tx.clone();
+        tauri::async_runtime::spawn(async move { hub.register(id, bus_for_notch).await });
+    }
+
     // Persist the session row immediately so block FK references resolve.
     let started_unix_ms = now_unix_ms();
     if let Err(e) = state.storage.save_session(id, started_unix_ms).await {
@@ -523,6 +534,7 @@ async fn spawn_session(
         .as_deref()
         .and_then(|k| scrollback::open_writer(&state.data_dir, k))
         .map(scrollback::Writer::new);
+    let notch_hub_for_pump = notch_hub.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(chunk) = raw_bytes.recv().await {
             if let Ok(mut st) = op_state_for_pump.lock() {
@@ -531,6 +543,7 @@ async fn spawn_session(
             if let Some(w) = scrollback_writer.as_mut() {
                 w.append(&chunk);
             }
+            notch_hub_for_pump.ingest(id, &chunk).await;
             if on_output.send(chunk.to_vec()).is_err() {
                 tracing::debug!("output channel closed by frontend");
                 break;
@@ -667,6 +680,7 @@ async fn close_session(
             tracing::warn!(session = %id, error = %e, "mind_delete failed");
         }
     }
+    state.notch_hub.drop_session(&id).await;
     if let Err(e) = state.storage.close_session(id, now_unix_ms()).await {
         tracing::warn!(session = %id, error = %e, "close_session persist failed");
     }
@@ -2869,6 +2883,7 @@ pub fn run() {
                 telegram_inbound_handle: tg_inbound_handle,
                 telegram_inbound_tx: tg_inbound_tx,
                 pi_sessions: pi_commands::PiRegistry::new(),
+                notch_hub: notch::NotchHub::new(),
             });
 
             // Operator-mind orphan GC on startup. Best-effort; log only.

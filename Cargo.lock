@@ -2909,6 +2909,7 @@ version = "0.5.21"
 dependencies = [
  "bytes",
  "karl-pty",
+ "regex",
  "serde",
  "strip-ansi-escapes",
  "tempfile",
