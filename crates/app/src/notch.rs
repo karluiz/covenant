@@ -86,6 +86,7 @@ pub fn spawn_bridge(
                         if !visible {
                             let _ = win.show();
                             position_bottom_right(&win);
+                            apply_macos_collection_behavior(&win);
                         }
                         for b in buffer.drain(..) {
                             let _ = win.emit("notch://state", &b);
@@ -105,6 +106,26 @@ pub fn spawn_bridge(
         }
     })
 }
+
+/// Set NSWindowCollectionBehavior so the notch window appears on all Spaces
+/// and in fullscreen slide-over mode.
+#[cfg(target_os = "macos")]
+fn apply_macos_collection_behavior(win: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    // NSWindowCollectionBehaviorCanJoinAllSpaces   = 1 << 0
+    // NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
+    const BEHAVIOR: u64 = (1 << 0) | (1 << 8);
+    if let Ok(ns_window) = win.ns_window() {
+        unsafe {
+            let obj = ns_window as *mut AnyObject;
+            let _: () = msg_send![&*obj, setCollectionBehavior: BEHAVIOR];
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_macos_collection_behavior(_win: &tauri::WebviewWindow) {}
 
 fn position_bottom_right(win: &tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = win.current_monitor() {

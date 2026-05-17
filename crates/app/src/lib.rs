@@ -2439,6 +2439,20 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcut("CmdOrCtrl+Shift+N")
+                .expect("valid shortcut string")
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(win) = app.get_webview_window("notch") {
+                            let visible = win.is_visible().unwrap_or(false);
+                            let _ = if visible { win.hide() } else { win.show() };
+                        }
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             // app_config_dir on macOS resolves to
             //   ~/Library/Application Support/<bundle identifier>/
