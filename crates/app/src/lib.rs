@@ -2886,6 +2886,14 @@ pub fn run() {
                 notch_hub: notch::NotchHub::new(),
             });
 
+            // Notch bridge: subscribe to the hub's fan-out and forward
+            // every ExecutorStateChanged event to the notch webview.
+            {
+                let state: tauri::State<AppState> = app.state();
+                let rx = state.notch_hub.subscribe();
+                notch::spawn_bridge(app.handle().clone(), rx);
+            }
+
             // Operator-mind orphan GC on startup. Best-effort; log only.
             tauri::async_runtime::spawn(async move {
                 match gc_storage.mind_gc_orphans().await {
@@ -3025,6 +3033,7 @@ pub fn run() {
             pi_commands::pi_compact,
             pi_commands::pi_get_session_stats,
             pi_commands::pi_extension_ui_response,
+            notch::notch_set_passthrough,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

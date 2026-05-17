@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use karl_blocks::executor_phase::ExecutorPhaseDetector;
 use karl_session::{SessionEvent, SessionId};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{broadcast, Mutex};
 
 struct Entry {
@@ -14,11 +15,23 @@ struct Entry {
 
 pub struct NotchHub {
     sessions: Mutex<HashMap<SessionId, Entry>>,
+    /// Hub-owned fan-out for the notch bridge. Distinct from per-session
+    /// buses (which serve familiars, world model, etc.) so the notch
+    /// window can subscribe to one stream covering every session.
+    notch_tx: broadcast::Sender<SessionEvent>,
 }
 
 impl NotchHub {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { sessions: Mutex::new(HashMap::new()) })
+        let (notch_tx, _) = broadcast::channel(64);
+        Arc::new(Self {
+            sessions: Mutex::new(HashMap::new()),
+            notch_tx,
+        })
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+        self.notch_tx.subscribe()
     }
 
     pub async fn register(&self, session: SessionId, bus: broadcast::Sender<SessionEvent>) {
@@ -32,16 +45,78 @@ impl NotchHub {
         let mut map = self.sessions.lock().await;
         let Some(entry) = map.get_mut(&session) else { return };
         if entry.detector.feed(bytes) {
-            let _ = entry.bus.send(SessionEvent::ExecutorStateChanged {
+            let ev = SessionEvent::ExecutorStateChanged {
                 session,
                 phase: entry.detector.phase().clone(),
-            });
+            };
+            let _ = entry.bus.send(ev.clone());
+            let _ = self.notch_tx.send(ev);
         }
     }
 
     pub async fn drop_session(&self, session: &SessionId) {
         self.sessions.lock().await.remove(session);
     }
+}
+
+/// Spawn the long-lived task that forwards `ExecutorStateChanged`
+/// to the notch webview as `notch://state` events. Buffers up to 16
+/// events while the window isn't yet visible (it boots lazily on first
+/// real activity).
+pub fn spawn_bridge(
+    app: AppHandle,
+    mut rx: broadcast::Receiver<SessionEvent>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut buffer: Vec<SessionEvent> = Vec::with_capacity(16);
+        loop {
+            match rx.recv().await {
+                Ok(ev @ SessionEvent::ExecutorStateChanged { .. }) => {
+                    if let Some(win) = app.get_webview_window("notch") {
+                        let visible = win.is_visible().unwrap_or(false);
+                        if !visible {
+                            let _ = win.show();
+                            position_bottom_right(&win);
+                        }
+                        for b in buffer.drain(..) {
+                            let _ = win.emit("notch://state", &b);
+                        }
+                        let _ = win.emit("notch://state", &ev);
+                    } else {
+                        if buffer.len() == buffer.capacity() {
+                            buffer.remove(0);
+                        }
+                        buffer.push(ev);
+                    }
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
+}
+
+fn position_bottom_right(win: &tauri::WebviewWindow) {
+    if let Ok(Some(monitor)) = win.current_monitor() {
+        let size = monitor.size();
+        let scale = monitor.scale_factor();
+        let w = (360.0 * scale) as i32;
+        let h = (440.0 * scale) as i32;
+        let x = size.width as i32 - w - (16.0 * scale) as i32;
+        let y = size.height as i32 - h - (40.0 * scale) as i32;
+        let _ = win.set_position(tauri::PhysicalPosition { x, y });
+    }
+}
+
+#[tauri::command]
+pub async fn notch_set_passthrough(
+    window: tauri::Window,
+    passthrough: bool,
+) -> Result<(), String> {
+    window
+        .set_ignore_cursor_events(passthrough)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -75,5 +150,31 @@ mod tests {
         let _ = rx.recv().await;
         hub.ingest(sid, b"more thinking\n").await;
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn hub_subscribe_receives_events() {
+        let (tx, _rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let mut nrx = hub.subscribe();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.ingest(sid, b"thinking\n").await;
+        match nrx.recv().await.unwrap() {
+            SessionEvent::ExecutorStateChanged { phase, .. } => {
+                assert_eq!(phase, ExecutorPhase::Thinking);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn bridge_serializes_event_payload() {
+        let ev = SessionEvent::ExecutorStateChanged {
+            session: SessionId::new(),
+            phase: ExecutorPhase::Done { summary: None },
+        };
+        let json = serde_json::to_value(&ev).expect("json");
+        assert_eq!(json["phase"]["kind"], "done");
     }
 }
