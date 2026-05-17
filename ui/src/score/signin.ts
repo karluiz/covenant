@@ -1,9 +1,6 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { scoreSigninPoll, scoreSigninStart, type User } from "./api";
 import { setCurrentUser } from "./user";
-
-// window.open is used to launch the GitHub device page; in Tauri's webview
-// this delegates to the OS default browser. If that doesn't work in future,
-// swap in openExternal from @tauri-apps/plugin-shell (not yet installed).
 
 /// Show the device-flow popover. Resolves with the authenticated User
 /// on success, or null if the user closes the popover before completing.
@@ -35,7 +32,9 @@ export async function runDeviceFlow(): Promise<User | null> {
     const copyBtn = box.querySelector(".signin-copy") as HTMLButtonElement;
 
     openBtn.addEventListener("click", () => {
-      window.open(dc.verification_uri, "_blank");
+      void openUrl(dc.verification_uri).catch((err) =>
+        console.error("openUrl failed", err),
+      );
     });
     copyBtn.addEventListener("click", () => {
       navigator.clipboard.writeText(dc.user_code);

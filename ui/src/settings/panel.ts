@@ -15,7 +15,6 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
-import { renderFamiliarsSettings } from "../familiars/settings_panel";
 import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
 import { renderProvidersTab } from "./providers";
@@ -263,7 +262,6 @@ export class SettingsPanel {
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-covenant" data-target="sec-covenant">Covenant</a>
-      <a href="#familiars-host" data-target="familiars-host">Familiars</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
     `;
     body.appendChild(nav);
@@ -616,7 +614,6 @@ export class SettingsPanel {
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
           <div id="covenant-page-root"></div>
         </section>
-        <section class="settings-section" id="familiars-host"></section>
         <section class="settings-section" id="sec-workspace">
           <h3 class="settings-section-title">Workspace</h3>
           <div class="settings-field">
@@ -852,27 +849,6 @@ export class SettingsPanel {
           if (this.onSaved) this.onSaved(this.current);
         },
       );
-    }
-
-    const familiarsHost = form.querySelector<HTMLElement>("#familiars-host");
-    if (familiarsHost) {
-      const persistFamiliars = async (): Promise<void> => {
-        if (!this.current) return;
-        await setSettings(this.current);
-        if (this.onSaved) this.onSaved(this.current);
-      };
-      const renderFam = (): void => {
-        if (!this.current) return;
-        renderFamiliarsSettings(familiarsHost, {
-          enabled: this.current.familiars_enabled,
-          setEnabled: (v) => {
-            if (!this.current) return;
-            this.current.familiars_enabled = v;
-            void persistFamiliars().then(() => renderFam());
-          },
-        });
-      };
-      renderFam();
     }
 
     form

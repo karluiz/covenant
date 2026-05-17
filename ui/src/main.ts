@@ -43,9 +43,6 @@ import { GlobalSearchPalette } from "./search/palette";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
-import { FamiliarPanel } from "./familiars/panel";
-import { FamiliarStatusIndicator } from "./familiars/status_indicator";
-import { familiarFor, onFamiliarRegistryChange } from "./familiars/registry";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
@@ -360,27 +357,12 @@ async function boot(): Promise<void> {
   // Inline notch rack — appears in the status-bar host when Covenant
   // enters fullscreen and the floating overlay is suppressed.
   void import("./inline-notch").then((m) => m.mountInlineNotch(statusBarHost));
-  // Familiar status dot — single instance, mounted on the status-bar
-  // host. Rebound whenever the active tab changes (or the registry
-  // updates for the currently-active session).
-  const familiarIndicator = new FamiliarStatusIndicator(statusBarHost);
-  const rebindFamiliarIndicator = (): void => {
-    const sid = manager.activeSessionId();
-    familiarIndicator.bind(sid ? familiarFor(sid) : null);
-  };
-  onFamiliarRegistryChange((sessionId) => {
-    if (sessionId === manager.activeSessionId()) rebindFamiliarIndicator();
-  });
   manager.onActiveContextChange = (cwd) => {
     statusBar.setCwd(cwd);
     if (cwd) void ensureDetectorForRepo(cwd);
   };
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
-    rebindFamiliarIndicator();
-  };
-  manager.onActiveSessionChange = (sessionId) => {
-    void familiarPanel.bindToSession(sessionId);
   };
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
@@ -437,9 +419,9 @@ async function boot(): Promise<void> {
         manager.openFileAtLine(absolutePath);
         activeProjectNotesPanel?.close();
       },
-      onOpenWizard: (repoRoot) => {
+      onOpenWizard: (_repoRoot) => {
         activeProjectNotesPanel?.close();
-        window.dispatchEvent(new CustomEvent("drafts:open-wizard", { detail: { repoRoot } }));
+        window.dispatchEvent(new CustomEvent("spec-chat:open"));
       },
     }).mount(document.body);
   }
@@ -1005,12 +987,6 @@ async function boot(): Promise<void> {
       void capabilities.toggle(manager.activeCwd());
       return;
     }
-    // ⌘⇧L — toggle the Familiar side panel (chat with the active tab's familiar).
-    if (e.metaKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
-      e.preventDefault();
-      familiarPanel.toggle();
-      return;
-    }
     // ⌘⌥P — toggle the Pi overlay panel (transient session).
     // ⌘⌥⇧P — create a permanent Pi tab in the tabbar.
     if (e.metaKey && e.altKey && (e.key === "P" || e.key === "p" || e.key === "π")) {
@@ -1231,18 +1207,6 @@ async function boot(): Promise<void> {
     }
   });
 }
-
-const familiarPanel = new FamiliarPanel();
-// Hook to deliver an approved directive into the operator session. The
-// project's operator-input command is `write_to_session`, which accepts
-// raw bytes; encode the rendered string as UTF-8.
-familiarPanel.onDeliverDirective = async (sessionId, rendered) => {
-  const bytes = new TextEncoder().encode(rendered);
-  await invoke("write_to_session", { id: sessionId, data: Array.from(bytes) });
-};
-
-// Status-bar Familiar dot dispatches this on click; toggle the panel.
-document.addEventListener("familiars:open", () => familiarPanel.toggle());
 
 async function startupUpdateCheck(): Promise<void> {
   const currentVersion = await getVersion();

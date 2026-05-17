@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fullscreen left-sidebar slot — options</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-2: #181c22;
+    --border: #232831;
+    --text: #d5d9de;
+    --muted: #8a93a0;
+    --accent: #a8c3ff;
+    --green: #6ee7a8;
+    --amber: #f5c66a;
+    --red: #ff7676;
+    --blue: #87a7ff;
+    --purple: #c7a8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #07090b;
+    color: var(--text);
+    font: 13px ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  h1 { font-size: 16px; margin: 24px 24px 6px; font-weight: 600; }
+  p.lead { margin: 0 24px 24px; color: var(--muted); }
+  h2 { font-size: 13px; color: var(--accent); margin: 28px 24px 8px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  p.note { margin: 0 24px 12px; color: var(--muted); font-size: 12px; }
+
+  /* simulated window */
+  .frame {
+    margin: 0 24px 24px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    grid-template-rows: 32px 1fr 22px;
+    height: 520px;
+  }
+  .titlebar {
+    grid-column: 1 / -1;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 12px;
+    font-size: 11px; color: var(--muted);
+  }
+  .titlebar .tabs { display: flex; gap: 6px; margin-left: 12px; }
+  .tab { padding: 3px 9px; border-radius: 5px; background: transparent; color: var(--muted); font-size: 11px; }
+  .tab.active { background: var(--panel-2); color: var(--text); }
+
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .ws-list { padding: 10px 8px; }
+  .ws-list .ws {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 8px; border-radius: 6px; font-size: 11px; color: var(--muted);
+  }
+  .ws.active { background: var(--panel-2); color: var(--text); }
+  .ws .count { font-size: 10px; opacity: 0.7; }
+  .ws-list .child { padding: 3px 18px; font-size: 11px; color: var(--muted); }
+  .ws-list .child.active { color: var(--text); }
+
+  .sidebar-divider {
+    height: 1px; background: var(--border); margin: 6px 10px;
+  }
+  .slot-host {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+    padding: 8px;
+    gap: 6px;
+    overflow: auto;
+  }
+  .slot-header {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    padding: 4px 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .slot-header .clear { color: var(--muted); cursor: pointer; font-size: 10px; opacity: 0.7; }
+
+  .terminal { padding: 14px 18px; color: #a9b1bd; min-width: 0; }
+  .terminal .prompt { color: var(--blue); }
+  .terminal .cmd { color: var(--text); }
+  .terminal .dim { color: var(--muted); font-style: italic; }
+
+  .statusbar {
+    grid-column: 1 / -1;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 12px; font-size: 11px; color: var(--muted);
+  }
+
+  /* ============== A · Stacked notification cards (timeline) ============== */
+  .notif-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .notif-card .row1 {
+    display: flex; align-items: center; gap: 6px; font-size: 11px;
+  }
+  .notif-card .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: 0 0 6px; }
+  .notif-card.warn .dot { background: var(--amber); }
+  .notif-card.err .dot { background: var(--red); }
+  .notif-card .src { color: var(--text); font-weight: 600; }
+  .notif-card .time { color: var(--muted); font-size: 10px; margin-left: auto; }
+  .notif-card .body { color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+  /* ============== B · Compact pills stack ============== */
+  .pill-stack { display: flex; flex-direction: column; gap: 4px; }
+  .pill-v {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    display: flex; align-items: center; gap: 6px;
+    color: var(--text);
+  }
+  .pill-v .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .pill-v.warn .dot { background: var(--amber); }
+  .pill-v.err  .dot { background: var(--red); }
+  .pill-v .label { color: var(--muted); margin-left: auto; font-size: 10px; }
+
+  /* ============== C · Agent panels — one per tab ============== */
+  .agent-card {
+    background: linear-gradient(180deg, #181c22, #15181d);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .agent-card .top { display: flex; align-items: center; gap: 8px; }
+  .agent-card .av {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+  }
+  .agent-card .name { font-size: 11px; color: var(--text); font-weight: 600; }
+  .agent-card .phase { font-size: 10px; color: var(--accent); }
+  .agent-card .last {
+    font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.35;
+  }
+  .agent-card .bar {
+    display: flex; gap: 4px; margin-top: 8px;
+  }
+  .agent-card .bar button {
+    flex: 1; background: transparent; border: 1px solid var(--border);
+    color: var(--muted); font: inherit; font-size: 10px;
+    padding: 3px 0; border-radius: 5px; cursor: pointer;
+  }
+  .agent-card .bar button.stop { color: var(--red); border-color: #4a2828; }
+
+  /* ============== D · Combined: agent header + notif stream ============== */
+  .combo-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .combo-head .av {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+  }
+  .combo-head .name { font-size: 11px; color: var(--text); font-weight: 600; }
+  .combo-head .sub  { font-size: 10px; color: var(--muted); }
+  .combo-head .stop {
+    margin-left: auto; background: transparent; border: 1px solid #4a2828;
+    color: var(--red); font: inherit; font-size: 10px; padding: 3px 8px;
+    border-radius: 5px; cursor: pointer;
+  }
+  .stream-item {
+    display: flex; gap: 8px; font-size: 11px; color: var(--muted);
+    padding: 4px 6px;
+    border-left: 2px solid transparent;
+  }
+  .stream-item .ts { color: var(--muted); opacity: 0.7; font-size: 10px; min-width: 32px; }
+  .stream-item.warn { border-left-color: var(--amber); }
+  .stream-item.err  { border-left-color: var(--red); }
+  .stream-item.ok   { border-left-color: var(--green); }
+  .stream-item .msg { color: var(--text); }
+
+  footer { color: var(--muted); margin: 24px; font-size: 12px; }
+
+  /* shared sidebar block reused per option */
+  .ws-block {
+    padding: 8px 0 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Fullscreen left-sidebar slot — 4 options</h1>
+<p class="lead">
+  In fullscreen the workspace list only fills the top portion of the sidebar; the rest is wasted.
+  These 4 layouts use that vertical column for Notch / agent activity / notifications.
+</p>
+
+<!-- ===================== A — Notification timeline ===================== -->
+<h2>A · Notification timeline (cards)</h2>
+<p class="note">Reverse-chronological stack of full notification cards. Easy to scan; good for "what just happened?".</p>
+<div class="frame">
+  <div class="titlebar"><span>COVENANT</span><div class="tabs"><span class="tab active">main</span><span class="tab">tests</span></div></div>
+  <aside class="sidebar">
+    <div class="ws-block">
+      <div class="ws-list">
+        <div class="ws active">▾ COVENANT <span class="count">3</span></div>
+        <div class="child active">notch</div>
+        <div class="child">agent-enhances</div>
+        <div class="child">score</div>
+        <div class="ws">▸ RAVEN <span class="count">4</span></div>
+        <div class="ws">▸ NXT <span class="count">4</span></div>
+      </div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="slot-host">
+      <div class="slot-header"><span>Activity</span><span class="clear">clear</span></div>
+      <div class="notif-card">
+        <div class="row1"><span class="dot"></span><span class="src">claude</span><span class="time">just now</span></div>
+        <div class="body">edited <code>ui/src/score/signin.ts</code></div>
+      </div>
+      <div class="notif-card warn">
+        <div class="row1"><span class="dot"></span><span class="src">tests</span><span class="time">2m</span></div>
+        <div class="body">2 failing in <code>signin.test.ts</code></div>
+      </div>
+      <div class="notif-card err">
+        <div class="row1"><span class="dot"></span><span class="src">build</span><span class="time">5m</span></div>
+        <div class="body">TS2339: property does not exist</div>
+      </div>
+      <div class="notif-card">
+        <div class="row1"><span class="dot"></span><span class="src">deploy</span><span class="time">11m</span></div>
+        <div class="body">covenant.uno OK — 200</div>
+      </div>
+    </div>
+  </aside>
+  <section class="terminal">
+    <div><span class="prompt">~/Sources/karlTerminal</span></div>
+    <div><span class="prompt">$</span> <span class="cmd">claude --dangerously-skip-permissions</span></div>
+    <div class="dim">running…</div>
+  </section>
+  <div class="statusbar">main · ctx 4% · Opus 4.7 · v0.6.0</div>
+</div>
+
+<!-- ===================== B — Pills stack ===================== -->
+<h2>B · Compact pill stack</h2>
+<p class="note">One pill per agent/state. Lowest information density, max density per pixel. Click to expand.</p>
+<div class="frame">
+  <div class="titlebar"><span>COVENANT</span><div class="tabs"><span class="tab active">main</span><span class="tab">tests</span></div></div>
+  <aside class="sidebar">
+    <div class="ws-block">
+      <div class="ws-list">
+        <div class="ws active">▾ COVENANT <span class="count">3</span></div>
+        <div class="child active">notch</div>
+        <div class="child">score</div>
+        <div class="ws">▸ RAVEN <span class="count">4</span></div>
+      </div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="slot-host">
+      <div class="slot-header"><span>Status</span></div>
+      <div class="pill-stack">
+        <span class="pill-v"><span class="dot"></span>claude · running<span class="label">main</span></span>
+        <span class="pill-v warn"><span class="dot"></span>tests · 2 fail<span class="label">tests</span></span>
+        <span class="pill-v err"><span class="dot"></span>build · TS err<span class="label">build</span></span>
+        <span class="pill-v"><span class="dot"></span>deploy · 200<span class="label">covenant.uno</span></span>
+        <span class="pill-v"><span class="dot"></span>aom · idle<span class="label">budget 0%</span></span>
+      </div>
+    </div>
+  </aside>
+  <section class="terminal">
+    <div><span class="prompt">$</span> <span class="cmd">claude --dangerously-skip-permissions</span></div>
+    <div class="dim">running…</div>
+  </section>
+  <div class="statusbar">main · ctx 4% · Opus 4.7 · v0.6.0</div>
+</div>
+
+<!-- ===================== C — Agent cards (one per tab) ===================== -->
+<h2>C · Agent cards (one per active tab)</h2>
+<p class="note">For each tab with a running executor: avatar, phase, last action, pause/stop. Best when juggling many agents.</p>
+<div class="frame">
+  <div class="titlebar"><span>COVENANT</span><div class="tabs"><span class="tab active">main</span><span class="tab">tests</span></div></div>
+  <aside class="sidebar">
+    <div class="ws-block">
+      <div class="ws-list">
+        <div class="ws active">▾ COVENANT <span class="count">3</span></div>
+        <div class="child active">notch</div>
+        <div class="child">score</div>
+      </div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="slot-host">
+      <div class="slot-header"><span>Agents</span></div>
+      <div class="agent-card">
+        <div class="top"><div class="av"></div><div><div class="name">claude · main</div><div class="phase">▸ plan</div></div></div>
+        <div class="last">edited signin.ts · 4s ago</div>
+        <div class="bar"><button>pause</button><button class="stop">stop</button></div>
+      </div>
+      <div class="agent-card">
+        <div class="top"><div class="av"></div><div><div class="name">claude · tests</div><div class="phase">▸ exec</div></div></div>
+        <div class="last">vitest watch — 2 failing</div>
+        <div class="bar"><button>pause</button><button class="stop">stop</button></div>
+      </div>
+    </div>
+  </aside>
+  <section class="terminal">
+    <div><span class="prompt">$</span> <span class="cmd">claude --dangerously-skip-permissions</span></div>
+    <div class="dim">running…</div>
+  </section>
+  <div class="statusbar">main · ctx 4% · Opus 4.7 · v0.6.0</div>
+</div>
+
+<!-- ===================== D — Combo (agent header + activity stream) ===================== -->
+<h2>D · Active agent header + activity stream  <span style="color:var(--muted);font-weight:400;font-size:11px">(recommended)</span></h2>
+<p class="note">Top: dashboard card for the active tab's agent. Below: chronological event stream from the Notch. One screen, two registers of info.</p>
+<div class="frame">
+  <div class="titlebar"><span>COVENANT</span><div class="tabs"><span class="tab active">main</span><span class="tab">tests</span></div></div>
+  <aside class="sidebar">
+    <div class="ws-block">
+      <div class="ws-list">
+        <div class="ws active">▾ COVENANT <span class="count">3</span></div>
+        <div class="child active">notch</div>
+        <div class="child">score</div>
+        <div class="ws">▸ RAVEN <span class="count">4</span></div>
+      </div>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="slot-host">
+      <div class="combo-head">
+        <div class="av"></div>
+        <div>
+          <div class="name">claude</div>
+          <div class="sub">▸ plan · 02:14</div>
+        </div>
+        <button class="stop">stop</button>
+      </div>
+      <div class="slot-header" style="margin-top:6px"><span>Stream</span><span class="clear">clear</span></div>
+      <div class="stream-item ok"><span class="ts">12:04</span><span class="msg">tests passed (tab 2)</span></div>
+      <div class="stream-item warn"><span class="ts">12:02</span><span class="msg">covenant 502 (1×)</span></div>
+      <div class="stream-item"><span class="ts">12:01</span><span class="msg">edited signin.ts</span></div>
+      <div class="stream-item err"><span class="ts">11:58</span><span class="msg">TS2339 in signin.ts</span></div>
+      <div class="stream-item"><span class="ts">11:55</span><span class="msg">npm run tauri dev started</span></div>
+      <div class="stream-item ok"><span class="ts">11:52</span><span class="msg">deploy 200 covenant.uno</span></div>
+    </div>
+  </aside>
+  <section class="terminal">
+    <div><span class="prompt">$</span> <span class="cmd">claude --dangerously-skip-permissions</span></div>
+    <div class="dim">running…</div>
+  </section>
+  <div class="statusbar">main · ctx 4% · Opus 4.7 · v0.6.0</div>
+</div>
+
+<footer>
+  Pick one (A–D) and I'll wire it into the real left sidebar when in fullscreen.
+  Path: <code>docs/mockups/fullscreen-notch-slot.html</code>
+</footer>
+
+</body>
+</html>

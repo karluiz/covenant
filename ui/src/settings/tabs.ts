@@ -1,7 +1,7 @@
 export type SettingsTab =
   | "providers" | "models" | "appearance" | "terminal"
   | "operators" | "updates" | "notifications" | "telegram"
-  | "familiars" | "workspace" | "covenant";
+  | "workspace" | "covenant";
 
 const TAB_OF_SECTION: Record<string, SettingsTab> = {
   "sec-providers":     "providers",

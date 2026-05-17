@@ -16,15 +16,13 @@ import { agentsDoc } from "./content/agents";
 import { blocksDoc } from "./content/blocks";
 import { recallDoc } from "./content/recall";
 import { projectNotesDoc } from "./content/project-notes";
-import { familiarsDoc } from "./content/familiars";
 
 export type DocSectionId =
   | "aom"
   | "agents"
   | "blocks"
   | "recall"
-  | "project-notes"
-  | "familiars";
+  | "project-notes";
 
 export interface DocSection {
   id: DocSectionId;
@@ -39,7 +37,6 @@ export interface DocSection {
 const SECTIONS: readonly DocSection[] = [
   aomDoc,
   agentsDoc,
-  familiarsDoc,
   blocksDoc,
   projectNotesDoc,
   recallDoc,

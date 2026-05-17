@@ -11433,3 +11433,4 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
     .boot-splash-meta-text::after { animation: none; }
     .boot-splash-meta-text::after { content: "…"; }
 }
+
