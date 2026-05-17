@@ -48,8 +48,19 @@ listen<StatePayload>("notch:state", (ev) => {
 
 setInterval(() => store.gc(), 500);
 
+type NotchReady = { corner: "bottom-right" | "bottom-left" | "top-right" | "top-left" };
+const applyCorner = (corner: NotchReady["corner"]) => {
+  document.body.dataset.corner = corner;
+};
+applyCorner("bottom-right");
+
 // Replay phases from sessions that started before this WebView mounted.
-invoke("notch_ready").catch(() => {});
+// Also returns the current corner from settings so the stack aligns.
+invoke<NotchReady>("notch_ready")
+  .then((r) => r && applyCorner(r.corner))
+  .catch(() => {});
+
+listen<NotchReady>("notch:corner", (ev) => applyCorner(ev.payload.corner));
 
 // Hotkey probe: when the user toggles the notch open and there are no
 // active executor pills, drop a short-lived "ready" hint so the window

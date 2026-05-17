@@ -99,6 +99,7 @@ interface Settings {
   /// Floating bottom-right notch overlay showing executor phase pills
   /// (Thinking / Reading / Running / Writing / Done). Default true.
   notch_enabled: boolean;
+  notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   tabbar_position: TabbarPosition;
   ui_font_family: string | null;
   familiars_enabled: boolean;
@@ -205,6 +206,7 @@ export class SettingsPanel {
         },
         status_bar_enabled: true,
         notch_enabled: true,
+        notch_corner: "bottom-right",
         tabbar_position: "top",
         ui_font_family: null,
         familiars_enabled: false,
@@ -326,9 +328,21 @@ export class SettingsPanel {
               <span>Show floating pills for Claude/Codex/Pi activity</span>
             </span>
             <small class="settings-hint">
-              Bottom-right overlay surfacing the agent's current phase
+              Overlay surfacing the agent's current phase
               (Thinking, Reading, Running, Writing, Done). When off, the
               detector is skipped entirely — no overhead.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Notch position</span>
+            <select name="notch_corner">
+              <option value="bottom-right">Bottom right</option>
+              <option value="bottom-left">Bottom left</option>
+              <option value="top-right">Top right</option>
+              <option value="top-left">Top left</option>
+            </select>
+            <small class="settings-hint">
+              Screen corner where the floating overlay anchors.
             </small>
           </label>
           <fieldset class="settings-field">
@@ -625,6 +639,9 @@ export class SettingsPanel {
     const notchEnabled = form.querySelector<HTMLInputElement>(
       'input[name="notch_enabled"]',
     )!;
+    const notchCorner = form.querySelector<HTMLSelectElement>(
+      'select[name="notch_corner"]',
+    )!;
     const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tabbar_position"]',
     );
@@ -688,6 +705,7 @@ export class SettingsPanel {
     });
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
     notchEnabled.checked = this.current.notch_enabled ?? true;
+    notchCorner.value = this.current.notch_corner ?? "bottom-right";
     const currentTabbarPos = this.current.tabbar_position ?? "top";
     tabbarPosRadios.forEach((r) => {
       r.checked = r.value === currentTabbarPos;
@@ -1026,6 +1044,7 @@ export class SettingsPanel {
         },
         status_bar_enabled: statusBarEnabled.checked,
         notch_enabled: notchEnabled.checked,
+        notch_corner: notchCorner.value as Settings["notch_corner"],
         tabbar_position:
           (Array.from(tabbarPosRadios).find((r) => r.checked)
             ?.value as TabbarPosition) || "top",

@@ -228,6 +228,7 @@ impl NotchHub {
 /// real activity).
 pub fn spawn_bridge(
     app: AppHandle,
+    settings: std::sync::Arc<tokio::sync::Mutex<crate::settings::Settings>>,
     mut rx: broadcast::Receiver<SessionEvent>,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
@@ -239,7 +240,8 @@ pub fn spawn_bridge(
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
                         if !visible {
-                            show_notch(&win);
+                            let corner = settings.lock().await.notch_corner;
+                            show_notch(&win, corner);
                         }
                         // Emit via the AppHandle (global) instead of the
                         // webview — Tauri v2's WebviewWindow::emit targets
@@ -268,13 +270,20 @@ pub fn spawn_bridge(
 
 /// Show the notch window in the right place with the right macOS collection
 /// behavior. Safe to call from any thread — hops to the main thread.
-pub fn show_notch(win: &tauri::WebviewWindow) {
+pub fn show_notch(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
     let w = win.clone();
     let _ = win.run_on_main_thread(move || {
         let _ = w.show();
-        position_bottom_right(&w);
+        position_at_corner(&w, corner);
         apply_macos_collection_behavior(&w);
     });
+}
+
+/// Reposition the notch overlay without toggling visibility. Used when
+/// the user changes the corner setting at runtime.
+pub fn reposition_notch(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
+    let w = win.clone();
+    let _ = win.run_on_main_thread(move || position_at_corner(&w, corner));
 }
 
 /// Set NSWindowCollectionBehavior so the notch window appears on all Spaces
@@ -297,16 +306,22 @@ fn apply_macos_collection_behavior(win: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn apply_macos_collection_behavior(_win: &tauri::WebviewWindow) {}
 
-fn position_bottom_right(win: &tauri::WebviewWindow) {
-    if let Ok(Some(monitor)) = win.current_monitor() {
-        let size = monitor.size();
-        let scale = monitor.scale_factor();
-        let w = (360.0 * scale) as i32;
-        let h = (440.0 * scale) as i32;
-        let x = size.width as i32 - w - (16.0 * scale) as i32;
-        let y = size.height as i32 - h - (40.0 * scale) as i32;
-        let _ = win.set_position(tauri::PhysicalPosition { x, y });
-    }
+fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
+    use crate::settings::NotchCorner;
+    let Ok(Some(monitor)) = win.current_monitor() else { return };
+    let size = monitor.size();
+    let scale = monitor.scale_factor();
+    let w = (360.0 * scale) as i32;
+    let h = (440.0 * scale) as i32;
+    let pad_x = (16.0 * scale) as i32;
+    let pad_y = (40.0 * scale) as i32;
+    let (x, y) = match corner {
+        NotchCorner::BottomRight => (size.width as i32 - w - pad_x, size.height as i32 - h - pad_y),
+        NotchCorner::BottomLeft => (pad_x, size.height as i32 - h - pad_y),
+        NotchCorner::TopRight => (size.width as i32 - w - pad_x, pad_y),
+        NotchCorner::TopLeft => (pad_x, pad_y),
+    };
+    let _ = win.set_position(tauri::PhysicalPosition { x, y });
 }
 
 #[tauri::command]
@@ -326,14 +341,15 @@ pub async fn notch_set_passthrough(
 pub async fn notch_ready(
     window: tauri::Window,
     state: tauri::State<'_, crate::AppState>,
-) -> Result<(), String> {
+) -> Result<serde_json::Value, String> {
     let snap = state.notch_hub.snapshot().await;
+    let corner = state.settings.lock().await.notch_corner;
     tracing::info!(target: "notch", n = snap.len(), "notch_ready: replaying snapshot");
     let app = window.app_handle();
     for ev in snap {
         let _ = app.emit("notch:state", &ev);
     }
-    Ok(())
+    Ok(serde_json::json!({ "corner": corner }))
 }
 
 #[cfg(test)]

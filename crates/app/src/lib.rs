@@ -1098,7 +1098,21 @@ async fn set_tab_title(
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
     state.operator.set_tab_title(id, title.clone()).await;
+    // Also seed the notch label so it's populated even if the frontend
+    // forgets to call notch_set_label. notchSetLabel overrides this
+    // with the group-prefixed version.
     state.notch_hub.set_tab_label(id, title).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn notch_set_label(
+    state: State<'_, AppState>,
+    session_id: String,
+    label: String,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    state.notch_hub.set_tab_label(id, label).await;
     Ok(())
 }
 
@@ -1922,18 +1936,31 @@ async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
 #[tauri::command]
 async fn set_settings(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     settings: Settings,
 ) -> Result<(), String> {
     settings::save(&state.settings_path, &settings).map_err(|e| e.to_string())?;
-    let telegram_changed = {
+    let (telegram_changed, notch_corner_changed) = {
         let cur = state.settings.lock().await;
-        cur.telegram.enabled != settings.telegram.enabled
+        let tg = cur.telegram.enabled != settings.telegram.enabled
             || cur.telegram.bot_token != settings.telegram.bot_token
-            || cur.telegram.chat_id != settings.telegram.chat_id
+            || cur.telegram.chat_id != settings.telegram.chat_id;
+        let corner = cur.notch_corner != settings.notch_corner;
+        (tg, corner)
     };
     let notch_enabled = settings.notch_enabled;
+    let new_corner = settings.notch_corner;
     *state.settings.lock().await = settings;
     state.notch_hub.set_enabled(notch_enabled).await;
+    if notch_corner_changed {
+        if let Some(win) = app.get_webview_window("notch") {
+            notch::reposition_notch(&win, new_corner);
+        }
+        let _ = app.emit(
+            "notch:corner",
+            serde_json::json!({ "corner": new_corner }),
+        );
+    }
     if telegram_changed {
         let mut slot = state.telegram_inbound_handle.lock().await;
         if let Some(h) = slot.take() {
@@ -2476,7 +2503,13 @@ pub fn run() {
                             if visible {
                                 let _ = win.hide();
                             } else {
-                                notch::show_notch(&win);
+                                let state: tauri::State<AppState> = app.state();
+                                let settings = state.settings.clone();
+                                let win_clone = win.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    let corner = settings.lock().await.notch_corner;
+                                    notch::show_notch(&win_clone, corner);
+                                });
                                 let _ = win.emit("notch:probe", ());
                             }
                         }
@@ -2985,7 +3018,7 @@ pub fn run() {
             {
                 let state: tauri::State<AppState> = app.state();
                 let rx = state.notch_hub.subscribe();
-                notch::spawn_bridge(app.handle().clone(), rx);
+                notch::spawn_bridge(app.handle().clone(), state.settings.clone(), rx);
                 // Seed the hub's enabled flag from persisted settings so
                 // a user who turned the notch off on the previous run
                 // doesn't see pills for one boot before the toggle is
@@ -3033,6 +3066,7 @@ pub fn run() {
             is_operator_live,
             set_aom_excluded,
             set_tab_title,
+            notch_set_label,
             is_aom_excluded,
             clear_all_aom_excluded,
             set_session_mission,

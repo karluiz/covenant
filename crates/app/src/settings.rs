@@ -93,6 +93,11 @@ pub struct Settings {
     #[serde(default = "default_notch_enabled")]
     pub notch_enabled: bool,
 
+    /// Which screen corner the floating notch overlay anchors to.
+    /// Default bottom-right.
+    #[serde(default)]
+    pub notch_corner: NotchCorner,
+
     /// Layout of the tabbar — horizontal across the top (default) or a
     /// fixed vertical column on the left, à la Wave Terminal. Frontend
     /// toggles `body.tabbar-left` from this value.
@@ -162,6 +167,16 @@ impl Settings {
 
 fn default_status_bar_enabled() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotchCorner {
+    #[default]
+    BottomRight,
+    BottomLeft,
+    TopRight,
+    TopLeft,
 }
 
 fn default_notch_enabled() -> bool {
@@ -320,6 +335,7 @@ impl Default for Settings {
             notifications: NotificationConfig::default(),
             status_bar_enabled: default_status_bar_enabled(),
             notch_enabled: default_notch_enabled(),
+            notch_corner: NotchCorner::default(),
             tabbar_position: TabbarPosition::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
