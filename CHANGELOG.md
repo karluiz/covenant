@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## Unreleased
+## v0.5.23 — Notch executor status overlay
 
 ### Added
 

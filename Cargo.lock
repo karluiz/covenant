@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "covenant"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2925,7 +2925,7 @@ dependencies = [
 
 [[package]]
 name = "karl-agent"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2946,7 +2946,7 @@ dependencies = [
 
 [[package]]
 name = "karl-blocks"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "bytes",
  "karl-pty",
@@ -2963,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "karl-capabilities"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "notify",
  "serde",
@@ -2977,7 +2977,7 @@ dependencies = [
 
 [[package]]
 name = "karl-familiar"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3000,7 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "karl-pty"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "karl-score"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "chrono",
  "keyring",
@@ -3033,7 +3033,7 @@ dependencies = [
 
 [[package]]
 name = "karl-session"
-version = "0.5.22"
+version = "0.5.23"
 dependencies = [
  "bytes",
  "karl-blocks",
