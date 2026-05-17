@@ -202,6 +202,14 @@ export const Icons = {
   chevronsDownUp: (o?: IconOptions): string =>
     svg(`<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>`, o),
 
+  /** Panel-left — toggle left sidebar (Lucide-style). */
+  panelLeft: (o?: IconOptions): string =>
+    svg(`<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>`, o),
+
+  /** Panel-right — toggle right sidebar. */
+  panelRight: (o?: IconOptions): string =>
+    svg(`<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>`, o),
+
   /** File — generic file. Used by the Structure tree for non-dir entries. */
   fileText: (o?: IconOptions): string =>
     svg(

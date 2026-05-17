@@ -42,25 +42,54 @@
         </div>
       </div>
     </div>
+    <header id="app-titlebar" data-tauri-drag-region>
+      <div id="app-titlebar-left" data-tauri-drag-region>
+        <button
+          id="tabbar-fold"
+          class="titlebar-icon-btn"
+          type="button"
+          title="Toggle left sidebar"
+          aria-label="Toggle left sidebar"
+        ></button>
+        <button
+          id="tabbar-collapse-all"
+          class="titlebar-icon-btn"
+          type="button"
+          title="Collapse all groups"
+          aria-label="Collapse all groups"
+        ></button>
+      </div>
+      <div id="app-titlebar-center" data-tauri-drag-region>
+        <span id="app-titlebar-brand" data-tauri-drag-region>COVENANT</span>
+      </div>
+      <div id="app-titlebar-right" data-tauri-drag-region>
+        <button
+          id="titlebar-view-blocks"
+          class="titlebar-icon-btn titlebar-view-btn titlebar-view-active"
+          type="button"
+          title="Blocks"
+          aria-label="Blocks"
+        ></button>
+        <button
+          id="titlebar-view-files"
+          class="titlebar-icon-btn titlebar-view-btn"
+          type="button"
+          title="Files"
+          aria-label="Files"
+        ></button>
+        <span class="titlebar-sep" aria-hidden="true"></span>
+        <button
+          id="tabbar-fold-right"
+          class="titlebar-icon-btn"
+          type="button"
+          title="Toggle Blocks/Files sidebar"
+          aria-label="Toggle Blocks/Files sidebar"
+        ></button>
+      </div>
+    </header>
+    <div id="app-content">
     <main id="layout">
       <header id="tabbar-host">
-        <div id="tabbar-brand-row">
-          <span id="tabbar-brand">Covenant</span>
-          <div id="tabbar-brand-actions">
-            <button
-              id="tabbar-collapse-all"
-              type="button"
-              title="Collapse all groups"
-              aria-label="Collapse all groups"
-            ></button>
-            <button
-              id="tabbar-fold"
-              type="button"
-              title="Collapse sidebar"
-              aria-label="Collapse sidebar"
-            ></button>
-          </div>
-        </div>
         <div id="tabs"></div>
         <div id="tabbar-rail"></div>
         <div id="tabbar-actions">
@@ -83,5 +112,6 @@
       <footer id="status-bar" hidden></footer>
     </main>
     <aside id="familiar-panel" class="familiar-panel hidden"></aside>
+    </div>
   </body>
 </html>

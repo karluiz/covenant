@@ -58,8 +58,8 @@ const applyCorner = (corner: NotchCorner) => {
 };
 applyCorner("bottom-right");
 
-// Done chime — short synthesized two-note descending bell. Generated
-// on demand via Web Audio so we don't ship an MP3.
+// Done chime — soft 880 Hz sine pop. Quick attack, gentle decay.
+// Generated on demand via Web Audio so we don't ship an audio file.
 let soundOnDone = true;
 function playDoneChime(): void {
   if (!soundOnDone) return;
@@ -71,14 +71,13 @@ function playDoneChime(): void {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(988, now);          // B5
-    osc.frequency.exponentialRampToValueAtTime(659, now + 0.18); // E5
-    gain.gain.setValueAtTime(0.001, now);
-    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.frequency.setValueAtTime(880, now); // A5
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.185);
     osc.connect(gain).connect(ctx.destination);
     osc.start(now);
-    osc.stop(now + 0.4);
+    osc.stop(now + 0.25);
   } catch {
     // No-op: webview without audio support.
   }

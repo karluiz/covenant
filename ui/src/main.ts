@@ -269,10 +269,7 @@ async function boot(): Promise<void> {
   const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
   const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
 
-  // chevron-right SVG; CSS flips it 180° when expanded so it points
-  // left ("click to collapse"). Collapsed state leaves it pointing
-  // right ("click to expand"). Single SVG covers both states.
-  tabbarFoldBtn.innerHTML = Icons.chevronRight({ size: 14 });
+  tabbarFoldBtn.innerHTML = Icons.panelLeft({ size: 16 });
   tabbarFoldBtn.addEventListener("click", () => {
     const next = !document.body.classList.contains("tabbar-left-collapsed");
     applyTabbarCollapsed(next);
@@ -282,10 +279,81 @@ async function boot(): Promise<void> {
   });
 
   const collapseAllBtn = requireEl<HTMLButtonElement>("tabbar-collapse-all");
-  collapseAllBtn.innerHTML = Icons.chevronsDownUp({ size: 14 });
+  collapseAllBtn.innerHTML = Icons.chevronsDownUp({ size: 16 });
+  // Titlebar Blocks/Files view switch — dispatches a global event each
+  // tab listens to. Active class on the buttons mirrors the active view.
+  const viewBlocksBtn = document.getElementById("titlebar-view-blocks");
+  const viewFilesBtn = document.getElementById("titlebar-view-files");
+  if (viewBlocksBtn && viewFilesBtn) {
+    viewBlocksBtn.innerHTML = Icons.terminal({ size: 14 });
+    viewFilesBtn.innerHTML = Icons.folder({ size: 14 });
+    const setView = (view: "blocks" | "structure"): void => {
+      viewBlocksBtn.classList.toggle("titlebar-view-active", view === "blocks");
+      viewFilesBtn.classList.toggle("titlebar-view-active", view === "structure");
+      window.dispatchEvent(
+        new CustomEvent("sidebar-view:set", { detail: { view } }),
+      );
+    };
+    viewBlocksBtn.addEventListener("click", () => setView("blocks"));
+    viewFilesBtn.addEventListener("click", () => setView("structure"));
+    // Tabs broadcast their current view back when they activate so the
+    // titlebar reflects the right tab's state.
+    window.addEventListener("sidebar-view:active", (e) => {
+      const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
+      viewBlocksBtn.classList.toggle("titlebar-view-active", v === "blocks");
+      viewFilesBtn.classList.toggle("titlebar-view-active", v === "structure");
+    });
+  }
+
+  const foldRightBtn = document.getElementById("tabbar-fold-right");
+  if (foldRightBtn) {
+    foldRightBtn.innerHTML = Icons.panelRight({ size: 16 });
+    const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
+    if (localStorage.getItem(BLOCKS_GLOBAL_KEY) === "1") {
+      document.body.classList.add("blocks-globally-collapsed");
+    }
+    foldRightBtn.addEventListener("click", () => {
+      const next = !document.body.classList.contains("blocks-globally-collapsed");
+      document.body.classList.toggle("blocks-globally-collapsed", next);
+      if (next) localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
+      else localStorage.removeItem(BLOCKS_GLOBAL_KEY);
+      setTimeout(() => manager.refitActive(), 320);
+    });
+  }
   collapseAllBtn.addEventListener("click", () => {
     manager.collapseAllGroups();
   });
+
+  // Programmatic window drag from the custom title bar. `position:
+  // fixed` overlays don't always trigger `-webkit-app-region: drag`
+  // reliably, so we forward mousedown explicitly via Tauri's
+  // startDragging API.
+  const titlebarEl = document.getElementById("app-titlebar");
+  if (titlebarEl) {
+    titlebarEl.addEventListener("mousedown", (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest("button") || t.closest("a"))) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      void getCurrentWindow().startDragging();
+    });
+    titlebarEl.addEventListener("dblclick", (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest("button") || t.closest("a"))) return;
+      void getCurrentWindow()
+        .isMaximized()
+        .then((m) => (m ? getCurrentWindow().unmaximize() : getCurrentWindow().maximize()));
+    });
+    // Reflect fullscreen state via a body class so the title bar can
+    // drop the traffic-light gutter (macOS hides the lights in fs).
+    const syncFullscreen = (): void => {
+      void getCurrentWindow()
+        .isFullscreen()
+        .then((fs) => document.body.classList.toggle("app-fullscreen", !!fs));
+    };
+    syncFullscreen();
+    void getCurrentWindow().onResized(() => syncFullscreen());
+  }
 
   // Render the new-tab button with its keyboard hint visible inline,
   // adapted to the host platform's modifier symbol.

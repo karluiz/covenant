@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Right sidebar header — options</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-2: #181c22;
+    --border: #232831;
+    --text: #d5d9de;
+    --muted: #8a93a0;
+    --accent: #87a7ff;
+    --green: #6ee7a8;
+    --red: #ff7676;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #07090b;
+    color: var(--text);
+    font: 13px ui-monospace, "JetBrains Mono", Menlo, monospace;
+    padding: 24px;
+  }
+  h1 { font-size: 16px; margin: 0 0 6px; font-weight: 600; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  h2 { font-size: 13px; color: var(--accent); margin: 24px 0 8px; letter-spacing: 0.04em; text-transform: uppercase; }
+  p.note { color: var(--muted); margin: 0 0 10px; font-size: 12px; }
+
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+
+  /* Shared right-sidebar frame ~280px wide */
+  .panel {
+    width: 280px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .panel-body {
+    padding: 10px 12px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .panel-body .item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .panel-body .item:last-child { border-bottom: 0; }
+  .panel-body .cmd { color: var(--text); font-size: 11px; }
+  .panel-body .meta { color: var(--muted); font-size: 10px; }
+  .panel-body .ok { color: var(--green); }
+  .panel-body .err { color: var(--red); }
+
+  /* ============ A — segmented control (compact) ============ */
+  .opt-a .header {
+    display: flex;
+    padding: 8px;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .opt-a .seg {
+    display: flex;
+    background: #0e1116;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px;
+    width: 100%;
+  }
+  .opt-a .seg button {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .opt-a .seg button.active {
+    background: var(--panel-2);
+    color: var(--text);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .opt-a .seg svg { width: 12px; height: 12px; }
+
+  /* ============ B — text-only tabs with underline ============ */
+  .opt-b .header {
+    display: flex;
+    padding: 10px 14px 0;
+    gap: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .opt-b .tab {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    padding: 6px 0 8px;
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .opt-b .tab .count {
+    background: rgba(255,255,255,0.06);
+    color: var(--muted);
+    border-radius: 8px;
+    padding: 1px 6px;
+    font-size: 10px;
+  }
+  .opt-b .tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  .opt-b .tab:hover:not(.active) { color: var(--text); }
+
+  /* ============ C — icon strip + body header ============ */
+  .opt-c .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .opt-c .title {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .opt-c .switch {
+    display: flex; gap: 2px;
+  }
+  .opt-c .switch button {
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    width: 26px; height: 26px;
+    border-radius: 5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .opt-c .switch button.active {
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  .opt-c .switch button:hover:not(.active) {
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+  }
+  .opt-c .switch svg { width: 14px; height: 14px; }
+
+  /* shared body content */
+  .demo .item .badge {
+    background: rgba(110,231,168,0.12);
+    color: var(--green);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+  }
+  .demo .item .badge.err {
+    background: rgba(255,118,118,0.12);
+    color: var(--red);
+  }
+
+  footer { color: var(--muted); margin-top: 28px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Right sidebar header — 3 options</h1>
+<p class="lead">Replace the two big chip-buttons + redundant "BLOCKS" label with something quieter.</p>
+
+<div class="row">
+
+<!-- ============ Option A ============ -->
+<div>
+  <h2>A · Segmented control</h2>
+  <p class="note">macOS-style segmented switch. Pill background, no redundant title. Small icons.</p>
+  <div class="panel opt-a demo">
+    <div class="header">
+      <div class="seg">
+        <button class="active">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 6 3 2-3 2"/><path d="M8 11h4"/></svg>
+          Blocks
+        </button>
+        <button>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5a2 2 0 0 1 2-2h3l2 2h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg>
+          Files
+        </button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="item"><span class="cmd">$ git status</span><span class="badge">ok</span></div>
+      <div class="item"><span class="cmd">$ cargo test</span><span class="badge err">exit 1</span></div>
+      <div class="item"><span class="cmd">$ npm run tauri dev</span><span class="badge">running</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Option B ============ -->
+<div>
+  <h2>B · Text tabs with underline</h2>
+  <p class="note">Minimal: lowercase labels, accent underline on active, optional inline count. No icons, no chip background.</p>
+  <div class="panel opt-b demo">
+    <div class="header">
+      <button class="tab active">blocks <span class="count">12</span></button>
+      <button class="tab">files</button>
+    </div>
+    <div class="panel-body">
+      <div class="item"><span class="cmd">$ git status</span><span class="badge">ok</span></div>
+      <div class="item"><span class="cmd">$ cargo test</span><span class="badge err">exit 1</span></div>
+      <div class="item"><span class="cmd">$ npm run tauri dev</span><span class="badge">running</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Option C ============ -->
+<div>
+  <h2>C · Icon-only switch + sticky title</h2>
+  <p class="note">Section title on the left, tiny icon-only switch on the right. Most compact; relies on tooltips for labels.</p>
+  <div class="panel opt-c demo">
+    <div class="header">
+      <span class="title">Blocks · 12</span>
+      <div class="switch">
+        <button class="active" title="Blocks">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 6 3 2-3 2"/><path d="M8 11h4"/></svg>
+        </button>
+        <button title="Files">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5a2 2 0 0 1 2-2h3l2 2h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <div class="item"><span class="cmd">$ git status</span><span class="badge">ok</span></div>
+      <div class="item"><span class="cmd">$ cargo test</span><span class="badge err">exit 1</span></div>
+      <div class="item"><span class="cmd">$ npm run tauri dev</span><span class="badge">running</span></div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<footer>
+  Path: <code>docs/mockups/right-sidebar-tabs.html</code>. Pick A, B, or C and I'll wire it.
+</footer>
+
+</body>
+</html>

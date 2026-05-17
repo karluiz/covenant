@@ -116,6 +116,12 @@ body {
      paint through. Surfaces inside the layout supply their own tints. */
     background: transparent;
     display: flex;
+    flex-direction: column;
+}
+#app-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
 }
 #layout { flex: 1; min-width: 0; }
 body.familiar-panel-open #familiar-panel { width: 380px; flex: 0 0 380px; }
@@ -5614,40 +5620,48 @@ button.status-segment.status-aom.status-aom-warn:hover {
    textual meaning lives in title/aria-label. */
 .sidebar-nav {
     display: flex;
-    gap: 2px;
-    padding: 4px 6px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-panel);
     flex-shrink: 0;
 }
+.sidebar-nav-title {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+}
+.sidebar-nav-switch {
+    display: flex;
+    gap: 2px;
+}
 .sidebar-nav-btn {
-    flex: 1;
-    height: 26px;
-    padding: 0 8px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
     background: transparent;
     color: var(--muted);
-    border: 1px solid transparent;
-    border-radius: 4px;
+    border: 0;
+    border-radius: 5px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    font-size: 11px;
-    letter-spacing: 0.02em;
-    font-family:
-        var(--ui-font);
-    transition: color 0.1s, background 0.1s, border-color 0.1s;
+    font-family: var(--ui-font);
+    transition: color 0.1s, background 0.1s;
 }
 .sidebar-nav-btn svg { display: block; }
-.sidebar-nav-btn:hover {
+.sidebar-nav-btn:hover:not(.sidebar-nav-active) {
     color: var(--fg);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.04);
 }
 .sidebar-nav-active {
     color: var(--fg);
-    background: rgba(255, 255, 255, 0.04);
-    border-color: var(--border);
+    background: rgba(255, 255, 255, 0.06);
 }
 
 /* 3.3 Structure — file tree */
@@ -7233,7 +7247,7 @@ body.tabbar-left #tabbar-host {
     border-bottom: none;
     border-right: 0px solid var(--border);
     box-shadow: 1px 0 0 rgba(0, 0, 0, 0.5);
-    padding: 8px 0 8px 8px;
+    padding: 8px 0 0 8px;
     gap: 6px;
     overflow: hidden;
 }
@@ -7514,21 +7528,23 @@ body.tabbar-left #tabbar-actions {
     display: flex;
     gap: 4px;
     position: sticky;
-    bottom: -8px;
+    bottom: 0;
     z-index: 2;
     background: color-mix(in srgb, var(--bg-tabbar) 92%, transparent);
     backdrop-filter: blur(14px) saturate(140%);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
-    margin: 4px -8px -8px -8px;
-    padding: 8px 12px;
+    margin: 4px -8px 0 -8px;
+    padding: 4px 10px;
     border-top: 1px solid var(--border);
 }
 
 body.tabbar-left #tabbar-actions > button {
     flex: 1 1 0;
     justify-content: center;
-    height: 28px;
-    border-radius: 6px;
+    height: 22px;
+    border-radius: 5px;
+    align-self: center;
+    margin-bottom: 0;
 }
 
 #new-group {
@@ -7674,14 +7690,8 @@ body.tabbar-left #tabbar-fold:hover {
 }
 
 body.tabbar-left #tabbar-fold svg {
-    width: 14px;
-    height: 14px;
-    transform: rotate(180deg);
-    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-body.tabbar-left.tabbar-left-collapsed #tabbar-fold svg {
-    transform: rotate(0deg);
+    width: 16px;
+    height: 16px;
 }
 
 body.tabbar-left #layout {
@@ -11109,7 +11119,7 @@ body.has-update-banner #layout { padding-top: 34px; }
   gap: 6px;
   background: transparent;
   border: none;
-  color: var(--muted);
+  color: var(--text, #d5d9de);
   height: 28px;
   cursor: pointer;
   border-radius: 6px;
@@ -11434,3 +11444,123 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
     .boot-splash-meta-text::after { content: "…"; }
 }
 
+
+/* ─── App title bar (macOS overlay) ──────────────────────────────────
+   Full-width bar at the very top. Same color as the sidebar.
+   Traffic lights are drawn by macOS on top-left; we leave ~80px of
+   left padding so the brand text doesn't overlap them. The empty
+   regions are draggable; buttons explicitly opt out. */
+#app-titlebar {
+    height: 38px;
+    background: var(--bg-tabbar);
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    user-select: none;
+    -webkit-app-region: drag;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+}
+#app-titlebar-left {
+    /* 80px reserved for the macOS traffic lights, then our buttons. */
+    padding-left: 84px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    /* Drag inherits from #app-titlebar; only buttons opt out via no-drag. */
+}
+#app-titlebar-center {
+    text-align: center;
+    color: var(--text, #d5d9de);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    font-family: var(--ui-font, -apple-system, system-ui, sans-serif);
+}
+#app-titlebar-brand {
+    color: var(--text, #d5d9de);
+}
+#app-titlebar-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 12px;
+}
+.titlebar-icon-btn {
+    -webkit-app-region: no-drag;
+    background: transparent;
+    border: 0;
+    color: var(--text, #d5d9de);
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.titlebar-icon-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bg-tabbar) 70%, white 10%);
+    color: var(--text, #d5d9de);
+}
+.titlebar-icon-btn:disabled { opacity: 0.35; cursor: default; }
+
+
+/* Title-bar panel-right toggle: collapses every tab-pane's Blocks/Files
+   sidebar away entirely. Overrides per-tab `.blocks-collapsed` (which
+   still kept a 28px sliver for the in-panel toggle). */
+body.blocks-globally-collapsed .tab-pane {
+    grid-template-columns: 1fr 0 0 0 !important;
+}
+body.blocks-globally-collapsed .blocks-host { display: none !important; }
+
+/* Override legacy sidebar-scoped styles for buttons that moved to the
+   title bar. The titlebar buttons should all look identical. */
+#app-titlebar #tabbar-collapse-all,
+#app-titlebar #tabbar-fold {
+    width: 28px !important;
+    height: 28px !important;
+    opacity: 1 !important;
+    color: var(--text, #d5d9de) !important;
+}
+#app-titlebar #tabbar-collapse-all svg,
+#app-titlebar #tabbar-fold svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+/* Hide the in-sidebar Blocks/Files switcher row and the inner BLOCKS
+   label — both moved to the title bar. */
+.sidebar-nav { display: none !important; }
+.blocks-header { display: none !important; }
+
+/* Titlebar Blocks/Files view-switch buttons. Active state mirrors
+   the currently-shown view. */
+.titlebar-view-btn { color: var(--text-muted, #8a93a0) !important; }
+.titlebar-view-btn.titlebar-view-active {
+    color: var(--text, #d5d9de) !important;
+    background: rgba(255, 255, 255, 0.06);
+}
+.titlebar-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--border, #232831);
+    margin: 0 6px;
+    display: inline-block;
+}
+
+/* In macOS fullscreen the traffic lights are hidden — drop the 84px
+   gutter so the left buttons hug the edge. */
+body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
+
+/* Match titlebar icon color for the sidebar bottom actions. */
+#new-tab, #new-group { color: var(--text, #d5d9de); }
+#new-tab .new-tab-kbd,
+#new-group .new-tab-kbd {
+    color: var(--text-muted, #8a93a0);
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+}

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Done sound — 6 candidates</title>
+<style>
+  body {
+    margin: 0;
+    background: #07090b;
+    color: #d5d9de;
+    font: 14px ui-monospace, "JetBrains Mono", Menlo, monospace;
+    padding: 32px;
+  }
+  h1 { font-size: 17px; margin: 0 0 6px; font-weight: 600; }
+  p.lead { color: #8a93a0; margin: 0 0 28px; }
+  .current {
+    background: #14171c;
+    border: 1px solid #232831;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .current .label { color: #ff7676; font-weight: 600; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    max-width: 880px;
+  }
+  .card {
+    background: #14171c;
+    border: 1px solid #232831;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card h3 { margin: 0; font-size: 14px; font-weight: 600; color: #d5d9de; }
+  .card .desc { color: #8a93a0; font-size: 12px; line-height: 1.45; }
+  .card .row { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+  button {
+    background: #181c22;
+    border: 1px solid #2c3340;
+    color: #d5d9de;
+    font: inherit;
+    font-size: 12px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button:hover { background: #1f242c; border-color: #3a4150; }
+  button.primary { background: #2a3550; border-color: #3a4a78; color: #d8e0f4; }
+  .vol {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-left: auto; color: #8a93a0; font-size: 11px;
+  }
+  input[type="range"] { width: 120px; }
+  footer { color: #8a93a0; margin-top: 28px; font-size: 12px; }
+  code { color: #a8c3ff; }
+</style>
+</head>
+<body>
+
+<h1>Done sound — 6 candidates</h1>
+<p class="lead">Current is a descending B5→E5 sine bell (you described it as "creepy"). Pick one to replace it.</p>
+
+<div class="current">
+  <span class="label">Current</span>
+  <button onclick="playCurrent()">▶ Play creepy one</button>
+  <span class="vol">Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.2"></span>
+</div>
+
+<div class="grid">
+
+  <div class="card">
+    <h3>A · Soft pop</h3>
+    <div class="desc">A single ~880 Hz sine with quick attack/decay. Polite, no melody. Like a Mac "tink".</div>
+    <div class="row"><button class="primary" onclick="playA()">▶ Play A</button></div>
+  </div>
+
+  <div class="card">
+    <h3>B · Two-note rising</h3>
+    <div class="desc">E5 → B5 (opposite of current). Rising shape reads as "complete / good", not "ominous".</div>
+    <div class="row"><button class="primary" onclick="playB()">▶ Play B</button></div>
+  </div>
+
+  <div class="card">
+    <h3>C · Triad arpeggio</h3>
+    <div class="desc">Quick C–E–G major triad, plucky sine. Sounds like a notification chime from a productivity app.</div>
+    <div class="row"><button class="primary" onclick="playC()">▶ Play C</button></div>
+  </div>
+
+  <div class="card">
+    <h3>D · Tiny click + soft bell</h3>
+    <div class="desc">Filtered noise click → short B5 bell with FM bell harmonic. Tactile + warm.</div>
+    <div class="row"><button class="primary" onclick="playD()">▶ Play D</button></div>
+  </div>
+
+  <div class="card">
+    <h3>E · Marimba blip</h3>
+    <div class="desc">Two stacked sines (G5 + D6) with sharp attack and fast decay. Wooden, organic.</div>
+    <div class="row"><button class="primary" onclick="playE()">▶ Play E</button></div>
+  </div>
+
+  <div class="card">
+    <h3>F · Crystal ping</h3>
+    <div class="desc">Sine at C6 with a touch of detuned shimmer (C6 + 1206 Hz). Bright, clean, like a Slack ping.</div>
+    <div class="row"><button class="primary" onclick="playF()">▶ Play F</button></div>
+  </div>
+
+</div>
+
+<footer>
+  Path: <code>docs/mockups/done-sounds.html</code>. Tell me A–F (or a tweak) and I'll wire it into <code>ui/notch/main.ts</code>.
+</footer>
+
+<script>
+const volEl = document.getElementById("vol");
+const getVol = () => parseFloat(volEl.value);
+
+function ctxNew() {
+  const C = window.AudioContext || window.webkitAudioContext;
+  return new C();
+}
+
+function envSine(ctx, freq, t0, dur, peak, attack=0.01, release=0.25) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + release);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur);
+}
+
+// Current: descending B5 -> E5 sine
+function playCurrent() {
+  const ctx = ctxNew(); const now = ctx.currentTime;
+  const v = getVol();
+  const osc = ctx.createOscillator(); const g = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(988, now);
+  osc.frequency.exponentialRampToValueAtTime(659, now + 0.18);
+  g.gain.setValueAtTime(0.001, now);
+  g.gain.exponentialRampToValueAtTime(v, now + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(now); osc.stop(now + 0.4);
+}
+
+// A · soft pop
+function playA() {
+  const ctx = ctxNew(); const now = ctx.currentTime; const v = getVol();
+  envSine(ctx, 880, now, 0.3, v, 0.005, 0.18);
+}
+
+// B · two-note rising E5 -> B5
+function playB() {
+  const ctx = ctxNew(); const now = ctx.currentTime; const v = getVol();
+  envSine(ctx, 659, now, 0.18, v, 0.005, 0.10);
+  envSine(ctx, 988, now + 0.10, 0.30, v * 0.95, 0.005, 0.22);
+}
+
+// C · triad arpeggio C5 E5 G5
+function playC() {
+  const ctx = ctxNew(); const now = ctx.currentTime; const v = getVol();
+  envSine(ctx, 523, now,        0.18, v,        0.004, 0.13);
+  envSine(ctx, 659, now + 0.07, 0.18, v * 0.92, 0.004, 0.13);
+  envSine(ctx, 784, now + 0.14, 0.30, v * 0.85, 0.004, 0.20);
+}
+
+// D · click + soft bell
+function playD() {
+  const ctx = ctxNew(); const now = ctx.currentTime; const v = getVol();
+  // click: short filtered noise
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i/d.length);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2000;
+  const cg = ctx.createGain(); cg.gain.value = v * 0.5;
+  src.connect(hp).connect(cg).connect(ctx.destination);
+  src.start(now);
+  // bell: B5 with FM
+  const osc = ctx.createOscillator(); const mod = ctx.createOscillator(); const modGain = ctx.createGain();
+  osc.type = "sine"; mod.type = "sine";
+  osc.frequency.value = 988;
+  mod.frequency.value = 1976; modGain.gain.value = 200;
+  mod.connect(modGain); modGain.connect(osc.frequency);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, now + 0.01);
+  g.gain.exponentialRampToValueAtTime(v, now + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+  osc.connect(g).connect(ctx.destination);
+  mod.start(now + 0.01); osc.start(now + 0.01);
+  mod.stop(now + 0.4); osc.stop(now + 0.4);
+}
+
+// E · marimba blip
+function playE() {
+  const ctx = ctxNew(); const now = ctx.currentTime; const v = getVol();
+  [784, 1175].forEach((f, i) => {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = "sine"; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(v * (i ? 0.5 : 1), now + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    o.connect(g).connect(ctx.destination);
+    o.start(now); o.stop(now + 0.2);
+  });
+}
+
+// F · crystal ping
+function playF() {
+  const ctx = ctxNew(); const now = ctx.currentTime; const v = getVol();
+  envSine(ctx, 1047, now, 0.45, v, 0.003, 0.40);  // C6
+  envSine(ctx, 1206, now + 0.002, 0.45, v * 0.45, 0.003, 0.40); // shimmer
+}
+</script>
+</body>
+</html>

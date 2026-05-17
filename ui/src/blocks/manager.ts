@@ -194,11 +194,8 @@ export class BlockManager {
   }
 
   private renderHeader(count: number): string {
-    const toggleIcon = this.collapsed ? EXPAND_ICON : COLLAPSE_ICON;
-    const toggleTitle = this.collapsed ? "Expand sidebar" : "Collapse sidebar";
     return `
       <header class="blocks-header">
-        <button type="button" class="blocks-toggle" title="${toggleTitle}" aria-label="${toggleTitle}">${toggleIcon}</button>
         <span class="blocks-header-label">blocks</span>
         ${count > 0 ? `<span class="blocks-count">${count}</span>` : ""}
       </header>

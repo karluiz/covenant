@@ -1858,24 +1858,33 @@ export class TabManager {
     const navEl = document.createElement("nav");
     navEl.className = "sidebar-nav";
 
-    // Icon + label nav. Earlier polish stripped to icon-only, but the
-    // 14px monochrome glyphs against the dark surface read as blank
-    // for the user — restoring the label keeps the button discoverable
-    // while keeping the icon as a quick-scan affordance.
+    // Title-on-left, icon-only switch on the right. The title reflects
+    // the active view; tooltips/aria-label carry the label for icons.
+    const navTitle = document.createElement("span");
+    navTitle.className = "sidebar-nav-title";
+    navTitle.textContent = "Blocks";
+
+    const navSwitch = document.createElement("div");
+    navSwitch.className = "sidebar-nav-switch";
+
     const navBlocks = document.createElement("button");
     navBlocks.type = "button";
     navBlocks.className = "sidebar-nav-btn sidebar-nav-active";
     navBlocks.setAttribute("aria-label", "Blocks");
-    navBlocks.innerHTML = `${Icons.terminal({ size: 13 })}<span>Blocks</span>`;
+    navBlocks.setAttribute("title", "Blocks");
+    navBlocks.innerHTML = Icons.terminal({ size: 14 });
 
     const navStructure = document.createElement("button");
     navStructure.type = "button";
     navStructure.className = "sidebar-nav-btn";
     navStructure.setAttribute("aria-label", "Files");
-    navStructure.innerHTML = `${Icons.folder({ size: 13 })}<span>Files</span>`;
+    navStructure.setAttribute("title", "Files");
+    navStructure.innerHTML = Icons.folder({ size: 14 });
 
-    navEl.appendChild(navBlocks);
-    navEl.appendChild(navStructure);
+    navSwitch.appendChild(navBlocks);
+    navSwitch.appendChild(navStructure);
+    navEl.appendChild(navTitle);
+    navEl.appendChild(navSwitch);
     blocksHost.insertBefore(navEl, blocksHost.firstChild);
 
     // Editor splitter: when the editor is open, the pane uses a 4-col
@@ -2103,11 +2112,13 @@ export class TabManager {
       if (view === "blocks") {
         navBlocks.classList.add("sidebar-nav-active");
         navStructure.classList.remove("sidebar-nav-active");
+        navTitle.textContent = "Blocks";
         structure.hide();
         blocks!.show();
       } else {
         navStructure.classList.add("sidebar-nav-active");
         navBlocks.classList.remove("sidebar-nav-active");
+        navTitle.textContent = "Files";
         blocks!.hide();
         structure.show();
         if (t?.cwd) void structure.setCwd(t.cwd);
@@ -2116,6 +2127,13 @@ export class TabManager {
 
     navBlocks.addEventListener("click", () => switchSidebar("blocks"));
     navStructure.addEventListener("click", () => switchSidebar("structure"));
+
+    // Global view switch from the title bar. Every tab listens, but
+    // only the active tab is visible — UI looks correct either way.
+    window.addEventListener("sidebar-view:set", (e) => {
+      const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
+      switchSidebar(v);
+    });
 
     // Refit + resize after the BlockManager has applied its collapsed
     // class — the sidebar width can change the terminal area, so xterm

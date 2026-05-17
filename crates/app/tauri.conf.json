@@ -24,6 +24,9 @@
         "height": 720,
         "minWidth": 600,
         "minHeight": 400,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 14, "y": 15 },
         "transparent": true,
         "windowEffects": {
           "effects": ["hudWindow"],
