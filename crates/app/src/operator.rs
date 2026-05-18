@@ -28,7 +28,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use karl_session::{EscalationAction, EscalationKind, SessionEvent, SessionId};
+use karl_session::{
+    EscalationKind, OperatorAction as SessionOperatorAction, SessionEvent, SessionId,
+};
 use regex::Regex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as AsyncMutex;
@@ -2956,16 +2958,22 @@ async fn run_tick(
                         EscalationKind::Blocked
                     };
                     let escalation_id = ulid::Ulid::new().to_string();
+                    let project_ref = {
+                        let w = world_arc.lock().await;
+                        crate::project_ref::project_ref_from_cwd(&w.cwd)
+                    };
                     let _ = escalation_tx.send(SessionEvent::EscalationRequested {
                         session: session_id,
                         escalation_id,
                         kind,
                         summary: strip_ansi_escapes::strip_str(msg),
                         actions: vec![
-                            EscalationAction::Approve,
-                            EscalationAction::Reject,
-                            EscalationAction::Snooze10m,
+                            SessionOperatorAction::PushAndPR,
+                            SessionOperatorAction::Reply,
+                            SessionOperatorAction::Snooze { minutes: 10 },
                         ],
+                        operator: op.to_session_ref(),
+                        project: project_ref,
                     });
                 }
             }
@@ -3082,16 +3090,22 @@ async fn run_tick(
                 },
             )
             .await;
+            let project_ref = {
+                let w = world_arc.lock().await;
+                crate::project_ref::project_ref_from_cwd(&w.cwd)
+            };
             let _ = escalation_tx.send(SessionEvent::EscalationRequested {
                 session: session_id,
                 escalation_id: ulid::Ulid::new().to_string(),
                 kind: EscalationKind::BudgetExhausted,
                 summary: strip_ansi_escapes::strip_str(&body),
                 actions: vec![
-                    EscalationAction::Approve,
-                    EscalationAction::Reject,
-                    EscalationAction::Snooze10m,
+                    SessionOperatorAction::PushAndPR,
+                    SessionOperatorAction::Reply,
+                    SessionOperatorAction::Snooze { minutes: 10 },
                 ],
+                operator: op.to_session_ref(),
+                project: project_ref,
             });
             // Stop processing further candidates this tick — AOM is
             // off, the next tick will just no-op for everyone.

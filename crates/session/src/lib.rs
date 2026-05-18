@@ -135,7 +135,15 @@ pub enum SessionEvent {
         #[serde(rename = "escalation_kind")]
         kind: EscalationKind,
         summary: String,
-        actions: Vec<EscalationAction>,
+        /// Typed actions surfaced to the operator (Telegram, UI). Replaces
+        /// the legacy `Vec<EscalationAction>` so downstream consumers can
+        /// match on intent (push, snooze, custom) rather than label.
+        actions: Vec<OperatorAction>,
+        /// Who is paused — projected from the per-session registry.
+        operator: OperatorRef,
+        /// Where the work lives — repo basename + branch, derived from
+        /// the session cwd at emit time.
+        project: ProjectRef,
     },
     /// An outstanding escalation has been resolved by some surface
     /// (terminal panel, telegram reply, etc).

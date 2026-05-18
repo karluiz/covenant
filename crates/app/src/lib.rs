@@ -35,6 +35,7 @@ pub mod operator_mind;
 pub mod operator_registry;
 mod pi_commands;
 mod project_notes;
+mod project_ref;
 pub mod provider_resolve;
 mod providers_cmd;
 mod safety;
@@ -2790,7 +2791,15 @@ pub fn run() {
                                 kind,
                                 summary,
                                 actions,
+                                operator,
+                                project,
                             }) => {
+                                // Task 5 will rewrite the outbound call to
+                                // consume `operator` + `project` directly.
+                                // For now we keep the legacy shape and
+                                // derive button labels from the typed
+                                // actions via `OperatorAction::button_label`.
+                                let _ = (&operator, &project);
                                 let session_short = session
                                     .to_string()
                                     .chars()
@@ -2799,7 +2808,7 @@ pub fn run() {
                                 let tab_name = format!("session:{session_short}");
                                 let actions_strs: Vec<String> = actions
                                     .iter()
-                                    .map(|a| format!("{:?}", a))
+                                    .map(|a| a.button_label())
                                     .collect();
                                 let kind_label = format!("{:?}", kind).to_uppercase();
                                 let sid_str = session.to_string();
