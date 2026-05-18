@@ -64,12 +64,19 @@ impl SpawnStore {
         })
     }
 
-    pub fn list(&self) -> Vec<SpawnSpec> {
-        self.inner.lock().unwrap().clone()
+    pub fn list(&self) -> std::io::Result<Vec<SpawnSpec>> {
+        Ok(self
+            .inner
+            .lock()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+            .clone())
     }
 
     pub fn upsert(&self, spec: SpawnSpec) -> std::io::Result<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self
+            .inner
+            .lock()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         if let Some(existing) = g.iter_mut().find(|s| s.id == spec.id) {
             *existing = spec;
         } else {
@@ -83,7 +90,10 @@ impl SpawnStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self
+            .inner
+            .lock()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         g.retain(|s| s.id != id);
         std::fs::write(
             &self.path,
@@ -120,7 +130,7 @@ mod tests {
     fn seeds_defaults_on_first_open() {
         let dir = tempdir().unwrap();
         let store = SpawnStore::open(dir.path()).unwrap();
-        let list = store.list();
+        let list = store.list().unwrap();
         assert!(list.iter().any(|s| s.id == "claude" && s.default));
         assert!(list.iter().any(|s| s.id == "codex"));
         assert!(list.iter().any(|s| s.id == "copilot"));
@@ -144,15 +154,15 @@ mod tests {
                 default: false,
             })
             .unwrap();
-        assert!(store.list().iter().any(|s| s.id == "ollama"));
+        assert!(store.list().unwrap().iter().any(|s| s.id == "ollama"));
 
         // reopen — must persist
         let reopened = SpawnStore::open(dir.path()).unwrap();
-        assert!(reopened.list().iter().any(|s| s.id == "ollama"));
+        assert!(reopened.list().unwrap().iter().any(|s| s.id == "ollama"));
 
         reopened.delete("ollama").unwrap();
         let reopened2 = SpawnStore::open(dir.path()).unwrap();
-        assert!(!reopened2.list().iter().any(|s| s.id == "ollama"));
+        assert!(!reopened2.list().unwrap().iter().any(|s| s.id == "ollama"));
     }
 
     #[test]
@@ -160,6 +170,6 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("spawns.json"), "{not json").unwrap();
         let store = SpawnStore::open(dir.path()).unwrap();
-        assert!(store.list().is_empty());
+        assert!(store.list().unwrap().is_empty());
     }
 }

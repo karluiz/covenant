@@ -1,5 +1,8 @@
 import type { SpawnSpec } from "./types";
 
+const escHtml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 export interface SpawnsChipDeps {
   list: () => Promise<SpawnSpec[]>;
   getBoundId: () => string | null;
@@ -34,27 +37,25 @@ export class SpawnsChip {
     btn.type = "button";
     btn.innerHTML = `
       <span class="spawns-chip__dot"></span>
-      <span class="spawns-chip__label">${bound?.label ?? "Spawn"}</span>
-      ${bound?.model ? `<span class="spawns-chip__model">${bound.model}</span>` : ""}
+      <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
+      ${bound?.model ? `<span class="spawns-chip__model">${escHtml(bound.model)}</span>` : ""}
       <span class="spawns-chip__caret">&#9660;</span>
     `;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.toggle();
+      void this.toggle();
     });
     this.button = btn;
     this.host.appendChild(btn);
   }
 
-  private toggle(): void {
+  private async toggle(): Promise<void> {
     if (this.popover) {
       this.close();
       return;
     }
-    void this.deps.list().then((specs) => {
-      this.specs = specs;
-      this.open();
-    });
+    await this.refresh();
+    this.open();
   }
 
   private open(): void {
@@ -70,8 +71,8 @@ export class SpawnsChip {
           (s) => `
         <button class="spawns-popover__item${s.id === boundId ? " is-active" : ""}" data-id="${s.id}" type="button">
           <span class="dot"></span>
-          <span class="label">${s.label}</span>
-          ${s.model ? `<span class="meta">${s.model}</span>` : ""}
+          <span class="label">${escHtml(s.label)}</span>
+          ${s.model ? `<span class="meta">${escHtml(s.model)}</span>` : ""}
         </button>`
         )
         .join("") +
