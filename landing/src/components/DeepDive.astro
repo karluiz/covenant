@@ -1,0 +1,24 @@
+---
+const shots = [
+  { caption: "Multi-session orchestration", path: "/screenshots/tabs.png" },
+  { caption: "Super-agent panel", path: "/screenshots/agent.png" },
+  { caption: "Covenant Score dashboard", path: "/screenshots/score.png" },
+  { caption: "Operator-attributed PRs", path: "/screenshots/prs.png" },
+];
+---
+<section class="section">
+  <p class="eyebrow">Deep dive</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl">
+    See the orchestrator in action.
+  </h2>
+  <div class="mt-14 grid md:grid-cols-2 gap-6">
+    {shots.map((s) => (
+      <figure class="rounded-xl border border-mist/10 overflow-hidden bg-mist/[0.02]">
+        <div class="aspect-video grid place-items-center text-mist/40 text-sm">
+          [ {s.path} ]
+        </div>
+        <figcaption class="px-4 py-3 text-sm text-mist/70">{s.caption}</figcaption>
+      </figure>
+    ))}
+  </div>
+</section>
