@@ -6242,6 +6242,8 @@ button.status-segment.status-aom.status-aom-warn:hover {
     color: #d6d8db;
     font-size: 12.5px;
     line-height: 1.55;
+    max-width: 820px;
+    margin: 0 auto;
 }
 
 /* Fenced code blocks anywhere a .markdown-body lives. CM6 has its
@@ -11522,6 +11524,13 @@ body.blocks-globally-collapsed .tab-pane {
     grid-template-columns: 1fr 0 0 0 !important;
 }
 body.blocks-globally-collapsed .blocks-host { display: none !important; }
+/* The editor-host overlay's `right` offset normally tracks the blocks
+   sidebar width (240px / 28px collapsed). When the sidebar is globally
+   hidden there's no rail to reserve space for — pin to 0 or the
+   terminal bleeds through on the right edge. */
+body.blocks-globally-collapsed .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+    right: 0 !important;
+}
 
 /* Override legacy sidebar-scoped styles for buttons that moved to the
    title bar. The titlebar buttons should all look identical. */
