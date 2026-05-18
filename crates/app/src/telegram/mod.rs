@@ -27,12 +27,28 @@ impl TelegramNotifier {
     }
 }
 
-use crate::telegram::outbound::{format_escalation, keyboard_for};
+use crate::telegram::outbound::{format_message, keyboard_for, OutboundContext};
 use crate::telegram::types::SendMessageReq;
+use karl_session::{EscalationKind, OperatorAction, OperatorRef, ProjectRef};
 
 pub enum MissionKind {
     Completed,
     Failed,
+}
+
+/// Typed inputs for [`TelegramNotifier::send_escalation`]. Replaces the
+/// prior positional `&str`/`&[String]` parameter pile so the operator's
+/// identity and the action set travel together.
+pub struct SendEscalationArgs<'a> {
+    pub operator: &'a OperatorRef,
+    pub project: &'a ProjectRef,
+    pub session_short: &'a str,
+    pub kind: &'a EscalationKind,
+    pub summary: &'a str,
+    pub actions: &'a [OperatorAction],
+    pub escalation_id: &'a str,
+    pub session_id: &'a str,
+    pub tab_id: Option<&'a str>,
 }
 
 #[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,21 +77,12 @@ impl TelegramNotifier {
 }
 
 impl TelegramNotifier {
-    pub async fn send_escalation(
-        &self,
-        tab_name: &str,
-        kind: &str,
-        summary: &str,
-        escalation_id: &str,
-        actions: &[String],
-        session_id: &str,
-        tab_id: Option<&str>,
-    ) -> anyhow::Result<()> {
+    pub async fn send_escalation(&self, args: &SendEscalationArgs<'_>) -> anyhow::Result<()> {
         let s = self.settings.lock().await;
         if !s.telegram.enabled {
             return Ok(());
         }
-        if let Some(tid) = tab_id {
+        if let Some(tid) = args.tab_id {
             if let Some(ovr) = s.telegram.per_tab_overrides.get(tid) {
                 if matches!(ovr.enabled, Some(false)) {
                     return Ok(());
@@ -92,10 +99,18 @@ impl TelegramNotifier {
         let chat = s.telegram.chat_id.clone();
         drop(s);
 
+        let ctx = OutboundContext {
+            operator: args.operator,
+            project: args.project,
+            session_short: args.session_short,
+            kind: args.kind,
+            summary: args.summary,
+            actions: args.actions,
+        };
         let req = SendMessageReq {
             chat_id: chat,
-            text: format_escalation(tab_name, kind, summary),
-            reply_markup: Some(keyboard_for(actions, escalation_id)),
+            text: format_message(&ctx),
+            reply_markup: Some(keyboard_for(&ctx, args.escalation_id)),
             parse_mode: None,
         };
         let result = self.client.send_message(&token, req).await?;
@@ -103,12 +118,12 @@ impl TelegramNotifier {
             .map
             .lock()
             .unwrap()
-            .insert(result.message_id, escalation_id.to_string());
+            .insert(result.message_id, args.escalation_id.to_string());
         self.state
             .session_map
             .lock()
             .unwrap()
-            .insert(escalation_id.to_string(), session_id.to_string());
+            .insert(args.escalation_id.to_string(), args.session_id.to_string());
         Ok(())
     }
 
@@ -245,6 +260,43 @@ mod tests {
     use super::*;
     use crate::settings::{Settings, TelegramSettings};
     use crate::telegram::client::fake::FakeTelegramClient;
+    use karl_session::VoiceToneSnapshot;
+
+    fn op() -> OperatorRef {
+        OperatorRef {
+            id: "01H".into(),
+            name: "Maya".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            voice: VoiceToneSnapshot::Terse,
+        }
+    }
+
+    fn pr() -> ProjectRef {
+        ProjectRef { repo: "karlTerminal".into(), branch: "main".into() }
+    }
+
+    fn args<'a>(
+        operator: &'a OperatorRef,
+        project: &'a ProjectRef,
+        kind: &'a EscalationKind,
+        actions: &'a [OperatorAction],
+        escalation_id: &'a str,
+        session_id: &'a str,
+        summary: &'a str,
+    ) -> SendEscalationArgs<'a> {
+        SendEscalationArgs {
+            operator,
+            project,
+            session_short: "ab12",
+            kind,
+            summary,
+            actions,
+            escalation_id,
+            session_id,
+            tab_id: None,
+        }
+    }
 
     fn settings_with_telegram(enabled: bool, chat: &str) -> Arc<AsyncMutex<Settings>> {
         let mut s = Settings::default();
@@ -262,17 +314,13 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation(
-            "tab1",
-            "BLOCKED",
-            "summary",
-            "esc-1",
-            &["Approve".into(), "Reject".into()],
-            "sess-1",
-            None,
-        )
-        .await
-        .unwrap();
+        let operator = op();
+        let project = pr();
+        let kind = EscalationKind::Blocked;
+        let actions = vec![OperatorAction::PushAndPR, OperatorAction::Reply];
+        n.send_escalation(&args(&operator, &project, &kind, &actions, "esc-1", "sess-1", "summary"))
+            .await
+            .unwrap();
         assert_eq!(fake.sent.lock().unwrap().len(), 1);
         let map = n.state.map.lock().unwrap();
         assert_eq!(map.get(&101).map(String::as_str), Some("esc-1"));
@@ -282,7 +330,11 @@ mod tests {
     async fn send_escalation_skipped_when_disabled() {
         let fake = Arc::new(FakeTelegramClient::default());
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(false, "42"));
-        n.send_escalation("t", "K", "s", "id", &["Approve".into()], "sess", None)
+        let operator = op();
+        let project = pr();
+        let kind = EscalationKind::Blocked;
+        let actions = vec![OperatorAction::PushAndPR];
+        n.send_escalation(&args(&operator, &project, &kind, &actions, "id", "sess", "s"))
             .await
             .unwrap();
         assert!(fake.sent.lock().unwrap().is_empty());
@@ -293,12 +345,14 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()], "sess", None)
+        let operator = op();
+        let project = pr();
+        let kind = EscalationKind::Blocked;
+        let actions = vec![OperatorAction::PushAndPR];
+        n.send_escalation(&args(&operator, &project, &kind, &actions, "esc-1", "sess", "s"))
             .await
             .unwrap();
-        n.on_resolved("esc-1", "Approved via terminal")
-            .await
-            .unwrap();
+        n.on_resolved("esc-1", "Approved via terminal").await.unwrap();
         assert_eq!(fake.edits.lock().unwrap().len(), 1);
         assert!(n.state.map.lock().unwrap().is_empty());
     }
@@ -370,7 +424,11 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()], "sess", None)
+        let operator = op();
+        let project = pr();
+        let kind = EscalationKind::Blocked;
+        let actions = vec![OperatorAction::PushAndPR];
+        n.send_escalation(&args(&operator, &project, &kind, &actions, "esc-7", "sess", "s"))
             .await
             .unwrap();
         fake.queued_updates.lock().unwrap().push(vec![Update {

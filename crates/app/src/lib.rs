@@ -2794,36 +2794,25 @@ pub fn run() {
                                 operator,
                                 project,
                             }) => {
-                                // Task 5 will rewrite the outbound call to
-                                // consume `operator` + `project` directly.
-                                // For now we keep the legacy shape and
-                                // derive button labels from the typed
-                                // actions via `OperatorAction::button_label`.
-                                let _ = (&operator, &project);
-                                let session_short = session
-                                    .to_string()
-                                    .chars()
-                                    .take(6)
-                                    .collect::<String>();
-                                let tab_name = format!("session:{session_short}");
-                                let actions_strs: Vec<String> = actions
-                                    .iter()
-                                    .map(|a| a.button_label())
-                                    .collect();
-                                let kind_label = format!("{:?}", kind).to_uppercase();
                                 let sid_str = session.to_string();
-                                if let Err(e) = tg
-                                    .send_escalation(
-                                        &tab_name,
-                                        &kind_label,
-                                        &summary,
-                                        &escalation_id,
-                                        &actions_strs,
-                                        &sid_str,
-                                        Some(sid_str.as_str()),
-                                    )
-                                    .await
-                                {
+                                // Last 4 chars of the session id as a short
+                                // human-readable handle for the message.
+                                let session_short: String = {
+                                    let n = sid_str.chars().count();
+                                    sid_str.chars().skip(n.saturating_sub(4)).collect()
+                                };
+                                let args = crate::telegram::SendEscalationArgs {
+                                    operator: &operator,
+                                    project: &project,
+                                    session_short: &session_short,
+                                    kind: &kind,
+                                    summary: &summary,
+                                    actions: &actions,
+                                    escalation_id: &escalation_id,
+                                    session_id: &sid_str,
+                                    tab_id: Some(sid_str.as_str()),
+                                };
+                                if let Err(e) = tg.send_escalation(&args).await {
                                     tracing::warn!(error = %e, "telegram send_escalation failed");
                                 }
                             }
