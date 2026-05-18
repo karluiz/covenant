@@ -6,6 +6,7 @@
 // the full data + UX contract.
 
 import type { Vitals } from "../api";
+import { attachTooltip } from "../tooltip/tooltip";
 
 /// Sparkline dimensions. 12 buckets, ~5px each + padding = ~60px wide.
 const SPARK_W = 60;
@@ -71,6 +72,12 @@ export class VitalsCluster {
     const el = document.createElement("div");
     el.className = "sb-vitals";
     el.setAttribute("aria-label", "LLM activity vitals");
+    attachTooltip(
+      el,
+      "LLM activity — Covenant's internal calls (summarizer, fix-proposer, " +
+        "operator triage) plus the active executor's calls when its " +
+        "transcript is readable. Not strictly the executor's bill.",
+    );
 
     // Sparkline.
     const svg = document.createElementNS(
@@ -98,16 +105,27 @@ export class VitalsCluster {
     // Rate text.
     const rate = document.createElement("span");
     rate.className = "sb-vitals-rate";
+    attachTooltip(
+      rate,
+      "Tokens per minute over the last 60s (input + output + cache_creation; " +
+        "cache_read excluded).",
+    );
     el.appendChild(rate);
 
     // Cache pill.
     const cache = document.createElement("span");
     cache.className = "sb-vitals-pill sb-vitals-pill--cache";
+    attachTooltip(
+      cache,
+      "Cache hit rate over the last 5 minutes — cache_read / " +
+        "(cache_read + input + cache_creation).",
+    );
     el.appendChild(cache);
 
     // Model pill.
     const model = document.createElement("span");
     model.className = "sb-vitals-pill sb-vitals-pill--model";
+    attachTooltip(model, "Model of the most recent observed LLM call.");
     el.appendChild(model);
 
     // Separator (middle dot).
@@ -120,6 +138,11 @@ export class VitalsCluster {
     // Latency (dot + text).
     const latWrap = document.createElement("span");
     latWrap.className = "sb-vitals-lat";
+    attachTooltip(
+      latWrap,
+      "Latency of the most recent observed LLM call. Green ≤100ms, " +
+        "amber ≤500ms, red >500ms.",
+    );
     const dot = document.createElement("span");
     dot.className = "sb-vitals-lat-dot";
     const latText = document.createElement("span");
