@@ -59,10 +59,20 @@ pub fn spawn(
                         continue;
                     }
                     let _ = client.answer_callback_query(&cfg.token, &cb.id).await;
-                    let Some(data) = cb.data else {
-                        continue;
-                    };
-                    if let Some((eid, action)) = parse_callback(&data) {
+                    let Some(data) = cb.data else { continue; };
+                    if let Some(cb) = parse_callback(&data) {
+                        let res = match cb.action_kind {
+                            ActionKind::PushPR | ActionKind::Run => ResolutionFromTelegram::Approved,
+                            ActionKind::Reply => ResolutionFromTelegram::Rejected,
+                            ActionKind::Snooze => ResolutionFromTelegram::Snoozed,
+                            ActionKind::Custom => continue,
+                        };
+                        let _ = tx.send(InboundEvent::Resolved {
+                            escalation_id: cb.escalation_id,
+                            resolution: res,
+                        });
+                    } else if let Some((eid, action)) = parse_callback_legacy(&data) {
+                        // Backwards-compat: pre-typed-callback messages still in flight.
                         let res = match action.as_str() {
                             "Approve" => ResolutionFromTelegram::Approved,
                             "Reject" => ResolutionFromTelegram::Rejected,
@@ -108,7 +118,52 @@ pub fn spawn(
     })
 }
 
-fn parse_callback(s: &str) -> Option<(String, String)> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActionKind {
+    PushPR,
+    Run,
+    Reply,
+    Snooze,
+    Custom,
+}
+
+pub struct Callback {
+    pub escalation_id: String,
+    pub action_kind: ActionKind,
+}
+
+pub fn parse_callback(data: &str) -> Option<Callback> {
+    let mut parts = data.splitn(3, ':');
+    if parts.next()? != "esc" {
+        return None;
+    }
+    let escalation_id = parts.next()?.to_string();
+    let kind = match parts.next()? {
+        "push_pr" => ActionKind::PushPR,
+        "run" => ActionKind::Run,
+        "reply" => ActionKind::Reply,
+        "snooze" => ActionKind::Snooze,
+        "custom" => ActionKind::Custom,
+        _ => return None,
+    };
+    Some(Callback { escalation_id, action_kind: kind })
+}
+
+pub fn render_confirmation(operator_name: &str, kind: ActionKind, detail: Option<&str>) -> String {
+    let verb = match kind {
+        ActionKind::PushPR => "pushed and opened",
+        ActionKind::Run => "ran",
+        ActionKind::Reply => "rejected",
+        ActionKind::Snooze => "snoozed",
+        ActionKind::Custom => "acted on",
+    };
+    match detail {
+        Some(d) => format!("✓ {} {} {}", operator_name, verb, d),
+        None => format!("✓ {} {}", operator_name, verb),
+    }
+}
+
+fn parse_callback_legacy(s: &str) -> Option<(String, String)> {
     let mut parts = s.splitn(3, ':');
     let prefix = parts.next()?;
     if prefix != "esc" {
@@ -117,4 +172,24 @@ fn parse_callback(s: &str) -> Option<(String, String)> {
     let id = parts.next()?.to_string();
     let action = parts.next()?.to_string();
     Some((id, action))
+}
+
+#[cfg(test)]
+mod confirmation_tests {
+    use super::*;
+
+    #[test]
+    fn parses_typed_callback_data() {
+        let cb = parse_callback("esc:01KX:push_pr").unwrap();
+        assert_eq!(cb.escalation_id, "01KX");
+        assert!(matches!(cb.action_kind, ActionKind::PushPR));
+    }
+
+    #[test]
+    fn confirmation_names_operator() {
+        let s = render_confirmation("Maya", ActionKind::PushPR, Some("PR #42"));
+        assert!(s.contains("Maya"));
+        assert!(s.to_lowercase().contains("pushed"));
+        assert!(s.contains("PR #42"));
+    }
 }
