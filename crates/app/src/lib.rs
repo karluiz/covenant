@@ -1819,9 +1819,13 @@ fn truncate_for_persist(s: &str) -> String {
     if s.len() <= MAX {
         s.to_string()
     } else {
+        let mut cut = MAX;
+        while cut > 0 && !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
         format!(
             "{}\n[...truncated, original {} bytes]",
-            &s[..MAX],
+            &s[..cut],
             s.len()
         )
     }

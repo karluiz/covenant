@@ -210,6 +210,34 @@ export const Icons = {
   panelRight: (o?: IconOptions): string =>
     svg(`<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>`, o),
 
+  /** Panel-left-open — left sidebar is currently collapsed; click expands. */
+  panelLeftOpen: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/>`,
+      o,
+    ),
+
+  /** Panel-left-close — left sidebar is currently expanded; click collapses. */
+  panelLeftClose: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/>`,
+      o,
+    ),
+
+  /** Panel-right-open — right sidebar is currently collapsed; click expands. */
+  panelRightOpen: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/>`,
+      o,
+    ),
+
+  /** Panel-right-close — right sidebar is currently expanded; click collapses. */
+  panelRightClose: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/>`,
+      o,
+    ),
+
   /** File — generic file. Used by the Structure tree for non-dir entries. */
   fileText: (o?: IconOptions): string =>
     svg(

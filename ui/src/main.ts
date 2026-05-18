@@ -142,6 +142,22 @@ function applyTabbarCollapsed(collapsed: boolean): void {
     const t = collapsed ? "Expand sidebar" : "Collapse sidebar";
     btn.title = t;
     btn.setAttribute("aria-label", t);
+    btn.innerHTML = collapsed
+      ? Icons.panelLeftOpen({ size: 16 })
+      : Icons.panelLeftClose({ size: 16 });
+  }
+}
+
+function applyBlocksCollapsed(collapsed: boolean): void {
+  document.body.classList.toggle("blocks-globally-collapsed", collapsed);
+  const btn = document.getElementById("tabbar-fold-right");
+  if (btn) {
+    const t = collapsed ? "Expand Blocks/Files sidebar" : "Collapse Blocks/Files sidebar";
+    btn.title = t;
+    btn.setAttribute("aria-label", t);
+    btn.innerHTML = collapsed
+      ? Icons.panelRightOpen({ size: 16 })
+      : Icons.panelRightClose({ size: 16 });
   }
 }
 
@@ -271,7 +287,6 @@ async function boot(): Promise<void> {
   const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
   const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
 
-  tabbarFoldBtn.innerHTML = Icons.panelLeft({ size: 16 });
   tabbarFoldBtn.addEventListener("click", () => {
     const next = !document.body.classList.contains("tabbar-left-collapsed");
     applyTabbarCollapsed(next);
@@ -309,14 +324,11 @@ async function boot(): Promise<void> {
 
   const foldRightBtn = document.getElementById("tabbar-fold-right");
   if (foldRightBtn) {
-    foldRightBtn.innerHTML = Icons.panelRight({ size: 16 });
     const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
-    if (localStorage.getItem(BLOCKS_GLOBAL_KEY) === "1") {
-      document.body.classList.add("blocks-globally-collapsed");
-    }
+    applyBlocksCollapsed(localStorage.getItem(BLOCKS_GLOBAL_KEY) === "1");
     foldRightBtn.addEventListener("click", () => {
       const next = !document.body.classList.contains("blocks-globally-collapsed");
-      document.body.classList.toggle("blocks-globally-collapsed", next);
+      applyBlocksCollapsed(next);
       if (next) localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
       else localStorage.removeItem(BLOCKS_GLOBAL_KEY);
       setTimeout(() => manager.refitActive(), 320);

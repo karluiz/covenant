@@ -734,7 +734,11 @@ export class TabManager {
     );
     if (!pill) return;
     const existing = pill.querySelector(".tab-busy-dot");
-    if (tab.busyProc) {
+    // Executor tabs (pi, claude, codex, …) already convey "agent running"
+    // via the executor chip — the pulse dot is for user-initiated dev
+    // tools only. Keep pi homologous to the other agent executors.
+    const isAgent = tab.kind === "pi" || !!tab.executor;
+    if (tab.busyProc && !isAgent) {
       if (existing instanceof HTMLElement) {
         existing.title = `${tab.busyProc} running`;
         return;
@@ -4059,8 +4063,9 @@ export class TabManager {
 
     // Re-apply busy dot on rebuild so tab activation (which rebuilds the
     // strip) doesn't drop it until the next foreground_changed event.
-    // Pill isn't in the DOM yet here — attach directly.
-    if (tab.busyProc) {
+    // Pill isn't in the DOM yet here — attach directly. Executor tabs
+    // skip the dot (the chip already conveys "agent running here").
+    if (tab.busyProc && tab.kind !== "pi" && !tab.executor) {
       const dot = document.createElement("span");
       dot.className = "tab-busy-dot";
       dot.title = `${tab.busyProc} running`;

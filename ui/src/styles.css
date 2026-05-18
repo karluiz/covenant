@@ -7336,8 +7336,11 @@ body.tabbar-left #tabbar-host {
     flex-direction: column;
     align-items: stretch;
     border-bottom: none;
-    border-right: 0px solid var(--border);
-    box-shadow: 1px 0 0 rgba(0, 0, 0, 0.5);
+    /* Match the soft 1px var(--border) divider used by the titlebar
+       bottom and editor surfaces — replaces the previous harsh
+       rgba(0,0,0,0.5) box-shadow that stood out. */
+    border-right: 1px solid var(--border);
+    box-shadow: none;
     padding: 8px 0 0 8px;
     gap: 6px;
     overflow: hidden;
@@ -7617,20 +7620,23 @@ body.tabbar-left .group-chip-has-members {
    of the sidebar. Both share the #new-tab styling via the actions row. */
 body.tabbar-left #tabbar-actions {
     display: flex;
+    justify-content: space-evenly;
+    align-items: center;
     gap: 4px;
     position: sticky;
     bottom: 0;
     z-index: 2;
-    background: color-mix(in srgb, var(--bg-tabbar) 92%, transparent);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    /* Seamless sidebar surface — inherit #tabbar-host's --bg-tabbar so
+       titlebar + chips + actions read as one continuous panel (macOS
+       Mail/Reminders sidebar feel). No border-top, no gradient, no
+       internal seams. */
+    background: transparent;
     margin: 4px -8px 0 -8px;
     padding: 4px 10px;
-    border-top: 1px solid var(--border);
 }
 
 body.tabbar-left #tabbar-actions > button {
-    flex: 1 1 0;
+    flex: 0 0 auto;
     justify-content: center;
     height: 22px;
     border-radius: 5px;
@@ -11036,7 +11042,7 @@ button.status-segment.status-tg:focus-visible {
   align-items: center;
   gap: 10px;
   height: 34px;
-  padding: 0 12px;
+  padding: 0 12px 0 84px;
   background: linear-gradient(180deg, rgba(122, 162, 255, 0.14), rgba(122, 162, 255, 0.06));
   border-bottom: 1px solid rgba(122, 162, 255, 0.22);
   color: #dbe6ff;
