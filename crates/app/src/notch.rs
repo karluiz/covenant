@@ -383,7 +383,10 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
     let w = (360.0 * scale) as i32;
     let h = (440.0 * scale) as i32;
     let pad_x = (16.0 * scale) as i32;
-    let pad_y_bottom = (40.0 * scale) as i32;
+    // Bottom corners sit just above the status bar (26px + 1px border)
+    // with a small breathing gap. Too much padding leaves an awkward
+    // empty band between the pill and the chrome.
+    let pad_y_bottom = (32.0 * scale) as i32;
     // Top corners need extra clearance to sit well below the custom titlebar
     // (38px) and its window controls, so the pill doesn't crowd the icons.
     let pad_y_top = (72.0 * scale) as i32;

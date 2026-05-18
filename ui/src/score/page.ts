@@ -3,6 +3,7 @@ import * as api from "./api";
 import { renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
 import { getCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
+import { attachTooltip } from "../tooltip/tooltip";
 import { scoreSignout, scoreSyncNow, scoreSyncStatus } from "./api";
 
 interface State {
@@ -155,6 +156,7 @@ function renderFilters(host: HTMLElement, state: State, page: HTMLElement): void
 
 function chipButton(label: string, onClick: () => void): HTMLElement {
   const btn = document.createElement("button");
+  btn.type = "button";
   btn.className = "cov-chip active";
   btn.textContent = label;
   btn.addEventListener("click", onClick);
@@ -163,6 +165,7 @@ function chipButton(label: string, onClick: () => void): HTMLElement {
 
 function chipDismiss(label: string, onDismiss: () => void): HTMLElement {
   const btn = document.createElement("button");
+  btn.type = "button";
   btn.className = "cov-chip";
   btn.innerHTML = `${escHtml(label)} <span class="x">✕</span>`;
   btn.addEventListener("click", onDismiss);
@@ -227,7 +230,7 @@ function renderHeatmap(
       const cell = document.createElement("div");
       const cls = intensityClass(count);
       cell.className = `cov-cell${cls ? " " + cls : ""}`;
-      cell.title = `${key} — ${count} prompts`;
+      attachTooltip(cell, `${key} — ${count} prompts`);
       cell.dataset.day = key;
       cell.addEventListener("click", () => onClick(key));
       host.appendChild(cell);

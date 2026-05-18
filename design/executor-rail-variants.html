@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Executor rail — variants</title>
+<style>
+  :root {
+    --bg: #0a0d11;
+    --bg-panel: #11151a;
+    --bg-tabbar: #0d1116;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #d5d9de;
+    --muted: #8a93a0;
+    --dim: #5a6873;
+    --accent: #b794f4;
+    --accent-soft: rgba(183,148,244,0.18);
+    --green: #6dd29a;
+    --orange: #f0a050;
+    --ui: -apple-system, "SF Pro Text", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 800px at 20% 0%, #1a1f29 0%, transparent 60%),
+      radial-gradient(900px 600px at 100% 100%, #1f1a29 0%, transparent 55%),
+      #06090c;
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .page {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0 0 4px;
+  }
+  h1 + p {
+    color: var(--muted);
+    margin: 0 0 40px;
+    max-width: 60ch;
+  }
+  .variant {
+    margin: 0 0 56px;
+  }
+  .variant h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .variant h2 strong {
+    color: var(--text);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: none;
+    font-size: 15px;
+    display: block;
+    margin-top: 2px;
+  }
+  .variant p {
+    margin: 0 0 16px;
+    color: var(--muted);
+    max-width: 70ch;
+  }
+
+  /* ─── App window shell (shared) ─── */
+  .window {
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow:
+      0 30px 60px rgba(0,0,0,0.45),
+      0 1px 0 rgba(255,255,255,0.04) inset;
+  }
+  .titlebar {
+    height: 38px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    background: var(--bg-tabbar);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .titlebar-left {
+    display: flex; align-items: center; gap: 6px;
+    padding-left: 12px;
+  }
+  .titlebar-right {
+    display: flex; align-items: center; gap: 4px;
+    padding-right: 12px;
+  }
+  .traffic {
+    display: flex; gap: 8px; padding-right: 12px;
+  }
+  .traffic span {
+    width: 12px; height: 12px; border-radius: 50%;
+    display: inline-block;
+  }
+  .traffic span:nth-child(1) { background: #ff5f57; }
+  .traffic span:nth-child(2) { background: #febc2e; }
+  .traffic span:nth-child(3) { background: #28c840; }
+  .tb-btn {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  .tb-btn.active {
+    background: rgba(255,255,255,0.06);
+    color: var(--text);
+  }
+  .tb-btn svg { width: 16px; height: 16px; }
+  .titlebar-center {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    pointer-events: none;
+  }
+
+  /* ─── Terminal body ─── */
+  .term {
+    height: 220px;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    background:
+      radial-gradient(800px 300px at 30% 0%, rgba(183,148,244,0.04), transparent 70%),
+      var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+  .term .prompt { color: var(--accent); }
+  .term .ok { color: var(--green); }
+
+  /* ─── Status bar (shared, simplified) ─── */
+  .statusbar {
+    height: 26px;
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    padding: 0 8px;
+    gap: 8px;
+    background: linear-gradient(180deg, rgba(17,21,26,0.9), rgba(17,21,26,0.98));
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .sb-chip {
+    display: inline-flex; align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .sb-chip.brand { color: #5fb3c4; font-weight: 600; }
+  .sb-chip.score { color: var(--muted); }
+  .sb-chip.version {
+    color: var(--orange);
+    border: 1px solid rgba(240,160,80,0.4);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+  .sb-right { justify-content: flex-end; display: inline-flex; gap: 10px; align-items: center; }
+  .avatar { width: 14px; height: 14px; border-radius: 50%; background: linear-gradient(135deg,#6dd29a,#3a7a85); display: inline-block; }
+
+  /* ─── Executor rail (variant A) ─── */
+  .exec-rail {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0 10px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.18)),
+      var(--bg-tabbar);
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .exec-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px 5px 14px;
+    margin-right: 4px;
+    border-radius: 8px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: background 120ms, color 120ms;
+    font-size: 12px;
+    line-height: 1;
+    user-select: none;
+  }
+  .exec-chip:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .exec-chip.bound {
+    color: var(--text);
+    background: linear-gradient(180deg, rgba(183,148,244,0.12), rgba(183,148,244,0.04));
+  }
+  .exec-chip.bound::before {
+    content: "";
+    position: absolute;
+    left: 4px; top: 6px; bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(183,148,244,0.6);
+  }
+  .exec-chip .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+  }
+  .exec-chip.running .dot {
+    background: var(--green);
+    box-shadow: 0 0 6px rgba(109,210,154,0.7);
+  }
+  .exec-chip.idle .dot { background: var(--orange); }
+  .exec-chip .label {
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .exec-chip .model {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0;
+  }
+  .exec-rail .sep {
+    width: 1px; height: 16px;
+    background: var(--border);
+    margin: 0 6px;
+    flex-shrink: 0;
+  }
+  .exec-rail .add {
+    color: var(--dim);
+    padding: 5px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .exec-rail .add:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .exec-rail .tail {
+    margin-left: auto;
+    color: var(--dim);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .exec-rail .tail .kbd {
+    font-family: var(--mono);
+    border: 1px solid var(--border-strong);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 10px;
+  }
+
+  /* ─── Variant B: inline in titlebar ─── */
+  .titlebar.inline-exec {
+    grid-template-columns: auto 1fr auto;
+  }
+  .titlebar.inline-exec .titlebar-center { display: none; }
+  .inline-exec-strip {
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 8px;
+    overflow: hidden;
+  }
+  .inline-exec-strip .exec-chip {
+    padding: 4px 10px 4px 12px;
+    margin-right: 0;
+    font-size: 11.5px;
+  }
+  .inline-exec-strip .exec-chip .model { display: none; }
+
+  /* ─── Variant C: single chip + dropdown ─── */
+  .deploy-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px 5px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: rgba(255,255,255,0.02);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    margin-left: 8px;
+  }
+  .deploy-chip::before {
+    content: "";
+    position: absolute;
+    left: 4px; top: 6px; bottom: 6px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+  .deploy-chip .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 6px rgba(109,210,154,0.6);
+  }
+  .deploy-chip .caret { color: var(--muted); margin-left: 2px; }
+
+  .dropdown {
+    position: absolute;
+    top: 44px;
+    left: 220px;
+    width: 240px;
+    background: rgba(14,18,24,0.96);
+    backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 6px;
+    box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+    z-index: 5;
+  }
+  .dropdown .item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--text);
+  }
+  .dropdown .item:hover { background: rgba(255,255,255,0.05); }
+  .dropdown .item.active {
+    background: linear-gradient(180deg, rgba(183,148,244,0.18), rgba(183,148,244,0.06));
+  }
+  .dropdown .item .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--dim);
+  }
+  .dropdown .item.active .dot { background: var(--green); }
+  .dropdown .item .meta {
+    margin-left: auto;
+    color: var(--dim);
+    font-size: 10.5px;
+    font-family: var(--mono);
+  }
+  .dropdown .sep {
+    height: 1px; background: var(--border); margin: 4px 0;
+  }
+  .dropdown .add {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12.5px;
+    border-radius: 6px;
+  }
+  .dropdown .add:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+
+  .legend {
+    margin-top: 14px;
+    display: flex; gap: 18px;
+    font-size: 11.5px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .swatch {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Executor rail — three options</h1>
+  <p>Picking where the executor catalog lives. Each chip = one configured agent. Clicking a chip deploys it on the active tab. The chip bound to the active tab shows a left accent stripe. Running shows a green dot; idle shows orange.</p>
+
+  <!-- ───── Variant A: dedicated rail under titlebar ───── -->
+  <section class="variant">
+    <h2>Variant A <strong>Dedicated rail under titlebar</strong></h2>
+    <p>38px titlebar stays calm; a new 32px rail below holds the executor catalog. Scales well as the list grows; the active-tab binding gets full visual weight.</p>
+    <div class="window">
+      <div class="titlebar">
+        <div class="titlebar-left">
+          <div class="traffic"><span></span><span></span><span></span></div>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><line x1="6" y1="3" x2="6" y2="13"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+        <div class="titlebar-center">COVENANT</div>
+        <div class="titlebar-right">
+          <button class="tb-btn active"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 5l3 3-3 3M9 11h3"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5l2-2h3l2 2h5v8H2z"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><line x1="10" y1="3" x2="10" y2="13"/></svg></button>
+        </div>
+      </div>
+
+      <div class="exec-rail">
+        <div class="exec-chip bound running">
+          <span class="dot"></span>
+          <span class="label">Claude</span>
+          <span class="model">sonnet 4.6</span>
+        </div>
+        <div class="exec-chip idle">
+          <span class="dot"></span>
+          <span class="label">Codex</span>
+          <span class="model">gpt-5</span>
+        </div>
+        <div class="exec-chip">
+          <span class="dot"></span>
+          <span class="label">Copilot</span>
+        </div>
+        <div class="exec-chip">
+          <span class="dot"></span>
+          <span class="label">Ollama</span>
+          <span class="model">qwen3-30b</span>
+        </div>
+        <div class="sep"></div>
+        <div class="add">+ add</div>
+        <div class="tail">deploy on active <span class="kbd">⏎</span></div>
+      </div>
+
+      <div class="term">
+        <div><span class="prompt">~/karlTerminal</span> $ cargo test -p blocks</div>
+        <div class="ok">    Finished test [unoptimized + debuginfo] target(s)</div>
+        <div class="ok">test result: ok. 47 passed; 0 failed; 0 ignored</div>
+      </div>
+
+      <div class="statusbar">
+        <div class="sb-chip brand">COVENANT › notch</div>
+        <div class="sb-chip" style="color:#b794f4;">⚡ Claude</div>
+        <div></div>
+        <div class="sb-right">
+          <span style="color:#f0a050;">✈</span>
+          <span class="sb-chip score"><span class="avatar"></span> karluiz · 2d</span>
+          <span class="sb-chip version">v0.6.2 [dev]</span>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:#6dd29a;"></span> running</span>
+      <span><span class="swatch" style="background:#f0a050;"></span> idle</span>
+      <span><span class="swatch" style="background:#5a6873;"></span> off</span>
+      <span>▌ left accent = bound to active tab</span>
+    </div>
+  </section>
+
+  <!-- ───── Variant B: inline in titlebar ───── -->
+  <section class="variant">
+    <h2>Variant B <strong>Inline in titlebar (replaces COVENANT)</strong></h2>
+    <p>No new chrome row. The brand moves to the status bar. Most compact, but the titlebar gets dense as executors grow past 4–5.</p>
+    <div class="window">
+      <div class="titlebar inline-exec">
+        <div class="titlebar-left">
+          <div class="traffic"><span></span><span></span><span></span></div>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><line x1="6" y1="3" x2="6" y2="13"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+        <div class="inline-exec-strip">
+          <div class="exec-chip bound running">
+            <span class="dot"></span><span class="label">Claude</span>
+          </div>
+          <div class="exec-chip idle">
+            <span class="dot"></span><span class="label">Codex</span>
+          </div>
+          <div class="exec-chip">
+            <span class="dot"></span><span class="label">Copilot</span>
+          </div>
+          <div class="exec-chip">
+            <span class="dot"></span><span class="label">Ollama</span>
+          </div>
+          <div class="add">+</div>
+        </div>
+        <div class="titlebar-right">
+          <button class="tb-btn active"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 5l3 3-3 3M9 11h3"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5l2-2h3l2 2h5v8H2z"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><line x1="10" y1="3" x2="10" y2="13"/></svg></button>
+        </div>
+      </div>
+
+      <div class="term">
+        <div><span class="prompt">~/karlTerminal</span> $ npm run dev</div>
+        <div>vite v6.4.2 ready in 312 ms</div>
+        <div>  ➜ <span class="ok">Local</span>: http://localhost:1420/</div>
+      </div>
+
+      <div class="statusbar">
+        <div class="sb-chip brand" style="font-family:var(--ui); letter-spacing:0.18em; font-size:10.5px;">COVENANT</div>
+        <div class="sb-chip" style="color:#5fb3c4;">main · clean</div>
+        <div></div>
+        <div class="sb-right">
+          <span style="color:#f0a050;">✈</span>
+          <span class="sb-chip score"><span class="avatar"></span> karluiz · 2d</span>
+          <span class="sb-chip version">v0.6.2 [dev]</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── Variant C: single chip + dropdown ───── -->
+  <section class="variant">
+    <h2>Variant C <strong>Single chip + dropdown</strong></h2>
+    <p>One "deploy" chip in the titlebar shows the executor bound to the active tab. Click opens a palette with the full configured list. Most compact, adds one click to swap.</p>
+    <div class="window" style="position:relative;">
+      <div class="titlebar">
+        <div class="titlebar-left">
+          <div class="traffic"><span></span><span></span><span></span></div>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><line x1="6" y1="3" x2="6" y2="13"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+          <div class="deploy-chip">
+            <span class="dot"></span>
+            <span>Claude</span>
+            <span class="model" style="color:var(--dim);font-family:var(--mono);font-size:10.5px;">sonnet 4.6</span>
+            <span class="caret">▾</span>
+          </div>
+        </div>
+        <div class="titlebar-center">COVENANT</div>
+        <div class="titlebar-right">
+          <button class="tb-btn active"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 5l3 3-3 3M9 11h3"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5l2-2h3l2 2h5v8H2z"/></svg></button>
+          <button class="tb-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"/><line x1="10" y1="3" x2="10" y2="13"/></svg></button>
+        </div>
+      </div>
+
+      <div class="dropdown">
+        <div class="item active">
+          <span class="dot"></span>
+          <span>Claude</span>
+          <span class="meta">sonnet 4.6</span>
+        </div>
+        <div class="item">
+          <span class="dot"></span>
+          <span>Codex</span>
+          <span class="meta">gpt-5</span>
+        </div>
+        <div class="item">
+          <span class="dot"></span>
+          <span>Copilot</span>
+          <span class="meta">cli</span>
+        </div>
+        <div class="item">
+          <span class="dot"></span>
+          <span>Ollama</span>
+          <span class="meta">qwen3-30b</span>
+        </div>
+        <div class="sep"></div>
+        <div class="add">+ add executor…</div>
+      </div>
+
+      <div class="term">
+        <div><span class="prompt">~/karlTerminal</span> $ </div>
+      </div>
+
+      <div class="statusbar">
+        <div class="sb-chip brand">COVENANT</div>
+        <div></div>
+        <div></div>
+        <div class="sb-right">
+          <span style="color:#f0a050;">✈</span>
+          <span class="sb-chip score"><span class="avatar"></span> karluiz · 2d</span>
+          <span class="sb-chip version">v0.6.2 [dev]</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

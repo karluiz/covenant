@@ -2241,6 +2241,57 @@ export class TabManager {
       },
     };
 
+    // DPR change refit. Moving the window between displays (Retina ↔
+    // external) — or the user changing system zoom — shifts
+    // devicePixelRatio without firing window `resize` or the
+    // ResizeObserver. xterm's glyph cache then drifts a fraction of a
+    // cell, term.rows stays stale, and the scrollbar tops out a row or
+    // two above the real bottom until the next manual resize.
+    let dprMql: MediaQueryList | null = null;
+    const watchDpr = (): void => {
+      dprMql?.removeEventListener("change", onDprChange);
+      dprMql = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio}dppx)`,
+      );
+      dprMql.addEventListener("change", onDprChange);
+    };
+    const onDprChange = (): void => {
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+      void resizeSession(sessionId, term.cols, term.rows).catch(() => {});
+      term.refresh(0, term.rows - 1);
+      watchDpr(); // re-arm against the new DPR
+    };
+    watchDpr();
+    const dprDispose = {
+      dispose: () => dprMql?.removeEventListener("change", onDprChange),
+    };
+
+    // Last-resort refit when the user tries to scroll past the bottom
+    // and nothing happens. Catches drift cases no observer fires for
+    // (font reflow mid-stream, hidden-tab writes that wrapped against
+    // stale metrics). One wheel-down at the limit → refit + snap.
+    const onWheelAtBottom = (ev: WheelEvent): void => {
+      if (ev.deltaY <= 0) return;
+      const buf = term.buffer.active;
+      const atMaxScroll = buf.viewportY >= buf.baseY;
+      const hasContentBelow = term.rows - 1 > buf.cursorY || buf.baseY > 0;
+      if (!atMaxScroll || !hasContentBelow) return;
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+      term.scrollToBottom();
+    };
+    termHost.addEventListener("wheel", onWheelAtBottom, { passive: true });
+    const wheelDispose = {
+      dispose: () => termHost.removeEventListener("wheel", onWheelAtBottom),
+    };
+
     // Pick up the backend's per-session enabled state (driven by
     // settings.operator.enabled_default at attach() time). Live always
     // starts off — even if enabled_default flipped on, the user must
@@ -2284,7 +2335,7 @@ export class TabManager {
       cwd: null,
       operator_id: null,
       executor: null,
-      disposers: [dataDispose, resizeDispose, roDispose],
+      disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose],
       specBadge: null,
     };
     tabRef.current = tab;

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Notch pill · surface variants</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 12.5px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: #e8e9ec;
+    background:
+      radial-gradient(900px 600px at 70% 0%, #1d2330 0%, transparent 60%),
+      radial-gradient(700px 500px at 10% 110%, #2a1f3a 0%, transparent 60%),
+      #0b0d10;
+    min-height: 100vh;
+    padding: 56px 32px 96px;
+  }
+  h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #8b909a; margin: 0 0 8px; }
+  .sub { color: #5e636d; font-size: 11px; margin-bottom: 32px; max-width: 600px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  .card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 32px 24px 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .card h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b909a; margin: 0; font-weight: 600; }
+  .card p { color: #5e636d; font-size: 10.5px; line-height: 1.5; margin: 0; text-align: center; max-width: 240px; }
+
+  /* shared ico */
+  .ico { width: 16px; height: 16px; }
+  .ico circle { fill: #ffd166; transform-origin: 8px 8px; }
+  .ico .d1 { animation: orb 1.4s ease-in-out infinite; }
+  .ico .d2 { animation: orb 1.4s ease-in-out -0.46s infinite; }
+  .ico .d3 { animation: orb 1.4s ease-in-out -0.93s infinite; }
+  @keyframes orb {
+    0%,100% { transform: translate(0,0); opacity: 0.35; }
+    50%     { transform: translate(0,-2.2px); opacity: 1; }
+  }
+
+  /* ─── shared structure ─── */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px 9px 11px;
+    border-radius: 12px;
+    min-width: 240px;
+    color: #fff;
+    font: 500 12.5px -apple-system;
+  }
+  .pill .col { display: flex; flex-direction: column; line-height: 1.2; gap: 1px; min-width: 0; }
+  .pill .tab { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 700; }
+  .pill .row { display: flex; gap: 8px; align-items: baseline; }
+  .pill .verb { color: #fff; font-weight: 600; }
+  .pill .target { color: #a8a8b4; font-weight: 400; }
+
+  /* ─── A · flat dark ─── */
+  .pill.flat {
+    background: rgba(18, 19, 24, 0.94);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-left: 3px solid #7c5cff;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .pill.flat .tab { color: #7c5cff; }
+
+  /* ─── B · subtle glass (recommended) ─── */
+  .pill.glass {
+    background: rgba(20, 22, 28, 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-top-color: rgba(255,255,255,0.14);
+    border-left: 3px solid #7c5cff;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.05) inset,
+      0 8px 24px rgba(0,0,0,0.35);
+  }
+  .pill.glass .tab { color: #7c5cff; }
+
+  /* ─── C · accent stripe, no purple chrome ─── */
+  .pill.stripe {
+    background: rgba(16, 17, 22, 0.92);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .pill.stripe::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: linear-gradient(180deg, #ffd166, rgba(255,209,102,0.2));
+  }
+  .pill.stripe .tab { color: #8b909a; }
+
+  /* ─── D · monochrome, no tab chip line ─── */
+  .pill.mono {
+    background: rgba(18, 19, 24, 0.92);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-left: 2px solid rgba(255,255,255,0.18);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    padding: 8px 14px 8px 11px;
+  }
+  .pill.mono .col { gap: 0; }
+  .pill.mono .tab { display: none; }
+  .pill.mono .verb { color: #fff; font-weight: 600; }
+  .pill.mono .target { color: #6e7280; font-size: 11px; }
+
+  /* ─── E · phase-tinted accent (color follows the icon) ─── */
+  .pill.phase {
+    background: rgba(20, 22, 28, 0.78);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-top-color: rgba(255,255,255,0.14);
+    border-left: 3px solid #ffd166; /* matches Thinking color */
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.05) inset,
+      0 8px 22px rgba(0,0,0,0.35),
+      -8px 0 24px -8px rgba(255,209,102,0.35); /* soft tinted halo */
+  }
+  .pill.phase .tab { color: #ffd166; }
+
+  /* ─── F · ultra minimal — no tab chip, single line ─── */
+  .pill.minimal {
+    background: rgba(18, 19, 24, 0.88);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 999px;
+    padding: 7px 14px 7px 10px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    min-width: auto;
+    gap: 8px;
+  }
+  .pill.minimal .col { display: none; }
+  .pill.minimal .label { color: #fff; font-weight: 600; font-size: 12px; }
+  .pill.minimal .sub { color: #8b909a; font-size: 11px; margin-left: 4px; }
+
+  .surface-strip {
+    grid-column: 1 / -1;
+    background:
+      linear-gradient(135deg, #6b6b75 0%, #4a4a55 50%, #2c2c36 100%);
+    padding: 28px;
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    align-items: center;
+  }
+  .surface-strip h2 { color: #fff; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .surface-strip .row-on-light { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+
+  .label-row {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .label-row .name { color: #e8e9ec; font-size: 10.5px; }
+</style>
+</head>
+<body>
+
+<h1>Notch pill · surface variants</h1>
+<p class="sub">Drop the steep gradient that's making it look like a 3D button. Six surface treatments — pick one (or hybridize) and I'll port. Bottom row shows each on a light/textured background so you can see the glass behaviors.</p>
+
+<div class="grid">
+
+  <div class="card">
+    <h2>A · Flat dark</h2>
+    <div class="pill flat">
+      <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+      <div class="col">
+        <span class="tab">covenant · main</span>
+        <span class="row"><span class="verb">Thinking</span> <span class="target">Flowing… 31s</span></span>
+      </div>
+    </div>
+    <p>No gradient, no glass. Plain dark fill, accent left border. Honest and quiet.</p>
+  </div>
+
+  <div class="card">
+    <h2>B · Subtle glass <span style="color:#6ee7a7;">✓ rec</span></h2>
+    <div class="pill glass">
+      <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+      <div class="col">
+        <span class="tab">covenant · main</span>
+        <span class="row"><span class="verb">Thinking</span> <span class="target">Flowing… 31s</span></span>
+      </div>
+    </div>
+    <p>Real backdrop blur, faint top highlight only (no bottom gradient). Premium without the bevel.</p>
+  </div>
+
+  <div class="card">
+    <h2>C · Accent stripe</h2>
+    <div class="pill stripe">
+      <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+      <div class="col">
+        <span class="tab">covenant · main</span>
+        <span class="row"><span class="verb">Thinking</span> <span class="target">Flowing… 31s</span></span>
+      </div>
+    </div>
+    <p>2px gradient stripe instead of solid bar; tab chip is grey not purple. Chrome stays neutral, color lives in icon.</p>
+  </div>
+
+  <div class="card">
+    <h2>D · Monochrome</h2>
+    <div class="pill mono">
+      <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+      <div class="col">
+        <span class="row"><span class="verb">Thinking</span> <span class="target">Flowing… 31s</span></span>
+      </div>
+    </div>
+    <p>Drops the redundant `COVENANT › THINKING` header entirely. Single line, single message.</p>
+  </div>
+
+  <div class="card">
+    <h2>E · Phase-tinted glass</h2>
+    <div class="pill phase">
+      <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+      <div class="col">
+        <span class="tab">covenant · main</span>
+        <span class="row"><span class="verb">Thinking</span> <span class="target">Flowing… 31s</span></span>
+      </div>
+    </div>
+    <p>B + the accent color follows the phase (gold for thinking, blue for running, green for done). Soft tinted halo on the left.</p>
+  </div>
+
+  <div class="card">
+    <h2>F · Minimal capsule</h2>
+    <div class="pill minimal">
+      <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+      <span class="label">Thinking</span>
+      <span class="sub">Flowing… 31s</span>
+    </div>
+    <p>Pill-shape, single line, no chrome. Closest to macOS system notifications.</p>
+  </div>
+
+  <div class="surface-strip">
+    <h2>On a light/textured background</h2>
+    <div class="row-on-light">
+      <div class="label-row">
+        <div class="pill flat">
+          <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+          <div class="col"><span class="tab">covenant · main</span><span class="row"><span class="verb">Thinking</span></span></div>
+        </div>
+        <span class="name">A · Flat</span>
+      </div>
+      <div class="label-row">
+        <div class="pill glass">
+          <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+          <div class="col"><span class="tab">covenant · main</span><span class="row"><span class="verb">Thinking</span></span></div>
+        </div>
+        <span class="name">B · Glass</span>
+      </div>
+      <div class="label-row">
+        <div class="pill phase">
+          <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+          <div class="col"><span class="tab">covenant · main</span><span class="row"><span class="verb">Thinking</span></span></div>
+        </div>
+        <span class="name">E · Phase-tinted</span>
+      </div>
+      <div class="label-row">
+        <div class="pill minimal">
+          <svg class="ico" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4"/><circle class="d2" cx="8" cy="11" r="1.4"/><circle class="d3" cx="13" cy="11" r="1.4"/></svg>
+          <span class="label">Thinking</span><span class="sub">Flowing…</span>
+        </div>
+        <span class="name">F · Minimal</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

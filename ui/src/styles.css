@@ -4692,16 +4692,22 @@ body:not(.tabbar-left) #new-group {
 }
 
 /* ─── 3.7 Status bar ───────────────────────────────────
-   Lives in #layout's third row. Vibrancy-aware via --bg-panel +
-   --surface-alpha; never opaque so wallpaper/translucency reads
-   through consistently with the rest of the chrome. */
+   Four-zone grid: identity (left) · agent framing · adaptive context
+   (center) · trailing vitals (right). A 1px activity rail along the
+   top edge glows when any session is producing output. Vibrancy-aware
+   via --bg-panel; never opaque. */
 #status-bar {
-    display: flex;
+    position: relative;
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
     align-items: center;
-    gap: 14px;
-    height: 22px;
-    padding: 0 10px;
-    background: var(--bg-panel);
+    height: 26px;
+    padding: 0 4px;
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--bg-panel) 90%, transparent),
+        color-mix(in srgb, var(--bg-panel) 98%, transparent)
+    );
     border-top: 1px solid var(--border);
     color: var(--muted);
     font-size: 11px;
@@ -4709,6 +4715,82 @@ body:not(.tabbar-left) #new-group {
     user-select: none;
     white-space: nowrap;
     overflow: hidden;
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+/* Activity rail — silent by default. The bar's existing border-top is
+   the only thing visible when nothing is happening. When a session is
+   producing bytes (Phase 2 will toggle .is-active on #status-bar), the
+   rail lights up with a moving accent. No animation while idle — empty
+   activity should look empty, not perpetually buzzing. */
+#status-bar::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(90, 209, 255, 0.5) 30%,
+        rgba(255, 138, 76, 0.5) 50%,
+        rgba(90, 209, 255, 0.5) 70%,
+        transparent 100%
+    );
+    background-size: 220% 100%;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 600ms ease-out;
+}
+#status-bar.is-active::before {
+    opacity: 0.45;
+    animation: sb-rail 3.2s ease-in-out infinite;
+}
+@keyframes sb-rail {
+    0% { background-position: 0% 0; opacity: 0.2; }
+    50% { opacity: 0.55; }
+    100% { background-position: -220% 0; opacity: 0.2; }
+}
+
+/* Zones */
+.sb-zone {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 100%;
+    min-width: 0;
+}
+.sb-left { padding-left: 6px; }
+.sb-right { padding: 0 6px 0 10px; justify-content: flex-end; }
+.sb-framing {
+    padding: 0 4px;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+.sb-center {
+    padding: 0 10px;
+    justify-content: center;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Uniform padding/rounding for every direct child of a zone, so chips
+   align visually without each segment needing its own paddings. */
+.sb-zone > .status-segment,
+.sb-zone > button,
+.sb-zone > .status-chip {
+    padding: 2px 8px;
+    border-radius: 6px;
+    transition: background 120ms;
+}
+/* Hover feedback is reserved for actually interactive elements
+   (buttons + explicit chip classes). Plain <span> segments like the
+   active-tab indicator must not look clickable. */
+.sb-zone > button:not(:disabled):hover,
+.sb-zone > .status-chip:not(:disabled):hover {
+    background: rgba(255, 255, 255, 0.06);
 }
 
 .status-segment {
@@ -7459,7 +7541,7 @@ body.tabbar-left .tab-grouped.active::before {
 
 /* Restore vertical-stack body for sidebar (horizontal default uses row). */
 body.tabbar-left .tab-group-shell {
-    margin: 0 0 4px 0;
+    margin: 0;
     gap: 8px;
 }
 /* External stripe replaced by: header border-left + body::before
@@ -7480,7 +7562,7 @@ body.tabbar-left .tab-group-shell:not(.tab-group-shell-collapsed)
     /* Sits at the same x as the header's colored border-left, so the
        header bar visually continues straight down through the kids. */
     left: 14px;
-    top: 36px; /* chip margin-top (4) + height (28) + 4 breathing room */
+    top: 34px; /* chip margin-top (2) + height (28) + 4 breathing room */
     bottom: 4px;
     width: 2px;
     border-radius: 2px;
@@ -7510,7 +7592,7 @@ body.tabbar-left .group-chip {
         );
     border-left: 3px solid var(--group-color, var(--border));
     padding: 0 12px 0 8px;
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 body.tabbar-left .tab-group-shell {
@@ -11578,4 +11660,96 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
     color: var(--text-muted, #8a93a0);
     background: rgba(255, 255, 255, 0.04);
     border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Custom tooltip (replaces native title=) ────────────────────────
+   Flat dark card, Linear-style: solid surface, 1px border, no blur.
+   Opens after 350ms so quick mouse-bys don't trigger it. Positioned
+   above the target (flips below near the top edge). */
+.ck-tooltip {
+    position: fixed;
+    z-index: 9999;
+    display: none;
+    pointer-events: none;
+    max-width: 340px;
+    min-width: 0;
+    padding: 10px 12px;
+    background: #0e0e10;
+    color: var(--text, #d5d9de);
+    border: 1px solid #2a2a2e;
+    border-radius: 8px;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.04) inset,
+        0 8px 24px rgba(0, 0, 0, 0.45),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+    font-size: 12px;
+    line-height: 1.45;
+    letter-spacing: 0.005em;
+    opacity: 0;
+    transform: translateY(2px);
+    transition:
+        opacity 120ms ease,
+        transform 120ms ease;
+}
+.ck-tooltip.is-visible {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+.ck-tooltip__title {
+    font-weight: 600;
+    color: var(--text, #eaecef);
+    font-size: 12px;
+    letter-spacing: 0.01em;
+}
+.ck-tooltip__subtitle {
+    margin-top: 2px;
+    color: var(--text-muted, #8a93a0);
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    word-break: break-all;
+}
+.ck-tooltip__meta {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--text-muted, #9aa3b0);
+    font-size: 11px;
+}
+.ck-tooltip__preview {
+    margin-top: 6px;
+    color: var(--text-muted, #8a93a0);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+}
+.ck-tooltip__hint {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--text-muted, #9aa3b0);
+    font-size: 11px;
+}
+.ck-tooltip__hint kbd {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    color: var(--text, #d5d9de);
+}
+.ck-tooltip__body {
+    color: var(--text, #d5d9de);
+    white-space: pre-wrap;
 }

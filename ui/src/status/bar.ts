@@ -40,12 +40,13 @@ import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
+import { attachTooltip } from "../tooltip/tooltip";
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
 
-const CPU_SVG =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>';
+// CPU_SVG removed with the runtime chip (node 25.2.1 etc). Tooling
+// versions moved to About — they're not real-time signals.
 
 /// Callbacks the AOM popover wires to its action buttons. All fields
 /// are required now that TabManager is fully wired (Task 11).
@@ -515,19 +516,30 @@ export class StatusBar {
     if (!this.enabled) return;
     this.host.innerHTML = "";
 
-    if (this.currentTab) {
-      this.host.appendChild(activeTabSegment(this.currentTab));
-    }
+    // Four-zone layout. Left = stable identity (workspace + git).
+    // Framing = agent premise (operator + mission + AOM). Center =
+    // adaptive context (currently the active executor — future: token
+    // sparkline, suggestions, errors). Right = trailing vitals.
+    const left = document.createElement("div");
+    left.className = "sb-zone sb-left";
+    const framing = document.createElement("div");
+    framing.className = "sb-zone sb-framing";
+    const center = document.createElement("div");
+    center.className = "sb-zone sb-center";
+    const right = document.createElement("div");
+    right.className = "sb-zone sb-right";
+
+    // ─── LEFT ────────────────────────────────────────────
+    if (this.currentTab) left.appendChild(activeTabSegment(this.currentTab));
     if (ctx.git) {
-      this.host.appendChild(
+      left.appendChild(
         segment(GIT_BRANCH_SVG, ctx.git.repo_name, ctx.git.branch),
       );
     }
-    if (ctx.runtime) {
-      this.host.appendChild(
-        segment(CPU_SVG, ctx.runtime.language, ctx.runtime.version),
-      );
-    }
+    // Runtime (node 25.2.1 etc) dropped — vestigial tooling info, not
+    // useful for an AI-native terminal's primary chrome. Lives in About.
+
+    // ─── FRAMING ─────────────────────────────────────────
     if (this.currentOperatorEntity) {
       const opEntity = this.currentOperatorEntity;
       const sid = this.currentSessionId;
@@ -537,15 +549,15 @@ export class StatusBar {
       btn.className = "status-chip status-chip-operator";
       if (live) btn.classList.add("is-live");
       else if (!enabled) btn.classList.add("is-off");
-      btn.title = live
-        ? `Operator: ${opEntity.name} — LIVE (replies typed into this tab). Click to switch.`
-        : enabled
-          ? `Operator: ${opEntity.name} — dry-run (replies proposed, not typed). Click to switch.`
-          : `Operator: ${opEntity.name} — off. Click to switch.`;
+      attachTooltip(
+        btn,
+        live
+          ? `Operator: ${opEntity.name} — LIVE (replies typed into this tab). Click to switch.`
+          : enabled
+            ? `Operator: ${opEntity.name} — dry-run (replies proposed, not typed). Click to switch.`
+            : `Operator: ${opEntity.name} — off. Click to switch.`,
+      );
       const liveBadge = live ? `<span class="status-chip-operator__live">LIVE</span>` : "";
-      // Color lives in a leading dot — same pattern the active-tab chip
-      // uses — so the chip itself sits flat alongside the other status
-      // segments instead of competing with a saturated background.
       btn.innerHTML =
         `<span class="status-chip-operator__dot" style="background:${opEntity.color}"></span>` +
         `<span class="status-chip-operator__name">${escapeHtml(opEntity.name)}</span>` +
@@ -553,20 +565,15 @@ export class StatusBar {
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);
       });
-      this.host.appendChild(btn);
+      framing.appendChild(btn);
     } else if (this.currentSessionId) {
-      // Mirror "Set mission" — surface a subtle affordance to pin an
-      // Operator to this tab. Same opacity/italic treatment so the two
-      // add-pills read as a consistent vocabulary. Always shown when a
-      // session is active and nothing is pinned (operators aren't
-      // project-scoped, so no git/runtime gate).
       const sid = this.currentSessionId;
-      this.host.appendChild(
+      framing.appendChild(
         addOperatorSegment(() => this.onOperatorChipClick?.(sid)),
       );
     }
     if (this.currentMission && this.currentSessionId) {
-      this.host.appendChild(
+      framing.appendChild(
         missionSegment(
           this.currentMission,
           () => this.openMission(),
@@ -575,36 +582,23 @@ export class StatusBar {
       );
     } else if (
       this.currentSessionId &&
-      // "Looks like a project" heuristic: backend already detected
-      // either a git repo or a runtime manifest (package.json,
-      // Cargo.toml, pyproject, …). We piggy-back on that signal so
-      // there's no separate marker-file list to maintain here.
       (ctx.git !== null || ctx.runtime !== null)
     ) {
       const sid = this.currentSessionId;
-      this.host.appendChild(
+      framing.appendChild(
         addMissionSegment(() => this.onMissionSetRequested?.(sid)),
       );
     }
-    // Fallback OP chip — only when no entity is pinned (default operator
-    // case). When an entity is shown above, its colored chip already
-    // carries the operator presence, with LIVE inlined as a badge.
+    // Fallback OP chip — default-operator case (no pinned entity).
     if (
       !this.currentOperatorEntity &&
       this.currentOperator &&
       this.currentOperator.enabled
     ) {
-      this.host.appendChild(
-        operatorSegment(this.currentOperator),
-      );
-    }
-    if (this.currentExecutor) {
-      this.host.appendChild(executorSegment(this.currentExecutor, this.online));
-    } else if (!this.online) {
-      this.host.appendChild(offlineSegment());
+      framing.appendChild(operatorSegment(this.currentOperator));
     }
     if (this.currentAom) {
-      this.host.appendChild(
+      framing.appendChild(
         aomSegment(
           this.currentAom,
           this.excludedTabs.length,
@@ -612,12 +606,19 @@ export class StatusBar {
         ),
       );
     }
-    // Telegram status pill — Disabled / Ok / Error. Click opens the
-    // settings panel scrolled to the Telegram section.
-    this.host.appendChild(telegramSegment(this.currentTgStatus));
 
-    // Covenant Score chip — sits between telegram and version. Click
-    // opens the Score modal with heatmap + stats.
+    // ─── CENTER ──────────────────────────────────────────
+    // Today this is the "what's running" indicator (executor chip or
+    // offline marker). Phase 2: replaced by adaptive priority stack
+    // (error > suggest > running > syncing > idle vitals).
+    if (this.currentExecutor) {
+      center.appendChild(executorSegment(this.currentExecutor, this.online));
+    } else if (!this.online) {
+      center.appendChild(offlineSegment());
+    }
+
+    // ─── RIGHT ───────────────────────────────────────────
+    right.appendChild(telegramSegment(this.currentTgStatus));
     if (!this.scoreChip) {
       this.scoreChip = makeScoreChip();
       this.scoreChip.setOnClick(() => {
@@ -625,14 +626,15 @@ export class StatusBar {
       });
     }
     void this.scoreChip.refresh();
-    this.host.appendChild(this.scoreChip.el);
-
-    // Version chip lives at the trailing edge — informational, click
-    // opens the release log. Always rendered so the user always has a
-    // glanceable "what build am I on" indicator.
-    this.host.appendChild(
+    right.appendChild(this.scoreChip.el);
+    right.appendChild(
       versionSegment(__APP_VERSION__, () => this.onVersionChipClick?.()),
     );
+
+    this.host.appendChild(left);
+    this.host.appendChild(framing);
+    this.host.appendChild(center);
+    this.host.appendChild(right);
   }
 
   private async openMission(): Promise<void> {
@@ -716,9 +718,10 @@ export class StatusBar {
 function activeTabSegment(info: ActiveTabInfo): HTMLElement {
   const el = document.createElement("span");
   el.className = "status-segment status-active-tab";
-  el.title = info.groupName
-    ? `Active tab: ${info.groupName} / ${info.name}`
-    : `Active tab: ${info.name}`;
+  attachTooltip(
+    el,
+    info.groupName ? `Active tab: ${info.groupName} / ${info.name}` : `Active tab: ${info.name}`,
+  );
 
   if (info.color || info.groupColor) {
     const dot = document.createElement("span");
@@ -783,8 +786,13 @@ function aomSegment(
   const ratio =
     aom.budget_usd > 0 ? aom.accumulated_cost_usd / aom.budget_usd : 0;
   if (ratio >= 0.8) el.classList.add("status-aom-warn");
-  el.title = `AOM running — ${aom.decisions_count} decisions, $${aom.accumulated_cost_usd.toFixed(3)} of $${aom.budget_usd.toFixed(2)} budget. Click for controls.`;
-  el.setAttribute("aria-label", el.title);
+  const aomLabel = `AOM running — ${aom.decisions_count} decisions, $${aom.accumulated_cost_usd.toFixed(3)} of $${aom.budget_usd.toFixed(2)} budget. Click for controls.`;
+  el.setAttribute("aria-label", aomLabel);
+  attachTooltip(el, {
+    title: "AOM running",
+    meta: `${aom.decisions_count} decisions · $${aom.accumulated_cost_usd.toFixed(3)} of $${aom.budget_usd.toFixed(2)}`,
+    hint: "Click for controls",
+  });
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
@@ -847,8 +855,8 @@ function telegramSegment(status: TelegramStatus): HTMLElement {
       : status === "error"
         ? "Telegram error — last poll failed"
         : "Telegram disabled — click to configure";
-  el.title = `${label}. Click to open Telegram settings.`;
   el.setAttribute("aria-label", label);
+  attachTooltip(el, `${label}. Click to open Telegram settings.`);
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
@@ -868,10 +876,13 @@ function versionSegment(version: string, onClick: () => void): HTMLElement {
   el.type = "button";
   const isDev = import.meta.env.DEV;
   el.className = isDev ? "status-segment status-version status-version-dev" : "status-segment status-version";
-  el.title = isDev
-    ? `Covenant v${version} (dev build) — click for release log`
-    : `Covenant v${version} — click for release log`;
   el.setAttribute("aria-label", `Version ${version}${isDev ? " dev" : ""}. Open release log.`);
+  attachTooltip(
+    el,
+    isDev
+      ? `Covenant v${version} (dev build) — click for release log`
+      : `Covenant v${version} — click for release log`,
+  );
 
   const text = document.createElement("span");
   text.className = "status-text";
@@ -898,12 +909,15 @@ function operatorSegment(state: { enabled: boolean; live: boolean }): HTMLElemen
   const el = document.createElement("span");
   const liveCls = state.live ? " status-operator-live" : "";
   el.className = `status-segment status-operator${liveCls}`;
-  el.title = state.live
-    ? "Operator LIVE — replies will be typed into this tab"
-    : "Operator enabled (dry-run) — replies are proposed, not typed";
   el.setAttribute(
     "aria-label",
     state.live ? "Operator live" : "Operator enabled, dry-run",
+  );
+  attachTooltip(
+    el,
+    state.live
+      ? "Operator LIVE — replies will be typed into this tab"
+      : "Operator enabled (dry-run) — replies are proposed, not typed",
   );
 
   const icon = document.createElement("span");
@@ -957,9 +971,12 @@ function executorSegment(name: string, online: boolean = true): HTMLElement {
   el.className = (brand
     ? "status-segment status-executor status-executor-brand"
     : "status-segment status-executor") + offlineCls;
-  el.title = online
-    ? `Running ${brand?.label ?? name} in this tab`
-    : `${brand?.label ?? name} unavailable — no internet`;
+  attachTooltip(
+    el,
+    online
+      ? `Running ${brand?.label ?? name} in this tab`
+      : `${brand?.label ?? name} unavailable — no internet`,
+  );
   el.setAttribute(
     "aria-label",
     online
@@ -1017,7 +1034,7 @@ function executorSegment(name: string, online: boolean = true): HTMLElement {
 function offlineSegment(): HTMLElement {
   const el = document.createElement("span");
   el.className = "status-segment status-offline";
-  el.title = "No internet connection — Claude unavailable";
+  attachTooltip(el, "No internet connection — Claude unavailable");
   el.setAttribute("aria-label", "Offline — no internet connection");
   el.innerHTML =
     '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>' +
@@ -1035,17 +1052,22 @@ function missionSegment(
   // Kind-aware modifier so Superpowers missions read distinctly from
   // Covenant ones at a glance (different accent + icon).
   el.className = `status-segment status-mission status-mission--${mission.kind}`;
-  const planSummary = mission.plan
-    ? `\n${mission.plan.tasks_done}/${mission.plan.tasks_total} tasks done`
-    : mission.kind === "superpowers"
-      ? "\n(no plan attached)"
-      : "";
   const kindLabel = mission.kind === "superpowers" ? "Superpowers" : "Covenant";
-  el.title = `${kindLabel} mission: ${mission.path}${planSummary}\n\n${mission.content_preview}\n\nClick to view full spec`;
   el.setAttribute(
     "aria-label",
     `${kindLabel} mission: ${mission.path}. Click to view full spec.`,
   );
+  attachTooltip(el, {
+    title: `${kindLabel} mission`,
+    subtitle: mission.path,
+    meta: mission.plan
+      ? `${mission.plan.tasks_done}/${mission.plan.tasks_total} tasks done`
+      : mission.kind === "superpowers"
+        ? "no plan attached"
+        : undefined,
+    preview: mission.content_preview,
+    hint: "Click to open spec",
+  });
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
@@ -1081,7 +1103,7 @@ function addMissionSegment(onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
   el.className = "status-segment status-add-mission";
-  el.title = "Set mission for this tab — anchor scope and constraints";
+  attachTooltip(el, "Set mission for this tab — anchor scope and constraints");
   el.setAttribute("aria-label", "Set mission");
 
   const icon = document.createElement("span");
@@ -1110,7 +1132,7 @@ function addOperatorSegment(onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
   el.className = "status-segment status-add-operator";
-  el.title = "Pin an Operator to this tab";
+  attachTooltip(el, "Pin an Operator to this tab");
   el.setAttribute("aria-label", "Set operator");
 
   const icon = document.createElement("span");
@@ -1348,9 +1370,10 @@ class MissionViewerModal {
       toggleBtn.type = "button";
       toggleBtn.className = "mission-viewer-toggle";
       const showingRendered = this.viewKind === "rendered";
-      toggleBtn.title = showingRendered
-        ? "Show raw markdown source"
-        : "Show rendered markdown";
+      attachTooltip(
+        toggleBtn,
+        showingRendered ? "Show raw markdown source" : "Show rendered markdown",
+      );
       toggleBtn.textContent = showingRendered ? "Source" : "Rendered";
       toggleBtn.addEventListener("click", () => {
         this.viewKind = showingRendered ? "source" : "rendered";
@@ -1363,9 +1386,10 @@ class MissionViewerModal {
       editBtn.type = "button";
       editBtn.className = "mission-viewer-edit";
       editBtn.disabled = this.aomActive || this.sessionId === null;
-      editBtn.title = this.aomActive
-        ? "Mission locked while AOM is running"
-        : "Edit mission";
+      attachTooltip(
+        editBtn,
+        this.aomActive ? "Mission locked while AOM is running" : "Edit mission",
+      );
       editBtn.innerHTML = `${Icons.pencil({ size: 12 })}<span>Edit</span>`;
       editBtn.addEventListener("click", () => this.enterEdit());
       actions.appendChild(editBtn);

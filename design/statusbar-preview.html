@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Status bar · preview</title>
+<style>
+  :root {
+    --bg: #0a0b0e;
+    --bar-bg: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+    --bar-stroke: rgba(255,255,255,0.08);
+    --text: #e8e9ec;
+    --muted: #8b909a;
+    --dim: #5e636d;
+    --accent: #ffd166;
+    --good: #6ee7a7;
+    --info: #8ab4ff;
+    --warn: #ffb86b;
+    --bad: #ff7a7a;
+    --claude: #ff8a4c;
+    --codex: #6ee7a7;
+    --copilot: #b794f4;
+    --ws: #5ad1ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 12px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 800px at 70% -10%, #1d2330 0%, transparent 60%),
+      radial-gradient(800px 600px at 10% 110%, #221a2e 0%, transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+    padding: 48px 28px 96px;
+  }
+  h1 { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  .sub { color: var(--dim); font-size: 11px; margin-bottom: 24px; }
+  .row {
+    max-width: 1400px;
+    margin: 0 auto 18px;
+  }
+  .row .heading {
+    display: flex; align-items: baseline; gap: 12px;
+    color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .row .heading b { color: var(--text); font-weight: 600; letter-spacing: 0.02em; text-transform: none; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 auto 24px; max-width: 1400px; }
+  .btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--bar-stroke);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .btn:hover { background: rgba(255,255,255,0.10); }
+  .btn.active { background: rgba(138,180,255,0.18); border-color: rgba(138,180,255,0.4); }
+
+  /* ------------ The bar ------------ */
+  .bar {
+    position: relative;
+    background: var(--bar-bg);
+    border: 1px solid var(--bar-stroke);
+    border-radius: 10px;
+    height: 28px;
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    overflow: hidden;
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 18px rgba(0,0,0,0.25);
+  }
+  /* The 1px activity rail along the top edge */
+  .bar::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--ws) 30%,
+      var(--claude) 50%,
+      var(--ws) 70%,
+      transparent 100%);
+    opacity: 0.55;
+    animation: rail 3.2s ease-in-out infinite;
+    background-size: 220% 100%;
+  }
+  @keyframes rail {
+    0% { background-position: 0% 0; opacity: 0.25; }
+    50% { opacity: 0.7; }
+    100% { background-position: -220% 0; opacity: 0.25; }
+  }
+
+  /* zones */
+  .zone {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    height: 100%;
+  }
+  .zone.left { padding-left: 10px; }
+  .zone.right { padding-right: 10px; }
+  .zone.center {
+    justify-content: center;
+    min-width: 0;
+    padding: 0 14px;
+    border-left: 1px solid rgba(255,255,255,0.06);
+    border-right: 1px solid rgba(255,255,255,0.06);
+    height: 100%;
+  }
+  .zone.framing {
+    padding: 0 4px 0 6px;
+    border-left: 1px solid rgba(255,255,255,0.06);
+    height: 100%;
+    gap: 2px;
+  }
+
+  /* operator chip — colored dot per persona */
+  .op {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    transition: background 120ms;
+  }
+  .op:hover { background: rgba(255,255,255,0.06); }
+  .op .pdot {
+    width: 8px; height: 8px; border-radius: 2px; /* square dot = persona, distinct from round workspace dot */
+    background: var(--op-color, var(--muted));
+    box-shadow: 0 0 0 1.5px rgba(0,0,0,0.4), 0 0 6px var(--op-color, transparent);
+  }
+  .op[data-op="reviewer"] { --op-color: #b794f4; }
+  .op[data-op="pair"]     { --op-color: #5ad1ff; }
+  .op[data-op="watcher"]  { --op-color: #ffd166; }
+  .op[data-op="auto"]     { --op-color: #6ee7a7; }
+  .op.unset { color: var(--dim); }
+  .op.unset .pdot {
+    background: transparent;
+    border: 1px dashed var(--dim);
+    box-shadow: none;
+  }
+  .op.unset:hover { color: var(--text); }
+  .op.unset:hover .pdot { border-color: var(--text); }
+
+  /* mission chip */
+  .mission {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    color: var(--muted);
+    max-width: 240px;
+    transition: background 120ms;
+  }
+  .mission:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+  .mission .target {
+    width: 11px; height: 11px;
+    border: 1.4px solid currentColor; border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .mission .target::after {
+    content: ""; position: absolute; inset: 2px;
+    border-radius: 50%; background: var(--accent);
+  }
+  .mission .name {
+    color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .mission .progress-mini {
+    font-size: 10px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .mission.unset { color: var(--dim); }
+  .mission.unset .target { opacity: 0.6; }
+  .mission.unset .target::after { background: transparent; border: 1px dashed currentColor; inset: 1px; }
+  .mission.unset:hover { color: var(--text); }
+
+  /* chips */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: var(--text);
+    cursor: default;
+    white-space: nowrap;
+    transition: background 120ms;
+  }
+  .chip + .chip { margin-left: 2px; }
+  .chip.clickable { cursor: pointer; }
+  .chip.clickable:hover { background: rgba(255,255,255,0.06); }
+  .chip .k { color: var(--muted); }
+  .chip .v { color: var(--text); font-variant-numeric: tabular-nums; }
+  .chip .sep { color: var(--dim); margin: 0 2px; }
+
+  .ws-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ws);
+    box-shadow: 0 0 0 2px rgba(90, 209, 255, 0.18);
+  }
+  .branch-icon, .ahead-icon { width: 11px; height: 11px; }
+
+  /* right zone — vitals */
+  .latency {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 8px; border-radius: 6px;
+  }
+  .latency .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 6px rgba(110, 231, 167, 0.6);
+  }
+  .latency.warn .dot { background: var(--warn); box-shadow: 0 0 6px rgba(255, 184, 107, 0.6); }
+  .latency.bad  .dot { background: var(--bad);  box-shadow: 0 0 6px rgba(255, 122, 122, 0.6); animation: pulse-bad 1.2s infinite; }
+  @keyframes pulse-bad { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* spend ring */
+  .spend {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 6px;
+    cursor: pointer;
+  }
+  .spend:hover { background: rgba(255,255,255,0.06); }
+  .ring-wrap { position: relative; width: 14px; height: 14px; }
+  .ring-wrap svg { transform: rotate(-90deg); }
+  .ring-wrap .bg { stroke: rgba(255,255,255,0.10); }
+  .ring-wrap .fg { stroke: var(--good); transition: stroke 200ms; stroke-dasharray: 37.7; stroke-dashoffset: 15; }
+  .spend.warn .fg { stroke: var(--warn); }
+  .spend.bad  .fg { stroke: var(--bad); }
+
+  /* executor chip */
+  .exec {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px; border-radius: 6px;
+    cursor: pointer;
+    position: relative;
+  }
+  .exec::after {
+    content: ""; position: absolute; bottom: 1px; left: 8px; right: 8px;
+    height: 1.5px; border-radius: 1px;
+    background: var(--exec-color, var(--claude));
+    opacity: 0.7;
+  }
+  .exec:hover { background: rgba(255,255,255,0.06); }
+  .exec[data-exec="claude"]  { --exec-color: var(--claude); }
+  .exec[data-exec="codex"]   { --exec-color: var(--codex); }
+  .exec[data-exec="copilot"] { --exec-color: var(--copilot); }
+  .exec .glyph { color: var(--exec-color); font-weight: 600; }
+
+  /* ----- CENTER STATES ----- */
+  .center-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 11.5px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* IDLE — vitals */
+  .vitals { display: inline-flex; align-items: center; gap: 12px; }
+  .spark { width: 96px; height: 14px; }
+  .spark path { fill: none; stroke: var(--info); stroke-width: 1.4; }
+  .spark .glow { stroke: var(--info); opacity: 0.35; stroke-width: 3; }
+  .vitals .num { color: var(--text); font-variant-numeric: tabular-nums; }
+  .pill-mini {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.06);
+    padding: 1px 7px;
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+  }
+  .pill-mini.good { color: var(--good); border-color: rgba(110,231,167,0.25); background: rgba(110,231,167,0.08); }
+
+  /* RUNNING */
+  .running { display: inline-flex; align-items: center; gap: 10px; width: 100%; max-width: 640px; }
+  .running .play { color: var(--info); }
+  .running .cmd { color: var(--text); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .running .progress {
+    flex: 1; height: 2px; background: rgba(255,255,255,0.08); border-radius: 1px; position: relative; overflow: hidden;
+  }
+  .running .progress::after {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 40%;
+    background: linear-gradient(90deg, transparent, var(--info), transparent);
+    animation: indet 1.6s ease-in-out infinite;
+  }
+  @keyframes indet {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+  .running .elapsed { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* SUGGEST · shared kbd */
+  .kbd {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-bottom-width: 2px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  /* SUGGEST — inline-only, no chrome, accent glow */
+  @keyframes spark {
+    0%, 100% { opacity: 0.7; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.08); filter: drop-shadow(0 0 4px var(--claude)); }
+  }
+  .sg-naked {
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .sg-naked .glyph {
+    color: var(--claude);
+    filter: drop-shadow(0 0 5px rgba(255,138,76,0.55));
+    animation: spark 2.4s ease-in-out infinite;
+  }
+  .sg-naked .who { color: var(--claude); font-weight: 600; }
+  .sg-naked .what { color: var(--muted); }
+  .sg-naked .what code { color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; background: rgba(255,209,102,0.10); padding: 0 4px; border-radius: 3px; }
+
+  /* ERROR */
+  .err {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: linear-gradient(180deg, rgba(255,122,122,0.14), rgba(255,122,122,0.04));
+    border: 1px solid rgba(255,122,122,0.30);
+    border-radius: 6px;
+    padding: 2px 8px;
+    animation: errpulse 2.4s ease-in-out infinite;
+  }
+  @keyframes errpulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,122,122,0.0); }
+    50% { box-shadow: 0 0 0 3px rgba(255,122,122,0.10); }
+  }
+  .err .glyph { color: var(--bad); }
+  .err .code { color: var(--bad); font-weight: 600; }
+  .err .what { color: var(--text); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; }
+  .err .lines { color: var(--muted); }
+
+  /* SYNCING */
+  .sync { display: inline-flex; align-items: center; gap: 8px; color: var(--info); }
+  .sync .glyph { animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+  .sync .label { color: var(--text); }
+  .sync .rate { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* old bar for comparison */
+  .bar.old {
+    background: #0e1014;
+    border: 1px solid rgba(255,255,255,0.06);
+    grid-template-columns: 1fr auto;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .bar.old::before { display: none; }
+  .bar.old .left, .bar.old .right { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: 100%; }
+  .bar.old .left { color: var(--muted); }
+  .bar.old .right { color: var(--muted); }
+  .bar.old .sep { color: var(--dim); }
+  .bar.old .name { color: var(--text); }
+
+  /* hover popover hint */
+  .hint { color: var(--dim); font-size: 10.5px; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<h1>Status bar · adaptive redesign</h1>
+<p class="sub">Three zones: stable identity (left) · adaptive context (center) · agent vitals (right). The 1px rail at the top glows when any session is producing output.</p>
+
+<div class="row">
+  <div class="heading"><b>Before</b> · current bar</div>
+  <div class="bar old">
+    <div class="left">
+      <span style="color: var(--ws);">●</span> <span class="name">COVENANT</span>
+      <span class="sep">›</span> <span>flickering</span>
+      <span style="margin-left: 14px;">⎇ karlTerminal</span> <span class="name" style="color: var(--text);">main</span>
+      <span class="sep" style="margin-left: 14px;">⬡</span> <span>node</span> <span style="color: var(--text);">25.2.1</span>
+      <span class="sep" style="margin-left: 14px;">🎧</span> <span style="color: var(--muted);">Set operator</span>
+      <span class="sep" style="margin-left: 14px;">◎</span> <span>2026-05-17-covenant-score-v2-design.md</span>
+      <span style="margin-left: 14px; color: var(--claude);">✻</span> <span style="color: var(--text);">Claude</span>
+      <span class="sep" style="margin-left: 14px;">✈</span>
+      <span style="margin-left: 8px;">👤 karluiz · 2d</span>
+    </div>
+    <div class="right">v0.6.1</div>
+  </div>
+  <div class="hint">Same visual weight for everything; no live state; tooling versions, file paths and git author age dominate real estate.</div>
+</div>
+
+<div class="controls">
+  <span style="color: var(--muted); margin-right: 8px; align-self: center;">Center state:</span>
+  <button class="btn active" data-state="idle">Idle</button>
+  <button class="btn" data-state="running">Running</button>
+  <button class="btn" data-state="suggest">Suggest</button>
+  <button class="btn" data-state="error">Error</button>
+  <button class="btn" data-state="sync">Syncing</button>
+  <span style="color: var(--muted); margin: 0 8px 0 24px; align-self: center;">Framing:</span>
+  <button class="btn active" data-framing="both">Operator + Mission</button>
+  <button class="btn" data-framing="op-only">Operator only</button>
+  <button class="btn" data-framing="none">Unset (CTA)</button>
+  <span style="color: var(--muted); margin: 0 8px 0 24px; align-self: center;">Vitals:</span>
+  <button class="btn active" data-vitals="ok">Healthy</button>
+  <button class="btn" data-vitals="warn">Spend warn</button>
+  <button class="btn" data-vitals="bad">API down</button>
+</div>
+
+<div class="row">
+  <div class="heading"><b>After</b> · adaptive bar</div>
+  <div class="bar" id="bar">
+
+    <!-- LEFT -->
+    <div class="zone left">
+      <div class="chip clickable" title="Switch workspace">
+        <span class="ws-dot"></span>
+        <span>covenant</span>
+      </div>
+      <div class="chip clickable" title="Switch branch · 3 ahead, 0 behind">
+        <svg class="branch-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="color: var(--muted);">
+          <circle cx="4" cy="3.5" r="1.5"/>
+          <circle cx="4" cy="12.5" r="1.5"/>
+          <circle cx="12" cy="7" r="1.5"/>
+          <path d="M4 5v6 M4 11c0-3 8-1 8-4"/>
+        </svg>
+        <span class="v">main</span>
+        <span class="sep">·</span>
+        <span style="color: var(--good); font-size: 10.5px;">↑3</span>
+      </div>
+    </div>
+
+    <!-- FRAMING — operator + mission -->
+    <div class="zone framing" id="framing">
+      <!-- swapped by JS -->
+    </div>
+
+    <!-- CENTER -->
+    <div class="zone center" id="center">
+      <!-- swapped by JS -->
+    </div>
+
+    <!-- RIGHT -->
+    <div class="zone right">
+      <div class="latency" id="latency" title="Anthropic API · 37ms">
+        <span class="dot"></span>
+        <span class="v" id="latency-ms">37ms</span>
+      </div>
+      <div class="spend" id="spend" title="Today: $0.42 of $5.00 cap">
+        <div class="ring-wrap">
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <circle class="bg" cx="7" cy="7" r="6" fill="none" stroke-width="1.5"/>
+            <circle class="fg" cx="7" cy="7" r="6" fill="none" stroke-width="1.5" stroke-linecap="round" id="spend-fg"/>
+          </svg>
+        </div>
+        <span class="v" id="spend-val">$0.42</span>
+      </div>
+      <div class="exec" data-exec="claude" title="Active executor · click to switch">
+        <span class="glyph">✻</span>
+        <span class="v">Claude</span>
+      </div>
+    </div>
+  </div>
+  <div class="hint">Left never moves · Center morphs by event priority (error > suggest > running > syncing > idle) · Right surfaces agent vitals.</div>
+</div>
+
+<script>
+  const center = document.getElementById('center');
+
+  const states = {
+    idle: () => `
+      <div class="center-content">
+        <div class="vitals">
+          <svg class="spark" viewBox="0 0 96 14" preserveAspectRatio="none">
+            <path class="glow" d="M0 9 L8 7 L16 8 L24 6 L32 7 L40 4 L48 6 L56 3 L64 5 L72 2 L80 4 L88 3 L96 5"/>
+            <path d="M0 9 L8 7 L16 8 L24 6 L32 7 L40 4 L48 6 L56 3 L64 5 L72 2 L80 4 L88 3 L96 5"/>
+          </svg>
+          <span><span class="num">1.2k</span> <span style="color: var(--dim);">tok/min</span></span>
+          <span class="pill-mini good">cache 78%</span>
+          <span class="pill-mini">Sonnet 4.6</span>
+        </div>
+      </div>`,
+    running: () => `
+      <div class="center-content" style="width: 100%;">
+        <div class="running">
+          <span class="play">▶</span>
+          <span class="cmd">cargo test -p covenant notch::</span>
+          <span class="progress"></span>
+          <span class="elapsed">12.4s</span>
+        </div>
+      </div>`,
+    suggest: () => `
+      <div class="center-content">
+        <div class="sg-naked">
+          <span class="glyph">✻</span>
+          <span class="who">Claude suggests</span>
+          <span class="what"><code>cargo test --release</code></span>
+          <span class="kbd">↵</span>
+        </div>
+      </div>`,
+    error: () => `
+      <div class="center-content">
+        <div class="err">
+          <span class="glyph">⚠</span>
+          <span class="code">exit 1</span>
+          <span class="what">cargo build</span>
+          <span class="lines">· 14 lines</span>
+          <span class="kbd" style="background: rgba(255,122,122,0.15); border-color: rgba(255,122,122,0.3); margin-left: 6px;">open</span>
+        </div>
+      </div>`,
+    sync: () => `
+      <div class="center-content">
+        <div class="sync">
+          <span class="glyph">☁</span>
+          <span class="label">Covenant Score</span>
+          <span class="rate">· 142 KB/s</span>
+        </div>
+      </div>`,
+  };
+
+  function setState(name) {
+    center.innerHTML = states[name]();
+    document.querySelectorAll('[data-state]').forEach(b =>
+      b.classList.toggle('active', b.dataset.state === name));
+  }
+  document.querySelectorAll('[data-state]').forEach(b =>
+    b.addEventListener('click', () => setState(b.dataset.state)));
+  setState('idle');
+
+  // Vitals presets
+  const lat = document.getElementById('latency');
+  const latMs = document.getElementById('latency-ms');
+  const spend = document.getElementById('spend');
+  const spendFg = document.getElementById('spend-fg');
+  const spendVal = document.getElementById('spend-val');
+  const CIRC = 37.7; // 2π·6
+
+  function setVitals(mode) {
+    lat.classList.remove('warn','bad');
+    spend.classList.remove('warn','bad');
+    if (mode === 'ok')    { latMs.textContent = '37ms';  spendVal.textContent = '$0.42'; spendFg.style.strokeDashoffset = CIRC * (1 - 0.42/5); }
+    if (mode === 'warn')  { latMs.textContent = '180ms'; spendVal.textContent = '$3.71'; spendFg.style.strokeDashoffset = CIRC * (1 - 3.71/5); spend.classList.add('warn'); }
+    if (mode === 'bad')   { latMs.textContent = '—';     spendVal.textContent = '$4.92'; spendFg.style.strokeDashoffset = CIRC * (1 - 4.92/5); lat.classList.add('bad'); spend.classList.add('bad'); }
+    document.querySelectorAll('[data-vitals]').forEach(b =>
+      b.classList.toggle('active', b.dataset.vitals === mode));
+  }
+  document.querySelectorAll('[data-vitals]').forEach(b =>
+    b.addEventListener('click', () => setVitals(b.dataset.vitals)));
+  setVitals('ok');
+
+  // Framing presets
+  const framing = document.getElementById('framing');
+  const framingStates = {
+    both: () => `
+      <div class="op" data-op="pair" title="Operator · Pair (collaborative). Click to switch.">
+        <span class="pdot"></span>
+        <span class="v">Pair</span>
+      </div>
+      <div class="mission" title="Mission · covenant-score-v2-design · 4 of 7 tasks">
+        <span class="target"></span>
+        <span class="name">score-v2-design</span>
+        <span class="progress-mini">4/7</span>
+      </div>`,
+    'op-only': () => `
+      <div class="op" data-op="reviewer" title="Operator · Reviewer (read-only audit). Click to switch.">
+        <span class="pdot"></span>
+        <span class="v">Reviewer</span>
+      </div>
+      <div class="mission unset" title="No mission set · click to choose">
+        <span class="target"></span>
+        <span class="name" style="color: var(--dim);">Set mission</span>
+      </div>`,
+    none: () => `
+      <div class="op unset" title="No operator · click to assign a persona">
+        <span class="pdot"></span>
+        <span class="v">Set operator</span>
+      </div>
+      <div class="mission unset" title="No mission · click to choose">
+        <span class="target"></span>
+        <span class="name" style="color: var(--dim);">Set mission</span>
+      </div>`,
+  };
+  function setFraming(mode) {
+    framing.innerHTML = framingStates[mode]();
+    document.querySelectorAll('[data-framing]').forEach(b =>
+      b.classList.toggle('active', b.dataset.framing === mode));
+  }
+  document.querySelectorAll('[data-framing]').forEach(b =>
+    b.addEventListener('click', () => setFraming(b.dataset.framing)));
+  setFraming('both');
+</script>
+
+</body>
+</html>

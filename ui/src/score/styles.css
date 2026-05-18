@@ -5,14 +5,11 @@
   margin: 0;
   font: inherit;
   color: color-mix(in srgb, var(--fg, #d6d8db) 60%, transparent);
-  border-bottom: 1px dotted color-mix(in srgb, var(--fg, #d6d8db) 30%, transparent);
   line-height: 1;
-  padding-bottom: 1px;
   cursor: pointer;
 }
 .status-segment.status-score:hover {
   color: color-mix(in srgb, var(--fg, #d6d8db) 90%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--fg, #d6d8db) 55%, transparent);
 }
 
 .score-modal-backdrop {

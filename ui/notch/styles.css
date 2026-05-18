@@ -39,11 +39,11 @@ body[data-corner="top-left"] .stack {
 }
 
 .pill.expanded {
-  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(20,20,28,0.78));
+  background: rgba(20, 22, 28, 0.72);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-top-color: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.14);
   border-left: 3px solid var(--tab, #7c5cff);
   border-radius: 12px;
   padding: 9px 14px 9px 11px;
@@ -53,9 +53,7 @@ body[data-corner="top-left"] .stack {
   color: #fff;
   font: 500 12.5px -apple-system;
   min-width: 210px;
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.08) inset,
-    0 8px 24px rgba(0,0,0,0.35);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
   animation: slideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
 }
@@ -97,11 +95,11 @@ body[data-corner="top-left"] .stack {
 }
 
 .pill.compact {
-  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(14,14,18,0.82));
+  background: rgba(16, 18, 22, 0.76);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top-color: rgba(255, 255, 255, 0.20);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-top-color: rgba(255, 255, 255, 0.12);
   border-left: 3px solid var(--tab, #7c5cff);
   border-radius: 999px;
   padding: 6px 14px 6px 8px;
@@ -110,9 +108,7 @@ body[data-corner="top-left"] .stack {
   gap: 9px;
   color: #e8e8f0;
   font: 600 11.5px -apple-system;
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.08) inset,
-    0 6px 18px rgba(0,0,0,0.30);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
   transition: padding 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
               border-radius 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
               min-width 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);

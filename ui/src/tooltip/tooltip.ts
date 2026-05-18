@@ -1,0 +1,171 @@
+// Custom tooltip — replaces native `title=` attributes on chrome
+// elements (status bar, score heatmap, etc.). One singleton DOM node
+// is positioned above the hovered target, with a 350ms open delay so
+// it never gets in the way of a quick mouse-by.
+
+export type TooltipContent =
+  | string
+  | {
+      title?: string;
+      subtitle?: string;
+      meta?: string;
+      preview?: string;
+      hint?: string;
+      kbd?: string;
+    };
+
+const OPEN_DELAY_MS = 350;
+const CLOSE_DELAY_MS = 60;
+const EDGE_PAD = 8;
+
+let host: HTMLElement | null = null;
+let openTimer: number | null = null;
+let closeTimer: number | null = null;
+let activeTarget: HTMLElement | null = null;
+
+function ensureHost(): HTMLElement {
+  if (host) return host;
+  const el = document.createElement("div");
+  el.className = "ck-tooltip";
+  el.setAttribute("role", "tooltip");
+  el.setAttribute("aria-hidden", "true");
+  document.body.appendChild(el);
+  host = el;
+  return el;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderContent(content: TooltipContent): string {
+  if (typeof content === "string") {
+    return `<div class="ck-tooltip__body">${escapeHtml(content)}</div>`;
+  }
+  const parts: string[] = [];
+  if (content.title) {
+    parts.push(`<div class="ck-tooltip__title">${escapeHtml(content.title)}</div>`);
+  }
+  if (content.subtitle) {
+    parts.push(`<div class="ck-tooltip__subtitle">${escapeHtml(content.subtitle)}</div>`);
+  }
+  if (content.meta) {
+    parts.push(`<div class="ck-tooltip__meta">${escapeHtml(content.meta)}</div>`);
+  }
+  if (content.preview) {
+    parts.push(`<div class="ck-tooltip__preview">${escapeHtml(content.preview)}</div>`);
+  }
+  if (content.hint || content.kbd) {
+    parts.push(
+      `<div class="ck-tooltip__hint">` +
+        `<span>${escapeHtml(content.hint ?? "")}</span>` +
+        (content.kbd ? `<kbd>${escapeHtml(content.kbd)}</kbd>` : "") +
+        `</div>`,
+    );
+  }
+  return parts.join("");
+}
+
+function position(target: HTMLElement): void {
+  const el = ensureHost();
+  const rect = target.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Measure
+  el.style.visibility = "hidden";
+  el.style.display = "block";
+  const tw = el.offsetWidth;
+  const th = el.offsetHeight;
+  // Prefer above; flip below if not enough room
+  let placeBelow = rect.top < th + EDGE_PAD + 8;
+  let top = placeBelow ? rect.bottom + 8 : rect.top - th - 8;
+  let left = rect.left + rect.width / 2 - tw / 2;
+  if (left < EDGE_PAD) left = EDGE_PAD;
+  if (left + tw > vw - EDGE_PAD) left = vw - EDGE_PAD - tw;
+  if (top < EDGE_PAD) top = EDGE_PAD;
+  if (top + th > vh - EDGE_PAD) top = vh - EDGE_PAD - th;
+  el.style.top = `${Math.round(top)}px`;
+  el.style.left = `${Math.round(left)}px`;
+  el.classList.toggle("ck-tooltip--below", placeBelow);
+  el.style.visibility = "";
+}
+
+function show(target: HTMLElement, content: TooltipContent): void {
+  const el = ensureHost();
+  el.innerHTML = renderContent(content);
+  activeTarget = target;
+  position(target);
+  el.classList.add("is-visible");
+  el.setAttribute("aria-hidden", "false");
+}
+
+function hide(): void {
+  if (!host) return;
+  host.classList.remove("is-visible");
+  host.setAttribute("aria-hidden", "true");
+  activeTarget = null;
+}
+
+function clearTimers(): void {
+  if (openTimer != null) {
+    window.clearTimeout(openTimer);
+    openTimer = null;
+  }
+  if (closeTimer != null) {
+    window.clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+}
+
+/**
+ * Attach a custom tooltip to `el`. Strips any existing native `title`
+ * so the OS tooltip never races ours. Pass either a string (simple)
+ * or a structured object (title/subtitle/meta/preview/hint/kbd).
+ *
+ * Returns a detach fn for elements that get re-rendered.
+ */
+export function attachTooltip(el: HTMLElement, content: TooltipContent): () => void {
+  // Suppress native tooltip; preserve any prior aria-label.
+  if (el.hasAttribute("title")) el.removeAttribute("title");
+
+  const onEnter = () => {
+    clearTimers();
+    openTimer = window.setTimeout(() => {
+      show(el, content);
+    }, OPEN_DELAY_MS);
+  };
+  const onLeave = () => {
+    clearTimers();
+    closeTimer = window.setTimeout(() => {
+      if (activeTarget === el || activeTarget == null) hide();
+    }, CLOSE_DELAY_MS);
+  };
+  const onDown = () => {
+    clearTimers();
+    hide();
+  };
+
+  el.addEventListener("mouseenter", onEnter);
+  el.addEventListener("mouseleave", onLeave);
+  el.addEventListener("mousedown", onDown);
+  el.addEventListener("focusout", onLeave);
+
+  return () => {
+    el.removeEventListener("mouseenter", onEnter);
+    el.removeEventListener("mouseleave", onLeave);
+    el.removeEventListener("mousedown", onDown);
+    el.removeEventListener("focusout", onLeave);
+    if (activeTarget === el) hide();
+  };
+}
+
+// Hide on Escape and on window blur — covers edge cases where the
+// mouseleave never fires (window switch, modal opens, etc.).
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") hide();
+});
+window.addEventListener("blur", () => hide());
