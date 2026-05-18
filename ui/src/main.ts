@@ -311,8 +311,18 @@ async function boot(): Promise<void> {
         new CustomEvent("sidebar-view:set", { detail: { view } }),
       );
     };
-    viewBlocksBtn.addEventListener("click", () => setView("blocks"));
-    viewFilesBtn.addEventListener("click", () => setView("structure"));
+    const pickView = (view: "blocks" | "structure"): void => {
+      // If the right sidebar is folded, unfold it before switching view
+      // so the click never feels like a no-op.
+      if (document.body.classList.contains("blocks-globally-collapsed")) {
+        applyBlocksCollapsed(false);
+        localStorage.removeItem("covenant.blocks-globally-collapsed");
+        setTimeout(() => manager.refitActive(), 320);
+      }
+      setView(view);
+    };
+    viewBlocksBtn.addEventListener("click", () => pickView("blocks"));
+    viewFilesBtn.addEventListener("click", () => pickView("structure"));
     // Tabs broadcast their current view back when they activate so the
     // titlebar reflects the right tab's state.
     window.addEventListener("sidebar-view:active", (e) => {
@@ -486,6 +496,13 @@ async function boot(): Promise<void> {
   };
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
+  };
+  // Tell the vitals aggregator which session's snapshot should drive
+  // the status-bar cluster. Other sessions' summariser / fix-proposer
+  // bursts still accumulate per-session in the backend — they just
+  // don't paint until the user switches to that tab.
+  manager.onActiveSessionChange = (sessionId) => {
+    void invoke("set_active_session_for_vitals", { sessionId });
   };
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);

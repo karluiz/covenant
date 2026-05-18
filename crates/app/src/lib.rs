@@ -50,6 +50,7 @@ mod providers_cmd;
 mod summarizer;
 mod tab_manifest;
 pub mod telegram;
+mod exec_vitals;
 mod vitals;
 mod world;
 
@@ -170,6 +171,12 @@ pub(crate) struct AppState {
     /// exposes CPU / memory / network snapshots to the frontend via
     /// the `get_vitals` Tauri command.
     pub(crate) vitals: vitals::VitalsHandle,
+    /// Per-session Claude Code transcript tailer. Feeds executor-side
+    /// usage (model + tokens + approx. latency from JSONL timestamps)
+    /// into the same `VitalsHandle` so the status-bar cluster reflects
+    /// what the user's actual Claude session is doing, not just Covenant's
+    /// internal summariser / fix-proposer calls.
+    pub(crate) exec_vitals: exec_vitals::ExecVitals,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -377,6 +384,9 @@ async fn spawn_session(
         }
     }
 
+    // Snapshot the launch cwd before `opts` is moved into Session::spawn.
+    // Used by the exec_vitals tailer to find the Claude Code project dir.
+    let initial_launch_cwd = opts.cwd.clone();
     let (session, streams) = Session::spawn(opts).map_err(|e| e.to_string())?;
     let id = session.id;
     let id_str = id.to_string();
@@ -387,6 +397,49 @@ async fn spawn_session(
         let hub = notch_hub.clone();
         let bus_for_notch = bus_tx.clone();
         tauri::async_runtime::spawn(async move { hub.register(id, bus_for_notch).await });
+    }
+    // Per-session Claude Code transcript tailer. Tracks current cwd and
+    // attaches the JSONL watcher whenever the foreground executor is
+    // `claude`; detaches when it leaves the foreground. Re-attaches on
+    // CwdChanged so a `cd` mid-session re-resolves the project dir.
+    {
+        let exec_vitals = state.exec_vitals.clone();
+        let mut rx = session.subscribe();
+        let start_cwd = initial_launch_cwd
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::new());
+        tauri::async_runtime::spawn(async move {
+            let mut cwd = start_cwd;
+            let mut attached = false;
+            while let Ok(ev) = rx.recv().await {
+                match ev {
+                    karl_session::SessionEvent::ForegroundChanged { session, name } => {
+                        let is_claude = matches!(name.as_deref(), Some("claude"));
+                        if is_claude && !cwd.as_os_str().is_empty() {
+                            exec_vitals.attach(session, cwd.clone()).await;
+                            attached = true;
+                        } else if attached {
+                            exec_vitals.detach(session).await;
+                            attached = false;
+                        }
+                    }
+                    karl_session::SessionEvent::CwdChanged { session, cwd: new_cwd } => {
+                        cwd = new_cwd;
+                        if attached {
+                            // Re-resolve transcript dir from the new cwd.
+                            exec_vitals.attach(session, cwd.clone()).await;
+                        }
+                    }
+                    karl_session::SessionEvent::Closed { session } => {
+                        if attached {
+                            exec_vitals.detach(session).await;
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
     }
     // Drive the notch's per-session executor-agent state off ForegroundChanged.
     // The notch only surfaces pills for sessions where a known agent CLI
@@ -2719,6 +2772,7 @@ pub fn run() {
 
             let vitals = vitals::spawn(app.handle().clone());
             app.manage(vitals.clone());
+            let exec_vitals = exec_vitals::ExecVitals::new(vitals.clone());
 
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone(), vitals.clone());
             let mission_store = dir.join("session_missions.json");
@@ -3052,6 +3106,7 @@ pub fn run() {
                 pi_sessions: pi_commands::PiRegistry::new(),
                 notch_hub: notch::NotchHub::new(),
                 vitals,
+                exec_vitals,
             });
 
             // Fullscreen-aware notch: when the main Covenant window
@@ -3266,6 +3321,7 @@ pub fn run() {
             spawns_commands::spawns_upsert,
             spawns_commands::spawns_delete,
             vitals::get_vitals,
+            vitals::set_active_session_for_vitals,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

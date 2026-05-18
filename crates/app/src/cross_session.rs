@@ -286,7 +286,7 @@ async fn check_for_pattern(
         latency_ms = started.elapsed().as_millis() as u64,
         "cross-session check complete"
     );
-    vitals.record_complete(model_for_vitals, usage, started.elapsed().as_millis() as u32);
+    vitals.record_complete(trigger_id, model_for_vitals, usage, started.elapsed().as_millis() as u32);
 
     let Some(message) = parse_finding(&response) else {
         return Ok(());

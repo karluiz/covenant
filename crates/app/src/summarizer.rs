@@ -214,7 +214,7 @@ async fn regenerate(
         tokens_estimate,
         "summary refreshed"
     );
-    vitals.record_complete(model_for_vitals, usage, latency_ms as u32);
+    vitals.record_complete(session_id, model_for_vitals, usage, latency_ms as u32);
 
     Ok(())
 }

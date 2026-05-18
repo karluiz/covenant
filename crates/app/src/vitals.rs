@@ -12,8 +12,9 @@
 #![allow(dead_code)]
 
 use karl_agent::TokenUsage;
+use karl_session::SessionId;
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, Mutex};
@@ -30,14 +31,21 @@ const CACHE_WINDOW_SECS: u64 = 300;
 /// disappears the moment the last bucket would have shown a flat zero.
 pub(crate) const IDLE_THRESHOLD_SECS: u32 = 60;
 
-/// Events from instrumented call sites to the aggregator task.
+/// Events from instrumented call sites to the aggregator task. Every
+/// event is tagged with the session that owns the call so the aggregator
+/// can keep per-session windows. The status-bar cluster only renders the
+/// currently-active tab's bucket — other tabs accumulate silently and
+/// surface the moment the user switches to them.
 #[derive(Debug, Clone)]
 pub(crate) enum VitalsEvent {
-    CallStarted { model: String, started_unix_ms: u64 },
-    CallCompleted { model: String, usage: TokenUsage, latency_ms: u32 },
+    CallStarted { session: SessionId, model: String, started_unix_ms: u64 },
+    CallCompleted { session: SessionId, model: String, usage: TokenUsage, latency_ms: u32 },
     /// Cancelled, errored, or dropped without completion. Clears
     /// in-flight without writing into the bucket / cache window.
-    CallAbandoned,
+    CallAbandoned { session: SessionId },
+    /// Frontend tab change — switches which session's snapshot drives
+    /// the `vitals_update` event stream.
+    ActiveChanged { session: Option<SessionId> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +64,55 @@ pub(crate) struct VitalsPayload {
     pub in_flight: Option<InFlightPayload>,
     pub idle_secs: u32,
     pub is_idle: bool,
+}
+
+impl VitalsPayload {
+    /// Empty / idle snapshot used when no tab is active.
+    fn idle() -> Self {
+        Self {
+            tok_per_min: 0,
+            spark: [0; BUCKET_COUNT],
+            cache_hit_pct: None,
+            last_model: None,
+            last_latency_ms: None,
+            in_flight: None,
+            idle_secs: u32::MAX,
+            is_idle: true,
+        }
+    }
+}
+
+/// Per-session bucket map + which session the UI currently mirrors.
+#[derive(Debug)]
+pub(crate) struct AggregatorState {
+    per_session: HashMap<SessionId, VitalsState>,
+    active: Option<SessionId>,
+}
+
+impl AggregatorState {
+    fn new() -> Self {
+        Self {
+            per_session: HashMap::new(),
+            active: None,
+        }
+    }
+
+    fn touch_session(&mut self, session: SessionId, now_ms: u64) -> &mut VitalsState {
+        self.per_session
+            .entry(session)
+            .or_insert_with(|| VitalsState::new(now_ms))
+    }
+
+    fn active_snapshot(&mut self, now_ms: u64) -> VitalsPayload {
+        match self.active {
+            Some(sid) => self
+                .per_session
+                .entry(sid)
+                .or_insert_with(|| VitalsState::new(now_ms))
+                .snapshot(now_ms),
+            None => VitalsPayload::idle(),
+        }
+    }
 }
 
 fn now_unix_ms() -> u64 {
@@ -222,21 +279,23 @@ impl VitalsState {
 #[derive(Clone)]
 pub struct VitalsHandle {
     tx: broadcast::Sender<VitalsEvent>,
-    state: Arc<Mutex<VitalsState>>,
+    inner: Arc<Mutex<AggregatorState>>,
 }
 
 impl VitalsHandle {
     /// Begin tracking an in-flight call. Returns a `CallHandle`; on drop
     /// without `.complete()` or `.abandon()` the in-flight slot is cleared.
     #[must_use]
-    pub fn record_started(&self, model: String) -> CallHandle {
+    pub fn record_started(&self, session: SessionId, model: String) -> CallHandle {
         let started = now_unix_ms();
         let _ = self.tx.send(VitalsEvent::CallStarted {
+            session,
             model: model.clone(),
             started_unix_ms: started,
         });
         CallHandle {
             tx: self.tx.clone(),
+            session,
             model,
             started_unix_ms: started,
             consumed: false,
@@ -246,16 +305,38 @@ impl VitalsHandle {
     /// Direct one-shot record (skips in-flight tracking). Use when a call
     /// has no meaningful "started" boundary the caller can wrap with a
     /// CallHandle (e.g. retries inside `provider::collect_oneshot`).
-    pub fn record_complete(&self, model: String, usage: TokenUsage, latency_ms: u32) {
+    pub fn record_complete(
+        &self,
+        session: SessionId,
+        model: String,
+        usage: TokenUsage,
+        latency_ms: u32,
+    ) {
         let _ = self.tx.send(VitalsEvent::CallCompleted {
+            session,
             model,
             usage,
             latency_ms,
         });
     }
 
+    /// Mark which tab the status-bar cluster should reflect. None hides
+    /// the cluster (no active session, e.g. all tabs closed).
+    pub fn set_active(&self, session: Option<SessionId>) {
+        let _ = self.tx.send(VitalsEvent::ActiveChanged { session });
+    }
+
     pub async fn snapshot(&self) -> VitalsPayload {
-        self.state.lock().await.snapshot(now_unix_ms())
+        let mut inner = self.inner.lock().await;
+        let now = now_unix_ms();
+        match inner.active {
+            Some(sid) => inner
+                .per_session
+                .entry(sid)
+                .or_insert_with(|| VitalsState::new(now))
+                .snapshot(now),
+            None => VitalsPayload::idle(),
+        }
     }
 }
 
@@ -265,6 +346,7 @@ impl VitalsHandle {
 #[must_use = "complete() or abandon() must be called — letting it drop sends CallAbandoned"]
 pub struct CallHandle {
     tx: broadcast::Sender<VitalsEvent>,
+    session: SessionId,
     model: String,
     started_unix_ms: u64,
     consumed: bool,
@@ -274,6 +356,7 @@ impl CallHandle {
     pub fn complete(mut self, usage: TokenUsage, latency_ms: u32) {
         self.consumed = true;
         let _ = self.tx.send(VitalsEvent::CallCompleted {
+            session: self.session,
             model: std::mem::take(&mut self.model),
             usage,
             latency_ms,
@@ -282,14 +365,18 @@ impl CallHandle {
 
     pub fn abandon(mut self) {
         self.consumed = true;
-        let _ = self.tx.send(VitalsEvent::CallAbandoned);
+        let _ = self.tx.send(VitalsEvent::CallAbandoned {
+            session: self.session,
+        });
     }
 }
 
 impl Drop for CallHandle {
     fn drop(&mut self) {
         if !self.consumed {
-            let _ = self.tx.send(VitalsEvent::CallAbandoned);
+            let _ = self.tx.send(VitalsEvent::CallAbandoned {
+                session: self.session,
+            });
         }
     }
 }
@@ -298,8 +385,8 @@ impl Drop for CallHandle {
 /// during Tauri setup (see `crates/app/src/lib.rs::run`).
 pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
     let (tx, mut rx) = broadcast::channel::<VitalsEvent>(64);
-    let state = Arc::new(Mutex::new(VitalsState::new(now_unix_ms())));
-    let state_for_task = state.clone();
+    let inner = Arc::new(Mutex::new(AggregatorState::new()));
+    let inner_for_task = inner.clone();
     let app_for_task = app.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -311,26 +398,55 @@ pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
         loop {
             tokio::select! {
                 Ok(ev) = rx.recv() => {
-                    let payload = {
-                        let mut s = state_for_task.lock().await;
+                    let (emit_now, payload) = {
+                        let mut agg = inner_for_task.lock().await;
                         let now = now_unix_ms();
-                        match ev {
-                            VitalsEvent::CallStarted { model, started_unix_ms } => {
-                                s.in_flight = Some(InFlight { model, started_unix_ms });
+                        let touched_session = match &ev {
+                            VitalsEvent::CallStarted { session, model, started_unix_ms } => {
+                                let s = agg.touch_session(*session, now);
+                                s.in_flight = Some(InFlight {
+                                    model: model.clone(),
+                                    started_unix_ms: *started_unix_ms,
+                                });
+                                Some(*session)
                             }
-                            VitalsEvent::CallCompleted { model, usage, latency_ms } => {
-                                s.record_complete(model, usage, latency_ms, now);
+                            VitalsEvent::CallCompleted { session, model, usage, latency_ms } => {
+                                let s = agg.touch_session(*session, now);
+                                s.record_complete(model.clone(), *usage, *latency_ms, now);
+                                Some(*session)
                             }
-                            VitalsEvent::CallAbandoned => {
+                            VitalsEvent::CallAbandoned { session } => {
+                                let s = agg.touch_session(*session, now);
                                 s.in_flight = None;
+                                Some(*session)
                             }
-                        }
-                        s.snapshot(now)
+                            VitalsEvent::ActiveChanged { session } => {
+                                agg.active = *session;
+                                None
+                            }
+                        };
+                        // Emit when either the event matched the active
+                        // session (so the UI sees its own tab's update)
+                        // OR when the active session itself changed
+                        // (immediate re-render of the new tab's snapshot,
+                        // including the empty/idle case).
+                        let emit_now = match (&ev, agg.active) {
+                            (VitalsEvent::ActiveChanged { .. }, _) => true,
+                            (_, Some(active)) => touched_session == Some(active),
+                            _ => false,
+                        };
+                        let payload = agg.active_snapshot(now);
+                        (emit_now, payload)
                     };
-                    let _ = app_for_task.emit("vitals_update", &payload);
+                    if emit_now {
+                        let _ = app_for_task.emit("vitals_update", &payload);
+                    }
                 }
                 _ = tick.tick() => {
-                    let payload = state_for_task.lock().await.snapshot(now_unix_ms());
+                    let payload = inner_for_task
+                        .lock()
+                        .await
+                        .active_snapshot(now_unix_ms());
                     // Tick only emits when there's something to animate
                     // (in-flight elapsed) OR the cluster is still inside
                     // its visible window (advances idle_secs so the UI
@@ -345,7 +461,22 @@ pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
         }
     });
 
-    VitalsHandle { tx, state }
+    VitalsHandle { tx, inner }
+}
+
+/// Tauri command — the frontend calls this on every tab activation /
+/// deactivation so the aggregator knows which session's vitals to emit.
+#[tauri::command]
+pub async fn set_active_session_for_vitals(
+    handle: tauri::State<'_, VitalsHandle>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    let parsed = match session_id {
+        Some(s) => Some(s.parse::<SessionId>().map_err(|e| e.to_string())?),
+        None => None,
+    };
+    handle.set_active(parsed);
+    Ok(())
 }
 
 #[tauri::command]

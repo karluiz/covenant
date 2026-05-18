@@ -81,7 +81,7 @@ async fn run_loop(
                     continue;
                 }
 
-                match propose_fix(&settings, &command, &cwd, code, &output_text, &vitals).await {
+                match propose_fix(session_id, &settings, &command, &cwd, code, &output_text, &vitals).await {
                     Ok(Some((fix_cmd, why))) => {
                         let _ = bus_tx.send(SessionEvent::FixSuggested {
                             session: session_id,
@@ -117,6 +117,7 @@ async fn run_loop(
 }
 
 async fn propose_fix(
+    session_id: SessionId,
     settings: &Arc<Mutex<Settings>>,
     command: &str,
     cwd: &Path,
@@ -165,7 +166,7 @@ async fn propose_fix(
         latency_ms = started.elapsed().as_millis() as u64,
         "fix proposal generated"
     );
-    vitals.record_complete(model_for_vitals, usage, started.elapsed().as_millis() as u32);
+    vitals.record_complete(session_id, model_for_vitals, usage, started.elapsed().as_millis() as u32);
 
     Ok(parse_response(&response))
 }

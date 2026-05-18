@@ -2026,7 +2026,7 @@ async fn run_tick(
                 crate::provider_resolve::resolve_route(&s, crate::settings::Role::Triage)
             };
             let triage_started = std::time::Instant::now();
-            let triage_vh = vitals.record_started(triage_model.clone());
+            let triage_vh = vitals.record_started(session_id, triage_model.clone());
             let triage_result = match resolved_t {
                 Ok(rt) => {
                     karl_agent::provider::triage_via_provider(
@@ -2279,6 +2279,7 @@ async fn run_tick(
         let response = ask_response.text;
         let call_cost_usd = cost::estimate_usd(&model, ask_response.usage);
         vitals.record_complete(
+            session_id,
             model.clone(),
             ask_response.usage,
             started.elapsed().as_millis() as u32,
