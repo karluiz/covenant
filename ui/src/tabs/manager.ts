@@ -207,6 +207,10 @@ interface Tab {
   /// Operator pinned to this tab. Null = backend default (first operator
   /// in the registry). Persisted in the tab manifest; replayed on restore.
   operator_id: string | null;
+  /// Spawn bound to this tab. When set, the SpawnsChip reflects this
+  /// binding and deploy was initiated from this tab. Persisted in the
+  /// tab manifest; replayed on restore.
+  spawn_id: string | null;
   /// Currently-running agentic executor (claude/copilot/opencode/…)
   /// detected from the in-flight command. Null when shell is idle or
   /// the running command isn't a known agent. Drives the status-bar
@@ -262,6 +266,8 @@ interface SerializedTab {
   mission_path: string | null;
   /// Operator pinned to this tab at save time. Null = default operator.
   operator_id: string | null;
+  /// Spawn bound to this tab at save time. Optional for backward compat.
+  spawn_id?: string | null;
   /// AOM exclusion persisted for this tab. Optional for backward compat
   /// — old manifests that lack the field default to false on restore.
   aom_excluded?: boolean;
@@ -519,6 +525,11 @@ export class TabManager {
   /// Passes null when the active tab has no pinned operator_id or the
   /// cache doesn't have a match yet.
   public onActiveOperatorEntityChange: ((op: Operator | null) => void) | null = null;
+
+  /// Fires when the active tab's bound spawn_id changes — either because
+  /// the active tab switched or because setActiveSpawnId was called.
+  /// Passes null when the active tab has no bound spawn.
+  public onActiveSpawnChange: ((spawnId: string | null) => void) | null = null;
 
   /// Fires whenever the *active* tab's identity (name, color, or
   /// group membership/color) changes — including activation. Lets the
@@ -1135,6 +1146,7 @@ export class TabManager {
     // tab activation.
     this.emitActiveMission();
     this.emitActiveOperator();
+    this.emitActiveSpawn();
   }
 
   /// Push the active tab's identity (name + group + colors) to the
@@ -1186,6 +1198,28 @@ export class TabManager {
     );
     const opEntity = tab.operator_id ? (this.operatorCache.get(tab.operator_id) ?? null) : null;
     this.onActiveOperatorEntityChange?.(opEntity);
+  }
+
+  /// Emit the active tab's bound spawn_id to whoever is listening.
+  private emitActiveSpawn(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    this.onActiveSpawnChange?.(tab?.spawn_id ?? null);
+  }
+
+  /// Returns the spawn_id bound to the currently active tab, or null.
+  activeSpawnId(): string | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    return tab?.spawn_id ?? null;
+  }
+
+  /// Bind (or unbind) a spawn to the active tab in-memory, persist, and
+  /// fire onActiveSpawnChange. No-op when there is no active tab.
+  setActiveSpawnId(spawnId: string | null): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    tab.spawn_id = spawnId;
+    this.scheduleSave();
+    this.emitActiveSpawn();
   }
 
   /// Focus the active tab's terminal. Public so overlays (Recall
@@ -2283,6 +2317,7 @@ export class TabManager {
       sidebarView: "blocks",
       cwd: null,
       operator_id: null,
+      spawn_id: null,
       executor: null,
       disposers: [dataDispose, resizeDispose, roDispose],
       specBadge: null,
@@ -2448,6 +2483,7 @@ export class TabManager {
       sidebarView: "blocks",
       cwd: opts?.cwd ?? null,
       operator_id: null,
+      spawn_id: null,
       executor: "pi",
       disposers: [],
       specBadge: null,
@@ -2908,6 +2944,7 @@ export class TabManager {
         group_id: t.groupId,
         mission_path: t.mission?.path ?? null,
         operator_id: t.operator_id,
+        spawn_id: t.spawn_id,
         aom_excluded: t.aomExcluded,
         replay_key: t.replayKey,
       })),
@@ -3018,6 +3055,7 @@ export class TabManager {
             }),
           );
         }
+        tab.spawn_id = t.spawn_id ?? null;
         // Always pin the persisted value: backend default at attach time
         // depends on whether AOM is currently running, which drifts.
         const persistedExcluded = t.aom_excluded ?? false;
@@ -3184,6 +3222,7 @@ export class TabManager {
     this.onActiveContextChange?.(tab.cwd);
     this.emitActiveMission();
     this.emitActiveOperator();
+    this.emitActiveSpawn();
     this.emitActiveTab();
     this.statusBar?.setExecutor(tab.executor);
 

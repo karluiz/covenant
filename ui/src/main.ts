@@ -29,7 +29,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, injectCommand, killSessionForeground, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
+import { getSettings, injectCommand, killSessionForeground, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -377,19 +377,31 @@ async function boot(): Promise<void> {
   });
   tabsManager = manager;
 
-  // Spawns chip — titlebar chip + popover wired to backend (Slice 2).
+  // Spawns chip — titlebar chip + popover wired to backend.
   const spawnsMount = document.getElementById("spawns-chip-mount");
   if (spawnsMount) {
-    let boundId: string | null = null;
     const chip = new SpawnsChip(spawnsMount, {
       list: listSpawns,
-      getBoundId: () => boundId,
+      getBoundId: () => manager.activeSpawnId(),
       onSelect: (id) => {
-        boundId = id;
-        void chip.refresh(); // deploy wired in Slice 3
+        void (async () => {
+          const sid = manager.activeSessionId();
+          if (!sid) return;
+          const specs = await listSpawns();
+          const spec = specs.find((s) => s.id === id);
+          if (!spec || !spec.command) return;
+          const cmdline = [spec.command, ...spec.args].join(" ") + "\n";
+          const bytes = new TextEncoder().encode(cmdline);
+          await writeToSession(sid, bytes);
+          manager.setActiveSpawnId(spec.id);
+          void chip.refresh();
+        })();
       },
       onAdd: () => { /* settings nav wired in Slice 4 */ },
     });
+    manager.onActiveSpawnChange = (_spawnId) => {
+      void chip.refresh();
+    };
     void chip.refresh();
   }
 
