@@ -1,0 +1,47 @@
+---
+const stages = [
+  { id: "spc", label: "Specs", initial: "0" },
+  { id: "pln", label: "Plans", initial: "0" },
+  { id: "tsk", label: "Tasks", initial: "0" },
+  { id: "tok", label: "Tokens", initial: "0" },
+  { id: "cmt", label: "Commits", initial: "0" },
+  { id: "pr",  label: "PRs",     initial: "0" },
+];
+---
+<section class="section text-center">
+  <p class="eyebrow">The receipt</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl mx-auto">
+    When you can see everything, you can finally measure it.
+  </h2>
+  <p class="mt-6 mx-auto max-w-2xl text-mist/70">
+    DORA was designed for humans typing. A single orchestrator now ships hundreds of PRs a day.
+    The <strong>Covenant Score</strong> is the only unit that survives.
+  </p>
+
+  <div data-score-funnel class="mt-14 mx-auto max-w-4xl rounded-2xl border border-mist/10 bg-mist/[0.02] p-10">
+    <p class="eyebrow">Covenant Score</p>
+    <div class="mt-3 text-7xl font-semibold tracking-tight">8.4</div>
+
+    <div class="mt-10 flex flex-wrap items-center justify-center gap-4 text-xs font-mono uppercase tracking-eyebrow">
+      {stages.map((s, i) => (
+        <>
+          <div class="flex flex-col items-center gap-2">
+            <div class="w-14 h-14 rounded-lg border border-moss-500/40 grid place-items-center text-base text-mist">
+              <span data-stage={s.id}>{s.initial}</span>
+            </div>
+            <span class="text-mist/60">{s.label}</span>
+          </div>
+          {i < stages.length - 1 && <span class="text-mist/30">→</span>}
+        </>
+      ))}
+    </div>
+  </div>
+
+  <p class="mt-8 text-sm text-mist/60 max-w-xl mx-auto">
+    Six dimensions. One number. Compatible with — and an honest replacement for — DORA in the autonomous era.
+  </p>
+</section>
+
+<script>
+  import "../islands/ScoreFunnel.ts";
+</script>
