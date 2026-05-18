@@ -377,6 +377,10 @@ async function boot(): Promise<void> {
   });
   tabsManager = manager;
 
+  // Late-binding ref so the spawns chip onAdd callback can open Settings
+  // even though SettingsPanel is instantiated further down in boot().
+  const settingsRef: { panel: SettingsPanel | null } = { panel: null };
+
   // Spawns chip — titlebar chip + popover wired to backend.
   const spawnsMount = document.getElementById("spawns-chip-mount");
   if (spawnsMount) {
@@ -397,7 +401,7 @@ async function boot(): Promise<void> {
           void chip.refresh();
         })();
       },
-      onAdd: () => { /* settings nav wired in Slice 4 */ },
+      onAdd: () => { void settingsRef.panel?.open("spawns"); },
     });
     manager.onActiveSpawnChange = (_spawnId) => {
       void chip.refresh();
@@ -596,6 +600,7 @@ async function boot(): Promise<void> {
 
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
+  settingsRef.panel = settings;
   const capabilitiesPage = requireEl<HTMLElement>("capabilities-page");
   const capabilities = new CapabilitiesPanel(capabilitiesPage, workspace);
   capabilities.onClosed = () => manager.refitActive();

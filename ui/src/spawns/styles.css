@@ -115,3 +115,53 @@
   background: rgba(255, 255, 255, 0.04);
   color: var(--text, #d5d9de);
 }
+
+/* Settings → Spawns CRUD pane */
+.spawns-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.spawns-settings-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr 140px auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.spawns-settings-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  min-width: 0;
+}
+
+.spawns-settings-input:focus {
+  outline: none;
+  border-color: var(--accent, #b794f4);
+}
+
+.spawns-settings-default {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted, #5a6873);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.spawns-settings-delete {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.spawns-settings-add {
+  align-self: flex-start;
+}

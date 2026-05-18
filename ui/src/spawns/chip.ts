@@ -51,7 +51,10 @@ export class SpawnsChip {
       this.close();
       return;
     }
-    this.open();
+    void this.deps.list().then((specs) => {
+      this.specs = specs;
+      this.open();
+    });
   }
 
   private open(): void {
