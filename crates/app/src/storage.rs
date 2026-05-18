@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS operators (
     hard_constraints     TEXT NOT NULL DEFAULT '',
     is_default           INTEGER NOT NULL DEFAULT 0,
     created_at_unix_ms   INTEGER NOT NULL,
-    updated_at_unix_ms   INTEGER NOT NULL
+    updated_at_unix_ms   INTEGER NOT NULL,
+    voice                TEXT NOT NULL DEFAULT 'Terse'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS operators_default_unique
     ON operators(is_default) WHERE is_default = 1;
@@ -346,6 +347,26 @@ pub struct OperatorMemoryRow {
     pub created_at_unix_ms: u64,
 }
 
+/// Serialize a VoiceTone to its DB string representation.
+fn voice_to_str(v: crate::operator_registry::VoiceTone) -> &'static str {
+    match v {
+        crate::operator_registry::VoiceTone::Terse => "Terse",
+        crate::operator_registry::VoiceTone::Warm => "Warm",
+        crate::operator_registry::VoiceTone::Formal => "Formal",
+    }
+}
+
+/// Parse a VoiceTone from its DB string. Unknown values fall back
+/// to the default (`Terse`) so a corrupted column never crashes the
+/// row mapper.
+fn voice_from_str(s: &str) -> crate::operator_registry::VoiceTone {
+    match s {
+        "Warm" => crate::operator_registry::VoiceTone::Warm,
+        "Formal" => crate::operator_registry::VoiceTone::Formal,
+        _ => crate::operator_registry::VoiceTone::Terse,
+    }
+}
+
 fn shorten(id: &str) -> String {
     let n = id.len();
     if n > 6 {
@@ -409,6 +430,12 @@ impl Storage {
         // that informed it (NULL when no memory was applied).
         let _ = conn.execute(
             "ALTER TABLE operator_decisions ADD COLUMN applied_memory_id INTEGER",
+            [],
+        );
+        // Operator identity: voice tone for outbound messages.
+        // Existing rows get 'Terse' (the VoiceTone default).
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN voice TEXT NOT NULL DEFAULT 'Terse'",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
@@ -1164,8 +1191,8 @@ impl Storage {
             c.execute(
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms, xp) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                 created_at_unix_ms, updated_at_unix_ms, xp, voice) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1180,6 +1207,7 @@ impl Storage {
                     op.created_at_unix_ms as i64,
                     op.updated_at_unix_ms as i64,
                     op.xp as i64,
+                    voice_to_str(op.voice),
                 ],
             )?;
             Ok(())
@@ -1200,7 +1228,7 @@ impl Storage {
             c.execute(
                 "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
                  persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
-                 updated_at_unix_ms=?10 WHERE id=?1",
+                 updated_at_unix_ms=?10, voice=?11 WHERE id=?1",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1212,6 +1240,7 @@ impl Storage {
                     op.model,
                     op.hard_constraints,
                     op.updated_at_unix_ms as i64,
+                    voice_to_str(op.voice),
                 ],
             )?;
             Ok(())
@@ -1262,7 +1291,7 @@ impl Storage {
             let mut stmt = c.prepare(
                 "SELECT id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms, xp FROM operators \
+                 created_at_unix_ms, updated_at_unix_ms, xp, voice FROM operators \
                  ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -1290,7 +1319,10 @@ impl Storage {
                         created_at_unix_ms: row.get::<_, i64>(10)? as u64,
                         updated_at_unix_ms: row.get::<_, i64>(11)? as u64,
                         xp: row.get::<_, i64>(12).unwrap_or(0).max(0) as u64,
-                        voice: crate::operator_registry::VoiceTone::default(),
+                        voice: row
+                            .get::<_, String>(13)
+                            .map(|s| voice_from_str(&s))
+                            .unwrap_or_default(),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -2691,5 +2723,98 @@ mod tests {
         assert_eq!(p.turn_count, 7);
         assert_eq!(p.goal, "g");
         assert_eq!(p.belief, "b");
+    }
+
+    #[tokio::test]
+    async fn operator_voice_round_trips_and_defaults_to_terse() {
+        use crate::operator_registry::{Operator, OperatorId, VoiceTone};
+        use ulid::Ulid;
+
+        let (s, _g) = fresh();
+
+        // Insert a Warm op explicitly.
+        let warm = Operator {
+            id: OperatorId(Ulid::new()),
+            name: "warm-op".into(),
+            emoji: "🤖".into(),
+            color: "#6B7280".into(),
+            tags: vec![],
+            persona: "p".into(),
+            escalate_threshold: 0.6,
+            model: "m".into(),
+            hard_constraints: String::new(),
+            is_default: false,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 1,
+            xp: 0,
+            voice: VoiceTone::Warm,
+        };
+        let warm_id = warm.id;
+        s.operator_insert(warm).await.unwrap();
+
+        // Insert a default-voice op (Terse).
+        let terse = Operator {
+            id: OperatorId(Ulid::new()),
+            name: "terse-op".into(),
+            emoji: "🤖".into(),
+            color: "#6B7280".into(),
+            tags: vec![],
+            persona: "p".into(),
+            escalate_threshold: 0.6,
+            model: "m".into(),
+            hard_constraints: String::new(),
+            is_default: false,
+            created_at_unix_ms: 2,
+            updated_at_unix_ms: 2,
+            xp: 0,
+            voice: VoiceTone::Terse,
+        };
+        let terse_id = terse.id;
+        s.operator_insert(terse).await.unwrap();
+
+        // Round-trip via list.
+        let list = s.operator_list().await.unwrap();
+        let got_warm = list.iter().find(|o| o.id == warm_id).unwrap();
+        let got_terse = list.iter().find(|o| o.id == terse_id).unwrap();
+        assert!(matches!(got_warm.voice, VoiceTone::Warm));
+        assert!(matches!(got_terse.voice, VoiceTone::Terse));
+
+        // Update to Formal and verify persisted.
+        let mut updated = got_warm.clone();
+        updated.voice = VoiceTone::Formal;
+        s.operator_update(updated).await.unwrap();
+        let list2 = s.operator_list().await.unwrap();
+        let after = list2.iter().find(|o| o.id == warm_id).unwrap();
+        assert!(matches!(after.voice, VoiceTone::Formal));
+
+        // Raw-insert without voice column to simulate a pre-migration
+        // row, then verify the mapper falls back to Terse.
+        {
+            let c = s.inner.lock().await;
+            c.execute(
+                "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
+                 escalate_threshold, model, hard_constraints, is_default, \
+                 created_at_unix_ms, updated_at_unix_ms) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                params![
+                    Ulid::new().to_string(),
+                    "legacy-op",
+                    "🤖",
+                    "#000",
+                    "[]",
+                    "p",
+                    0.6_f64,
+                    "m",
+                    "",
+                    0_i64,
+                    3_i64,
+                    3_i64,
+                ],
+            )
+            .unwrap();
+        }
+        let list3 = s.operator_list().await.unwrap();
+        let legacy = list3.iter().find(|o| o.name == "legacy-op").unwrap();
+        assert!(matches!(legacy.voice, VoiceTone::Terse));
     }
 }
