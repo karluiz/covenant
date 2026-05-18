@@ -72,7 +72,7 @@ import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
 import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
-import { spawnPiSession } from "../api";
+import { spawnPiSession, piSetSessionName } from "../api";
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
@@ -327,6 +327,20 @@ type DragSource =
 
 function tabDisplayName(t: Tab): string {
   return t.customName?.trim() || t.defaultTitle;
+}
+
+export function shouldForwardRename(args: {
+  executor: string | null;
+  kind: "shell" | "pi";
+  previousCustomName: string | null;
+  newCustomName: string | null;
+}): boolean {
+  const wasUnnamed =
+    !args.previousCustomName || args.previousCustomName.trim().length === 0;
+  const isNamedNow =
+    !!args.newCustomName && args.newCustomName.trim().length > 0;
+  const isPi = args.kind === "pi" || args.executor === "pi";
+  return wasUnnamed && isNamedNow && isPi;
 }
 
 /// localStorage key for the short-id → display-name cache. Purpose:
@@ -3403,8 +3417,10 @@ export class TabManager {
   private commitTabRename(id: string, value: string): void {
     const tab = this.tabs.find((t) => t.id === id);
     if (!tab) return;
+    const previousCustomName = tab.customName;
     const trimmed = value.trim();
-    tab.customName = trimmed.length > 0 ? trimmed : null;
+    const newCustomName = trimmed.length > 0 ? trimmed : null;
+    tab.customName = newCustomName;
     this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
     this.renaming = null;
     this.renderTabbar();
@@ -3413,6 +3429,20 @@ export class TabManager {
     // If this tab is in the AOM excluded list, the popover's name
     // field would otherwise stay stale until the next AOM transition.
     this.pushExcludedToStatusBar();
+
+    if (
+      newCustomName &&
+      shouldForwardRename({
+        executor: tab.executor,
+        kind: tab.kind,
+        previousCustomName,
+        newCustomName,
+      })
+    ) {
+      void piSetSessionName(tab.sessionId, newCustomName).catch((err) => {
+        console.debug("piSetSessionName failed", { sessionId: tab.sessionId, err });
+      });
+    }
   }
 
   private commitGroupRename(id: string, value: string): void {
