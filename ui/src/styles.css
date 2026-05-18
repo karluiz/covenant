@@ -11121,27 +11121,25 @@ button.status-segment.status-tg:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* Update banner — dedicated row pinned to the top, pushes #layout down
-   via .has-update-banner on <body>. */
+/* Update banner — inline chip mounted into #app-titlebar-center. Replaces
+   the COVENANT brand text when an update is available. */
 .update-banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  height: 34px;
-  padding: 0 12px 0 84px;
-  background: linear-gradient(180deg, rgba(122, 162, 255, 0.14), rgba(122, 162, 255, 0.06));
-  border-bottom: 1px solid rgba(122, 162, 255, 0.22);
+  gap: 8px;
+  height: 24px;
+  padding: 0 4px 0 10px;
+  background: rgba(122, 162, 255, 0.08);
+  border: 1px solid rgba(122, 162, 255, 0.22);
+  border-radius: 999px;
   color: #dbe6ff;
-  font-size: 12px;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  pointer-events: auto;
 }
-body.has-update-banner #layout { padding-top: 34px; }
+body.has-update-banner #app-titlebar-brand { display: none; }
+#app-titlebar-center:has(.update-banner) { pointer-events: auto; }
 
 .update-banner__pulse {
   width: 8px; height: 8px; border-radius: 50%;
@@ -11155,42 +11153,32 @@ body.has-update-banner #layout { padding-top: 34px; }
   100% { box-shadow: 0 0 0 0 rgba(122, 162, 255, 0); }
 }
 
-.update-banner__label { color: #aebbdc; }
+.update-banner__pulse {
+  width: 6px; height: 6px;
+}
+.update-banner__label { color: #aebbdc; text-transform: uppercase; font-size: 10px; letter-spacing: 0.12em; }
 .update-banner__version {
   font: inherit; font-weight: 600; color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  padding: 2px 8px; border-radius: 999px;
+  background: transparent; border: 0; padding: 0;
   cursor: pointer;
-  transition: background 0.15s ease;
 }
-.update-banner__version:hover { background: rgba(255, 255, 255, 0.12); }
+.update-banner__version:hover { color: #c8d6ff; }
 .update-banner__whatsnew {
   font: inherit; background: transparent; border: 0; padding: 0;
   color: #7aa2ff; cursor: pointer; font-weight: 500;
 }
 .update-banner__whatsnew:hover { text-decoration: underline; }
 
-.update-banner__spacer { flex: 1; }
-
-.update-banner__later,
 .update-banner__install {
-  font: inherit; font-weight: 600;
-  height: 24px; padding: 0 12px; border-radius: 6px;
-  border: 1px solid transparent; cursor: pointer;
+  font: inherit; font-weight: 600; font-size: 11px;
+  height: 18px; padding: 0 10px; border-radius: 999px;
+  border: 0; cursor: pointer;
+  background: rgba(122, 162, 255, 0.18); color: #dbe6ff;
+  transition: background 0.15s ease;
 }
-.update-banner__later {
-  background: transparent; color: #b8c4dd;
-  border-color: rgba(255, 255, 255, 0.10);
-}
-.update-banner__later:hover { background: rgba(255, 255, 255, 0.05); }
-.update-banner__install {
-  background: #5b8cff; color: white;
-}
-.update-banner__install:hover { background: #7aa2ff; }
+.update-banner__install:hover { background: rgba(122, 162, 255, 0.32); color: #ffffff; }
 
 .update-banner--installing .update-banner__install,
-.update-banner--installing .update-banner__later,
 .update-banner--installing .update-banner__version,
 .update-banner--installing .update-banner__whatsnew {
   opacity: 0.5; pointer-events: none;
@@ -11198,7 +11186,7 @@ body.has-update-banner #layout { padding-top: 34px; }
 
 .update-banner__dismiss {
   background: transparent; border: 0; color: #aebbdc;
-  cursor: pointer; font-size: 16px; padding: 0 6px; line-height: 1;
+  cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1;
 }
 .update-banner__dismiss:hover { color: #ffffff; }
 

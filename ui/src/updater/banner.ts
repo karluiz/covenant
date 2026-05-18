@@ -13,18 +13,19 @@ const BODY_CLASS = "has-update-banner";
 export function showUpdateBanner(update: Update): void {
   if (document.getElementById(BANNER_ID)) return;
 
+  const center = document.getElementById("app-titlebar-center");
+  if (!center) return;
+
   const banner = document.createElement("div");
   banner.id = BANNER_ID;
-  banner.className = "update-banner";
+  banner.className = "update-banner no-drag";
   banner.innerHTML = `
     <span class="update-banner__pulse" aria-hidden="true"></span>
-    <span class="update-banner__label">Update available</span>
+    <span class="update-banner__label">Update</span>
     <button class="update-banner__version" type="button" title="View release notes">v${update.version}</button>
     <button class="update-banner__whatsnew" type="button">What's new ›</button>
-    <span class="update-banner__spacer"></span>
-    <button class="update-banner__later" type="button">Later</button>
-    <button class="update-banner__install" type="button">Install &amp; Relaunch</button>
-    <button class="update-banner__dismiss" type="button" aria-label="Dismiss">×</button>
+    <button class="update-banner__install" type="button" title="Install &amp; Relaunch">Install</button>
+    <button class="update-banner__dismiss" type="button" aria-label="Dismiss" title="Dismiss">×</button>
   `;
 
   const setBusy = (msg: string) => {
@@ -57,12 +58,10 @@ export function showUpdateBanner(update: Update): void {
     banner.remove();
     document.body.classList.remove(BODY_CLASS);
   };
-  banner.querySelector<HTMLButtonElement>(".update-banner__later")!
-    .addEventListener("click", hide);
   banner.querySelector<HTMLButtonElement>(".update-banner__dismiss")!
     .addEventListener("click", hide);
 
-  document.body.prepend(banner);
+  center.appendChild(banner);
   document.body.classList.add(BODY_CLASS);
 }
 
