@@ -71,10 +71,6 @@ export class VitalsCluster {
     const el = document.createElement("div");
     el.className = "sb-vitals";
     el.setAttribute("aria-label", "LLM activity vitals");
-    el.title =
-      "LLM activity — Covenant's internal calls (summarizer, fix-proposer, " +
-      "operator triage) plus the active executor's calls when its " +
-      "transcript is readable. Not strictly the executor's bill.";
 
     // Sparkline.
     const svg = document.createElementNS(
@@ -102,23 +98,16 @@ export class VitalsCluster {
     // Rate text.
     const rate = document.createElement("span");
     rate.className = "sb-vitals-rate";
-    rate.title =
-      "Tokens per minute over the last 60s (input + output + cache_creation; " +
-      "cache_read excluded).";
     el.appendChild(rate);
 
     // Cache pill.
     const cache = document.createElement("span");
     cache.className = "sb-vitals-pill sb-vitals-pill--cache";
-    cache.title =
-      "Cache hit rate over the last 5 minutes — cache_read / " +
-      "(cache_read + input + cache_creation).";
     el.appendChild(cache);
 
     // Model pill.
     const model = document.createElement("span");
     model.className = "sb-vitals-pill sb-vitals-pill--model";
-    model.title = "Model of the most recent observed LLM call.";
     el.appendChild(model);
 
     // Separator (middle dot).
@@ -131,9 +120,6 @@ export class VitalsCluster {
     // Latency (dot + text).
     const latWrap = document.createElement("span");
     latWrap.className = "sb-vitals-lat";
-    latWrap.title =
-      "Latency of the most recent observed LLM call. Green ≤100ms, " +
-      "amber ≤500ms, red >500ms.";
     const dot = document.createElement("span");
     dot.className = "sb-vitals-lat-dot";
     const latText = document.createElement("span");

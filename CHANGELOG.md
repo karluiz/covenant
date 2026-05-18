@@ -6,6 +6,66 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.1 — Per-tab vitals + Claude Code transcript tailer
+
+### Added
+
+- **Per-tab vitals scoping** (`crates/app/src/vitals.rs`,
+  `crates/app/src/lib.rs`, `ui/src/main.ts`). The status-bar cluster
+  was process-wide: any session's summariser / fix-proposer / triage
+  call painted into the cluster regardless of which tab was active, so
+  an empty plain-shell tab still showed live Sonnet 4.6 + 2s latency
+  because another tab was mid-summary. Each `VitalsEvent` now carries
+  a `SessionId`; the aggregator keeps a per-session bucket map plus an
+  `active` field set by the frontend on every tab activation via the
+  new `set_active_session_for_vitals` command. `vitals_update` only
+  emits for the active session.
+- **Claude Code transcript tailer** (`crates/app/src/exec_vitals.rs`).
+  New module that tails `~/.claude/projects/<slug>/<sid>.jsonl` per
+  session whenever the foreground executor is `claude`. Each
+  `assistant` turn with non-zero usage feeds `record_complete` on the
+  shared `VitalsHandle`, with latency derived from the preceding
+  `user` line's timestamp (clamped to [50ms, 600s]). Polls every 1s,
+  seeks to EOF on attach (no history replay), reattaches on
+  `CwdChanged`. Hand-rolled ISO-8601 parser avoids pulling chrono.
+- **Spawns: clickable flag chips in Settings**
+  (`ui/src/settings/spawns.ts`, `ui/src/spawns/styles.css`). Each
+  preset row now renders its flags / subcommands as monospace pill
+  chips below the inputs; clicking one appends it to the args field
+  and selects any placeholder (`<prompt>`, `<id>`, `<path>`) so the
+  user can type over it immediately.
+- **Project-notes titlebar button** (`ui/src/main.ts`,
+  `ui/index.html`). New affordance in the titlebar to open the
+  per-project notes panel without going through the command menu.
+
+### Changed
+
+- **Refreshed modal-footer button styling** (`ui/src/styles.css`).
+  Cancel / Save / Set mission pairs in Settings, Mission viewer, and
+  Mission page now share a unified treatment — pill shape, tinted
+  gradient with inset highlight + colored halo on primary, subtle
+  ghost on secondary, proper pressed state, accent focus ring, and a
+  legible (translucent-tint vs. opacity:0.4) disabled state.
+- **Update banner padding** (`ui/src/styles.css`). Pad the in-app
+  updater banner 84px from the left so it clears macOS traffic lights
+  instead of slipping under them.
+- **Sidebar fold-button icons** (`ui/src/icons/index.ts`,
+  `ui/src/main.ts`). Swap the static fold buttons for `panel-left /
+  right open / close` icons that reflect the current collapsed state.
+
+### Fixed
+
+- **UTF-8 boundary panic in `truncate_for_persist`**
+  (`crates/app/src/lib.rs`). `&s[..64*1024]` panicked in
+  `slice_error_fail` whenever byte 65536 landed inside a multi-byte
+  char (emoji, accented, CJK in agent output), aborting the tokio
+  worker → SIGABRT. Walk back to the nearest char boundary before
+  slicing. Same class as the earlier `truncate_for_log` fix that was
+  missed in `lib.rs`.
+- **Busy pulse dot on executor / pi tabs**
+  (`ui/src/tabs/manager.ts`). The dot duplicated information already
+  conveyed by the executor chip; suppress it on those tab kinds.
+
 ## v0.7.0 — Live LLM vitals in the status bar
 
 ### Added
