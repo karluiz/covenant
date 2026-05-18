@@ -124,16 +124,30 @@ fn trim_after_last_command_finish(buf: Vec<u8>) -> Vec<u8> {
     };
     // Find the OSC terminator after the marker: BEL (0x07) or ST (ESC \).
     let mut i = start + MARKER.len();
-    while i < buf.len() {
+    let end = loop {
+        if i >= buf.len() {
+            // Marker without a terminator in the tail — fall back to whole buf.
+            return ensure_trailing_newline(buf);
+        }
         if buf[i] == 0x07 {
-            return buf[..=i].to_vec();
+            break i + 1;
         }
         if buf[i] == 0x1b && i + 1 < buf.len() && buf[i + 1] == b'\\' {
-            return buf[..=i + 1].to_vec();
+            break i + 2;
         }
         i += 1;
+    };
+    ensure_trailing_newline(buf[..end].to_vec())
+}
+
+/// Make sure the replayed bytes land xterm's cursor at column 0. Without
+/// this, a tail that ends mid-line leaves the freshly-spawned zsh to
+/// trigger its `PROMPT_SP` probe — drawing an inverse `%` above the
+/// first prompt on every reopen.
+fn ensure_trailing_newline(mut buf: Vec<u8>) -> Vec<u8> {
+    if !buf.ends_with(b"\n") {
+        buf.extend_from_slice(b"\r\n");
     }
-    // Marker without a terminator in the tail — fall back to whole buf.
     buf
 }
 
@@ -188,7 +202,7 @@ mod tests {
             // doesn't (correctly) discard a pre-command tail.
             w.append(b"\x1b]133;D;0\x07");
         }
-        assert_eq!(read_tail(dir.path(), key), b"hello world\x1b]133;D;0\x07");
+        assert_eq!(read_tail(dir.path(), key), b"hello world\x1b]133;D;0\x07\r\n");
     }
 
     #[test]
@@ -218,7 +232,7 @@ mod tests {
         fs::create_dir_all(dir_for(dir.path())).unwrap();
         fs::write(&path, &log).unwrap();
         let tail = read_tail(dir.path(), key);
-        assert!(tail.ends_with(b"\x1b]133;D;0\x07"));
+        assert!(tail.ends_with(b"\x1b]133;D;0\x07\r\n"));
         assert!(!tail.windows(8).any(|w| w == b"prompt$ " && tail.ends_with(w)));
     }
 
