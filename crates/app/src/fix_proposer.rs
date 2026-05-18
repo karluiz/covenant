@@ -49,8 +49,9 @@ pub fn spawn_loop(
     settings: Arc<Mutex<Settings>>,
     bus_rx: broadcast::Receiver<SessionEvent>,
     bus_tx: broadcast::Sender<SessionEvent>,
+    vitals: crate::vitals::VitalsHandle,
 ) {
-    tokio::spawn(run_loop(session_id, settings, bus_rx, bus_tx));
+    tokio::spawn(run_loop(session_id, settings, bus_rx, bus_tx, vitals));
 }
 
 async fn run_loop(
@@ -58,6 +59,7 @@ async fn run_loop(
     settings: Arc<Mutex<Settings>>,
     mut bus_rx: broadcast::Receiver<SessionEvent>,
     bus_tx: broadcast::Sender<SessionEvent>,
+    vitals: crate::vitals::VitalsHandle,
 ) {
     let mut rate = SimpleRate::new(MAX_SUGGESTIONS_PER_MINUTE, Duration::from_secs(60));
 
@@ -79,7 +81,7 @@ async fn run_loop(
                     continue;
                 }
 
-                match propose_fix(&settings, &command, &cwd, code, &output_text).await {
+                match propose_fix(&settings, &command, &cwd, code, &output_text, &vitals).await {
                     Ok(Some((fix_cmd, why))) => {
                         let _ = bus_tx.send(SessionEvent::FixSuggested {
                             session: session_id,
@@ -120,6 +122,7 @@ async fn propose_fix(
     cwd: &Path,
     exit_code: i32,
     output: &str,
+    vitals: &crate::vitals::VitalsHandle,
 ) -> Result<Option<(String, String)>, String> {
     // Snapshot what we need without holding the lock across the http call.
     let resolved = {
@@ -151,15 +154,18 @@ async fn propose_fix(
         thinking_budget: None,
         force_tool: None,
     };
-    let response = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+    let model_for_vitals = req.model.clone();
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
         .await
-        .map_err(|e| e.to_string())?
-        .text;
+        .map_err(|e| e.to_string())?;
+    let usage = resp.usage;
+    let response = resp.text;
 
     tracing::info!(
         latency_ms = started.elapsed().as_millis() as u64,
         "fix proposal generated"
     );
+    vitals.record_complete(model_for_vitals, usage, started.elapsed().as_millis() as u32);
 
     Ok(parse_response(&response))
 }
