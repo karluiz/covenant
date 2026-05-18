@@ -15,6 +15,9 @@
 //! so callers must be inside a tokio runtime (Tauri provides one).
 
 pub mod idle;
+pub mod operator_ref;
+
+pub use operator_ref::{OperatorAction, OperatorRef, ProjectRef, VoiceToneSnapshot};
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

@@ -57,6 +57,25 @@ pub enum VoiceTone {
     Formal,
 }
 
+impl Operator {
+    /// Project this `Operator` to the lightweight `karl_session::OperatorRef`
+    /// used by session events and IPC. Keeps `ulid` / app-only types out of
+    /// the session crate.
+    pub fn as_ref(&self) -> karl_session::OperatorRef {
+        karl_session::OperatorRef {
+            id: self.id.to_string(),
+            name: self.name.clone(),
+            emoji: self.emoji.clone(),
+            color: self.color.clone(),
+            voice: match self.voice {
+                VoiceTone::Terse => karl_session::VoiceToneSnapshot::Terse,
+                VoiceTone::Warm => karl_session::VoiceToneSnapshot::Warm,
+                VoiceTone::Formal => karl_session::VoiceToneSnapshot::Formal,
+            },
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
     #[error("operator not found: {0}")]
