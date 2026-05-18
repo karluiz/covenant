@@ -6,6 +6,37 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.2 — Vitals polish — multi-cc tailer + custom tooltips
+
+### Fixed
+
+- **Tailer binds to the freshly-spawned `cc`, not the noisiest one in the
+  cwd** (`crates/app/src/exec_vitals.rs`). The previous
+  `newest_jsonl_for_cwd` heuristic broke when two Claude Code sessions
+  shared one project dir — e.g. dev'ing Covenant from inside Covenant.
+  Whichever session wrote most recently won, so the new tab tailed a
+  stale transcript and the cluster stayed empty. Replaced the one-shot
+  pick with a discovery loop: snapshot the dir at attach time, then
+  poll up to 10s for a jsonl that's NEW or whose mtime advanced past
+  the attach baseline. First match wins. Falls back to the old behavior
+  if nothing fresh appears (preserves the single-cc case).
+
+- **Vitals appear on the first `cc` response instead of needing a
+  warm-up message** (`crates/app/src/exec_vitals.rs`). After discovery
+  picked the right jsonl, the tail still seeked to EOF, so the very
+  line whose append triggered detection was skipped — the cluster only
+  populated on the *next* message round-trip. Now the discovery loop
+  also captures each jsonl's byte size at attach time, and the tail
+  starts there: new files tail from byte 0, mtime-advanced files tail
+  from the snapshotted size. First response now lights up the cluster.
+
+- **Vitals chip tooltips use Covenant's custom tooltip system instead
+  of the native browser one** (`ui/src/status/vitals.ts`). Native
+  `element.title = "..."` rendered as plain OS chrome (white box on
+  macOS) over Covenant's dark glass aesthetic. Routed the five vitals
+  chip tooltips through `attachTooltip` from `ui/src/tooltip/tooltip.ts`
+  like the rest of the status bar.
+
 ## v0.7.1 — Per-tab vitals + Claude Code transcript tailer
 
 ### Added
