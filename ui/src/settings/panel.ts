@@ -19,6 +19,7 @@ import { OperatorsPane } from "./operators";
 import { renderTelegramSection, type TelegramSettings } from "./telegram";
 import { renderProvidersTab } from "./providers";
 import { renderModelsTab } from "./model_routes";
+import { renderSpawnsTab } from "./spawns";
 import { activateTab, type SettingsTab } from "./tabs";
 
 function clampBudget(n: number): number {
@@ -268,6 +269,7 @@ export class SettingsPanel {
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
+      <a href="#sec-spawns" data-target="sec-spawns">Spawns</a>
       <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
@@ -518,6 +520,7 @@ export class SettingsPanel {
             </small>
           </label>
         </section>
+        <section class="settings-section" id="sec-spawns"></section>
         <section class="settings-section" id="sec-updates">
           <h3 class="settings-section-title">Updates</h3>
           <p class="settings-hint" style="margin: 0 0 6px;">
@@ -845,6 +848,11 @@ export class SettingsPanel {
     if (opMount) {
       this.operatorsPane = new OperatorsPane(opMount);
       await this.operatorsPane.open();
+    }
+
+    const spawnsHost = form.querySelector<HTMLElement>("#sec-spawns");
+    if (spawnsHost) {
+      await renderSpawnsTab(spawnsHost);
     }
 
     const tgHost = form.querySelector<HTMLElement>("#sec-telegram");

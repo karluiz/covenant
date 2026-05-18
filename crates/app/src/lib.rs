@@ -39,6 +39,8 @@ mod safety;
 mod score_auth_commands;
 mod score_commands;
 mod score_sync_commands;
+mod spawns_commands;
+mod spawns_store;
 mod scrollback;
 pub mod settings;
 mod spec_detector;
@@ -2966,6 +2968,13 @@ pub fn run() {
             karl_score::set_recorder(score_store.clone());
             app.manage(score_commands::ScoreState(score_store.clone()));
 
+            // Spawns store — catalog of executor agents
+            let spawns_store = std::sync::Arc::new(
+                spawns_store::SpawnStore::open(&data_dir)
+                    .expect("open spawns store"),
+            );
+            app.manage(spawns_commands::SpawnsState(spawns_store));
+
             // Periodic commit scanner — every 5 minutes scan the process
             // cwd for new commits by the local git user. CS-1 keeps this
             // narrow; multi-repo scan is CS-1b.
@@ -3237,6 +3246,9 @@ pub fn run() {
             score_commands::score_recent_sessions,
             notch::notch_set_passthrough,
             notch::notch_ready,
+            spawns_commands::spawns_list,
+            spawns_commands::spawns_upsert,
+            spawns_commands::spawns_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

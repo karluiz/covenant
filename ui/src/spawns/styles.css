@@ -1,0 +1,167 @@
+.spawns-chip {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  padding: 4px 8px 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  position: relative;
+}
+.spawns-chip::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent, #b794f4);
+}
+.spawns-chip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.spawns-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6dd29a;
+  box-shadow: 0 0 6px rgba(109, 210, 154, 0.6);
+}
+.spawns-chip__model {
+  color: #5a6873;
+  font-family: var(--mono, "SF Mono", ui-monospace, Menlo, monospace);
+  font-size: 10.5px;
+}
+.spawns-chip__caret {
+  color: #8a93a0;
+  margin-left: 2px;
+}
+
+.spawns-popover {
+  position: fixed;
+  width: 240px;
+  background: rgba(14, 18, 24, 0.96);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 2000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.spawns-popover__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.spawns-popover__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.spawns-popover__item.is-active {
+  background: rgba(183, 148, 244, 0.12);
+  color: var(--accent, #b794f4);
+}
+.spawns-popover__item .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6dd29a;
+  flex-shrink: 0;
+}
+.spawns-popover__item .label {
+  flex: 1;
+}
+.spawns-popover__item .meta {
+  color: var(--muted, #5a6873);
+  font-family: var(--mono, "SF Mono", ui-monospace, Menlo, monospace);
+  font-size: 10.5px;
+}
+.spawns-popover__sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 6px;
+}
+.spawns-popover__add {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--muted, #5a6873);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.spawns-popover__add:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text, #d5d9de);
+}
+
+/* Settings → Spawns CRUD pane */
+.spawns-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.spawns-settings-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 1fr 140px auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.spawns-settings-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  min-width: 0;
+}
+
+.spawns-settings-input:focus {
+  outline: none;
+  border-color: var(--accent, #b794f4);
+}
+
+.spawns-settings-default {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted, #5a6873);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.spawns-settings-delete {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+.spawns-settings-add {
+  align-self: flex-start;
+}

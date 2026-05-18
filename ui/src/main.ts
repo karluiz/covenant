@@ -29,7 +29,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, injectCommand, killSessionForeground, tabManifestLoad, zshAutosuggestionsStatus } from "./api";
+import { getSettings, injectCommand, killSessionForeground, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -60,6 +60,8 @@ import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
+import { SpawnsChip } from "./spawns/chip";
+import { listSpawns } from "./spawns/api";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -375,6 +377,38 @@ async function boot(): Promise<void> {
   });
   tabsManager = manager;
 
+  // Late-binding ref so the spawns chip onAdd callback can open Settings
+  // even though SettingsPanel is instantiated further down in boot().
+  const settingsRef: { panel: SettingsPanel | null } = { panel: null };
+
+  // Spawns chip — titlebar chip + popover wired to backend.
+  const spawnsMount = document.getElementById("spawns-chip-mount");
+  if (spawnsMount) {
+    const chip = new SpawnsChip(spawnsMount, {
+      list: listSpawns,
+      getBoundId: () => manager.activeSpawnId(),
+      onSelect: (id) => {
+        void (async () => {
+          const sid = manager.activeSessionId();
+          if (!sid) return;
+          const specs = await listSpawns();
+          const spec = specs.find((s) => s.id === id);
+          if (!spec || !spec.command) return;
+          const cmdline = [spec.command, ...spec.args].join(" ") + "\n";
+          const bytes = new TextEncoder().encode(cmdline);
+          await writeToSession(sid, bytes);
+          manager.setActiveSpawnId(spec.id);
+          void chip.refresh();
+        })();
+      },
+      onAdd: () => { void settingsRef.panel?.open("spawns"); },
+    });
+    manager.onActiveSpawnChange = (_spawnId) => {
+      void chip.refresh();
+    };
+    void chip.refresh();
+  }
+
   // Construct the WorkspaceManager up-front so listeners wired before
   // boot() (settings import/export, switcher chip) can reference it.
   // Actual tab restoration happens later in workspaceManager.boot().
@@ -566,6 +600,7 @@ async function boot(): Promise<void> {
 
   const settingsPage = requireEl<HTMLElement>("settings-page");
   const settings = new SettingsPanel(settingsPage, workspace);
+  settingsRef.panel = settings;
   const capabilitiesPage = requireEl<HTMLElement>("capabilities-page");
   const capabilities = new CapabilitiesPanel(capabilitiesPage, workspace);
   capabilities.onClosed = () => manager.refitActive();
