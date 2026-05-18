@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.4 — Updater banner inline in titlebar
+
+### Fixed
+
+- **Updater banner no longer stacks as its own row** (`ui/src/updater/banner.ts`,
+  `ui/src/styles.css`). The "Update available" bar was a `position: fixed`
+  34px row pinned above `#layout`, pushing the entire app down and leaving
+  an awkward empty strip below the titlebar. The banner now mounts inside
+  `#app-titlebar-center`, replacing the COVENANT brand only while an update
+  is pending — compact pill with pulse · version · "What's new ›" · Install
+  · dismiss, styled to match the rest of the titlebar chrome. Dropped the
+  `body.has-update-banner #layout { padding-top: 34px }` shift and the
+  redundant "Later" button (× dismisses).
+
 ## v0.7.3 — LM Studio provider fix + scrollback PROMPT_SP fix
 
 ### Fixed
