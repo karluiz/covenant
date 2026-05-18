@@ -11560,15 +11560,21 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
     display: flex;
     align-items: center;
     gap: 4px;
+    grid-column: 1;
     /* Drag inherits from #app-titlebar; only buttons opt out via no-drag. */
 }
 #app-titlebar-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     text-align: center;
     color: var(--text, #d5d9de);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.18em;
     font-family: var(--ui-font, -apple-system, system-ui, sans-serif);
+    pointer-events: none;
 }
 #app-titlebar-brand {
     color: var(--text, #d5d9de);
@@ -11578,6 +11584,8 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
     align-items: center;
     gap: 4px;
     padding-right: 12px;
+    grid-column: 3;
+    justify-self: end;
 }
 .titlebar-icon-btn {
     -webkit-app-region: no-drag;

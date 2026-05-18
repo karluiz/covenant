@@ -22,7 +22,8 @@
   bottom: 6px;
   width: 2px;
   border-radius: 2px;
-  background: var(--accent, #b794f4);
+  background: var(--spawn-accent, var(--accent, #b794f4));
+  box-shadow: 0 0 8px var(--spawn-accent, #b794f4);
 }
 .spawns-chip:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -129,6 +130,23 @@
   grid-template-columns: 140px 1fr 1fr 140px auto auto;
   gap: 6px;
   align-items: center;
+}
+.spawns-settings-header {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted, #8a93a0);
+  padding: 0 4px;
+  margin-bottom: 4px;
+}
+.spawns-settings-hint {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--muted, #8a93a0);
+  padding: 2px 4px 8px;
+  margin-top: -4px;
+  font-family: var(--mono, "SF Mono", ui-monospace, Menlo, monospace);
+  line-height: 1.45;
 }
 
 .spawns-settings-input {

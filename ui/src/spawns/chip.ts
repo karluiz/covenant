@@ -3,6 +3,32 @@ import type { SpawnSpec } from "./types";
 const escHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/// Brand color per executor. Matched by spec.id first, then by the
+/// command's basename (so a custom "claude-2" spawn still gets the
+/// Claude tint). Fallback is the generic green dot.
+const BRAND_COLORS: Record<string, string> = {
+  claude: "#e98b6c",
+  codex: "#10a37f",
+  copilot: "#79c0ff",
+  opencode: "#b794f4",
+  pi: "#f0a050",
+  gemini: "#5fb3c4",
+  ollama: "#a78bfa",
+};
+
+function brandColor(spec: SpawnSpec | undefined): string {
+  if (!spec) return "#6dd29a";
+  const id = spec.id.toLowerCase();
+  for (const key of Object.keys(BRAND_COLORS)) {
+    if (id.includes(key)) return BRAND_COLORS[key]!;
+  }
+  const cmd = (spec.command || "").split("/").pop()?.toLowerCase() ?? "";
+  for (const key of Object.keys(BRAND_COLORS)) {
+    if (cmd.includes(key)) return BRAND_COLORS[key]!;
+  }
+  return "#6dd29a";
+}
+
 export interface SpawnsChipDeps {
   list: () => Promise<SpawnSpec[]>;
   getBoundId: () => string | null;
@@ -35,8 +61,10 @@ export class SpawnsChip {
     const btn = document.createElement("button");
     btn.className = "spawns-chip";
     btn.type = "button";
+    const color = brandColor(bound);
+    btn.style.setProperty("--spawn-accent", color);
     btn.innerHTML = `
-      <span class="spawns-chip__dot"></span>
+      <span class="spawns-chip__dot" style="background:${color};box-shadow:0 0 6px ${color}99;"></span>
       <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
       ${bound?.model ? `<span class="spawns-chip__model">${escHtml(bound.model)}</span>` : ""}
       <span class="spawns-chip__caret">&#9660;</span>
@@ -68,12 +96,15 @@ export class SpawnsChip {
     pop.innerHTML =
       this.specs
         .map(
-          (s) => `
-        <button class="spawns-popover__item${s.id === boundId ? " is-active" : ""}" data-id="${s.id}" type="button">
-          <span class="dot"></span>
+          (s) => {
+          const c = brandColor(s);
+          return `
+        <button class="spawns-popover__item${s.id === boundId ? " is-active" : ""}" data-id="${s.id}" type="button" style="--spawn-accent:${c};">
+          <span class="dot" style="background:${c};box-shadow:0 0 6px ${c}99;"></span>
           <span class="label">${escHtml(s.label)}</span>
           ${s.model ? `<span class="meta">${escHtml(s.model)}</span>` : ""}
-        </button>`
+        </button>`;
+        }
         )
         .join("") +
       `<div class="spawns-popover__sep"></div>
