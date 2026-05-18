@@ -1,17 +1,26 @@
 //! Subscriber that turns `SessionEvent::AgentIdleWaiting` into a user-
 //! facing notification via [`crate::notifications::dispatch`].
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, Mutex as AsyncMutex};
 use tracing::{debug, warn};
 
-use karl_session::SessionEvent;
+use karl_session::{SessionEvent, SessionId};
 
 use crate::email::EmailNotifier;
 use crate::notifications::{dispatch, DispatchCtx};
 use crate::notify::{Notifier, Trigger};
 use crate::settings::Settings;
+
+/// Per-session cooldown: once we've notified the user that an agent is
+/// waiting, suppress further notifications for the same session for this
+/// long. Without it, TUI spinners that briefly break PTY quiescence
+/// produce a fresh Idle→Resumed→Idle cycle every few seconds, spamming
+/// the OS notification center.
+const IDLE_NOTIFY_COOLDOWN: Duration = Duration::from_secs(600);
 
 /// Spawn the long-lived task that listens for `AgentIdleWaiting` on the
 /// given session event bus and fans out via [`dispatch`]. Returns the
@@ -27,8 +36,17 @@ pub fn spawn(
     settings: Arc<AsyncMutex<Settings>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let mut last_notified: HashMap<SessionId, Instant> = HashMap::new();
         loop {
             match rx.recv().await {
+                Ok(SessionEvent::AgentResumed { session }) => {
+                    last_notified.remove(&session);
+                    continue;
+                }
+                Ok(SessionEvent::Closed { session }) => {
+                    last_notified.remove(&session);
+                    continue;
+                }
                 Ok(SessionEvent::AgentIdleWaiting {
                     session,
                     agent,
@@ -39,6 +57,14 @@ pub fn spawn(
                         debug!(target: "executor_idle", "skipped: toggle off");
                         continue;
                     }
+                    let now = Instant::now();
+                    if let Some(prev) = last_notified.get(&session) {
+                        if now.duration_since(*prev) < IDLE_NOTIFY_COOLDOWN {
+                            debug!(target: "executor_idle", "skipped: in cooldown");
+                            continue;
+                        }
+                    }
+                    last_notified.insert(session, now);
                     let (title, body) = format_notification(
                         &agent,
                         prompt_text.as_deref(),
