@@ -198,21 +198,25 @@
 .cov-heatmap-card { }
 .cov-heatmap {
   display: grid;
-  grid-template-rows: repeat(7, 11px);
-  grid-auto-columns: 11px;
+  grid-template-rows: repeat(7, 1fr);
+  grid-template-columns: repeat(53, 1fr);
   gap: 2px;
   grid-auto-flow: column;
-  justify-content: start;
-  overflow-x: auto;
+  width: 100%;
+  aspect-ratio: 53 / 7;
+  overflow: hidden;
 }
 .cov-cell {
   background: #131a1e;
   border-radius: 2px;
   border: 1px solid #182025;
   cursor: pointer;
-  width: 11px;
-  height: 11px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
+.cov-legend .cov-cell { width: 11px; height: 11px; aspect-ratio: auto; }
 .cov-cell.l1 { background: #0f3530; border-color: #134039; }
 .cov-cell.l2 { background: #14564e; border-color: #1a6b60; }
 .cov-cell.l3 { background: #1f8a7a; border-color: #25a293; }
@@ -301,29 +305,67 @@
 /* Sessions feed */
 .session {
   display: grid;
-  grid-template-columns: 120px 1fr 90px 90px;
+  grid-template-columns: 130px 1fr 110px 140px;
   align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
+  gap: 16px;
+  padding: 12px 10px;
   border-top: 1px solid #1c252b;
   font-size: 12px;
 }
 .session:first-of-type { border-top: 0; }
-.session .when { color: #6c8088; font-size: 11px; }
-.session .what { color: #d6e2e6; }
-.session .what .repo { color: #5eead4; }
-.session .what .slash { color: #4a5b63; margin: 0 4px; }
-.session .what .branch { color: #6c8088; }
-.session .what .group {
-  font-size: 10px;
-  color: #4a5b63;
-  margin-left: 8px;
-  padding: 2px 6px;
-  border: 1px solid #243036;
-  border-radius: 4px;
+.session .when {
+  color: #6c8088;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
-.session .nums { font-size: 10px; color: #6c8088; text-align: right; }
-.session .nums b { color: #5eead4; font-weight: 500; }
+.session .what {
+  color: #d6e2e6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.session .what-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session .what-meta { display: flex; gap: 6px; align-items: center; }
+.session .what .repo {
+  color: #5eead4;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.session .what .repo.dim { color: #4a5b63; font-weight: 400; }
+.session .what .slash { color: #4a5b63; margin: 0 6px; }
+.session .what .branch {
+  color: #8aa0a8;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+.session .what .group {
+  font-size: 9px;
+  color: #6c8088;
+  padding: 2px 7px;
+  border: 1px solid #243036;
+  border-radius: 999px;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+}
+.session .nums {
+  font-size: 10px;
+  color: #6c8088;
+  text-align: right;
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+}
+.session .nums b { color: #5eead4; font-weight: 600; }
 
 /* Sync card */
 .cov-sync {

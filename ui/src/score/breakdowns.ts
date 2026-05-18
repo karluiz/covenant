@@ -93,12 +93,21 @@ export function renderSessions(host: HTMLElement, rows: SessionRow[]): void {
     el.className = "session";
     const when = relativeDate(row.start_ts);
     const dur = formatDuration(row.end_ts - row.start_ts);
-    const repo = row.repo ? `<span class="repo">${escHtml(row.repo)}</span>` : `<span class="repo">—</span>`;
-    const branch = row.branch ? `<span class="slash">/</span><span class="branch">${escHtml(row.branch)}</span>` : "";
-    const group = row.group_name ? `<span class="group">${escHtml(row.group_name)}</span>` : "";
+    const repo = row.repo
+      ? `<span class="repo">${escHtml(row.repo)}</span>`
+      : `<span class="repo dim">—</span>`;
+    const branch = row.branch
+      ? `<span class="slash">/</span><span class="branch">${escHtml(row.branch)}</span>`
+      : "";
+    const group = row.group_name
+      ? `<span class="group">${escHtml(row.group_name).toUpperCase()}</span>`
+      : "";
     el.innerHTML = `
       <div class="when">${when}</div>
-      <div class="what">${repo}${branch}${group}</div>
+      <div class="what">
+        <div class="what-line">${repo}${branch}</div>
+        ${group ? `<div class="what-meta">${group}</div>` : ""}
+      </div>
       <div class="nums"><b>${row.prompts}</b> prompts</div>
       <div class="nums"><b>${row.commits}</b> commits · ${dur}</div>
     `;

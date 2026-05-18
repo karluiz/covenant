@@ -383,12 +383,15 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
     let w = (360.0 * scale) as i32;
     let h = (440.0 * scale) as i32;
     let pad_x = (16.0 * scale) as i32;
-    let pad_y = (40.0 * scale) as i32;
+    let pad_y_bottom = (40.0 * scale) as i32;
+    // Top corners need extra clearance to sit well below the custom titlebar
+    // (38px) and its window controls, so the pill doesn't crowd the icons.
+    let pad_y_top = (72.0 * scale) as i32;
     let (x, y) = match corner {
-        NotchCorner::BottomRight => (size.width as i32 - w - pad_x, size.height as i32 - h - pad_y),
-        NotchCorner::BottomLeft => (pad_x, size.height as i32 - h - pad_y),
-        NotchCorner::TopRight => (size.width as i32 - w - pad_x, pad_y),
-        NotchCorner::TopLeft => (pad_x, pad_y),
+        NotchCorner::BottomRight => (size.width as i32 - w - pad_x, size.height as i32 - h - pad_y_bottom),
+        NotchCorner::BottomLeft => (pad_x, size.height as i32 - h - pad_y_bottom),
+        NotchCorner::TopRight => (size.width as i32 - w - pad_x, pad_y_top),
+        NotchCorner::TopLeft => (pad_x, pad_y_top),
     };
     let _ = win.set_position(tauri::PhysicalPosition { x, y });
 }
