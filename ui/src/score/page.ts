@@ -230,7 +230,16 @@ function renderHeatmap(
       const cell = document.createElement("div");
       const cls = intensityClass(count);
       cell.className = `cov-cell${cls ? " " + cls : ""}`;
-      attachTooltip(cell, `${key} — ${count} prompts`);
+      attachTooltip(cell, {
+        title: d.toLocaleDateString(undefined, {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        subtitle: key,
+        meta: count === 0 ? "No activity" : `${count} prompt${count === 1 ? "" : "s"}`,
+      });
       cell.dataset.day = key;
       cell.addEventListener("click", () => onClick(key));
       host.appendChild(cell);

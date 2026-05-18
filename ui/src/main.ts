@@ -322,6 +322,15 @@ async function boot(): Promise<void> {
     });
   }
 
+  const projectNotesBtn = document.getElementById("titlebar-project-notes");
+  if (projectNotesBtn) {
+    projectNotesBtn.innerHTML = Icons.clipboard({ size: 16 });
+    projectNotesBtn.addEventListener("click", () => {
+      const g = manager.activeGroup();
+      if (g) openProjectNotes(g.id, g.name, g.color ?? null);
+    });
+  }
+
   const foldRightBtn = document.getElementById("tabbar-fold-right");
   if (foldRightBtn) {
     const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
