@@ -215,7 +215,7 @@ export class WorkspaceSwitcher {
       });
       row.addEventListener("contextmenu", (e) => {
         e.preventDefault();
-        this.showRowMenu(e.clientX, e.clientY, id);
+        this.showRowMenu(row, id);
       });
     }
     this.popover
@@ -255,7 +255,7 @@ export class WorkspaceSwitcher {
     input.addEventListener("blur", () => commit(true));
   }
 
-  private showRowMenu(x: number, y: number, id: string): void {
+  private showRowMenu(row: HTMLElement, id: string): void {
     // Minimalist contextual menu — keeps the dependency footprint of
     // the switcher self-contained rather than reusing ContextMenu which
     // would couple us to the tab manager's larger menu plumbing.
@@ -282,15 +282,19 @@ export class WorkspaceSwitcher {
       <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="delete">Delete</div>
     `;
     document.body.appendChild(menu);
-    // Clamp inside viewport (8px gutter). Prefer placing left of the
-    // cursor when there's no room on the right.
+    // Anchor as a submenu: flush to the right edge of the workspace
+    // popover, top-aligned with the clicked row. Fall back to the
+    // popover's left side if there's no horizontal room on the right.
     const rect = menu.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const popRect = (this.popover ?? row).getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const PAD = 8;
-    let left = x;
-    let top = y;
-    if (left + rect.width + PAD > vw) left = Math.max(PAD, x - rect.width);
+    const GAP = 6;
+    let left = popRect.right + GAP;
+    if (left + rect.width + PAD > vw) left = Math.max(PAD, popRect.left - rect.width - GAP);
+    let top = rowRect.top;
     if (top + rect.height + PAD > vh) top = Math.max(PAD, vh - rect.height - PAD);
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
