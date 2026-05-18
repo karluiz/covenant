@@ -6,6 +6,58 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.6.2 — Notch phase icons + Covenant Score polish
+
+### Added
+
+- **Premium SVG phase icons in the notch** (`ui/notch/pill.ts`,
+  `ui/notch/styles.css`, `design/notch-icons-preview.html`): replaced
+  pulse-dot indicators with six motion-distinct SVGs — orbital dots
+  (thinking), sweep (reading), caret+ink trail (writing), chevrons
+  (running), halo pulse (waiting), and a draw-on check with glow
+  (done). Pill gets a real glass treatment: gradient backdrop, inner
+  highlight stroke, saturated blur, spring easing on transitions.
+
+### Changed
+
+- **Sticky active phase in the notch hub** (`crates/app/src/notch.rs`):
+  hold Writing/Reading/Running on screen for 2s before letting the
+  detector flap back to Thinking. Claude Code routinely flashes a
+  tool-call line for one frame and snaps the spinner back ~50ms later,
+  which made the pill stutter Writing→Thinking→Writing too fast to
+  read. The tool-call is the meaningful signal; the spinner that
+  follows is noise.
+- **Covenant Score recent-sessions list polish**
+  (`ui/src/score/breakdowns.ts`, `ui/src/score/styles.css`): repo and
+  group names rendered uppercase, group moved to its own meta line as
+  a pill so long names don't push metric columns out of alignment,
+  branch in monospace, tabular-nums on the metric cells so digits line
+  up cleanly across rows.
+
+### Fixed
+
+- **Activity heatmap no longer scrolls horizontally**
+  (`ui/src/score/styles.css`): switched to a fluid 53×7 grid with
+  `aspect-ratio: 53/7` and `overflow: hidden`, so the full 12 months
+  always fits the card width. Legend cells get a fixed 11px override
+  so they don't stretch with the grid.
+- **Notch top-corner clearance below the custom titlebar**
+  (`crates/app/src/notch.rs`): bumped `pad_y` from 40→72 for the top
+  corners so the pill sits well clear of the 38px titlebar and its
+  window-control icons. Bottom corners unchanged.
+- **Editor preview fills pane when blocks sidebar is globally hidden**
+  (`ui/src/styles.css`): the editor-host overlay's `right` offset
+  tracked the blocks sidebar width, but `body.blocks-globally-collapsed`
+  hides the rail entirely without resetting that offset — the terminal
+  bled through a 240px strip on the right. Pinned `right: 0` in that
+  case, and capped `.structure-preview-md` to a 820px readable column.
+- **Dedupe agent-idle notifications with 10m cooldown**
+  (`crates/app/src/executor_idle.rs`): spinners in agent TUIs briefly
+  break PTY quiescence, producing an Idle→Resumed→Idle cycle every few
+  seconds. The dispatcher now tracks the last-notified instant per
+  session and suppresses repeat `AgentIdleWaiting` events within a
+  10-minute window. Cooldown clears on `AgentResumed` or `Closed`.
+
 ## v0.6.1 — Custom macOS titlebar + notch & settings polish
 
 ### Added
