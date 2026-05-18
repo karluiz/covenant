@@ -44,6 +44,17 @@ pub struct Operator {
     /// the UI as `floor(xp / 100) + 1`.
     #[serde(default)]
     pub xp: u64,
+    /// Tone applied to outbound messages (Telegram summaries, banner text).
+    #[serde(default)]
+    pub voice: VoiceTone,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum VoiceTone {
+    #[default]
+    Terse,
+    Warm,
+    Formal,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -271,6 +282,7 @@ impl OperatorRegistry {
             created_at_unix_ms: now,
             updated_at_unix_ms: now,
             xp: 0,
+            voice: VoiceTone::default(),
         };
         let id = op.id;
         let name = op.name.clone();
@@ -331,6 +343,8 @@ pub mod commands {
         pub escalate_threshold: f32,
         pub model: String,
         pub hard_constraints: String,
+        #[serde(default)]
+        pub voice: VoiceTone,
     }
 
     fn now_ms() -> u64 {
@@ -381,6 +395,7 @@ pub mod commands {
             created_at_unix_ms: now,
             updated_at_unix_ms: now,
             xp: 0,
+            voice: draft.voice,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -410,6 +425,7 @@ pub mod commands {
             created_at_unix_ms: existing.created_at_unix_ms,
             updated_at_unix_ms: now_ms(),
             xp: existing.xp,
+            voice: draft.voice,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -458,5 +474,44 @@ pub mod commands {
     ) -> Result<Operator, String> {
         let sid: SessionId = session_id.parse().map_err(map_err)?;
         Ok(registry.effective_for(sid))
+    }
+}
+
+#[cfg(test)]
+mod voice_tests {
+    use super::*;
+
+    #[test]
+    fn operator_has_voice_with_default_terse() {
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "x".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: "p".into(),
+            escalate_threshold: 0.5,
+            model: "m".into(),
+            hard_constraints: "".into(),
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::default(),
+        };
+        assert!(matches!(op.voice, VoiceTone::Terse));
+    }
+
+    #[test]
+    fn voice_serializes_as_terse_when_missing() {
+        let json = serde_json::json!({
+            "id": "01H7ZZZZZZZZZZZZZZZZZZZZZZ",
+            "name": "x", "emoji": "🟣", "color": "#a855f7",
+            "tags": [], "persona": "", "escalate_threshold": 0.5,
+            "model": "m", "hard_constraints": "", "is_default": false,
+            "created_at_unix_ms": 0, "updated_at_unix_ms": 0
+        });
+        let op: Operator = serde_json::from_value(json).unwrap();
+        assert!(matches!(op.voice, VoiceTone::Terse));
     }
 }

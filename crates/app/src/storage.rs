@@ -1290,6 +1290,7 @@ impl Storage {
                         created_at_unix_ms: row.get::<_, i64>(10)? as u64,
                         updated_at_unix_ms: row.get::<_, i64>(11)? as u64,
                         xp: row.get::<_, i64>(12).unwrap_or(0).max(0) as u64,
+                        voice: crate::operator_registry::VoiceTone::default(),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;

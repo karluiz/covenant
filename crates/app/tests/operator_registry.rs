@@ -32,6 +32,7 @@ fn sample(name: &str, is_default: bool) -> Operator {
         created_at_unix_ms: now_ms(),
         updated_at_unix_ms: now_ms(),
         xp: 0,
+        voice: covenant_lib::operator_registry::VoiceTone::default(),
     }
 }
 
