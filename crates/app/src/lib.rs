@@ -50,6 +50,7 @@ mod providers_cmd;
 mod summarizer;
 mod tab_manifest;
 pub mod telegram;
+mod vitals;
 mod world;
 
 use std::collections::HashMap;
@@ -165,6 +166,10 @@ pub(crate) struct AppState {
     /// Notch overlay: per-session executor phase detector, bridged to each
     /// session's broadcast bus as ExecutorStateChanged events.
     notch_hub: Arc<notch::NotchHub>,
+    /// Status-bar vitals aggregator handle. Spawned once at app setup;
+    /// exposes CPU / memory / network snapshots to the frontend via
+    /// the `get_vitals` Tauri command.
+    pub(crate) vitals: vitals::VitalsHandle,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -487,6 +492,7 @@ async fn spawn_session(
         state.settings.clone(),
         state.storage.clone(),
         session.subscribe(),
+        state.vitals.clone(),
     );
 
     // Fix-proposer: on every non-zero BlockFinished, asks Sonnet for a
@@ -496,6 +502,7 @@ async fn spawn_session(
         state.settings.clone(),
         session.subscribe(),
         bus_tx,
+        state.vitals.clone(),
     );
 
     // Executor-idle subscriber: on every AgentIdleWaiting, fires the
@@ -2710,7 +2717,10 @@ pub fn run() {
                 ));
             }
 
-            let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone());
+            let vitals = vitals::spawn(app.handle().clone());
+            app.manage(vitals.clone());
+
+            let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone(), vitals.clone());
             let mission_store = dir.join("session_missions.json");
             let embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>> =
                 Arc::new(tokio::sync::OnceCell::new());
@@ -2945,6 +2955,7 @@ pub fn run() {
                 embedder_cell.clone(),
                 connectivity_handle.clone(),
                 escalation_bus_tx.clone(),
+                vitals.clone(),
             );
 
             spawn_superpowers_watcher(app.handle().clone());
@@ -3040,6 +3051,7 @@ pub fn run() {
                 telegram_inbound_tx: tg_inbound_tx,
                 pi_sessions: pi_commands::PiRegistry::new(),
                 notch_hub: notch::NotchHub::new(),
+                vitals,
             });
 
             // Fullscreen-aware notch: when the main Covenant window
@@ -3253,6 +3265,7 @@ pub fn run() {
             spawns_commands::spawns_list,
             spawns_commands::spawns_upsert,
             spawns_commands::spawns_delete,
+            vitals::get_vitals,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

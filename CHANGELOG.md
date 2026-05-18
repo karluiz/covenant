@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.0 — Live LLM vitals in the status bar
+
+### Added
+
+- **Status bar center-zone vitals** — sparkline of tokens/min, cache-hit %, current model (`Sonnet 4.6`), and last-call latency now live to the left of the executor chip. Aggregates every Anthropic call Covenant makes (operator, summarizer, fix proposer, cross-session). Fades out after 60s of inactivity so the bar stays calm when you aren't running the agent.
+
 ## v0.6.4 — CI lockfile sync (reissues v0.6.3)
 
 ### Fixed

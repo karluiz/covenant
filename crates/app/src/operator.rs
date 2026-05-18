@@ -670,6 +670,7 @@ impl OperatorWatcher {
         embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
         connectivity: crate::connectivity::ConnectivityHandle,
         escalation_tx: broadcast::Sender<SessionEvent>,
+        vitals: crate::vitals::VitalsHandle,
     ) -> Self {
         let inner = Arc::new(AsyncMutex::new(Inner {
             sessions: HashMap::new(),
@@ -688,6 +689,7 @@ impl OperatorWatcher {
             embedder_cell,
             connectivity,
             escalation_tx,
+            vitals,
         ));
         Self {
             inner,
@@ -1279,6 +1281,7 @@ async fn tick_loop(
     embedder_cell: Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     connectivity: crate::connectivity::ConnectivityHandle,
     escalation_tx: broadcast::Sender<SessionEvent>,
+    vitals: crate::vitals::VitalsHandle,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1320,7 +1323,7 @@ async fn tick_loop(
         // to 100% done. AOM-only.
         detect_mission_completions(&inner, &app, &aom, &notifier, &escalation_tx).await;
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity, &escalation_tx).await {
+        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity, &escalation_tx, &vitals).await {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -1575,6 +1578,7 @@ async fn run_tick(
     embedder_cell: &Arc<tokio::sync::OnceCell<Arc<embedder::Embedder>>>,
     connectivity: &crate::connectivity::ConnectivityHandle,
     escalation_tx: &broadcast::Sender<SessionEvent>,
+    vitals: &crate::vitals::VitalsHandle,
 ) -> Result<(), String> {
     // Offline gate (Task 4 / AOM liveness). If the OS reports we're
     // offline (forwarded by the frontend `online`/`offline` listener
@@ -2021,6 +2025,8 @@ async fn run_tick(
                 let s = settings.lock().await;
                 crate::provider_resolve::resolve_route(&s, crate::settings::Role::Triage)
             };
+            let triage_started = std::time::Instant::now();
+            let triage_vh = vitals.record_started(triage_model.clone());
             let triage_result = match resolved_t {
                 Ok(rt) => {
                     karl_agent::provider::triage_via_provider(
@@ -2050,6 +2056,7 @@ async fn run_tick(
             drop(_thinking);
             match triage_result {
                 Ok((verdict, usage)) => {
+                    triage_vh.complete(usage, triage_started.elapsed().as_millis() as u32);
                     let cost = cost::estimate_usd(&triage_model, usage);
                     triage_cost_usd += cost;
                     tracing::info!(
@@ -2089,6 +2096,7 @@ async fn run_tick(
                     }
                 }
                 Err(e) => {
+                    triage_vh.abandon();
                     // Triage failure is non-fatal — fall through to the
                     // big-model path so a transient API blip doesn't
                     // leave the operator silent.
@@ -2270,6 +2278,11 @@ async fn run_tick(
 
         let response = ask_response.text;
         let call_cost_usd = cost::estimate_usd(&model, ask_response.usage);
+        vitals.record_complete(
+            model.clone(),
+            ask_response.usage,
+            started.elapsed().as_millis() as u32,
+        );
 
         // Accumulate AOM cost. Auto-stop happens AFTER the current
         // decision is fully processed below — that way the call we

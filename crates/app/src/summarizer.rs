@@ -50,8 +50,9 @@ pub fn spawn_loop(
     settings: Arc<Mutex<Settings>>,
     storage: Storage,
     bus: broadcast::Receiver<SessionEvent>,
+    vitals: crate::vitals::VitalsHandle,
 ) {
-    tauri::async_runtime::spawn(run_loop(session_id, world, settings, storage, bus));
+    tauri::async_runtime::spawn(run_loop(session_id, world, settings, storage, bus, vitals));
 }
 
 async fn run_loop(
@@ -60,6 +61,7 @@ async fn run_loop(
     settings: Arc<Mutex<Settings>>,
     storage: Storage,
     mut bus: broadcast::Receiver<SessionEvent>,
+    vitals: crate::vitals::VitalsHandle,
 ) {
     let mut last_block_at: Option<Instant> = None;
 
@@ -85,7 +87,7 @@ async fn run_loop(
 
             _ = wait_until_debounce(last_block_at) => {
                 last_block_at = None;
-                if let Err(e) = regenerate(session_id, &world, &settings, &storage).await {
+                if let Err(e) = regenerate(session_id, &world, &settings, &storage, &vitals).await {
                     tracing::warn!(
                         session = %session_id,
                         error = %e,
@@ -116,6 +118,7 @@ async fn regenerate(
     world: &Arc<Mutex<SessionWorldModel>>,
     settings: &Arc<Mutex<Settings>>,
     storage: &Storage,
+    vitals: &crate::vitals::VitalsHandle,
 ) -> Result<(), String> {
     // Snapshot inputs without holding any locks across the http call.
     let resolved = {
@@ -182,10 +185,12 @@ async fn regenerate(
         thinking_budget: None,
         force_tool: None,
     };
-    let summary = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+    let model_for_vitals = req.model.clone();
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
         .await
-        .map(|r| r.text)
         .map_err(|e| e.to_string())?;
+    let usage = resp.usage;
+    let summary = resp.text;
 
     let trimmed = summary.trim().to_string();
     let tokens_estimate = trimmed.len() / 4;
@@ -202,12 +207,14 @@ async fn regenerate(
     }
 
     world.lock().await.summary = Some(trimmed);
+    let latency_ms = started.elapsed().as_millis();
     tracing::info!(
         session = %session_id,
-        latency_ms = started.elapsed().as_millis() as u64,
+        latency_ms = latency_ms as u64,
         tokens_estimate,
         "summary refreshed"
     );
+    vitals.record_complete(model_for_vitals, usage, latency_ms as u32);
 
     Ok(())
 }

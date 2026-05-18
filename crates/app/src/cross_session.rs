@@ -70,7 +70,7 @@ struct Inner {
 }
 
 impl CrossSessionWatcher {
-    pub fn spawn(app: AppHandle, settings: Arc<Mutex<Settings>>) -> Self {
+    pub fn spawn(app: AppHandle, settings: Arc<Mutex<Settings>>, vitals: crate::vitals::VitalsHandle) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             worlds: HashMap::new(),
         }));
@@ -85,6 +85,7 @@ impl CrossSessionWatcher {
             settings,
             app,
             incoming_rx,
+            vitals,
         ));
 
         Self { inner, incoming_tx }
@@ -135,6 +136,7 @@ async fn watch_loop(
     settings: Arc<Mutex<Settings>>,
     app: AppHandle,
     mut incoming_rx: mpsc::UnboundedReceiver<(SessionId, SessionEvent)>,
+    vitals: crate::vitals::VitalsHandle,
 ) {
     let mut last_failure_at: Option<(Instant, SessionId)> = None;
     let mut rate = SimpleRate::new(MAX_CHECKS_PER_MINUTE, Duration::from_secs(60));
@@ -164,7 +166,7 @@ async fn watch_loop(
                 }
                 if let Some((_, trigger_id)) = trigger {
                     if let Err(e) =
-                        check_for_pattern(&inner, &settings, &app, trigger_id).await
+                        check_for_pattern(&inner, &settings, &app, trigger_id, &vitals).await
                     {
                         tracing::warn!(error = %e, "cross-session check failed");
                     }
@@ -191,6 +193,7 @@ async fn check_for_pattern(
     settings: &Arc<Mutex<Settings>>,
     app: &AppHandle,
     trigger_id: SessionId,
+    vitals: &crate::vitals::VitalsHandle,
 ) -> Result<(), String> {
     // Snapshot state without holding any lock across the http call.
     let resolved = {
@@ -272,15 +275,18 @@ async fn check_for_pattern(
         thinking_budget: None,
         force_tool: None,
     };
-    let response = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+    let model_for_vitals = req.model.clone();
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
         .await
-        .map_err(|e| e.to_string())?
-        .text;
+        .map_err(|e| e.to_string())?;
+    let usage = resp.usage;
+    let response = resp.text;
 
     tracing::info!(
         latency_ms = started.elapsed().as_millis() as u64,
         "cross-session check complete"
     );
+    vitals.record_complete(model_for_vitals, usage, started.elapsed().as_millis() as u32);
 
     let Some(message) = parse_finding(&response) else {
         return Ok(());

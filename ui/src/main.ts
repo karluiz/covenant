@@ -29,7 +29,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, injectCommand, killSessionForeground, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -750,6 +750,14 @@ async function boot(): Promise<void> {
   // the floating pill AND the chip on screen at once.
   aomBanner.setHeadless(true);
   aomBanner.onUpdate((status) => statusBar.setAom(status));
+
+  // Vitals: backend pushes an update on each LLM call + 1Hz when active.
+  // Initial paint from get_vitals so the cluster appears immediately if
+  // there's been activity before the UI was ready.
+  void getVitals().then((v) => statusBar.setVitals(v)).catch(() => {
+    /* backend not ready yet — first push will populate */
+  });
+  void onVitalsUpdate((v) => statusBar.setVitals(v));
   aomBanner.onChange((status) => {
     void manager.refreshAllOperatorState().then(() => {
       // "AOM is alive" — the moment the user enters AOM, derive

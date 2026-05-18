@@ -1,0 +1,459 @@
+//! Live LLM vitals aggregator — owns the broadcast channel that every
+//! Covenant LLM call site emits to, runs the rolling-window aggregator
+//! task, and emits `vitals_update` Tauri events to the UI.
+//!
+//! See docs/superpowers/specs/2026-05-18-statusbar-vitals-design.md for
+//! the data model, idle behavior, and chip layout.
+
+// Scaffold module — constants and helpers below are referenced from
+// the aggregator state, tick loop, and call-site instrumentation that
+// land in Tasks 2–8 of the implementation plan. The allow keeps the
+// build warning-free until those tasks fill in their consumers.
+#![allow(dead_code)]
+
+use karl_agent::TokenUsage;
+use serde::Serialize;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::{broadcast, Mutex};
+
+/// Sparkline window in seconds. 12 buckets × 5s = 60s.
+const WINDOW_SECS: u64 = 60;
+const BUCKET_COUNT: usize = 12;
+const BUCKET_SECS: u64 = 5;
+/// Cache stats window — longer than sparkline so a single fresh call
+/// is enough to populate the cache pill without flickering.
+const CACHE_WINDOW_SECS: u64 = 300;
+/// Idle threshold — when `idle_secs >= IDLE_THRESHOLD_SECS`, the UI
+/// fades the cluster. Matches the sparkline window so the cluster
+/// disappears the moment the last bucket would have shown a flat zero.
+pub(crate) const IDLE_THRESHOLD_SECS: u32 = 60;
+
+/// Events from instrumented call sites to the aggregator task.
+#[derive(Debug, Clone)]
+pub(crate) enum VitalsEvent {
+    CallStarted { model: String, started_unix_ms: u64 },
+    CallCompleted { model: String, usage: TokenUsage, latency_ms: u32 },
+    /// Cancelled, errored, or dropped without completion. Clears
+    /// in-flight without writing into the bucket / cache window.
+    CallAbandoned,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct InFlightPayload {
+    pub model: String,
+    pub started_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct VitalsPayload {
+    pub tok_per_min: u32,
+    pub spark: [u32; BUCKET_COUNT],
+    pub cache_hit_pct: Option<u8>,
+    pub last_model: Option<String>,
+    pub last_latency_ms: Option<u32>,
+    pub in_flight: Option<InFlightPayload>,
+    pub idle_secs: u32,
+    pub is_idle: bool,
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[derive(Debug, Clone)]
+struct CacheSample {
+    unix_ms: u64,
+    cache_read: u32,
+    input: u32,
+    cache_creation: u32,
+}
+
+#[derive(Debug, Clone)]
+struct InFlight {
+    model: String,
+    started_unix_ms: u64,
+}
+
+#[derive(Debug)]
+pub(crate) struct VitalsState {
+    /// Tokens per 5s bucket. Idx 0 = oldest, last idx = newest.
+    /// Each bucket stores input + output + cache_creation tokens.
+    /// cache_read is intentionally excluded (it's free input —
+    /// counting it would make the sparkline misleading).
+    buckets: [u32; BUCKET_COUNT],
+    /// Wall-clock time the *newest* bucket (last index) started.
+    /// Rotate buckets when now - newest_started_unix_ms >= BUCKET_SECS*1000.
+    newest_bucket_started_unix_ms: u64,
+
+    cache_window: VecDeque<CacheSample>,
+
+    last_model: Option<String>,
+    last_latency_ms: Option<u32>,
+    last_call_unix_ms: Option<u64>,
+
+    in_flight: Option<InFlight>,
+}
+
+impl VitalsState {
+    fn new(now_ms: u64) -> Self {
+        Self {
+            buckets: [0; BUCKET_COUNT],
+            newest_bucket_started_unix_ms: now_ms,
+            cache_window: VecDeque::new(),
+            last_model: None,
+            last_latency_ms: None,
+            last_call_unix_ms: None,
+            in_flight: None,
+        }
+    }
+
+    /// Slide the bucket ring forward by however many BUCKET_SECS-second
+    /// slots have elapsed. Each new slot is appended as a 0; oldest
+    /// slots fall off the front.
+    fn rotate_to(&mut self, now_ms: u64) {
+        let elapsed_ms = now_ms.saturating_sub(self.newest_bucket_started_unix_ms);
+        let slots = (elapsed_ms / (BUCKET_SECS * 1000)) as usize;
+        if slots == 0 {
+            return;
+        }
+        if slots >= BUCKET_COUNT {
+            self.buckets = [0; BUCKET_COUNT];
+        } else {
+            // Shift left by `slots`, zero the new tail entries.
+            self.buckets.rotate_left(slots);
+            for i in (BUCKET_COUNT - slots)..BUCKET_COUNT {
+                self.buckets[i] = 0;
+            }
+        }
+        self.newest_bucket_started_unix_ms += slots as u64 * BUCKET_SECS * 1000;
+    }
+
+    fn record_complete(
+        &mut self,
+        model: String,
+        usage: TokenUsage,
+        latency_ms: u32,
+        now_ms: u64,
+    ) {
+        self.rotate_to(now_ms);
+        let counted = usage
+            .input_tokens
+            .saturating_add(usage.output_tokens)
+            .saturating_add(usage.cache_creation_input_tokens);
+        let last = BUCKET_COUNT - 1;
+        self.buckets[last] = self.buckets[last].saturating_add(counted);
+
+        self.cache_window.push_back(CacheSample {
+            unix_ms: now_ms,
+            cache_read: usage.cache_read_input_tokens,
+            input: usage.input_tokens,
+            cache_creation: usage.cache_creation_input_tokens,
+        });
+        self.purge_cache_window(now_ms);
+
+        self.last_model = Some(model);
+        self.last_latency_ms = Some(latency_ms);
+        self.last_call_unix_ms = Some(now_ms);
+        self.in_flight = None;
+    }
+
+    fn purge_cache_window(&mut self, now_ms: u64) {
+        let cutoff = now_ms.saturating_sub(CACHE_WINDOW_SECS * 1000);
+        while let Some(front) = self.cache_window.front() {
+            if front.unix_ms < cutoff {
+                self.cache_window.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn cache_hit_pct(&self) -> Option<u8> {
+        let mut read = 0u64;
+        let mut input = 0u64;
+        let mut creation = 0u64;
+        for s in &self.cache_window {
+            read += s.cache_read as u64;
+            input += s.input as u64;
+            creation += s.cache_creation as u64;
+        }
+        let denom = read + input + creation;
+        if denom == 0 {
+            None
+        } else {
+            Some(((read * 100) / denom).min(100) as u8)
+        }
+    }
+
+    fn snapshot(&mut self, now_ms: u64) -> VitalsPayload {
+        self.rotate_to(now_ms);
+        self.purge_cache_window(now_ms);
+
+        let tok_per_min: u32 = self.buckets.iter().copied().sum();
+        let idle_secs = self
+            .last_call_unix_ms
+            .map(|t| ((now_ms.saturating_sub(t)) / 1000) as u32)
+            .unwrap_or(u32::MAX);
+        let is_idle = idle_secs >= IDLE_THRESHOLD_SECS;
+
+        VitalsPayload {
+            tok_per_min,
+            spark: self.buckets,
+            cache_hit_pct: self.cache_hit_pct(),
+            last_model: self.last_model.clone(),
+            last_latency_ms: self.last_latency_ms,
+            in_flight: self.in_flight.as_ref().map(|f| InFlightPayload {
+                model: f.model.clone(),
+                started_unix_ms: f.started_unix_ms,
+            }),
+            idle_secs,
+            is_idle,
+        }
+    }
+}
+
+/// Shared handle exposed on AppState. Callers do everything through this:
+/// instrument call sites, ask for a snapshot, etc.
+#[derive(Clone)]
+pub struct VitalsHandle {
+    tx: broadcast::Sender<VitalsEvent>,
+    state: Arc<Mutex<VitalsState>>,
+}
+
+impl VitalsHandle {
+    /// Begin tracking an in-flight call. Returns a `CallHandle`; on drop
+    /// without `.complete()` or `.abandon()` the in-flight slot is cleared.
+    #[must_use]
+    pub fn record_started(&self, model: String) -> CallHandle {
+        let started = now_unix_ms();
+        let _ = self.tx.send(VitalsEvent::CallStarted {
+            model: model.clone(),
+            started_unix_ms: started,
+        });
+        CallHandle {
+            tx: self.tx.clone(),
+            model,
+            started_unix_ms: started,
+            consumed: false,
+        }
+    }
+
+    /// Direct one-shot record (skips in-flight tracking). Use when a call
+    /// has no meaningful "started" boundary the caller can wrap with a
+    /// CallHandle (e.g. retries inside `provider::collect_oneshot`).
+    pub fn record_complete(&self, model: String, usage: TokenUsage, latency_ms: u32) {
+        let _ = self.tx.send(VitalsEvent::CallCompleted {
+            model,
+            usage,
+            latency_ms,
+        });
+    }
+
+    pub async fn snapshot(&self) -> VitalsPayload {
+        self.state.lock().await.snapshot(now_unix_ms())
+    }
+}
+
+/// RAII guard returned by `record_started`. The Drop impl sends
+/// `CallAbandoned` if neither `.complete()` nor `.abandon()` was called,
+/// so a panic / early-return path can't leave the in-flight slot stuck.
+#[must_use = "complete() or abandon() must be called — letting it drop sends CallAbandoned"]
+pub struct CallHandle {
+    tx: broadcast::Sender<VitalsEvent>,
+    model: String,
+    started_unix_ms: u64,
+    consumed: bool,
+}
+
+impl CallHandle {
+    pub fn complete(mut self, usage: TokenUsage, latency_ms: u32) {
+        self.consumed = true;
+        let _ = self.tx.send(VitalsEvent::CallCompleted {
+            model: std::mem::take(&mut self.model),
+            usage,
+            latency_ms,
+        });
+    }
+
+    pub fn abandon(mut self) {
+        self.consumed = true;
+        let _ = self.tx.send(VitalsEvent::CallAbandoned);
+    }
+}
+
+impl Drop for CallHandle {
+    fn drop(&mut self) {
+        if !self.consumed {
+            let _ = self.tx.send(VitalsEvent::CallAbandoned);
+        }
+    }
+}
+
+/// Spawn the aggregator task and return the shared handle. Called once
+/// during Tauri setup (see `crates/app/src/lib.rs::run`).
+pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
+    let (tx, mut rx) = broadcast::channel::<VitalsEvent>(64);
+    let state = Arc::new(Mutex::new(VitalsState::new(now_unix_ms())));
+    let state_for_task = state.clone();
+    let app_for_task = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        use tauri::Emitter;
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        // Skip first tick (fires immediately); we only want subsequent
+        // ticks to drive heartbeats.
+        tick.tick().await;
+        loop {
+            tokio::select! {
+                Ok(ev) = rx.recv() => {
+                    let payload = {
+                        let mut s = state_for_task.lock().await;
+                        let now = now_unix_ms();
+                        match ev {
+                            VitalsEvent::CallStarted { model, started_unix_ms } => {
+                                s.in_flight = Some(InFlight { model, started_unix_ms });
+                            }
+                            VitalsEvent::CallCompleted { model, usage, latency_ms } => {
+                                s.record_complete(model, usage, latency_ms, now);
+                            }
+                            VitalsEvent::CallAbandoned => {
+                                s.in_flight = None;
+                            }
+                        }
+                        s.snapshot(now)
+                    };
+                    let _ = app_for_task.emit("vitals_update", &payload);
+                }
+                _ = tick.tick() => {
+                    let payload = state_for_task.lock().await.snapshot(now_unix_ms());
+                    // Tick only emits when there's something to animate
+                    // (in-flight elapsed) OR the cluster is still inside
+                    // its visible window (advances idle_secs so the UI
+                    // can fade exactly on 60s).
+                    let should_emit = payload.in_flight.is_some()
+                        || payload.idle_secs <= IDLE_THRESHOLD_SECS;
+                    if should_emit {
+                        let _ = app_for_task.emit("vitals_update", &payload);
+                    }
+                }
+            }
+        }
+    });
+
+    VitalsHandle { tx, state }
+}
+
+#[tauri::command]
+pub async fn get_vitals(
+    handle: tauri::State<'_, VitalsHandle>,
+) -> Result<VitalsPayload, String> {
+    Ok(handle.snapshot().await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_usage(input: u32, output: u32, cache_creation: u32, cache_read: u32) -> TokenUsage {
+        TokenUsage {
+            input_tokens: input,
+            output_tokens: output,
+            cache_creation_input_tokens: cache_creation,
+            cache_read_input_tokens: cache_read,
+        }
+    }
+
+    #[test]
+    fn tok_per_min_excludes_cache_read() {
+        let mut s = VitalsState::new(0);
+        s.record_complete(
+            "claude-sonnet-4-6".into(),
+            mk_usage(100, 50, 0, 10_000),
+            42,
+            0,
+        );
+        // cache_read=10_000 must NOT land in the bucket.
+        let payload = s.snapshot(0);
+        assert_eq!(payload.tok_per_min, 150);
+    }
+
+    #[test]
+    fn bucket_rotation_drops_oldest() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("m".into(), mk_usage(100, 0, 0, 0), 1, 0);
+        // Advance 60 seconds → 12 buckets later → oldest (where we
+        // recorded) must have rolled off.
+        let payload = s.snapshot(60_000);
+        assert_eq!(payload.tok_per_min, 0);
+    }
+
+    #[test]
+    fn cache_hit_pct_zero_denominator_returns_none() {
+        let s = VitalsState::new(0);
+        assert!(s.cache_hit_pct().is_none());
+    }
+
+    #[test]
+    fn cache_hit_pct_computed_correctly() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("m".into(), mk_usage(100, 0, 0, 300), 1, 0);
+        // read=300, input=100, creation=0 → 300 / 400 = 75%
+        assert_eq!(s.cache_hit_pct(), Some(75));
+    }
+
+    #[test]
+    fn cache_window_drops_old_entries() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("m".into(), mk_usage(100, 0, 0, 100), 1, 0);
+        // Snapshot at t=301s should purge the t=0 sample.
+        let _ = s.snapshot(301_000);
+        assert!(s.cache_window.is_empty());
+    }
+
+    #[test]
+    fn idle_secs_advances() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("m".into(), mk_usage(10, 10, 0, 0), 1, 0);
+        let p1 = s.snapshot(30_000);
+        assert_eq!(p1.idle_secs, 30);
+        assert!(!p1.is_idle);
+        let p2 = s.snapshot(65_000);
+        assert_eq!(p2.idle_secs, 65);
+        assert!(p2.is_idle);
+    }
+
+    #[test]
+    fn call_handle_drop_sends_abandoned() {
+        let (tx, mut rx) = broadcast::channel::<VitalsEvent>(8);
+        let h = CallHandle {
+            tx: tx.clone(),
+            model: "m".into(),
+            started_unix_ms: 0,
+            consumed: false,
+        };
+        drop(h);
+        let recvd = rx.try_recv().expect("should have received an event");
+        matches!(recvd, VitalsEvent::CallAbandoned);
+    }
+
+    #[test]
+    fn call_handle_complete_does_not_send_abandoned() {
+        let (tx, mut rx) = broadcast::channel::<VitalsEvent>(8);
+        let h = CallHandle {
+            tx: tx.clone(),
+            model: "m".into(),
+            started_unix_ms: 0,
+            consumed: false,
+        };
+        h.complete(mk_usage(10, 10, 0, 0), 50);
+        // Expect exactly one CallCompleted, no CallAbandoned.
+        let first = rx.try_recv().expect("first event");
+        assert!(matches!(first, VitalsEvent::CallCompleted { .. }));
+        assert!(rx.try_recv().is_err());
+    }
+}
