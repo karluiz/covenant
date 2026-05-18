@@ -46,6 +46,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 const LATENCY_MAX_MS: u64 = 600_000;
 const LATENCY_MIN_MS: u64 = 50;
 
+/// Window during which we wait for a freshly-created jsonl to appear in
+/// the project dir before falling back to "newest existing in dir." If
+/// two Claude Code sessions share a cwd, the older one shouldn't shadow
+/// the just-spawned one — discovery binds to the file that appears (or
+/// gets touched) AFTER the tab was attached.
+const DISCOVERY_WINDOW: Duration = Duration::from_secs(10);
+const DISCOVERY_POLL: Duration = Duration::from_millis(500);
+
 /// Per-line shape we care about. Everything else in Claude Code's JSONL
 /// (parentUuid, sessionId, content blocks, etc.) is ignored.
 #[derive(Debug, Deserialize)]
@@ -100,15 +108,34 @@ impl ExecVitals {
     /// is already attached for this session it's replaced — covers the
     /// case where the user `cd`s mid-session and we want to re-resolve
     /// the project dir from the new cwd.
+    ///
+    /// The discovery + tail run on a single spawned task: it first waits
+    /// up to DISCOVERY_WINDOW for a fresh jsonl to appear in the project
+    /// dir (so concurrent Claude Code sessions sharing one cwd don't
+    /// shadow the just-spawned one), then tails it.
     pub async fn attach(&self, session: SessionId, cwd: PathBuf) {
-        let Some(jsonl) = newest_jsonl_for_cwd(&cwd) else {
-            tracing::debug!(target: "exec_vitals", session = %session, cwd = %cwd.display(), "no transcript found");
-            return;
-        };
         let vitals = self.inner.vitals.clone();
         let handle = tokio::spawn(async move {
+            let jsonl = match discover_jsonl_for_session(&cwd).await {
+                Some(p) => p,
+                None => {
+                    tracing::debug!(
+                        target: "exec_vitals",
+                        session = %session,
+                        cwd = %cwd.display(),
+                        "no transcript found"
+                    );
+                    return;
+                }
+            };
             if let Err(e) = tail_file(session, jsonl.clone(), vitals).await {
-                tracing::debug!(target: "exec_vitals", session = %session, path = %jsonl.display(), error = %e, "tail loop exited");
+                tracing::debug!(
+                    target: "exec_vitals",
+                    session = %session,
+                    path = %jsonl.display(),
+                    error = %e,
+                    "tail loop exited"
+                );
             }
         });
         let mut tasks = self.inner.tasks.lock().await;
@@ -137,6 +164,82 @@ fn slugify_cwd(cwd: &Path) -> String {
 
 fn claude_projects_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("projects"))
+}
+
+/// Pick the jsonl to tail for a freshly-attached Claude Code session.
+///
+/// Snapshots the project dir at attach time (file set + their mtimes),
+/// then polls every DISCOVERY_POLL for up to DISCOVERY_WINDOW looking
+/// for either:
+///   • a new jsonl whose path wasn't in the snapshot, OR
+///   • an existing jsonl whose mtime advanced past the snapshot baseline
+///     (covers Claude Code reusing a prior file on resume — rare).
+///
+/// First match wins. If nothing new appears within the window we fall
+/// back to the old "newest by mtime" so the user still gets a tailer
+/// when they're the only `cc` in this cwd.
+async fn discover_jsonl_for_session(cwd: &Path) -> Option<PathBuf> {
+    let dir = claude_projects_dir()?.join(slugify_cwd(cwd));
+
+    let baseline: HashMap<PathBuf, std::time::SystemTime> = std::fs::read_dir(&dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+                return None;
+            }
+            let mtime = e.metadata().ok()?.modified().ok()?;
+            Some((path, mtime))
+        })
+        .collect();
+    let attach_wall = std::time::SystemTime::now();
+    let deadline = attach_wall + DISCOVERY_WINDOW;
+
+    let mut interval = tokio::time::interval(DISCOVERY_POLL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        interval.tick().await;
+        if let Ok(read) = std::fs::read_dir(&dir) {
+            for entry in read.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let Ok(meta) = entry.metadata() else { continue };
+                let Ok(mtime) = meta.modified() else { continue };
+                let prior = baseline.get(&path);
+                let is_new = prior.is_none();
+                let advanced = match prior {
+                    Some(prev) => mtime > *prev && mtime >= attach_wall,
+                    None => false,
+                };
+                if is_new || advanced {
+                    tracing::debug!(
+                        target: "exec_vitals",
+                        path = %path.display(),
+                        is_new,
+                        "discovered transcript for new session"
+                    );
+                    return Some(path);
+                }
+            }
+        }
+        if std::time::SystemTime::now() > deadline {
+            let fallback = newest_jsonl_for_cwd(cwd);
+            if let Some(ref p) = fallback {
+                tracing::debug!(
+                    target: "exec_vitals",
+                    path = %p.display(),
+                    "discovery window expired; falling back to newest existing jsonl"
+                );
+            }
+            return fallback;
+        }
+    }
 }
 
 fn newest_jsonl_for_cwd(cwd: &Path) -> Option<PathBuf> {

@@ -563,13 +563,14 @@ mod tests {
         let (tx, mut rx) = broadcast::channel::<VitalsEvent>(8);
         let h = CallHandle {
             tx: tx.clone(),
+            session: SessionId::new(),
             model: "m".into(),
             started_unix_ms: 0,
             consumed: false,
         };
         drop(h);
         let recvd = rx.try_recv().expect("should have received an event");
-        matches!(recvd, VitalsEvent::CallAbandoned);
+        assert!(matches!(recvd, VitalsEvent::CallAbandoned { .. }));
     }
 
     #[test]
@@ -577,6 +578,7 @@ mod tests {
         let (tx, mut rx) = broadcast::channel::<VitalsEvent>(8);
         let h = CallHandle {
             tx: tx.clone(),
+            session: SessionId::new(),
             model: "m".into(),
             started_unix_ms: 0,
             consumed: false,
