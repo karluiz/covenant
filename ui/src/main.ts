@@ -992,6 +992,13 @@ async function boot(): Promise<void> {
       }
       return;
     }
+    // ⌘F → in-terminal finder (Apple Terminal-style). Floating bar
+    // pinned to the active tab's pane; Esc closes.
+    if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === "f" || e.key === "F")) {
+      e.preventDefault();
+      manager.openFinder();
+      return;
+    }
     // ⌘⇧F → search palette. Default mode is content (grep); Tab inside
     // the overlay toggles to fuzzy filename mode.
     if (e.metaKey && e.shiftKey && (e.key === "F" || e.key === "f")) {

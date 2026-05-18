@@ -11753,3 +11753,152 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
     color: var(--text, #d5d9de);
     white-space: pre-wrap;
 }
+
+/* ── In-terminal finder (⌘F) ────────────────────────────────────────
+   Floating overlay anchored top-right of the tab pane. Same visual
+   language as the custom tooltip: flat dark surface, 1px border,
+   subtle shadow. Input adopts the focus-ring accent so the search
+   bar reads as "active" even with the terminal still visible behind. */
+.term-finder {
+    position: absolute;
+    top: 8px;
+    right: 16px;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 4px 4px 6px;
+    background: #0e0e10;
+    border: 1px solid #2a2a2e;
+    border-radius: 10px;
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.04) inset,
+        0 10px 28px rgba(0, 0, 0, 0.5),
+        0 2px 6px rgba(0, 0, 0, 0.35);
+    color: var(--text, #d5d9de);
+    font-size: 12px;
+    user-select: none;
+    -webkit-user-select: none;
+    backdrop-filter: blur(8px);
+}
+.term-finder[hidden] {
+    display: none;
+}
+.term-finder__field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    min-width: 280px;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+.term-finder__field:focus-within {
+    border-color: var(--accent, #4c9aff);
+    background: rgba(76, 154, 255, 0.06);
+}
+.term-finder__icon {
+    color: var(--text-muted, #8a93a0);
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+.term-finder__input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--text, #eaecef);
+    font-size: 12.5px;
+    font-family: inherit;
+    padding: 2px 0;
+    /* Remove the type=search clear button — we render our own */
+}
+.term-finder__input::-webkit-search-cancel-button,
+.term-finder__input::-webkit-search-decoration {
+    -webkit-appearance: none;
+    display: none;
+}
+.term-finder__input::placeholder {
+    color: var(--text-muted, #6b7280);
+}
+.term-finder__counter {
+    color: var(--text-muted, #8a93a0);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-width: 0;
+    white-space: nowrap;
+}
+.term-finder--nomatch .term-finder__field {
+    border-color: rgba(239, 83, 80, 0.5);
+    background: rgba(239, 83, 80, 0.06);
+}
+.term-finder--nomatch .term-finder__counter {
+    color: #ef5350;
+}
+.term-finder__clear {
+    background: transparent;
+    border: 0;
+    color: var(--text-muted, #8a93a0);
+    cursor: pointer;
+    padding: 0;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.term-finder__clear:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text, #d5d9de);
+}
+.term-finder__nav {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 2px;
+}
+.term-finder__btn {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text, #d5d9de);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 120ms ease;
+}
+.term-finder__btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.term-finder__btn:active {
+    background: rgba(255, 255, 255, 0.1);
+}
+.term-finder__done {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text, #d5d9de);
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-left: 2px;
+    transition: background 120ms ease;
+}
+.term-finder__done:hover {
+    background: rgba(255, 255, 255, 0.1);
+}

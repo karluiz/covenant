@@ -31,6 +31,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   // Panels
   { category: "Panels", keys: ["⌘", ","], label: "Settings", description: "Open or toggle the settings page." },
   { category: "Panels", keys: ["⌘", "P"], label: "Recall palette", description: "Search command history (zsh import)." },
+  { category: "Panels", keys: ["⌘", "F"], label: "Find in terminal", description: "Search the active terminal's scrollback. Enter = next, ⇧⏎ = previous, Esc = close." },
   { category: "Panels", keys: ["⌘", "⇧", "F"], label: "Global file search", description: "Search file contents in the active tab's cwd." },
   { category: "Panels", keys: ["⌘", "⇧", "M"], label: "Convergence Mode", description: "Full-window overlay with one tile per session." },
   { category: "Panels", keys: ["⌘", "/"], label: "Docs hub", description: "Open in-app documentation. ⌘? also works." },

@@ -20,6 +20,8 @@ import {
   type LigatureHandle,
 } from "../terminal/ligatures";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
+import { TerminalFinder } from "../terminal/finder";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -185,6 +187,10 @@ interface Tab {
   webgl?: WebglAddon | null;
   canvas?: CanvasAddon | null;
   ligatures?: LigatureHandle | null;
+  /// Cmd+F in-terminal search. SearchAddon highlights matches inside
+  /// the xterm buffer; the finder is the floating overlay UI.
+  search?: SearchAddon;
+  finder?: TerminalFinder;
   blocks?: BlockManager;
   recall?: RecallManager;
   structure?: StructureTree;
@@ -1442,6 +1448,15 @@ export class TabManager {
     return tab?.executor ?? null;
   }
 
+  /// ⌘F handler — opens the in-terminal finder for the active tab.
+  /// No-op on Pi tabs (no xterm buffer to search) and during the brief
+  /// window before the finder is constructed.
+  openFinder(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || tab.kind !== "shell") return;
+    tab.finder?.open();
+  }
+
   /// Open `path` in the active tab's editor and (optionally) jump to a
   /// specific 1-based line. Used by the global search palette: clicking
   /// a hit routes through here so the editor pane swaps into view, the
@@ -1610,6 +1625,11 @@ export class TabManager {
       void openUrl(target).catch((err) => console.error("openUrl failed", err));
     };
     term.loadAddon(new WebLinksAddon((_e, uri) => handleLinkClick(uri)));
+    // Cmd+F search — addon paints decorations for every match; the
+    // floating finder UI is created right after term.open() so it can
+    // mount inside the tab's pane.
+    const search = new SearchAddon();
+    term.loadAddon(search);
     // Bare host:port (e.g. `localhost:54725`, `127.0.0.1:3000`) — the
     // default addon only catches schemed URLs, so register a second
     // matcher and prepend http:// at click time.
@@ -2326,6 +2346,7 @@ export class TabManager {
       webgl,
       canvas,
       ligatures,
+      search,
       blocks,
       recall,
       structure,
@@ -2339,6 +2360,10 @@ export class TabManager {
       specBadge: null,
     };
     tabRef.current = tab;
+
+    // Floating Cmd+F finder, scoped to this tab's pane. Created after
+    // the tab object exists so dispose() can clean it up symmetrically.
+    tab.finder = new TerminalFinder(pane, term, search);
 
     // Cmd+Click on file paths in terminal output → open in the tab's
     // editor split. Path detection is local to the visible line; we
@@ -3177,6 +3202,7 @@ export class TabManager {
       if (!this.inReplace) {
         void deleteScrollback(tab.replayKey).catch(() => {});
       }
+      tab.finder?.dispose();
       tab.term?.dispose();
     }
     if (tab.pane.parentElement === this.workspace) {
