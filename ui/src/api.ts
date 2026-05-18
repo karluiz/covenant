@@ -1462,6 +1462,13 @@ export async function piNewSession(
   return invoke<void>("pi_new_session", { sessionId, parentSession });
 }
 
+export async function piSetSessionName(
+  sessionId: SessionId,
+  name: string,
+): Promise<void> {
+  return invoke<void>("pi_set_session_name", { sessionId, name });
+}
+
 export async function piGetState(sessionId: SessionId): Promise<PiState> {
   return invoke<PiState>("pi_get_state", { sessionId });
 }
