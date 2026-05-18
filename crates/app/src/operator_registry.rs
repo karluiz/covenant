@@ -61,7 +61,7 @@ impl Operator {
     /// Project this `Operator` to the lightweight `karl_session::OperatorRef`
     /// used by session events and IPC. Keeps `ulid` / app-only types out of
     /// the session crate.
-    pub fn as_ref(&self) -> karl_session::OperatorRef {
+    pub fn to_session_ref(&self) -> karl_session::OperatorRef {
         karl_session::OperatorRef {
             id: self.id.to_string(),
             name: self.name.clone(),
