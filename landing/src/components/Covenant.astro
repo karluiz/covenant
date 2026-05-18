@@ -1,0 +1,40 @@
+---
+const repo = "https://github.com/karluiz/covenant/blob/main";
+const guarantees = [
+  {
+    title: "Hard blocklist",
+    body: "rm -rf, sudo, curl | sh, force-pushes to protected branches, writes to ~/.ssh, fork bombs. Removing entries requires code review.",
+    href: `${repo}/crates/agent/src/safety.rs`,
+    linkLabel: "safety.rs",
+  },
+  {
+    title: "Secrets masked",
+    body: "API keys, JWTs, SSH keys, GitHub and AWS tokens — masked before any byte reaches the model.",
+    href: `${repo}/crates/agent/src/lib.rs`,
+    linkLabel: "lib.rs",
+  },
+  {
+    title: "Cost caps",
+    body: "Per-minute and per-day token ceilings. Single agent::dispatch(), no bypass.",
+    href: `${repo}/crates/agent/src/lib.rs`,
+    linkLabel: "lib.rs",
+  },
+];
+---
+<section class="section">
+  <p class="eyebrow">The covenant</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl">
+    Autonomy with a contract. Not vibes — Rust functions you can grep.
+  </h2>
+  <div class="mt-14 grid md:grid-cols-3 gap-6">
+    {guarantees.map((g) => (
+      <article class="rounded-xl border border-moss-500/20 bg-moss-500/[0.04] p-6">
+        <h3 class="text-lg font-semibold">{g.title}</h3>
+        <p class="mt-3 text-mist/70 text-sm leading-relaxed">{g.body}</p>
+        <a href={g.href} class="mt-4 inline-block text-moss-400 font-mono text-xs hover:underline">
+          → {g.linkLabel}
+        </a>
+      </article>
+    ))}
+  </div>
+</section>
