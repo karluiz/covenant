@@ -12,6 +12,7 @@ use async_trait::async_trait;
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     Anthropic,
+    #[serde(rename = "openai_compat", alias = "open_ai_compat")]
     OpenAiCompat,
 }
 
