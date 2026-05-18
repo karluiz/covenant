@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.3 — LM Studio provider fix + scrollback PROMPT_SP fix
+
+### Fixed
+
+- **OpenAI-compatible providers can be saved again**
+  (`crates/agent/src/provider/mod.rs`). `ProviderKind` used
+  `#[serde(rename_all = "snake_case")]`, which serializes `OpenAiCompat`
+  as `open_ai_compat`. The frontend (and the `provider_id` strings
+  elsewhere in the backend) use `openai_compat`, so `set_settings`
+  rejected any attempt to add an LM Studio / Ollama / llama.cpp
+  provider with `unknown variant 'openai_compat'`. Pinned the variant
+  to `openai_compat` explicitly and kept `open_ai_compat` as a
+  deserialize alias for any settings already on disk.
+
+- **No more inverse `%` artifact above the first prompt on tab reopen**
+  (`crates/app/src/scrollback.rs`). When the replayed scrollback tail
+  ended mid-line, the freshly-spawned zsh ran its `PROMPT_SP` probe
+  and drew an inverse `%` glyph before the prompt. `trim_after_last_command_finish`
+  now appends `\r\n` when the tail doesn't already end at column 0, so
+  zsh sees a clean line and skips the probe.
+
 ## v0.7.2 — Vitals polish — multi-cc tailer + custom tooltips
 
 ### Fixed
