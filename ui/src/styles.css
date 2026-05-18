@@ -11911,3 +11911,110 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 .term-finder__done:hover {
     background: rgba(255, 255, 255, 0.1);
 }
+
+/* ─── Status bar vitals cluster (center zone, left of executor) ───── */
+
+.sb-vitals {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  color: rgba(245, 246, 247, 0.78);
+  font-variant-numeric: tabular-nums;
+  transition: opacity 320ms ease-out;
+  opacity: 1;
+}
+
+.sb-vitals.is-idle {
+  opacity: 0;
+  pointer-events: none;
+  /* When fully transparent, drop layout impact so the executor chip
+     can recenter naturally inside .sb-center. */
+  visibility: hidden;
+  width: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.sb-vitals .is-hidden {
+  display: none;
+}
+
+.sb-vitals-spark {
+  color: rgba(245, 246, 247, 0.55);
+  display: block;
+}
+
+.sb-vitals-rate {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.sb-vitals-pill {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(245, 246, 247, 0.82);
+  letter-spacing: 0.02em;
+}
+
+.sb-vitals-pill--cache {
+  /* Slight green tint when cache is healthy — pill itself is
+     non-dynamic, but the green hints "good thing". */
+  border-color: rgba(132, 204, 22, 0.22);
+  color: rgba(190, 222, 156, 0.92);
+}
+
+.sb-vitals-pill--model {
+  /* Brand-neutral; the model name itself carries identity. */
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sb-vitals-sep {
+  color: rgba(245, 246, 247, 0.28);
+  font-size: 11px;
+  user-select: none;
+}
+
+.sb-vitals-lat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.sb-vitals-lat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.sb-vitals-lat-dot--ok {
+  background: #84cc16;
+  box-shadow: 0 0 6px rgba(132, 204, 22, 0.55);
+}
+
+.sb-vitals-lat-dot--warn {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.45);
+}
+
+.sb-vitals-lat-dot--bad {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+}
+
+.sb-vitals-lat-dot--inflight {
+  background: rgba(245, 246, 247, 0.65);
+  /* Pulse so the user knows something is still happening. */
+  animation: sb-vitals-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes sb-vitals-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}

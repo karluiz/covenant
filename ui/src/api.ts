@@ -1531,3 +1531,36 @@ export async function subscribePiEvents(
   const unlisten = await listen<PiEvent>(topic, (e) => handler(e.payload));
   return unlisten;
 }
+
+export interface VitalsInFlight {
+  model: string;
+  started_unix_ms: number;
+}
+
+export interface Vitals {
+  tok_per_min: number;
+  spark: number[]; // length 12, oldest→newest
+  cache_hit_pct: number | null;
+  last_model: string | null;
+  last_latency_ms: number | null;
+  in_flight: VitalsInFlight | null;
+  idle_secs: number;
+  is_idle: boolean;
+}
+
+export async function getVitals(): Promise<Vitals> {
+  return invoke<Vitals>("get_vitals");
+}
+
+/// Subscribe to vitals updates pushed by the backend aggregator.
+/// Backend emits ~1Hz when active (in-flight or within idle window) and
+/// on every call completion. Returns an unlisten fn.
+export async function onVitalsUpdate(
+  handler: (v: Vitals) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<Vitals>("vitals_update", (e) =>
+    handler(e.payload),
+  );
+  return unlisten;
+}

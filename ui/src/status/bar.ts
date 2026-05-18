@@ -25,6 +25,7 @@ import type {
   MissionSaveResult,
   Operator,
   SessionId,
+  Vitals,
 } from "../api";
 import {
   aomStatus,
@@ -41,6 +42,7 @@ import { renderMarkdown } from "../release/markdown";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
+import { VitalsCluster } from "./vitals";
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
@@ -110,6 +112,7 @@ export class StatusBar {
   /// Last polled Telegram status. Drives the .tg-status pill class.
   private currentTgStatus: TelegramStatus = "disabled";
   private scoreChip: ScoreChip | null = null;
+  private vitals: VitalsCluster | null = null;
   /// Network connectivity. Mirrors navigator.onLine via the AOM
   /// connectivity bridge. When false, the executor chip dims and
   /// gains a "no internet" reason tag; a standalone offline chip is
@@ -224,6 +227,17 @@ export class StatusBar {
     this.currentMission = mission;
     this.currentSessionId = sessionId;
     this.render(this.lastDirCtx);
+  }
+
+  setVitals(v: Vitals): void {
+    if (!this.vitals) {
+      // Lazy: defer creation until first event so the empty cluster
+      // never paints before there's data to show.
+      this.vitals = new VitalsCluster();
+      // Re-render so the cluster appears in the center zone.
+      this.render(this.lastDirCtx);
+    }
+    this.vitals.setVitals(v);
   }
 
   /// Pushed by TabManager when the active tab's running executor
@@ -608,9 +622,12 @@ export class StatusBar {
     }
 
     // ─── CENTER ──────────────────────────────────────────
-    // Today this is the "what's running" indicator (executor chip or
-    // offline marker). Phase 2: replaced by adaptive priority stack
-    // (error > suggest > running > syncing > idle vitals).
+    // Vitals cluster sits to the left of the executor chip. When the
+    // cluster is idle (no LLM activity in 60s), its CSS collapses it,
+    // so the executor chip recenters naturally.
+    if (this.vitals) {
+      center.appendChild(this.vitals.el);
+    }
     if (this.currentExecutor) {
       center.appendChild(executorSegment(this.currentExecutor, this.online));
     } else if (!this.online) {
