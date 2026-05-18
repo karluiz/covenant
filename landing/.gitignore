@@ -3,3 +3,5 @@ dist
 .astro
 .env
 .playwright
+test-results
+playwright-report
