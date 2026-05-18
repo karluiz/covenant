@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+
+html, body {
+  background: theme(colors.ink);
+  color: theme(colors.mist);
+  font-family: theme(fontFamily.sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.eyebrow {
+  @apply text-[11px] uppercase tracking-eyebrow text-mist/60 font-mono;
+}
+
+.section {
+  @apply mx-auto max-w-content px-6 py-24 md:py-32;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
