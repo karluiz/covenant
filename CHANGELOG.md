@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.6.4 — CI lockfile sync (reissues v0.6.3)
+
+### Fixed
+
+- **Release pipeline: sync `package-lock.json` with `@xterm/addon-search`**
+  (`package-lock.json`). v0.6.3's macOS and Windows release workflows both
+  failed at `npm ci` because `@xterm/addon-search@0.16.0` (added for the
+  ⌘F finder) was listed in `package.json` but missing from the lockfile.
+  Regenerated the lockfile and removed a stray empty
+  `ui/package-lock.json` created by running npm inside the `ui/`
+  subdirectory. v0.6.4 reissues the v0.6.3 feature set with working
+  release artifacts.
+
 ## v0.6.3 — Spawns executor catalog + ⌘F find + custom tooltips
 
 ### Added
