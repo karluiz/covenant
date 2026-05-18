@@ -3295,6 +3295,7 @@ pub fn run() {
             pi_commands::pi_follow_up,
             pi_commands::pi_abort,
             pi_commands::pi_new_session,
+            pi_commands::pi_set_session_name,
             pi_commands::pi_get_state,
             pi_commands::pi_set_model,
             pi_commands::pi_get_available_models,

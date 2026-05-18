@@ -209,6 +209,18 @@ pub async fn pi_new_session(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn pi_set_session_name(
+    state: State<'_, AppState>,
+    session_id: SessionId,
+    name: String,
+) -> Result<(), String> {
+    let sess = require(&state, &session_id).await?;
+    sess.send(&PiCommand::SetSessionName { name })
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------------------
 // State / model
 // ---------------------------------------------------------------------------
