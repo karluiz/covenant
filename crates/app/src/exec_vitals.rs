@@ -116,8 +116,8 @@ impl ExecVitals {
     pub async fn attach(&self, session: SessionId, cwd: PathBuf) {
         let vitals = self.inner.vitals.clone();
         let handle = tokio::spawn(async move {
-            let jsonl = match discover_jsonl_for_session(&cwd).await {
-                Some(p) => p,
+            let (jsonl, start_pos) = match discover_jsonl_for_session(&cwd).await {
+                Some(pair) => pair,
                 None => {
                     tracing::debug!(
                         target: "exec_vitals",
@@ -128,7 +128,7 @@ impl ExecVitals {
                     return;
                 }
             };
-            if let Err(e) = tail_file(session, jsonl.clone(), vitals).await {
+            if let Err(e) = tail_file(session, jsonl.clone(), start_pos, vitals).await {
                 tracing::debug!(
                     target: "exec_vitals",
                     session = %session,
@@ -166,22 +166,36 @@ fn claude_projects_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("projects"))
 }
 
+/// Snapshot of a candidate jsonl at attach time. `size` is the byte
+/// position the tail should start from when this file's mtime advances
+/// (so we catch the line that triggered detection, instead of seeking
+/// past it to EOF).
+#[derive(Clone)]
+struct BaselineEntry {
+    mtime: std::time::SystemTime,
+    size: u64,
+}
+
 /// Pick the jsonl to tail for a freshly-attached Claude Code session.
 ///
-/// Snapshots the project dir at attach time (file set + their mtimes),
-/// then polls every DISCOVERY_POLL for up to DISCOVERY_WINDOW looking
-/// for either:
-///   • a new jsonl whose path wasn't in the snapshot, OR
-///   • an existing jsonl whose mtime advanced past the snapshot baseline
-///     (covers Claude Code reusing a prior file on resume — rare).
+/// Snapshots the project dir at attach time (file set + each file's
+/// size + mtime), then polls every DISCOVERY_POLL for up to
+/// DISCOVERY_WINDOW looking for either:
+///   • a new jsonl whose path wasn't in the snapshot — tail from 0,
+///     since every byte arrived after attach
+///   • an existing jsonl whose mtime advanced past the snapshot
+///     baseline — tail from the snapshotted size, so the just-appended
+///     line that triggered detection is the first one read
 ///
 /// First match wins. If nothing new appears within the window we fall
-/// back to the old "newest by mtime" so the user still gets a tailer
-/// when they're the only `cc` in this cwd.
-async fn discover_jsonl_for_session(cwd: &Path) -> Option<PathBuf> {
+/// back to the old "newest by mtime" (seeking to EOF) so the user
+/// still gets a tailer when they're the only `cc` in this cwd.
+///
+/// Returns `(path, start_byte_position)`.
+async fn discover_jsonl_for_session(cwd: &Path) -> Option<(PathBuf, u64)> {
     let dir = claude_projects_dir()?.join(slugify_cwd(cwd));
 
-    let baseline: HashMap<PathBuf, std::time::SystemTime> = std::fs::read_dir(&dir)
+    let baseline: HashMap<PathBuf, BaselineEntry> = std::fs::read_dir(&dir)
         .ok()
         .into_iter()
         .flatten()
@@ -191,8 +205,9 @@ async fn discover_jsonl_for_session(cwd: &Path) -> Option<PathBuf> {
             if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
                 return None;
             }
-            let mtime = e.metadata().ok()?.modified().ok()?;
-            Some((path, mtime))
+            let meta = e.metadata().ok()?;
+            let mtime = meta.modified().ok()?;
+            Some((path, BaselineEntry { mtime, size: meta.len() }))
         })
         .collect();
     let attach_wall = std::time::SystemTime::now();
@@ -212,32 +227,44 @@ async fn discover_jsonl_for_session(cwd: &Path) -> Option<PathBuf> {
                 let Ok(meta) = entry.metadata() else { continue };
                 let Ok(mtime) = meta.modified() else { continue };
                 let prior = baseline.get(&path);
-                let is_new = prior.is_none();
-                let advanced = match prior {
-                    Some(prev) => mtime > *prev && mtime >= attach_wall,
-                    None => false,
-                };
-                if is_new || advanced {
-                    tracing::debug!(
-                        target: "exec_vitals",
-                        path = %path.display(),
-                        is_new,
-                        "discovered transcript for new session"
-                    );
-                    return Some(path);
+                match prior {
+                    None => {
+                        tracing::debug!(
+                            target: "exec_vitals",
+                            path = %path.display(),
+                            "discovered new transcript for session"
+                        );
+                        // Brand-new file — every byte is post-attach.
+                        return Some((path, 0));
+                    }
+                    Some(prev) if mtime > prev.mtime && mtime >= attach_wall => {
+                        tracing::debug!(
+                            target: "exec_vitals",
+                            path = %path.display(),
+                            start_pos = prev.size,
+                            "discovered transcript via mtime advance"
+                        );
+                        // Start at the size we recorded — that's the
+                        // beginning of the line(s) appended after attach.
+                        return Some((path, prev.size));
+                    }
+                    _ => {}
                 }
             }
         }
         if std::time::SystemTime::now() > deadline {
-            let fallback = newest_jsonl_for_cwd(cwd);
-            if let Some(ref p) = fallback {
+            // Couldn't disambiguate within the window — accept the
+            // historical degraded behavior (newest by mtime, EOF tail).
+            if let Some(p) = newest_jsonl_for_cwd(cwd) {
+                let end = std::fs::metadata(&p).ok().map(|m| m.len()).unwrap_or(0);
                 tracing::debug!(
                     target: "exec_vitals",
                     path = %p.display(),
-                    "discovery window expired; falling back to newest existing jsonl"
+                    "discovery window expired; falling back to newest existing jsonl (tail from EOF)"
                 );
+                return Some((p, end));
             }
-            return fallback;
+            return None;
         }
     }
 }
@@ -261,11 +288,17 @@ fn newest_jsonl_for_cwd(cwd: &Path) -> Option<PathBuf> {
     best.map(|(_, p)| p)
 }
 
-async fn tail_file(session: SessionId, path: PathBuf, vitals: VitalsHandle) -> std::io::Result<()> {
+async fn tail_file(
+    session: SessionId,
+    path: PathBuf,
+    start_pos: u64,
+    vitals: VitalsHandle,
+) -> std::io::Result<()> {
     let mut file = File::open(&path).await?;
-    // Skip historical turns — only count what happens while the
-    // tailer is attached.
-    let mut pos = file.seek(SeekFrom::End(0)).await?;
+    // Start where discovery told us — typically right before the line
+    // whose append triggered detection, so we catch it on the first
+    // poll instead of waiting for the next message round-trip.
+    let mut pos = file.seek(SeekFrom::Start(start_pos)).await?;
     let mut last_user_ts_ms: Option<i64> = None;
     let mut interval = tokio::time::interval(POLL_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
