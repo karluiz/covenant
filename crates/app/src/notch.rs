@@ -27,7 +27,22 @@ struct Entry {
     /// Prevents the Done chime from re-firing on subsequent OSC 133;D
     /// markers within the same agent response.
     done_emitted: bool,
+    /// Phase last surfaced to the UI. May lag behind `detector.phase()`
+    /// while the sticky window is holding an active-work phase against
+    /// a rapid flap back to Thinking.
+    display: karl_session::ExecutorPhase,
+    /// Wall-clock of the most recent transition into an *active-work*
+    /// display phase (Writing/Reading/Running). While this is within
+    /// `STICKY_ACTIVE`, Thinking transitions from the detector are
+    /// swallowed — Claude Code routinely flashes `⏺ Update(foo.rs)`
+    /// for a single frame and the spinner is back ~50ms later.
+    last_active_at: std::time::Instant,
 }
+
+/// How long to hold a Writing/Reading/Running display phase before letting
+/// the detector flap us back to Thinking. The tool-call line is the
+/// meaningful event; the spinner that follows is noise.
+const STICKY_ACTIVE: std::time::Duration = std::time::Duration::from_millis(2000);
 
 pub struct NotchHub {
     sessions: Mutex<HashMap<SessionId, Entry>>,
@@ -101,6 +116,8 @@ impl NotchHub {
                 last_change: stale,
                 agent: None,
                 done_emitted: false,
+                display: karl_session::ExecutorPhase::Idle,
+                last_active_at: stale,
             },
         );
     }
@@ -118,6 +135,8 @@ impl NotchHub {
                 - std::time::Duration::from_secs(60);
             entry.last_emit = stale;
             entry.last_change = stale;
+            entry.display = karl_session::ExecutorPhase::Idle;
+            entry.last_active_at = stale;
             // Emit an Idle event so any existing pill clears when the
             // agent quits and the user returns to a plain shell.
             let tab_label = self.labels.lock().await.get(&session).cloned();
@@ -149,14 +168,37 @@ impl NotchHub {
         if changed {
             entry.last_change = std::time::Instant::now();
         }
-        // Thinking is now only produced by the detector's whitelist of
-        // Claude Code processing-status verbs (Hyperspacing/Cooked/…), so
-        // every Thinking emission is high-signal. No suppression needed.
-        let is_thinking = false;
-        // Stale-phase clear: if the detector has stayed in the same
-        // Running/Reading/Writing phase for >8s without any transition,
-        // Claude Code is almost certainly just redrawing its status bar
-        // while idle. Emit Idle once to clear the pill.
+        let detected = entry.detector.phase().clone();
+        let now = std::time::Instant::now();
+        let display_is_active = matches!(
+            entry.display,
+            karl_session::ExecutorPhase::Running { .. }
+                | karl_session::ExecutorPhase::Reading { .. }
+                | karl_session::ExecutorPhase::Writing { .. }
+        );
+        let detected_is_active = matches!(
+            detected,
+            karl_session::ExecutorPhase::Running { .. }
+                | karl_session::ExecutorPhase::Reading { .. }
+                | karl_session::ExecutorPhase::Writing { .. }
+        );
+        // Sticky window: if the UI is currently showing an active-work
+        // phase and the detector just flapped to Thinking within the
+        // sticky window, swallow it. The tool-call was the real signal;
+        // the spinner that follows for 50ms is noise.
+        let suppress_thinking_flap = matches!(detected, karl_session::ExecutorPhase::Thinking)
+            && display_is_active
+            && entry.last_active_at.elapsed() < STICKY_ACTIVE;
+        let next_display = if suppress_thinking_flap {
+            entry.display.clone()
+        } else {
+            detected.clone()
+        };
+        if detected_is_active {
+            entry.last_active_at = now;
+        }
+        // Stale-phase clear: detector has been stuck in the same active
+        // phase for >8s with no transitions → CC is just redrawing.
         let stale_active = !changed
             && entry.last_change.elapsed() > std::time::Duration::from_secs(8)
             && matches!(
@@ -168,8 +210,9 @@ impl NotchHub {
             );
         if stale_active {
             entry.detector = ExecutorPhaseDetector::default();
-            entry.last_change = std::time::Instant::now();
-            entry.last_emit = std::time::Instant::now();
+            entry.last_change = now;
+            entry.last_emit = now;
+            entry.display = karl_session::ExecutorPhase::Idle;
             let tab_label = self.labels.lock().await.get(&session).cloned();
             let ev = SessionEvent::ExecutorStateChanged {
                 session,
@@ -180,15 +223,16 @@ impl NotchHub {
             let _ = self.notch_tx.send(ev);
             return;
         }
-        // Heartbeat: re-emit current phase every 3s while bytes are still
-        // flowing, so the JS-side TTL doesn't clear pills for sessions
-        // that are continuously active but not transitioning phases.
-        let heartbeat = !changed
+        let display_changed = next_display != entry.display;
+        // Heartbeat: re-emit current display every 3s while non-Idle so
+        // the JS-side TTL doesn't clear pills on continuously-active
+        // sessions that aren't transitioning.
+        let heartbeat = !display_changed
             && entry.last_emit.elapsed() > std::time::Duration::from_secs(3)
-            && !matches!(entry.detector.phase(), karl_session::ExecutorPhase::Idle)
-            && !is_thinking;
-        if (changed && !is_thinking) || heartbeat {
-            let phase = entry.detector.phase().clone();
+            && !matches!(next_display, karl_session::ExecutorPhase::Idle);
+        if display_changed || heartbeat {
+            entry.display = next_display.clone();
+            let phase = next_display;
             let is_done = matches!(phase, karl_session::ExecutorPhase::Done { .. });
             // Done dedupe: skip if we've already emitted Done for this turn.
             // Clear the flag when leaving Done (= a new turn started).
@@ -447,6 +491,28 @@ mod tests {
         };
         let json = serde_json::to_value(&ev).expect("json");
         assert_eq!(json["phase"]["kind"], "done");
+    }
+
+    #[tokio::test]
+    async fn sticky_active_swallows_thinking_flap() {
+        // Writing → Thinking within the sticky window should NOT emit
+        // a Thinking event: the tool-call line is the meaningful signal,
+        // the spinner that follows is noise.
+        let (tx, mut rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        while rx.try_recv().is_ok() {}
+        hub.ingest(sid, "⏺ Update(foo.rs)\n".as_bytes()).await;
+        let ev = rx.recv().await.expect("writing");
+        assert!(matches!(
+            ev,
+            SessionEvent::ExecutorStateChanged { phase: ExecutorPhase::Writing { .. }, .. }
+        ));
+        // Detector flaps to Thinking immediately — hub must swallow it.
+        hub.ingest(sid, "✻ Flowing… (1s)\n".as_bytes()).await;
+        assert!(rx.try_recv().is_err(), "thinking flap leaked through sticky window");
     }
 
     #[tokio::test]

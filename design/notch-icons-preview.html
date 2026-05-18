@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Notch icon preview</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: rgba(255,255,255,0.06);
+    --stroke: rgba(255,255,255,0.10);
+    --text: #e8e9ec;
+    --muted: #9aa0a6;
+    --accent: #ffd166;
+    --good: #6ee7a7;
+    --info: #8ab4ff;
+    --warn: #ffb86b;
+    --read: #b794f4;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 800px at 70% -10%, #1d2330 0%, transparent 60%),
+      radial-gradient(800px 600px at 10% 110%, #221a2e 0%, transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+    padding: 48px 32px 96px;
+  }
+  h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: 0 0 24px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .card {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--stroke);
+    border-radius: 14px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .card h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 500; }
+
+  /* ---------- The glass pill ---------- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px 7px 9px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04));
+    border: 1px solid rgba(255,255,255,0.10);
+    border-top-color: rgba(255,255,255,0.22);
+    border-radius: 999px;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.08) inset,
+      0 8px 24px rgba(0,0,0,0.35);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .pill .label { color: var(--muted); }
+  .pill .target { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .icon { width: 16px; height: 16px; display: block; }
+
+  /* ---------- THINKING: 3-dot orbital ---------- */
+  .think circle { transform-origin: 8px 8px; }
+  .think .d1 { animation: orbit 1.4s ease-in-out infinite; }
+  .think .d2 { animation: orbit 1.4s ease-in-out -0.46s infinite; }
+  .think .d3 { animation: orbit 1.4s ease-in-out -0.93s infinite; }
+  @keyframes orbit {
+    0%, 100% { transform: translate(0, 0); opacity: 0.35; }
+    50%      { transform: translate(0, -2.2px); opacity: 1; }
+  }
+
+  /* ---------- READING: sweep over lines ---------- */
+  .read .line { stroke: rgba(232,233,236,0.55); stroke-width: 1.4; stroke-linecap: round; }
+  .read .sweep {
+    fill: var(--read);
+    opacity: 0.85;
+    animation: sweep 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+  @keyframes sweep {
+    0%   { transform: translateY(-1px); opacity: 0; }
+    15%  { opacity: 0.9; }
+    85%  { opacity: 0.9; }
+    100% { transform: translateY(11px); opacity: 0; }
+  }
+
+  /* ---------- WRITING: caret + trail ---------- */
+  .write .trail { stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 10; stroke-dashoffset: 10; animation: draw 1.4s ease-in-out infinite; }
+  .write .caret { fill: var(--accent); animation: blink 1s steps(2, end) infinite; }
+  @keyframes draw {
+    0%   { stroke-dashoffset: 10; }
+    60%  { stroke-dashoffset: 0; }
+    100% { stroke-dashoffset: 0; opacity: 0; }
+  }
+  @keyframes blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.25; }
+  }
+
+  /* ---------- RUNNING: chevron slide ---------- */
+  .run g { animation: chev 1.2s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+  .run path { stroke: var(--info); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .run .c1 { opacity: 0.35; }
+  .run .c2 { opacity: 0.65; }
+  .run .c3 { opacity: 1; }
+  @keyframes chev {
+    0%   { transform: translateX(-2px); }
+    100% { transform: translateX(2px); }
+  }
+
+  /* ---------- DONE: check draw-on + glow ---------- */
+  .done .ring { fill: none; stroke: var(--good); stroke-width: 1.4; opacity: 0.35; }
+  .done .check {
+    fill: none;
+    stroke: var(--good);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 14;
+    stroke-dashoffset: 14;
+    animation: checkdraw 700ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+  .done.replay .check { animation: checkdraw 700ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards, glow 1.4s ease-out 700ms; }
+  @keyframes checkdraw {
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes glow {
+    0%   { filter: drop-shadow(0 0 0 rgba(110,231,167,0)); }
+    50%  { filter: drop-shadow(0 0 6px rgba(110,231,167,0.7)); }
+    100% { filter: drop-shadow(0 0 0 rgba(110,231,167,0)); }
+  }
+
+  /* ---------- Transition demo strip ---------- */
+  .strip {
+    grid-column: 1 / -1;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--stroke);
+    border-radius: 14px;
+    padding: 28px 24px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .strip .pill { transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms; }
+  .strip .ghost { opacity: 0; transform: scale(0.85); pointer-events: none; position: absolute; }
+  .replay-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--stroke);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .replay-btn:hover { background: rgba(255,255,255,0.10); }
+
+  .legend { color: var(--muted); font-size: 11px; margin-top: 8px; text-align: center; max-width: 220px; }
+</style>
+</head>
+<body>
+
+<h1>Notch icons · preview</h1>
+
+<div class="grid">
+
+  <!-- THINKING -->
+  <div class="card">
+    <h2>Thinking</h2>
+    <div class="pill">
+      <svg class="icon think" viewBox="0 0 16 16">
+        <circle class="d1" cx="3"  cy="11" r="1.4" fill="var(--accent)" />
+        <circle class="d2" cx="8"  cy="11" r="1.4" fill="var(--accent)" />
+        <circle class="d3" cx="13" cy="11" r="1.4" fill="var(--accent)" />
+      </svg>
+      <span class="label">Flowing…</span>
+      <span class="target">31s · ↑1.3k</span>
+    </div>
+    <p class="legend">3-dot orbital, staggered. Reads as cognition, not loading.</p>
+  </div>
+
+  <!-- READING -->
+  <div class="card">
+    <h2>Reading</h2>
+    <div class="pill">
+      <svg class="icon read" viewBox="0 0 16 16">
+        <line class="line" x1="2"  y1="4"  x2="13" y2="4" />
+        <line class="line" x1="2"  y1="7"  x2="11" y2="7" />
+        <line class="line" x1="2"  y1="10" x2="13" y2="10" />
+        <line class="line" x1="2"  y1="13" x2="9"  y2="13" />
+        <rect class="sweep" x="1" y="2" width="14" height="1.6" rx="0.8" />
+      </svg>
+      <span class="label">Reading</span>
+      <span class="target">session.rs</span>
+    </div>
+    <p class="legend">Horizontal sweep over text lines — like a scanner.</p>
+  </div>
+
+  <!-- WRITING -->
+  <div class="card">
+    <h2>Writing</h2>
+    <div class="pill">
+      <svg class="icon write" viewBox="0 0 16 16">
+        <path class="trail" d="M2 11 Q 5 9, 9 10" fill="none" />
+        <rect class="caret" x="10" y="6" width="1.6" height="6" rx="0.5" />
+      </svg>
+      <span class="label">Writing</span>
+      <span class="target">profile.rs</span>
+    </div>
+    <p class="legend">Caret blink + ink trail. Feels like typing, not a spinner.</p>
+  </div>
+
+  <!-- RUNNING -->
+  <div class="card">
+    <h2>Running</h2>
+    <div class="pill">
+      <svg class="icon run" viewBox="0 0 16 16">
+        <g>
+          <path class="c1" d="M3 4 L7 8 L3 12" />
+          <path class="c2" d="M6 4 L10 8 L6 12" />
+          <path class="c3" d="M9 4 L13 8 L9 12" />
+        </g>
+      </svg>
+      <span class="label">Running</span>
+      <span class="target">cargo test</span>
+    </div>
+    <p class="legend">Three chevrons sliding right — motion = execution.</p>
+  </div>
+
+  <!-- DONE -->
+  <div class="card">
+    <h2>Done</h2>
+    <div class="pill" id="done-pill">
+      <svg class="icon done" viewBox="0 0 16 16">
+        <circle class="ring" cx="8" cy="8" r="6.5" />
+        <path class="check" d="M4.5 8.4 L7 11 L11.8 5.6" />
+      </svg>
+      <span class="label">Cooked for 7s</span>
+    </div>
+    <button class="replay-btn" id="replay">Replay</button>
+    <p class="legend">Stroke-on check + green glow that fades.</p>
+  </div>
+
+  <!-- TRANSITION STRIP -->
+  <div class="strip">
+    <span style="color: var(--muted); margin-right: 8px;">Transition feel:</span>
+    <div class="pill" id="t-pill">
+      <span id="t-icon-slot"></span>
+      <span class="label" id="t-label">Thinking…</span>
+      <span class="target" id="t-target">—</span>
+    </div>
+    <button class="replay-btn" id="cycle">Cycle phase</button>
+  </div>
+
+</div>
+
+<script>
+  // Replay the Done animation
+  document.getElementById('replay').addEventListener('click', () => {
+    const svg = document.querySelector('#done-pill .done');
+    const check = svg.querySelector('.check');
+    check.style.animation = 'none';
+    void check.offsetWidth;
+    check.style.animation = '';
+    svg.classList.remove('replay');
+    void svg.offsetWidth;
+    svg.classList.add('replay');
+  });
+
+  // Cycle through all phases with spring transition
+  const phases = [
+    { name: 'Thinking', icon: 'think', label: 'Flowing…', target: '31s · ↑1.3k' },
+    { name: 'Reading',  icon: 'read',  label: 'Reading',  target: 'session.rs' },
+    { name: 'Writing',  icon: 'write', label: 'Writing',  target: 'profile.rs' },
+    { name: 'Running',  icon: 'run',   label: 'Running',  target: 'cargo test' },
+    { name: 'Done',     icon: 'done',  label: 'Cooked for 7s', target: '' },
+  ];
+  const iconSvg = {
+    think: `<svg class="icon think" viewBox="0 0 16 16"><circle class="d1" cx="3" cy="11" r="1.4" fill="var(--accent)"/><circle class="d2" cx="8" cy="11" r="1.4" fill="var(--accent)"/><circle class="d3" cx="13" cy="11" r="1.4" fill="var(--accent)"/></svg>`,
+    read: `<svg class="icon read" viewBox="0 0 16 16"><line class="line" x1="2" y1="4" x2="13" y2="4"/><line class="line" x1="2" y1="7" x2="11" y2="7"/><line class="line" x1="2" y1="10" x2="13" y2="10"/><line class="line" x1="2" y1="13" x2="9" y2="13"/><rect class="sweep" x="1" y="2" width="14" height="1.6" rx="0.8"/></svg>`,
+    write: `<svg class="icon write" viewBox="0 0 16 16"><path class="trail" d="M2 11 Q 5 9, 9 10" fill="none"/><rect class="caret" x="10" y="6" width="1.6" height="6" rx="0.5"/></svg>`,
+    run: `<svg class="icon run" viewBox="0 0 16 16"><g><path class="c1" d="M3 4 L7 8 L3 12"/><path class="c2" d="M6 4 L10 8 L6 12"/><path class="c3" d="M9 4 L13 8 L9 12"/></g></svg>`,
+    done: `<svg class="icon done replay" viewBox="0 0 16 16"><circle class="ring" cx="8" cy="8" r="6.5"/><path class="check" d="M4.5 8.4 L7 11 L11.8 5.6"/></svg>`,
+  };
+
+  let idx = 0;
+  function renderPhase(p) {
+    const pill = document.getElementById('t-pill');
+    pill.style.transform = 'scale(0.86)';
+    pill.style.opacity = '0';
+    setTimeout(() => {
+      document.getElementById('t-icon-slot').innerHTML = iconSvg[p.icon];
+      document.getElementById('t-label').textContent = p.label;
+      document.getElementById('t-target').textContent = p.target;
+      pill.style.transform = 'scale(1)';
+      pill.style.opacity = '1';
+    }, 140);
+  }
+  renderPhase(phases[0]);
+  document.getElementById('cycle').addEventListener('click', () => {
+    idx = (idx + 1) % phases.length;
+    renderPhase(phases[idx]);
+  });
+</script>
+
+</body>
+</html>

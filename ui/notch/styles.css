@@ -39,9 +39,11 @@ body[data-corner="top-left"] .stack {
 }
 
 .pill.expanded {
-  background: rgba(20, 20, 28, 0.72);
-  backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(20,20,28,0.78));
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-top-color: rgba(255, 255, 255, 0.22);
   border-left: 3px solid var(--tab, #7c5cff);
   border-radius: 12px;
   padding: 9px 14px 9px 11px;
@@ -51,8 +53,11 @@ body[data-corner="top-left"] .stack {
   color: #fff;
   font: 500 12.5px -apple-system;
   min-width: 210px;
-  animation: slideIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
-  transition: all 0.25s;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 8px 24px rgba(0,0,0,0.35);
+  animation: slideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
 }
 .pill.expanded .tabchip {
   font-size: 9.5px;
@@ -92,9 +97,11 @@ body[data-corner="top-left"] .stack {
 }
 
 .pill.compact {
-  background: rgba(14, 14, 18, 0.78);
-  backdrop-filter: blur(18px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(14,14,18,0.82));
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.20);
   border-left: 3px solid var(--tab, #7c5cff);
   border-radius: 999px;
   padding: 6px 14px 6px 8px;
@@ -103,7 +110,12 @@ body[data-corner="top-left"] .stack {
   gap: 9px;
   color: #e8e8f0;
   font: 600 11.5px -apple-system;
-  transition: all 0.25s;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 6px 18px rgba(0,0,0,0.30);
+  transition: padding 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              border-radius 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              min-width 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   cursor: pointer;
 }
 .pill.compact:hover {
@@ -132,95 +144,114 @@ body[data-corner="top-left"] .stack {
   to { opacity: 1; transform: none; }
 }
 
-.ld-think {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #c8b5ff 0%, #7c5cff 60%, transparent 70%);
-  animation: pulse 1.4s ease-in-out infinite;
+/* All phase icons share a 16×16 SVG canvas. Sizing handled by .ico. */
+.ld-think, .ld-read, .ld-write, .ld-run, .ld-wait, .ld-done {
+  width: 16px;
+  height: 16px;
+  display: block;
+  overflow: visible;
 }
-@keyframes pulse {
-  0%, 100% { transform: scale(0.7); opacity: 0.6; }
-  50% { transform: scale(1.1); opacity: 1; }
+
+/* THINKING — 3-dot orbital, staggered */
+.ld-think circle { fill: #ffd166; transform-origin: 8px 8px; }
+.ld-think .d1 { animation: ico-orbit 1.4s ease-in-out infinite; }
+.ld-think .d2 { animation: ico-orbit 1.4s ease-in-out -0.46s infinite; }
+.ld-think .d3 { animation: ico-orbit 1.4s ease-in-out -0.93s infinite; }
+@keyframes ico-orbit {
+  0%, 100% { transform: translate(0, 0); opacity: 0.35; }
+  50%      { transform: translate(0, -2.2px); opacity: 1; }
 }
-.ld-run {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid #2a2a35;
-  border-top-color: #5ad1ff;
-  animation: spin 0.9s linear infinite;
+
+/* READING — horizontal sweep over text lines */
+.ld-read .line {
+  stroke: rgba(232, 233, 236, 0.55);
+  stroke-width: 1.4;
+  stroke-linecap: round;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-.ld-write {
-  display: flex;
-  gap: 2px;
-  align-items: flex-end;
-  height: 14px;
+.ld-read .sweep {
+  fill: #b794f4;
+  opacity: 0.85;
+  animation: ico-sweep 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
-.ld-write span {
-  width: 2px;
-  background: #7cffb2;
-  border-radius: 1px;
-  animation: wbar 1s ease-in-out infinite;
+@keyframes ico-sweep {
+  0%   { transform: translateY(-1px); opacity: 0; }
+  15%  { opacity: 0.9; }
+  85%  { opacity: 0.9; }
+  100% { transform: translateY(11px); opacity: 0; }
 }
-.ld-write span:nth-child(1) { height: 6px; }
-.ld-write span:nth-child(2) { height: 10px; animation-delay: 0.15s; }
-.ld-write span:nth-child(3) { height: 8px; animation-delay: 0.3s; }
-.ld-write span:nth-child(4) { height: 12px; animation-delay: 0.45s; }
-@keyframes wbar {
-  0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
-  50% { transform: scaleY(1); opacity: 1; }
+
+/* WRITING — ink trail + blinking caret */
+.ld-write .trail {
+  stroke: #ffd166;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 10;
+  stroke-dashoffset: 10;
+  animation: ico-draw 1.4s ease-in-out infinite;
 }
-.ld-read {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  background: #1a1a22;
-  position: relative;
-  overflow: hidden;
+.ld-write .caret {
+  fill: #ffd166;
+  animation: ico-blink 1s steps(2, end) infinite;
 }
-.ld-read::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -2px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #ffcb5a, transparent);
-  animation: scan 1.2s ease-in-out infinite;
+@keyframes ico-draw {
+  0%   { stroke-dashoffset: 10; }
+  60%  { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
 }
-@keyframes scan {
-  0% { top: -2px; }
-  100% { top: 14px; }
+@keyframes ico-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0.25; }
 }
-.ld-wait {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ffb13a;
-  box-shadow: 0 0 0 0 rgba(255, 177, 58, 0.6);
-  animation: wait 1.6s ease-out infinite;
-}
-@keyframes wait {
-  0% { box-shadow: 0 0 0 0 rgba(255, 177, 58, 0.6); }
-  80%, 100% { box-shadow: 0 0 0 8px rgba(255, 177, 58, 0); }
-}
-.ld-done {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #7cffb2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.ld-done svg {
-  width: 10px;
-  height: 10px;
-  stroke: #0a1a12;
-  stroke-width: 1.5;
-  fill: none;
+
+/* RUNNING — three chevrons sliding right */
+.ld-run g { animation: ico-chev 1.2s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+.ld-run path {
+  stroke: #8ab4ff;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+  fill: none;
+}
+.ld-run .c1 { opacity: 0.35; }
+.ld-run .c2 { opacity: 0.65; }
+.ld-run .c3 { opacity: 1; }
+@keyframes ico-chev {
+  0%   { transform: translateX(-2px); }
+  100% { transform: translateX(2px); }
+}
+
+/* WAITING — soft amber halo pulse */
+.ld-wait .dot { fill: #ffb86b; }
+.ld-wait .halo {
+  fill: #ffb86b;
+  opacity: 0.35;
+  transform-origin: 8px 8px;
+  animation: ico-halo 1.6s ease-out infinite;
+}
+@keyframes ico-halo {
+  0%   { transform: scale(0.6); opacity: 0.45; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* DONE — stroke-on check + green glow */
+.ld-done .ring { fill: none; stroke: #6ee7a7; stroke-width: 1.4; opacity: 0.35; }
+.ld-done .check {
+  fill: none;
+  stroke: #6ee7a7;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 14;
+  stroke-dashoffset: 14;
+  animation:
+    ico-checkdraw 700ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+    ico-glow 1.4s ease-out 700ms;
+}
+@keyframes ico-checkdraw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes ico-glow {
+  0%   { filter: drop-shadow(0 0 0 rgba(110, 231, 167, 0)); }
+  50%  { filter: drop-shadow(0 0 6px rgba(110, 231, 167, 0.7)); }
+  100% { filter: drop-shadow(0 0 0 rgba(110, 231, 167, 0)); }
 }
