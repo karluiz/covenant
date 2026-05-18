@@ -60,6 +60,8 @@ import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
+import { SpawnsChip } from "./spawns/chip";
+import { listSpawns } from "./spawns/api";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -374,6 +376,22 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
+
+  // Spawns chip — titlebar chip + popover wired to backend (Slice 2).
+  const spawnsMount = document.getElementById("spawns-chip-mount");
+  if (spawnsMount) {
+    let boundId: string | null = null;
+    const chip = new SpawnsChip(spawnsMount, {
+      list: listSpawns,
+      getBoundId: () => boundId,
+      onSelect: (id) => {
+        boundId = id;
+        void chip.refresh(); // deploy wired in Slice 3
+      },
+      onAdd: () => { /* settings nav wired in Slice 4 */ },
+    });
+    void chip.refresh();
+  }
 
   // Construct the WorkspaceManager up-front so listeners wired before
   // boot() (settings import/export, switcher chip) can reference it.
