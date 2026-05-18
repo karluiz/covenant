@@ -6,6 +6,61 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.6.3 — Spawns executor catalog + ⌘F find + custom tooltips
+
+### Added
+
+- **Spawns: titlebar executor catalog with backend store + CRUD**
+  (`crates/app/src/spawns_store.rs`, `crates/app/src/spawns_commands.rs`,
+  `ui/src/spawns/chip.ts`, `ui/src/spawns/api.ts`, `ui/src/spawns/styles.css`,
+  `ui/src/settings/spawns.ts`). New SpawnSpec store persists user-defined
+  executor presets (id, label, command, model). Titlebar chip + popover
+  lets the user pick a spawn and bind it to the active tab; Settings →
+  Spawns adds a full CRUD tab. Brand-tinted dots and glow accents per
+  executor (Claude, Codex, Copilot, opencode, Pi, Gemini, Ollama) so the
+  chip reads at a glance.
+
+- **Per-tab spawn binding deploys on the active PTY**
+  (`ui/src/tabs/manager.ts`, `ui/src/main.ts`): selecting a spawn from
+  the chip injects the bound command into the active session, so the
+  catalog becomes the launcher for everything Covenant can drive.
+
+- **⌘F in-terminal find overlay** (`ui/src/terminal/finder.ts`,
+  `ui/src/tabs/manager.ts`, `ui/src/main.ts`, `ui/src/shortcuts/registry.ts`):
+  Apple Terminal-style floating finder pinned to the active tab pane,
+  backed by `@xterm/addon-search`. Highlights every match, shows live
+  `n / total` counter, Enter / ⇧⏎ for next/prev, Esc to close.
+  Pre-populates from the current xterm selection if any.
+
+- **Custom tooltip system** (`ui/src/tooltip/tooltip.ts`,
+  `ui/src/styles.css`): replaces native browser tooltips on chrome
+  elements with a singleton Linear-style flat dark card (`#0e0e10` /
+  `#2a2a2e` border, 350ms open delay, edge-aware positioning).
+  Supports structured content (title / subtitle / meta / preview /
+  hint / kbd). Wired across all status-bar segments, mission viewer
+  buttons, and the Covenant Score heatmap cells — the mission tooltip
+  is the showcase with monospaced path + tasks-done meta + clamped
+  content preview + action hint.
+
+### Changed
+
+- **Status bar / notch / context-menu polish** (`crates/app/src/notch.rs`,
+  `ui/notch/styles.css`, `ui/src/status/bar.ts`, `ui/src/menu/context-menu.ts`,
+  `ui/src/score/page.ts`, `ui/src/score/styles.css`, `ui/src/tabs/manager.ts`):
+  notch repositioning tweaks, status-bar zone spacing refinements,
+  context-menu polish, and Covenant Score chip cleanup. Also bundles
+  three new design HTML explorations under `design/` (executor rail
+  variants, notch pill variants, status bar preview).
+
+### Fixed
+
+- **Spawns chip robustness** (`crates/app/src/spawns_store.rs`,
+  `crates/app/src/spawns_commands.rs`, `ui/src/spawns/chip.ts`):
+  escape user-controlled HTML in chip rendering, propagate Mutex
+  errors out of the store instead of poisoning silently, and refresh
+  the chip list every time the popover opens so manual edits in
+  Settings land without restart.
+
 ## v0.6.2 — Notch phase icons + Covenant Score polish
 
 ### Added
