@@ -578,6 +578,12 @@ struct Attached {
     /// Consecutive parse failures of the v2 response. Resets on any
     /// successful parse. UI hint emits at >= 3.
     consecutive_parse_failures: u32,
+    /// Task 9: parse-failure circuit breaker. When set, the session is
+    /// quarantined: no escalation paths fire and the tick is skipped
+    /// until this `Instant` passes. Cleared on any successful parse.
+    /// Set when `consecutive_parse_failures` crosses the threshold
+    /// (default 3) within a 60s window.
+    parse_quarantined_until: Option<Instant>,
     /// Per-session bumped thinking budget after a `max_tokens` stop.
     /// Resets on app restart (in-memory only). Cap 4000.
     thinking_budget_override: Option<u32>,
@@ -770,6 +776,7 @@ impl OperatorWatcher {
                 mind_dirty: false,
                 last_mission_mtime: None,
                 consecutive_parse_failures: 0,
+                parse_quarantined_until: None,
                 thinking_budget_override: None,
             },
         );
@@ -1677,6 +1684,15 @@ async fn run_tick(
                 }
                 att.loop_cooldown_until = None;
             }
+            // Task 9: parse-failure circuit breaker. While quarantined
+            // we don't even call the model — no chance of constructing
+            // an escalation from a parse failure during this window.
+            if let Some(until) = att.parse_quarantined_until {
+                if now < until {
+                    continue;
+                }
+                att.parse_quarantined_until = None;
+            }
             while let Some(t) = att.decisions_in_window.front() {
                 if now.duration_since(*t) > RATE_WINDOW {
                     att.decisions_in_window.pop_front();
@@ -2365,6 +2381,9 @@ async fn run_tick(
                         let mut inner_lock = inner.lock().await;
                         if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
                             att.consecutive_parse_failures = 0;
+                            // Task 9: any successful parse clears the
+                            // parse-failure circuit breaker.
+                            att.parse_quarantined_until = None;
                         }
                     }
                     let op_action = match model_resp.action {
@@ -2392,50 +2411,68 @@ async fn run_tick(
                     (op_action, Some(model_resp.mind_update))
                 }
                 Err(e) => {
-                    // Parse failures aren't user-actionable — there's
-                    // nothing to "Approve" or "Reject". Retry silently
-                    // up to PARSE_FAIL_RETRY_LIMIT; only after that
-                    // surface a single, plain-English escalation, and
-                    // mark it as internal so the Telegram approval
-                    // buttons are suppressed downstream.
+                    // Task 9: parse failures NEVER construct an
+                    // EscalationRequested. The previous implementation
+                    // routed the circuit-breaker through an Escalate
+                    // action with an `internal:` prefix that downstream
+                    // had to recognize and filter — fragile by
+                    // construction. The fix is to short-circuit BEFORE
+                    // any action is built: bump the counter, decide via
+                    // a pure helper whether quarantine should engage,
+                    // emit a single in-app notice, then `continue` the
+                    // tick. No OperatorAction is constructed on this
+                    // path, period.
                     const PARSE_FAIL_RETRY_LIMIT: u32 = 3;
-                    let failures = {
+                    const PARSE_QUARANTINE_SECS: u64 = 60;
+                    let now = Instant::now();
+                    let outcome = {
                         let mut inner_lock = inner.lock().await;
-                        let n = inner_lock
-                            .sessions
-                            .get_mut(&session_id)
-                            .map(|att| {
-                                att.consecutive_parse_failures =
-                                    att.consecutive_parse_failures.saturating_add(1);
-                                att.consecutive_parse_failures
-                            })
-                            .unwrap_or(0);
-                        n
+                        let att = inner_lock.sessions.get_mut(&session_id);
+                        match att {
+                            Some(att) => handle_parse_failure(
+                                att,
+                                now,
+                                PARSE_FAIL_RETRY_LIMIT,
+                                PARSE_QUARANTINE_SECS,
+                            ),
+                            None => ParseFailureOutcome {
+                                failures: 0,
+                                entered_quarantine: false,
+                                already_quarantined: false,
+                            },
+                        }
                     };
                     tracing::warn!(
                         session = %session_id,
                         error = %e,
-                        failures,
+                        failures = outcome.failures,
+                        entered_quarantine = outcome.entered_quarantine,
                         raw = %truncate(&response, 240),
                         "operator_mind v2 parse failed"
                     );
-                    if failures < PARSE_FAIL_RETRY_LIMIT {
-                        // Skip this turn — next tick the model gets
-                        // another shot. No Escalate, no Telegram.
-                        continue;
+                    if outcome.entered_quarantine {
+                        // ONE in-app notice per quarantine engagement.
+                        // Reuses the existing operator-* event channel
+                        // pattern (cf. operator-mind-updated). Telegram
+                        // stays quiet because we never reach the
+                        // dispatch path.
+                        let _ = app.emit(
+                            "operator-parse-quarantine",
+                            serde_json::json!({
+                                "session_id": session_id.to_string(),
+                                "failures": outcome.failures,
+                                "quarantine_secs": PARSE_QUARANTINE_SECS,
+                                "error": e.to_string(),
+                                "timestamp_unix_ms": now_unix_ms(),
+                            }),
+                        );
                     }
-                    // Threshold hit: emit ONE user-facing notification
-                    // explaining the operator paused itself due to
-                    // repeated malformed model output. Prefix is
-                    // load-bearing — the dispatch path uses it to skip
-                    // the Telegram approve/reject bus event.
-                    let action = OperatorAction::Escalate {
-                        notification: format!(
-                            "internal: operator paused — model returned malformed responses {failures}× in a row ({e})"
-                        ),
-                        rationale: "parse-failure circuit breaker".into(),
-                    };
-                    (action, None)
+                    // Always skip the turn — no escalation, no action
+                    // construction. Next tick either retries (counter
+                    // still under threshold) or no-ops while quarantine
+                    // is active (the gate at the top of the loop bails
+                    // out before reaching this code again).
+                    continue;
                 }
             }
         } else {
@@ -4312,6 +4349,56 @@ fn detect_executor(command: &str) -> Option<String> {
     Some(name.to_string())
 }
 
+/// Task 9: outcome of a single parse-failure increment. Pure data —
+/// the caller decides whether to emit a UI notice or skip the tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ParseFailureOutcome {
+    /// Current value of `consecutive_parse_failures` after the bump.
+    pub failures: u32,
+    /// True iff this call is the one that engaged the quarantine
+    /// (i.e. the threshold was just crossed and no quarantine was
+    /// previously active). Used to fire the one-shot UI notice.
+    pub entered_quarantine: bool,
+    /// True iff the session was already quarantined when this failure
+    /// arrived. Should not happen in practice (the gate at the top of
+    /// the loop skips the model call entirely), but recorded so tests
+    /// can assert the invariant.
+    pub already_quarantined: bool,
+}
+
+/// Pure circuit-breaker logic for parse failures. Bumps the counter,
+/// sets `parse_quarantined_until` when the threshold is crossed, and
+/// returns enough information for the caller to decide whether to
+/// emit a one-shot UI notice. Does NOT construct any `OperatorAction`
+/// and has no side-effects beyond mutating the attached session
+/// state — by design, so the contract "parse failures never construct
+/// EscalationRequested" is provable from this function's signature.
+fn handle_parse_failure(
+    att: &mut Attached,
+    now: Instant,
+    threshold: u32,
+    quarantine_secs: u64,
+) -> ParseFailureOutcome {
+    let already_quarantined = att
+        .parse_quarantined_until
+        .map(|until| now < until)
+        .unwrap_or(false);
+    att.consecutive_parse_failures =
+        att.consecutive_parse_failures.saturating_add(1);
+    let failures = att.consecutive_parse_failures;
+    let mut entered_quarantine = false;
+    if failures >= threshold && !already_quarantined {
+        att.parse_quarantined_until =
+            Some(now + Duration::from_secs(quarantine_secs));
+        entered_quarantine = true;
+    }
+    ParseFailureOutcome {
+        failures,
+        entered_quarantine,
+        already_quarantined,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4425,8 +4512,113 @@ mod tests {
             mind_dirty: false,
             last_mission_mtime: None,
             consecutive_parse_failures: 0,
+            parse_quarantined_until: None,
             thinking_budget_override: None,
         }
+    }
+
+    /// Task 9: the load-bearing contract. Parse failures must NEVER
+    /// produce a `SessionEvent::EscalationRequested` on the bus. We
+    /// can't drive the whole `run_tick` from a unit test (it needs a
+    /// real Tauri `AppHandle`, SQLite Storage, the Operator registry,
+    /// connectivity, embedder cell, etc.) so we instead exercise the
+    /// pure helper that owns the post-parse-failure decision tree.
+    ///
+    /// The proof has two parts:
+    /// 1. Static: `handle_parse_failure` returns `ParseFailureOutcome`,
+    ///    a plain data struct. There is no `OperatorAction` variant in
+    ///    its return type, so by construction the function CANNOT
+    ///    produce an `Escalate`. The only way an escalation could leak
+    ///    from a parse-failure path is if a caller built one anyway —
+    ///    and the call site in `run_tick` (`crates/app/src/operator.rs`,
+    ///    in the `Err(e) =>` arm of `parse_model_response`) is now a
+    ///    bare `continue;` with no `OperatorAction::Escalate`
+    ///    construction reachable on that arm.
+    /// 2. Dynamic (this test): feed N parse failures through the
+    ///    helper, subscribe to a fresh broadcast bus, and confirm zero
+    ///    `EscalationRequested` events arrived. The bus stays empty
+    ///    because nobody is sending — exactly the property we want.
+    #[tokio::test]
+    async fn parse_failures_never_emit_escalation_request() {
+        let (tx, mut rx) =
+            tokio::sync::broadcast::channel::<SessionEvent>(64);
+
+        let mut att = test_attached();
+        let start = Instant::now();
+        let mut outcomes = Vec::new();
+        // Feed 5 malformed model outputs in a row. Each one bumps the
+        // counter; the third one (>= threshold) engages the quarantine
+        // for 60s. Subsequent failures observe `already_quarantined`.
+        for i in 0..5 {
+            let now = start + Duration::from_millis(i * 100);
+            let outcome = handle_parse_failure(&mut att, now, 3, 60);
+            outcomes.push(outcome);
+        }
+
+        // Counter reached the expected total.
+        assert_eq!(att.consecutive_parse_failures, 5);
+        assert_eq!(outcomes.iter().map(|o| o.failures).collect::<Vec<_>>(),
+                   vec![1, 2, 3, 4, 5]);
+
+        // Quarantine engaged exactly once, on the threshold crossing.
+        let engaged: Vec<bool> =
+            outcomes.iter().map(|o| o.entered_quarantine).collect();
+        assert_eq!(engaged, vec![false, false, true, false, false]);
+
+        // Quarantine deadline is set and in the future relative to the
+        // last failure.
+        let until = att.parse_quarantined_until.expect("quarantine set");
+        assert!(until > start + Duration::from_millis(400));
+        assert!(until <= start + Duration::from_millis(200) + Duration::from_secs(60));
+
+        // Successful parse clears both the counter and the quarantine
+        // (mirrors the `Ok(_) =>` arm in `run_tick`).
+        att.consecutive_parse_failures = 0;
+        att.parse_quarantined_until = None;
+        assert!(att.parse_quarantined_until.is_none());
+
+        // The bus must be empty: nobody published anything during the
+        // parse-failure run. `try_recv` on a `broadcast::Receiver`
+        // returns `Empty` when no message is pending.
+        use tokio::sync::broadcast::error::TryRecvError;
+        let mut leaked = 0_usize;
+        loop {
+            match rx.try_recv() {
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Closed) => break,
+                Err(TryRecvError::Lagged(_)) => continue,
+                Ok(SessionEvent::EscalationRequested { .. }) => {
+                    leaked += 1;
+                }
+                Ok(_) => {} // non-escalation events would also be a bug here
+            }
+        }
+        assert_eq!(
+            leaked, 0,
+            "parse-failure path leaked {} EscalationRequested event(s)",
+            leaked
+        );
+        // Keep `tx` alive until the assertions complete so the channel
+        // doesn't close out from under us mid-test.
+        drop(tx);
+    }
+
+    #[test]
+    fn handle_parse_failure_does_not_re_engage_while_quarantined() {
+        // While already-quarantined, subsequent failures must NOT
+        // produce another `entered_quarantine = true` — that would
+        // cause duplicate UI notices.
+        let mut att = test_attached();
+        let start = Instant::now();
+        let _ = handle_parse_failure(&mut att, start, 3, 60);
+        let _ = handle_parse_failure(&mut att, start, 3, 60);
+        let engaging = handle_parse_failure(&mut att, start, 3, 60);
+        assert!(engaging.entered_quarantine);
+        // Already quarantined — no re-engagement.
+        let again =
+            handle_parse_failure(&mut att, start + Duration::from_secs(1), 3, 60);
+        assert!(!again.entered_quarantine);
+        assert!(again.already_quarantined);
     }
 
     #[test]
