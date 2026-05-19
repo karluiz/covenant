@@ -2023,6 +2023,7 @@ async fn run_tick(
             &learned,
             "",
             mind_v2_on,
+            op.voice,
         );
 
         // CRITICAL: mark dedup BEFORE the model call. If we marked
@@ -3389,6 +3390,7 @@ fn build_system_prompt(
     learned: &[memory::MemoryHit],
     project_context: &str,
     mind_v2_on: bool,
+    voice: crate::operator_registry::VoiceTone,
 ) -> String {
     let aom_block = if aom_active {
         format!("# {}\n\n", AOM_DIRECTIVE)
@@ -3448,10 +3450,12 @@ fn build_system_prompt(
          {persona}\n\n\
          # {recommendation}\n\n\
          # {hard}\n\n\
+         # {voice_dir}\n\n\
          # {fmt}",
         persona = persona.trim(),
         recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
         hard = HARD_CONSTRAINTS,
+        voice_dir = crate::operator_registry::voice_directive(voice),
         fmt = OUTPUT_FORMAT,
     );
     if mind_v2_on {
@@ -5025,7 +5029,7 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_learned_matches_baseline() {
         let persona = "Always say yes to test runs.";
-        let got = build_system_prompt(persona, false, None, &[], "", false);
+        let got = build_system_prompt(persona, false, None, &[], "", false, crate::operator_registry::VoiceTone::Terse);
         let expected = format!(
             "You are the Operator for Covenant — the user's coordinator that \
              watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -5035,10 +5039,14 @@ What would you like to do?
              {persona}\n\n\
              # {recommendation}\n\n\
              # {hard}\n\n\
+             # {voice_dir}\n\n\
              # {fmt}",
             persona = persona.trim(),
             recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
             hard = HARD_CONSTRAINTS,
+            voice_dir = crate::operator_registry::voice_directive(
+                crate::operator_registry::VoiceTone::Terse
+            ),
             fmt = OUTPUT_FORMAT,
         );
         assert_eq!(got, expected);
@@ -5052,7 +5060,7 @@ What would you like to do?
             mem_hit(42, "executor asks to run tests", "y\\n"),
             mem_hit(43, "executor asks to push", "n\\n"),
         ];
-        let got = build_system_prompt(persona, false, None, &learned, "", false);
+        let got = build_system_prompt(persona, false, None, &learned, "", false, crate::operator_registry::VoiceTone::Terse);
         assert_eq!(got.matches("## Learned decisions").count(), 1);
         assert!(got.contains("[id=42]"));
         assert!(got.contains("[id=43]"));
@@ -5066,11 +5074,8 @@ What would you like to do?
     #[test]
     fn build_system_prompt_with_project_context_renders_block() {
         let ctx = "## Project: my-app\n\nSome notes about the project.";
-        let got = build_system_prompt("persona", false, None, &[], ctx, false);
-        assert!(
-            got.contains("## Project: my-app"),
-            "project block missing; got: {got}"
-        );
+        let got = build_system_prompt("persona", false, None, &[], ctx, false, crate::operator_registry::VoiceTone::Terse);
+        assert!(got.contains("## Project: my-app"), "project block missing; got: {got}");
         assert!(got.contains("Some notes about the project."));
         // Block sits between learned_block (absent) and PERSONA.
         let project_idx = got.find("## Project: my-app").unwrap();
@@ -5081,8 +5086,8 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_project_is_byte_identical_to_baseline() {
         let persona = "Always say yes to test runs.";
-        let with_empty = build_system_prompt(persona, false, None, &[], "", false);
-        let baseline = build_system_prompt(persona, false, None, &[], "", false);
+        let with_empty = build_system_prompt(persona, false, None, &[], "", false, crate::operator_registry::VoiceTone::Terse);
+        let baseline = build_system_prompt(persona, false, None, &[], "", false, crate::operator_registry::VoiceTone::Terse);
         assert_eq!(with_empty, baseline);
         // Also verify the empty case does not insert any orphan header or
         // whitespace that would break the prefix-cache invariant.
@@ -5100,11 +5105,8 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
-        assert!(
-            out.contains("<mission-spec kind=\"covenant\""),
-            "out was: {out}"
-        );
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false, crate::operator_registry::VoiceTone::Terse);
+        assert!(out.contains("<mission-spec kind=\"covenant\""), "out was: {out}");
         assert!(out.contains("Goal: do X"));
         assert!(!out.contains("<mission-plan"));
     }
@@ -5124,11 +5126,8 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: Some(plan),
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
-        assert!(
-            out.contains("<mission-spec kind=\"superpowers\""),
-            "out was: {out}"
-        );
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false, crate::operator_registry::VoiceTone::Terse);
+        assert!(out.contains("<mission-spec kind=\"superpowers\""), "out was: {out}");
         assert!(out.contains("spec body"));
         assert!(
             out.contains("<mission-plan status=\"1/2\""),
@@ -5147,7 +5146,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
+        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false, crate::operator_registry::VoiceTone::Terse);
         assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");
     }
 

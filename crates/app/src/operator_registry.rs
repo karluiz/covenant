@@ -57,6 +57,17 @@ pub enum VoiceTone {
     Formal,
 }
 
+/// System-prompt directive describing how the operator should speak,
+/// derived from its configured `VoiceTone`. Appended to the per-operator
+/// system prompt so the LLM's outbound replies match the operator's voice.
+pub fn voice_directive(tone: VoiceTone) -> &'static str {
+    match tone {
+        VoiceTone::Terse => "Voice: terse. Strip pleasantries. Max ~12 words per outbound line.",
+        VoiceTone::Warm => "Voice: warm. Conversational, first person allowed. Stay concise.",
+        VoiceTone::Formal => "Voice: formal. No contractions. Full sentences. Direct and precise.",
+    }
+}
+
 impl Operator {
     /// Project this `Operator` to the lightweight `karl_session::OperatorRef`
     /// used by session events and IPC. Keeps `ulid` / app-only types out of
@@ -560,5 +571,17 @@ mod voice_tests {
         });
         let op: Operator = serde_json::from_value(json).unwrap();
         assert!(matches!(op.voice, VoiceTone::Terse));
+    }
+
+    #[test]
+    fn voice_directive_differs_per_tone() {
+        let t = voice_directive(VoiceTone::Terse);
+        let w = voice_directive(VoiceTone::Warm);
+        let f = voice_directive(VoiceTone::Formal);
+        assert!(t.to_lowercase().contains("terse") || t.contains("12 words"));
+        assert!(w.to_lowercase().contains("warm") || w.to_lowercase().contains("conversational"));
+        assert!(f.to_lowercase().contains("formal") || f.to_lowercase().contains("no contractions"));
+        assert_ne!(t, w);
+        assert_ne!(w, f);
     }
 }
