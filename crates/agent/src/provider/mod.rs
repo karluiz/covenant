@@ -67,7 +67,7 @@ pub async fn collect_oneshot(
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::OpenAiCompat => "openai_compat",
     };
-    karl_score::record_prompt_with_context(executor_label);
+    karl_score::record_prompt_with_agent(executor_label, Some("internal"));
     let model_name = req.model.clone();
     let buffer = Arc::new(Mutex::new(String::new()));
     let usage = Arc::new(Mutex::new(crate::TokenUsage::default()));

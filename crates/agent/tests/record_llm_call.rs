@@ -77,5 +77,22 @@ async fn collect_oneshot_records_llm_call_with_correct_usage() {
     assert_eq!(row.input_tokens, 42, "input_tokens mismatch");
     assert_eq!(row.output_tokens, 7, "output_tokens mismatch");
 
+    // Verify the event was labeled with agent = 'internal'.
+    let conn = store.connection();
+    let agent_value: Option<String> = conn
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT agent FROM score_events ORDER BY timestamp_ms DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        agent_value.as_deref(),
+        Some("internal"),
+        "expected agent='internal' on the recorded prompt event"
+    );
+
     karl_score::clear_recorder_for_test();
 }
