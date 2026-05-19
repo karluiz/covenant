@@ -111,6 +111,38 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
     --tab-h: 30px;
 }
 
+/* Light theme — overrides the dark tokens defined in :root. Activated
+   by `body.theme-light` (toggled from ui/src/theme/mode.ts). Only the
+   color tokens change; layout/spacing tokens stay shared. */
+body.theme-light {
+    color-scheme: light;
+    color: #1a1d22;
+
+    --ink-rgb: 0 0 0;
+
+    --bg: rgb(250 251 252 / var(--surface-alpha));
+    --bg-panel: rgb(255 255 255 / var(--surface-alpha));
+    --bg-tabbar: rgb(238 240 243 / var(--surface-alpha));
+    --bg-overlay: #ffffff;
+    --border: #d9dde2;
+    --muted: #6b7280;
+    --text-primary: #1a1d22;
+    --accent: #2f6fed;
+    --danger: #d23a3a;
+    --ok: #2f9e44;
+    --fail: #e0395a;
+    --running: #c98a2c;
+
+    --tab-bg-rest: rgba(0, 0, 0, 0.03);
+    --tab-bg-hover: rgba(0, 0, 0, 0.06);
+    --tab-bg-active: #ffffff;
+    --tab-fg-rest: #5a6068;
+    --tab-fg-active: #1a1d22;
+    --tab-border-rest: rgba(0, 0, 0, 0.05);
+    --tab-border-hover: rgba(0, 0, 0, 0.1);
+    --tab-border-active: rgba(0, 0, 0, 0.14);
+}
+
 html,
 body {
     margin: 0;
