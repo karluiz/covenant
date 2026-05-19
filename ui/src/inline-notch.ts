@@ -107,7 +107,6 @@ export function mountInlineNotch(host: HTMLElement): void {
   const rows: Row[] = [];
   const phases = new Map<string, { tab: string; phase: ExecutorPhase }>();
   let activeSession: string | null = null;
-  let inlineMode = false;
 
   function render(): void {
     // Header reflects the active session's executor, falling back to
@@ -145,11 +144,9 @@ export function mountInlineNotch(host: HTMLElement): void {
     if (rows.length > MAX_ROWS) rows.splice(0, rows.length - MAX_ROWS);
   }
 
-  function setMode(enabled: boolean): void {
-    inlineMode = enabled;
-    host.hidden = !enabled;
-    if (enabled) render();
-  }
+  // Always-on: the host's visibility is now controlled by CSS via
+  // body.sidebar-view-activity, not by the backend's inline-mode signal.
+  host.hidden = false;
 
   clearBtn.addEventListener("click", () => {
     rows.length = 0;
@@ -167,17 +164,19 @@ export function mountInlineNotch(host: HTMLElement): void {
       kind: phaseKind(ev.payload.phase),
       message: phaseLabel(ev.payload.phase),
     });
-    if (inlineMode) render();
+    render();
   });
 
-  listen<{ enabled: boolean }>("notch:inline-mode", (ev) => setMode(ev.payload.enabled));
   listen<{ session_id: string | null }>("ui:active-session", (ev) => {
     activeSession = ev.payload.session_id;
-    if (inlineMode) render();
+    render();
   });
 
   // Replay current state in case fullscreen toggled before we mounted.
   invoke("notch_ready").catch(() => {});
+
+  // Paint the empty "no agent" state so the sidebar isn't blank on first open.
+  render();
 }
 
 function escapeHtml(s: string): string {

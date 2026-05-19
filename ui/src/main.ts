@@ -340,19 +340,35 @@ async function boot(): Promise<void> {
   // tab listens to. Active class on the buttons mirrors the active view.
   const viewBlocksBtn = document.getElementById("titlebar-view-blocks");
   const viewFilesBtn = document.getElementById("titlebar-view-files");
-  if (viewBlocksBtn && viewFilesBtn) {
+  const viewActivityBtn = document.getElementById("titlebar-view-activity");
+  if (viewBlocksBtn && viewFilesBtn && viewActivityBtn) {
     viewBlocksBtn.innerHTML = Icons.terminal({ size: 14 });
     viewFilesBtn.innerHTML = Icons.folder({ size: 14 });
-    const setView = (view: "blocks" | "structure"): void => {
+    viewActivityBtn.innerHTML = Icons.zap({ size: 14 });
+    type View = "blocks" | "structure" | "activity";
+    const ACTIVITY_KEY = "covenant.sidebar-view-activity";
+    const syncButtons = (view: View): void => {
       viewBlocksBtn.classList.toggle("titlebar-view-active", view === "blocks");
       viewFilesBtn.classList.toggle("titlebar-view-active", view === "structure");
-      window.dispatchEvent(
-        new CustomEvent("sidebar-view:set", { detail: { view } }),
-      );
+      viewActivityBtn.classList.toggle("titlebar-view-active", view === "activity");
+      document.body.classList.toggle("sidebar-view-activity", view === "activity");
     };
-    const pickView = (view: "blocks" | "structure"): void => {
-      // If the right sidebar is folded, unfold it before switching view
-      // so the click never feels like a no-op.
+    // Activity is a global view (not per-tab) so we only forward
+    // blocks/structure to the tab-level listener. When activity is
+    // selected we just flip the body class; the global aside renders
+    // itself.
+    const setView = (view: View): void => {
+      syncButtons(view);
+      if (view !== "activity") {
+        localStorage.removeItem(ACTIVITY_KEY);
+        window.dispatchEvent(
+          new CustomEvent("sidebar-view:set", { detail: { view } }),
+        );
+      } else {
+        localStorage.setItem(ACTIVITY_KEY, "1");
+      }
+    };
+    const pickView = (view: View): void => {
       if (document.body.classList.contains("blocks-globally-collapsed")) {
         applyBlocksCollapsed(false);
         localStorage.removeItem("covenant.blocks-globally-collapsed");
@@ -362,13 +378,16 @@ async function boot(): Promise<void> {
     };
     viewBlocksBtn.addEventListener("click", () => pickView("blocks"));
     viewFilesBtn.addEventListener("click", () => pickView("structure"));
-    // Tabs broadcast their current view back when they activate so the
-    // titlebar reflects the right tab's state.
+    viewActivityBtn.addEventListener("click", () => pickView("activity"));
     window.addEventListener("sidebar-view:active", (e) => {
       const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
-      viewBlocksBtn.classList.toggle("titlebar-view-active", v === "blocks");
-      viewFilesBtn.classList.toggle("titlebar-view-active", v === "structure");
+      // Tabs only know about blocks/structure — respect the activity
+      // override if it's currently active.
+      if (document.body.classList.contains("sidebar-view-activity")) return;
+      syncButtons(v);
     });
+    // Restore activity view on reload.
+    if (localStorage.getItem(ACTIVITY_KEY) === "1") syncButtons("activity");
   }
 
   const projectNotesBtn = document.getElementById("titlebar-project-notes");
@@ -530,13 +549,13 @@ async function boot(): Promise<void> {
   const statusBarHost = requireEl<HTMLElement>("status-bar");
   const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
-  // Inline notch slot — appears at the bottom of the left vertical
-  // tabbar when Covenant enters fullscreen and the floating overlay is
-  // suppressed. Renders the D-combo layout (agent header + activity
-  // stream); see docs/mockups/fullscreen-notch-slot-v2.html.
-  const inlineNotchHost = document.getElementById("inline-notch-host");
-  if (inlineNotchHost instanceof HTMLElement) {
-    void import("./inline-notch").then((m) => m.mountInlineNotch(inlineNotchHost));
+  // Activity sidebar — single global instance, rendered into the right
+  // column when the user picks the Activity view (and always available
+  // when fullscreen hides the floating notch). Same D-combo layout as
+  // the mockup: active-agent header + chronological activity stream.
+  const activityHost = document.getElementById("activity-sidebar");
+  if (activityHost instanceof HTMLElement) {
+    void import("./inline-notch").then((m) => m.mountInlineNotch(activityHost));
   }
   manager.onActiveContextChange = (cwd) => {
     statusBar.setCwd(cwd);
