@@ -7,6 +7,8 @@ export interface Summary {
   today_commits: number;
   current_streak: number;
   longest_streak: number;
+  total_tokens: number;
+  total_specs: number;
 }
 
 export interface DailyCell {
@@ -79,6 +81,7 @@ export interface ScoreFilter {
   branch?: string | null;
   group_name?: string | null;
   day?: string | null;
+  agent?: string | null;
 }
 
 export interface RepoCell { repo: string; prompts: number; commits: number }
@@ -116,4 +119,46 @@ export async function scoreBreakdownGroups(filter: ScoreFilter): Promise<GroupCe
 
 export async function scoreRecentSessions(limit = 10): Promise<SessionRow[]> {
   return invoke<SessionRow[]>("score_recent_sessions", { limit });
+}
+
+export interface AgentCell {
+  agent: string;
+  prompts: number;
+  share: number;
+}
+
+export interface SpecRow {
+  ts_ms: number;
+  path: string;
+  repo: string | null;
+}
+
+export interface SpecBreakdown {
+  total: number;
+  recent: SpecRow[];
+}
+
+export type ModelSource = "internal" | "external";
+
+export interface ModelCell {
+  source: ModelSource;
+  agent: string | null;
+  provider: string;
+  model: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read: number;
+}
+
+export async function scoreBreakdownAgents(filter: ScoreFilter): Promise<AgentCell[]> {
+  return invoke<AgentCell[]>("score_breakdown_agents", { filter });
+}
+
+export async function scoreBreakdownSpecs(filter: ScoreFilter): Promise<SpecBreakdown> {
+  return invoke<SpecBreakdown>("score_breakdown_specs", { filter });
+}
+
+export async function scoreBreakdownModels(filter: ScoreFilter, source: ModelSource): Promise<ModelCell[]> {
+  return invoke<ModelCell[]>("score_breakdown_models", { filter, source });
 }
