@@ -16,13 +16,23 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #0d0e10;
+        background:
+          radial-gradient(circle at 50% 42%, rgba(122, 162, 247, 0.14), transparent 38%),
+          #0d0e10;
         color: #f5f6f7;
         font-family:
           ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
         transition: opacity 320ms ease-out;
       }
       #boot-splash.is-leaving { opacity: 0; pointer-events: none; }
+      @media (prefers-color-scheme: light) {
+        #boot-splash {
+          background:
+            radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.13), transparent 38%),
+            linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
+          color: #1a1d22;
+        }
+      }
     </style>
     <script type="module" src="/src/main.ts" defer></script>
   </head>

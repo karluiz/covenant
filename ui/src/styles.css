@@ -2036,6 +2036,43 @@ body:not(.tabbar-left) #new-group {
     margin-left: auto;
 }
 
+/* Light mode: historical command rows were double-muted (opacity + pale
+   gray), which made the previous-session context hard to scan. Keep them
+   visually secondary via italics/background, but restore readable contrast. */
+body.theme-light .blocks-history-sep {
+    background: rgba(0, 0, 0, 0.035);
+    color: color-mix(in srgb, var(--text-primary) 68%, transparent);
+    border-top: 1px solid var(--border);
+    border-bottom-color: var(--border);
+    font-weight: 700;
+}
+body.theme-light .blocks-list-history {
+    border-bottom-color: color-mix(in srgb, var(--border) 82%, var(--text-primary));
+}
+body.theme-light .block-item-history {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.012);
+}
+body.theme-light .block-item-history:hover {
+    background: rgba(0, 0, 0, 0.035);
+}
+body.theme-light .block-item-history .block-cmd {
+    color: color-mix(in srgb, var(--text-primary) 58%, transparent);
+    font-weight: 550;
+}
+body.theme-light .block-item-history .block-meta,
+body.theme-light .block-history-tab,
+body.theme-light .block-history-when,
+body.theme-light .block-item-history .block-dur {
+    color: color-mix(in srgb, var(--text-primary) 52%, transparent);
+}
+body.theme-light .block-item-history .block-exit.ok {
+    color: color-mix(in srgb, var(--ok) 82%, #000);
+}
+body.theme-light .block-item-history .block-exit.fail {
+    color: color-mix(in srgb, var(--fail) 84%, #000);
+}
+
 .block-fix {
     margin-top: 6px;
     padding: 6px 8px;
@@ -7793,26 +7830,29 @@ body.tabbar-left #tabbar-actions {
     display: flex;
     justify-content: space-evenly;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
     position: sticky;
     bottom: 0;
     z-index: 2;
+    flex: 0 0 auto;
     /* Seamless sidebar surface — inherit #tabbar-host's --bg-tabbar so
        titlebar + chips + actions read as one continuous panel (macOS
        Mail/Reminders sidebar feel). No border-top, no gradient, no
-       internal seams. */
+       internal seams. Keep this compact: the actions are affordances,
+       not a footer toolbar. */
     background: transparent;
-    margin: 4px -8px 0 -8px;
-    padding: 4px 10px;
+    margin: 0 -8px;
+    padding: 2px 8px 3px;
 }
 
 body.tabbar-left #tabbar-actions > button {
     flex: 0 0 auto;
     justify-content: center;
-    height: 22px;
+    height: 20px;
     border-radius: 5px;
     align-self: center;
     margin-bottom: 0;
+    padding: 0 6px;
 }
 
 #new-group {
@@ -11701,6 +11741,52 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
     .boot-splash-meta-text::after { content: "…"; }
 }
 
+/* Light-mode boot splash. The inline index.html rule handles the very
+   first paint for system-light users; these token-based rules take over
+   as soon as main.ts applies body.theme-light from persisted settings. */
+body.theme-dark #boot-splash {
+    background:
+        radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 38%),
+        #0d0e10;
+    color: #f5f6f7;
+}
+body.theme-light #boot-splash {
+    background:
+        radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 38%),
+        radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.04), transparent 42%),
+        linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
+    color: var(--text-primary);
+}
+body.theme-light .boot-splash-card {
+    border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+    border-radius: 24px;
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.9) inset,
+        0 24px 70px rgba(24, 36, 64, 0.14),
+        0 4px 16px rgba(24, 36, 64, 0.08);
+}
+body.theme-light .boot-splash-headline {
+    color: color-mix(in srgb, var(--accent) 78%, #10254c);
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.85),
+        0 0 22px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+body.theme-light .boot-splash-sub,
+body.theme-light .boot-splash-meta {
+    color: color-mix(in srgb, var(--text-primary) 58%, transparent);
+}
+body.theme-light .boot-splash-orb-core {
+    box-shadow:
+        0 0 18px color-mix(in srgb, var(--accent) 46%, transparent),
+        0 0 44px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+body.theme-light .boot-splash-orb-ring {
+    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+body.theme-light .boot-splash-meta-dot {
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+}
 
 /* ─── App title bar (macOS overlay) ──────────────────────────────────
    Full-width bar at the very top. Same color as the sidebar.

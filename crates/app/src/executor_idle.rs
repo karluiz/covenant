@@ -1,9 +1,8 @@
 //! Subscriber that turns `SessionEvent::AgentIdleWaiting` into a user-
 //! facing notification via [`crate::notifications::dispatch`].
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, Mutex as AsyncMutex};
 use tracing::{debug, warn};
@@ -15,12 +14,9 @@ use crate::notifications::{dispatch, DispatchCtx};
 use crate::notify::{Notifier, Trigger};
 use crate::settings::Settings;
 
-/// Per-session cooldown: once we've notified the user that an agent is
-/// waiting, suppress further notifications for the same session for this
-/// long. Without it, TUI spinners that briefly break PTY quiescence
-/// produce a fresh Idle→Resumed→Idle cycle every few seconds, spamming
-/// the OS notification center.
-const IDLE_NOTIFY_COOLDOWN: Duration = Duration::from_secs(600);
+// Strict edge-trigger: notify at most once per idle period per session.
+// The flag is cleared only when `AgentResumed`/`Closed` arrives, so a
+// session that sits idle for hours never produces a second popup.
 
 /// Spawn the long-lived task that listens for `AgentIdleWaiting` on the
 /// given session event bus and fans out via [`dispatch`]. Returns the
@@ -36,15 +32,15 @@ pub fn spawn(
     settings: Arc<AsyncMutex<Settings>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut last_notified: HashMap<SessionId, Instant> = HashMap::new();
+        let mut notified: HashSet<SessionId> = HashSet::new();
         loop {
             match rx.recv().await {
                 Ok(SessionEvent::AgentResumed { session }) => {
-                    last_notified.remove(&session);
+                    notified.remove(&session);
                     continue;
                 }
                 Ok(SessionEvent::Closed { session }) => {
-                    last_notified.remove(&session);
+                    notified.remove(&session);
                     continue;
                 }
                 Ok(SessionEvent::AgentIdleWaiting {
@@ -57,14 +53,10 @@ pub fn spawn(
                         debug!(target: "executor_idle", "skipped: toggle off");
                         continue;
                     }
-                    let now = Instant::now();
-                    if let Some(prev) = last_notified.get(&session) {
-                        if now.duration_since(*prev) < IDLE_NOTIFY_COOLDOWN {
-                            debug!(target: "executor_idle", "skipped: in cooldown");
-                            continue;
-                        }
+                    if !notified.insert(session) {
+                        debug!(target: "executor_idle", "skipped: already notified for this idle period");
+                        continue;
                     }
-                    last_notified.insert(session, now);
                     let (title, body) =
                         format_notification(&agent, prompt_text.as_deref(), quiet_ms);
                     let _ = dispatch(

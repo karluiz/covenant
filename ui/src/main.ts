@@ -303,6 +303,13 @@ async function boot(): Promise<void> {
     applyTabbarPosition("top");
     applyUiFont(null);
   }
+  // Set the theme class before the TabManager exists so first-run chrome
+  // (especially the boot splash) immediately gets the light/dark skin.
+  // applyTheme() runs again below once terminals are available.
+  const initialThemeMode = (initialSettings?.window?.theme ?? "system") as ThemeMode;
+  const initialResolvedTheme = resolveTheme(initialThemeMode);
+  document.body.classList.toggle("theme-light", initialResolvedTheme === "light");
+  document.body.classList.toggle("theme-dark", initialResolvedTheme === "dark");
   applyTabbarCollapsed(localStorage.getItem(TABBAR_LEFT_COLLAPSED_KEY) === "1");
 
   const tabbar = requireEl<HTMLElement>("tabs");
@@ -441,10 +448,7 @@ async function boot(): Promise<void> {
 
   // Initial theme apply now that the TabManager exists. Settings may have
   // been unreachable at the early boot block above — fall back to "system".
-  void applyTheme(
-    (initialSettings?.window?.theme ?? "system") as ThemeMode,
-    manager,
-  );
+  void applyTheme(initialThemeMode, manager);
 
   // Late-binding ref so the spawns chip onAdd callback can open Settings
   // even though SettingsPanel is instantiated further down in boot().
