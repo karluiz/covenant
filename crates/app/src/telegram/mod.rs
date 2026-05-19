@@ -8,6 +8,7 @@ pub use inbound::{InboundEvent, ResolutionFromTelegram};
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 
+use crate::operator_registry::OperatorRegistry;
 use crate::settings::Settings;
 use client::TelegramClient;
 
@@ -15,14 +16,20 @@ pub struct TelegramNotifier {
     pub(crate) client: Arc<dyn TelegramClient>,
     pub(crate) settings: Arc<AsyncMutex<Settings>>,
     pub(crate) state: Arc<outbound::OutboundState>,
+    pub(crate) registry: Arc<OperatorRegistry>,
 }
 
 impl TelegramNotifier {
-    pub fn new(client: Arc<dyn TelegramClient>, settings: Arc<AsyncMutex<Settings>>) -> Self {
+    pub fn new(
+        client: Arc<dyn TelegramClient>,
+        settings: Arc<AsyncMutex<Settings>>,
+        registry: Arc<OperatorRegistry>,
+    ) -> Self {
         Self {
             client,
             settings,
             state: Arc::new(outbound::OutboundState::default()),
+            registry,
         }
     }
 }
@@ -169,7 +176,11 @@ impl TelegramNotifier {
         Ok(())
     }
 
-    pub async fn on_resolved(&self, escalation_id: &str, status: &str) -> anyhow::Result<()> {
+    pub async fn on_resolved(
+        &self,
+        escalation_id: &str,
+        action_kind: crate::telegram::inbound::ActionKind,
+    ) -> anyhow::Result<()> {
         let entry = {
             let mut map = self.state.map.lock().unwrap();
             let key = map
@@ -178,9 +189,31 @@ impl TelegramNotifier {
                 .map(|(k, _)| *k);
             key.and_then(|k| map.remove(&k).map(|_| k))
         };
-        let Some(message_id) = entry else {
-            return Ok(());
+        let Some(message_id) = entry else { return Ok(()); };
+
+        // Look up the operator that was driving the session at the time of
+        // resolution so the reply names them. Falls back to the registry
+        // default if the session pin isn't found (effective_for handles that).
+        let operator_name = {
+            let sid_opt: Option<karl_session::SessionId> = self
+                .state
+                .session_map
+                .lock()
+                .unwrap()
+                .get(escalation_id)
+                .and_then(|s| s.parse().ok());
+            match sid_opt {
+                Some(sid) => self.registry.effective_for(sid).name,
+                None => self
+                    .registry
+                    .default()
+                    .map(|op| op.name)
+                    .unwrap_or_else(|| "Operator".to_string()),
+            }
         };
+        let reply =
+            crate::telegram::inbound::render_confirmation(&operator_name, action_kind, None);
+
         let s = self.settings.lock().await;
         if s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
             return Ok(());
@@ -189,13 +222,7 @@ impl TelegramNotifier {
         let chat = s.telegram.chat_id.clone();
         drop(s);
         self.client
-            .edit_message_text(
-                &token,
-                &chat,
-                message_id,
-                format!("✓ Resolved: {status}"),
-                true,
-            )
+            .edit_message_text(&token, &chat, message_id, reply, true)
             .await?;
         Ok(())
     }
@@ -313,7 +340,7 @@ mod tests {
     async fn send_escalation_records_message_id() {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
-        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"), crate::operator_registry::OperatorRegistry::for_tests("Maya"));
         let operator = op();
         let project = pr();
         let kind = EscalationKind::Blocked;
@@ -329,7 +356,7 @@ mod tests {
     #[tokio::test]
     async fn send_escalation_skipped_when_disabled() {
         let fake = Arc::new(FakeTelegramClient::default());
-        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(false, "42"));
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(false, "42"), crate::operator_registry::OperatorRegistry::for_tests("Maya"));
         let operator = op();
         let project = pr();
         let kind = EscalationKind::Blocked;
@@ -344,7 +371,7 @@ mod tests {
     async fn resolve_edits_original_message() {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
-        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"), crate::operator_registry::OperatorRegistry::for_tests("Maya"));
         let operator = op();
         let project = pr();
         let kind = EscalationKind::Blocked;
@@ -352,8 +379,14 @@ mod tests {
         n.send_escalation(&args(&operator, &project, &kind, &actions, "esc-1", "sess", "s"))
             .await
             .unwrap();
-        n.on_resolved("esc-1", "Approved via terminal").await.unwrap();
-        assert_eq!(fake.edits.lock().unwrap().len(), 1);
+        n.on_resolved("esc-1", crate::telegram::inbound::ActionKind::PushPR).await.unwrap();
+        let edits = fake.edits.lock().unwrap();
+        assert_eq!(edits.len(), 1);
+        // The reply must name the operator and describe the action.
+        let text = &edits[0].2;
+        assert!(text.contains("Maya"), "expected operator name in reply: {text}");
+        assert!(text.to_lowercase().contains("pushed"), "expected action verb: {text}");
+        drop(edits);
         assert!(n.state.map.lock().unwrap().is_empty());
     }
 
@@ -376,7 +409,7 @@ mod tests {
                 data: Some("esc:abc:Approve".into()),
             }),
         }]);
-        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"), crate::operator_registry::OperatorRegistry::for_tests("Maya"));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let handle = n.spawn_inbound(tx).await;
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -410,7 +443,7 @@ mod tests {
                 reply_to_message: None,
             }),
         }]);
-        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"), crate::operator_registry::OperatorRegistry::for_tests("Maya"));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let handle = n.spawn_inbound(tx).await;
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -423,7 +456,7 @@ mod tests {
         use crate::telegram::types::*;
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
-        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
+        let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"), crate::operator_registry::OperatorRegistry::for_tests("Maya"));
         let operator = op();
         let project = pr();
         let kind = EscalationKind::Blocked;

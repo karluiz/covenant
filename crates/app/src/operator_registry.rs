@@ -130,6 +130,34 @@ impl OperatorRegistry {
         self.by_id.read().unwrap().get(&id).cloned()
     }
 
+    /// Test helper: build an in-memory registry pre-populated with a
+    /// single default operator. Avoids spinning up sqlite from tests.
+    #[cfg(test)]
+    pub(crate) fn for_tests(default_name: &str) -> std::sync::Arc<Self> {
+        let mut by_id = HashMap::new();
+        let op = Operator {
+            id: OperatorId(Ulid::new()),
+            name: default_name.to_string(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: String::new(),
+            escalate_threshold: 0.5,
+            model: "claude-sonnet-4-6".into(),
+            hard_constraints: String::new(),
+            is_default: true,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::default(),
+        };
+        by_id.insert(op.id, op);
+        std::sync::Arc::new(Self {
+            by_id: RwLock::new(by_id),
+            pins: RwLock::new(HashMap::new()),
+        })
+    }
+
     pub fn default(&self) -> Option<Operator> {
         self.by_id
             .read()

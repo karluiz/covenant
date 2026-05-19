@@ -2774,7 +2774,11 @@ pub fn run() {
             let tg_client: std::sync::Arc<dyn crate::telegram::client::TelegramClient> =
                 std::sync::Arc::new(crate::telegram::client::ReqwestTelegramClient::new());
             let telegram_notifier = std::sync::Arc::new(
-                crate::telegram::TelegramNotifier::new(tg_client, settings_arc.clone()),
+                crate::telegram::TelegramNotifier::new(
+                    tg_client,
+                    settings_arc.clone(),
+                    registry_arc.clone(),
+                ),
             );
             let (escalation_bus_tx, _) =
                 tokio::sync::broadcast::channel::<karl_session::SessionEvent>(64);
@@ -2819,10 +2823,17 @@ pub fn run() {
                             Ok(SessionEvent::EscalationResolved {
                                 escalation_id,
                                 resolution,
-                                source,
+                                source: _,
                             }) => {
-                                let status = format!("{:?} via {:?}", resolution, source);
-                                if let Err(e) = tg.on_resolved(&escalation_id, &status).await {
+                                use crate::telegram::inbound::ActionKind;
+                                use karl_session::EscalationResolution;
+                                let action_kind = match resolution {
+                                    EscalationResolution::Approved => ActionKind::PushPR,
+                                    EscalationResolution::Rejected => ActionKind::Reply,
+                                    EscalationResolution::Snoozed => ActionKind::Snooze,
+                                    EscalationResolution::FreeText(_) => ActionKind::Custom,
+                                };
+                                if let Err(e) = tg.on_resolved(&escalation_id, action_kind).await {
                                     tracing::warn!(error = %e, "telegram on_resolved failed");
                                 }
                             }
