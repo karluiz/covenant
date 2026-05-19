@@ -12820,14 +12820,29 @@ body.theme-light .workspace-chip:hover .new-tab-kbd {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  margin-top: auto; /* push to bottom of the flex column */
   min-height: 0;
-  flex: 1 1 auto;
+  /* Strict 40% of the sidebar height when expanded; tabs get 60% via the
+     override below. Collapsed state drops back to auto so tabs reclaim. */
+  flex: 0 0 40%;
   overflow: hidden;
   font: 11px ui-monospace, "JetBrains Mono", Menlo, monospace;
   color: var(--text, #d5d9de);
   background: transparent;
 }
+#inline-notch-host.is-collapsed { flex: 0 0 auto; }
+#inline-notch-host.is-collapsed .inline-notch-body { display: none; }
+#inline-notch-host.is-collapsed .inline-notch-chev { transform: rotate(-90deg); }
+
+/* When the slot is expanded and visible, cap the tab list at 60% so the
+   two regions never fight for vertical space. Collapsed → tabs free again. */
+body.app-fullscreen.tabbar-left #tabs {
+  flex: 0 0 60%;
+}
+body.app-fullscreen.tabbar-left:has(#inline-notch-host.is-collapsed) #tabs,
+body.app-fullscreen.tabbar-left:has(#inline-notch-host[hidden]) #tabs {
+  flex: 1;
+}
+
 /* Only show in fullscreen + vertical tabbar layout. */
 body:not(.app-fullscreen) #inline-notch-host { display: none; }
 body:not(.tabbar-left) #inline-notch-host { display: none; }
@@ -12838,6 +12853,27 @@ body:not(.tabbar-left) #inline-notch-host { display: none; }
   background: var(--panel-2, #181c22);
   border: 1px solid var(--border, #232831);
   border-radius: 6px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+#inline-notch-host .inline-notch-head:hover {
+  border-color: color-mix(in srgb, var(--accent, #a8c3ff) 35%, var(--border, #232831));
+}
+#inline-notch-host .inline-notch-chev {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted, #8a93a0);
+  transition: transform 150ms ease;
+}
+#inline-notch-host .inline-notch-body {
+  display: flex; flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 #inline-notch-host .inline-notch-av {
   width: 22px; height: 22px; flex: 0 0 22px;

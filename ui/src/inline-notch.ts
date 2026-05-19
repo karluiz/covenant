@@ -65,20 +65,38 @@ function fmtTime(ts: number): string {
 export function mountInlineNotch(host: HTMLElement): void {
   host.classList.add("inline-notch");
   host.innerHTML = `
-    <div class="inline-notch-head">
+    <button class="inline-notch-head" type="button" aria-expanded="true" title="Collapse notifications">
       <div class="inline-notch-av" aria-hidden="true"></div>
       <div class="inline-notch-meta">
         <div class="inline-notch-name">no agent</div>
         <div class="inline-notch-sub">idle</div>
       </div>
+      <span class="inline-notch-chev" aria-hidden="true">▾</span>
+    </button>
+    <div class="inline-notch-body">
+      <div class="inline-notch-stream-head">
+        <span class="label">activity</span>
+        <button class="clear" type="button">clear</button>
+      </div>
+      <div class="inline-notch-stream"></div>
     </div>
-    <div class="inline-notch-stream-head">
-      <span class="label">activity</span>
-      <button class="clear" type="button">clear</button>
-    </div>
-    <div class="inline-notch-stream"></div>
   `;
   host.hidden = true;
+
+  const COLLAPSED_KEY = "covenant.inlineNotch.collapsed";
+  const initialCollapsed = localStorage.getItem(COLLAPSED_KEY) === "1";
+  host.classList.toggle("is-collapsed", initialCollapsed);
+  const headBtn = host.querySelector<HTMLButtonElement>(".inline-notch-head")!;
+  headBtn.setAttribute("aria-expanded", initialCollapsed ? "false" : "true");
+  headBtn.addEventListener("click", (ev) => {
+    // Don't toggle when the user clicks the "clear" button inside the body —
+    // that's handled separately. (The button isn't a child of head, but be safe.)
+    if ((ev.target as HTMLElement).closest(".clear")) return;
+    const next = !host.classList.contains("is-collapsed");
+    host.classList.toggle("is-collapsed", next);
+    headBtn.setAttribute("aria-expanded", next ? "false" : "true");
+    localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+  });
 
   const headName = host.querySelector<HTMLElement>(".inline-notch-name")!;
   const headSub = host.querySelector<HTMLElement>(".inline-notch-sub")!;
