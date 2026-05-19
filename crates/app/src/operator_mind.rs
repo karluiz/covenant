@@ -109,6 +109,29 @@ pub enum MindParseError {
     Json(#[from] serde_json::Error),
 }
 
+/// Quarantine boundary: when model output fails to parse, we capture the
+/// failure as data — explicitly without any conversion path to outbound
+/// types. The compile-fail test in `tests/compile_fail/` (Task 8) enforces
+/// that no `From<ParseFailure>` impl ever leaks toward `OutboundContext`.
+#[derive(Debug, Clone)]
+pub struct ParseFailure {
+    pub session_id: String,
+    pub reason: ParseFailureReason,
+    pub raw_excerpt: String,
+}
+
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ParseFailureReason {
+    #[error("unknown variant: {0}")]
+    UnknownVariant(String),
+    #[error("missing field: {0}")]
+    MissingField(String),
+    #[error("no JSON object found in model output")]
+    NoJsonObject,
+    #[error("invalid JSON: {0}")]
+    InvalidJson(String),
+}
+
 impl OperatorMind {
     /// Merge a `MindUpdate` into self, enforcing caps. FIFO when capped.
     pub fn apply(&mut self, update: MindUpdate, now: DateTime<Utc>) {
@@ -745,5 +768,18 @@ mod tests {
             r#"{"mind_update": {"belief": "say \"yes\" to user"}, "action": {"kind": "Ignore"}}"#;
         let r = parse_model_response(text).unwrap();
         assert_eq!(r.mind_update.belief.as_deref(), Some("say \"yes\" to user"));
+    }
+}
+
+#[cfg(test)]
+mod pf_tests {
+    use super::*;
+    #[test]
+    fn parse_failure_does_not_impl_into_outbound_context() {
+        let _pf = ParseFailure {
+            session_id: "S1".into(),
+            reason: ParseFailureReason::NoJsonObject,
+            raw_excerpt: "".into(),
+        };
     }
 }
