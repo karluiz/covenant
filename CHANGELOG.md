@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.6 — Formatting pass + pi/operator/score iteration
+
+### Changed
+
+- **Workspace-wide rustfmt + iteration on operator and metrics surfaces**
+  (`crates/app/src/operator.rs`, `crates/app/src/pi_commands.rs`,
+  `crates/app/src/telegram/`, `crates/app/src/notch.rs`,
+  `crates/app/src/vitals.rs`, `crates/blocks/src/executor_phase.rs`,
+  `crates/score/src/`, `crates/session/src/operator_ref.rs`,
+  `ui/src/inline-notch.ts`, `ui/src/status/vitals.ts`,
+  `ui/src/styles.css`): broad formatting normalization across the
+  app, score, blocks, and session crates, plus incremental work on
+  `pi_commands` (token usage / agent message plumbing), operator
+  prompt builder, executor phase mapping, vitals, and inline notch
+  styling. Test files updated to match.
+
 ## v0.7.5 — Operator identity v1 + metrics, themes, landing
 
 ### Added
