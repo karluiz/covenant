@@ -19,6 +19,8 @@ export interface PanelOpts {
   onOpenFile?: (absolutePath: string) => void;
   /** Open the AI spec wizard for the given repo root (called from drafts tab). */
   onOpenWizard?: (repoRoot: string) => void;
+  /** Pick and persist a root dir for this group (called from drafts tab CTA). */
+  onSetRootDir?: (groupId: string) => Promise<string | null>;
 }
 
 const LAST_TAB_STORAGE_KEY = "covenant.project-notes.last-tab";
@@ -137,6 +139,11 @@ export class ProjectNotesPanel {
         groupRootDir: this.opts.groupRootDir ?? null,
         onOpenFile: (p) => this.opts.onOpenFile?.(p),
         onOpenWizard: (r) => this.opts.onOpenWizard?.(r),
+        onSetRootDir: async () => {
+          const root = (await this.opts.onSetRootDir?.(this.opts.groupId)) ?? null;
+          if (root) this.opts.groupRootDir = root;
+          return root;
+        },
       }).mount(this.body);
     }
   }

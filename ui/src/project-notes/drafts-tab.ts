@@ -5,6 +5,7 @@ export interface DraftsTabOpts {
   groupRootDir: string | null;
   onOpenFile: (absolutePath: string) => void;
   onOpenWizard: (repoRoot: string) => void;
+  onSetRootDir?: () => Promise<string | null>;
 }
 
 export class DraftsTab {
@@ -41,11 +42,7 @@ export class DraftsTab {
     const root = this.opts.groupRootDir;
     if (!root) {
       this.newBtn.disabled = true;
-      this.listEl.innerHTML =
-        `<div class="pn-empty pn-empty-inline">
-           <div class="pn-empty-title">No root dir</div>
-           <div class="pn-empty-hint">Set a root dir for this group to track drafts.</div>
-         </div>`;
+      this.renderNoRootDir();
       return;
     }
     this.newBtn.disabled = false;
@@ -66,6 +63,49 @@ export class DraftsTab {
       wrap.appendChild(title);
       wrap.appendChild(hint);
       this.listEl.appendChild(wrap);
+    }
+  }
+
+  private renderNoRootDir(): void {
+    this.listEl.replaceChildren();
+
+    const wrap = document.createElement("div");
+    wrap.className = "pn-empty pn-empty-inline pn-drafts-no-root";
+
+    const title = document.createElement("div");
+    title.className = "pn-empty-title";
+    title.textContent = "No root dir";
+
+    const hint = document.createElement("div");
+    hint.className = "pn-empty-hint";
+    hint.textContent = "Choose the project folder for this group to track drafts.";
+
+    wrap.appendChild(title);
+    wrap.appendChild(hint);
+
+    if (this.opts.onSetRootDir) {
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "pn-empty-action";
+      action.textContent = "Set root dir…";
+      action.addEventListener("click", () => {
+        void this.setRootDirFromCta(action);
+      });
+      wrap.appendChild(action);
+    }
+
+    this.listEl.appendChild(wrap);
+  }
+
+  private async setRootDirFromCta(action: HTMLButtonElement): Promise<void> {
+    action.disabled = true;
+    try {
+      const root = (await this.opts.onSetRootDir?.()) ?? null;
+      if (!root) return;
+      this.opts.groupRootDir = root;
+      await this.refresh();
+    } finally {
+      if (!this.opts.groupRootDir) action.disabled = false;
     }
   }
 

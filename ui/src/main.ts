@@ -172,7 +172,7 @@ function applyTabbarCollapsed(collapsed: boolean): void {
   const btn = document.getElementById("tabbar-fold");
   if (btn) {
     const t = collapsed ? "Expand sidebar" : "Collapse sidebar";
-    btn.title = t;
+    btn.removeAttribute("title");
     btn.setAttribute("aria-label", t);
     btn.innerHTML = collapsed
       ? Icons.panelLeftOpen({ size: 16 })
@@ -184,8 +184,8 @@ function applyBlocksCollapsed(collapsed: boolean): void {
   document.body.classList.toggle("blocks-globally-collapsed", collapsed);
   const btn = document.getElementById("tabbar-fold-right");
   if (btn) {
-    const t = collapsed ? "Expand Blocks/Files sidebar" : "Collapse Blocks/Files sidebar";
-    btn.title = t;
+    const t = collapsed ? "Expand right sidebar" : "Collapse right sidebar";
+    btn.removeAttribute("title");
     btn.setAttribute("aria-label", t);
     btn.innerHTML = collapsed
       ? Icons.panelRightOpen({ size: 16 })
@@ -325,6 +325,7 @@ async function boot(): Promise<void> {
   const newTabBtn = requireEl<HTMLElement>("new-tab");
   const newGroupBtn = requireEl<HTMLButtonElement>("new-group");
   const tabbarFoldBtn = requireEl<HTMLButtonElement>("tabbar-fold");
+  attachTooltip(tabbarFoldBtn, "Toggle left sidebar");
 
   tabbarFoldBtn.addEventListener("click", () => {
     const next = !document.body.classList.contains("tabbar-left-collapsed");
@@ -336,29 +337,37 @@ async function boot(): Promise<void> {
 
   const collapseAllBtn = requireEl<HTMLButtonElement>("tabbar-collapse-all");
   collapseAllBtn.innerHTML = Icons.chevronsDownUp({ size: 16 });
-  // Titlebar Blocks/Files view switch — dispatches a global event each
+  attachTooltip(collapseAllBtn, "Collapse all groups");
+  // Titlebar Blocks/Files/Activity view switch — dispatches a global event each
   // tab listens to. Active class on the buttons mirrors the active view.
   const viewBlocksBtn = document.getElementById("titlebar-view-blocks");
   const viewFilesBtn = document.getElementById("titlebar-view-files");
   const viewActivityBtn = document.getElementById("titlebar-view-activity");
+  type SidebarTitlebarView = "blocks" | "structure" | "activity";
+  const ACTIVITY_KEY = "covenant.sidebar-view-activity";
+  const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
+  let activeSidebarTitlebarView: SidebarTitlebarView =
+    localStorage.getItem(ACTIVITY_KEY) === "1" ? "activity" : "blocks";
+  const syncSidebarTitlebarButtons = (view: SidebarTitlebarView): void => {
+    activeSidebarTitlebarView = view;
+    viewBlocksBtn?.classList.toggle("titlebar-view-active", view === "blocks");
+    viewFilesBtn?.classList.toggle("titlebar-view-active", view === "structure");
+    viewActivityBtn?.classList.toggle("titlebar-view-active", view === "activity");
+    document.body.classList.toggle("sidebar-view-activity", view === "activity");
+  };
   if (viewBlocksBtn && viewFilesBtn && viewActivityBtn) {
     viewBlocksBtn.innerHTML = Icons.terminal({ size: 14 });
     viewFilesBtn.innerHTML = Icons.folder({ size: 14 });
     viewActivityBtn.innerHTML = Icons.zap({ size: 14 });
-    type View = "blocks" | "structure" | "activity";
-    const ACTIVITY_KEY = "covenant.sidebar-view-activity";
-    const syncButtons = (view: View): void => {
-      viewBlocksBtn.classList.toggle("titlebar-view-active", view === "blocks");
-      viewFilesBtn.classList.toggle("titlebar-view-active", view === "structure");
-      viewActivityBtn.classList.toggle("titlebar-view-active", view === "activity");
-      document.body.classList.toggle("sidebar-view-activity", view === "activity");
-    };
+    attachTooltip(viewBlocksBtn, "Blocks");
+    attachTooltip(viewFilesBtn, "Files");
+    attachTooltip(viewActivityBtn, "Activity");
     // Activity is a global view (not per-tab) so we only forward
     // blocks/structure to the tab-level listener. When activity is
     // selected we just flip the body class; the global aside renders
     // itself.
-    const setView = (view: View): void => {
-      syncButtons(view);
+    const setView = (view: SidebarTitlebarView): void => {
+      syncSidebarTitlebarButtons(view);
       if (view !== "activity") {
         localStorage.removeItem(ACTIVITY_KEY);
         window.dispatchEvent(
@@ -368,10 +377,23 @@ async function boot(): Promise<void> {
         localStorage.setItem(ACTIVITY_KEY, "1");
       }
     };
-    const pickView = (view: View): void => {
-      if (document.body.classList.contains("blocks-globally-collapsed")) {
+    const pickView = (view: SidebarTitlebarView): void => {
+      const wasProjectNotesOpen = document.body.classList.contains("project-notes-open");
+      const wasCollapsed = document.body.classList.contains("blocks-globally-collapsed");
+      window.dispatchEvent(new CustomEvent("project-notes:close"));
+
+      // Treat each titlebar view icon as a toggle: clicking the already-open
+      // rail closes it, clicking any other icon swaps that same rail in place.
+      if (!wasProjectNotesOpen && !wasCollapsed && activeSidebarTitlebarView === view) {
+        applyBlocksCollapsed(true);
+        localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
+        setTimeout(() => manager.refitActive(), 320);
+        return;
+      }
+
+      if (wasCollapsed) {
         applyBlocksCollapsed(false);
-        localStorage.removeItem("covenant.blocks-globally-collapsed");
+        localStorage.removeItem(BLOCKS_GLOBAL_KEY);
         setTimeout(() => manager.refitActive(), 320);
       }
       setView(view);
@@ -384,16 +406,32 @@ async function boot(): Promise<void> {
       // Tabs only know about blocks/structure — respect the activity
       // override if it's currently active.
       if (document.body.classList.contains("sidebar-view-activity")) return;
-      syncButtons(v);
+      // Project Notes temporarily owns the right rail. Track the tab's
+      // underlying view, but do not light two titlebar view buttons at once.
+      if (document.body.classList.contains("project-notes-open")) {
+        activeSidebarTitlebarView = v;
+        return;
+      }
+      syncSidebarTitlebarButtons(v);
     });
-    // Restore activity view on reload.
-    if (localStorage.getItem(ACTIVITY_KEY) === "1") syncButtons("activity");
+    // Restore titlebar state on reload.
+    syncSidebarTitlebarButtons(activeSidebarTitlebarView);
   }
 
   const projectNotesBtn = document.getElementById("titlebar-project-notes");
   if (projectNotesBtn) {
     projectNotesBtn.innerHTML = Icons.clipboard({ size: 16 });
+    attachTooltip(projectNotesBtn, { title: "Project notes", kbd: "⌘⇧J" });
     projectNotesBtn.addEventListener("click", () => {
+      if (activeProjectNotesPanel) {
+        activeProjectNotesPanel.close();
+        return;
+      }
+      if (document.body.classList.contains("blocks-globally-collapsed")) {
+        applyBlocksCollapsed(false);
+        localStorage.removeItem(BLOCKS_GLOBAL_KEY);
+        setTimeout(() => manager.refitActive(), 320);
+      }
       const g = manager.activeGroup();
       if (g) openProjectNotes(g.id, g.name, g.color ?? null);
     });
@@ -401,10 +439,11 @@ async function boot(): Promise<void> {
 
   const foldRightBtn = document.getElementById("tabbar-fold-right");
   if (foldRightBtn) {
-    const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
+    attachTooltip(foldRightBtn, "Toggle right sidebar");
     applyBlocksCollapsed(localStorage.getItem(BLOCKS_GLOBAL_KEY) === "1");
     foldRightBtn.addEventListener("click", () => {
       const next = !document.body.classList.contains("blocks-globally-collapsed");
+      if (next && activeProjectNotesPanel) activeProjectNotesPanel.close();
       applyBlocksCollapsed(next);
       if (next) localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
       else localStorage.removeItem(BLOCKS_GLOBAL_KEY);
@@ -605,8 +644,10 @@ async function boot(): Promise<void> {
     void manager.setMissionPathForActiveTab(detail.path);
   });
 
-  // Project Notes panel — singleton overlay, opened from group-chip or ⌘⇧J.
+  // Project Notes panel — singleton right sidebar, opened from group-chip or ⌘⇧J.
   let activeProjectNotesPanel: ProjectNotesPanel | null = null;
+  let projectNotesReturnView: SidebarTitlebarView | null = null;
+  window.addEventListener("project-notes:close", () => activeProjectNotesPanel?.close());
 
   function openProjectNotes(
     groupId: string,
@@ -615,6 +656,13 @@ async function boot(): Promise<void> {
     opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
   ): void {
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
+    projectNotesReturnView = activeSidebarTitlebarView;
+    document.body.classList.add("project-notes-open");
+    document.body.classList.remove("sidebar-view-activity");
+    projectNotesBtn?.classList.add("titlebar-view-active");
+    viewBlocksBtn?.classList.remove("titlebar-view-active");
+    viewFilesBtn?.classList.remove("titlebar-view-active");
+    viewActivityBtn?.classList.remove("titlebar-view-active");
     const groupRootDir = manager.groupRootDirFor(groupId);
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
@@ -624,6 +672,11 @@ async function boot(): Promise<void> {
       defaultTab: opts?.defaultTab,
       onClose: () => {
         activeProjectNotesPanel = null;
+        document.body.classList.remove("project-notes-open");
+        projectNotesBtn?.classList.remove("titlebar-view-active");
+        const restoreView = projectNotesReturnView ?? activeSidebarTitlebarView;
+        projectNotesReturnView = null;
+        syncSidebarTitlebarButtons(restoreView);
       },
       onOpenFile: (absolutePath) => {
         manager.openFileAtLine(absolutePath);
@@ -633,6 +686,7 @@ async function boot(): Promise<void> {
         activeProjectNotesPanel?.close();
         window.dispatchEvent(new CustomEvent("spec-chat:open"));
       },
+      onSetRootDir: (gid) => manager.pickGroupRootDir(gid),
     }).mount(document.body);
   }
 

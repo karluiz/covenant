@@ -423,7 +423,7 @@ export class SettingsPanel {
               markers.
             </small>
           </label>
-          <fieldset class="settings-field">
+          <fieldset class="settings-field settings-radio-group">
             <span class="settings-label">Tabbar position</span>
             <label class="settings-radio">
               <input type="radio" name="tabbar_position" value="top" />

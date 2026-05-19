@@ -8,6 +8,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import type { ExecutorPhase } from "../notch/store";
+import { attachTooltip } from "./tooltip/tooltip";
 
 const MAX_ROWS = 40;
 
@@ -65,7 +66,7 @@ function fmtTime(ts: number): string {
 export function mountInlineNotch(host: HTMLElement): void {
   host.classList.add("inline-notch");
   host.innerHTML = `
-    <button class="inline-notch-head" type="button" aria-expanded="true" title="Collapse notifications">
+    <button class="inline-notch-head" type="button" aria-expanded="true">
       <div class="inline-notch-av" aria-hidden="true"></div>
       <div class="inline-notch-meta">
         <div class="inline-notch-name">no agent</div>
@@ -88,6 +89,7 @@ export function mountInlineNotch(host: HTMLElement): void {
   host.classList.toggle("is-collapsed", initialCollapsed);
   const headBtn = host.querySelector<HTMLButtonElement>(".inline-notch-head")!;
   headBtn.setAttribute("aria-expanded", initialCollapsed ? "false" : "true");
+  attachTooltip(headBtn, "Collapse notifications");
   headBtn.addEventListener("click", (ev) => {
     // Don't toggle when the user clicks the "clear" button inside the body —
     // that's handled separately. (The button isn't a child of head, but be safe.)

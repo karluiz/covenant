@@ -27,8 +27,28 @@ describe("DraftsTab", () => {
       onOpenWizard: () => {},
     }).mount(host);
     await Promise.resolve();
-    expect(host.textContent).toContain("Set a root dir");
+    expect(host.textContent).toContain("No root dir");
+    expect(host.textContent).toContain("Choose the project folder");
     expect(draftsApi.list).not.toHaveBeenCalled();
+  });
+
+  it("sets root dir from the empty-state CTA and refreshes drafts", async () => {
+    const mock = draftsApi.list as ReturnType<typeof vi.fn>;
+    mock.mockResolvedValue([]);
+    new DraftsTab({
+      groupId: "g1",
+      groupRootDir: null,
+      onOpenFile: () => {},
+      onOpenWizard: () => {},
+      onSetRootDir: vi.fn(async () => "/repo"),
+    }).mount(host);
+    await Promise.resolve();
+
+    (host.querySelector(".pn-empty-action") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mock).toHaveBeenCalledWith("/repo");
+    expect(host.textContent).toContain("No drafts");
   });
 
   it("lists drafts returned by the API", async () => {

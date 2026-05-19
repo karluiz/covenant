@@ -7828,6 +7828,83 @@ body.tabbar-left .group-chip-has-members {
     margin-bottom: 0;
 }
 
+/* Dark sidebar should read as stacked project cards, not bare bracket
+   glyphs. Keep the left color rail, but bring back the tinted card fill
+   + full outline from the intended mockup. Light mode keeps its softer
+   overrides further down. */
+body.tabbar-left:not(.theme-light) #tabbar-host {
+    background: color-mix(in srgb, #10141b 88%, var(--bg-tabbar));
+}
+
+body.tabbar-left:not(.theme-light) .group-chip {
+    height: 34px;
+    min-height: 34px;
+    border-radius: 12px;
+    border-color: color-mix(
+        in srgb,
+        var(--group-color, var(--border)) 42%,
+        rgba(255, 255, 255, 0.08)
+    );
+    border-left-width: 4px;
+    border-left-color: var(--group-color, var(--accent));
+    background: color-mix(
+        in srgb,
+        var(--group-color, var(--accent)) 10%,
+        #1b2028
+    );
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.035),
+        0 1px 0 rgba(0, 0, 0, 0.22);
+}
+
+body.tabbar-left:not(.theme-light) .group-chip:hover {
+    background: color-mix(
+        in srgb,
+        var(--group-color, var(--accent)) 15%,
+        #202631
+    );
+    border-color: color-mix(
+        in srgb,
+        var(--group-color, var(--border)) 52%,
+        rgba(255, 255, 255, 0.12)
+    );
+}
+
+body.tabbar-left:not(.theme-light) .group-chip-count {
+    background: rgba(4, 7, 12, 0.58);
+    color: color-mix(in srgb, var(--group-color, #fff) 58%, #fff 42%);
+}
+
+body.tabbar-left:not(.theme-light)
+    .tab-group-shell:not(.tab-group-shell-collapsed)
+    .tab-group-body::before {
+    top: 42px;
+    background: color-mix(
+        in srgb,
+        var(--group-color, var(--muted)) 76%,
+        transparent
+    );
+}
+
+body.tabbar-left:not(.theme-light) .tab-grouped.active {
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--group-color, var(--accent)) 20%, #1b2030) 0%,
+        rgba(25, 30, 43, 0.92) 48%,
+        rgba(20, 24, 34, 0.34) 100%
+    );
+    border-color: rgba(255, 255, 255, 0.04);
+    color: #fff;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.045),
+        0 8px 22px rgba(0, 0, 0, 0.16);
+}
+
+body.tabbar-left:not(.theme-light) .tab-grouped.active .tab-close {
+    color: rgba(255, 255, 255, 0.64);
+    opacity: 0.72;
+}
+
 /* + New tab + New group buttons as a side-by-side row at the bottom
    of the sidebar. Both share the #new-tab styling via the actions row. */
 body.tabbar-left #tabbar-actions {
@@ -12818,19 +12895,19 @@ body.theme-light .workspace-chip:hover .new-tab-kbd {
    =========================================================== */
 #activity-sidebar[hidden] { display: none !important; }
 #activity-sidebar {
-  position: fixed;
-  top: 38px;       /* below the custom titlebar */
-  right: 0;
-  bottom: 26px;    /* above the status bar */
-  width: 240px;
+  position: relative;
+  grid-row: 2 / 3;
+  grid-column: 2 / 3;
+  min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  z-index: 20;     /* sit over the per-tab .tab-blocks column */
+  z-index: 1;
   font: 11px ui-monospace, "JetBrains Mono", Menlo, monospace;
   color: var(--text, #d5d9de);
-  background: var(--bg, #0b0d10);
+  background: var(--bg-panel, #11141a);
   border-left: 1px solid var(--border, #232831);
   box-sizing: border-box;
   overflow: hidden;
@@ -12839,8 +12916,68 @@ body.theme-light .workspace-chip:hover .new-tab-kbd {
 body:not(.sidebar-view-activity) #activity-sidebar { display: none; }
 body.blocks-globally-collapsed #activity-sidebar { display: none; }
 
-/* Status-bar height/track. Adjust if the status bar is hidden. */
-body:has(#status-bar[hidden]) #activity-sidebar { bottom: 0; }
+/* Give Activity the same right rail as Blocks/Files. The outer layout
+   creates the 240px rail, while the active tab's own Blocks/Files column is
+   hidden so the two sidebars never stack or appear side-by-side. */
+body.sidebar-view-activity:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+body.sidebar-view-activity:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
+body.sidebar-view-activity:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-activity.tabbar-left:not(.blocks-globally-collapsed) #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) 240px;
+}
+body.sidebar-view-activity.tabbar-left:not(.blocks-globally-collapsed) #activity-sidebar {
+  grid-row: 1 / 2;
+  grid-column: 3 / 4;
+}
+body.sidebar-view-activity.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-activity:not(.blocks-globally-collapsed) .tab-pane {
+  grid-template-columns: 1fr 0 0 0 !important;
+}
+body.sidebar-view-activity:not(.blocks-globally-collapsed) .tab-blocks {
+  display: none !important;
+}
+body.sidebar-view-activity .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+  right: 0 !important;
+}
+
+/* Project Notes uses the same right rail as Activity. Its panel is fixed,
+   but the layout still reserves a 240px rail so it does not cover the
+   terminal, and the active tab's Blocks/Files column is removed underneath. */
+body.project-notes-open:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+body.project-notes-open:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
+body.project-notes-open:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
+  grid-column: 1 / -1;
+}
+body.project-notes-open.tabbar-left:not(.blocks-globally-collapsed) #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) 240px;
+}
+body.project-notes-open.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
+  grid-column: 1 / -1;
+}
+body.project-notes-open #activity-sidebar {
+  display: none;
+}
+body.project-notes-open:not(.blocks-globally-collapsed) .tab-pane {
+  grid-template-columns: 1fr 0 0 0 !important;
+}
+body.project-notes-open:not(.blocks-globally-collapsed) .tab-blocks {
+  display: none !important;
+}
+body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+  right: 0 !important;
+}
+#titlebar-project-notes.titlebar-view-active {
+  color: var(--text, #d5d9de) !important;
+  background: rgba(var(--ink-rgb), 0.06);
+}
 
 #activity-sidebar.is-collapsed .inline-notch-body { display: none; }
 #activity-sidebar.is-collapsed .inline-notch-chev { transform: rotate(-90deg); }

@@ -79,6 +79,7 @@ import { getSpecPromptState } from "../aom/spec-prompt";
 import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 import { zoom } from "../zoom";
+import { attachTooltip } from "../tooltip/tooltip";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -1972,15 +1973,15 @@ export class TabManager {
     navBlocks.type = "button";
     navBlocks.className = "sidebar-nav-btn sidebar-nav-active";
     navBlocks.setAttribute("aria-label", "Blocks");
-    navBlocks.setAttribute("title", "Blocks");
     navBlocks.innerHTML = Icons.terminal({ size: 14 });
+    attachTooltip(navBlocks, "Blocks");
 
     const navStructure = document.createElement("button");
     navStructure.type = "button";
     navStructure.className = "sidebar-nav-btn";
     navStructure.setAttribute("aria-label", "Files");
-    navStructure.setAttribute("title", "Files");
     navStructure.innerHTML = Icons.folder({ size: 14 });
+    attachTooltip(navStructure, "Files");
 
     navSwitch.appendChild(navBlocks);
     navSwitch.appendChild(navStructure);
@@ -3411,19 +3412,20 @@ export class TabManager {
 
   /// Open a native folder picker and set the group's default cwd for
   /// new tabs. Existing tabs are unaffected (their PTYs already live
-  /// elsewhere). Pass `null` to clear.
-  private async pickGroupRootDir(groupId: string): Promise<void> {
+  /// elsewhere). Returns the picked path, or null when cancelled/missing.
+  async pickGroupRootDir(groupId: string): Promise<string | null> {
     const g = this.groups.get(groupId);
-    if (!g) return;
+    if (!g) return null;
     const picked = await openDialog({
       title: `Root dir for group "${g.name}"`,
       multiple: false,
       directory: true,
       defaultPath: g.rootDir ?? undefined,
     });
-    if (typeof picked !== "string") return; // cancelled
+    if (typeof picked !== "string") return null; // cancelled
     g.rootDir = picked;
     this.scheduleSave();
+    return picked;
   }
 
   private clearGroupRootDir(groupId: string): void {
