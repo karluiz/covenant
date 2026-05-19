@@ -12905,3 +12905,30 @@ body:not(.tabbar-left) #inline-notch-host { display: none; }
   color: var(--muted, #8a93a0);
   flex: 0 0 auto;
 }
+
+/* ── Light-mode: card surface + readable ink ─────────────────── */
+body.theme-light #inline-notch-host {
+  color: var(--text-primary);
+}
+body.theme-light #inline-notch-host .inline-notch-head {
+  background: #ffffff;
+  border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+body.theme-light #inline-notch-host .inline-notch-name {
+  color: var(--text-primary);
+}
+body.theme-light #inline-notch-host .inline-notch-sub,
+body.theme-light #inline-notch-host .inline-notch-stream-head,
+body.theme-light #inline-notch-host .inline-notch-stream-head .clear,
+body.theme-light #inline-notch-host .inline-notch-stream .row,
+body.theme-light #inline-notch-host .inline-notch-stream .row .ts,
+body.theme-light #inline-notch-host .inline-notch-stream .row .tag {
+  color: var(--muted);
+}
+body.theme-light #inline-notch-host .inline-notch-stream .row .msg {
+  color: var(--text-primary);
+}
+body.theme-light #inline-notch-host .inline-notch-stream-head .clear:hover {
+  color: var(--text-primary);
+}
