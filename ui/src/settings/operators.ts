@@ -1027,11 +1027,13 @@ function renderBehavior(h: ModalHandle): HTMLElement {
   slider.max = "1";
   slider.step = "0.05";
   slider.value = String(h.state.draft.escalate_threshold);
+  slider.style.setProperty("--thr", String(h.state.draft.escalate_threshold));
   slider.addEventListener("input", () => {
     const v = Number.parseFloat(slider.value);
     if (!Number.isNaN(v)) {
       h.state.draft.escalate_threshold = v;
       thrReadout.textContent = v.toFixed(2);
+      slider.style.setProperty("--thr", String(v));
     }
   });
   thrWrap.append(slider);

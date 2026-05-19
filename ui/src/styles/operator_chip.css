@@ -149,8 +149,14 @@ body.theme-light .op-modal-step {
 }
 .op-modal-field input[type="text"],
 .op-modal-field input[type="number"],
-.op-modal-field textarea {
+.op-modal-field input[type="email"],
+.op-modal-field textarea,
+.op-modal-field select,
+.op-modal-input,
+.op-modal-textarea,
+.op-modal-select {
   width: 100%;
+  box-sizing: border-box;
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
@@ -552,12 +558,22 @@ body.theme-light .op-tg-btn {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 4px;
-  border-radius: 2px;
+  box-sizing: border-box;
+  height: 6px;
+  border-radius: 3px;
   background: linear-gradient(to right,
-    color-mix(in srgb, var(--operator-color, #2f6fed) 70%, transparent),
-    color-mix(in srgb, currentColor 14%, transparent));
+    var(--operator-color, #2f6fed) 0%,
+    var(--operator-color, #2f6fed) calc(var(--thr, 0.5) * 100%),
+    color-mix(in srgb, currentColor 22%, transparent) calc(var(--thr, 0.5) * 100%),
+    color-mix(in srgb, currentColor 22%, transparent) 100%);
   outline: none;
+}
+body.theme-light .op-threshold-slider {
+  background: linear-gradient(to right,
+    var(--operator-color, #2f6fed) 0%,
+    var(--operator-color, #2f6fed) calc(var(--thr, 0.5) * 100%),
+    rgba(0, 0, 0, 0.14) calc(var(--thr, 0.5) * 100%),
+    rgba(0, 0, 0, 0.14) 100%);
 }
 .op-threshold-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
