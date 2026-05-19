@@ -554,7 +554,6 @@ export interface ModalDraft extends OperatorDraft {
 
 export interface ModalState {
   mode: "create" | "edit";
-  step: 1 | 2;
   draft: ModalDraft;
 }
 
@@ -565,13 +564,17 @@ export interface ModalHandle {
   setEmoji(s: string): void;
   setColor(s: string): void;
   setVoice(v: VoiceTone): void;
-  goToStep(n: 1 | 2): void;
+  applyPreset(key: PresetKey): void;
 }
 
-export function canProceedFromStep1(m: ModalHandle): boolean {
+export function canSave(m: ModalHandle): boolean {
   const n = m.state.draft.name.trim();
   return n.length > 0 && [...n].length <= 24;
 }
+
+// Back-compat alias used by the unit tests written against the
+// earlier two-step wizard. Behaves identically to `canSave`.
+export const canProceedFromStep1 = canSave;
 
 const SWATCHES = [
   "#a855f7", "#22c55e", "#3b82f6", "#eab308",
@@ -624,7 +627,6 @@ export function openOperatorModal(opts: {
 
   const state: ModalState = {
     mode: opts.mode,
-    step: opts.existing ? 2 : 1,
     draft,
   };
 
@@ -642,12 +644,21 @@ export function openOperatorModal(opts: {
     setEmoji(s) { state.draft.emoji = s; render(); },
     setColor(s) { state.draft.color = s; render(); },
     setVoice(v) { state.draft.voice = v; render(); },
-    goToStep(n) { state.step = n; render(); },
+    applyPreset(key) {
+      const preset = PRESETS.find((p) => p.key === key);
+      if (!preset) return;
+      // Preserve the operator's name if the user already typed one; otherwise
+      // adopt the preset's name.
+      const userName = state.draft.name.trim();
+      state.draft = { ...preset.seed() };
+      if (userName) state.draft.name = userName;
+      render();
+    },
   };
 
   function render(): void {
     el.innerHTML = "";
-    el.append(state.step === 1 ? renderStep1(h) : renderStep2(h));
+    el.append(renderForm(h));
   }
   render();
   return h;
@@ -663,19 +674,57 @@ function labeled(text: string, child: HTMLElement): HTMLElement {
   return w;
 }
 
-function renderStep1(h: ModalHandle): HTMLElement {
+function renderForm(h: ModalHandle): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "op-modal-step op-modal-step-1";
+  wrap.className = "op-modal-step op-modal-form";
 
-  const preview = renderOperatorChip(
-    {
-      name: h.state.draft.name || "Operator",
-      emoji: h.state.draft.emoji,
-      color: h.state.draft.color,
-    },
-    "lg",
+  // ── Header: live chip preview + dismiss "×" ────────────────────────────
+  const header = document.createElement("div");
+  header.className = "op-modal-header";
+  header.append(
+    renderOperatorChip(
+      {
+        name: h.state.draft.name || "New operator",
+        emoji: h.state.draft.emoji,
+        color: h.state.draft.color,
+      },
+      "lg",
+    ),
   );
-  wrap.append(preview);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "op-modal-close";
+  close.setAttribute("aria-label", "Close");
+  close.textContent = "×";
+  close.addEventListener("click", () => h.el.remove());
+  header.append(close);
+  wrap.append(header);
+
+  // ── Presets (create mode only) ─────────────────────────────────────────
+  if (h.state.mode === "create") {
+    const presetRow = document.createElement("div");
+    presetRow.className = "op-preset-row";
+    const presetLabel = document.createElement("span");
+    presetLabel.className = "op-modal-label op-preset-label";
+    presetLabel.textContent = "Start from preset";
+    presetRow.append(presetLabel);
+    const chips = document.createElement("div");
+    chips.className = "op-preset-chips";
+    PRESETS.forEach((p) => {
+      const c = document.createElement("button");
+      c.type = "button";
+      c.className = "op-preset-chip";
+      c.title = p.description;
+      c.textContent = p.label;
+      c.addEventListener("click", () => h.applyPreset(p.key));
+      chips.append(c);
+    });
+    presetRow.append(chips);
+    wrap.append(presetRow);
+  }
+
+  // ── Identity section ───────────────────────────────────────────────────
+  wrap.append(section("Identity"));
 
   const name = document.createElement("input");
   name.type = "text";
@@ -685,12 +734,36 @@ function renderStep1(h: ModalHandle): HTMLElement {
   name.addEventListener("input", () => h.setName(name.value));
   wrap.append(labeled("Name", name));
 
+  // Avatar picker — grid of pack thumbnails. Selected = ring.
+  const avatarGrid = document.createElement("div");
+  avatarGrid.className = "op-avatar-grid";
+  AVATAR_PACK.forEach((entry) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className =
+      "op-avatar-tile" +
+      (h.state.draft.emoji === `pack:${entry.id}` ? " is-selected" : "");
+    b.title = entry.label;
+    const img = document.createElement("img");
+    img.src = entry.url;
+    img.alt = entry.label;
+    img.width = 40;
+    img.height = 40;
+    img.draggable = false;
+    b.append(img);
+    b.addEventListener("click", () => h.setEmoji(`pack:${entry.id}`));
+    avatarGrid.append(b);
+  });
+  wrap.append(labeled("Avatar", avatarGrid));
+
+  // Custom emoji fallback
   const emoji = document.createElement("input");
   emoji.type = "text";
-  emoji.maxLength = 4;
+  emoji.maxLength = 16;
+  emoji.placeholder = "Or type an emoji / leave a pack: value";
   emoji.value = h.state.draft.emoji;
   emoji.addEventListener("input", () => h.setEmoji(emoji.value));
-  wrap.append(labeled("Emoji", emoji));
+  wrap.append(labeled("Custom emoji", emoji));
 
   const colors = document.createElement("div");
   colors.className = "op-color-row";
@@ -717,20 +790,8 @@ function renderStep1(h: ModalHandle): HTMLElement {
   });
   wrap.append(labeled("Voice", voiceRow));
 
-  const next = document.createElement("button");
-  next.type = "button";
-  next.className = "op-modal-next primary";
-  next.textContent = "Next";
-  next.disabled = !canProceedFromStep1(h);
-  next.addEventListener("click", () => h.goToStep(2));
-  wrap.append(next);
-
-  return wrap;
-}
-
-function renderStep2(h: ModalHandle): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "op-modal-step op-modal-step-2";
+  // ── Behavior section ───────────────────────────────────────────────────
+  wrap.append(section("Behavior"));
 
   const model = document.createElement("input");
   model.type = "text";
@@ -753,7 +814,7 @@ function renderStep2(h: ModalHandle): HTMLElement {
   wrap.append(labeled("Escalate threshold", thr));
 
   const persona = document.createElement("textarea");
-  persona.rows = 8;
+  persona.rows = 10;
   persona.value = h.state.draft.persona;
   persona.addEventListener("input", () => {
     h.state.draft.persona = persona.value;
@@ -768,27 +829,36 @@ function renderStep2(h: ModalHandle): HTMLElement {
   });
   wrap.append(labeled("Hard constraints", hc));
 
+  // ── Actions (right-aligned, matches Settings page) ─────────────────────
   const actions = document.createElement("div");
-  actions.className = "op-modal-actions";
+  actions.className = "op-modal-actions settings-actions";
 
-  const back = document.createElement("button");
-  back.type = "button";
-  back.className = "op-modal-back";
-  back.textContent = "Back";
-  back.addEventListener("click", () => h.goToStep(1));
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "settings-cancel";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => h.el.remove());
 
   const save = document.createElement("button");
   save.type = "button";
-  save.className = "op-modal-save primary";
-  save.textContent = "Save";
+  save.className = "op-modal-save settings-save";
+  save.textContent = h.state.mode === "edit" ? "Save changes" : "Create operator";
+  save.disabled = !canSave(h);
   save.addEventListener("click", () => {
     void saveOperator(h);
   });
 
-  actions.append(back, save);
+  actions.append(cancel, save);
   wrap.append(actions);
 
   return wrap;
+}
+
+function section(title: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "op-modal-section";
+  el.textContent = title;
+  return el;
 }
 
 export async function saveOperator(h: ModalHandle): Promise<void> {

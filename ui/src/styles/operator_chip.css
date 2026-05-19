@@ -202,7 +202,101 @@ body.theme-light .op-modal-step {
 .op-modal-next.primary:hover:not(:disabled) {
   background: #3b7af2;
 }
-.op-modal-next:disabled {
+.op-modal-next:disabled,
+.op-modal-save:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.op-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 8%, transparent);
+  margin-bottom: 4px;
+}
+.op-modal-close {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.op-modal-close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.op-modal-section {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+  margin-top: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed color-mix(in srgb, currentColor 12%, transparent);
+}
+.op-preset-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.op-preset-label {
+  display: block;
+}
+.op-preset-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.op-preset-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  color: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.op-preset-chip:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.op-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 6px;
+}
+.op-avatar-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  cursor: pointer;
+}
+.op-avatar-tile:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.op-avatar-tile.is-selected {
+  border-color: var(--operator-color, #2f6fed);
+  background: color-mix(in srgb, var(--operator-color, #2f6fed) 14%, transparent);
+}
+.op-avatar-tile img {
+  image-rendering: pixelated;
+  display: block;
+}
+@media (max-width: 600px) {
+  .op-avatar-grid { grid-template-columns: repeat(6, 1fr); }
 }
