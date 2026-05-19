@@ -588,6 +588,25 @@ impl ScoreStore {
         }).collect())
     }
 
+    pub fn get_watermark(&self, source: &str, path: &str) -> Result<u64> {
+        let c = self.conn.lock().unwrap();
+        let off: Option<i64> = c.query_row(
+            "SELECT byte_offset FROM external_watermarks WHERE source = ?1 AND path = ?2",
+            params![source, path], |r| r.get(0)
+        ).optional()?;
+        Ok(off.unwrap_or(0) as u64)
+    }
+
+    pub fn set_watermark(&self, source: &str, path: &str, byte_offset: u64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO external_watermarks(source, path, byte_offset) VALUES (?1, ?2, ?3)
+             ON CONFLICT(source, path) DO UPDATE SET byte_offset = excluded.byte_offset",
+            params![source, path, byte_offset as i64],
+        )?;
+        Ok(())
+    }
+
     pub fn breakdown_specs(&self, f: &crate::ScoreFilter) -> Result<crate::SpecBreakdown> {
         let mut fcopy = f.clone();
         fcopy.agent = None;

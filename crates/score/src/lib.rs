@@ -1,3 +1,4 @@
+pub mod external;
 pub mod agent_label;
 pub mod spec_watcher;
 pub mod auth;
