@@ -434,14 +434,15 @@ pub fn reposition_notch(win: &tauri::WebviewWindow, corner: crate::settings::Not
 }
 
 /// Set NSWindowCollectionBehavior so the notch window appears on all Spaces
-/// and in fullscreen slide-over mode.
+/// in windowed mode. We deliberately omit `FullScreenAuxiliary` so the
+/// overlay does NOT follow the main window into a fullscreen Space —
+/// fullscreen mode renders the equivalent UI inline in the sidebar instead.
 #[cfg(target_os = "macos")]
 fn apply_macos_collection_behavior(win: &tauri::WebviewWindow) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
-    // NSWindowCollectionBehaviorCanJoinAllSpaces   = 1 << 0
-    // NSWindowCollectionBehaviorFullScreenAuxiliary = 1 << 8
-    const BEHAVIOR: u64 = (1 << 0) | (1 << 8);
+    // NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
+    const BEHAVIOR: u64 = 1 << 0;
     if let Ok(ns_window) = win.ns_window() {
         unsafe {
             let obj = ns_window as *mut AnyObject;
