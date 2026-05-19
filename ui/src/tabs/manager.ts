@@ -100,17 +100,46 @@ const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 const DEFAULT_FONT_SIZE = 13;
 
-/// Background is fully transparent so the workspace #workspace surface
-/// tint (controlled by body.bg-{solid,vibrant,translucent} via the
-/// --surface-alpha custom property) shows through xterm. cursorAccent
-/// stays opaque so the block cursor reads against any wallpaper.
-const TERMINAL_THEME = {
+/// xterm palettes. background stays fully transparent so the workspace
+/// surface tint (--surface-alpha) reads through. Light palette is
+/// GitHub Light — ANSI values chosen to match its terminal preset.
+const TERMINAL_THEME_DARK = {
   background: "rgba(0, 0, 0, 0)",
   foreground: "#d6d8db",
   cursor: "#7aa2f7",
   cursorAccent: "#0b0d10",
   selectionBackground: "#2a3148",
 } as const;
+
+const TERMINAL_THEME_LIGHT = {
+  background: "rgba(0, 0, 0, 0)",
+  foreground: "#24292f",
+  cursor: "#2f6fed",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#b6d4fe",
+  black:   "#24292f",
+  red:     "#cf222e",
+  green:   "#116329",
+  yellow:  "#4d2d00",
+  blue:    "#0969da",
+  magenta: "#8250df",
+  cyan:    "#1b7c83",
+  white:   "#6e7781",
+  brightBlack:   "#57606a",
+  brightRed:     "#a40e26",
+  brightGreen:   "#1a7f37",
+  brightYellow:  "#633c01",
+  brightBlue:    "#218bff",
+  brightMagenta: "#a475f9",
+  brightCyan:    "#3192aa",
+  brightWhite:   "#8c959f",
+} as const;
+
+function termTheme(): typeof TERMINAL_THEME_DARK | typeof TERMINAL_THEME_LIGHT {
+  return document.body.classList.contains("theme-light")
+    ? TERMINAL_THEME_LIGHT
+    : TERMINAL_THEME_DARK;
+}
 
 function buildTerminalOptions(font: TerminalConfig | null): Record<string, unknown> {
   const baseSize = font?.font_size || DEFAULT_FONT_SIZE;
@@ -127,7 +156,7 @@ function buildTerminalOptions(font: TerminalConfig | null): Record<string, unkno
     allowTransparency: true,
     convertEol: false,
     scrollback: 10_000,
-    theme: TERMINAL_THEME,
+    theme: termTheme(),
   };
 }
 
@@ -3811,6 +3840,17 @@ export class TabManager {
   /// collapsed rail. Walks `tabs[]` in display order, opening a "group"
   /// item whenever the running groupId changes and emitting a "tab"
   /// item for each ungrouped tab.
+  /// Reapply the xterm palette to every live terminal. Called by main.ts
+  /// when the user toggles theme or the OS appearance changes under
+  /// `system` mode. Cheap — xterm hot-swaps the theme without reflow.
+  public applyTerminalTheme(): void {
+    const theme = termTheme();
+    for (const tab of this.tabs) {
+      if (tab.kind !== "shell" || !tab.term) continue;
+      tab.term.options.theme = theme;
+    }
+  }
+
   public getRailSnapshot(): RailSnapshot {
     const items: RailSnapshot["items"] = [];
     let currentGroupId: string | null = null;
