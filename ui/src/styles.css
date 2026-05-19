@@ -92,6 +92,11 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
     --border: #1c2027;
     --muted: #6c7280;
     --text-primary: #f5f6f7;
+    /* Alias many older rules already reference as `var(--fg, …)`.
+       Define it so the fallback never wins (fallback was light gray,
+       which becomes invisible on a light surface). */
+    --fg: #f5f6f7;
+    --fg-dim: #8b929b;
     --accent: #7aa2f7;
     --danger: #e85a5a;
     --ok: #9ece6a;
@@ -127,6 +132,8 @@ body.theme-light {
     --border: #d9dde2;
     --muted: #6b7280;
     --text-primary: #1a1d22;
+    --fg: #1a1d22;
+    --fg-dim: #6b7280;
     --accent: #2f6fed;
     --danger: #d23a3a;
     --ok: #2f9e44;
@@ -141,6 +148,39 @@ body.theme-light {
     --tab-border-rest: rgba(0, 0, 0, 0.05);
     --tab-border-hover: rgba(0, 0, 0, 0.1);
     --tab-border-active: rgba(0, 0, 0, 0.14);
+}
+
+/* Light mode forces opaque chrome regardless of the user's window-background
+   preference. The vibrancy-on-light material renders too washed out under
+   translucent surfaces — opaque tints are the only way to keep contrast. */
+body.theme-light.bg-vibrant,
+body.theme-light.bg-translucent,
+body.theme-light {
+    --surface-alpha: 1;
+}
+
+/* Group chips: dark mode mixes toward white for legibility on dark; light
+   mode must mix toward black for the same reason. Same applies to the
+   chip background — boost the group color so it actually reads. */
+body.theme-light .group-chip {
+    background: color-mix(
+        in srgb,
+        var(--group-color, transparent) 14%,
+        var(--tab-bg-rest)
+    ) !important;
+    color: color-mix(in srgb, var(--group-color, var(--muted)) 70%, #000 30%) !important;
+    border-color: color-mix(
+        in srgb,
+        var(--group-color, var(--border)) 32%,
+        var(--tab-border-hover)
+    ) !important;
+}
+body.theme-light .group-chip:hover {
+    background: color-mix(
+        in srgb,
+        var(--group-color, transparent) 22%,
+        var(--tab-bg-hover)
+    ) !important;
 }
 
 html,
@@ -187,13 +227,14 @@ body.bg-translucent {
     width: 100%;
 }
 
-/* Workspace, settings-page, and docs-page share the second row — only
-   one is visible at a time. The grid assignment keeps them from
-   stacking when the row layout otherwise would auto-flow. */
+/* Workspace and full-page panels share the second row — only one is
+   visible at a time. The grid assignment keeps them from stacking when
+   the row layout otherwise would auto-flow. */
 #workspace,
 #settings-page,
 #docs-page,
 #drafts-page,
+#mission-page,
 #operator-page,
 #capabilities-page {
     grid-row: 2 / 3;
@@ -7539,6 +7580,7 @@ body.tabbar-left #workspace,
 body.tabbar-left #settings-page,
 body.tabbar-left #docs-page,
 body.tabbar-left #drafts-page,
+body.tabbar-left #mission-page,
 body.tabbar-left #operator-page,
 body.tabbar-left #capabilities-page {
     grid-column: 2;
@@ -9605,6 +9647,8 @@ body[data-aom-phase="triaging"]
 
 /* ---- Mission picker page (3.15) ---- */
 #mission-page {
+  position: relative;
+  z-index: 3;
   display: grid;
   grid-template-rows: 56px 1fr 56px;
   background: rgb(11 13 16 / 0.92);
@@ -12041,7 +12085,7 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
   align-items: center;
   gap: 8px;
   padding: 0 8px;
-  color: rgba(245, 246, 247, 0.78);
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 78%, transparent);
   font-variant-numeric: tabular-nums;
   transition: opacity 320ms ease-out;
   opacity: 1;
@@ -12063,7 +12107,7 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 }
 
 .sb-vitals-spark {
-  color: rgba(245, 246, 247, 0.55);
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 55%, transparent);
   display: block;
 }
 
@@ -12078,15 +12122,15 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
   border-radius: 999px;
   border: 1px solid rgba(var(--ink-rgb), 0.08);
   background: rgba(var(--ink-rgb), 0.03);
-  color: rgba(245, 246, 247, 0.82);
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 82%, transparent);
   letter-spacing: 0.02em;
 }
 
 .sb-vitals-pill--cache {
   /* Slight green tint when cache is healthy — pill itself is
      non-dynamic, but the green hints "good thing". */
-  border-color: rgba(132, 204, 22, 0.22);
-  color: rgba(190, 222, 156, 0.92);
+  border-color: color-mix(in srgb, var(--ok, #84cc16) 35%, transparent);
+  color: color-mix(in srgb, var(--ok, #84cc16) 78%, var(--text-primary, #f5f6f7));
 }
 
 .sb-vitals-pill--model {
@@ -12095,7 +12139,7 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 }
 
 .sb-vitals-sep {
-  color: rgba(245, 246, 247, 0.28);
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 28%, transparent);
   font-size: 11px;
   user-select: none;
 }
@@ -12131,7 +12175,7 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 }
 
 .sb-vitals-lat-dot--inflight {
-  background: rgba(245, 246, 247, 0.65);
+  background: color-mix(in srgb, var(--text-primary, #f5f6f7) 65%, transparent);
   /* Pulse so the user knows something is still happening. */
   animation: sb-vitals-pulse 1.1s ease-in-out infinite;
 }
@@ -12139,4 +12183,538 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
 @keyframes sb-vitals-pulse {
   0%, 100% { opacity: 0.55; transform: scale(1); }
   50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Light-mode override pack — MVP polish
+   ─────────────────────────────────────────────────────────────────
+   Many older surfaces hardcoded dark hex colors or used
+   `var(--text, #d5d9de)` / `var(--fg, #d6d8db)` with light-gray
+   fallbacks that turn invisible on a white background. This block
+   force-paints those surfaces with light tokens. Specificity is
+   intentionally a touch elevated (`body.theme-light .x`) so existing
+   rules don't need editing in place.
+   ────────────────────────────────────────────────────────────── */
+
+body.theme-light {
+    /* Generic text aliases used across older components. */
+    --text: #1a1d22;
+}
+
+/* ── Inputs / textareas: kill hardcoded `color: #fff` ───────── */
+body.theme-light input,
+body.theme-light textarea,
+body.theme-light select,
+body.theme-light .provider-card input,
+body.theme-light .settings-input-row input,
+body.theme-light .settings-field input,
+body.theme-light .settings-field select,
+body.theme-light .settings-field textarea {
+    color: var(--text-primary) !important;
+    background: #fff;
+    border-color: var(--border);
+}
+body.theme-light input::placeholder,
+body.theme-light textarea::placeholder {
+    color: color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+
+/* ── Mission picker: it used hardcoded dark surfaces, so light mode
+       rendered dark-on-dark after --fg flipped to ink. ───────── */
+body.theme-light #mission-page {
+    background: var(--bg-overlay);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-header,
+body.theme-light .mission-page-sidebar,
+body.theme-light .mission-page-footer {
+    border-color: var(--border);
+}
+body.theme-light .mission-page-search-row {
+    background: rgba(255, 255, 255, 0.96);
+}
+body.theme-light .mission-page-close {
+    color: var(--muted);
+}
+body.theme-light .mission-page-close:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-search,
+body.theme-light .mission-page-input {
+    background: #fff;
+    border-color: var(--border);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-search:focus,
+body.theme-light .mission-page-input:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    outline-offset: 0;
+}
+body.theme-light .mission-page-section h4,
+body.theme-light .mission-page-id,
+body.theme-light .mission-page-spec-goal,
+body.theme-light .mission-page-empty,
+body.theme-light .mission-page-drafts summary,
+body.theme-light .mission-page-preview-empty,
+body.theme-light .mission-page-preview-body h2,
+body.theme-light .mission-page-preview-body h3 {
+    color: var(--muted);
+}
+body.theme-light .mission-page-spec,
+body.theme-light .mission-page-sp-row {
+    background: rgba(0, 0, 0, 0.02);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-spec:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+body.theme-light .mission-page-spec.selected {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+body.theme-light .mission-page-badge {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.12);
+    color: var(--muted);
+}
+body.theme-light .mission-page-badge--ok,
+body.theme-light .mission-page-status-ok {
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+    opacity: 0.9;
+}
+body.theme-light .mission-page-badge--missing {
+    color: var(--fail);
+    border-color: color-mix(in srgb, var(--fail) 35%, transparent);
+}
+body.theme-light .mission-page-sp-new,
+body.theme-light .mission-page-link {
+    color: var(--accent);
+}
+body.theme-light .mission-page-error {
+    background: color-mix(in srgb, var(--fail) 9%, #fff);
+    border-color: color-mix(in srgb, var(--fail) 28%, transparent);
+    color: var(--fail);
+}
+body.theme-light .mission-page-skeleton .skel-row {
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.04));
+}
+body.theme-light .mission-page-publish,
+body.theme-light .mission-page-browse,
+body.theme-light .mission-page-newmodal-actions button {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: var(--border);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-preview-truncated {
+    color: #9a6a18;
+}
+body.theme-light .mission-page-preview-body code {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-preview-body pre {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: var(--border);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-newmodal {
+    background: #fff;
+    border-color: var(--border);
+    color: var(--text-primary);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+body.theme-light .mission-page-newmodal input {
+    background: #fff;
+    border-color: var(--border);
+    color: var(--text-primary);
+}
+body.theme-light .mission-page-newmodal-actions #sp-create {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+}
+
+/* ── Settings card titles (provider/model cards) ───────────── */
+body.theme-light .provider-card h3,
+body.theme-light .model-card h3,
+body.theme-light .settings-card h3,
+body.theme-light .settings-section-title,
+body.theme-light .model-route-row h4 {
+    color: var(--text-primary) !important;
+}
+
+/* ── Titlebar icons: were `var(--text, #d5d9de)` and invisible ─ */
+body.theme-light .titlebar-icon-btn {
+    color: var(--text-primary);
+}
+body.theme-light .titlebar-icon-btn:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+}
+
+/* ── Floating terminal finder: use light chrome when it is opened from
+       terminal panes in light mode. Editor ⌘F is handled by CM/preview. ─ */
+body.theme-light .term-finder {
+    background: rgba(255, 255, 255, 0.96);
+    border-color: var(--border);
+    color: var(--text-primary);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.8) inset,
+        0 10px 28px rgba(0, 0, 0, 0.14),
+        0 2px 6px rgba(0, 0, 0, 0.08);
+}
+body.theme-light .term-finder__field {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: var(--border);
+}
+body.theme-light .term-finder__field:focus-within {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+}
+body.theme-light .term-finder__input,
+body.theme-light .term-finder__btn,
+body.theme-light .term-finder__done {
+    color: var(--text-primary);
+}
+body.theme-light .term-finder__icon,
+body.theme-light .term-finder__counter,
+body.theme-light .term-finder__clear {
+    color: var(--muted);
+}
+body.theme-light .term-finder__input::placeholder {
+    color: color-mix(in srgb, var(--text-primary) 36%, transparent);
+}
+body.theme-light .term-finder__btn,
+body.theme-light .term-finder__done {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: var(--border);
+}
+body.theme-light .term-finder__clear:hover,
+body.theme-light .term-finder__btn:hover,
+body.theme-light .term-finder__done:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+}
+body.theme-light .term-finder--nomatch .term-finder__field {
+    background: color-mix(in srgb, var(--fail) 8%, transparent);
+    border-color: color-mix(in srgb, var(--fail) 45%, var(--border));
+}
+body.theme-light .term-finder--nomatch .term-finder__counter {
+    color: var(--fail);
+}
+
+/* ── Status bar: muted token reads fine but its `--fg` default
+       text was light gray. Force consistent contrast. ────────── */
+body.theme-light .status-segment .status-text,
+body.theme-light .status-segment.status-active-tab .status-text {
+    color: var(--text-primary);
+}
+body.theme-light #status-bar { color: var(--text-primary); }
+
+/* ── Spawns / executor popover (hardcoded dark in spawns/styles.css) ── */
+body.theme-light .spawns-popover {
+    background: #fff !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+body.theme-light .spawns-popover__item { color: var(--text-primary); }
+body.theme-light .spawns-popover__item:hover { background: rgba(0, 0, 0, 0.05); }
+body.theme-light .spawns-popover__item.is-active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+}
+body.theme-light .spawns-popover__item .meta { color: var(--muted); }
+body.theme-light .spawns-popover__sep { background: var(--border); }
+body.theme-light .spawns-popover__add { color: var(--muted); }
+body.theme-light .spawns-popover__add:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--text-primary);
+}
+
+/* ── Workspace switcher popover & row context menu ─────────── */
+body.theme-light .workspace-popover,
+body.theme-light .workspace-rowmenu {
+    background: #fff;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+body.theme-light .workspace-row,
+body.theme-light .workspace-rowmenu-item { color: var(--text-primary); }
+body.theme-light .workspace-row.active {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+body.theme-light .workspace-row-meta { color: var(--muted); }
+
+/* ── Project notes / familiar panel (the big dark canvas) ─── */
+body.theme-light .familiar-panel,
+body.theme-light .familiar-panel__body,
+body.theme-light .project-notes-panel,
+body.theme-light .project-notes,
+body.theme-light .project-notes__body {
+    background: var(--bg-panel);
+    color: var(--text-primary);
+}
+body.theme-light .familiar-panel__tab { color: var(--muted); }
+body.theme-light .familiar-panel__tab:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+body.theme-light .familiar-panel__tab--active { color: var(--text-primary); }
+
+/* ── Covenant Score / stat cards / inset dark surfaces ────── */
+body.theme-light .stat-card,
+body.theme-light .score-card,
+body.theme-light .cov-score-card,
+body.theme-light .activity-panel,
+body.theme-light .heatmap,
+body.theme-light .by-repo-panel,
+body.theme-light .top-branches-panel,
+body.theme-light [class*="score"][class*="card"],
+body.theme-light [class*="cov"][class*="panel"] {
+    background: var(--bg-panel) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+}
+
+/* ── Tooltip: keep it dark (native macOS pattern), but soften ─ */
+body.theme-light .ck-tooltip {
+    background: rgba(28, 32, 40, 0.95);
+    color: #f5f6f7;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+/* ── Cancel button needs an outline to feel paired with Save ─ */
+body.theme-light .settings-cancel,
+body.theme-light .mission-viewer-cancel,
+body.theme-light .mission-page-cancel,
+body.theme-light .modal-actions button.btn-cancel {
+    background: #fff;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+body.theme-light .settings-cancel:hover,
+body.theme-light .mission-viewer-cancel:hover,
+body.theme-light .mission-page-cancel:hover,
+body.theme-light .modal-actions button.btn-cancel:hover {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: color-mix(in srgb, var(--border) 75%, var(--text-primary));
+}
+
+/* ── Group count badges on collapsed group cards ──────────── */
+body.theme-light .group-chip .count,
+body.theme-light .group-chip__count,
+body.theme-light .tab-group-shell .count {
+    background: rgba(0, 0, 0, 0.12);
+    color: var(--text-primary);
+}
+
+/* ── Active tab pill in vertical sidebar ──────────────────── */
+body.theme-light .tab-btn.active,
+body.theme-light .tab-btn[aria-selected="true"] {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text-primary);
+}
+
+/* ── File tree rows: hardcoded `#c4c8cf` was invisible on light ── */
+body.theme-light .structure-name {
+    color: color-mix(in srgb, var(--text-primary) 75%, transparent);
+}
+body.theme-light .structure-node[data-kind="dir"] > .structure-row > .structure-name {
+    color: var(--text-primary);
+}
+
+/* ── Release log / changelog modal body: markdown bits ──────── */
+body.theme-light .release-body,
+body.theme-light .release-body p,
+body.theme-light .release-body li,
+body.theme-light .release-body strong,
+body.theme-light .release-body em {
+    color: var(--text-primary);
+}
+body.theme-light .release-body h1,
+body.theme-light .release-body h2,
+body.theme-light .release-body h3 {
+    color: var(--text-primary);
+}
+body.theme-light .release-body code,
+body.theme-light .release-body pre {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+body.theme-light .release-body a { color: var(--accent); }
+
+/* ── Sticky bottom kbd hints in vertical sidebar (⌘T / ⌘⇧G / ⌘⇧P) ── */
+body.theme-light kbd,
+body.theme-light .new-tab-kbd {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
+/* ── Tooltip: proper light variant (light bg + dark text) ────── */
+body.theme-light .ck-tooltip {
+    background: #ffffff;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.12),
+        0 2px 6px rgba(0, 0, 0, 0.08);
+}
+body.theme-light .ck-tooltip__title,
+body.theme-light .ck-tooltip__body,
+body.theme-light .ck-tooltip__hint kbd {
+    color: var(--text-primary);
+}
+body.theme-light .ck-tooltip__subtitle,
+body.theme-light .ck-tooltip__meta,
+body.theme-light .ck-tooltip__preview,
+body.theme-light .ck-tooltip__hint {
+    color: color-mix(in srgb, var(--text-primary) 60%, transparent);
+}
+body.theme-light .ck-tooltip__hint kbd {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: var(--border);
+}
+
+/* ── Group count badges: dark filled circles in light mode → soft tint ─ */
+body.theme-light .group-chip-count {
+    background: rgba(0, 0, 0, 0.08) !important;
+    color: var(--text-primary) !important;
+}
+
+/* ── Editor host + previews: kill the dark backplate ─────────── */
+body.theme-light .editor-host,
+body.theme-light .structure-editor-header,
+body.theme-light .structure-editor-body,
+body.theme-light .structure-preview-md,
+body.theme-light .structure-preview-html,
+body.theme-light .structure-preview-svg,
+body.theme-light .structure-preview-xlsx,
+body.theme-light .structure-preview-xlsx-grid {
+    background: var(--bg-panel) !important;
+    color: var(--text-primary) !important;
+}
+body.theme-light .structure-editor-header { color: var(--muted) !important; }
+
+/* ── XLSX viewer table: dark borders + dark text on dark = unreadable ── */
+body.theme-light .structure-preview-xlsx-table th,
+body.theme-light .structure-preview-xlsx-table td {
+    color: var(--text-primary) !important;
+    border-color: var(--border) !important;
+}
+body.theme-light .structure-preview-xlsx-table th {
+    background: rgba(0, 0, 0, 0.04) !important;
+}
+body.theme-light .structure-preview-xlsx-tab {
+    color: var(--muted);
+    background: transparent;
+}
+body.theme-light .structure-preview-xlsx-tab.active {
+    color: var(--text-primary);
+    border-color: var(--border);
+}
+
+/* ── CodeMirror surfaces: theme is set in JS (editorTheme), but kill the
+       hardcoded dark bg via CSS so at minimum the surface reads light.
+       Full token re-tune is a deeper followup. ──────────────────────── */
+body.theme-light .cm-editor,
+body.theme-light .cm-scroller,
+body.theme-light .cm-content,
+body.theme-light .cm-gutters {
+    background: var(--bg-panel) !important;
+    color: var(--text-primary) !important;
+}
+body.theme-light .cm-gutters {
+    border-right-color: var(--border) !important;
+    color: var(--muted) !important;
+}
+body.theme-light .cm-activeLine,
+body.theme-light .cm-activeLineGutter {
+    background: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* ── Markdown preview: typography colors ─────────────────────── */
+body.theme-light .structure-preview-md,
+body.theme-light .structure-preview-md p,
+body.theme-light .structure-preview-md li,
+body.theme-light .structure-preview-md h1,
+body.theme-light .structure-preview-md h2,
+body.theme-light .structure-preview-md h3,
+body.theme-light .structure-preview-md h4,
+body.theme-light .structure-preview-md strong {
+    color: var(--text-primary);
+}
+body.theme-light .structure-preview-md code,
+body.theme-light .structure-preview-md pre {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--text-primary);
+}
+body.theme-light .structure-preview-md a { color: var(--accent); }
+
+/* Settings header + Save button polish for light mode */
+body.theme-light .settings-header h2,
+body.theme-light .settings-page-header h2 { color: var(--text-primary) !important; }
+
+body.theme-light .settings-save:not(:disabled),
+body.theme-light .mission-viewer-save:not(:disabled),
+body.theme-light .mission-page-submit:not(:disabled) {
+    color: #ffffff !important;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+}
+body.theme-light .settings-save:disabled,
+body.theme-light .mission-viewer-save:disabled,
+body.theme-light .mission-page-submit:disabled {
+    color: var(--muted) !important;
+    background: rgba(0, 0, 0, 0.04);
+    border-color: var(--border);
+}
+
+/* The earlier `body.theme-light .model-route-row h4` override should win;
+   re-asserting with !important in case a more-specific page rule beats it. */
+body.theme-light .settings-page .model-route-row h4,
+body.theme-light .model-route-row > h4 {
+    color: var(--text-primary) !important;
+    opacity: 1;
+}
+
+/* Light-mode release modal header: the title used a hardcoded white. */
+body.theme-light .release-header h2 {
+    color: var(--text-primary) !important;
+}
+body.theme-light .release-close:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+}
+
+/* Light-mode sidebar action hover: keep icon + kbd ink dark instead of
+   inheriting the dark-mode white hover color. */
+body.theme-light #new-tab,
+body.theme-light #new-group,
+body.theme-light .workspace-chip {
+    color: var(--muted);
+}
+body.theme-light #new-tab:hover,
+body.theme-light #new-group:hover,
+body.theme-light .workspace-chip:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+}
+body.theme-light #new-tab .new-tab-kbd,
+body.theme-light #new-group .new-tab-kbd,
+body.theme-light .workspace-chip .new-tab-kbd {
+    color: var(--muted);
+    background: rgba(0, 0, 0, 0.035);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+body.theme-light #new-tab:hover .new-tab-kbd,
+body.theme-light #new-group:hover .new-tab-kbd,
+body.theme-light .workspace-chip:hover .new-tab-kbd {
+    color: var(--text-primary);
+    background: rgba(0, 0, 0, 0.07);
+    border-color: rgba(0, 0, 0, 0.14);
 }

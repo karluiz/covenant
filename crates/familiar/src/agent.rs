@@ -1,5 +1,5 @@
 use crate::cost::CostGate;
-use crate::directive::{Directive, DirectiveKind, ensure_safe, SafetyCheck};
+use crate::directive::{ensure_safe, Directive, DirectiveKind, SafetyCheck};
 use crate::error::Result;
 use crate::identity::FamiliarConfig;
 use crate::memory::{DirectiveRow, Memory, MissionRow};
@@ -42,20 +42,27 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
             return self.summary_turn(now_ms, scope).await;
         }
 
-        let summary = self.memory.latest_summary()?
-            .map(|s| s.summary).unwrap_or_default();
+        let summary = self
+            .memory
+            .latest_summary()?
+            .map(|s| s.summary)
+            .unwrap_or_default();
         let missions = self.memory.recent_missions(5)?;
-        let missions_text = missions.iter()
+        let missions_text = missions
+            .iter()
             .map(|m| format!("- mission {} ({}): {}", m.mission_id, m.objective, m.digest))
-            .collect::<Vec<_>>().join("\n");
+            .collect::<Vec<_>>()
+            .join("\n");
         let history = self.memory.chat_history(20)?;
-        let history_text = history.iter()
+        let history_text = history
+            .iter()
             .map(|c| format!("{}: {}", c.role, c.content))
-            .collect::<Vec<_>>().join("\n");
+            .collect::<Vec<_>>()
+            .join("\n");
 
         let sys = system_prompt(self.config, &summary, &missions_text);
         let user = format!(
-"CHAT HISTORY:
+            "CHAT HISTORY:
 {history_text}
 
 If you want to propose a directive to the operator, include exactly one block:
@@ -63,7 +70,8 @@ If you want to propose a directive to the operator, include exactly one block:
 {{\"kind\":\"stop|focus|avoid|resume|custom\",\"payload\":\"...\",\"rationale\":\"...\"}}
 <</DIRECTIVE>>
 
-Otherwise just reply normally.");
+Otherwise just reply normally."
+        );
 
         let resp = self.llm.complete(&sys, &user).await?;
         let (visible, parsed) = extract_directive(&resp.text);
@@ -80,13 +88,27 @@ Otherwise just reply normally.");
             let d = Directive::new(kind, p.payload, p.rationale);
             match ensure_safe(&d, self.safety) {
                 Ok(()) => {
-                    self.memory.log_directive(&d.id, now_ms, "proposed",
-                        &format!("{:?}", d.kind), &d.payload, &d.rationale, None)?;
+                    self.memory.log_directive(
+                        &d.id,
+                        now_ms,
+                        "proposed",
+                        &format!("{:?}", d.kind),
+                        &d.payload,
+                        &d.rationale,
+                        None,
+                    )?;
                     proposed = Some(d);
                 }
                 Err(crate::FamiliarError::SafetyBlocked { reason }) => {
-                    self.memory.log_directive(&d.id, now_ms, "safety_blocked",
-                        &format!("{:?}", d.kind), &d.payload, &d.rationale, Some(&reason))?;
+                    self.memory.log_directive(
+                        &d.id,
+                        now_ms,
+                        "safety_blocked",
+                        &format!("{:?}", d.kind),
+                        &d.payload,
+                        &d.rationale,
+                        Some(&reason),
+                    )?;
                     blocked = Some(reason);
                 }
                 Err(e) => return Err(e),
@@ -107,7 +129,9 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
     /// assistant turn (the user turn was appended by `turn()` already).
     pub async fn summary_turn(&self, now_ms: i64, scope: SummaryScope) -> Result<ChatTurn> {
         let since_ms = self.resolve_since_ms(now_ms, scope)?;
-        let rolling = self.memory.latest_summary()?
+        let rolling = self
+            .memory
+            .latest_summary()?
             .map(|s| (s.summary, s.last_event_id))
             .unwrap_or_else(|| (String::new(), 0));
 
@@ -115,13 +139,11 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
         let directives = self.memory.directives_in_window(since_ms)?;
         let costs_usd = self.memory.costs_in_window(since_ms)?;
 
-        let frozen = CostGate::new(self.memory, self.config.daily_cap_usd)
-            .is_frozen(now_ms)?;
+        let frozen = CostGate::new(self.memory, self.config.daily_cap_usd).is_frozen(now_ms)?;
         let stale_event_count = self.memory.events_since(rolling.1)?.len();
         let is_stale = stale_event_count >= SUMMARY_STALE_THRESHOLD;
 
-        let cached = format_cached_summary(scope, &rolling.0, &missions,
-                                           &directives, costs_usd);
+        let cached = format_cached_summary(scope, &rolling.0, &missions, &directives, costs_usd);
         let assistant_text = if frozen {
             format!("{cached}\n\n_(modo congelado: cost cap diario alcanzado)_")
         } else if !is_stale {
@@ -133,8 +155,12 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
             let directives_text = render_directives(&directives);
             let last_user_msgs = self.last_user_messages(3)?;
             let (sys, user) = summary_prompt(
-                scope, &rolling.0, &missions_text, &directives_text,
-                costs_usd, &last_user_msgs,
+                scope,
+                &rolling.0,
+                &missions_text,
+                &directives_text,
+                costs_usd,
+                &last_user_msgs,
             );
             let resp = self.llm.complete(&sys, &user).await?;
             // `/summary` must never propose. Extract & discard any directive
@@ -143,7 +169,8 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
             visible
         };
 
-        self.memory.append_chat(now_ms + 1, "assistant", &assistant_text)?;
+        self.memory
+            .append_chat(now_ms + 1, "assistant", &assistant_text)?;
         Ok(ChatTurn {
             assistant_text,
             proposed_directive: None,
@@ -159,7 +186,8 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
             SummaryScope::Session => now_ms - SUMMARY_TODAY_WINDOW_MS,
             SummaryScope::Mission => {
                 // Most recent mission's started_ms; if none, fall back to Today.
-                self.memory.recent_missions(1)?
+                self.memory
+                    .recent_missions(1)?
                     .first()
                     .map(|m| m.started_ms)
                     .unwrap_or(now_ms - SUMMARY_TODAY_WINDOW_MS)
@@ -169,7 +197,8 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
 
     fn last_user_messages(&self, n: usize) -> Result<String> {
         let hist = self.memory.chat_history(40)?;
-        let users: Vec<_> = hist.iter()
+        let users: Vec<_> = hist
+            .iter()
             .filter(|c| c.role == "user")
             .rev()
             .take(n)
@@ -184,14 +213,20 @@ impl<'a, L: Llm> ChatAgent<'a, L> {
 fn render_missions(ms: &[MissionRow]) -> String {
     ms.iter()
         .map(|m| format!("- {} ({}) — {}", m.mission_id, m.objective, m.digest))
-        .collect::<Vec<_>>().join("\n")
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn render_directives(ds: &[DirectiveRow]) -> String {
     ds.iter()
-        .map(|d| format!("- [{}] {} :: {} ({})",
-            d.state, d.kind, d.payload, d.rationale))
-        .collect::<Vec<_>>().join("\n")
+        .map(|d| {
+            format!(
+                "- [{}] {} :: {} ({})",
+                d.state, d.kind, d.payload, d.rationale
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Pure, deterministic markdown — used for cache-hit and frozen-mode replies.
@@ -205,28 +240,42 @@ pub fn format_cached_summary(
     let scope_label = match scope {
         SummaryScope::Session => "Sesión actual",
         SummaryScope::Mission => "Misión activa",
-        SummaryScope::Today   => "Últimas 24h",
+        SummaryScope::Today => "Últimas 24h",
     };
     let mut out = format!("# Resumen — {scope_label}\n\n");
 
     if !directives.is_empty() {
         out.push_str("## Decisiones autónomas\n");
         for d in directives {
-            out.push_str(&format!("- [{}] **{}** — {} _({})_\n",
-                d.state, d.kind, d.payload, d.rationale));
+            out.push_str(&format!(
+                "- [{}] **{}** — {} _({})_\n",
+                d.state, d.kind, d.payload, d.rationale
+            ));
         }
         out.push('\n');
     }
 
-    out.push_str(&format!("## Costos\n${costs_usd:.4} USD en la ventana.\n\n"));
+    out.push_str(&format!(
+        "## Costos\n${costs_usd:.4} USD en la ventana.\n\n"
+    ));
 
     if !missions.is_empty() {
         out.push_str("## Misiones\n");
         for m in missions {
-            let status = if m.finished_ms.is_some() { "cerrada" } else { "abierta" };
-            let digest = if m.digest.is_empty() { "—" } else { &m.digest };
-            out.push_str(&format!("- `{}` ({}) [{}] — {}\n",
-                m.mission_id, m.objective, status, digest));
+            let status = if m.finished_ms.is_some() {
+                "cerrada"
+            } else {
+                "abierta"
+            };
+            let digest = if m.digest.is_empty() {
+                "—"
+            } else {
+                &m.digest
+            };
+            out.push_str(&format!(
+                "- `{}` ({}) [{}] — {}\n",
+                m.mission_id, m.objective, status, digest
+            ));
         }
         out.push('\n');
     }
@@ -283,7 +332,10 @@ const OPEN_MARKER: &str = "<<DIRECTIVE>>";
 const CLOSE_MARKER: &str = "<</DIRECTIVE>>";
 
 fn strip_residual_markers(s: &str) -> String {
-    s.replace(OPEN_MARKER, "").replace(CLOSE_MARKER, "").trim().to_string()
+    s.replace(OPEN_MARKER, "")
+        .replace(CLOSE_MARKER, "")
+        .trim()
+        .to_string()
 }
 
 fn extract_directive(text: &str) -> (String, Option<DirectivePayload>) {
@@ -321,7 +373,12 @@ mod tests {
     impl Llm for CannedLlm {
         async fn complete(&self, _: &str, _: &str) -> Result<LlmResponse> {
             let text = self.0.lock().unwrap().remove(0);
-            Ok(LlmResponse { text, tokens_in: 1, tokens_out: 1, cost_usd: 0.0 })
+            Ok(LlmResponse {
+                text,
+                tokens_in: 1,
+                tokens_out: 1,
+                cost_usd: 0.0,
+            })
         }
     }
 
@@ -330,7 +387,12 @@ mod tests {
         let m = Memory::open_in_memory().unwrap();
         let llm = CannedLlm(Mutex::new(vec!["all good".into()]));
         let cfg = FamiliarConfig::default();
-        let agent = ChatAgent { memory: &m, llm: &llm, safety: &DefaultSafety, config: &cfg };
+        let agent = ChatAgent {
+            memory: &m,
+            llm: &llm,
+            safety: &DefaultSafety,
+            config: &cfg,
+        };
         let turn = agent.turn(1000, "status?").await.unwrap();
         assert_eq!(turn.assistant_text, "all good");
         assert!(turn.proposed_directive.is_none());
@@ -344,7 +406,12 @@ mod tests {
             "Sure, here's my proposal.\n<<DIRECTIVE>>{\"kind\":\"stop\",\"payload\":\"halt deploy\",\"rationale\":\"prod risk\"}<</DIRECTIVE>>".into()
         ]));
         let cfg = FamiliarConfig::default();
-        let agent = ChatAgent { memory: &m, llm: &llm, safety: &DefaultSafety, config: &cfg };
+        let agent = ChatAgent {
+            memory: &m,
+            llm: &llm,
+            safety: &DefaultSafety,
+            config: &cfg,
+        };
         let turn = agent.turn(1000, "stop?").await.unwrap();
         assert!(turn.proposed_directive.is_some());
         assert!(turn.assistant_text.contains("Sure"));
@@ -402,15 +469,21 @@ mod tests {
     #[test]
     fn parse_slash_known_scopes() {
         assert_eq!(parse_slash("/summary mission"), Some(SummaryScope::Mission));
-        assert_eq!(parse_slash("/summary today"),   Some(SummaryScope::Today));
+        assert_eq!(parse_slash("/summary today"), Some(SummaryScope::Today));
         assert_eq!(parse_slash("/resumen mission"), Some(SummaryScope::Mission));
-        assert_eq!(parse_slash("/resumen today"),   Some(SummaryScope::Today));
+        assert_eq!(parse_slash("/resumen today"), Some(SummaryScope::Today));
     }
 
     #[test]
     fn parse_slash_whitespace_tolerant() {
-        assert_eq!(parse_slash("  /summary  today  "), Some(SummaryScope::Today));
-        assert_eq!(parse_slash("\t/summary\tmission\n"), Some(SummaryScope::Mission));
+        assert_eq!(
+            parse_slash("  /summary  today  "),
+            Some(SummaryScope::Today)
+        );
+        assert_eq!(
+            parse_slash("\t/summary\tmission\n"),
+            Some(SummaryScope::Mission)
+        );
     }
 
     #[test]
@@ -446,7 +519,12 @@ mod tests {
             "<<DIRECTIVE>>{\"kind\":\"custom\",\"payload\":\"rm -rf /\",\"rationale\":\"x\"}<</DIRECTIVE>>".into()
         ]));
         let cfg = FamiliarConfig::default();
-        let agent = ChatAgent { memory: &m, llm: &llm, safety: &DefaultSafety, config: &cfg };
+        let agent = ChatAgent {
+            memory: &m,
+            llm: &llm,
+            safety: &DefaultSafety,
+            config: &cfg,
+        };
         let turn = agent.turn(1000, "x").await.unwrap();
         assert!(turn.proposed_directive.is_none());
         assert!(turn.safety_block_reason.is_some());

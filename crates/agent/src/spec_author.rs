@@ -179,11 +179,7 @@ pub enum StepOutput {
 /// Defined locally so tests can inject a mock without touching `lib.rs`.
 #[async_trait]
 pub trait Dispatcher: Send + Sync {
-    async fn dispatch(
-        &self,
-        system: &str,
-        messages: &[DraftMessage],
-    ) -> Result<String>;
+    async fn dispatch(&self, system: &str, messages: &[DraftMessage]) -> Result<String>;
 }
 
 // ── Real Anthropic dispatcher ─────────────────────────────────────────────────
@@ -353,7 +349,9 @@ pub async fn step<D: Dispatcher>(
         _ => Phase::Emit,
     };
     let advanced_phase = next_phase(&current_phase);
-    draft.status = DraftStatus::InProgress { phase: advanced_phase.clone() };
+    draft.status = DraftStatus::InProgress {
+        phase: advanced_phase.clone(),
+    };
     draft.last_updated = Utc::now();
     save_draft(base_dir, draft)?;
 
@@ -402,7 +400,10 @@ pub fn build_repo_context(cwd: &Path) -> Option<String> {
         let p = cwd.join(fname);
         if let Ok(text) = std::fs::read_to_string(&p) {
             let snippet: String = text.lines().take(200).collect::<Vec<_>>().join("\n");
-            out.push_str(&format!("### `{}` (first 200 lines)\n\n```\n{}\n```\n\n", fname, snippet));
+            out.push_str(&format!(
+                "### `{}` (first 200 lines)\n\n```\n{}\n```\n\n",
+                fname, snippet
+            ));
         }
     }
 
@@ -458,7 +459,9 @@ pub async fn step_with_context<D: Dispatcher>(
         _ => Phase::Emit,
     };
     let advanced_phase = next_phase(&current_phase);
-    draft.status = DraftStatus::InProgress { phase: advanced_phase.clone() };
+    draft.status = DraftStatus::InProgress {
+        phase: advanced_phase.clone(),
+    };
     draft.last_updated = Utc::now();
     save_draft(base_dir, draft)?;
 

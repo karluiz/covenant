@@ -49,7 +49,14 @@ mod tests {
 
     #[test]
     fn escalation_substitutes_all_placeholders() {
-        let out = render_escalation("op_escalate", "01HX", "2026-05-05T12:00:00Z", "/tmp", "paused", "blocked on input");
+        let out = render_escalation(
+            "op_escalate",
+            "01HX",
+            "2026-05-05T12:00:00Z",
+            "/tmp",
+            "paused",
+            "blocked on input",
+        );
         assert!(out.contains("op_escalate"));
         assert!(out.contains("01HX"));
         assert!(out.contains("2026-05-05T12:00:00Z"));

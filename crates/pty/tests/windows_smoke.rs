@@ -8,12 +8,13 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn pwsh_echo_round_trip() {
-    let opts = SpawnOptions::from_default_shell()
-        .expect("pwsh.exe must be on PATH for this test");
+    let opts = SpawnOptions::from_default_shell().expect("pwsh.exe must be on PATH for this test");
     let (mut session, mut rx) = PtySession::spawn(opts).expect("spawn pwsh");
 
     std::thread::sleep(Duration::from_millis(400));
-    session.write(b"Write-Output covenant-hello\r\n").expect("write to pty");
+    session
+        .write(b"Write-Output covenant-hello\r\n")
+        .expect("write to pty");
 
     let deadline = Instant::now() + Duration::from_secs(6);
     let mut buf: Vec<u8> = Vec::new();

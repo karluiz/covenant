@@ -193,4 +193,3 @@ mod tests {
         assert_eq!(lines(&mut f), vec!["{\"t\":\"a\rb\"}"]);
     }
 }
-

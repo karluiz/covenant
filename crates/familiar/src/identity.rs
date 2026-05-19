@@ -5,8 +5,12 @@ use ulid::Ulid;
 pub struct FamiliarId(pub Ulid);
 
 impl FamiliarId {
-    pub fn new() -> Self { Self(Ulid::new()) }
-    pub fn as_str(&self) -> String { self.0.to_string() }
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
+    pub fn as_str(&self) -> String {
+        self.0.to_string()
+    }
 }
 
 impl std::fmt::Display for FamiliarId {
@@ -25,7 +29,9 @@ pub enum Style {
 }
 
 impl Default for Style {
-    fn default() -> Self { Style::Conversational }
+    fn default() -> Self {
+        Style::Conversational
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +43,11 @@ pub struct FamiliarConfig {
 
 impl Default for FamiliarConfig {
     fn default() -> Self {
-        Self { name: "Familiar".into(), style: Style::default(), daily_cap_usd: 5.0 }
+        Self {
+            name: "Familiar".into(),
+            style: Style::default(),
+            daily_cap_usd: 5.0,
+        }
     }
 }
 

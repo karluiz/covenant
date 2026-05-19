@@ -1,14 +1,15 @@
+use crate::score_commands::ScoreState;
 use karl_score::auth::{
-    self, DeviceCodeResponse, DeviceTokenResponse,
-    GITHUB_OAUTH_BASE, GITHUB_API_BASE,
+    self, DeviceCodeResponse, DeviceTokenResponse, GITHUB_API_BASE, GITHUB_OAUTH_BASE,
 };
 use karl_score::User;
-use crate::score_commands::ScoreState;
 use tauri::State;
 
 #[tauri::command]
 pub async fn score_signin_start() -> Result<DeviceCodeResponse, String> {
-    auth::start_device_flow(GITHUB_OAUTH_BASE).await.map_err(|e| e.to_string())
+    auth::start_device_flow(GITHUB_OAUTH_BASE)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -17,14 +18,16 @@ pub async fn score_signin_poll(
     device_code: String,
 ) -> Result<Option<User>, String> {
     let store = state.0.clone();
-    match auth::poll_token(GITHUB_OAUTH_BASE, &device_code).await
+    match auth::poll_token(GITHUB_OAUTH_BASE, &device_code)
+        .await
         .map_err(|e| e.to_string())?
     {
         DeviceTokenResponse::Pending { .. } => Ok(None),
         DeviceTokenResponse::Success { access_token, .. } => {
-            let user = auth::finalize_signin(
-                GITHUB_API_BASE, &auth::backend_url(), &access_token, &store
-            ).await.map_err(|e| e.to_string())?;
+            let user =
+                auth::finalize_signin(GITHUB_API_BASE, &auth::backend_url(), &access_token, &store)
+                    .await
+                    .map_err(|e| e.to_string())?;
             Ok(Some(user))
         }
     }

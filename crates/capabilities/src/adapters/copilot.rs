@@ -50,7 +50,9 @@ pub enum Capability {
 
 /// Returns true if `~/.copilot/` exists. Used by UI to show a CTA when absent.
 pub fn detect() -> bool {
-    let Some(home) = dirs_home() else { return false };
+    let Some(home) = dirs_home() else {
+        return false;
+    };
     home.join(".copilot").is_dir()
 }
 
@@ -90,8 +92,14 @@ fn scan_mcp_config(path: &Path, out: &mut Vec<Capability>) -> CapabilityResult<(
             .and_then(|v| v.as_str())
             .unwrap_or("stdio")
             .to_string();
-        let command = server.get("command").and_then(|v| v.as_str()).map(str::to_string);
-        let url = server.get("url").and_then(|v| v.as_str()).map(str::to_string);
+        let command = server
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let url = server
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         out.push(Capability::McpServer(McpServer {
             name: name.clone(),
             kind,
@@ -124,7 +132,9 @@ fn scan_plugins_from_config(path: &Path, out: &mut Vec<Capability>) -> Capabilit
         return Ok(false);
     };
     for p in arr {
-        let Some(name) = p.get("name").and_then(|v| v.as_str()) else { continue };
+        let Some(name) = p.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
         let cache_path = p
             .get("cache_path")
             .and_then(|v| v.as_str())
@@ -135,7 +145,10 @@ fn scan_plugins_from_config(path: &Path, out: &mut Vec<Capability>) -> Capabilit
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_string);
-        let version = p.get("version").and_then(|v| v.as_str()).map(str::to_string);
+        let version = p
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         let enabled = p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
         out.push(Capability::InstalledPlugin(InstalledPlugin {
             name: name.to_string(),
@@ -160,7 +173,9 @@ fn scan_installed_plugins_fs(dir: &Path, out: &mut Vec<Capability>) -> Capabilit
         if !market_path.is_dir() {
             continue;
         }
-        let Some(marketplace) = market_path.file_name().and_then(|s| s.to_str()) else { continue };
+        let Some(marketplace) = market_path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
         if marketplace.starts_with('.') {
             continue;
         }
@@ -169,7 +184,9 @@ fn scan_installed_plugins_fs(dir: &Path, out: &mut Vec<Capability>) -> Capabilit
             if !plugin_path.is_dir() {
                 continue;
             }
-            let Some(name) = plugin_path.file_name().and_then(|s| s.to_str()) else { continue };
+            let Some(name) = plugin_path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
             if name.starts_with('.') {
                 continue;
             }
@@ -243,11 +260,18 @@ mod tests {
                 "local": { "command": "node server.js", "type": "stdio" }
             }
         });
-        write(&tmp.path().join(".copilot/mcp-config.json"), &cfg.to_string());
+        write(
+            &tmp.path().join(".copilot/mcp-config.json"),
+            &cfg.to_string(),
+        );
         let caps = scan_user(tmp.path()).unwrap();
-        let mcps: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::McpServer(m) => Some(m), _ => None
-        }).collect();
+        let mcps: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::McpServer(m) => Some(m),
+                _ => None,
+            })
+            .collect();
         assert_eq!(mcps.len(), 1);
         assert_eq!(mcps[0].name, "local");
         assert_eq!(mcps[0].kind, "stdio");
@@ -262,11 +286,18 @@ mod tests {
                 "remote": { "url": "https://example.com/mcp", "type": "http" }
             }
         });
-        write(&tmp.path().join(".copilot/mcp-config.json"), &cfg.to_string());
+        write(
+            &tmp.path().join(".copilot/mcp-config.json"),
+            &cfg.to_string(),
+        );
         let caps = scan_user(tmp.path()).unwrap();
-        let mcps: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::McpServer(m) => Some(m), _ => None
-        }).collect();
+        let mcps: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::McpServer(m) => Some(m),
+                _ => None,
+            })
+            .collect();
         assert_eq!(mcps.len(), 1);
         assert_eq!(mcps[0].name, "remote");
         assert_eq!(mcps[0].kind, "http");
@@ -283,11 +314,18 @@ mod tests {
                 "c": { "command": "./c" }  // defaults to stdio
             }
         });
-        write(&tmp.path().join(".copilot/mcp-config.json"), &cfg.to_string());
+        write(
+            &tmp.path().join(".copilot/mcp-config.json"),
+            &cfg.to_string(),
+        );
         let caps = scan_user(tmp.path()).unwrap();
-        let mut mcps: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::McpServer(m) => Some(m), _ => None
-        }).collect();
+        let mut mcps: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::McpServer(m) => Some(m),
+                _ => None,
+            })
+            .collect();
         mcps.sort_by(|x, y| x.name.cmp(&y.name));
         assert_eq!(mcps.len(), 3);
         assert_eq!(mcps[2].kind, "stdio"); // c defaults
@@ -316,16 +354,23 @@ mod tests {
         });
         write(&tmp.path().join(".copilot/config.json"), &cfg.to_string());
         let caps = scan_user(tmp.path()).unwrap();
-        let mut plugins: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::InstalledPlugin(p) => Some(p.clone()), _ => None
-        }).collect();
+        let mut plugins: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::InstalledPlugin(p) => Some(p.clone()),
+                _ => None,
+            })
+            .collect();
         plugins.sort_by(|a, b| a.name.cmp(&b.name));
         assert_eq!(plugins.len(), 2);
         assert_eq!(plugins[0].name, "anvil");
         assert_eq!(plugins[0].marketplace, None);
         assert!(!plugins[0].enabled);
         assert_eq!(plugins[1].name, "frontend-design");
-        assert_eq!(plugins[1].marketplace.as_deref(), Some("claude-code-plugins"));
+        assert_eq!(
+            plugins[1].marketplace.as_deref(),
+            Some("claude-code-plugins")
+        );
         assert_eq!(plugins[1].version.as_deref(), Some("1.0.0"));
     }
 
@@ -335,9 +380,13 @@ mod tests {
         let body = "// managed automatically\n{\"installedPlugins\":[{\"name\":\"p\",\"marketplace\":\"m\",\"cache_path\":\"/x\"}]}";
         write(&tmp.path().join(".copilot/config.json"), body);
         let caps = scan_user(tmp.path()).unwrap();
-        let plugins: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::InstalledPlugin(p) => Some(p.name.clone()), _ => None
-        }).collect();
+        let plugins: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::InstalledPlugin(p) => Some(p.name.clone()),
+                _ => None,
+            })
+            .collect();
         assert_eq!(plugins, vec!["p"]);
     }
 
@@ -349,9 +398,13 @@ mod tests {
         std::fs::create_dir_all(plugins.join("_direct/burkeholland--anvil")).unwrap();
         std::fs::write(plugins.join("README.md"), "stray").unwrap();
         let caps = scan_user(tmp.path()).unwrap();
-        let mut names: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::InstalledPlugin(p) => Some(p.name.clone()), _ => None
-        }).collect();
+        let mut names: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::InstalledPlugin(p) => Some(p.name.clone()),
+                _ => None,
+            })
+            .collect();
         names.sort();
         assert_eq!(names, vec!["burkeholland--anvil", "frontend-design"]);
     }
@@ -368,9 +421,13 @@ mod tests {
         });
         write(&tmp.path().join(".copilot/config.json"), &cfg.to_string());
         let caps = scan_user(tmp.path()).unwrap();
-        let names: Vec<_> = caps.iter().filter_map(|c| match c {
-            Capability::InstalledPlugin(p) => Some(p.name.clone()), _ => None
-        }).collect();
+        let names: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::InstalledPlugin(p) => Some(p.name.clone()),
+                _ => None,
+            })
+            .collect();
         assert_eq!(names, vec!["from-config"]);
     }
 
@@ -379,14 +436,20 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join(".copilot/installed-plugins")).unwrap();
         let caps = scan_user(tmp.path()).unwrap();
-        let plugins: Vec<_> = caps.iter().filter(|c| matches!(c, Capability::InstalledPlugin(_))).collect();
+        let plugins: Vec<_> = caps
+            .iter()
+            .filter(|c| matches!(c, Capability::InstalledPlugin(_)))
+            .collect();
         assert!(plugins.is_empty());
     }
 
     #[test]
     fn malformed_mcp_config_returns_json_error() {
         let tmp = TempDir::new().unwrap();
-        write(&tmp.path().join(".copilot/mcp-config.json"), "{not valid json");
+        write(
+            &tmp.path().join(".copilot/mcp-config.json"),
+            "{not valid json",
+        );
         let err = scan_user(tmp.path()).unwrap_err();
         assert!(matches!(err, CapabilityError::Json(_, _)));
     }

@@ -18,6 +18,7 @@ const EXECUTORS: { match: RegExp; name: string }[] = [
   { match: /^aider$/, name: "aider" },
   { match: /^cursor(-agent)?$/, name: "cursor" },
   { match: /^codex$/, name: "codex" },
+  { match: /^pi$/, name: "pi" },
   // Standalone copilot CLI binaries — newer GitHub releases ship as
   // `copilot` directly; older as `github-copilot-cli`.
   { match: /^copilot$/, name: "copilot" },

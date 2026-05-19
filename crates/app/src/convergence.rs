@@ -17,7 +17,14 @@ pub enum TileStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Vendor { Claude, Copilot, Opencode, Aider, Codex, Unknown }
+pub enum Vendor {
+    Claude,
+    Copilot,
+    Opencode,
+    Aider,
+    Codex,
+    Unknown,
+}
 
 /// Heuristic vendor detection from a foreground command string.
 /// `npx <pkg>` is unwrapped one level; `@scope/name` packages map by
@@ -30,7 +37,12 @@ pub fn detect_vendor(cmd: Option<&str>) -> Vendor {
     };
     let mut head = s.split_whitespace().next().unwrap_or("");
     if head == "npx" {
-        head = s.trim_start_matches("npx").trim_start().split_whitespace().next().unwrap_or("");
+        head = s
+            .trim_start_matches("npx")
+            .trim_start()
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
     }
     let key = head.rsplit('/').next().unwrap_or(head);
     match key {
@@ -43,12 +55,14 @@ pub fn detect_vendor(cmd: Option<&str>) -> Vendor {
     }
 }
 
-
 /// Derive the displayed mission name from a stored `mission_path`.
 /// Strips `.md` (via `Path::file_stem`) and truncates to 40 chars.
 pub fn mission_name_from_path(path: Option<&str>) -> Option<String> {
     let p = path?;
-    let stem = std::path::Path::new(p).file_stem()?.to_string_lossy().to_string();
+    let stem = std::path::Path::new(p)
+        .file_stem()?
+        .to_string_lossy()
+        .to_string();
     if stem.is_empty() {
         return None;
     }
@@ -135,8 +149,9 @@ pub fn classify_status(inp: &StatusInputs) -> TileStatus {
     if idle < Duration::from_millis(750) {
         return TileStatus::Working;
     }
-    let bytes_since_last_decision =
-        inp.bytes_total.saturating_sub(inp.last_decision_at_bytes_total);
+    let bytes_since_last_decision = inp
+        .bytes_total
+        .saturating_sub(inp.last_decision_at_bytes_total);
     if inp.last_decision_action == Some("escalate") && bytes_since_last_decision == 0 {
         return TileStatus::Blocked;
     }
@@ -164,11 +179,7 @@ pub fn decide_status(is_thinking: bool, inp: &StatusInputs) -> TileStatus {
 pub fn last_non_empty_line(bytes: &[u8], max_chars: usize) -> Option<String> {
     let stripped = strip_ansi_escapes::strip(bytes);
     let s = String::from_utf8_lossy(&stripped);
-    let line = s
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())?
-        .to_string();
+    let line = s.lines().rev().find(|l| !l.trim().is_empty())?.to_string();
     Some(line.chars().take(max_chars).collect())
 }
 
@@ -292,7 +303,10 @@ pub fn assemble_snapshot(built: Vec<BuiltRow>) -> ConvergenceSnapshot {
         (false, true) => std::cmp::Ordering::Greater,
         _ => a.operator_name.cmp(&b.operator_name),
     });
-    ConvergenceSnapshot { roster, escalations }
+    ConvergenceSnapshot {
+        roster,
+        escalations,
+    }
 }
 
 pub async fn build_convergence_snapshot(
@@ -328,7 +342,12 @@ pub async fn build_convergence_snapshot(
 
         let (last_byte_at, bytes_total, last_decision_at_bytes_total, tail_bytes) = {
             let st = s.op_state.lock().expect("op_state poisoned");
-            (st.last_byte_at, st.bytes_total, st.last_decision_at_bytes_total, st.snapshot_tail(8 * 1024))
+            (
+                st.last_byte_at,
+                st.bytes_total,
+                st.last_decision_at_bytes_total,
+                st.snapshot_tail(8 * 1024),
+            )
         };
 
         let last = by_short.get(short.as_str()).copied();
@@ -342,13 +361,23 @@ pub async fn build_convergence_snapshot(
         let is_thinking = operator.is_thinking(s.session_id).await;
         let status = decide_status(
             is_thinking,
-            &StatusInputs { last_byte_at, bytes_total, last_decision_at_bytes_total, last_decision_action: last_action, now },
+            &StatusInputs {
+                last_byte_at,
+                bytes_total,
+                last_decision_at_bytes_total,
+                last_decision_action: last_action,
+                now,
+            },
         );
 
         let op_enabled = operator.is_enabled(s.session_id).await;
         let aom_excluded = operator.is_aom_excluded(s.session_id).await;
         let enrolled = aom_enabled && op_enabled && !aom_excluded;
-        let cost_usd = if enrolled { Some(sum_cost_for_short(&recent, &short, aom_started_ms)) } else { None };
+        let cost_usd = if enrolled {
+            Some(sum_cost_for_short(&recent, &short, aom_started_ms))
+        } else {
+            None
+        };
 
         let summary = SessionSummary {
             session_id: id_str,
@@ -385,16 +414,27 @@ pub async fn build_convergence_snapshot(
 
 fn shorten6(id: &str) -> String {
     let n = id.len();
-    if n > 6 { id[n - 6..].to_string() } else { id.to_string() }
+    if n > 6 {
+        id[n - 6..].to_string()
+    } else {
+        id.to_string()
+    }
 }
 
 fn sum_cost_for_short(rows: &[OperatorDecisionRow], short: &str, since_ms: u64) -> f64 {
-    rows.iter().filter(|r| r.session_id_short == short && r.timestamp_unix_ms >= since_ms).map(|r| r.cost_usd).sum()
+    rows.iter()
+        .filter(|r| r.session_id_short == short && r.timestamp_unix_ms >= since_ms)
+        .map(|r| r.cost_usd)
+        .sum()
 }
 
-fn index_decisions_by_short_id(rows: &[OperatorDecisionRow]) -> HashMap<&str, &OperatorDecisionRow> {
+fn index_decisions_by_short_id(
+    rows: &[OperatorDecisionRow],
+) -> HashMap<&str, &OperatorDecisionRow> {
     let mut out = HashMap::new();
-    for r in rows { out.entry(r.session_id_short.as_str()).or_insert(r); }
+    for r in rows {
+        out.entry(r.session_id_short.as_str()).or_insert(r);
+    }
     out
 }
 
@@ -406,17 +446,41 @@ mod tests {
         now - Duration::from_millis(ms_ago)
     }
 
-    fn si(now: Instant, ms_ago: u64, bt: u64, ldb: u64, act: Option<&'static str>) -> StatusInputs<'static> {
-        StatusInputs { last_byte_at: at(now, ms_ago), bytes_total: bt, last_decision_at_bytes_total: ldb, last_decision_action: act, now }
+    fn si(
+        now: Instant,
+        ms_ago: u64,
+        bt: u64,
+        ldb: u64,
+        act: Option<&'static str>,
+    ) -> StatusInputs<'static> {
+        StatusInputs {
+            last_byte_at: at(now, ms_ago),
+            bytes_total: bt,
+            last_decision_at_bytes_total: ldb,
+            last_decision_action: act,
+            now,
+        }
     }
 
     #[test]
     fn classify_status_table() {
         let n = Instant::now();
-        assert_eq!(classify_status(&si(n, 200, 100, 50, Some("reply"))), TileStatus::Working);
-        assert_eq!(classify_status(&si(n, 5_000, 200, 200, Some("escalate"))), TileStatus::Blocked);
-        assert_eq!(classify_status(&si(n, 3_000, 500, 200, Some("reply"))), TileStatus::AwaitingInput);
-        assert_eq!(classify_status(&si(n, 10_000, 100, 100, None)), TileStatus::Idle);
+        assert_eq!(
+            classify_status(&si(n, 200, 100, 50, Some("reply"))),
+            TileStatus::Working
+        );
+        assert_eq!(
+            classify_status(&si(n, 5_000, 200, 200, Some("escalate"))),
+            TileStatus::Blocked
+        );
+        assert_eq!(
+            classify_status(&si(n, 3_000, 500, 200, Some("reply"))),
+            TileStatus::AwaitingInput
+        );
+        assert_eq!(
+            classify_status(&si(n, 10_000, 100, 100, None)),
+            TileStatus::Idle
+        );
     }
 
     #[test]
@@ -442,8 +506,14 @@ mod tests {
 
     #[test]
     fn last_non_empty_line_behavior() {
-        assert_eq!(last_non_empty_line(b"foo\n\x1b[31mbar\x1b[0m\n   \n", 200).as_deref(), Some("bar"));
-        assert_eq!(last_non_empty_line(b"hello world this is a long tail line", 10).as_deref(), Some("hello worl"));
+        assert_eq!(
+            last_non_empty_line(b"foo\n\x1b[31mbar\x1b[0m\n   \n", 200).as_deref(),
+            Some("bar")
+        );
+        assert_eq!(
+            last_non_empty_line(b"hello world this is a long tail line", 10).as_deref(),
+            Some("hello worl")
+        );
         assert!(last_non_empty_line(b"\n   \n\t\n", 200).is_none());
     }
 
@@ -451,7 +521,10 @@ mod tests {
     fn detect_vendor_table() {
         let cases: &[(Option<&str>, Vendor)] = &[
             (Some("claude"), Vendor::Claude),
-            (Some("claude --dangerously-skip-permissions"), Vendor::Claude),
+            (
+                Some("claude --dangerously-skip-permissions"),
+                Vendor::Claude,
+            ),
             (Some("claude-code"), Vendor::Claude),
             (Some("copilot --yolo"), Vendor::Copilot),
             (Some("opencode"), Vendor::Opencode),
@@ -463,28 +536,54 @@ mod tests {
             (None, Vendor::Unknown),
             (Some(""), Vendor::Unknown),
         ];
-        for (i, e) in cases { assert_eq!(detect_vendor(*i), *e, "{:?}", i); }
+        for (i, e) in cases {
+            assert_eq!(detect_vendor(*i), *e, "{:?}", i);
+        }
     }
 
     #[test]
     fn sum_cost_for_short_window() {
         let r = |s: &str, ts: u64, c: f64| OperatorDecisionRow {
-            id: 0, session_id_short: s.into(), timestamp_unix_ms: ts, in_flight_command: None,
-            output_excerpt: String::new(), action: "reply".into(), reply_text: None,
-            rationale: None, executed: false, mission_path: None, executor_name: None,
-            operator_id: None, operator_name: None, cost_usd: c,
+            id: 0,
+            session_id_short: s.into(),
+            timestamp_unix_ms: ts,
+            in_flight_command: None,
+            output_excerpt: String::new(),
+            action: "reply".into(),
+            reply_text: None,
+            rationale: None,
+            executed: false,
+            mission_path: None,
+            executor_name: None,
+            operator_id: None,
+            operator_name: None,
+            cost_usd: c,
             applied_memory_id: None,
         };
-        let rows = vec![r("aaaaaa",1000,0.10), r("aaaaaa",2000,0.25), r("aaaaaa",500,0.99), r("bbbbbb",1500,0.50)];
+        let rows = vec![
+            r("aaaaaa", 1000, 0.10),
+            r("aaaaaa", 2000, 0.25),
+            r("aaaaaa", 500, 0.99),
+            r("bbbbbb", 1500, 0.50),
+        ];
         assert!((sum_cost_for_short(&rows, "aaaaaa", 1000) - 0.35).abs() < 1e-9);
         assert_eq!(sum_cost_for_short(&rows, "zzzzzz", 0), 0.0);
     }
 
     #[test]
     fn mission_name_from_path_table() {
-        assert_eq!(mission_name_from_path(Some("/foo/3.12.md")).as_deref(), Some("3.12"));
-        assert_eq!(mission_name_from_path(Some("bar.md")).as_deref(), Some("bar"));
-        assert_eq!(mission_name_from_path(Some("noext")).as_deref(), Some("noext"));
+        assert_eq!(
+            mission_name_from_path(Some("/foo/3.12.md")).as_deref(),
+            Some("3.12")
+        );
+        assert_eq!(
+            mission_name_from_path(Some("bar.md")).as_deref(),
+            Some("bar")
+        );
+        assert_eq!(
+            mission_name_from_path(Some("noext")).as_deref(),
+            Some("noext")
+        );
         assert_eq!(mission_name_from_path(None), None);
         let long = format!("/x/{}.md", "a".repeat(100));
         let got = mission_name_from_path(Some(&long)).expect("some");
@@ -525,11 +624,15 @@ mod tests {
     fn roster_groups_same_operator_across_sessions() {
         let snap = assemble_snapshot(vec![
             row("op-frontend", "frontend", "s1", TileStatus::Working, 0),
-            row("op-backend",  "backend",  "s2", TileStatus::Idle,    0),
-            row("op-frontend", "frontend", "s3", TileStatus::Idle,    0),
+            row("op-backend", "backend", "s2", TileStatus::Idle, 0),
+            row("op-frontend", "frontend", "s3", TileStatus::Idle, 0),
         ]);
         assert_eq!(snap.roster.len(), 2);
-        let frontend = snap.roster.iter().find(|r| r.operator_id == "op-frontend").unwrap();
+        let frontend = snap
+            .roster
+            .iter()
+            .find(|r| r.operator_id == "op-frontend")
+            .unwrap();
         assert_eq!(frontend.sessions.len(), 2);
         assert!(snap.roster.iter().any(|r| r.operator_id == "op-backend"));
     }
@@ -537,9 +640,9 @@ mod tests {
     #[test]
     fn roster_sorts_escalating_operators_first() {
         let snap = assemble_snapshot(vec![
-            row("op-a", "alpha",   "s1", TileStatus::Working, 0),
-            row("op-b", "bravo",   "s2", TileStatus::Blocked, 100),
-            row("op-c", "charlie", "s3", TileStatus::Idle,    0),
+            row("op-a", "alpha", "s1", TileStatus::Working, 0),
+            row("op-b", "bravo", "s2", TileStatus::Blocked, 100),
+            row("op-c", "charlie", "s3", TileStatus::Idle, 0),
         ]);
         assert_eq!(snap.roster[0].operator_id, "op-b");
         assert!(snap.roster[0].has_escalation);
@@ -552,9 +655,13 @@ mod tests {
         let snap = assemble_snapshot(vec![
             row("op-a", "alpha", "s-new", TileStatus::Blocked, 500),
             row("op-b", "bravo", "s-old", TileStatus::Blocked, 100),
-            row("op-c", "char",  "s-mid", TileStatus::Blocked, 300),
+            row("op-c", "char", "s-mid", TileStatus::Blocked, 300),
         ]);
-        let order: Vec<_> = snap.escalations.iter().map(|e| e.session_id.as_str()).collect();
+        let order: Vec<_> = snap
+            .escalations
+            .iter()
+            .map(|e| e.session_id.as_str())
+            .collect();
         assert_eq!(order, vec!["s-old", "s-mid", "s-new"]);
     }
 
@@ -563,7 +670,7 @@ mod tests {
         let snap = assemble_snapshot(vec![
             row("op-a", "alpha", "s1", TileStatus::Working, 0),
             row("op-b", "bravo", "s2", TileStatus::Blocked, 100),
-            row("op-c", "char",  "s3", TileStatus::AwaitingInput, 200),
+            row("op-c", "char", "s3", TileStatus::AwaitingInput, 200),
         ]);
         assert_eq!(snap.escalations.len(), 1);
         assert_eq!(snap.escalations[0].session_id, "s2");
@@ -572,11 +679,21 @@ mod tests {
     #[test]
     fn vendor_wired_from_decision_command() {
         for (cmd, want_v, want_label) in [
-            (Some("claude --dangerously-skip-permissions x"), Vendor::Claude, None),
-            (Some("vim foo.rs"), Vendor::Unknown, Some("vim foo.rs".to_string())),
+            (
+                Some("claude --dangerously-skip-permissions x"),
+                Vendor::Claude,
+                None,
+            ),
+            (
+                Some("vim foo.rs"),
+                Vendor::Unknown,
+                Some("vim foo.rs".to_string()),
+            ),
         ] {
             let v = detect_vendor(cmd);
-            let label = matches!(v, Vendor::Unknown).then(|| cmd.map(|c| c.chars().take(40).collect::<String>())).flatten();
+            let label = matches!(v, Vendor::Unknown)
+                .then(|| cmd.map(|c| c.chars().take(40).collect::<String>()))
+                .flatten();
             assert_eq!((v, label), (want_v, want_label));
         }
     }

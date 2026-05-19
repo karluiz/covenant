@@ -30,12 +30,12 @@ pub struct Operator {
     pub id: OperatorId,
     pub name: String,
     pub emoji: String,
-    pub color: String,             // "#RRGGBB"
+    pub color: String, // "#RRGGBB"
     pub tags: Vec<String>,
     pub persona: String,
-    pub escalate_threshold: f32,   // 0.0..=1.0
-    pub model: String,             // model id, e.g. "claude-sonnet-4-6"
-    pub hard_constraints: String,  // free-text addition to ALWAYS-ASK-ME
+    pub escalate_threshold: f32,  // 0.0..=1.0
+    pub model: String,            // model id, e.g. "claude-sonnet-4-6"
+    pub hard_constraints: String, // free-text addition to ALWAYS-ASK-ME
     pub is_default: bool,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
@@ -129,9 +129,7 @@ impl OperatorRegistry {
         // Case-insensitive name uniqueness
         {
             let g = self.by_id.read().unwrap();
-            if g.values()
-                .any(|o| o.name.eq_ignore_ascii_case(&op.name))
-            {
+            if g.values().any(|o| o.name.eq_ignore_ascii_case(&op.name)) {
                 return Err(RegistryError::DuplicateName(op.name));
             }
             // If caller asked for default but a default already exists,
@@ -149,11 +147,7 @@ impl OperatorRegistry {
         Ok(op)
     }
 
-    pub async fn update(
-        &self,
-        storage: &Storage,
-        op: Operator,
-    ) -> Result<Operator, RegistryError> {
+    pub async fn update(&self, storage: &Storage, op: Operator) -> Result<Operator, RegistryError> {
         Self::validate(&op)?;
         {
             let g = self.by_id.read().unwrap();
@@ -171,11 +165,7 @@ impl OperatorRegistry {
         Ok(op)
     }
 
-    pub async fn delete(
-        &self,
-        storage: &Storage,
-        id: OperatorId,
-    ) -> Result<(), RegistryError> {
+    pub async fn delete(&self, storage: &Storage, id: OperatorId) -> Result<(), RegistryError> {
         {
             let g = self.by_id.read().unwrap();
             let row = g.get(&id).ok_or(RegistryError::NotFound(id))?;

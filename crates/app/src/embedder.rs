@@ -28,11 +28,12 @@ impl Embedder {
     /// Blocking — run on `spawn_blocking`.
     pub fn new() -> Result<Self> {
         let model = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::BGESmallENV15)
-                .with_show_download_progress(false),
+            InitOptions::new(EmbeddingModel::BGESmallENV15).with_show_download_progress(false),
         )
         .map_err(|e| anyhow!("fastembed init failed: {e}"))?;
-        Ok(Self { model: Mutex::new(model) })
+        Ok(Self {
+            model: Mutex::new(model),
+        })
     }
 
     /// Embed a single string. Returns a 384-dim float32 vector.

@@ -92,7 +92,10 @@ impl CapabilityWatcher {
 }
 
 fn notify_to_io(e: notify::Error) -> CapabilityError {
-    CapabilityError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+    CapabilityError::Io(std::io::Error::new(
+        std::io::ErrorKind::Other,
+        e.to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -237,11 +240,9 @@ mod tests {
     #[tokio::test]
     async fn recursive_picks_up_subdir_events() {
         let dir = TempDir::new().unwrap();
-        let w = CapabilityWatcher::start(vec![(
-            dir.path().to_path_buf(),
-            RecursiveMode::Recursive,
-        )])
-        .unwrap();
+        let w =
+            CapabilityWatcher::start(vec![(dir.path().to_path_buf(), RecursiveMode::Recursive)])
+                .unwrap();
         let mut rx = w.subscribe();
         tokio::time::sleep(Duration::from_millis(100)).await;
 

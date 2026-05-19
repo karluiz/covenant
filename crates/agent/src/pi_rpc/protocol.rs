@@ -125,10 +125,7 @@ pub enum PiCommand {
 
     // ---- Compaction & retry ----
     Compact {
-        #[serde(
-            skip_serializing_if = "Option::is_none",
-            rename = "customInstructions"
-        )]
+        #[serde(skip_serializing_if = "Option::is_none", rename = "customInstructions")]
         custom_instructions: Option<String>,
     },
     SetAutoCompaction {
@@ -342,7 +339,9 @@ pub enum PiEvent {
     /// child process exits. Not part of Pi's wire format — never emitted
     /// by `pi` itself. UI uses it to flip the tab to a crashed state.
     #[serde(skip_deserializing)]
-    ProcessExited { code: Option<i32> },
+    ProcessExited {
+        code: Option<i32>,
+    },
 
     /// Catch-all for event variants we haven't modeled yet. Keeps the
     /// reader from dropping lines on protocol additions. The full JSON
@@ -502,7 +501,9 @@ pub struct ToolResultMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ToolResultContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -615,7 +616,10 @@ mod tests {
         };
         let s = serde_json::to_string(&cmd).unwrap();
         // Field order is stable in serde_json with no extra config.
-        assert_eq!(s, r#"{"type":"prompt","id":"req-1","message":"Hello, world!"}"#);
+        assert_eq!(
+            s,
+            r#"{"type":"prompt","id":"req-1","message":"Hello, world!"}"#
+        );
     }
 
     #[test]
@@ -671,9 +675,8 @@ mod tests {
 
     #[test]
     fn parses_envelope_routes_response() {
-        let env: PiEnvelope = parse(
-            r#"{"type":"response","command":"abort","success":true,"id":"x"}"#,
-        );
+        let env: PiEnvelope =
+            parse(r#"{"type":"response","command":"abort","success":true,"id":"x"}"#);
         match env {
             PiEnvelope::Response(r) => assert_eq!(r.id.as_deref(), Some("x")),
             _ => panic!("expected response"),
@@ -695,7 +698,10 @@ mod tests {
             r#"{"type":"turn_end","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]},"toolResults":[]}"#,
         );
         match env {
-            PiEnvelope::Event(PiEvent::TurnEnd { message, tool_results }) => {
+            PiEnvelope::Event(PiEvent::TurnEnd {
+                message,
+                tool_results,
+            }) => {
                 assert_eq!(tool_results.len(), 0);
                 assert_eq!(message.content.len(), 1);
                 match &message.content[0] {
@@ -714,7 +720,12 @@ mod tests {
         );
         match env {
             PiEnvelope::Event(PiEvent::MessageUpdate {
-                assistant_message_event: DeltaEvent::TextDelta { delta, content_index, .. },
+                assistant_message_event:
+                    DeltaEvent::TextDelta {
+                        delta,
+                        content_index,
+                        ..
+                    },
                 ..
             }) => {
                 assert_eq!(delta, "Hello ");
@@ -731,7 +742,9 @@ mod tests {
         );
         match env {
             PiEnvelope::Event(PiEvent::ToolExecutionStart {
-                tool_call_id, tool_name, args,
+                tool_call_id,
+                tool_name,
+                args,
             }) => {
                 assert_eq!(tool_call_id, "call_abc");
                 assert_eq!(tool_name, "bash");
@@ -746,7 +759,10 @@ mod tests {
         // `followUp` omitted — must default to empty vec, not fail to parse.
         let env: PiEnvelope = parse(r#"{"type":"queue_update","steering":["foo"]}"#);
         match env {
-            PiEnvelope::Event(PiEvent::QueueUpdate { steering, follow_up }) => {
+            PiEnvelope::Event(PiEvent::QueueUpdate {
+                steering,
+                follow_up,
+            }) => {
                 assert_eq!(steering, vec!["foo"]);
                 assert!(follow_up.is_empty());
             }
@@ -760,7 +776,12 @@ mod tests {
             r#"{"type":"compaction_end","reason":"threshold","result":{"summary":"…","tokensBefore":150000},"aborted":false,"willRetry":false}"#,
         );
         match env {
-            PiEnvelope::Event(PiEvent::CompactionEnd { reason, result, aborted, will_retry }) => {
+            PiEnvelope::Event(PiEvent::CompactionEnd {
+                reason,
+                result,
+                aborted,
+                will_retry,
+            }) => {
                 assert_eq!(reason, CompactionReason::Threshold);
                 assert!(!aborted);
                 assert!(!will_retry);
@@ -803,9 +824,7 @@ mod tests {
 
     #[test]
     fn parses_user_message_role() {
-        let m: AgentMessage = parse(
-            r#"{"role":"user","content":"hi","timestamp":1733234567890}"#,
-        );
+        let m: AgentMessage = parse(r#"{"role":"user","content":"hi","timestamp":1733234567890}"#);
         match m {
             AgentMessage::User(u) => {
                 assert_eq!(u.content, "hi");

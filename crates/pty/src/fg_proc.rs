@@ -42,7 +42,10 @@ pub fn foreground_process_name(_master_fd: RawFd) -> Option<String> {
 }
 
 fn is_generic_runtime(comm: &str) -> bool {
-    matches!(comm, "node" | "python" | "python3" | "ruby" | "deno" | "bun")
+    matches!(
+        comm,
+        "node" | "python" | "python3" | "ruby" | "deno" | "bun"
+    )
 }
 
 /// Known agent / interactive CLIs we want to surface by their logical

@@ -50,7 +50,9 @@ impl ScoreStore {
             );",
         )?;
         // v2: context columns (idempotent via PRAGMA user_version)
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
         if v < 2 {
             conn.execute_batch(
                 "ALTER TABLE score_events ADD COLUMN repo TEXT;
@@ -59,10 +61,13 @@ impl ScoreStore {
                  CREATE INDEX IF NOT EXISTS idx_events_repo   ON score_events(repo);
                  CREATE INDEX IF NOT EXISTS idx_events_branch ON score_events(repo, branch);
                  CREATE INDEX IF NOT EXISTS idx_events_group  ON score_events(group_name);
-                 PRAGMA user_version = 2;"
+                 PRAGMA user_version = 2;",
             )?;
         }
-        Ok(Self { conn: Arc::new(Mutex::new(conn)), path })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+            path,
+        })
     }
 
     pub fn connection(&self) -> Arc<Mutex<Connection>> {
@@ -71,7 +76,10 @@ impl ScoreStore {
 
     pub fn append(&self, timestamp_ms: i64, kind: EventKind, executor: &str) -> Result<()> {
         let day = day_from_ms_local(timestamp_ms);
-        let kind_s = match kind { EventKind::Prompt => "prompt", EventKind::Commit => "commit" };
+        let kind_s = match kind {
+            EventKind::Prompt => "prompt",
+            EventKind::Commit => "commit",
+        };
         let c = self.conn.lock().unwrap();
         c.execute(
             "INSERT INTO score_events(timestamp_ms, kind, executor, day) VALUES (?1, ?2, ?3, ?4)",
@@ -81,15 +89,30 @@ impl ScoreStore {
     }
 
     pub fn append_with_context(
-        &self, timestamp_ms: i64, kind: EventKind, executor: &str, ctx: &Context,
+        &self,
+        timestamp_ms: i64,
+        kind: EventKind,
+        executor: &str,
+        ctx: &Context,
     ) -> Result<()> {
         let day = day_from_ms_local(timestamp_ms);
-        let kind_s = match kind { EventKind::Prompt => "prompt", EventKind::Commit => "commit" };
+        let kind_s = match kind {
+            EventKind::Prompt => "prompt",
+            EventKind::Commit => "commit",
+        };
         let c = self.conn.lock().unwrap();
         c.execute(
             "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![timestamp_ms, kind_s, executor, day, ctx.repo, ctx.branch, ctx.group_name],
+            params![
+                timestamp_ms,
+                kind_s,
+                executor,
+                day,
+                ctx.repo,
+                ctx.branch,
+                ctx.group_name
+            ],
         )?;
         Ok(())
     }
@@ -111,20 +134,37 @@ impl ScoreStore {
                 commits: r.get::<_, i64>(2)? as u32,
             })
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn unsynced_events(
-        &self, after_id: i64, limit: usize,
-    ) -> Result<Vec<(i64, i64, EventKind, String, Option<String>, Option<String>, Option<String>)>> {
+        &self,
+        after_id: i64,
+        limit: usize,
+    ) -> Result<
+        Vec<(
+            i64,
+            i64,
+            EventKind,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )>,
+    > {
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(
             "SELECT id, timestamp_ms, kind, executor, repo, branch, group_name FROM score_events
-             WHERE id > ?1 ORDER BY id ASC LIMIT ?2"
+             WHERE id > ?1 ORDER BY id ASC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![after_id, limit as i64], |r| {
             let kind: String = r.get(2)?;
-            let kind = if kind == "prompt" { EventKind::Prompt } else { EventKind::Commit };
+            let kind = if kind == "prompt" {
+                EventKind::Prompt
+            } else {
+                EventKind::Commit
+            };
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
@@ -135,7 +175,8 @@ impl ScoreStore {
                 r.get::<_, Option<String>>(6)?,
             ))
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     /// Returns `(last_pushed_event_id, last_server_cursor_ms, last_synced_at_ms)`.
@@ -149,7 +190,12 @@ impl ScoreStore {
         Ok(row.unwrap_or((0, 0, 0)))
     }
 
-    pub fn set_sync_cursor(&self, last_pushed_event_id: i64, server_cursor_ms: i64, synced_at_ms: i64) -> Result<()> {
+    pub fn set_sync_cursor(
+        &self,
+        last_pushed_event_id: i64,
+        server_cursor_ms: i64,
+        synced_at_ms: i64,
+    ) -> Result<()> {
         let c = self.conn.lock().unwrap();
         c.execute(
             "INSERT INTO sync_cursor(id, last_pushed_event_id, last_server_cursor_ms, last_synced_at_ms)
@@ -177,12 +223,15 @@ impl ScoreStore {
         );
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| Ok(DailyCell {
-            day: r.get(0)?,
-            prompts: r.get::<_, i64>(1)? as u32,
-            commits: r.get::<_, i64>(2)? as u32,
-        }))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+            Ok(DailyCell {
+                day: r.get(0)?,
+                prompts: r.get::<_, i64>(1)? as u32,
+                commits: r.get::<_, i64>(2)? as u32,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn summary_filtered(&self, f: &crate::ScoreFilter) -> Result<Summary> {
@@ -225,15 +274,22 @@ impl ScoreStore {
         );
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| Ok(crate::RepoCell {
-            repo: r.get(0)?,
-            prompts: r.get::<_, i64>(1)? as u32,
-            commits: r.get::<_, i64>(2)? as u32,
-        }))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+            Ok(crate::RepoCell {
+                repo: r.get(0)?,
+                prompts: r.get::<_, i64>(1)? as u32,
+                commits: r.get::<_, i64>(2)? as u32,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
-    pub fn breakdown_branches(&self, repo: &str, f: &crate::ScoreFilter) -> Result<Vec<crate::BranchCell>> {
+    pub fn breakdown_branches(
+        &self,
+        repo: &str,
+        f: &crate::ScoreFilter,
+    ) -> Result<Vec<crate::BranchCell>> {
         let w = crate::filter::build_where(f);
         let sql = format!(
             "SELECT branch,
@@ -250,12 +306,15 @@ impl ScoreStore {
         params.extend(w.params.iter().cloned());
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| Ok(crate::BranchCell {
-            branch: r.get(0)?,
-            prompts: r.get::<_, i64>(1)? as u32,
-            commits: r.get::<_, i64>(2)? as u32,
-        }))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok(crate::BranchCell {
+                branch: r.get(0)?,
+                prompts: r.get::<_, i64>(1)? as u32,
+                commits: r.get::<_, i64>(2)? as u32,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {
@@ -271,11 +330,14 @@ impl ScoreStore {
         );
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| Ok(crate::GroupCell {
-            group_name: r.get(0)?,
-            prompts: r.get::<_, i64>(1)? as u32,
-        }))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+            Ok(crate::GroupCell {
+                group_name: r.get(0)?,
+                prompts: r.get::<_, i64>(1)? as u32,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn recent_sessions(&self, limit: u32) -> Result<Vec<crate::SessionRow>> {
@@ -303,16 +365,19 @@ impl ScoreStore {
         "#;
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(sql)?;
-        let rows = stmt.query_map(params![limit as i64], |r| Ok(crate::SessionRow {
-            start_ts: r.get(0)?,
-            end_ts: r.get(1)?,
-            repo: r.get(2)?,
-            branch: r.get(3)?,
-            group_name: r.get(4)?,
-            prompts: r.get::<_, i64>(5)? as u32,
-            commits: r.get::<_, i64>(6)? as u32,
-        }))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok(crate::SessionRow {
+                start_ts: r.get(0)?,
+                end_ts: r.get(1)?,
+                repo: r.get(2)?,
+                branch: r.get(3)?,
+                group_name: r.get(4)?,
+                prompts: r.get::<_, i64>(5)? as u32,
+                commits: r.get::<_, i64>(6)? as u32,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn summary(&self) -> Result<Summary> {
@@ -331,9 +396,14 @@ impl ScoreStore {
             }
         }
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
-        Ok(Summary { total_prompts: total_p, total_commits: total_c,
-                     today_prompts: today_p, today_commits: today_c,
-                     current_streak, longest_streak })
+        Ok(Summary {
+            total_prompts: total_p,
+            total_commits: total_c,
+            today_prompts: today_p,
+            today_commits: today_c,
+            current_streak,
+            longest_streak,
+        })
     }
 }
 
@@ -345,8 +415,13 @@ fn compute_streaks(cells: &[DailyCell], today: &str) -> (u32, u32) {
     let mut prev: Option<NaiveDate> = None;
     let mut last_active: Option<NaiveDate> = None;
     for cell in cells {
-        if cell.prompts == 0 { continue; }
-        let d = match parse(&cell.day) { Some(d) => d, None => continue };
+        if cell.prompts == 0 {
+            continue;
+        }
+        let d = match parse(&cell.day) {
+            Some(d) => d,
+            None => continue,
+        };
         match prev {
             Some(p) if (d - p).num_days() == 1 => run += 1,
             _ => run = 1,
@@ -359,7 +434,11 @@ fn compute_streaks(cells: &[DailyCell], today: &str) -> (u32, u32) {
     let current = match (last_active, today_d) {
         (Some(la), Some(td)) => {
             let gap = (td - la).num_days();
-            if gap <= 1 { run } else { 0 }
+            if gap <= 1 {
+                run
+            } else {
+                0
+            }
         }
         _ => 0,
     };

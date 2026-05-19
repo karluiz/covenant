@@ -64,9 +64,7 @@ pub struct ChatOutput {
 }
 
 fn parse_id(s: &str) -> Result<FamiliarId, String> {
-    let u: ulid::Ulid = s
-        .parse()
-        .map_err(|e: ulid::DecodeError| e.to_string())?;
+    let u: ulid::Ulid = s.parse().map_err(|e: ulid::DecodeError| e.to_string())?;
     Ok(FamiliarId(u))
 }
 
@@ -143,9 +141,7 @@ pub async fn familiar_update_config(
         style: parse_style(&style),
         daily_cap_usd,
     };
-    mgr.update_config(id, cfg)
-        .await
-        .map_err(|e| e.to_string())
+    mgr.update_config(id, cfg).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -166,7 +162,9 @@ pub async fn familiar_chat(
             .unwrap_or_default()
     };
     if key.trim().is_empty() {
-        return Err("Anthropic API key not set (Settings → API key, or ANTHROPIC_API_KEY env)".to_string());
+        return Err(
+            "Anthropic API key not set (Settings → API key, or ANTHROPIC_API_KEY env)".to_string(),
+        );
     }
     let mgr_arc: Arc<FamiliarManager> = mgr.inner().clone();
     let user_text = input.user_text;
@@ -202,10 +200,7 @@ pub async fn familiar_chat(
                     .proposed_directive
                     .as_ref()
                     .map(|d| format!("{:?}", d.kind).to_lowercase()),
-                directive_payload: turn
-                    .proposed_directive
-                    .as_ref()
-                    .map(|d| d.payload.clone()),
+                directive_payload: turn.proposed_directive.as_ref().map(|d| d.payload.clone()),
                 directive_rationale: turn
                     .proposed_directive
                     .as_ref()

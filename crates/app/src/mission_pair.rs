@@ -32,10 +32,18 @@ pub struct PlanDoc {
 
 impl MissionRef {
     pub fn covenant(spec_path: PathBuf) -> Self {
-        Self { kind: MissionKind::Covenant, spec_path, plan_path: None }
+        Self {
+            kind: MissionKind::Covenant,
+            spec_path,
+            plan_path: None,
+        }
     }
     pub fn superpowers(spec_path: PathBuf, plan_path: Option<PathBuf>) -> Self {
-        Self { kind: MissionKind::Superpowers, spec_path, plan_path }
+        Self {
+            kind: MissionKind::Superpowers,
+            spec_path,
+            plan_path,
+        }
     }
 }
 
@@ -48,7 +56,9 @@ pub fn parse_plan_frontmatter_spec(body: &str) -> Option<String> {
     let block = &rest[..end];
     for line in block.lines() {
         let line = line.trim();
-        let Some(rest) = line.strip_prefix("spec:") else { continue };
+        let Some(rest) = line.strip_prefix("spec:") else {
+            continue;
+        };
         let val = rest.trim();
         // Only strip quotes when they appear as a matched pair so an
         // asymmetric leading-or-trailing quote doesn't get silently
@@ -99,7 +109,9 @@ pub fn resolve_plan_for_spec(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let Some(rel) = parse_plan_frontmatter_spec(&body) else { continue };
+        let Some(rel) = parse_plan_frontmatter_spec(&body) else {
+            continue;
+        };
         let resolved = plans_dir.join(&rel);
         if let Ok(can) = std::fs::canonicalize(&resolved) {
             if can == target {
@@ -107,10 +119,7 @@ pub fn resolve_plan_for_spec(
             }
         }
     }
-    let stem = spec_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = spec_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let stripped = stem.strip_suffix("-design").unwrap_or(stem);
     let candidate = plans_dir.join(format!("{stripped}.md"));
     if candidate.exists() {
@@ -120,11 +129,7 @@ pub fn resolve_plan_for_spec(
 }
 
 /// Pure-string version of `mark_plan_task` for unit testing.
-pub fn mark_plan_task_in_body(
-    body: &str,
-    task_index: usize,
-    done: bool,
-) -> Result<String, String> {
+pub fn mark_plan_task_in_body(body: &str, task_index: usize, done: bool) -> Result<String, String> {
     let mut count = 0usize;
     let mut out = String::with_capacity(body.len());
     let mut hit = false;
@@ -181,7 +186,10 @@ pub fn append_plan_note_in_body(
             top_indices.len(),
         ));
     };
-    let next_top = top_indices.get(task_index + 1).copied().unwrap_or(lines.len());
+    let next_top = top_indices
+        .get(task_index + 1)
+        .copied()
+        .unwrap_or(lines.len());
     let mut insert_at = start_idx + 1;
     while insert_at < next_top {
         let t = lines[insert_at].trim_end_matches('\n');
@@ -327,10 +335,7 @@ mod tests {
     fn mark_plan_task_flips_unchecked_to_checked() {
         let body = "# Plan\n\n- [ ] Task A\n- [ ] Task B\n- [ ] Task C\n";
         let out = mark_plan_task_in_body(body, 1, true).unwrap();
-        assert_eq!(
-            out,
-            "# Plan\n\n- [ ] Task A\n- [x] Task B\n- [ ] Task C\n",
-        );
+        assert_eq!(out, "# Plan\n\n- [ ] Task A\n- [x] Task B\n- [ ] Task C\n",);
     }
 
     #[test]
@@ -364,10 +369,7 @@ mod tests {
     fn append_plan_note_appends_after_existing_notes() {
         let body = "- [ ] A\n> note: first\n- [ ] B\n";
         let out = append_plan_note_in_body(body, 0, "second").unwrap();
-        assert_eq!(
-            out,
-            "- [ ] A\n> note: first\n> note: second\n- [ ] B\n",
-        );
+        assert_eq!(out, "- [ ] A\n> note: first\n> note: second\n- [ ] B\n",);
     }
 
     #[test]

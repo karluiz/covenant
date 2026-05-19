@@ -35,8 +35,13 @@ pub struct EventRow {
 }
 
 impl Memory {
-    pub fn append_event(&self, ts_ms: i64, kind: &str, session_id: &str,
-                        payload_json: &str) -> Result<i64> {
+    pub fn append_event(
+        &self,
+        ts_ms: i64,
+        kind: &str,
+        session_id: &str,
+        payload_json: &str,
+    ) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO familiar_events(ts_ms, kind, session_id, payload_json)
              VALUES (?1,?2,?3,?4)",
@@ -48,17 +53,26 @@ impl Memory {
     pub fn events_since(&self, after_id: i64) -> Result<Vec<EventRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, ts_ms, kind, session_id, payload_json
-             FROM familiar_events WHERE id > ?1 ORDER BY id ASC")?;
-        let rows = stmt.query_map([after_id], |r| Ok(EventRow {
-            id: r.get(0)?, ts_ms: r.get(1)?, kind: r.get(2)?,
-            session_id: r.get(3)?, payload_json: r.get(4)?,
-        }))?;
+             FROM familiar_events WHERE id > ?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map([after_id], |r| {
+            Ok(EventRow {
+                id: r.get(0)?,
+                ts_ms: r.get(1)?,
+                kind: r.get(2)?,
+                session_id: r.get(3)?,
+                payload_json: r.get(4)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub fn last_event_id(&self) -> Result<i64> {
-        let id: i64 = self.conn
-            .query_row("SELECT COALESCE(MAX(id),0) FROM familiar_events", [], |r| r.get(0))?;
+        let id: i64 =
+            self.conn
+                .query_row("SELECT COALESCE(MAX(id),0) FROM familiar_events", [], |r| {
+                    r.get(0)
+                })?;
         Ok(id)
     }
 }
@@ -72,8 +86,14 @@ pub struct SummaryRow {
 }
 
 impl Memory {
-    pub fn write_summary(&self, ts_ms: i64, summary: &str, last_event_id: i64,
-                         tokens_in: i64, tokens_out: i64) -> Result<i64> {
+    pub fn write_summary(
+        &self,
+        ts_ms: i64,
+        summary: &str,
+        last_event_id: i64,
+        tokens_in: i64,
+        tokens_out: i64,
+    ) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO familiar_summaries(ts_ms, summary, last_event_id, tokens_in, tokens_out)
              VALUES (?1,?2,?3,?4,?5)",
@@ -85,10 +105,16 @@ impl Memory {
     pub fn latest_summary(&self) -> Result<Option<SummaryRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, ts_ms, summary, last_event_id
-             FROM familiar_summaries ORDER BY id DESC LIMIT 1")?;
-        let mut rows = stmt.query_map([], |r| Ok(SummaryRow {
-            id: r.get(0)?, ts_ms: r.get(1)?, summary: r.get(2)?, last_event_id: r.get(3)?,
-        }))?;
+             FROM familiar_summaries ORDER BY id DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map([], |r| {
+            Ok(SummaryRow {
+                id: r.get(0)?,
+                ts_ms: r.get(1)?,
+                summary: r.get(2)?,
+                last_event_id: r.get(3)?,
+            })
+        })?;
         Ok(rows.next().transpose()?)
     }
 }
@@ -103,8 +129,7 @@ pub struct MissionRow {
 }
 
 impl Memory {
-    pub fn start_mission(&self, mission_id: &str, started_ms: i64,
-                         objective: &str) -> Result<i64> {
+    pub fn start_mission(&self, mission_id: &str, started_ms: i64, objective: &str) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO familiar_missions(mission_id, started_ms, objective)
              VALUES (?1,?2,?3)",
@@ -113,8 +138,7 @@ impl Memory {
         Ok(self.conn.last_insert_rowid())
     }
 
-    pub fn finish_mission(&self, mission_id: &str, finished_ms: i64,
-                          digest: &str) -> Result<()> {
+    pub fn finish_mission(&self, mission_id: &str, finished_ms: i64, digest: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE familiar_missions SET finished_ms=?1, digest=?2 WHERE mission_id=?3",
             (finished_ms, digest, mission_id),
@@ -125,22 +149,34 @@ impl Memory {
     pub fn mission(&self, mission_id: &str) -> Result<Option<MissionRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT mission_id, started_ms, finished_ms, objective, digest
-             FROM familiar_missions WHERE mission_id=?1")?;
-        let mut rows = stmt.query_map([mission_id], |r| Ok(MissionRow {
-            mission_id: r.get(0)?, started_ms: r.get(1)?,
-            finished_ms: r.get(2)?, objective: r.get(3)?, digest: r.get(4)?,
-        }))?;
+             FROM familiar_missions WHERE mission_id=?1",
+        )?;
+        let mut rows = stmt.query_map([mission_id], |r| {
+            Ok(MissionRow {
+                mission_id: r.get(0)?,
+                started_ms: r.get(1)?,
+                finished_ms: r.get(2)?,
+                objective: r.get(3)?,
+                digest: r.get(4)?,
+            })
+        })?;
         Ok(rows.next().transpose()?)
     }
 
     pub fn recent_missions(&self, limit: i64) -> Result<Vec<MissionRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT mission_id, started_ms, finished_ms, objective, digest
-             FROM familiar_missions ORDER BY started_ms DESC LIMIT ?1")?;
-        let rows = stmt.query_map([limit], |r| Ok(MissionRow {
-            mission_id: r.get(0)?, started_ms: r.get(1)?,
-            finished_ms: r.get(2)?, objective: r.get(3)?, digest: r.get(4)?,
-        }))?;
+             FROM familiar_missions ORDER BY started_ms DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit], |r| {
+            Ok(MissionRow {
+                mission_id: r.get(0)?,
+                started_ms: r.get(1)?,
+                finished_ms: r.get(2)?,
+                objective: r.get(3)?,
+                digest: r.get(4)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 }
@@ -174,19 +210,31 @@ impl Memory {
     }
 
     pub fn chat_history(&self, limit: i64) -> Result<Vec<ChatRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT ts_ms, role, content FROM familiar_chat ORDER BY id DESC LIMIT ?1")?;
-        let rows = stmt.query_map([limit], |r| Ok(ChatRow {
-            ts_ms: r.get(0)?, role: r.get(1)?, content: r.get(2)?,
-        }))?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT ts_ms, role, content FROM familiar_chat ORDER BY id DESC LIMIT ?1")?;
+        let rows = stmt.query_map([limit], |r| {
+            Ok(ChatRow {
+                ts_ms: r.get(0)?,
+                role: r.get(1)?,
+                content: r.get(2)?,
+            })
+        })?;
         let mut v: Vec<_> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         v.reverse();
         Ok(v)
     }
 
-    pub fn log_directive(&self, id: &str, proposed_ms: i64, state: &str,
-                         kind: &str, payload: &str, rationale: &str,
-                         block_reason: Option<&str>) -> Result<()> {
+    pub fn log_directive(
+        &self,
+        id: &str,
+        proposed_ms: i64,
+        state: &str,
+        kind: &str,
+        payload: &str,
+        rationale: &str,
+        block_reason: Option<&str>,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT INTO familiar_directives(id, proposed_ms, state, kind, payload, rationale, block_reason)
              VALUES (?1,?2,?3,?4,?5,?6,?7)",
@@ -195,8 +243,13 @@ impl Memory {
         Ok(())
     }
 
-    pub fn update_directive_state(&self, id: &str, decided_ms: i64,
-                                   state: &str, block_reason: Option<&str>) -> Result<()> {
+    pub fn update_directive_state(
+        &self,
+        id: &str,
+        decided_ms: i64,
+        state: &str,
+        block_reason: Option<&str>,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE familiar_directives SET decided_ms=?1, state=?2, block_reason=?3 WHERE id=?4",
             (decided_ms, state, block_reason, id),
@@ -207,12 +260,20 @@ impl Memory {
     pub fn directive(&self, id: &str) -> Result<Option<DirectiveRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
-             FROM familiar_directives WHERE id=?1")?;
-        let mut rows = stmt.query_map([id], |r| Ok(DirectiveRow {
-            id: r.get(0)?, proposed_ms: r.get(1)?, decided_ms: r.get(2)?,
-            state: r.get(3)?, kind: r.get(4)?, payload: r.get(5)?,
-            rationale: r.get(6)?, block_reason: r.get(7)?,
-        }))?;
+             FROM familiar_directives WHERE id=?1",
+        )?;
+        let mut rows = stmt.query_map([id], |r| {
+            Ok(DirectiveRow {
+                id: r.get(0)?,
+                proposed_ms: r.get(1)?,
+                decided_ms: r.get(2)?,
+                state: r.get(3)?,
+                kind: r.get(4)?,
+                payload: r.get(5)?,
+                rationale: r.get(6)?,
+                block_reason: r.get(7)?,
+            })
+        })?;
         Ok(rows.next().transpose()?)
     }
 
@@ -230,10 +291,13 @@ impl Memory {
     /// Prefer this over separate `spend_for_day` + `add_spend` calls to avoid TOCTOU races.
     pub fn try_reserve_spend(&self, day: &str, delta_usd: f64, cap_usd: f64) -> Result<bool> {
         let tx = self.conn.unchecked_transaction()?;
-        let current: f64 = tx.query_row(
-            "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
-            [day], |r| r.get(0),
-        ).unwrap_or(0.0);
+        let current: f64 = tx
+            .query_row(
+                "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
+                [day],
+                |r| r.get(0),
+            )
+            .unwrap_or(0.0);
         if current + delta_usd > cap_usd {
             tx.commit()?;
             return Ok(false);
@@ -248,10 +312,14 @@ impl Memory {
     }
 
     pub fn spend_for_day(&self, day: &str) -> Result<f64> {
-        let v: f64 = self.conn.query_row(
-            "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
-            [day], |r| r.get(0),
-        ).unwrap_or(0.0);
+        let v: f64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(spend_usd, 0) FROM familiar_costs WHERE day=?1",
+                [day],
+                |r| r.get(0),
+            )
+            .unwrap_or(0.0);
         Ok(v)
     }
 
@@ -260,11 +328,17 @@ impl Memory {
     pub fn events_in_window(&self, since_ms: i64) -> Result<Vec<EventRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, ts_ms, kind, session_id, payload_json
-             FROM familiar_events WHERE ts_ms >= ?1 ORDER BY ts_ms ASC, id ASC")?;
-        let rows = stmt.query_map([since_ms], |r| Ok(EventRow {
-            id: r.get(0)?, ts_ms: r.get(1)?, kind: r.get(2)?,
-            session_id: r.get(3)?, payload_json: r.get(4)?,
-        }))?;
+             FROM familiar_events WHERE ts_ms >= ?1 ORDER BY ts_ms ASC, id ASC",
+        )?;
+        let rows = stmt.query_map([since_ms], |r| {
+            Ok(EventRow {
+                id: r.get(0)?,
+                ts_ms: r.get(1)?,
+                kind: r.get(2)?,
+                session_id: r.get(3)?,
+                payload_json: r.get(4)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -273,12 +347,20 @@ impl Memory {
     pub fn directives_in_window(&self, since_ms: i64) -> Result<Vec<DirectiveRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
-             FROM familiar_directives WHERE proposed_ms >= ?1 ORDER BY proposed_ms ASC")?;
-        let rows = stmt.query_map([since_ms], |r| Ok(DirectiveRow {
-            id: r.get(0)?, proposed_ms: r.get(1)?, decided_ms: r.get(2)?,
-            state: r.get(3)?, kind: r.get(4)?, payload: r.get(5)?,
-            rationale: r.get(6)?, block_reason: r.get(7)?,
-        }))?;
+             FROM familiar_directives WHERE proposed_ms >= ?1 ORDER BY proposed_ms ASC",
+        )?;
+        let rows = stmt.query_map([since_ms], |r| {
+            Ok(DirectiveRow {
+                id: r.get(0)?,
+                proposed_ms: r.get(1)?,
+                decided_ms: r.get(2)?,
+                state: r.get(3)?,
+                kind: r.get(4)?,
+                payload: r.get(5)?,
+                rationale: r.get(6)?,
+                block_reason: r.get(7)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -287,7 +369,8 @@ impl Memory {
         let n: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM familiar_missions
              WHERE finished_ms IS NOT NULL AND finished_ms >= ?1",
-            [since_ms], |r| r.get(0),
+            [since_ms],
+            |r| r.get(0),
         )?;
         Ok(n > 0)
     }
@@ -301,7 +384,8 @@ impl Memory {
         let start_day = dt.format("%Y-%m-%d").to_string();
         let total: f64 = self.conn.query_row(
             "SELECT COALESCE(SUM(spend_usd), 0) FROM familiar_costs WHERE day >= ?1",
-            [start_day], |r| r.get(0),
+            [start_day],
+            |r| r.get(0),
         )?;
         Ok(total)
     }
@@ -309,12 +393,20 @@ impl Memory {
     pub fn directives_since(&self, since_ms: i64) -> Result<Vec<DirectiveRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, proposed_ms, decided_ms, state, kind, payload, rationale, block_reason
-             FROM familiar_directives WHERE proposed_ms >= ?1 ORDER BY proposed_ms DESC")?;
-        let rows = stmt.query_map([since_ms], |r| Ok(DirectiveRow {
-            id: r.get(0)?, proposed_ms: r.get(1)?, decided_ms: r.get(2)?,
-            state: r.get(3)?, kind: r.get(4)?, payload: r.get(5)?,
-            rationale: r.get(6)?, block_reason: r.get(7)?,
-        }))?;
+             FROM familiar_directives WHERE proposed_ms >= ?1 ORDER BY proposed_ms DESC",
+        )?;
+        let rows = stmt.query_map([since_ms], |r| {
+            Ok(DirectiveRow {
+                id: r.get(0)?,
+                proposed_ms: r.get(1)?,
+                decided_ms: r.get(2)?,
+                state: r.get(3)?,
+                kind: r.get(4)?,
+                payload: r.get(5)?,
+                rationale: r.get(6)?,
+                block_reason: r.get(7)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 }
@@ -326,16 +418,23 @@ mod tests {
     #[test]
     fn open_in_memory_creates_all_tables() {
         let m = Memory::open_in_memory().unwrap();
-        let names: Vec<String> = m.conn
+        let names: Vec<String> = m
+            .conn
             .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
             .unwrap()
             .query_map([], |r| r.get::<_, String>(0))
             .unwrap()
             .map(|r| r.unwrap())
             .collect();
-        for expected in ["familiar_chat","familiar_costs","familiar_directives",
-                         "familiar_events","familiar_meta","familiar_missions",
-                         "familiar_summaries"] {
+        for expected in [
+            "familiar_chat",
+            "familiar_costs",
+            "familiar_directives",
+            "familiar_events",
+            "familiar_meta",
+            "familiar_missions",
+            "familiar_summaries",
+        ] {
             assert!(names.contains(&expected.to_string()), "missing {expected}");
         }
     }
@@ -343,10 +442,20 @@ mod tests {
     #[test]
     fn append_and_read_events() {
         let m = Memory::open_in_memory().unwrap();
-        m.append_event(1_700_000_000_000, "BlockFinished", "sess-A",
-                       r#"{"exit":0}"#).unwrap();
-        m.append_event(1_700_000_001_000, "CwdChanged", "sess-A",
-                       r#"{"cwd":"/tmp"}"#).unwrap();
+        m.append_event(
+            1_700_000_000_000,
+            "BlockFinished",
+            "sess-A",
+            r#"{"exit":0}"#,
+        )
+        .unwrap();
+        m.append_event(
+            1_700_000_001_000,
+            "CwdChanged",
+            "sess-A",
+            r#"{"cwd":"/tmp"}"#,
+        )
+        .unwrap();
         let events = m.events_since(0).unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].kind, "BlockFinished");
@@ -412,8 +521,18 @@ mod tests {
     #[test]
     fn directive_log_round_trip() {
         let m = Memory::open_in_memory().unwrap();
-        m.log_directive("01H...", 100, "proposed", "Stop", "stop X", "rationale", None).unwrap();
-        m.update_directive_state("01H...", 200, "approved", None).unwrap();
+        m.log_directive(
+            "01H...",
+            100,
+            "proposed",
+            "Stop",
+            "stop X",
+            "rationale",
+            None,
+        )
+        .unwrap();
+        m.update_directive_state("01H...", 200, "approved", None)
+            .unwrap();
         let row = m.directive("01H...").unwrap().unwrap();
         assert_eq!(row.state, "approved");
         assert_eq!(row.decided_ms, Some(200));
@@ -422,9 +541,12 @@ mod tests {
     #[test]
     fn mission_lifecycle() {
         let m = Memory::open_in_memory().unwrap();
-        let id = m.start_mission("mission-1", 1000, "ship feature X").unwrap();
+        let id = m
+            .start_mission("mission-1", 1000, "ship feature X")
+            .unwrap();
         assert!(id > 0);
-        m.finish_mission("mission-1", 2000, "shipped: X merged in PR 42").unwrap();
+        m.finish_mission("mission-1", 2000, "shipped: X merged in PR 42")
+            .unwrap();
         let row = m.mission("mission-1").unwrap().unwrap();
         assert_eq!(row.objective, "ship feature X");
         assert!(row.digest.starts_with("shipped"));
@@ -435,8 +557,10 @@ mod tests {
     fn write_and_read_latest_summary() {
         let m = Memory::open_in_memory().unwrap();
         assert!(m.latest_summary().unwrap().is_none());
-        m.write_summary(1_700_000_000_000, "running tests", 42, 100, 50).unwrap();
-        m.write_summary(1_700_000_500_000, "tests green", 99, 110, 55).unwrap();
+        m.write_summary(1_700_000_000_000, "running tests", 42, 100, 50)
+            .unwrap();
+        m.write_summary(1_700_000_500_000, "tests green", 99, 110, 55)
+            .unwrap();
         let s = m.latest_summary().unwrap().unwrap();
         assert_eq!(s.summary, "tests green");
         assert_eq!(s.last_event_id, 99);

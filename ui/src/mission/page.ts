@@ -100,6 +100,8 @@ export interface MissionPageOpts {
 
 export class MissionPage {
   private isOpenState = false;
+  /// Invalidates async list/preview loads from a previous picker open.
+  private openGeneration = 0;
   private state: PageState = initialState(null);
   private opts: MissionPageOpts | null = null;
   private resolve: ((r: PageResult) => void) | null = null;
@@ -125,6 +127,7 @@ export class MissionPage {
       // Already open: cancel previous waiter, restart with new opts.
       this.finish(null);
     }
+    const generation = ++this.openGeneration;
     this.opts = opts;
     this.state = initialState(opts.currentMissionPath);
     this.previewBody = "";
@@ -138,8 +141,8 @@ export class MissionPage {
 
     const promise = new Promise<PageResult>((res) => { this.resolve = res; });
     this.render();
-    void this.fetchAll();
-    void this.subscribeSuperpowers();
+    void this.fetchAll(generation);
+    void this.subscribeSuperpowers(generation);
     return promise;
   }
 
@@ -147,6 +150,7 @@ export class MissionPage {
 
   private finish(result: PageResult): void {
     if (!this.isOpenState) return;
+    this.openGeneration++;
     if (this.keyHandler) {
       window.removeEventListener("keydown", this.keyHandler);
       this.keyHandler = null;
@@ -163,12 +167,13 @@ export class MissionPage {
   }
 
   private setState(patch: Partial<PageState>): void {
+    if (!this.isOpenState) return;
     this.state = { ...this.state, ...patch };
     this.render();
   }
 
-  private async fetchAll(): Promise<void> {
-    if (!this.opts) return;
+  private async fetchAll(generation: number = this.openGeneration): Promise<void> {
+    if (!this.opts || generation !== this.openGeneration) return;
     const root = this.opts.repoRoot;
     try {
       const [specs, drafts, superpowers] = await Promise.all([
@@ -176,41 +181,54 @@ export class MissionPage {
         draftsApi.list(root),
         listSuperpowersMissions(root).catch(() => []),
       ]);
+      if (generation !== this.openGeneration || !this.isOpenState) return;
       this.setState({ specs, drafts, superpowers, loading: false, error: null });
       const sel = this.state.selected;
-      if (sel?.source === "card") void this.loadPreview(sel.path);
+      if (sel?.source === "card") void this.loadPreview(sel.path, generation);
     } catch (err) {
+      if (generation !== this.openGeneration || !this.isOpenState) return;
       this.setState({ loading: false, error: String(err) });
     }
   }
 
-  private async subscribeSuperpowers(): Promise<void> {
-    if (!this.opts) return;
+  private async subscribeSuperpowers(generation: number = this.openGeneration): Promise<void> {
+    if (!this.opts || generation !== this.openGeneration) return;
     const root = this.opts.repoRoot;
     try {
-      this.unlistenSp = await listen("superpowers-missions-changed", () => {
+      const unlisten = await listen("superpowers-missions-changed", () => {
         listSuperpowersMissions(root)
-          .then((superpowers) => this.setState({ superpowers }))
+          .then((superpowers) => {
+            if (generation === this.openGeneration) this.setState({ superpowers });
+          })
           .catch(() => {});
       });
+      if (generation !== this.openGeneration || !this.isOpenState) {
+        unlisten();
+        return;
+      }
+      this.unlistenSp = unlisten;
     } catch { /* ignore */ }
   }
 
-  private async loadPreview(path: string): Promise<void> {
+  private async loadPreview(
+    path: string,
+    generation: number = this.openGeneration,
+  ): Promise<void> {
+    if (generation !== this.openGeneration || !this.isOpenState) return;
     this.previewPath = path;
     this.previewLoading = true;
     this.previewError = null;
     this.render();
     try {
       const r = await draftsApi.readSpecBody(path);
-      // Race-guard: skip if user moved on to another card.
-      if (this.previewPath !== path) return;
+      // Race-guard: skip if user moved on to another card or closed the picker.
+      if (this.previewPath !== path || generation !== this.openGeneration || !this.isOpenState) return;
       this.previewBody = r.body;
       this.previewTruncated = r.truncated;
       this.previewLoading = false;
       this.render();
     } catch (err) {
-      if (this.previewPath !== path) return;
+      if (this.previewPath !== path || generation !== this.openGeneration || !this.isOpenState) return;
       this.previewBody = "";
       this.previewError = String(err);
       this.previewLoading = false;
@@ -219,6 +237,7 @@ export class MissionPage {
   }
 
   private render(): void {
+    if (!this.isOpenState) return;
     const s = this.state;
     const visible = filterSpecs(s.specs, s.query);
 

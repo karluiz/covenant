@@ -75,7 +75,7 @@ import {
   saveSvgScale,
   svgToPng,
 } from "./png-export";
-import { editorHighlight, editorTheme } from "./theme";
+import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -504,9 +504,11 @@ export class StructureEditor {
     return EditorState.create({
       doc: text,
       extensions: [
-        // Chrome.
-        editorTheme,
-        editorHighlight,
+        // Chrome — theme resolved at state-build time. Reopening a file
+        // (or theme change) rebuilds the state via `setSource`, so the
+        // editor always picks up the current light/dark palette.
+        editorTheme(currentEditorMode()),
+        editorHighlight(currentEditorMode()),
         lineNumbers(),
         foldGutter(),
         highlightActiveLine(),

@@ -11,17 +11,15 @@
 
 mod aom;
 mod capabilities_commands;
-mod theme;
-pub mod notch;
 mod connectivity;
 mod context;
-mod drafts;
 pub mod convergence;
-pub mod email;
-pub mod notifications;
 mod cost;
 mod cross_session;
+mod drafts;
+pub mod email;
 mod embedder;
+mod exec_vitals;
 mod executor_idle;
 mod familiar_commands;
 mod fix_proposer;
@@ -29,29 +27,31 @@ mod history_import;
 mod memory;
 mod mission_pair;
 mod mission_persistence;
+pub mod notch;
+pub mod notifications;
 mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
 mod pi_commands;
-pub mod provider_resolve;
 mod project_notes;
+pub mod provider_resolve;
+mod providers_cmd;
 mod safety;
 mod score_auth_commands;
 mod score_commands;
 mod score_sync_commands;
-mod spawns_commands;
-mod spawns_store;
 mod scrollback;
 pub mod settings;
+mod spawns_commands;
+mod spawns_store;
 mod spec_detector;
 pub mod storage;
 mod structure;
-mod providers_cmd;
 mod summarizer;
 mod tab_manifest;
 pub mod telegram;
-mod exec_vitals;
+mod theme;
 mod vitals;
 mod world;
 
@@ -159,8 +159,7 @@ pub(crate) struct AppState {
     /// Sender side of the inbound channel — kept on AppState so respawns
     /// after settings changes feed the same drain task.
     #[allow(dead_code)]
-    telegram_inbound_tx:
-        tokio::sync::mpsc::UnboundedSender<crate::telegram::InboundEvent>,
+    telegram_inbound_tx: tokio::sync::mpsc::UnboundedSender<crate::telegram::InboundEvent>,
     /// Pi RPC executor sessions. Independent of `sessions` (PTY-backed)
     /// because Pi tabs don't go through portable-pty. Lives on AppState
     /// so every `pi_*` Tauri command can address sessions by id.
@@ -187,12 +186,10 @@ pub(crate) async fn get_embedder_from_cell(
     cell: &tokio::sync::OnceCell<Arc<embedder::Embedder>>,
 ) -> Result<Arc<embedder::Embedder>, String> {
     cell.get_or_try_init(|| async {
-        tokio::task::spawn_blocking(|| {
-            embedder::Embedder::new().map(Arc::new)
-        })
-        .await
-        .map_err(|e| format!("embedder init join: {e}"))?
-        .map_err(|e| format!("embedder init: {e}"))
+        tokio::task::spawn_blocking(|| embedder::Embedder::new().map(Arc::new))
+            .await
+            .map_err(|e| format!("embedder init join: {e}"))?
+            .map_err(|e| format!("embedder init: {e}"))
     })
     .await
     .cloned()
@@ -279,10 +276,7 @@ impl RateLimiter {
         max_per_minute: u32,
     ) -> Result<(), String> {
         let now = Instant::now();
-        let entry = self
-            .by_session
-            .entry(session)
-            .or_insert((now, 0));
+        let entry = self.by_session.entry(session).or_insert((now, 0));
         if now.duration_since(entry.0) > Duration::from_secs(60) {
             entry.0 = now;
             entry.1 = 0;
@@ -360,8 +354,7 @@ async fn spawn_session(
     replay_key: Option<String>,
 ) -> Result<String, String> {
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
-    let mut opts = SpawnOptions::from_default_shell()
-        .map_err(|e| format!("shell resolve: {e}"))?;
+    let mut opts = SpawnOptions::from_default_shell().map_err(|e| format!("shell resolve: {e}"))?;
     // zsh-only args/env. On Windows the default shell is pwsh, where
     // `--no-globalrcs` is parsed as the ambiguous `-no*` prefix and
     // dumps the full help banner into the pty (v0.5.5 launch regression).
@@ -424,7 +417,10 @@ async fn spawn_session(
                             attached = false;
                         }
                     }
-                    karl_session::SessionEvent::CwdChanged { session, cwd: new_cwd } => {
+                    karl_session::SessionEvent::CwdChanged {
+                        session,
+                        cwd: new_cwd,
+                    } => {
                         cwd = new_cwd;
                         if attached {
                             // Re-resolve transcript dir from the new cwd.
@@ -520,8 +516,7 @@ async fn spawn_session(
                     // Mission auto-restore hook: when this session
                     // walks into a directory we've seen with a saved
                     // mission before, the operator picks it up.
-                    if let karl_session::SessionEvent::CwdChanged { cwd, .. } = &event
-                    {
+                    if let karl_session::SessionEvent::CwdChanged { cwd, .. } = &event {
                         let cwd_str = cwd.display().to_string();
                         operator_for_world
                             .notify_cwd_changed(id, &cwd_str, &app_for_world)
@@ -601,16 +596,15 @@ async fn spawn_session(
         )
         .await;
 
-    state
-        .sessions
-        .lock()
-        .await
-        .insert(id, ManagedSession {
+    state.sessions.lock().await.insert(
+        id,
+        ManagedSession {
             session,
             _zdotdir: zdotdir,
             world,
             op_state: op_state.clone(),
-        });
+        },
+    );
 
     // Pump 1: raw PTY bytes to xterm. Also feeds the operator's tail
     // buffer so it knows what the executor last printed when checking
@@ -696,7 +690,10 @@ async fn resize_session(
     let id = parse_id(&id)?;
     let sessions = state.sessions.lock().await;
     let managed = sessions.get(&id).ok_or("session not found")?;
-    managed.session.resize(cols, rows).map_err(|e| e.to_string())
+    managed
+        .session
+        .resize(cols, rows)
+        .map_err(|e| e.to_string())
 }
 
 /// Force-kill the foreground process group of a session's PTY.
@@ -705,10 +702,7 @@ async fn resize_session(
 /// by the parent but not propagated to its child processes. The shell
 /// itself is unaffected (it sits in its own pgrp).
 #[tauri::command]
-async fn kill_session_foreground(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+async fn kill_session_foreground(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let id = parse_id(&id)?;
     #[cfg(unix)]
     {
@@ -788,10 +782,7 @@ async fn replay_scrollback(
 /// Drop the scrollback log for a closed tab. Best-effort; missing
 /// files are not an error.
 #[tauri::command]
-async fn delete_scrollback(
-    state: State<'_, AppState>,
-    replay_key: String,
-) -> Result<(), String> {
+async fn delete_scrollback(state: State<'_, AppState>, replay_key: String) -> Result<(), String> {
     scrollback::delete(&state.data_dir, &replay_key);
     Ok(())
 }
@@ -856,19 +847,13 @@ async fn set_operator_live(
 }
 
 #[tauri::command]
-async fn is_operator_live(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<bool, String> {
+async fn is_operator_live(state: State<'_, AppState>, session_id: String) -> Result<bool, String> {
     let id = parse_id(&session_id)?;
     Ok(state.operator.is_live(id).await)
 }
 
 #[tauri::command]
-async fn validate_sendgrid_key(
-    app: tauri::AppHandle,
-    api_key: String,
-) -> Result<bool, String> {
+async fn validate_sendgrid_key(app: tauri::AppHandle, api_key: String) -> Result<bool, String> {
     use tauri::Emitter;
     let base = "https://api.sendgrid.com";
     match crate::email::client::check_key_via(base, &api_key).await {
@@ -1020,8 +1005,8 @@ async fn list_superpowers_missions(
     for entry in entries {
         let path = entry.path();
         let body = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let plan = mission_pair::resolve_plan_for_spec(&path, &plans_dir)
-            .map_err(|e| e.to_string())?;
+        let plan =
+            mission_pair::resolve_plan_for_spec(&path, &plans_dir).map_err(|e| e.to_string())?;
         let goal = body
             .lines()
             .find(|l| !l.starts_with('#') && !l.trim().is_empty())
@@ -1195,10 +1180,7 @@ async fn set_aom_excluded(
 }
 
 #[tauri::command]
-async fn is_aom_excluded(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<bool, String> {
+async fn is_aom_excluded(state: State<'_, AppState>, session_id: String) -> Result<bool, String> {
     let id = parse_id(&session_id)?;
     Ok(state.operator.is_aom_excluded(id).await)
 }
@@ -1227,8 +1209,8 @@ struct AutosuggestStatus {
 fn known_autosuggest_paths() -> Vec<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
     let zsh = std::env::var("ZSH").unwrap_or_else(|_| format!("{home}/.oh-my-zsh"));
-    let zsh_custom = std::env::var("ZSH_CUSTOM")
-        .unwrap_or_else(|_| format!("{home}/.oh-my-zsh/custom"));
+    let zsh_custom =
+        std::env::var("ZSH_CUSTOM").unwrap_or_else(|_| format!("{home}/.oh-my-zsh/custom"));
     vec![
         PathBuf::from("/opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
         PathBuf::from("/usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh"),
@@ -1357,8 +1339,10 @@ async fn build_convergence_inputs(
     tab_hints: Vec<convergence::TabHint>,
 ) -> Vec<convergence::SessionInput> {
     use std::collections::HashMap;
-    let by_id: HashMap<String, convergence::TabHint> =
-        tab_hints.into_iter().map(|t| (t.session_id.clone(), t)).collect();
+    let by_id: HashMap<String, convergence::TabHint> = tab_hints
+        .into_iter()
+        .map(|t| (t.session_id.clone(), t))
+        .collect();
 
     let sessions = state.sessions.lock().await;
     let mut out = Vec::with_capacity(sessions.len());
@@ -1403,13 +1387,15 @@ async fn get_convergence_snapshot(
     tabs: Vec<convergence::TabHint>,
 ) -> Result<convergence::ConvergenceSnapshot, String> {
     let inputs = build_convergence_inputs(&state, &registry, tabs).await;
-    Ok(convergence::build_convergence_snapshot(
-        inputs,
-        &state.operator,
-        &state.storage,
-        &state.aom,
+    Ok(
+        convergence::build_convergence_snapshot(
+            inputs,
+            &state.operator,
+            &state.storage,
+            &state.aom,
+        )
+        .await,
     )
-    .await)
 }
 
 /// 3.14 — light poll surface for the tab strip. Returns session ids
@@ -1475,7 +1461,11 @@ async fn persist_convergence_memory(
     // time to the decision that triggered it.
     let session_short = {
         let s = session_id.0.to_string();
-        if s.len() > 6 { s[s.len() - 6..].to_string() } else { s }
+        if s.len() > 6 {
+            s[s.len() - 6..].to_string()
+        } else {
+            s
+        }
     };
     let recent = match storage.list_operator_decisions(50).await {
         Ok(r) => r,
@@ -1561,7 +1551,9 @@ async fn persist_convergence_memory(
         )
         .await
     {
-        Ok(id) => tracing::info!(memory_id = id, scope = %resolved_scope, "convergence memory saved"),
+        Ok(id) => {
+            tracing::info!(memory_id = id, scope = %resolved_scope, "convergence memory saved")
+        }
         Err(e) => tracing::warn!(error = %e, "failed to persist convergence memory; continuing"),
     }
 }
@@ -1717,17 +1709,12 @@ async fn recent_blocks_by_cwd(
 /// Tab persistence — frontend's TabManager owns the schema; backend
 /// just stores the raw JSON blob. `Ok(None)` means first run / cleared.
 #[tauri::command]
-async fn tab_manifest_load(
-    state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
+async fn tab_manifest_load(state: State<'_, AppState>) -> Result<Option<String>, String> {
     tab_manifest::load(&state.tab_manifest_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn tab_manifest_save(
-    state: State<'_, AppState>,
-    body: String,
-) -> Result<(), String> {
+async fn tab_manifest_save(state: State<'_, AppState>, body: String) -> Result<(), String> {
     tab_manifest::save(&state.tab_manifest_path, &body).map_err(|e| e.to_string())
 }
 
@@ -1787,7 +1774,12 @@ fn maybe_import_zsh_history(
     tauri::async_runtime::spawn(async move {
         // Cheap pre-check: if the user already imported, skip without
         // touching disk.
-        if settings.lock().await.zsh_history_imported_at_unix_ms.is_some() {
+        if settings
+            .lock()
+            .await
+            .zsh_history_imported_at_unix_ms
+            .is_some()
+        {
             return;
         }
 
@@ -1884,11 +1876,7 @@ fn truncate_for_persist(s: &str) -> String {
         while cut > 0 && !s.is_char_boundary(cut) {
             cut -= 1;
         }
-        format!(
-            "{}\n[...truncated, original {} bytes]",
-            &s[..cut],
-            s.len()
-        )
+        format!("{}\n[...truncated, original {} bytes]", &s[..cut], s.len())
     }
 }
 
@@ -1981,12 +1969,12 @@ async fn inject_command(
 /// file probes touch disk. Empty / non-existent cwd returns the empty
 /// `DirContext` (both fields None) — the bar then renders no segments.
 #[tauri::command]
-async fn get_dir_context(
-    state: State<'_, AppState>,
-    cwd: String,
-) -> Result<DirContext, String> {
+async fn get_dir_context(state: State<'_, AppState>, cwd: String) -> Result<DirContext, String> {
     if cwd.trim().is_empty() {
-        return Ok(DirContext { git: None, runtime: None });
+        return Ok(DirContext {
+            git: None,
+            runtime: None,
+        });
     }
     let cache = state.dir_context_cache.clone();
     let path = PathBuf::from(cwd);
@@ -2025,10 +2013,7 @@ async fn set_settings(
         if let Some(win) = app.get_webview_window("notch") {
             notch::reposition_notch(&win, new_corner);
         }
-        let _ = app.emit(
-            "notch:corner",
-            serde_json::json!({ "corner": new_corner }),
-        );
+        let _ = app.emit("notch:corner", serde_json::json!({ "corner": new_corner }));
     }
     if notch_sound_changed {
         let _ = app.emit(
@@ -2084,7 +2069,11 @@ async fn ask_agent(
             .anthropic_api_key
             .clone()
             .ok_or("no api key configured — open Settings (⌘,)")?;
-        (key, s.agent.model_chat.clone(), s.agent.max_calls_per_minute)
+        (
+            key,
+            s.agent.model_chat.clone(),
+            s.agent.max_calls_per_minute,
+        )
     };
 
     // 2. Rate limit (per session).
@@ -2166,7 +2155,9 @@ async fn ask_agent(
             Ok(m) => m.into_inner().unwrap(),
             Err(arc) => std::mem::take(&mut *arc.lock().unwrap()),
         };
-        inner.finish().map_err(|e| format!("parse respond tool: {e}"))?
+        inner
+            .finish()
+            .map_err(|e| format!("parse respond tool: {e}"))?
     };
     let value = serde_json::to_value(&parsed).map_err(|e| e.to_string())?;
     let _ = on_response.send(value);
@@ -2191,10 +2182,7 @@ async fn structure_list_dir(
 /// us so we never have to interpret relative segments here. `kind`
 /// is "file" or "dir"; anything else is rejected.
 #[tauri::command]
-async fn structure_create_path(
-    path: String,
-    kind: String,
-) -> Result<String, String> {
+async fn structure_create_path(path: String, kind: String) -> Result<String, String> {
     let p = PathBuf::from(path);
     match kind.as_str() {
         "file" => tokio::task::spawn_blocking(move || structure::create_file(&p))
@@ -2247,7 +2235,9 @@ async fn structure_read_file(
     max_bytes: Option<u64>,
 ) -> Result<structure::ReadResult, String> {
     let p = PathBuf::from(path);
-    let max = max_bytes.unwrap_or(1024 * 1024).min(MAX_READ_BYTES_HARD_CAP);
+    let max = max_bytes
+        .unwrap_or(1024 * 1024)
+        .min(MAX_READ_BYTES_HARD_CAP);
     tokio::task::spawn_blocking(move || structure::read_file_text(&p, max))
         .await
         .map_err(|e| format!("read_file join: {e}"))?
@@ -2262,10 +2252,7 @@ async fn structure_write_file(path: String, content: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn structure_write_binary_file(
-    path: String,
-    bytes: Vec<u8>,
-) -> Result<(), String> {
+async fn structure_write_binary_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
     let p = PathBuf::from(path);
     tokio::task::spawn_blocking(move || structure::write_file_binary(&p, &bytes))
         .await
@@ -2429,8 +2416,7 @@ async fn spec_author_step(
             .ok_or("no api key configured — open Settings (⌘,)")?
     };
 
-    let base_dir = karl_agent::spec_author::home_covenant_dir()
-        .map_err(|e| e.to_string())?;
+    let base_dir = karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
 
     let mut draft = match draft_id {
         Some(ref id_str) => {

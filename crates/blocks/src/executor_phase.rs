@@ -45,13 +45,11 @@ fn re_claude_write() -> &'static Regex {
     })
 }
 fn re_codex_write() -> &'static Regex {
-    RE_CODEX_WRITE
-        .get_or_init(|| Regex::new(r"^(?:Editing|Writing|Creating)\s+(\S+)").unwrap())
+    RE_CODEX_WRITE.get_or_init(|| Regex::new(r"^(?:Editing|Writing|Creating)\s+(\S+)").unwrap())
 }
 /// Tool-call form: `⏺ Read(path)` etc — argument is a real file.
 fn re_read_tool() -> &'static Regex {
-    RE_READ_TOOL
-        .get_or_init(|| Regex::new(r"⏺\s*(?:Read|Grep|Glob|LS)\(([^)]+)\)").unwrap())
+    RE_READ_TOOL.get_or_init(|| Regex::new(r"⏺\s*(?:Read|Grep|Glob|LS)\(([^)]+)\)").unwrap())
 }
 /// Status-summary form: `Reading file`, `Listed 2 directories`, `Searching`,
 /// `Read 1 file`. No useful file to capture — we just signal the phase.
@@ -69,8 +67,7 @@ fn re_running_tool() -> &'static Regex {
     })
 }
 fn re_running_header() -> &'static Regex {
-    RE_RUNNING_HEADER
-        .get_or_init(|| Regex::new(r"^Running(?:\.{2,}|\s+\d+\s+commands?)").unwrap())
+    RE_RUNNING_HEADER.get_or_init(|| Regex::new(r"^Running(?:\.{2,}|\s+\d+\s+commands?)").unwrap())
 }
 /// Claude Code's processing-status spinner (ACTIVE form only).
 ///
@@ -94,8 +91,10 @@ fn re_done() -> &'static Regex {
 }
 fn re_waiting() -> &'static Regex {
     RE_WAITING.get_or_init(|| {
-        Regex::new(r"(?i)(continue\?\s*\[y/n\]|approve this edit\?|\(y/N\)|press enter to continue)")
-            .unwrap()
+        Regex::new(
+            r"(?i)(continue\?\s*\[y/n\]|approve this edit\?|\(y/N\)|press enter to continue)",
+        )
+        .unwrap()
     })
 }
 
@@ -109,7 +108,9 @@ pub struct ExecutorPhaseDetector {
 
 impl ExecutorPhaseDetector {
     pub fn new() -> Self {
-        Self { phase: ExecutorPhase::Idle }
+        Self {
+            phase: ExecutorPhase::Idle,
+        }
     }
 
     pub fn phase(&self) -> &ExecutorPhase {
@@ -163,15 +164,21 @@ impl ExecutorPhaseDetector {
                 return ExecutorPhase::Running { cmd };
             }
             if re_running_header().is_match(trimmed) {
-                return ExecutorPhase::Running { cmd: "commands".to_string() };
+                return ExecutorPhase::Running {
+                    cmd: "commands".to_string(),
+                };
             }
             if re_waiting().is_match(trimmed) {
-                return ExecutorPhase::Waiting { reason: clamp_target(trimmed) };
+                return ExecutorPhase::Waiting {
+                    reason: clamp_target(trimmed),
+                };
             }
             if let Some(cmd) = trimmed.strip_prefix("$ ") {
                 let cmd = cmd.trim();
                 if !cmd.is_empty() {
-                    return ExecutorPhase::Running { cmd: clamp_target(cmd) };
+                    return ExecutorPhase::Running {
+                        cmd: clamp_target(cmd),
+                    };
                 }
             }
         }
@@ -281,7 +288,12 @@ mod tests {
         let mut d = ExecutorPhaseDetector::new();
         let changed = d.feed("⏺ Update(profile.rs)\n".as_bytes());
         assert!(changed);
-        assert_eq!(d.phase(), &ExecutorPhase::Writing { file: "profile.rs".into() });
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Writing {
+                file: "profile.rs".into()
+            }
+        );
     }
 
     #[test]
@@ -289,7 +301,12 @@ mod tests {
         let mut d = ExecutorPhaseDetector::new();
         let changed = d.feed(b"Editing src/main.rs\n");
         assert!(changed);
-        assert_eq!(d.phase(), &ExecutorPhase::Writing { file: "src/main.rs".into() });
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Writing {
+                file: "src/main.rs".into()
+            }
+        );
     }
 
     #[test]
@@ -297,7 +314,12 @@ mod tests {
         let mut d = ExecutorPhaseDetector::new();
         let changed = d.feed("⏺ Read(session.rs)\n".as_bytes());
         assert!(changed);
-        assert_eq!(d.phase(), &ExecutorPhase::Reading { file: "session.rs".into() });
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Reading {
+                file: "session.rs".into()
+            }
+        );
     }
 
     #[test]

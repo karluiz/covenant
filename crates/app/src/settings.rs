@@ -156,7 +156,11 @@ pub struct TelegramEvents {
 
 impl Default for TelegramEvents {
     fn default() -> Self {
-        Self { escalations: true, mission_completed: true, mission_failed: true }
+        Self {
+            escalations: true,
+            mission_completed: true,
+            mission_failed: true,
+        }
     }
 }
 
@@ -283,22 +287,34 @@ fn default_digest_window() -> u32 {
 
 fn default_model_routes() -> HashMap<Role, RouteEntry> {
     let mut m = HashMap::new();
-    m.insert(Role::Summary, RouteEntry {
-        provider_id: "anthropic".into(),
-        model: "claude-sonnet-4-6".into(),
-    });
-    m.insert(Role::Chat, RouteEntry {
-        provider_id: "anthropic".into(),
-        model: "claude-opus-4-7".into(),
-    });
-    m.insert(Role::Operator, RouteEntry {
-        provider_id: "anthropic".into(),
-        model: "claude-sonnet-4-6".into(),
-    });
-    m.insert(Role::Triage, RouteEntry {
-        provider_id: "anthropic".into(),
-        model: karl_agent::DEFAULT_TRIAGE_MODEL.into(),
-    });
+    m.insert(
+        Role::Summary,
+        RouteEntry {
+            provider_id: "anthropic".into(),
+            model: "claude-sonnet-4-6".into(),
+        },
+    );
+    m.insert(
+        Role::Chat,
+        RouteEntry {
+            provider_id: "anthropic".into(),
+            model: "claude-opus-4-7".into(),
+        },
+    );
+    m.insert(
+        Role::Operator,
+        RouteEntry {
+            provider_id: "anthropic".into(),
+            model: "claude-sonnet-4-6".into(),
+        },
+    );
+    m.insert(
+        Role::Triage,
+        RouteEntry {
+            provider_id: "anthropic".into(),
+            model: karl_agent::DEFAULT_TRIAGE_MODEL.into(),
+        },
+    );
     m
 }
 
@@ -391,7 +407,9 @@ pub enum ThemeMode {
 }
 
 impl Default for ThemeMode {
-    fn default() -> Self { Self::System }
+    fn default() -> Self {
+        Self::System
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -470,8 +488,7 @@ impl Default for TerminalConfig {
 }
 
 fn default_font_family() -> String {
-    "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace"
-        .to_string()
+    "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace".to_string()
 }
 
 fn default_font_size() -> u32 {
@@ -711,14 +728,20 @@ mod tests {
     #[test]
     fn notification_config_default_enables_executor_idle() {
         let cfg = NotificationConfig::default();
-        assert!(cfg.on_executor_idle, "executor idle notifications default on");
+        assert!(
+            cfg.on_executor_idle,
+            "executor idle notifications default on"
+        );
     }
 
     #[test]
     fn notification_config_deserializes_without_executor_idle_field() {
         let json = r#"{"on_operator_escalate":true,"on_aom_error":true,"on_aom_complete":true}"#;
         let cfg: NotificationConfig = serde_json::from_str(json).expect("parse");
-        assert!(cfg.on_executor_idle, "missing field falls back to default true");
+        assert!(
+            cfg.on_executor_idle,
+            "missing field falls back to default true"
+        );
     }
 
     #[test]
@@ -777,8 +800,14 @@ mod tests {
         let loaded = load(&path);
         assert_eq!(loaded.sendgrid_api_key.as_deref(), Some("SG.test"));
         assert!(loaded.notifications.email_enabled);
-        assert_eq!(loaded.notifications.email_from.as_deref(), Some("from@example.com"));
-        assert_eq!(loaded.notifications.email_to.as_deref(), Some("to@example.com"));
+        assert_eq!(
+            loaded.notifications.email_from.as_deref(),
+            Some("from@example.com")
+        );
+        assert_eq!(
+            loaded.notifications.email_to.as_deref(),
+            Some("to@example.com")
+        );
         assert_eq!(loaded.notifications.email_digest_window_minutes, 30);
     }
 
@@ -829,10 +858,12 @@ mod tests {
     fn migrates_legacy_anthropic_key_into_providers() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        std::fs::write(&path,
-            r#"{"anthropic_api_key":"sk-ant-legacy"}"#).unwrap();
+        std::fs::write(&path, r#"{"anthropic_api_key":"sk-ant-legacy"}"#).unwrap();
         let s = load(&path);
-        let anthropic = s.providers.get("anthropic").expect("default anthropic entry");
+        let anthropic = s
+            .providers
+            .get("anthropic")
+            .expect("default anthropic entry");
         assert_eq!(anthropic.api_key.as_deref(), Some("sk-ant-legacy"));
     }
 

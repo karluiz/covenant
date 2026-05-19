@@ -65,11 +65,8 @@ pub fn spawn(
                         }
                     }
                     last_notified.insert(session, now);
-                    let (title, body) = format_notification(
-                        &agent,
-                        prompt_text.as_deref(),
-                        quiet_ms,
-                    );
+                    let (title, body) =
+                        format_notification(&agent, prompt_text.as_deref(), quiet_ms);
                     let _ = dispatch(
                         &notifier,
                         &email,
@@ -119,7 +116,8 @@ mod tests {
 
     #[test]
     fn format_uses_prompt_text_when_present() {
-        let (title, body) = format_notification("claude", Some("Do you want to proceed? (y/N)"), 5000);
+        let (title, body) =
+            format_notification("claude", Some("Do you want to proceed? (y/N)"), 5000);
         assert_eq!(title, "claude is waiting");
         assert_eq!(body, "Do you want to proceed? (y/N)");
     }

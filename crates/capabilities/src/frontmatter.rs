@@ -30,14 +30,24 @@ impl Frontmatter {
 /// Parse `---\n...\n---\n<body>`. If no frontmatter block is present, returns
 /// `Frontmatter { fields: {}, body: <full input> }` — never errors on absence.
 pub fn parse(input: &str) -> Frontmatter {
-    let stripped = input.strip_prefix("---\n").or_else(|| input.strip_prefix("---\r\n"));
+    let stripped = input
+        .strip_prefix("---\n")
+        .or_else(|| input.strip_prefix("---\r\n"));
     let Some(rest) = stripped else {
-        return Frontmatter { fields: HashMap::new(), body: input.to_string() };
+        return Frontmatter {
+            fields: HashMap::new(),
+            body: input.to_string(),
+        };
     };
 
     let end = match find_closing(rest) {
         Some(idx) => idx,
-        None => return Frontmatter { fields: HashMap::new(), body: input.to_string() },
+        None => {
+            return Frontmatter {
+                fields: HashMap::new(),
+                body: input.to_string(),
+            }
+        }
     };
 
     let yaml = &rest[..end.start];
@@ -60,7 +70,10 @@ pub fn parse(input: &str) -> Frontmatter {
     Frontmatter { fields, body }
 }
 
-struct Span { start: usize, end: usize }
+struct Span {
+    start: usize,
+    end: usize,
+}
 
 fn find_closing(s: &str) -> Option<Span> {
     // Find a line that is exactly `---` (followed by \n, \r\n, or EOF).
@@ -68,7 +81,10 @@ fn find_closing(s: &str) -> Option<Span> {
     for line in s.split_inclusive('\n') {
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed == "---" {
-            return Some(Span { start: idx, end: idx + line.len() });
+            return Some(Span {
+                start: idx,
+                end: idx + line.len(),
+            });
         }
         idx += line.len();
     }

@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use karl_agent::provider::{
-    anthropic::AnthropicProvider, openai_compat::OpenAiCompatProvider, LlmProvider,
-    ProviderConfig, ProviderKind,
+    anthropic::AnthropicProvider, openai_compat::OpenAiCompatProvider, LlmProvider, ProviderConfig,
+    ProviderKind,
 };
 
 use crate::settings::{Role, Settings};
@@ -53,7 +53,10 @@ pub fn resolve_route(settings: &Settings, role: Role) -> Result<ResolvedRoute, R
         ProviderKind::Anthropic => Arc::new(AnthropicProvider::new(cfg)),
         ProviderKind::OpenAiCompat => Arc::new(OpenAiCompatProvider::new(cfg)),
     };
-    Ok(ResolvedRoute { provider, model: route.model.clone() })
+    Ok(ResolvedRoute {
+        provider,
+        model: route.model.clone(),
+    })
 }
 
 #[cfg(test)]
@@ -71,10 +74,7 @@ mod tests {
     #[test]
     fn errors_on_route_pointing_at_missing_provider() {
         let mut s = Settings::default();
-        s.model_routes
-            .get_mut(&Role::Summary)
-            .unwrap()
-            .provider_id = "nonexistent".into();
+        s.model_routes.get_mut(&Role::Summary).unwrap().provider_id = "nonexistent".into();
         let err = resolve_route(&s, Role::Summary).unwrap_err();
         assert!(matches!(err, ResolveError::UnknownProvider(_)));
     }

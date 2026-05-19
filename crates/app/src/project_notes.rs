@@ -40,7 +40,7 @@ pub struct Note {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Snapshot {
     pub commands: Vec<Command>,
-    pub notes: Vec<Note>,   // newest first, capped to 50
+    pub notes: Vec<Note>, // newest first, capped to 50
     pub docs: String,
 }
 
@@ -82,7 +82,11 @@ impl Store {
             let commands = list_commands(&conn, &group_id)?;
             let notes = list_notes(&conn, &group_id, 50, None)?;
             let docs = get_docs(&conn, &group_id)?;
-            Ok(Snapshot { commands, notes, docs })
+            Ok(Snapshot {
+                commands,
+                notes,
+                docs,
+            })
         })
         .await
         .map_err(|e| Error::Join(e.to_string()))?
@@ -102,13 +106,12 @@ impl Store {
             let conn = conn.blocking_lock();
             let now = Self::now_ms();
             let id = Ulid::new().to_string();
-            let next_order: i64 = conn
-                .query_row(
-                    "SELECT COALESCE(MAX(sort_order), -1) + 1
+            let next_order: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1
                        FROM project_commands WHERE group_id = ?1",
-                    params![&group_id],
-                    |r| r.get(0),
-                )?;
+                params![&group_id],
+                |r| r.get(0),
+            )?;
             conn.execute(
                 "INSERT INTO project_commands
                  (id, group_id, title, command, sort_order,
@@ -172,21 +175,14 @@ impl Store {
         let id = id.to_owned();
         tokio::task::spawn_blocking(move || -> Result<()> {
             let conn = conn.blocking_lock();
-            conn.execute(
-                "DELETE FROM project_commands WHERE id = ?1",
-                params![&id],
-            )?;
+            conn.execute("DELETE FROM project_commands WHERE id = ?1", params![&id])?;
             Ok(())
         })
         .await
         .map_err(|e| Error::Join(e.to_string()))?
     }
 
-    pub async fn reorder_commands(
-        &self,
-        group_id: &str,
-        ordered_ids: Vec<String>,
-    ) -> Result<()> {
+    pub async fn reorder_commands(&self, group_id: &str, ordered_ids: Vec<String>) -> Result<()> {
         let conn = self.conn.clone();
         let group_id = group_id.to_owned();
         tokio::task::spawn_blocking(move || -> Result<()> {
@@ -221,7 +217,12 @@ impl Store {
                  VALUES (?1, ?2, ?3, ?4)",
                 params![&id, &group_id, &body, now],
             )?;
-            Ok(Note { id, group_id, body, created_at_unix_ms: now })
+            Ok(Note {
+                id,
+                group_id,
+                body,
+                created_at_unix_ms: now,
+            })
         })
         .await
         .map_err(|e| Error::Join(e.to_string()))?
@@ -232,10 +233,7 @@ impl Store {
         let id = id.to_owned();
         tokio::task::spawn_blocking(move || -> Result<()> {
             let conn = conn.blocking_lock();
-            conn.execute(
-                "DELETE FROM project_notes WHERE id = ?1",
-                params![&id],
-            )?;
+            conn.execute("DELETE FROM project_notes WHERE id = ?1", params![&id])?;
             Ok(())
         })
         .await
@@ -403,9 +401,7 @@ pub async fn build_context(
 
 #[allow(dead_code)]
 fn render_context(snapshot: &Snapshot, group_label: &str, budget_tokens: usize) -> String {
-    if snapshot.commands.is_empty()
-        && snapshot.notes.is_empty()
-        && snapshot.docs.trim().is_empty()
+    if snapshot.commands.is_empty() && snapshot.notes.is_empty() && snapshot.docs.trim().is_empty()
     {
         return String::new();
     }
@@ -493,9 +489,7 @@ fn render_docs(docs: &str, budget_chars: usize) -> String {
     }
     let remaining = budget_chars.saturating_sub(toc.len());
     let body_excerpt: String = trimmed.chars().take(remaining).collect();
-    format!(
-        "{toc}{body_excerpt}\n[truncated — see full docs in panel]\n"
-    )
+    format!("{toc}{body_excerpt}\n[truncated — see full docs in panel]\n")
 }
 
 #[allow(dead_code)]
@@ -572,7 +566,10 @@ pub async fn project_command_update(
     title: String,
     command: String,
 ) -> std::result::Result<Option<Command>, String> {
-    store.update_command(&id, &title, &command).await.map_err(map_err)
+    store
+        .update_command(&id, &title, &command)
+        .await
+        .map_err(map_err)
 }
 
 #[tauri::command]
@@ -787,7 +784,10 @@ mod tests {
                 created_at_unix_ms: now - (i as i64 * 1000),
             });
         }
-        let snap = Snapshot { notes, ..Default::default() };
+        let snap = Snapshot {
+            notes,
+            ..Default::default()
+        };
         let out = render_context(&snap, "P", 5000);
         let count = out.matches("- [").count();
         assert_eq!(count, 20);

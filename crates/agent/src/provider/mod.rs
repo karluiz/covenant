@@ -81,23 +81,30 @@ pub async fn collect_oneshot(
             req,
             Box::new(move |evt| match evt {
                 AgentEvent::Delta(t) => {
-                    if let Ok(mut b) = buf_cb.lock() { b.push_str(&t); }
+                    if let Ok(mut b) = buf_cb.lock() {
+                        b.push_str(&t);
+                    }
                 }
                 AgentEvent::ThinkingDelta(t) => {
-                    if let Ok(mut b) = think_cb.lock() { b.push_str(&t); }
+                    if let Ok(mut b) = think_cb.lock() {
+                        b.push_str(&t);
+                    }
                 }
                 AgentEvent::Usage(u) => {
                     if let Ok(mut e) = usage_cb.lock() {
                         e.input_tokens = e.input_tokens.max(u.input_tokens);
                         e.output_tokens = e.output_tokens.max(u.output_tokens);
-                        e.cache_creation_input_tokens =
-                            e.cache_creation_input_tokens.max(u.cache_creation_input_tokens);
+                        e.cache_creation_input_tokens = e
+                            .cache_creation_input_tokens
+                            .max(u.cache_creation_input_tokens);
                         e.cache_read_input_tokens =
                             e.cache_read_input_tokens.max(u.cache_read_input_tokens);
                     }
                 }
                 AgentEvent::StopReason(r) => {
-                    if let Ok(mut s) = stop_cb.lock() { *s = Some(r); }
+                    if let Ok(mut s) = stop_cb.lock() {
+                        *s = Some(r);
+                    }
                 }
                 _ => {}
             }),
@@ -110,7 +117,11 @@ pub async fn collect_oneshot(
         usage: usage.lock().map(|u| *u).unwrap_or_default(),
         stop_reason: stop_reason.lock().map(|s| s.clone()).unwrap_or_default(),
         thinking_summary,
-        thinking_full: if thinking_full.is_empty() { vec![] } else { vec![thinking_full] },
+        thinking_full: if thinking_full.is_empty() {
+            vec![]
+        } else {
+            vec![thinking_full]
+        },
     })
 }
 
@@ -121,7 +132,8 @@ pub async fn triage_via_provider(
     provider: &dyn LlmProvider,
     mut req: AskRequest,
 ) -> Result<(crate::TriageVerdict, crate::TokenUsage), AgentError> {
-    req.system_prompt.push_str(crate::TRIAGE_OUTPUT_INSTRUCTIONS);
+    req.system_prompt
+        .push_str(crate::TRIAGE_OUTPUT_INSTRUCTIONS);
     if req.max_tokens == 0 || req.max_tokens > 128 {
         req.max_tokens = 64;
     }

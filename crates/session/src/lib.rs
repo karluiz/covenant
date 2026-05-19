@@ -21,9 +21,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use karl_blocks::{BlockEvent, BlockId, BlockParser};
-use karl_pty::{PtySession, SpawnOptions};
 #[cfg(unix)]
 use karl_pty::foreground_process_name;
+use karl_pty::{PtySession, SpawnOptions};
 
 use crate::idle::{Decision, IdleDetector};
 use serde::{Deserialize, Serialize};
@@ -621,9 +621,7 @@ mod tests {
         let mut bus = session.subscribe();
 
         tokio::time::sleep(Duration::from_millis(200)).await;
-        session
-            .write(b"echo karl-bus\nexit\n")
-            .expect("write");
+        session.write(b"echo karl-bus\nexit\n").expect("write");
 
         let mut submitted: Option<BlockId> = None;
         let mut finished: Option<(BlockId, String, Option<i32>)> = None;
@@ -683,7 +681,9 @@ mod event_serde_tests {
 
     #[test]
     fn agent_resumed_serializes() {
-        let ev = SessionEvent::AgentResumed { session: SessionId::new() };
+        let ev = SessionEvent::AgentResumed {
+            session: SessionId::new(),
+        };
         let json = serde_json::to_string(&ev).unwrap();
         assert!(json.contains(r#""kind":"agent_resumed""#));
     }
@@ -699,7 +699,12 @@ mod event_serde_tests {
         };
         let ui = ev.to_ui().expect("should produce SessionUiEvent");
         match ui {
-            SessionUiEvent::AgentIdleWaiting { session, agent, prompt_text, quiet_ms } => {
+            SessionUiEvent::AgentIdleWaiting {
+                session,
+                agent,
+                prompt_text,
+                quiet_ms,
+            } => {
                 assert_eq!(session, id);
                 assert_eq!(agent, "claude");
                 assert_eq!(prompt_text.as_deref(), Some("(y/N)"));
@@ -714,7 +719,9 @@ mod event_serde_tests {
         use crate::{ExecutorPhase, SessionEvent, SessionId};
         let ev = SessionEvent::ExecutorStateChanged {
             session: SessionId::new(),
-            phase: ExecutorPhase::Writing { file: "profile.rs".into() },
+            phase: ExecutorPhase::Writing {
+                file: "profile.rs".into(),
+            },
             tab_label: None,
         };
         let json = serde_json::to_string(&ev).expect("serialize");

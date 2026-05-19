@@ -6,9 +6,8 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 const STOPWORDS: &[&str] = &[
-    "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at",
-    "is", "are", "was", "were", "be", "been", "being",
-    "this", "that", "these", "those", "it", "its", "for", "with", "from",
+    "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "at", "is", "are", "was", "were",
+    "be", "been", "being", "this", "that", "these", "those", "it", "its", "for", "with", "from",
     "as", "by", "do", "does", "did", "done", "doing", "yes", "no", "ok",
 ];
 
@@ -73,7 +72,10 @@ fn combined_score(hit: &MemoryHit) -> f32 {
 /// Count keyword overlap: how many query tags appear in memory tags.
 pub fn extract_keyword_score(memory_tags: &str, query_tags: &[String]) -> u32 {
     let mem: Vec<&str> = memory_tags.split_whitespace().collect();
-    query_tags.iter().filter(|q| mem.contains(&q.as_str())).count() as u32
+    query_tags
+        .iter()
+        .filter(|q| mem.contains(&q.as_str()))
+        .count() as u32
 }
 
 /// Top-k retrieval: rescore by keyword overlap, sort by combined score
@@ -92,7 +94,11 @@ pub fn retrieve_hybrid(
         .into_iter()
         .map(|(row, dist)| {
             let kw = extract_keyword_score(&row.tags, query_tags);
-            MemoryHit { row, vector_distance: dist, keyword_score: kw }
+            MemoryHit {
+                row,
+                vector_distance: dist,
+                keyword_score: kw,
+            }
         })
         .collect();
 
@@ -162,12 +168,7 @@ mod tests {
         assert_eq!(id, Some(99));
     }
 
-    fn fixture_row(
-        id: i64,
-        tags: &str,
-        decision: &str,
-        created_at: u64,
-    ) -> OperatorMemoryRow {
+    fn fixture_row(id: i64, tags: &str, decision: &str, created_at: u64) -> OperatorMemoryRow {
         OperatorMemoryRow {
             id,
             pattern: "dummy".to_string(),
@@ -181,8 +182,10 @@ mod tests {
 
     #[test]
     fn extract_tags_lowercases_dedups_drops_stopwords() {
-        assert_eq!(extract_tags("Run THE tests! Run again!"),
-                   vec!["run", "tests", "again"]);
+        assert_eq!(
+            extract_tags("Run THE tests! Run again!"),
+            vec!["run", "tests", "again"]
+        );
     }
 
     #[test]
@@ -193,7 +196,10 @@ mod tests {
 
     #[test]
     fn extract_keyword_score_counts_overlap() {
-        assert_eq!(extract_keyword_score("foo bar baz", &["bar".into(), "qux".into()]), 1);
+        assert_eq!(
+            extract_keyword_score("foo bar baz", &["bar".into(), "qux".into()]),
+            1
+        );
     }
 
     #[test]

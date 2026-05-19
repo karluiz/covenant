@@ -55,7 +55,9 @@ pub struct IncomingMessage {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Chat { pub id: i64 }
+pub struct Chat {
+    pub id: i64,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackQuery {
@@ -66,4 +68,6 @@ pub struct CallbackQuery {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct From { pub id: i64 }
+pub struct From {
+    pub id: i64,
+}

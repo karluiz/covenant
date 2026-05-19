@@ -70,7 +70,11 @@ struct Inner {
 }
 
 impl CrossSessionWatcher {
-    pub fn spawn(app: AppHandle, settings: Arc<Mutex<Settings>>, vitals: crate::vitals::VitalsHandle) -> Self {
+    pub fn spawn(
+        app: AppHandle,
+        settings: Arc<Mutex<Settings>>,
+        vitals: crate::vitals::VitalsHandle,
+    ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             worlds: HashMap::new(),
         }));
@@ -99,11 +103,7 @@ impl CrossSessionWatcher {
         world: Arc<Mutex<SessionWorldModel>>,
         mut bus: broadcast::Receiver<SessionEvent>,
     ) {
-        self.inner
-            .lock()
-            .await
-            .worlds
-            .insert(session_id, world);
+        self.inner.lock().await.worlds.insert(session_id, world);
 
         let tx = self.incoming_tx.clone();
         let inner_for_drop = self.inner.clone();
@@ -286,7 +286,12 @@ async fn check_for_pattern(
         latency_ms = started.elapsed().as_millis() as u64,
         "cross-session check complete"
     );
-    vitals.record_complete(trigger_id, model_for_vitals, usage, started.elapsed().as_millis() as u32);
+    vitals.record_complete(
+        trigger_id,
+        model_for_vitals,
+        usage,
+        started.elapsed().as_millis() as u32,
+    );
 
     let Some(message) = parse_finding(&response) else {
         return Ok(());

@@ -10,19 +10,30 @@ use std::time::{Duration, Instant};
 use regex::Regex;
 
 pub const KNOWN_AGENTS: &[&str] = &[
-    "claude", "codex", "opencode", "copilot", "gh-copilot", "aider", "gemini",
+    "claude",
+    "codex",
+    "opencode",
+    "copilot",
+    "gh-copilot",
+    "aider",
+    "gemini",
+    "pi",
 ];
 
 /// Agents that render inline (no alternate screen). For these we skip the
 /// alt-screen gate but require a prompt-text regex match to avoid firing
 /// while the agent is mid-thought.
-pub const INLINE_AGENTS: &[&str] = &["claude", "codex"];
+pub const INLINE_AGENTS: &[&str] = &["claude", "codex", "pi"];
 
 const QUIET_THRESHOLD: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decision {
-    Idle { agent: String, prompt_text: Option<String>, quiet_ms: u64 },
+    Idle {
+        agent: String,
+        prompt_text: Option<String>,
+        quiet_ms: u64,
+    },
     Resumed,
     NoChange,
 }
@@ -82,13 +93,23 @@ impl IdleDetector {
         in_alt_screen: bool,
         screen_text: &str,
     ) -> Decision {
-        if self.notified { return Decision::NoChange; }
+        if self.notified {
+            return Decision::NoChange;
+        }
         let quiet = now.saturating_duration_since(self.last_output_at);
-        if quiet < QUIET_THRESHOLD { return Decision::NoChange; }
-        let Some(name) = fg_proc else { return Decision::NoChange; };
-        if !KNOWN_AGENTS.contains(&name) { return Decision::NoChange; }
+        if quiet < QUIET_THRESHOLD {
+            return Decision::NoChange;
+        }
+        let Some(name) = fg_proc else {
+            return Decision::NoChange;
+        };
+        if !KNOWN_AGENTS.contains(&name) {
+            return Decision::NoChange;
+        }
         let inline = INLINE_AGENTS.contains(&name);
-        if !in_alt_screen && !inline { return Decision::NoChange; }
+        if !in_alt_screen && !inline {
+            return Decision::NoChange;
+        }
 
         let prompt_text = self.match_prompt(screen_text);
         // Inline agents have no alt-screen boundary; require a prompt
@@ -110,7 +131,9 @@ impl IdleDetector {
         // the bottom.
         for line in screen_text.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             for re in &self.prompt_regexes {
                 if re.is_match(line) {
                     return Some(trimmed.to_string());
@@ -122,14 +145,18 @@ impl IdleDetector {
 }
 
 impl Default for IdleDetector {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn t0() -> Instant { Instant::now() }
+    fn t0() -> Instant {
+        Instant::now()
+    }
 
     #[test]
     fn no_signal_when_quiet_under_threshold() {
@@ -147,7 +174,11 @@ mod tests {
         let now = t0() + Duration::from_secs(5);
         let dec = d.evaluate(now, Some("claude"), true, "Do you want to proceed? (y/N)");
         match dec {
-            Decision::Idle { agent, prompt_text, quiet_ms } => {
+            Decision::Idle {
+                agent,
+                prompt_text,
+                quiet_ms,
+            } => {
                 assert_eq!(agent, "claude");
                 assert!(prompt_text.unwrap().contains("Do you want"));
                 assert!(quiet_ms >= 3000);
@@ -155,21 +186,30 @@ mod tests {
             other => panic!("expected Idle, got {other:?}"),
         }
         let now2 = now + Duration::from_secs(1);
-        assert_eq!(d.evaluate(now2, Some("claude"), true, ""), Decision::NoChange);
+        assert_eq!(
+            d.evaluate(now2, Some("claude"), true, ""),
+            Decision::NoChange
+        );
     }
 
     #[test]
     fn skips_unknown_agents() {
         let mut d = IdleDetector::new();
         let now = t0() + Duration::from_secs(5);
-        assert_eq!(d.evaluate(now, Some("zsh"), true, "(y/N)"), Decision::NoChange);
+        assert_eq!(
+            d.evaluate(now, Some("zsh"), true, "(y/N)"),
+            Decision::NoChange
+        );
     }
 
     #[test]
     fn skips_when_not_in_alt_screen() {
         let mut d = IdleDetector::new();
         let now = t0() + Duration::from_secs(5);
-        assert_eq!(d.evaluate(now, Some("claude"), false, "(y/N)"), Decision::NoChange);
+        assert_eq!(
+            d.evaluate(now, Some("claude"), false, "(y/N)"),
+            Decision::NoChange
+        );
     }
 
     #[test]

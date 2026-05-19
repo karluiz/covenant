@@ -171,16 +171,13 @@ impl Sink {
                 // with a third-party shell snippet that only emits the
                 // bare `; C` form.
                 let command = match rest.get(1) {
-                    Some(cmd_bytes) => String::from_utf8_lossy(cmd_bytes)
-                        .trim()
-                        .to_string(),
+                    Some(cmd_bytes) => String::from_utf8_lossy(cmd_bytes).trim().to_string(),
                     None => {
                         let cleaned = strip_ansi_escapes::strip(&self.cmd_buf);
                         String::from_utf8_lossy(&cleaned).trim().to_string()
                     }
                 };
-                self.events
-                    .push(BlockEvent::CommandSubmitted { command });
+                self.events.push(BlockEvent::CommandSubmitted { command });
                 self.state = CaptureState::Idle;
                 self.cmd_buf.clear();
             }
@@ -189,15 +186,16 @@ impl Sink {
                     .get(1)
                     .and_then(|b| std::str::from_utf8(b).ok())
                     .and_then(|s| s.parse::<i32>().ok());
-                self.events
-                    .push(BlockEvent::CommandFinished { exit_code });
+                self.events.push(BlockEvent::CommandFinished { exit_code });
             }
             _ => {}
         }
     }
 
     fn handle_7(&mut self, rest: &[&[u8]]) {
-        let Some(uri_bytes) = rest.first() else { return };
+        let Some(uri_bytes) = rest.first() else {
+            return;
+        };
         let Ok(uri) = std::str::from_utf8(uri_bytes) else {
             return;
         };
@@ -282,8 +280,7 @@ mod tests {
         // Snippet emits `; C ; <cmd>` directly. Even if the bytes between
         // B and C contain noise (autosuggestion redraw, etc.), the
         // explicit payload wins.
-        let evs =
-            parse(b"\x1b]133;B\x07lls-noise\x1b]133;C;ls -la\x1b\\");
+        let evs = parse(b"\x1b]133;B\x07lls-noise\x1b]133;C;ls -la\x1b\\");
         assert_eq!(
             evs,
             vec![BlockEvent::CommandSubmitted {
@@ -317,10 +314,7 @@ mod tests {
     #[test]
     fn osc133_done_without_exit() {
         let evs = parse(b"\x1b]133;D\x07");
-        assert_eq!(
-            evs,
-            vec![BlockEvent::CommandFinished { exit_code: None }]
-        );
+        assert_eq!(evs, vec![BlockEvent::CommandFinished { exit_code: None }]);
     }
 
     #[test]

@@ -7,6 +7,7 @@
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pushInfoToast } from "../notifications/toast";
+import { attachTooltip } from "../tooltip/tooltip";
 import { WorkspaceManager } from "./manager";
 
 const KBD_NEW = "⌘⌥N";
@@ -55,7 +56,7 @@ export class WorkspaceSwitcher {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "workspace-chip";
-    btn.title = `Workspaces (${KBD_PICK})`;
+    attachTooltip(btn, `Workspaces (${KBD_PICK})`);
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.togglePopover();
@@ -113,7 +114,7 @@ export class WorkspaceSwitcher {
       this.chip.innerHTML = "";
       return;
     }
-    this.chip.title = `${active.name} — Workspaces (${KBD_PICK})`;
+    attachTooltip(this.chip, `${active.name} — Workspaces (${KBD_PICK})`);
     const tint = active.color ? esc(active.color) : "currentColor";
     this.chip.innerHTML = `
       <span class="new-tab-plus">

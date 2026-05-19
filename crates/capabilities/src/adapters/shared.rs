@@ -200,9 +200,15 @@ mod tests {
                 "react": { "source": "vercel-labs/agent-skills@react", "version": "1.2.3" }
             }
         });
-        write(&tmp.path().join(".agents/.skill-lock.json"), &lock.to_string());
+        write(
+            &tmp.path().join(".agents/.skill-lock.json"),
+            &lock.to_string(),
+        );
         let skills = scan(tmp.path()).unwrap();
-        assert_eq!(skills[0].source.as_deref(), Some("vercel-labs/agent-skills@react"));
+        assert_eq!(
+            skills[0].source.as_deref(),
+            Some("vercel-labs/agent-skills@react")
+        );
         assert_eq!(skills[0].version.as_deref(), Some("1.2.3"));
     }
 
@@ -216,7 +222,10 @@ mod tests {
         let lock = serde_json::json!({
             "vue": { "source": "foo/bar@vue", "version": "0.1.0" }
         });
-        write(&tmp.path().join(".agents/.skill-lock.json"), &lock.to_string());
+        write(
+            &tmp.path().join(".agents/.skill-lock.json"),
+            &lock.to_string(),
+        );
         let skills = scan(tmp.path()).unwrap();
         assert_eq!(skills[0].source.as_deref(), Some("foo/bar@vue"));
         assert_eq!(skills[0].version.as_deref(), Some("0.1.0"));
@@ -234,7 +243,10 @@ mod tests {
                 "other": { "source": "x/y", "version": "9.9.9" }
             }
         });
-        write(&tmp.path().join(".agents/.skill-lock.json"), &lock.to_string());
+        write(
+            &tmp.path().join(".agents/.skill-lock.json"),
+            &lock.to_string(),
+        );
         let skills = scan(tmp.path()).unwrap();
         assert_eq!(skills.len(), 1);
         assert!(skills[0].source.is_none());
@@ -248,7 +260,10 @@ mod tests {
             &tmp.path().join(".agents/skills/react/SKILL.md"),
             "---\nname: react\n---\n",
         );
-        write(&tmp.path().join(".agents/.skill-lock.json"), "{ not json at all");
+        write(
+            &tmp.path().join(".agents/.skill-lock.json"),
+            "{ not json at all",
+        );
         let skills = scan(tmp.path()).unwrap();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "react");

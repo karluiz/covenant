@@ -370,8 +370,7 @@ impl Storage {
         let conn = Connection::open(path)?;
         // Smoke-check the extension is live; this surfaces wiring breakage
         // immediately rather than letting later vec0 queries fail mysteriously.
-        let _vec_version: String =
-            conn.query_row("SELECT vec_version()", [], |r| r.get(0))?;
+        let _vec_version: String = conn.query_row("SELECT vec_version()", [], |r| r.get(0))?;
         conn.execute_batch(SCHEMA)?;
         // Idempotent migration: add cost_usd to operator_decisions
         // for older DBs created before M-OP5 Phase B. Errors mean the
@@ -553,34 +552,32 @@ impl Storage {
             return Ok(Vec::new());
         }
         let conn = self.inner.clone();
-        tokio::task::spawn_blocking(
-            move || -> Result<Vec<HistoricalBlock>, StorageError> {
-                let c = conn.blocking_lock();
-                let mut stmt = c.prepare(
-                    "SELECT session_id, command, cwd, exit_code, duration_ms,
+        tokio::task::spawn_blocking(move || -> Result<Vec<HistoricalBlock>, StorageError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT session_id, command, cwd, exit_code, duration_ms,
                             finished_at_unix_ms
                      FROM blocks
                      WHERE cwd = ?1
                      ORDER BY finished_at_unix_ms DESC
                      LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![cwd, limit as i64], |r| {
-                    Ok(HistoricalBlock {
-                        session_id_short: shorten(r.get::<_, String>(0)?.as_str()),
-                        command: r.get(1)?,
-                        cwd: r.get(2)?,
-                        exit_code: r.get(3)?,
-                        duration_ms: r.get::<_, i64>(4)? as u64,
-                        finished_at_unix_ms: r.get::<_, i64>(5)? as u64,
-                    })
-                })?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
-            },
-        )
+            )?;
+            let rows = stmt.query_map(params![cwd, limit as i64], |r| {
+                Ok(HistoricalBlock {
+                    session_id_short: shorten(r.get::<_, String>(0)?.as_str()),
+                    command: r.get(1)?,
+                    cwd: r.get(2)?,
+                    exit_code: r.get(3)?,
+                    duration_ms: r.get::<_, i64>(4)? as u64,
+                    finished_at_unix_ms: r.get::<_, i64>(5)? as u64,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -598,34 +595,32 @@ impl Storage {
     ) -> Result<Vec<HistoricalBlock>, StorageError> {
         let conn = self.inner.clone();
         let exclude_str = exclude.to_string();
-        tokio::task::spawn_blocking(
-            move || -> Result<Vec<HistoricalBlock>, StorageError> {
-                let c = conn.blocking_lock();
-                let mut stmt = c.prepare(
-                    "SELECT session_id, command, cwd, exit_code, duration_ms,
+        tokio::task::spawn_blocking(move || -> Result<Vec<HistoricalBlock>, StorageError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT session_id, command, cwd, exit_code, duration_ms,
                             finished_at_unix_ms
                      FROM blocks
                      WHERE session_id != ?1
                      ORDER BY finished_at_unix_ms DESC
                      LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![exclude_str, limit as i64], |r| {
-                    Ok(HistoricalBlock {
-                        session_id_short: shorten(r.get::<_, String>(0)?.as_str()),
-                        command: r.get(1)?,
-                        cwd: r.get(2)?,
-                        exit_code: r.get(3)?,
-                        duration_ms: r.get::<_, i64>(4)? as u64,
-                        finished_at_unix_ms: r.get::<_, i64>(5)? as u64,
-                    })
-                })?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
-            },
-        )
+            )?;
+            let rows = stmt.query_map(params![exclude_str, limit as i64], |r| {
+                Ok(HistoricalBlock {
+                    session_id_short: shorten(r.get::<_, String>(0)?.as_str()),
+                    command: r.get(1)?,
+                    cwd: r.get(2)?,
+                    exit_code: r.get(3)?,
+                    duration_ms: r.get::<_, i64>(4)? as u64,
+                    finished_at_unix_ms: r.get::<_, i64>(5)? as u64,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -659,20 +654,19 @@ impl Storage {
                 .unwrap_or(0)
         };
 
-        tokio::task::spawn_blocking(
-            move || -> Result<Vec<RecallMatch>, StorageError> {
-                let c = conn.blocking_lock();
+        tokio::task::spawn_blocking(move || -> Result<Vec<RecallMatch>, StorageError> {
+            let c = conn.blocking_lock();
 
-                // Pull a generous candidate pool — Rust ranking does the
-                // tie-break, so we want enough rows that the SQL ORDER BY
-                // doesn't accidentally drop the eventual winner.
-                const POOL: usize = 400;
+            // Pull a generous candidate pool — Rust ranking does the
+            // tie-break, so we want enough rows that the SQL ORDER BY
+            // doesn't accidentally drop the eventual winner.
+            const POOL: usize = 400;
 
-                let q_trim = query.trim();
-                let cwd_for_match: String = current_cwd.clone().unwrap_or_default();
+            let q_trim = query.trim();
+            let cwd_for_match: String = current_cwd.clone().unwrap_or_default();
 
-                let mut stmt = c.prepare(
-                    "SELECT command,
+            let mut stmt = c.prepare(
+                "SELECT command,
                             COUNT(*) AS cnt,
                             SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END) AS ok,
                             SUM(CASE WHEN cwd = ?1 THEN 1 ELSE 0 END) AS in_cwd,
@@ -683,45 +677,41 @@ impl Storage {
                      GROUP BY command
                      ORDER BY last_used DESC
                      LIMIT ?3",
-                )?;
+            )?;
 
-                let rows = stmt.query_map(
-                    params![cwd_for_match, q_trim, POOL as i64],
-                    |r| {
-                        Ok((
-                            r.get::<_, String>(0)?,
-                            r.get::<_, i64>(1)? as u64,
-                            r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64,
-                            r.get::<_, Option<i64>>(3)?.unwrap_or(0) as u64,
-                            r.get::<_, i64>(4)? as u64,
-                        ))
-                    },
-                )?;
+            let rows = stmt.query_map(params![cwd_for_match, q_trim, POOL as i64], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)? as u64,
+                    r.get::<_, Option<i64>>(2)?.unwrap_or(0) as u64,
+                    r.get::<_, Option<i64>>(3)?.unwrap_or(0) as u64,
+                    r.get::<_, i64>(4)? as u64,
+                ))
+            })?;
 
-                let mut matches: Vec<RecallMatch> = Vec::new();
-                for row in rows {
-                    let (command, count, success, in_cwd, last_used) = row?;
-                    let score =
-                        score_match(&command, q_trim, count, success, in_cwd, last_used, now_ms);
-                    matches.push(RecallMatch {
-                        command,
-                        count,
-                        success_count: success,
-                        cwd_match_count: in_cwd,
-                        last_used_unix_ms: last_used,
-                        score,
-                    });
-                }
-
-                matches.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
+            let mut matches: Vec<RecallMatch> = Vec::new();
+            for row in rows {
+                let (command, count, success, in_cwd, last_used) = row?;
+                let score =
+                    score_match(&command, q_trim, count, success, in_cwd, last_used, now_ms);
+                matches.push(RecallMatch {
+                    command,
+                    count,
+                    success_count: success,
+                    cwd_match_count: in_cwd,
+                    last_used_unix_ms: last_used,
+                    score,
                 });
-                matches.truncate(limit as usize);
-                Ok(matches)
-            },
-        )
+            }
+
+            matches.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            matches.truncate(limit as usize);
+            Ok(matches)
+        })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -796,10 +786,7 @@ impl Storage {
     /// Fetch the persisted `output_text` for a block. Returns `Ok(None)`
     /// when the block id doesn't exist (e.g. block from before the
     /// persistence layer landed, or never reached BlockFinished).
-    pub async fn get_block_output(
-        &self,
-        block_id: String,
-    ) -> Result<Option<String>, StorageError> {
+    pub async fn get_block_output(&self, block_id: String) -> Result<Option<String>, StorageError> {
         let conn = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<Option<String>, StorageError> {
             let c = conn.blocking_lock();
@@ -939,9 +926,7 @@ impl Storage {
     /// blocking task: header row, action breakdown, escalations top-N,
     /// per-tab counts, per-tab recent commands. The whole report is
     /// roughly free at typical AOM sizes (≤500 decisions).
-    pub async fn aom_session_latest_report(
-        &self,
-    ) -> Result<Option<AomReport>, StorageError> {
+    pub async fn aom_session_latest_report(&self) -> Result<Option<AomReport>, StorageError> {
         let conn = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<Option<AomReport>, StorageError> {
             let c = conn.blocking_lock();
@@ -970,8 +955,7 @@ impl Storage {
                 )
                 .ok();
 
-            let Some((row_id, started_ms, ended_ms, budget, accum, decisions, cap_hit)) =
-                header
+            let Some((row_id, started_ms, ended_ms, budget, accum, decisions, cap_hit)) = header
             else {
                 return Ok(None);
             };
@@ -1090,10 +1074,10 @@ impl Storage {
                  LIMIT 5",
             )?;
             for (sid, digest) in per_tab.iter_mut() {
-                let rows = stmt.query_map(
-                    params![started_ms, window_end_ms, sid.as_str()],
-                    |r| r.get::<_, Option<String>>(0),
-                )?;
+                let rows = stmt
+                    .query_map(params![started_ms, window_end_ms, sid.as_str()], |r| {
+                        r.get::<_, Option<String>>(0)
+                    })?;
                 let mut cmds = Vec::new();
                 for row in rows {
                     if let Some(cmd) = row? {
@@ -1126,44 +1110,42 @@ impl Storage {
         limit: u32,
     ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
         let conn = self.inner.clone();
-        tokio::task::spawn_blocking(
-            move || -> Result<Vec<OperatorDecisionRow>, StorageError> {
-                let c = conn.blocking_lock();
-                let mut stmt = c.prepare(
-                    "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
+        tokio::task::spawn_blocking(move || -> Result<Vec<OperatorDecisionRow>, StorageError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
                             mission_path, executor_name, operator_id, operator_name,
                             cost_usd, applied_memory_id
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![limit as i64], |r| {
-                    Ok(OperatorDecisionRow {
-                        id: r.get(0)?,
-                        session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
-                        timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
-                        in_flight_command: r.get(3)?,
-                        output_excerpt: r.get(4)?,
-                        action: r.get(5)?,
-                        reply_text: r.get(6)?,
-                        rationale: r.get(7)?,
-                        executed: r.get::<_, i64>(8)? != 0,
-                        mission_path: r.get(9)?,
-                        executor_name: r.get(10)?,
-                        operator_id: r.get(11)?,
-                        operator_name: r.get(12)?,
-                        cost_usd: r.get::<_, f64>(13)?,
-                        applied_memory_id: r.get::<_, Option<i64>>(14)?,
-                    })
-                })?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
-            },
-        )
+            )?;
+            let rows = stmt.query_map(params![limit as i64], |r| {
+                Ok(OperatorDecisionRow {
+                    id: r.get(0)?,
+                    session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
+                    timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
+                    in_flight_command: r.get(3)?,
+                    output_excerpt: r.get(4)?,
+                    action: r.get(5)?,
+                    reply_text: r.get(6)?,
+                    rationale: r.get(7)?,
+                    executed: r.get::<_, i64>(8)? != 0,
+                    mission_path: r.get(9)?,
+                    executor_name: r.get(10)?,
+                    operator_id: r.get(11)?,
+                    operator_name: r.get(12)?,
+                    cost_usd: r.get::<_, f64>(13)?,
+                    applied_memory_id: r.get::<_, Option<i64>>(14)?,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -1177,8 +1159,8 @@ impl Storage {
         let conn = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
             let c = conn.blocking_lock();
-            let tags_json = serde_json::to_string(&op.tags)
-                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let tags_json =
+                serde_json::to_string(&op.tags).map_err(|e| StorageError::Other(e.to_string()))?;
             c.execute(
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
@@ -1213,8 +1195,8 @@ impl Storage {
         let conn = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
             let c = conn.blocking_lock();
-            let tags_json = serde_json::to_string(&op.tags)
-                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let tags_json =
+                serde_json::to_string(&op.tags).map_err(|e| StorageError::Other(e.to_string()))?;
             c.execute(
                 "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
                  persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
@@ -1287,8 +1269,7 @@ impl Storage {
                 .query_map([], |row| {
                     let id: String = row.get(0)?;
                     let tags_json: String = row.get(4)?;
-                    let tags: Vec<String> =
-                        serde_json::from_str(&tags_json).unwrap_or_default();
+                    let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
                     Ok(crate::operator_registry::Operator {
                         id: id.parse().map_err(|_| {
                             rusqlite::Error::FromSqlConversionFailure(
@@ -1322,11 +1303,7 @@ impl Storage {
     /// return the new total. Returns 0 if the row no longer exists
     /// (operator was deleted) without erroring — caller treats this as
     /// a benign no-op.
-    pub async fn operator_award_xp(
-        &self,
-        id: String,
-        amount: u64,
-    ) -> Result<u64, StorageError> {
+    pub async fn operator_award_xp(&self, id: String, amount: u64) -> Result<u64, StorageError> {
         let conn = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<u64, StorageError> {
             let mut c = conn.blocking_lock();
@@ -1339,11 +1316,10 @@ impl Storage {
                 tx.commit()?;
                 return Ok(0);
             }
-            let total: i64 = tx.query_row(
-                "SELECT xp FROM operators WHERE id = ?1",
-                params![id],
-                |r| r.get(0),
-            )?;
+            let total: i64 =
+                tx.query_row("SELECT xp FROM operators WHERE id = ?1", params![id], |r| {
+                    r.get(0)
+                })?;
             tx.commit()?;
             Ok(total.max(0) as u64)
         })
@@ -1447,44 +1423,42 @@ impl Storage {
         }
         let conn = self.inner.clone();
         let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
-        tokio::task::spawn_blocking(
-            move || -> Result<Vec<OperatorMemoryRow>, StorageError> {
-                let c = conn.blocking_lock();
-                let placeholders =
-                    (1..=scopes.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
-                let sql = format!(
-                    "SELECT id, pattern, decision, rationale, scope, tags, created_at_unix_ms
+        tokio::task::spawn_blocking(move || -> Result<Vec<OperatorMemoryRow>, StorageError> {
+            let c = conn.blocking_lock();
+            let placeholders = (1..=scopes.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT id, pattern, decision, rationale, scope, tags, created_at_unix_ms
                      FROM operator_memories
                      WHERE scope IN ({placeholders})
                      ORDER BY created_at_unix_ms DESC
                      LIMIT ?{limit_idx}",
-                    limit_idx = scopes.len() + 1,
-                );
-                let mut stmt = c.prepare(&sql)?;
-                let mut params_dyn: Vec<&dyn rusqlite::ToSql> = scopes
-                    .iter()
-                    .map(|s| s as &dyn rusqlite::ToSql)
-                    .collect();
-                let limit_i64 = limit as i64;
-                params_dyn.push(&limit_i64);
-                let rows = stmt.query_map(rusqlite::params_from_iter(params_dyn), |r| {
-                    Ok(OperatorMemoryRow {
-                        id: r.get(0)?,
-                        pattern: r.get(1)?,
-                        decision: r.get(2)?,
-                        rationale: r.get(3)?,
-                        scope: r.get(4)?,
-                        tags: r.get(5)?,
-                        created_at_unix_ms: r.get::<_, i64>(6)? as u64,
-                    })
-                })?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
-            },
-        )
+                limit_idx = scopes.len() + 1,
+            );
+            let mut stmt = c.prepare(&sql)?;
+            let mut params_dyn: Vec<&dyn rusqlite::ToSql> =
+                scopes.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+            let limit_i64 = limit as i64;
+            params_dyn.push(&limit_i64);
+            let rows = stmt.query_map(rusqlite::params_from_iter(params_dyn), |r| {
+                Ok(OperatorMemoryRow {
+                    id: r.get(0)?,
+                    pattern: r.get(1)?,
+                    decision: r.get(2)?,
+                    rationale: r.get(3)?,
+                    scope: r.get(4)?,
+                    tags: r.get(5)?,
+                    created_at_unix_ms: r.get::<_, i64>(6)? as u64,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -1505,9 +1479,8 @@ impl Storage {
                 .map(|i| format!("?{i}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = format!(
-                "SELECT COUNT(*) FROM operator_memories WHERE scope IN ({placeholders})",
-            );
+            let sql =
+                format!("SELECT COUNT(*) FROM operator_memories WHERE scope IN ({placeholders})",);
             let mut stmt = c.prepare(&sql)?;
             let params_dyn: Vec<&dyn rusqlite::ToSql> =
                 scopes.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
@@ -1636,33 +1609,37 @@ impl Storage {
     ) -> Result<Option<crate::operator_mind::OperatorMind>, StorageError> {
         let conn = self.inner.clone();
         let session_id = session_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Option<crate::operator_mind::OperatorMind>, StorageError> {
-            let conn = conn.blocking_lock();
-            let result: Result<String, rusqlite::Error> = conn.query_row(
-                "SELECT json FROM operator_mind WHERE session_id = ?1",
-                params![session_id],
-                |row| row.get(0),
-            );
-            match result {
-                Ok(json) => match serde_json::from_str::<crate::operator_mind::OperatorMind>(&json) {
-                    Ok(m) => Ok(Some(m)),
-                    Err(e) => {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            error = %e,
-                            "operator_mind: corrupt JSON, deleting and starting fresh"
-                        );
-                        let _ = conn.execute(
-                            "DELETE FROM operator_mind WHERE session_id = ?1",
-                            params![session_id],
-                        );
-                        Ok(None)
+        tokio::task::spawn_blocking(
+            move || -> Result<Option<crate::operator_mind::OperatorMind>, StorageError> {
+                let conn = conn.blocking_lock();
+                let result: Result<String, rusqlite::Error> = conn.query_row(
+                    "SELECT json FROM operator_mind WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                );
+                match result {
+                    Ok(json) => {
+                        match serde_json::from_str::<crate::operator_mind::OperatorMind>(&json) {
+                            Ok(m) => Ok(Some(m)),
+                            Err(e) => {
+                                tracing::warn!(
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "operator_mind: corrupt JSON, deleting and starting fresh"
+                                );
+                                let _ = conn.execute(
+                                    "DELETE FROM operator_mind WHERE session_id = ?1",
+                                    params![session_id],
+                                );
+                                Ok(None)
+                            }
+                        }
                     }
-                },
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(StorageError::Sqlite(e)),
-            }
-        })
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                    Err(e) => Err(StorageError::Sqlite(e)),
+                }
+            },
+        )
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
@@ -1897,8 +1874,12 @@ mod tests {
         let (s, _g) = fresh();
         let session = SessionId::new();
         s.save_session(session, 1_000_000).await.unwrap();
-        s.save_summary(session, "first".to_string(), 1).await.unwrap();
-        s.save_summary(session, "second".to_string(), 2).await.unwrap();
+        s.save_summary(session, "first".to_string(), 1)
+            .await
+            .unwrap();
+        s.save_summary(session, "second".to_string(), 2)
+            .await
+            .unwrap();
 
         let conn = s.inner.lock().await;
         let row: (String, i64) = conn
@@ -2038,10 +2019,7 @@ mod tests {
         insert(&s, sess, "GIT log", None, Some(0), 3_000).await;
         insert(&s, sess, "cargo build", None, Some(0), 4_000).await;
 
-        let rows = s
-            .recall_search("git".to_string(), None, 10)
-            .await
-            .unwrap();
+        let rows = s.recall_search("git".to_string(), None, 10).await.unwrap();
         let cmds: Vec<&str> = rows.iter().map(|r| r.command.as_str()).collect();
         assert!(cmds.contains(&"git status"));
         assert!(cmds.contains(&"GIT log"));
@@ -2081,11 +2059,7 @@ mod tests {
         insert(&s, sess, "make build", Some("/elsewhere"), Some(0), 1_000).await;
 
         let rows = s
-            .recall_search(
-                "make".to_string(),
-                Some("/home/me".to_string()),
-                10,
-            )
+            .recall_search("make".to_string(), Some("/home/me".to_string()), 10)
             .await
             .unwrap();
         assert_eq!(rows[0].command, "make test");
@@ -2514,13 +2488,14 @@ mod tests {
             .await
             .unwrap();
 
-        let hits = s
-            .vector_search_memories(&["global"], &e, 5)
-            .await
-            .unwrap();
+        let hits = s.vector_search_memories(&["global"], &e, 5).await.unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0.id, id);
-        assert!(hits[0].1.abs() < 1e-3, "distance should be ~0, got {}", hits[0].1);
+        assert!(
+            hits[0].1.abs() < 1e-3,
+            "distance should be ~0, got {}",
+            hits[0].1
+        );
     }
 
     #[tokio::test]
@@ -2536,10 +2511,7 @@ mod tests {
 
         let rows = s.list_memories(&["global"], 10).await.unwrap();
         assert!(rows.is_empty());
-        let hits = s
-            .vector_search_memories(&["global"], &e, 5)
-            .await
-            .unwrap();
+        let hits = s.vector_search_memories(&["global"], &e, 5).await.unwrap();
         assert!(hits.is_empty());
     }
 

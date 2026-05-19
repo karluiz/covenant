@@ -26,7 +26,12 @@ pub async fn dispatch(
         .session_id
         .map(|s| s.to_string().chars().take(6).collect::<String>())
         .unwrap_or_else(|| "-".into());
-    let DispatchCtx { trigger, title, body, session_id } = ctx;
+    let DispatchCtx {
+        trigger,
+        title,
+        body,
+        session_id,
+    } = ctx;
     let title2 = title.clone();
     let body2 = body.clone();
     let (_, email_out) = tokio::join!(
@@ -56,7 +61,12 @@ mod tests {
         let client: Arc<dyn SendGridClient> = rec.clone();
         let email = EmailNotifier::new(client, settings);
         let out = email
-            .emit(Trigger::OperatorEscalate, "title".into(), "body".into(), "01HABC".into())
+            .emit(
+                Trigger::OperatorEscalate,
+                "title".into(),
+                "body".into(),
+                "01HABC".into(),
+            )
             .await;
         assert_eq!(out, EmailOutcome::Sent);
         assert_eq!(rec.snapshot().len(), 1);

@@ -4,7 +4,13 @@ use std::process::Command;
 fn tmp_git_repo(branch: &str) -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
     let p = d.path();
-    let r = |args: &[&str]| { Command::new("git").current_dir(p).args(args).output().unwrap(); };
+    let r = |args: &[&str]| {
+        Command::new("git")
+            .current_dir(p)
+            .args(args)
+            .output()
+            .unwrap();
+    };
     r(&["init", "-q", "-b", branch]);
     r(&["config", "user.email", "t@t"]);
     r(&["config", "user.name", "t"]);
@@ -17,7 +23,10 @@ fn resolves_repo_basename_and_branch() {
     let d = tmp_git_repo("notch");
     let resolver = ContextResolver::new();
     let ctx = resolver.resolve("sess-1", d.path(), Some("main".into()));
-    assert_eq!(ctx.repo.as_deref(), Some(d.path().file_name().unwrap().to_str().unwrap()));
+    assert_eq!(
+        ctx.repo.as_deref(),
+        Some(d.path().file_name().unwrap().to_str().unwrap())
+    );
     assert_eq!(ctx.branch.as_deref(), Some("notch"));
     assert_eq!(ctx.group_name.as_deref(), Some("main"));
 }
@@ -36,7 +45,11 @@ fn caches_within_ttl() {
     let resolver = ContextResolver::new();
     let _ = resolver.resolve("sess-3", d.path(), None);
     // Rename branch externally; cached value should still return "main"
-    Command::new("git").current_dir(d.path()).args(["branch", "-M", "renamed"]).output().unwrap();
+    Command::new("git")
+        .current_dir(d.path())
+        .args(["branch", "-M", "renamed"])
+        .output()
+        .unwrap();
     let ctx = resolver.resolve("sess-3", d.path(), None);
     assert_eq!(ctx.branch.as_deref(), Some("main"));
 }
@@ -44,7 +57,11 @@ fn caches_within_ttl() {
 #[test]
 fn detached_head_reports_sha7() {
     let d = tmp_git_repo("main");
-    Command::new("git").current_dir(d.path()).args(["checkout", "--detach", "HEAD"]).output().unwrap();
+    Command::new("git")
+        .current_dir(d.path())
+        .args(["checkout", "--detach", "HEAD"])
+        .output()
+        .unwrap();
     let resolver = ContextResolver::new();
     let ctx = resolver.resolve("sess-4", d.path(), None);
     assert!(ctx.branch.as_deref().unwrap().starts_with("detached:"));

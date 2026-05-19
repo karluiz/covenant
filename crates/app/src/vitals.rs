@@ -38,8 +38,17 @@ pub(crate) const IDLE_THRESHOLD_SECS: u32 = 60;
 /// surface the moment the user switches to them.
 #[derive(Debug, Clone)]
 pub(crate) enum VitalsEvent {
-    CallStarted { session: SessionId, model: String, started_unix_ms: u64 },
-    CallCompleted { session: SessionId, model: String, usage: TokenUsage, latency_ms: u32 },
+    CallStarted {
+        session: SessionId,
+        model: String,
+        started_unix_ms: u64,
+    },
+    CallCompleted {
+        session: SessionId,
+        model: String,
+        usage: TokenUsage,
+        latency_ms: u32,
+    },
     /// Cancelled, errored, or dropped without completion. Clears
     /// in-flight without writing into the bucket / cache window.
     CallAbandoned { session: SessionId },
@@ -190,13 +199,7 @@ impl VitalsState {
         self.newest_bucket_started_unix_ms += slots as u64 * BUCKET_SECS * 1000;
     }
 
-    fn record_complete(
-        &mut self,
-        model: String,
-        usage: TokenUsage,
-        latency_ms: u32,
-        now_ms: u64,
-    ) {
+    fn record_complete(&mut self, model: String, usage: TokenUsage, latency_ms: u32, now_ms: u64) {
         self.rotate_to(now_ms);
         let counted = usage
             .input_tokens
@@ -480,9 +483,7 @@ pub async fn set_active_session_for_vitals(
 }
 
 #[tauri::command]
-pub async fn get_vitals(
-    handle: tauri::State<'_, VitalsHandle>,
-) -> Result<VitalsPayload, String> {
+pub async fn get_vitals(handle: tauri::State<'_, VitalsHandle>) -> Result<VitalsPayload, String> {
     Ok(handle.snapshot().await)
 }
 

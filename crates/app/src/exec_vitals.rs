@@ -207,7 +207,13 @@ async fn discover_jsonl_for_session(cwd: &Path) -> Option<(PathBuf, u64)> {
             }
             let meta = e.metadata().ok()?;
             let mtime = meta.modified().ok()?;
-            Some((path, BaselineEntry { mtime, size: meta.len() }))
+            Some((
+                path,
+                BaselineEntry {
+                    mtime,
+                    size: meta.len(),
+                },
+            ))
         })
         .collect();
     let attach_wall = std::time::SystemTime::now();
@@ -369,8 +375,7 @@ fn handle_line(
             let model = msg.model.unwrap_or_else(|| "claude".to_string());
             let latency_ms = match (last_user_ts_ms.take(), ts_ms) {
                 (Some(start), Some(end)) if end > start => {
-                    ((end - start) as u64)
-                        .clamp(LATENCY_MIN_MS, LATENCY_MAX_MS) as u32
+                    ((end - start) as u64).clamp(LATENCY_MIN_MS, LATENCY_MAX_MS) as u32
                 }
                 _ => LATENCY_MIN_MS as u32,
             };
@@ -443,10 +448,7 @@ mod tests {
 
     #[test]
     fn slugifies_simple_cwd() {
-        assert_eq!(
-            slugify_cwd(Path::new("/Users/foo/bar")),
-            "-Users-foo-bar"
-        );
+        assert_eq!(slugify_cwd(Path::new("/Users/foo/bar")), "-Users-foo-bar");
     }
 
     #[test]

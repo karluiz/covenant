@@ -64,7 +64,11 @@ impl HttpSendGridClient {
             .timeout(std::time::Duration::from_secs(10))
             .build()
             .expect("reqwest client");
-        Self { api_key, base_url, http }
+        Self {
+            api_key,
+            base_url,
+            http,
+        }
     }
 
     pub fn serialize_body(msg: &EmailMessage) -> Result<String, EmailError> {

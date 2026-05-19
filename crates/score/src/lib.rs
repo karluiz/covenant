@@ -1,6 +1,6 @@
 pub mod auth;
-pub mod context;
 pub mod commit_scanner;
+pub mod context;
 pub mod filter;
 pub mod session;
 pub mod store;
@@ -10,7 +10,10 @@ pub mod types;
 pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
-pub use types::{BranchCell, Context, DailyCell, EventKind, GroupCell, RepoCell, ScoreEvent, ScoreFilter, SessionRow, Summary, TimeRange, User};
+pub use types::{
+    BranchCell, Context, DailyCell, EventKind, GroupCell, RepoCell, ScoreEvent, ScoreFilter,
+    SessionRow, Summary, TimeRange, User,
+};
 
 use crate::context::ContextResolver;
 use once_cell::sync::OnceCell;
@@ -81,7 +84,11 @@ pub fn record_prompt(executor: &str) {
 pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>) {
     let now = chrono::Utc::now().timestamp_millis();
     let exec = format!("{repo}:{sha7}");
-    let ctx = Context { repo: Some(repo.to_string()), branch, group_name: None };
+    let ctx = Context {
+        repo: Some(repo.to_string()),
+        branch,
+        group_name: None,
+    };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
             let _ = store.append_with_context(now, EventKind::Commit, &exec, &ctx);

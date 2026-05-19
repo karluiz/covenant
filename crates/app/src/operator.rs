@@ -28,9 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use karl_session::{
-    EscalationAction, EscalationKind, SessionEvent, SessionId,
-};
+use karl_session::{EscalationAction, EscalationKind, SessionEvent, SessionId};
 use regex::Regex;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex as AsyncMutex;
@@ -268,9 +266,17 @@ RATIONALE: <one short sentence — usually \"the executor isn't actually waiting
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperatorAction {
-    Reply { text: String, rationale: String },
-    Escalate { notification: String, rationale: String },
-    Wait { rationale: String },
+    Reply {
+        text: String,
+        rationale: String,
+    },
+    Escalate {
+        notification: String,
+        rationale: String,
+    },
+    Wait {
+        rationale: String,
+    },
 }
 
 impl OperatorAction {
@@ -416,8 +422,7 @@ impl Inner {
                 Some(prev) => prev,
             });
         }
-        let (phase, started) =
-            best.unwrap_or((OperatorPhase::Idle, Instant::now()));
+        let (phase, started) = best.unwrap_or((OperatorPhase::Idle, Instant::now()));
         // Convert Instant → unix-ms via the elapsed-from-now offset.
         let since_unix_ms = {
             let elapsed = started.elapsed().as_millis() as u64;
@@ -969,12 +974,7 @@ impl OperatorWatcher {
     /// frontend reads it explicitly on `restoreFromManifest` (where
     /// auto-restore IS what the user wants) and calls `set_mission`
     /// per restored tab. Fresh tabs stay blank.
-    pub async fn notify_cwd_changed(
-        &self,
-        _session_id: SessionId,
-        _cwd: &str,
-        _app: &AppHandle,
-    ) {
+    pub async fn notify_cwd_changed(&self, _session_id: SessionId, _cwd: &str, _app: &AppHandle) {
         // intentional no-op — see doc comment above.
     }
 
@@ -1224,13 +1224,23 @@ impl OperatorWatcher {
         // Phase 1: snapshot (id, mission_path, world Arc) under the
         // inner lock; Phase 2: read each cwd; Phase 3: write rename_to
         // back under the inner lock.
-        let snapshot: Vec<(SessionId, Option<PathBuf>, Arc<AsyncMutex<SessionWorldModel>>)> = {
+        let snapshot: Vec<(
+            SessionId,
+            Option<PathBuf>,
+            Arc<AsyncMutex<SessionWorldModel>>,
+        )> = {
             let inner = self.inner.lock().await;
             inner
                 .sessions
                 .iter()
                 .filter(|(_, att)| att.enabled)
-                .map(|(id, att)| (*id, att.mission.as_ref().map(|m| m.path.clone()), att.world.clone()))
+                .map(|(id, att)| {
+                    (
+                        *id,
+                        att.mission.as_ref().map(|m| m.path.clone()),
+                        att.world.clone(),
+                    )
+                })
                 .collect()
         };
 
@@ -1296,9 +1306,7 @@ async fn tick_loop(
         // session, mirroring the REPLY action's keystroke shape.
         while let Ok(res) = resolution_rx.try_recv() {
             let payload = format!("{}\n", res.text);
-            if let Err(e) =
-                inject_operator_reply(&app, res.session_id, payload.as_bytes()).await
-            {
+            if let Err(e) = inject_operator_reply(&app, res.session_id, payload.as_bytes()).await {
                 tracing::warn!(
                     session = %res.session_id,
                     error = %e,
@@ -1323,7 +1331,22 @@ async fn tick_loop(
         // to 100% done. AOM-only.
         detect_mission_completions(&inner, &app, &aom, &notifier, &escalation_tx).await;
 
-        if let Err(e) = run_tick(&inner, &settings, &storage, &app, &aom, &notifier, &email, &registry, &embedder_cell, &connectivity, &escalation_tx, &vitals).await {
+        if let Err(e) = run_tick(
+            &inner,
+            &settings,
+            &storage,
+            &app,
+            &aom,
+            &notifier,
+            &email,
+            &registry,
+            &embedder_cell,
+            &connectivity,
+            &escalation_tx,
+            &vitals,
+        )
+        .await
+        {
             tracing::warn!(error = %e, "operator tick failed");
         }
     }
@@ -1374,7 +1397,8 @@ async fn detect_mission_completions(
             let cur_path = att.mission.as_ref().map(|m| m.path.clone());
             if att.last_plan_completed_path != cur_path && att.last_plan_completed_path.is_some() {
                 // Either mission cleared or swapped; reset.
-                if cur_path.is_none() || att.last_plan_completed_path.as_ref() != cur_path.as_ref() {
+                if cur_path.is_none() || att.last_plan_completed_path.as_ref() != cur_path.as_ref()
+                {
                     att.last_plan_completed_path = None;
                 }
             }
@@ -1387,8 +1411,7 @@ async fn detect_mission_completions(
             let Some(plan) = mission.plan.as_ref() else {
                 continue;
             };
-            let (total, done) =
-                crate::mission_pair::count_top_level_tasks(&plan.content);
+            let (total, done) = crate::mission_pair::count_top_level_tasks(&plan.content);
             if total == 0 || done < total {
                 continue;
             }
@@ -1454,12 +1477,7 @@ async fn refresh_changed_missions(
 ) -> Result<(), String> {
     // Snap (session_id, mref, current spec mtime, current plan mtime)
     // under the lock; release before doing any disk I/O.
-    let to_check: Vec<(
-        SessionId,
-        crate::mission_pair::MissionRef,
-        u64,
-        Option<u64>,
-    )> = {
+    let to_check: Vec<(SessionId, crate::mission_pair::MissionRef, u64, Option<u64>)> = {
         let i = inner.lock().await;
         i.sessions
             .iter()
@@ -1513,8 +1531,7 @@ async fn refresh_changed_missions(
         // Spec unchanged — check the paired plan independently so an
         // external edit to the plan file (without touching the spec)
         // still invalidates the cached PlanDoc.
-        let (Some(plan_path), Some(prev_plan)) = (mref.plan_path.as_ref(), prev_plan_mtime)
-        else {
+        let (Some(plan_path), Some(prev_plan)) = (mref.plan_path.as_ref(), prev_plan_mtime) else {
             continue;
         };
         let Some(new_plan_mtime) = mtime_unix_ms(plan_path) else {
@@ -1730,7 +1747,8 @@ async fn run_tick(
         existing_mind,
         _prev_mission_mtime,
         budget_override,
-    ) in candidates {
+    ) in candidates
+    {
         // Resolve per-session operator from the registry. Falls back to
         // the Default operator if no assignment exists for this session.
         let op = registry.effective_for(session_id);
@@ -1805,9 +1823,7 @@ async fn run_tick(
             if is_decision {
                 // Pattern is back / never lost — clear the lost marker.
                 att.decision_pattern_lost_at = None;
-                let since = att
-                    .decision_point_stable_since
-                    .get_or_insert(now_inst);
+                let since = att.decision_point_stable_since.get_or_insert(now_inst);
                 let stable_for = now_inst.duration_since(*since);
                 let already_fired = att.decision_point_fired;
                 stable_for >= DECISION_IDLE_THRESHOLD && !already_fired
@@ -1818,8 +1834,7 @@ async fn run_tick(
                 if att.decision_pattern_lost_at.is_none() {
                     att.decision_pattern_lost_at = Some(now_inst);
                 }
-                let lost_for = now_inst
-                    .duration_since(att.decision_pattern_lost_at.unwrap());
+                let lost_for = now_inst.duration_since(att.decision_pattern_lost_at.unwrap());
                 if lost_for >= DECISION_LOST_DEBOUNCE {
                     att.decision_point_fired = false;
                     att.decision_pattern_lost_at = None;
@@ -1834,8 +1849,8 @@ async fn run_tick(
             }
         };
 
-        let trigger_by_idle = idle >= effective_threshold
-            && idle <= effective_threshold + Duration::from_secs(30);
+        let trigger_by_idle =
+            idle >= effective_threshold && idle <= effective_threshold + Duration::from_secs(30);
 
         if !trigger_by_idle && !trigger_by_stable {
             // Diagnostic: log why we're NOT engaging. With many ticks
@@ -1879,14 +1894,8 @@ async fn run_tick(
         // commands. The next tick will re-evaluate (action gone from
         // queue, normal decision flow proceeds).
         if effective_aom {
-            let action_fired = maybe_fire_startup_action(
-                &inner,
-                session_id,
-                app,
-                &cmd,
-                &tail,
-            )
-            .await;
+            let action_fired =
+                maybe_fire_startup_action(&inner, session_id, app, &cmd, &tail).await;
             if action_fired {
                 continue;
             }
@@ -1916,41 +1925,38 @@ async fn run_tick(
             w.cwd.display().to_string()
         };
         // Spec 3.20: lazy hydrate the per-tab mind on first use.
-        let mind: Option<crate::operator_mind::OperatorMind> = if mind_v2_on
-            && existing_mind.is_none()
-        {
-            match storage.mind_load(&session_id.to_string()).await {
-                Ok(Some(m)) => {
-                    tracing::info!(
-                        session = %session_id,
-                        turn_count = m.turn_count,
-                        "operator_mind hydrated from SQLite"
-                    );
-                    Some(m)
-                }
-                Ok(None) => {
-                    let mut seeded = crate::operator_mind::OperatorMind::default();
-                    if let Some(m) = mission.as_ref() {
-                        if let Some(name) =
-                            m.path.file_stem().and_then(|s| s.to_str())
-                        {
-                            seeded.goal = name.to_string();
-                        }
+        let mind: Option<crate::operator_mind::OperatorMind> =
+            if mind_v2_on && existing_mind.is_none() {
+                match storage.mind_load(&session_id.to_string()).await {
+                    Ok(Some(m)) => {
+                        tracing::info!(
+                            session = %session_id,
+                            turn_count = m.turn_count,
+                            "operator_mind hydrated from SQLite"
+                        );
+                        Some(m)
                     }
-                    Some(seeded)
+                    Ok(None) => {
+                        let mut seeded = crate::operator_mind::OperatorMind::default();
+                        if let Some(m) = mission.as_ref() {
+                            if let Some(name) = m.path.file_stem().and_then(|s| s.to_str()) {
+                                seeded.goal = name.to_string();
+                            }
+                        }
+                        Some(seeded)
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            session = %session_id,
+                            error = %e,
+                            "mind_load failed; using default"
+                        );
+                        Some(crate::operator_mind::OperatorMind::default())
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        session = %session_id,
-                        error = %e,
-                        "mind_load failed; using default"
-                    );
-                    Some(crate::operator_mind::OperatorMind::default())
-                }
-            }
-        } else {
-            existing_mind
-        };
+            } else {
+                existing_mind
+            };
 
         let user_message = {
             let base = render_user_message(&cmd, &cwd, idle, &tail);
@@ -1983,14 +1989,23 @@ async fn run_tick(
             storage,
             &cmd,
             &tail,
-            mission.as_ref().map(|m| m.path.display().to_string()).as_deref(),
+            mission
+                .as_ref()
+                .map(|m| m.path.display().to_string())
+                .as_deref(),
         )
         .await;
         // TODO(project-notes): resolve group from session once tab_manifest
         // group/session mapping is parsed on the Rust side. For now,
         // project_context is always empty (no-op, cache-safe).
-        let system_prompt =
-            build_system_prompt(&persona, effective_aom, mission.as_ref(), &learned, "", mind_v2_on);
+        let system_prompt = build_system_prompt(
+            &persona,
+            effective_aom,
+            mission.as_ref(),
+            &learned,
+            "",
+            mind_v2_on,
+        );
 
         // CRITICAL: mark dedup BEFORE the model call. If we marked
         // only on success, a failing call (bad API key, rate limit,
@@ -2050,7 +2065,10 @@ async fn run_tick(
                 Err(e) => {
                     tracing::warn!(?e, session = %session_id, "operator: triage provider unavailable — falling back to decision model");
                     // Fall through to decision model — treated same as triage error.
-                    Err(karl_agent::AgentError::Api { status: 0, body: e.to_string() })
+                    Err(karl_agent::AgentError::Api {
+                        status: 0,
+                        body: e.to_string(),
+                    })
                 }
             };
             drop(_thinking);
@@ -2067,9 +2085,7 @@ async fn run_tick(
                         "operator triage verdict"
                     );
                     match verdict.action {
-                        karl_agent::TriageAction::Act
-                            if verdict.confidence > 0.6 =>
-                        {
+                        karl_agent::TriageAction::Act if verdict.confidence > 0.6 => {
                             // Fall through to the big-model path.
                         }
                         karl_agent::TriageAction::Act => {
@@ -2187,7 +2203,10 @@ async fn run_tick(
                     }
                     Err(e) => {
                         tracing::warn!(?e, session = %session_id, "operator: decision provider unavailable");
-                        Err(karl_agent::AgentError::Api { status: 0, body: e.to_string() })
+                        Err(karl_agent::AgentError::Api {
+                            status: 0,
+                            body: e.to_string(),
+                        })
                     }
                 }
             }
@@ -2264,8 +2283,7 @@ async fn run_tick(
                     .unwrap_or(mind_thinking_budget_setting);
                 let next = (cur + 1000).min(4000);
                 att.thinking_budget_override = Some(next);
-                att.consecutive_parse_failures =
-                    att.consecutive_parse_failures.saturating_add(1);
+                att.consecutive_parse_failures = att.consecutive_parse_failures.saturating_add(1);
                 tracing::warn!(
                     session = %session_id,
                     from = cur,
@@ -2348,9 +2366,10 @@ async fn run_tick(
                         }
                     }
                     let op_action = match model_resp.action {
-                        crate::operator_mind::TurnAction::Reply { text } => {
-                            OperatorAction::Reply { text, rationale: String::new() }
-                        }
+                        crate::operator_mind::TurnAction::Reply { text } => OperatorAction::Reply {
+                            text,
+                            rationale: String::new(),
+                        },
                         crate::operator_mind::TurnAction::Execute { command } => {
                             // Map Execute → Reply (PTY injection of the command text).
                             OperatorAction::Reply {
@@ -2364,11 +2383,9 @@ async fn run_tick(
                                 rationale: String::new(),
                             }
                         }
-                        crate::operator_mind::TurnAction::Ignore => {
-                            OperatorAction::Wait {
-                                rationale: "v2 ignore".into(),
-                            }
-                        }
+                        crate::operator_mind::TurnAction::Ignore => OperatorAction::Wait {
+                            rationale: "v2 ignore".into(),
+                        },
                     };
                     (op_action, Some(model_resp.mind_update))
                 }
@@ -2620,167 +2637,157 @@ async fn run_tick(
         // The model is told to do this in the directive, but enforce
         // it here too — a missing \n in autonomous mode means the
         // executor sits forever waiting for Enter that nobody presses.
-        let (final_action, executed, action_str, reply_text, rationale, escalation_msg) =
-            if live {
-                match action.clone() {
-                    OperatorAction::Reply {
-                        mut text,
-                        rationale,
-                    } => {
-                        // Auto-submit on every live REPLY. Most TUIs
-                        // (Claude Code, aider, opencode) treat `\n`
-                        // as "newline within input" and `\r` as
-                        // SUBMIT — same as physical Enter on a tty.
-                        // Strip whatever trailing line chars the
-                        // model added, then `\r` once. For plain
-                        // shells `\r` works too (the tty translates
-                        // it via icrnl).
-                        //
-                        // Previously this was AOM-only, on the
-                        // theory that non-AOM live mode gave the
-                        // user a review window. In practice the
-                        // model often omits `\n` and the executor
-                        // sits forever with the reply typed but not
-                        // submitted — the operator looks dumb. If
-                        // we already decided to REPLY, commit it.
-                        while text.ends_with('\n') || text.ends_with('\r') {
-                            text.pop();
-                        }
-                        text.push('\r');
-                        if let Some(reason) =
-                            safety::is_dangerous(&text, &deny_extra_regexes)
-                        {
-                            tracing::warn!(
-                                session = %session_id,
-                                category = ?reason.category,
-                                "operator reply blocked by safety"
+        let (final_action, executed, action_str, reply_text, rationale, escalation_msg) = if live {
+            match action.clone() {
+                OperatorAction::Reply {
+                    mut text,
+                    rationale,
+                } => {
+                    // Auto-submit on every live REPLY. Most TUIs
+                    // (Claude Code, aider, opencode) treat `\n`
+                    // as "newline within input" and `\r` as
+                    // SUBMIT — same as physical Enter on a tty.
+                    // Strip whatever trailing line chars the
+                    // model added, then `\r` once. For plain
+                    // shells `\r` works too (the tty translates
+                    // it via icrnl).
+                    //
+                    // Previously this was AOM-only, on the
+                    // theory that non-AOM live mode gave the
+                    // user a review window. In practice the
+                    // model often omits `\n` and the executor
+                    // sits forever with the reply typed but not
+                    // submitted — the operator looks dumb. If
+                    // we already decided to REPLY, commit it.
+                    while text.ends_with('\n') || text.ends_with('\r') {
+                        text.pop();
+                    }
+                    text.push('\r');
+                    if let Some(reason) = safety::is_dangerous(&text, &deny_extra_regexes) {
+                        tracing::warn!(
+                            session = %session_id,
+                            category = ?reason.category,
+                            "operator reply blocked by safety"
+                        );
+                        let note = format!("blocked: {}", reason.message);
+                        // Spec 3.20 phase 5: append to tried_failed so
+                        // the model learns within the session.
+                        if mind_v2_on {
+                            let snippet: String = text.chars().take(60).collect();
+                            let attempted = format!(
+                                "attempted REPLY '{}' — blocked by safety: {}",
+                                snippet, reason.message
                             );
-                            let note = format!("blocked: {}", reason.message);
-                            // Spec 3.20 phase 5: append to tried_failed so
-                            // the model learns within the session.
-                            if mind_v2_on {
-                                let snippet: String = text.chars().take(60).collect();
-                                let attempted = format!(
-                                    "attempted REPLY '{}' — blocked by safety: {}",
-                                    snippet, reason.message
-                                );
-                                let mut update =
-                                    crate::operator_mind::MindUpdate::default();
-                                update.tried_failed_append = Some(vec![attempted]);
-                                let mut inner_lock = inner.lock().await;
-                                if let Some(att) =
-                                    inner_lock.sessions.get_mut(&session_id)
-                                {
-                                    if att.mind.is_none() {
-                                        att.mind = mind.clone();
-                                    }
-                                    if let Some(m) = att.mind.as_mut() {
-                                        m.apply(update, chrono::Utc::now());
-                                        att.mind_dirty = true;
-                                    }
+                            let mut update = crate::operator_mind::MindUpdate::default();
+                            update.tried_failed_append = Some(vec![attempted]);
+                            let mut inner_lock = inner.lock().await;
+                            if let Some(att) = inner_lock.sessions.get_mut(&session_id) {
+                                if att.mind.is_none() {
+                                    att.mind = mind.clone();
+                                }
+                                if let Some(m) = att.mind.as_mut() {
+                                    m.apply(update, chrono::Utc::now());
+                                    att.mind_dirty = true;
                                 }
                             }
-                            (
-                                OperatorAction::Escalate {
-                                    notification: note.clone(),
-                                    rationale: rationale.clone(),
-                                },
-                                false,
-                                "escalate".to_string(),
-                                None,
-                                Some(rationale),
-                                Some(note),
-                            )
-                        } else {
-                            // Inject the bytes. Failure here downgrades
-                            // to a dry-run reply so the user sees the
-                            // attempt in the audit panel.
-                            let injected = inject_operator_reply(
-                                app,
-                                session_id,
-                                text.as_bytes(),
-                            )
+                        }
+                        (
+                            OperatorAction::Escalate {
+                                notification: note.clone(),
+                                rationale: rationale.clone(),
+                            },
+                            false,
+                            "escalate".to_string(),
+                            None,
+                            Some(rationale),
+                            Some(note),
+                        )
+                    } else {
+                        // Inject the bytes. Failure here downgrades
+                        // to a dry-run reply so the user sees the
+                        // attempt in the audit panel.
+                        let injected = inject_operator_reply(app, session_id, text.as_bytes())
                             .await
                             .is_ok();
-                            (
-                                OperatorAction::Reply {
-                                    text: text.clone(),
-                                    rationale: rationale.clone(),
-                                },
-                                injected,
-                                "reply".to_string(),
-                                Some(text),
-                                Some(rationale),
-                                None,
-                            )
-                        }
+                        (
+                            OperatorAction::Reply {
+                                text: text.clone(),
+                                rationale: rationale.clone(),
+                            },
+                            injected,
+                            "reply".to_string(),
+                            Some(text),
+                            Some(rationale),
+                            None,
+                        )
                     }
-                    OperatorAction::Escalate {
-                        notification,
-                        rationale,
-                    } => (
-                        OperatorAction::Escalate {
-                            notification: notification.clone(),
-                            rationale: rationale.clone(),
-                        },
-                        false,
-                        "escalate".to_string(),
-                        None,
-                        Some(rationale),
-                        Some(notification),
-                    ),
-                    OperatorAction::Wait { rationale } => (
-                        OperatorAction::Wait {
-                            rationale: rationale.clone(),
-                        },
-                        false,
-                        "wait".to_string(),
-                        None,
-                        Some(rationale),
-                        None,
-                    ),
                 }
-            } else {
-                // Dry-run mode: persist what would have happened, never
-                // touch the PTY. Same shape as before M-OP3.
-                match action.clone() {
-                    OperatorAction::Reply { text, rationale } => (
-                        OperatorAction::Reply {
-                            text: text.clone(),
-                            rationale: rationale.clone(),
-                        },
-                        false,
-                        "reply".to_string(),
-                        Some(text),
-                        Some(rationale),
-                        None,
-                    ),
+                OperatorAction::Escalate {
+                    notification,
+                    rationale,
+                } => (
                     OperatorAction::Escalate {
-                        notification,
-                        rationale,
-                    } => (
-                        OperatorAction::Escalate {
-                            notification: notification.clone(),
-                            rationale: rationale.clone(),
-                        },
-                        false,
-                        "escalate".to_string(),
-                        None,
-                        Some(rationale),
-                        Some(notification),
-                    ),
-                    OperatorAction::Wait { rationale } => (
-                        OperatorAction::Wait {
-                            rationale: rationale.clone(),
-                        },
-                        false,
-                        "wait".to_string(),
-                        None,
-                        Some(rationale),
-                        None,
-                    ),
-                }
-            };
+                        notification: notification.clone(),
+                        rationale: rationale.clone(),
+                    },
+                    false,
+                    "escalate".to_string(),
+                    None,
+                    Some(rationale),
+                    Some(notification),
+                ),
+                OperatorAction::Wait { rationale } => (
+                    OperatorAction::Wait {
+                        rationale: rationale.clone(),
+                    },
+                    false,
+                    "wait".to_string(),
+                    None,
+                    Some(rationale),
+                    None,
+                ),
+            }
+        } else {
+            // Dry-run mode: persist what would have happened, never
+            // touch the PTY. Same shape as before M-OP3.
+            match action.clone() {
+                OperatorAction::Reply { text, rationale } => (
+                    OperatorAction::Reply {
+                        text: text.clone(),
+                        rationale: rationale.clone(),
+                    },
+                    false,
+                    "reply".to_string(),
+                    Some(text),
+                    Some(rationale),
+                    None,
+                ),
+                OperatorAction::Escalate {
+                    notification,
+                    rationale,
+                } => (
+                    OperatorAction::Escalate {
+                        notification: notification.clone(),
+                        rationale: rationale.clone(),
+                    },
+                    false,
+                    "escalate".to_string(),
+                    None,
+                    Some(rationale),
+                    Some(notification),
+                ),
+                OperatorAction::Wait { rationale } => (
+                    OperatorAction::Wait {
+                        rationale: rationale.clone(),
+                    },
+                    false,
+                    "wait".to_string(),
+                    None,
+                    Some(rationale),
+                    None,
+                ),
+            }
+        };
         let _ = final_action; // surfaced via action_str/reply_text below
 
         // Parse applied_memory: <id> out of the rationale (Task 5).
@@ -2811,16 +2818,14 @@ async fn run_tick(
                     shadows_str
                 ))
             }
-            (Some(id), true) => {
-                Some(format!(
-                    "{}\napplied_memory: {}",
-                    cleaned_rationale
-                        .as_ref()
-                        .map(|r| r.trim_end())
-                        .unwrap_or(""),
-                    id
-                ))
-            }
+            (Some(id), true) => Some(format!(
+                "{}\napplied_memory: {}",
+                cleaned_rationale
+                    .as_ref()
+                    .map(|r| r.trim_end())
+                    .unwrap_or(""),
+                id
+            )),
             (None, _) => cleaned_rationale,
         };
 
@@ -2972,15 +2977,12 @@ async fn run_tick(
         // safety blocklist, etc may have rewritten it).
         if mind_v2_on {
             let now_utc = chrono::Utc::now();
-            let saw_raw = strip_ansi_escapes::strip_str(
-                String::from_utf8_lossy(&tail).as_ref(),
-            );
+            let saw_raw = strip_ansi_escapes::strip_str(String::from_utf8_lossy(&tail).as_ref());
             // Last 800 chars (record_turn truncates to 400 internally;
             // slack handles multi-byte boundaries cleanly).
             let saw_chars: Vec<char> = saw_raw.chars().collect();
             let take = saw_chars.len().min(800);
-            let saw_trimmed: String =
-                saw_chars[saw_chars.len() - take..].iter().collect();
+            let saw_trimmed: String = saw_chars[saw_chars.len() - take..].iter().collect();
             let action_for_record = match &action {
                 OperatorAction::Reply { text, .. } => {
                     crate::operator_mind::TurnAction::Reply { text: text.clone() }
@@ -2990,9 +2992,7 @@ async fn run_tick(
                         notification: notification.clone(),
                     }
                 }
-                OperatorAction::Wait { .. } => {
-                    crate::operator_mind::TurnAction::Ignore
-                }
+                OperatorAction::Wait { .. } => crate::operator_mind::TurnAction::Ignore,
             };
             let thought = ask_response.thinking_summary.clone();
             let mut inner_lock = inner.lock().await;
@@ -3192,6 +3192,7 @@ async fn maybe_fire_startup_action(
             let is_claude = in_flight_cmd.starts_with("claude")
                 || in_flight_cmd == "claude-code"
                 || in_flight_cmd.starts_with("claude-code ");
+            let is_pi = detect_executor(in_flight_cmd).as_deref() == Some("pi");
             // Resume case: the user is reopening an existing session
             // that already has its own name (set previously, possibly
             // edited by hand). `--resume` takes a session UUID, not
@@ -3201,7 +3202,10 @@ async fn maybe_fire_startup_action(
             let is_resume = in_flight_cmd
                 .split_whitespace()
                 .any(|w| w == "--resume" || w == "-r" || w == "--continue" || w == "-c");
-            if is_claude && !is_resume {
+            if is_pi && !is_resume {
+                att.aom_startup.rename_to = None;
+                Some(StartupActionKind::PiRename(slug))
+            } else if is_claude && !is_resume {
                 att.aom_startup.rename_to = None;
                 Some(StartupActionKind::ClaudeRename(slug))
             } else if is_claude && is_resume {
@@ -3232,6 +3236,11 @@ async fn maybe_fire_startup_action(
             let cmd = format!("/rename {slug}\r");
             (cmd.into_bytes(), "claude /rename")
         }
+        StartupActionKind::PiRename(slug) => {
+            // pi agent uses /name instead of /rename.
+            let cmd = format!("/name {slug}\r");
+            (cmd.into_bytes(), "pi /name")
+        }
     };
 
     if let Err(e) = inject_to_session(app, session_id, &bytes).await {
@@ -3261,6 +3270,7 @@ async fn maybe_fire_startup_action(
 #[derive(Debug, Clone)]
 enum StartupActionKind {
     ClaudeRename(String),
+    PiRename(String),
 }
 
 /// Write bytes into the named session's PTY. Reaches AppState through
@@ -3494,18 +3504,17 @@ async fn retrieve_learned_for_decision(
         }
     };
     let qt = query_text.clone();
-    let query_emb =
-        match tokio::task::spawn_blocking(move || embedder.embed(&qt)).await {
-            Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                tracing::warn!(error = %e, "operator memory: query embed failed");
-                return (Vec::new(), Vec::new());
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "operator memory: embed join failed");
-                return (Vec::new(), Vec::new());
-            }
-        };
+    let query_emb = match tokio::task::spawn_blocking(move || embedder.embed(&qt)).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "operator memory: query embed failed");
+            return (Vec::new(), Vec::new());
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "operator memory: embed join failed");
+            return (Vec::new(), Vec::new());
+        }
+    };
     let candidates = match storage
         .vector_search_memories(&scope_refs, &query_emb, 20)
         .await
@@ -3614,12 +3623,7 @@ you put in TEXT. So:
 - DO use \\n WITHIN your TEXT for genuine multi-line answers (rare in \
   AOM since trivial confirmations dominate).";
 
-fn render_user_message(
-    cmd: &str,
-    cwd: &str,
-    idle_for: Duration,
-    tail: &[u8],
-) -> String {
+fn render_user_message(cmd: &str, cwd: &str, idle_for: Duration, tail: &[u8]) -> String {
     // Tail-bias: strip ANSI then take only the LAST MODEL_EXCERPT_CHARS
     // chars. The full tail (up to 32KB raw, 16KB sampled) carries
     // multiple screens of executor history; the slice keeps enough to
@@ -3669,11 +3673,12 @@ pub fn detect_decision_point(tail: &[u8]) -> bool {
     static MENU_ITEM: OnceLock<Regex> = OnceLock::new();
 
     let yes_no = YES_NO.get_or_init(|| {
-        Regex::new(r"(?i)\(\s*y(es)?\s*/\s*n(o)?\s*\)|\[\s*y(es)?\s*/\s*n(o)?\s*\]|\by\s*/\s*n\s*\?")
-            .unwrap()
+        Regex::new(
+            r"(?i)\(\s*y(es)?\s*/\s*n(o)?\s*\)|\[\s*y(es)?\s*/\s*n(o)?\s*\]|\by\s*/\s*n\s*\?",
+        )
+        .unwrap()
     });
-    let menu = MENU_ITEM
-        .get_or_init(|| Regex::new(r"(?m)^\s*\d+\s*[.)]\s+\S").unwrap());
+    let menu = MENU_ITEM.get_or_init(|| Regex::new(r"(?m)^\s*\d+\s*[.)]\s+\S").unwrap());
 
     let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
     let window = take_last_chars(&stripped, DECISION_SCAN_WINDOW);
@@ -3825,8 +3830,7 @@ fn strip_spinner_churn(s: &str) -> String {
     use std::sync::OnceLock;
     static TIMER_RE: OnceLock<Regex> = OnceLock::new();
     let timer = TIMER_RE.get_or_init(|| {
-        Regex::new(r"\d{1,2}:\d{2}:\d{2}|\d{1,3}:\d{2}|\d+(\.\d+)?\s*(ms|s|m|h)\b")
-            .unwrap()
+        Regex::new(r"\d{1,2}:\d{2}:\d{2}|\d{1,3}:\d{2}|\d+(\.\d+)?\s*(ms|s|m|h)\b").unwrap()
     });
     let despun: String = s
         .chars()
@@ -3840,9 +3844,25 @@ fn strip_spinner_churn(s: &str) -> String {
             }
             !matches!(
                 *c,
-                '✶' | '✷' | '✸' | '✹' | '✺' | '✦' | '★' | '☆'
-                | '◐' | '◓' | '◑' | '◒'
-                | '◴' | '◷' | '◶' | '◵' | '◰' | '◳' | '◲' | '◱'
+                '✶' | '✷'
+                    | '✸'
+                    | '✹'
+                    | '✺'
+                    | '✦'
+                    | '★'
+                    | '☆'
+                    | '◐'
+                    | '◓'
+                    | '◑'
+                    | '◒'
+                    | '◴'
+                    | '◷'
+                    | '◶'
+                    | '◵'
+                    | '◰'
+                    | '◳'
+                    | '◲'
+                    | '◱'
             )
         })
         .collect();
@@ -3869,7 +3889,10 @@ fn compute_reply_text_hash(text: &str) -> u64 {
 fn synth_response_for(action: &OperatorAction) -> String {
     match action {
         OperatorAction::Wait { rationale } => {
-            format!("ACTION: WAIT\nRATIONALE: {}\n", rationale.replace('\n', " "))
+            format!(
+                "ACTION: WAIT\nRATIONALE: {}\n",
+                rationale.replace('\n', " ")
+            )
         }
         OperatorAction::Escalate {
             notification,
@@ -3983,9 +4006,7 @@ fn truncate(s: &str, max: usize) -> String {
 /// Read a mission spec from disk + stat for its mtime. Used by both
 /// `set_mission` (initial load) and the watcher (reload on change).
 /// For a Superpowers mission with a paired plan, also loads the plan.
-async fn load_mission_doc(
-    mref: &crate::mission_pair::MissionRef,
-) -> Result<MissionDoc, String> {
+async fn load_mission_doc(mref: &crate::mission_pair::MissionRef) -> Result<MissionDoc, String> {
     let spec_path = &mref.spec_path;
     let content = tokio::fs::read_to_string(spec_path)
         .await
@@ -4041,7 +4062,9 @@ fn mtime_unix_ms(path: &std::path::Path) -> Option<u64> {
     use std::time::UNIX_EPOCH;
     let meta = std::fs::metadata(path).ok()?;
     let mt = meta.modified().ok()?;
-    mt.duration_since(UNIX_EPOCH).ok().map(|d| d.as_millis() as u64)
+    mt.duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as u64)
 }
 
 /// Derive a short slug from a mission spec path. Mirrors the frontend's
@@ -4068,10 +4091,7 @@ fn slug_from_mission_path(path: &std::path::Path) -> String {
         while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == '.') {
             i += 1;
         }
-        if i > 0
-            && i < bytes.len()
-            && matches!(bytes[i], '-' | '_' | ' ')
-        {
+        if i > 0 && i < bytes.len() && matches!(bytes[i], '-' | '_' | ' ') {
             // skip separator(s)
             while i < bytes.len() && matches!(bytes[i], '-' | '_' | ' ') {
                 i += 1;
@@ -4120,16 +4140,18 @@ fn slug_fallback_covenant(
         .rev()
         .collect::<String>()
         .to_ascii_lowercase();
-    let kebab_title = tab_title
-        .map(|t| kebab_case(t))
-        .filter(|s| !s.is_empty());
+    let kebab_title = tab_title.map(|t| kebab_case(t)).filter(|s| !s.is_empty());
     let body = kebab_title.unwrap_or_else(|| {
         let raw = cwd
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_default();
         let k = kebab_case(&raw);
-        if k.is_empty() { String::from("session") } else { k }
+        if k.is_empty() {
+            String::from("session")
+        } else {
+            k
+        }
     });
     format!("covenant-{body}-{ulid6}")
 }
@@ -4261,6 +4283,7 @@ fn detect_executor(command: &str) -> Option<String> {
         "aider" => "aider",
         "cursor" | "cursor-agent" => "cursor",
         "codex" => "codex",
+        "pi" => "pi",
         "copilot" | "github-copilot-cli" => "copilot",
         "gh" => {
             // `gh copilot <subcmd>` — match the subcommand form.
@@ -4355,10 +4378,7 @@ mod tests {
             "foo-txt"
         );
         // Empty / weird → empty (caller skips).
-        assert_eq!(
-            slug_from_mission_path(&PathBuf::from("/x/.md")),
-            ""
-        );
+        assert_eq!(slug_from_mission_path(&PathBuf::from("/x/.md")), "");
     }
 
     /// Build an `Attached` with sensible defaults for tests. We only
@@ -4590,7 +4610,10 @@ mod tests {
             text: "y".to_string(),
             rationale: "x".to_string(),
         };
-        assert_ne!(compute_loop_hash(&wait, tail), compute_loop_hash(&reply, tail));
+        assert_ne!(
+            compute_loop_hash(&wait, tail),
+            compute_loop_hash(&reply, tail)
+        );
     }
 
     #[test]
@@ -4838,7 +4861,10 @@ What would you like to do?
     fn build_system_prompt_with_project_context_renders_block() {
         let ctx = "## Project: my-app\n\nSome notes about the project.";
         let got = build_system_prompt("persona", false, None, &[], ctx, false);
-        assert!(got.contains("## Project: my-app"), "project block missing; got: {got}");
+        assert!(
+            got.contains("## Project: my-app"),
+            "project block missing; got: {got}"
+        );
         assert!(got.contains("Some notes about the project."));
         // Block sits between learned_block (absent) and PERSONA.
         let project_idx = got.find("## Project: my-app").unwrap();
@@ -4869,7 +4895,10 @@ What would you like to do?
             plan: None,
         };
         let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
-        assert!(out.contains("<mission-spec kind=\"covenant\""), "out was: {out}");
+        assert!(
+            out.contains("<mission-spec kind=\"covenant\""),
+            "out was: {out}"
+        );
         assert!(out.contains("Goal: do X"));
         assert!(!out.contains("<mission-plan"));
     }
@@ -4890,9 +4919,15 @@ What would you like to do?
             plan: Some(plan),
         };
         let out = build_system_prompt("persona", false, Some(&doc), &[], "", false);
-        assert!(out.contains("<mission-spec kind=\"superpowers\""), "out was: {out}");
+        assert!(
+            out.contains("<mission-spec kind=\"superpowers\""),
+            "out was: {out}"
+        );
         assert!(out.contains("spec body"));
-        assert!(out.contains("<mission-plan status=\"1/2\""), "out was: {out}");
+        assert!(
+            out.contains("<mission-plan status=\"1/2\""),
+            "out was: {out}"
+        );
         assert!(out.contains("- [x] one"));
     }
 
@@ -4940,24 +4975,16 @@ What would you like to do?
                     .join(", ");
                 Some(format!(
                     "{}\napplied_memory: {} (shadowed: {})",
-                    cleaned
-                        .as_ref()
-                        .map(|r| r.trim_end())
-                        .unwrap_or(""),
+                    cleaned.as_ref().map(|r| r.trim_end()).unwrap_or(""),
                     id,
                     shadows_str
                 ))
             }
-            (Some(id), true) => {
-                Some(format!(
-                    "{}\napplied_memory: {}",
-                    cleaned
-                        .as_ref()
-                        .map(|r| r.trim_end())
-                        .unwrap_or(""),
-                    id
-                ))
-            }
+            (Some(id), true) => Some(format!(
+                "{}\napplied_memory: {}",
+                cleaned.as_ref().map(|r| r.trim_end()).unwrap_or(""),
+                id
+            )),
             (None, _) => cleaned.clone(),
         };
 
@@ -4983,24 +5010,16 @@ What would you like to do?
                     .join(", ");
                 Some(format!(
                     "{}\napplied_memory: {} (shadowed: {})",
-                    cleaned
-                        .as_ref()
-                        .map(|r| r.trim_end())
-                        .unwrap_or(""),
+                    cleaned.as_ref().map(|r| r.trim_end()).unwrap_or(""),
                     id,
                     shadows_str
                 ))
             }
-            (Some(id), true) => {
-                Some(format!(
-                    "{}\napplied_memory: {}",
-                    cleaned
-                        .as_ref()
-                        .map(|r| r.trim_end())
-                        .unwrap_or(""),
-                    id
-                ))
-            }
+            (Some(id), true) => Some(format!(
+                "{}\napplied_memory: {}",
+                cleaned.as_ref().map(|r| r.trim_end()).unwrap_or(""),
+                id
+            )),
             (None, _) => cleaned.clone(),
         };
 
@@ -5094,9 +5113,15 @@ What would you like to do?
         use std::path::PathBuf;
         let sid = SessionId::new();
         let s_root = slug_fallback_covenant(None, &PathBuf::from("/"), sid);
-        assert!(s_root.starts_with("covenant-session-"), "root got: {s_root}");
+        assert!(
+            s_root.starts_with("covenant-session-"),
+            "root got: {s_root}"
+        );
         let s_empty = slug_fallback_covenant(None, &PathBuf::from(""), sid);
-        assert!(s_empty.starts_with("covenant-session-"), "empty got: {s_empty}");
+        assert!(
+            s_empty.starts_with("covenant-session-"),
+            "empty got: {s_empty}"
+        );
     }
 
     #[test]
@@ -5125,13 +5150,23 @@ What would you like to do?
         watcher_inner.lock().await.sessions.insert(sid, att);
 
         // Inline the body of queue_aom_startup_actions against this Inner.
-        let snapshot: Vec<(SessionId, Option<PathBuf>, Arc<AsyncMutex<SessionWorldModel>>)> = {
+        let snapshot: Vec<(
+            SessionId,
+            Option<PathBuf>,
+            Arc<AsyncMutex<SessionWorldModel>>,
+        )> = {
             let inner = watcher_inner.lock().await;
             inner
                 .sessions
                 .iter()
                 .filter(|(_, att)| att.enabled)
-                .map(|(id, att)| (*id, att.mission.as_ref().map(|m| m.path.clone()), att.world.clone()))
+                .map(|(id, att)| {
+                    (
+                        *id,
+                        att.mission.as_ref().map(|m| m.path.clone()),
+                        att.world.clone(),
+                    )
+                })
                 .collect()
         };
         let mut slugs: Vec<(SessionId, String)> = Vec::new();
@@ -5177,11 +5212,21 @@ What would you like to do?
         inner.lock().await.sessions.insert(sid, att);
 
         // Same inline derivation as the helper.
-        let snapshot: Vec<(SessionId, Option<PathBuf>, Arc<AsyncMutex<SessionWorldModel>>)> = {
+        let snapshot: Vec<(
+            SessionId,
+            Option<PathBuf>,
+            Arc<AsyncMutex<SessionWorldModel>>,
+        )> = {
             let i = inner.lock().await;
             i.sessions
                 .iter()
-                .map(|(id, att)| (*id, att.mission.as_ref().map(|m| m.path.clone()), att.world.clone()))
+                .map(|(id, att)| {
+                    (
+                        *id,
+                        att.mission.as_ref().map(|m| m.path.clone()),
+                        att.world.clone(),
+                    )
+                })
                 .collect()
         };
         let mut slugs: Vec<(SessionId, String)> = Vec::new();
@@ -5194,13 +5239,21 @@ What would you like to do?
             slugs.push((id, s));
         }
         let (_, slug) = &slugs[0];
-        assert!(slug.starts_with("covenant-karl-terminal-"), "slug was: {slug}");
+        assert!(
+            slug.starts_with("covenant-karl-terminal-"),
+            "slug was: {slug}"
+        );
         let suf = slug.rsplit('-').next().unwrap();
         assert_eq!(suf.len(), 6);
     }
 
     /// Build a temp dir with N spec files; helper for the next-candidate test.
-    fn write_spec(dir: &std::path::Path, name: &str, plan_dir: Option<&std::path::Path>, plan_body: Option<&str>) -> PathBuf {
+    fn write_spec(
+        dir: &std::path::Path,
+        name: &str,
+        plan_dir: Option<&std::path::Path>,
+        plan_body: Option<&str>,
+    ) -> PathBuf {
         let p = dir.join(name);
         std::fs::write(&p, "# spec\n").unwrap();
         if let (Some(pd), Some(body)) = (plan_dir, plan_body) {
@@ -5250,8 +5303,7 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: Some(crate::mission_pair::PlanDoc {
                 path: PathBuf::from("/plans/feature-x-plan.md"),
-                content: "- [x] one\n- [x] two\n- [x] three\n- [x] four\n- [ ] five\n"
-                    .to_string(),
+                content: "- [x] one\n- [x] two\n- [x] three\n- [x] four\n- [ ] five\n".to_string(),
                 mtime_unix_ms: 0,
             }),
         });
@@ -5286,9 +5338,7 @@ What would you like to do?
     /// Test-only mirror of the state half of `detect_mission_completions`
     /// (no AppHandle / Notifier). Returns the (session, mission_path)
     /// pairs that would have fired this tick.
-    async fn run_completion_check(
-        inner: &Arc<AsyncMutex<Inner>>,
-    ) -> Vec<(SessionId, PathBuf)> {
+    async fn run_completion_check(inner: &Arc<AsyncMutex<Inner>>) -> Vec<(SessionId, PathBuf)> {
         let mut out = Vec::new();
         let mut i = inner.lock().await;
         for (id, att) in i.sessions.iter_mut() {
@@ -5298,11 +5348,19 @@ What would you like to do?
                 // 100%-done event for the new mission can fire.
                 att.last_plan_completed_path = None;
             }
-            let Some(mission) = att.mission.as_ref() else { continue };
-            let Some(plan) = mission.plan.as_ref() else { continue };
+            let Some(mission) = att.mission.as_ref() else {
+                continue;
+            };
+            let Some(plan) = mission.plan.as_ref() else {
+                continue;
+            };
             let (total, done) = crate::mission_pair::count_top_level_tasks(&plan.content);
-            if total == 0 || done < total { continue; }
-            if att.last_plan_completed_path.as_ref() == Some(&mission.path) { continue; }
+            if total == 0 || done < total {
+                continue;
+            }
+            if att.last_plan_completed_path.as_ref() == Some(&mission.path) {
+                continue;
+            }
             att.last_plan_completed_path = Some(mission.path.clone());
             out.push((*id, mission.path.clone()));
         }

@@ -57,14 +57,26 @@ pub struct TurnRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind")]
 pub enum TurnAction {
-    Reply { text: String },
-    Execute { command: String },
-    Escalate { notification: String },
+    Reply {
+        text: String,
+    },
+    Execute {
+        command: String,
+    },
+    Escalate {
+        notification: String,
+    },
     // Model frequently emits `Wait` (matches the internal
     // `OperatorAction::Wait` name it sees in logs/code) or lowercased
     // forms instead of `Ignore`. Accept the aliases so a cosmetic
     // mismatch doesn't take the operator down with a parse error.
-    #[serde(alias = "Wait", alias = "wait", alias = "ignore", alias = "noop", alias = "NoOp")]
+    #[serde(
+        alias = "Wait",
+        alias = "wait",
+        alias = "ignore",
+        alias = "noop",
+        alias = "NoOp"
+    )]
     Ignore,
 }
 
@@ -531,9 +543,7 @@ mod tests {
             at: t0(),
             saw: "tail".into(),
             thought: "thinking".into(),
-            action: TurnAction::Reply {
-                text: "yes".into(),
-            },
+            action: TurnAction::Reply { text: "yes".into() },
             executed: true,
         });
         let out = render_recent_block(&m);
@@ -586,7 +596,10 @@ mod tests {
         Trailing noise.
         "#;
         let r = parse_model_response(text).unwrap();
-        assert_eq!(r.mind_update.belief, Some("executor finished task 4".into()));
+        assert_eq!(
+            r.mind_update.belief,
+            Some("executor finished task 4".into())
+        );
         assert_eq!(r.action, TurnAction::Reply { text: "yes".into() });
     }
 
@@ -596,12 +609,14 @@ mod tests {
         // internal OperatorAction::Wait it sees in code/logs) instead
         // of `Ignore`. Must parse cleanly, not blow up the operator.
         for kind in ["Wait", "wait", "ignore", "noop", "NoOp", "Ignore"] {
-            let text = format!(
-                r#"{{ "mind_update": {{}}, "action": {{ "kind": "{kind}" }} }}"#
-            );
+            let text = format!(r#"{{ "mind_update": {{}}, "action": {{ "kind": "{kind}" }} }}"#);
             let r = parse_model_response(&text)
                 .unwrap_or_else(|e| panic!("alias `{kind}` failed: {e}"));
-            assert_eq!(r.action, TurnAction::Ignore, "alias `{kind}` should map to Ignore");
+            assert_eq!(
+                r.action,
+                TurnAction::Ignore,
+                "alias `{kind}` should map to Ignore"
+            );
         }
     }
 
@@ -643,7 +658,10 @@ mod tests {
     fn parse_model_response_handles_braces_inside_strings() {
         let text = r#"{"mind_update": {"belief": "use {x} for placeholders"}, "action": {"kind": "Ignore"}}"#;
         let r = parse_model_response(text).unwrap();
-        assert_eq!(r.mind_update.belief.as_deref(), Some("use {x} for placeholders"));
+        assert_eq!(
+            r.mind_update.belief.as_deref(),
+            Some("use {x} for placeholders")
+        );
     }
 
     #[test]
@@ -667,7 +685,9 @@ mod tests {
         let mut tf = VecDeque::new();
         tf.push_back("anything".to_string());
         assert!(!is_repeat_of_known_failure(
-            &TurnAction::Escalate { notification: "n".into() },
+            &TurnAction::Escalate {
+                notification: "n".into()
+            },
             &tf
         ));
         assert!(!is_repeat_of_known_failure(&TurnAction::Ignore, &tf));
@@ -677,7 +697,9 @@ mod tests {
     fn is_repeat_of_known_failure_execute_matches_by_first_token() {
         let mut tf = VecDeque::new();
         tf.push_back("blocked: rm bypassed safety".to_string());
-        let act = TurnAction::Execute { command: "rm -rf /tmp/x".into() };
+        let act = TurnAction::Execute {
+            command: "rm -rf /tmp/x".into(),
+        };
         assert!(is_repeat_of_known_failure(&act, &tf));
     }
 
@@ -696,7 +718,9 @@ mod tests {
             at: chrono::Utc::now(),
             saw: "tail with sk-abc123".into(),
             thought: "thinking sk-abc123".into(),
-            action: TurnAction::Reply { text: "echo sk-abc123".into() },
+            action: TurnAction::Reply {
+                text: "echo sk-abc123".into(),
+            },
             executed: false,
         });
         mask_in_place(&mut m, |s| s.replace("sk-abc123", "***"));
@@ -717,7 +741,8 @@ mod tests {
 
     #[test]
     fn parse_model_response_handles_escaped_quotes_in_strings() {
-        let text = r#"{"mind_update": {"belief": "say \"yes\" to user"}, "action": {"kind": "Ignore"}}"#;
+        let text =
+            r#"{"mind_update": {"belief": "say \"yes\" to user"}, "action": {"kind": "Ignore"}}"#;
         let r = parse_model_response(text).unwrap();
         assert_eq!(r.mind_update.belief.as_deref(), Some("say \"yes\" to user"));
     }

@@ -13,8 +13,7 @@ use karl_session::{Session, SessionEvent};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn does_not_fire_for_plain_idle_shell() {
-    let (_session, _streams) = Session::spawn(SpawnOptions::zsh_interactive())
-        .expect("spawn");
+    let (_session, _streams) = Session::spawn(SpawnOptions::zsh_interactive()).expect("spawn");
     let mut bus = _session.subscribe();
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(6);

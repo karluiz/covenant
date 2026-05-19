@@ -54,8 +54,15 @@ fn scope_label_claude(scope: &claude::ClaudeScope) -> (String, bool) {
                 .to_string();
             (format!("project:{name}"), false)
         }
-        claude::ClaudeScope::Plugin { marketplace, plugin, version } => {
-            let v = version.as_deref().map(|v| format!("@{v}")).unwrap_or_default();
+        claude::ClaudeScope::Plugin {
+            marketplace,
+            plugin,
+            version,
+        } => {
+            let v = version
+                .as_deref()
+                .map(|v| format!("@{v}"))
+                .unwrap_or_default();
             (format!("plugin:{marketplace}/{plugin}{v}"), true)
         }
     }
@@ -211,10 +218,7 @@ fn item_from_opencode(c: opencode::Capability) -> CapabilityListItem {
                 description: Some(format!(
                     "{} {}",
                     m.kind,
-                    m.command
-                        .map(|v| v.join(" "))
-                        .or(m.url)
-                        .unwrap_or_default()
+                    m.command.map(|v| v.join(" ")).or(m.url).unwrap_or_default()
                 )),
                 path,
                 scope_label: lbl,
@@ -589,18 +593,18 @@ fn scaffold_target(
         },
         (Tool::Opencode, Kind::Skill) => match project_root {
             Some(root) => root.join(".opencode/agent").join(format!("{name}.md")),
-            None => home.join(".config/opencode/agent").join(format!("{name}.md")),
+            None => home
+                .join(".config/opencode/agent")
+                .join(format!("{name}.md")),
         },
         (Tool::Shared, Kind::Skill) => home.join(".agents/skills").join(name).join("SKILL.md"),
-        (Tool::Codex, Kind::SlashCommand) => {
-            home.join(".codex/prompts").join(format!("{name}.md"))
-        }
-        (Tool::Codex, Kind::McpServer) => {
-            home.join(format!(".codex/scaffolded-{name}.json"))
-        }
+        (Tool::Codex, Kind::SlashCommand) => home.join(".codex/prompts").join(format!("{name}.md")),
+        (Tool::Codex, Kind::McpServer) => home.join(format!(".codex/scaffolded-{name}.json")),
         // Hooks / MCPs: write a snippet file for the user to paste into their settings.json.
         // We intentionally do NOT auto-merge in v0 (avoids clobbering hand-edited JSON).
-        (Tool::Claude, Kind::Hook) | (Tool::Claude, Kind::McpServer) | (Tool::Copilot, Kind::McpServer) => {
+        (Tool::Claude, Kind::Hook)
+        | (Tool::Claude, Kind::McpServer)
+        | (Tool::Copilot, Kind::McpServer) => {
             let ext = "json";
             home.join(format!(".claude/scaffolded-{name}.{ext}"))
         }

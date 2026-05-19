@@ -228,9 +228,14 @@ async fn step_question_then_final() {
     }
 
     // Turn 6: should return Final.
-    let out = step(&mock, &mut draft, "No open questions".to_string(), dir.path())
-        .await
-        .expect("step 6");
+    let out = step(
+        &mock,
+        &mut draft,
+        "No open questions".to_string(),
+        dir.path(),
+    )
+    .await
+    .expect("step 6");
     assert!(
         matches!(out, StepOutput::Final { .. }),
         "expected Final on turn 6, got {out:?}"

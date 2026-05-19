@@ -238,8 +238,8 @@ export class DraftWizard {
         state: EditorState.create({
           doc: initialValue,
           extensions: [
-            editorTheme,
-            editorHighlight,
+            editorTheme(document.body.classList.contains("theme-light") ? "light" : "dark"),
+            editorHighlight(document.body.classList.contains("theme-light") ? "light" : "dark"),
             highlightActiveLine(),
             drawSelection(),
             history(),

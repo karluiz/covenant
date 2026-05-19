@@ -965,6 +965,7 @@ function executorBrand(name: string): { color: string; label: string } | null {
   //               "shell-native" without colliding with codex green
   //   Cursor    — monochrome white (their brand is grayscale)
   //   Codex     — OpenAI teal-green (chatgpt.com / openai.com primary)
+  //   Pi        — Pi's startup/help accent teal
   switch (name.toLowerCase()) {
     case "claude":
       return { color: "#cc785c", label: "Claude" };
@@ -978,6 +979,8 @@ function executorBrand(name: string): { color: string; label: string } | null {
       return { color: "#e5e7eb", label: "Cursor" };
     case "codex":
       return { color: "#10a37f", label: "Codex" };
+    case "pi":
+      return { color: "#8fd3c7", label: "Pi" };
     default:
       return null;
   }

@@ -8,8 +8,14 @@ use super::outbound::{OutboundState, STATUS_ERROR, STATUS_OK};
 
 #[derive(Debug)]
 pub enum InboundEvent {
-    Resolved { escalation_id: String, resolution: ResolutionFromTelegram },
-    UnknownReply { chat_id: i64, message_id: i64 },
+    Resolved {
+        escalation_id: String,
+        resolution: ResolutionFromTelegram,
+    },
+    UnknownReply {
+        chat_id: i64,
+        message_id: i64,
+    },
 }
 
 #[derive(Debug)]
@@ -49,9 +55,13 @@ pub fn spawn(
             for u in updates {
                 offset = Some(u.update_id + 1);
                 if let Some(cb) = u.callback_query {
-                    if cb.from.id != cfg.allowed_chat_id { continue; }
+                    if cb.from.id != cfg.allowed_chat_id {
+                        continue;
+                    }
                     let _ = client.answer_callback_query(&cfg.token, &cb.id).await;
-                    let Some(data) = cb.data else { continue; };
+                    let Some(data) = cb.data else {
+                        continue;
+                    };
                     if let Some((eid, action)) = parse_callback(&data) {
                         let res = match action.as_str() {
                             "Approve" => ResolutionFromTelegram::Approved,
@@ -59,11 +69,18 @@ pub fn spawn(
                             "Snooze10m" => ResolutionFromTelegram::Snoozed,
                             _ => continue,
                         };
-                        let _ = tx.send(InboundEvent::Resolved { escalation_id: eid, resolution: res });
+                        let _ = tx.send(InboundEvent::Resolved {
+                            escalation_id: eid,
+                            resolution: res,
+                        });
                     }
                 } else if let Some(msg) = u.message {
-                    if msg.chat.id != cfg.allowed_chat_id { continue; }
-                    let Some(text) = msg.text else { continue; };
+                    if msg.chat.id != cfg.allowed_chat_id {
+                        continue;
+                    }
+                    let Some(text) = msg.text else {
+                        continue;
+                    };
                     if let Some(reply) = msg.reply_to_message {
                         let map = state.map.lock().unwrap();
                         if let Some(eid) = map.get(&reply.message_id).cloned() {
@@ -94,7 +111,9 @@ pub fn spawn(
 fn parse_callback(s: &str) -> Option<(String, String)> {
     let mut parts = s.splitn(3, ':');
     let prefix = parts.next()?;
-    if prefix != "esc" { return None; }
+    if prefix != "esc" {
+        return None;
+    }
     let id = parts.next()?.to_string();
     let action = parts.next()?.to_string();
     Some((id, action))

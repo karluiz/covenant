@@ -11,5 +11,5 @@ pub mod scaffold;
 pub mod watcher;
 pub mod writer;
 
-pub use model::{Tool, Kind, CapabilityError, CapabilityResult};
-pub use watcher::{CapabilityWatcher, CapabilityEvent, RecursiveMode};
+pub use model::{CapabilityError, CapabilityResult, Kind, Tool};
+pub use watcher::{CapabilityEvent, CapabilityWatcher, RecursiveMode};

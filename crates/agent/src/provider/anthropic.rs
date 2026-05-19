@@ -3,8 +3,8 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
 
-use crate::{AgentError, AgentEvent, AskRequest, TokenUsage};
 use super::{Capabilities, LlmProvider, ProviderConfig, ProviderKind};
+use crate::{AgentError, AgentEvent, AskRequest, TokenUsage};
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
@@ -133,8 +133,7 @@ impl LlmProvider for AnthropicProvider {
                         tracing::trace!(payload = %data, "skipping unparseable sse data");
                         continue;
                     };
-                    let event_type =
-                        value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    let event_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
                     dispatch_event(event_type, &value, &mut on_event);
                     if event_type == "message_stop" {
                         return Ok(());
@@ -162,10 +161,7 @@ fn dispatch_event(
                 .unwrap_or("");
             match delta_type {
                 "text_delta" => {
-                    if let Some(text) = delta
-                        .and_then(|d| d.get("text"))
-                        .and_then(|t| t.as_str())
-                    {
+                    if let Some(text) = delta.and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
                         on_event(AgentEvent::Delta(text.to_string()));
                     }
                 }
@@ -214,9 +210,7 @@ fn dispatch_event(
         }
         "content_block_start" => {
             let cb = value.get("content_block");
-            if cb.and_then(|c| c.get("type")).and_then(|t| t.as_str())
-                == Some("tool_use")
-            {
+            if cb.and_then(|c| c.get("type")).and_then(|t| t.as_str()) == Some("tool_use") {
                 let name = cb
                     .and_then(|c| c.get("name"))
                     .and_then(|n| n.as_str())

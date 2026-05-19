@@ -113,8 +113,7 @@ impl SessionWorldModel {
                 out.push_str(summary.trim());
                 out.push('\n');
 
-                let recent: Vec<&BlockSnapshot> =
-                    self.blocks.iter().rev().take(4).collect();
+                let recent: Vec<&BlockSnapshot> = self.blocks.iter().rev().take(4).collect();
                 if !recent.is_empty() {
                     out.push_str("\n# Most recent blocks (newest last)\n");
                     for b in recent.into_iter().rev() {

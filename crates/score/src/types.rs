@@ -57,12 +57,21 @@ pub fn day_from_ms_local(ms: i64) -> String {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TimeRange { All, Last7d, Last30d }
-impl Default for TimeRange { fn default() -> Self { Self::All } }
+pub enum TimeRange {
+    All,
+    Last7d,
+    Last30d,
+}
+impl Default for TimeRange {
+    fn default() -> Self {
+        Self::All
+    }
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScoreFilter {
-    #[serde(default)] pub range: TimeRange,
+    #[serde(default)]
+    pub range: TimeRange,
     pub repo: Option<String>,
     pub branch: Option<String>,
     pub group_name: Option<String>,
@@ -70,13 +79,24 @@ pub struct ScoreFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RepoCell   { pub repo: String, pub prompts: u32, pub commits: u32 }
+pub struct RepoCell {
+    pub repo: String,
+    pub prompts: u32,
+    pub commits: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BranchCell { pub branch: String, pub prompts: u32, pub commits: u32 }
+pub struct BranchCell {
+    pub branch: String,
+    pub prompts: u32,
+    pub commits: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GroupCell  { pub group_name: String, pub prompts: u32 }
+pub struct GroupCell {
+    pub group_name: String,
+    pub prompts: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRow {

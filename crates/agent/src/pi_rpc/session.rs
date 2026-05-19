@@ -117,10 +117,7 @@ impl PiSession {
     /// live. The `session_id` is yours — pass any string that uniquely
     /// identifies this session in your app.
     pub async fn spawn(session_id: String, opts: PiSpawnOpts) -> Result<Arc<Self>, PiSpawnError> {
-        let program = opts
-            .program
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("pi"));
+        let program = opts.program.clone().unwrap_or_else(|| PathBuf::from("pi"));
         let mut cmd = Command::new(&program);
         cmd.arg("--mode").arg("rpc");
         if let Some(p) = &opts.provider {
@@ -176,12 +173,7 @@ impl PiSession {
         });
 
         let writer_handle = tokio::spawn(write_loop(stdin, stdin_rx));
-        let reader_handle = tokio::spawn(read_loop(
-            stdout,
-            events_tx,
-            pending,
-            session_id.clone(),
-        ));
+        let reader_handle = tokio::spawn(read_loop(stdout, events_tx, pending, session_id.clone()));
         *session.writer.lock().await = Some(writer_handle);
         *session.reader.lock().await = Some(reader_handle);
 
@@ -211,10 +203,7 @@ impl PiSession {
     /// Send a command and await its `response` line. The command's `id`
     /// field is overwritten with a generated correlation id so callers
     /// don't have to invent unique strings themselves.
-    pub async fn send_with_response(
-        &self,
-        mut cmd: PiCommand,
-    ) -> Result<PiResponse, PiSendError> {
+    pub async fn send_with_response(&self, mut cmd: PiCommand) -> Result<PiResponse, PiSendError> {
         let id = self.alloc_id();
         set_command_id(&mut cmd, id.clone());
 
@@ -471,7 +460,10 @@ mod tests {
         }
 
         assert!(matches!(received.first(), Some(PiEvent::AgentStart)));
-        assert!(matches!(received.get(1), Some(PiEvent::MessageUpdate { .. })));
+        assert!(matches!(
+            received.get(1),
+            Some(PiEvent::MessageUpdate { .. })
+        ));
         assert!(matches!(received.get(2), Some(PiEvent::AgentEnd { .. })));
 
         drop(stdin_tx);
@@ -502,12 +494,7 @@ mod tests {
             Arc::new(Mutex::new(HashMap::new()));
         let (stdin_tx, stdin_rx) = mpsc::channel(8);
         let _writer = tokio::spawn(write_loop(stdin, stdin_rx));
-        let reader = tokio::spawn(read_loop(
-            stdout,
-            events_tx,
-            pending.clone(),
-            "test".into(),
-        ));
+        let reader = tokio::spawn(read_loop(stdout, events_tx, pending.clone(), "test".into()));
 
         // Register a pending waiter.
         let (tx, rx) = oneshot::channel();

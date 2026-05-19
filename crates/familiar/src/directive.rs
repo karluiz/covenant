@@ -16,7 +16,7 @@ pub enum DirectiveKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Directive {
-    pub id: String,           // ulid
+    pub id: String, // ulid
     pub kind: DirectiveKind,
     pub payload: String,
     pub rationale: String,
@@ -24,7 +24,12 @@ pub struct Directive {
 
 impl Directive {
     pub fn new(kind: DirectiveKind, payload: String, rationale: String) -> Self {
-        Self { id: Ulid::new().to_string(), kind, payload, rationale }
+        Self {
+            id: Ulid::new().to_string(),
+            kind,
+            payload,
+            rationale,
+        }
     }
 
     /// The synthetic user message that will be injected into the operator's
@@ -37,8 +42,10 @@ impl Directive {
             DirectiveKind::Resume => "RESUME",
             DirectiveKind::Custom => "DIRECTIVE",
         };
-        format!("[FAMILIAR_DIRECTIVE {}]\n{}\n\n(Rationale: {})",
-                tag, self.payload, self.rationale)
+        format!(
+            "[FAMILIAR_DIRECTIVE {}]\n{}\n\n(Rationale: {})",
+            tag, self.payload, self.rationale
+        )
     }
 }
 
@@ -154,7 +161,9 @@ impl SafetyCheck for DefaultSafety {
 }
 
 pub fn ensure_safe(d: &Directive, safety: &dyn SafetyCheck) -> Result<()> {
-    safety.check(d).map_err(|reason| FamiliarError::SafetyBlocked { reason })
+    safety
+        .check(d)
+        .map_err(|reason| FamiliarError::SafetyBlocked { reason })
 }
 
 #[cfg(test)]
@@ -163,8 +172,11 @@ mod tests {
 
     #[test]
     fn rendered_message_tags_kind() {
-        let d = Directive::new(DirectiveKind::Stop, "stop touching auth".into(),
-                               "you said it was risky".into());
+        let d = Directive::new(
+            DirectiveKind::Stop,
+            "stop touching auth".into(),
+            "you said it was risky".into(),
+        );
         let r = d.rendered_for_operator();
         assert!(r.contains("[FAMILIAR_DIRECTIVE STOP]"));
         assert!(r.contains("stop touching auth"));
@@ -179,8 +191,11 @@ mod tests {
 
     #[test]
     fn safety_blocks_force_push_to_main() {
-        let d = Directive::new(DirectiveKind::Custom,
-                                "git push --force origin main".into(), "x".into());
+        let d = Directive::new(
+            DirectiveKind::Custom,
+            "git push --force origin main".into(),
+            "x".into(),
+        );
         assert!(ensure_safe(&d, &DefaultSafety).is_err());
     }
 
@@ -247,15 +262,21 @@ mod tests {
 
     #[test]
     fn allows_force_with_lease() {
-        let d = Directive::new(DirectiveKind::Custom,
-                                "git push --force-with-lease origin main".into(), "x".into());
+        let d = Directive::new(
+            DirectiveKind::Custom,
+            "git push --force-with-lease origin main".into(),
+            "x".into(),
+        );
         assert!(ensure_safe(&d, &DefaultSafety).is_ok());
     }
 
     #[test]
     fn allows_word_containing_sudo() {
-        let d = Directive::new(DirectiveKind::Custom,
-                                "sudoers config update".into(), "x".into());
+        let d = Directive::new(
+            DirectiveKind::Custom,
+            "sudoers config update".into(),
+            "x".into(),
+        );
         assert!(ensure_safe(&d, &DefaultSafety).is_ok());
     }
 }

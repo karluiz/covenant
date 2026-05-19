@@ -27,11 +27,24 @@ fn main() {
     }
     println!("  skills={skills} commands={cmds} hooks={hooks} mcps={mcps}");
 
-    if let Some(c) = plugins.iter().find_map(|c| if let claude::Capability::Skill(s) = c { Some(s) } else { None }) {
-        println!("\nsample plugin skill:\n  name={}\n  scope={:?}\n  path={}", c.name, c.scope, c.path.display());
+    if let Some(c) = plugins.iter().find_map(|c| {
+        if let claude::Capability::Skill(s) = c {
+            Some(s)
+        } else {
+            None
+        }
+    }) {
+        println!(
+            "\nsample plugin skill:\n  name={}\n  scope={:?}\n  path={}",
+            c.name,
+            c.scope,
+            c.path.display()
+        );
     }
 }
 
 fn dirs_home() -> std::path::PathBuf {
-    std::env::var_os("HOME").map(std::path::PathBuf::from).expect("HOME unset")
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .expect("HOME unset")
 }

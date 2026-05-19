@@ -67,7 +67,8 @@ impl LlmProvider for OpenAiCompatProvider {
             ],
         });
 
-        let mut request = client.post(self.url())
+        let mut request = client
+            .post(self.url())
             .header("content-type", "application/json")
             .json(&body);
         if let Some(key) = self.cfg.api_key.as_deref().filter(|k| !k.trim().is_empty()) {
@@ -78,7 +79,10 @@ impl LlmProvider for OpenAiCompatProvider {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(AgentError::Api { status: status.as_u16(), body });
+            return Err(AgentError::Api {
+                status: status.as_u16(),
+                body,
+            });
         }
 
         let mut stream = response.bytes_stream();
@@ -91,9 +95,13 @@ impl LlmProvider for OpenAiCompatProvider {
                 let raw: Vec<u8> = buffer.drain(..idx + 2).collect();
                 let text = String::from_utf8_lossy(&raw);
                 for line in text.lines() {
-                    let Some(data) = line.strip_prefix("data:") else { continue };
+                    let Some(data) = line.strip_prefix("data:") else {
+                        continue;
+                    };
                     let data = data.trim_start();
-                    if data.is_empty() { continue }
+                    if data.is_empty() {
+                        continue;
+                    }
                     if data == "[DONE]" {
                         on_event(AgentEvent::Done);
                         return Ok(());
@@ -112,17 +120,18 @@ impl LlmProvider for OpenAiCompatProvider {
                                 on_event(AgentEvent::Delta(text.to_string()));
                             }
                         }
-                        if let Some(reason) = choice
-                            .get("finish_reason")
-                            .and_then(|r| r.as_str())
-                        {
+                        if let Some(reason) = choice.get("finish_reason").and_then(|r| r.as_str()) {
                             on_event(AgentEvent::StopReason(reason.to_string()));
                         }
                     }
 
                     if let Some(usage) = v.get("usage") {
                         let get = |k: &str| {
-                            usage.get(k).and_then(|n| n.as_u64()).map(|n| n as u32).unwrap_or(0)
+                            usage
+                                .get(k)
+                                .and_then(|n| n.as_u64())
+                                .map(|n| n as u32)
+                                .unwrap_or(0)
                         };
                         on_event(AgentEvent::Usage(TokenUsage {
                             input_tokens: get("prompt_tokens"),

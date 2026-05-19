@@ -129,6 +129,11 @@ export class SettingsPanel {
   private operatorsPane: OperatorsPane | null = null;
   private panelBody: HTMLElement | null = null;
   private covenantMounted = false;
+  /// Monotonic token that invalidates an async `open()` still waiting on
+  /// backend/settings subpanels. Without this, opening Settings and
+  /// immediately opening another full-page panel can let the stale
+  /// Settings render resume later and paint over that panel.
+  private openGeneration = 0;
 
   private mountCovenantOnce(): void {
     if (this.covenantMounted) return;
@@ -175,12 +180,14 @@ export class SettingsPanel {
 
   async open(tab: SettingsTab = "providers"): Promise<void> {
     if (this.isOpen()) return;
+    const generation = ++this.openGeneration;
+    let current: Settings;
     try {
-      this.current = await getSettings();
+      current = await getSettings();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("get_settings failed", err);
-      this.current = {
+      current = {
         anthropic_api_key: null,
         agent: {
           model_summary: "claude-sonnet-4-6",
@@ -228,25 +235,42 @@ export class SettingsPanel {
         is_premium: false,
       };
     }
+    if (generation !== this.openGeneration) return;
+    this.current = current;
     this.workspace.hidden = true;
     this.pageHost.hidden = false;
     this.isOpenState = true;
-    await this.render(tab);
+    await this.render(tab, generation);
   }
 
   close(): void {
-    if (!this.isOpen()) return;
+    this.openGeneration++;
+
+    // Be defensive: Settings.open()/render() does async work, and other
+    // full-page panels (notably Set Mission) may ask us to close while
+    // that work is still settling. If any stale DOM is present, always
+    // remove it even if isOpenState already got out of sync; otherwise a
+    // sticky .settings-actions footer can remain over the workspace.
+    const hadVisibleState =
+      this.isOpenState || !this.pageHost.hidden || this.pageHost.childElementCount > 0;
+
     this.pageHost.innerHTML = "";
     this.pageHost.hidden = true;
-    this.workspace.hidden = false;
+    if (hadVisibleState) this.workspace.hidden = false;
     this.isOpenState = false;
     this.current = null;
+    this.panelBody = null;
+    this.operatorsPane = null;
     this.covenantMounted = false;
-    if (this.onClosed) this.onClosed();
+
+    if (hadVisibleState && this.onClosed) this.onClosed();
   }
 
-  private async render(tab: SettingsTab = "providers"): Promise<void> {
-    if (!this.current) return;
+  private async render(
+    tab: SettingsTab = "providers",
+    generation: number = this.openGeneration,
+  ): Promise<void> {
+    if (!this.current || generation !== this.openGeneration) return;
 
     this.pageHost.innerHTML = "";
 
@@ -881,11 +905,13 @@ export class SettingsPanel {
     if (opMount) {
       this.operatorsPane = new OperatorsPane(opMount);
       await this.operatorsPane.open();
+      if (generation !== this.openGeneration || !this.isOpenState) return;
     }
 
     const spawnsHost = form.querySelector<HTMLElement>("#sec-spawns");
     if (spawnsHost) {
       await renderSpawnsTab(spawnsHost);
+      if (generation !== this.openGeneration || !this.isOpenState) return;
     }
 
     const tgHost = form.querySelector<HTMLElement>("#sec-telegram");

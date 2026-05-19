@@ -75,7 +75,9 @@ async fn zsh_snippet_emits_osc133_markers() {
         "expected CommandFinished{{0}} for `echo karl-test` in: {events:?}"
     );
     assert!(
-        events.iter().any(|e| matches!(e, BlockEvent::CwdChanged { .. })),
+        events
+            .iter()
+            .any(|e| matches!(e, BlockEvent::CwdChanged { .. })),
         "expected CwdChanged from OSC 7 in: {events:?}"
     );
 

@@ -102,12 +102,7 @@ impl ThrottleState {
         }
     }
 
-    fn allow_per_session(
-        &mut self,
-        trigger: Trigger,
-        session: SessionId,
-        now: Instant,
-    ) -> bool {
+    fn allow_per_session(&mut self, trigger: Trigger, session: SessionId, now: Instant) -> bool {
         let key = (trigger, session);
         match self.last_fire_per_session.get(&key).copied() {
             Some(prev) if now.duration_since(prev) < THROTTLE_WINDOW => false,
@@ -247,7 +242,10 @@ fn truncate_for_log(s: &str) -> String {
     if s.len() <= 200 {
         return s.to_string();
     }
-    let cut = (0..=200).rev().find(|i| s.is_char_boundary(*i)).unwrap_or(0);
+    let cut = (0..=200)
+        .rev()
+        .find(|i| s.is_char_boundary(*i))
+        .unwrap_or(0);
     let mut out = s[..cut].to_string();
     out.push('…');
     out
@@ -273,10 +271,7 @@ mod tests {
         let t0 = Instant::now();
         assert!(t.allow(Trigger::OperatorEscalate, t0));
         assert!(!t.allow(Trigger::OperatorEscalate, t0 + Duration::from_secs(5)));
-        assert!(!t.allow(
-            Trigger::OperatorEscalate,
-            t0 + Duration::from_secs(29)
-        ));
+        assert!(!t.allow(Trigger::OperatorEscalate, t0 + Duration::from_secs(29)));
     }
 
     #[test]

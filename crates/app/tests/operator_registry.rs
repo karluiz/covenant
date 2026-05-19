@@ -52,8 +52,10 @@ async fn duplicate_name_rejected_case_insensitive() {
     let reg = OperatorRegistry::load(&s).await.unwrap();
     reg.create(&s, sample("Default", true)).await.unwrap();
     let err = reg.create(&s, sample("default", false)).await.unwrap_err();
-    assert!(matches!(err,
-        covenant_lib::operator_registry::RegistryError::DuplicateName(_)));
+    assert!(matches!(
+        err,
+        covenant_lib::operator_registry::RegistryError::DuplicateName(_)
+    ));
 }
 
 #[tokio::test]
@@ -64,8 +66,10 @@ async fn cannot_delete_default() {
     let id = def.id;
     reg.create(&s, def).await.unwrap();
     let err = reg.delete(&s, id).await.unwrap_err();
-    assert!(matches!(err,
-        covenant_lib::operator_registry::RegistryError::DefaultProtected));
+    assert!(matches!(
+        err,
+        covenant_lib::operator_registry::RegistryError::DefaultProtected
+    ));
 }
 
 #[tokio::test]
@@ -79,8 +83,7 @@ async fn set_default_flips_atomically() {
     reg.create(&s, b).await.unwrap();
     reg.set_default(&s, id_b).await.unwrap();
     let rows = reg.list();
-    let map: std::collections::HashMap<_, _> =
-        rows.iter().map(|o| (o.id, o.is_default)).collect();
+    let map: std::collections::HashMap<_, _> = rows.iter().map(|o| (o.id, o.is_default)).collect();
     assert_eq!(map[&id_a], false);
     assert_eq!(map[&id_b], true);
 }

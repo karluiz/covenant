@@ -1,9 +1,60 @@
+:root {
+  --notch-bg-expanded: rgba(20, 22, 28, 0.72);
+  --notch-bg-compact: rgba(16, 18, 22, 0.76);
+  --notch-border: rgba(255, 255, 255, 0.08);
+  --notch-border-top: rgba(255, 255, 255, 0.14);
+  --notch-text: #fff;
+  --notch-target: #e6e6ee;
+  --notch-muted: #9b9ba8;
+  --notch-tab-label-mix: #8a8a96;
+  --notch-tabchip-opacity: 0.75;
+  --notch-icon-line: rgba(232, 233, 236, 0.55);
+  --notch-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
+}
+
+body.notch-theme-light,
+body.theme-light {
+  --notch-bg-expanded: rgba(255, 255, 255, 0.82);
+  --notch-bg-compact: rgba(255, 255, 255, 0.86);
+  --notch-border: rgba(17, 24, 39, 0.13);
+  --notch-border-top: rgba(255, 255, 255, 0.86);
+  --notch-text: #1a1d22;
+  --notch-target: #4b5563;
+  --notch-muted: #6b7280;
+  --notch-tab-label-mix: #4b5563;
+  --notch-tabchip-opacity: 0.95;
+  --notch-icon-line: rgba(31, 41, 55, 0.46);
+  --notch-shadow:
+    0 1px 0 rgba(255,255,255,0.75) inset,
+    0 14px 34px rgba(31, 41, 55, 0.16),
+    0 2px 8px rgba(31, 41, 55, 0.08);
+}
+
+@media (prefers-color-scheme: light) {
+  body.notch-body:not(.notch-theme-dark):not(.notch-theme-light) {
+    --notch-bg-expanded: rgba(255, 255, 255, 0.82);
+    --notch-bg-compact: rgba(255, 255, 255, 0.86);
+    --notch-border: rgba(17, 24, 39, 0.13);
+    --notch-border-top: rgba(255, 255, 255, 0.86);
+    --notch-text: #1a1d22;
+    --notch-target: #4b5563;
+    --notch-muted: #6b7280;
+    --notch-tab-label-mix: #4b5563;
+    --notch-tabchip-opacity: 0.95;
+    --notch-icon-line: rgba(31, 41, 55, 0.46);
+    --notch-shadow:
+      0 1px 0 rgba(255,255,255,0.75) inset,
+      0 14px 34px rgba(31, 41, 55, 0.16),
+      0 2px 8px rgba(31, 41, 55, 0.08);
+  }
+}
+
 html, body, .notch-body {
   margin: 0;
   background: transparent;
   overflow: hidden;
   font-family: -apple-system, system-ui, sans-serif;
-  color: #fff;
+  color: var(--notch-text);
   -webkit-user-select: none;
   user-select: none;
 }
@@ -39,21 +90,21 @@ body[data-corner="top-left"] .stack {
 }
 
 .pill.expanded {
-  background: rgba(20, 22, 28, 0.72);
+  background: var(--notch-bg-expanded);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top-color: rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--notch-border);
+  border-top-color: var(--notch-border-top);
   border-left: 3px solid var(--tab, #7c5cff);
   border-radius: 12px;
   padding: 9px 14px 9px 11px;
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #fff;
+  color: var(--notch-text);
   font: 500 12.5px -apple-system;
   min-width: 210px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
+  box-shadow: var(--notch-shadow);
   animation: slideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s;
 }
@@ -61,14 +112,14 @@ body[data-corner="top-left"] .stack {
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--tab, #7c5cff) 70%, #8a8a96);
+  color: color-mix(in srgb, var(--tab, #7c5cff) 70%, var(--notch-tab-label-mix));
   font-weight: 500;
-  opacity: 0.75;
+  opacity: var(--notch-tabchip-opacity);
 }
 .pill.expanded { max-width: 320px; }
-.pill.expanded .verb { color: #fff; font-weight: 600; }
+.pill.expanded .verb { color: var(--notch-text); font-weight: 600; }
 .pill.expanded .target {
-  color: #e6e6ee;
+  color: var(--notch-target);
   font-weight: 500;
   max-width: 240px;
   overflow: hidden;
@@ -99,20 +150,20 @@ body[data-corner="top-left"] .stack {
 }
 
 .pill.compact {
-  background: rgba(16, 18, 22, 0.76);
+  background: var(--notch-bg-compact);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-top-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--notch-border);
+  border-top-color: var(--notch-border-top);
   border-left: 3px solid var(--tab, #7c5cff);
   border-radius: 999px;
   padding: 6px 14px 6px 8px;
   display: flex;
   align-items: center;
   gap: 9px;
-  color: #e8e8f0;
+  color: var(--notch-text);
   font: 600 11.5px -apple-system;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset;
+  box-shadow: var(--notch-shadow);
   transition: padding 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
               border-radius 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
               min-width 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -124,7 +175,7 @@ body[data-corner="top-left"] .stack {
   min-width: 210px;
 }
 .pill.compact .target {
-  color: #9b9ba8;
+  color: var(--notch-muted);
   font-weight: 400;
   max-width: 140px;
   overflow: hidden;
@@ -167,7 +218,7 @@ body[data-corner="top-left"] .stack {
 
 /* READING — horizontal sweep over text lines */
 .ld-read .line {
-  stroke: rgba(232, 233, 236, 0.55);
+  stroke: var(--notch-icon-line);
   stroke-width: 1.4;
   stroke-linecap: round;
 }

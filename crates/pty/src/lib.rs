@@ -281,9 +281,7 @@ pub fn smoke_zsh_echo() -> Result<String, PtyError> {
     let _ = child.wait();
     drop(pair.master);
 
-    let bytes = reader_handle
-        .join()
-        .map_err(|_| PtyError::ReaderThread)??;
+    let bytes = reader_handle.join().map_err(|_| PtyError::ReaderThread)??;
     let stripped = strip_ansi_escapes::strip(&bytes);
     Ok(String::from_utf8_lossy(&stripped).into_owned())
 }

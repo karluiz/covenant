@@ -140,7 +140,10 @@ fn query_runtime_binary(language: &str) -> Option<String> {
     // Marker isolates our output from any chatter rc files print on
     // interactive startup (banners, MOTDs, plugin manager status lines).
     let wrapped = format!("printf '__KT_V_START__\\n'; {cmd}");
-    let out = Command::new(&shell).args(["-ilc", &wrapped]).output().ok()?;
+    let out = Command::new(&shell)
+        .args(["-ilc", &wrapped])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -281,7 +284,12 @@ fn detached_label(cwd: &Path) -> Option<String> {
 }
 
 fn run_git(cwd: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(cwd).args(args).output().ok()?;
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -323,7 +331,9 @@ impl ContextCache {
     }
 
     pub fn insert(&self, cwd: PathBuf, value: DirContext) {
-        let Ok(mut map) = self.inner.lock() else { return };
+        let Ok(mut map) = self.inner.lock() else {
+            return;
+        };
         if map.len() >= CACHE_CAP && !map.contains_key(&cwd) {
             // Evict the entry whose last_used_at is oldest.
             if let Some(victim) = map
@@ -499,7 +509,12 @@ mod tests {
         let g = detect_git_context(dir.path()).unwrap();
         assert_eq!(g.branch, "main");
         // Repo name should match the temp dir's basename.
-        let expected = dir.path().file_name().unwrap().to_string_lossy().to_string();
+        let expected = dir
+            .path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         assert_eq!(g.repo_name, expected);
     }
 
@@ -565,6 +580,10 @@ mod tests {
                 },
             );
         }
-        assert!(cache.len() <= CACHE_CAP, "cache grew past cap: {}", cache.len());
+        assert!(
+            cache.len() <= CACHE_CAP,
+            "cache grew past cap: {}",
+            cache.len()
+        );
     }
 }

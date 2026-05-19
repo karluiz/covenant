@@ -7,8 +7,8 @@
 //! - `docs/superpowers/specs/*-design.md` → Superpowers
 //! - anything else → not a candidate (returns None)
 
-use std::path::{Path, PathBuf};
 use rusqlite::Connection;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -220,11 +220,7 @@ impl SpecDetector {
     /// `db_path` is the absolute path to the covenant SQLite file; the
     /// detector opens its own connection so the watcher thread does not
     /// share `AppState`'s storage mutex.
-    pub fn start(
-        app: AppHandle,
-        repo_root: PathBuf,
-        db_path: PathBuf,
-    ) -> Result<Self, String> {
+    pub fn start(app: AppHandle, repo_root: PathBuf, db_path: PathBuf) -> Result<Self, String> {
         // Snapshot existing on startup so we don't fire for preexisting files.
         {
             let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
@@ -238,8 +234,7 @@ impl SpecDetector {
             // Fire on file create or move-into-place (rename "to" event).
             let interesting = matches!(
                 event.kind,
-                EventKind::Create(_)
-                    | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                EventKind::Create(_) | EventKind::Modify(notify::event::ModifyKind::Name(_))
             );
             if !interesting {
                 return;
@@ -436,8 +431,8 @@ mod tests {
     fn snapshot_inserts_existing_specs_and_skips_unrelated() {
         use rusqlite::Connection;
         use std::fs;
-        use tempfile::TempDir;
         use std::sync::Once;
+        use tempfile::TempDir;
 
         static INIT: Once = Once::new();
         INIT.call_once(|| unsafe {
@@ -450,7 +445,11 @@ mod tests {
         let root = tmp.path();
         fs::create_dir_all(root.join("docs/specs/drafts")).unwrap();
         fs::create_dir_all(root.join("docs/superpowers/specs")).unwrap();
-        fs::write(root.join("docs/specs/3.1-foo.md"), "# 3.1 — Foo\n".as_bytes()).unwrap();
+        fs::write(
+            root.join("docs/specs/3.1-foo.md"),
+            "# 3.1 — Foo\n".as_bytes(),
+        )
+        .unwrap();
         fs::write(root.join("docs/specs/_template.md"), b"# template\n").unwrap();
         fs::write(root.join("docs/specs/drafts/wip.md"), b"# wip\n").unwrap();
         fs::write(
@@ -474,17 +473,15 @@ mod tests {
             .filter_map(|r| r.ok())
             .collect();
         assert!(rows.iter().any(|p| p.ends_with("3.1-foo.md")));
-        assert!(rows
-            .iter()
-            .any(|p| p.ends_with("2026-05-04-bar-design.md")));
+        assert!(rows.iter().any(|p| p.ends_with("2026-05-04-bar-design.md")));
     }
 
     #[test]
     fn snapshot_is_idempotent() {
         use rusqlite::Connection;
         use std::fs;
-        use tempfile::TempDir;
         use std::sync::Once;
+        use tempfile::TempDir;
 
         static INIT: Once = Once::new();
         INIT.call_once(|| unsafe {

@@ -54,7 +54,10 @@ impl ShellKind {
         #[cfg(windows)]
         {
             if let Some(p) = which_on_path("pwsh.exe") {
-                return Ok(ShellKind::PowerShell { program: p, pwsh: true });
+                return Ok(ShellKind::PowerShell {
+                    program: p,
+                    pwsh: true,
+                });
             }
             Err(ShellError::NotFound)
         }
@@ -82,7 +85,10 @@ impl ShellKind {
             }
             if lower == "pwsh.exe" || lower == "pwsh" {
                 if let Some(p) = which_on_path("pwsh.exe") {
-                    return Ok(ShellKind::PowerShell { program: p, pwsh: true });
+                    return Ok(ShellKind::PowerShell {
+                        program: p,
+                        pwsh: true,
+                    });
                 }
                 return Err(ShellError::NotFound);
             }
@@ -93,10 +99,7 @@ impl ShellKind {
 
 #[cfg(unix)]
 fn shell_kind_for_unix_path(p: PathBuf) -> ShellKind {
-    let name = p
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("");
+    let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
     if name.contains("zsh") {
         ShellKind::Zsh { program: p }
     } else {

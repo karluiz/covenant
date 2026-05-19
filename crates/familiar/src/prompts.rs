@@ -1,17 +1,16 @@
 use crate::agent::SummaryScope;
 use crate::identity::{FamiliarConfig, Style};
 
-pub fn system_prompt(cfg: &FamiliarConfig, rolling_summary: &str,
-                     recent_missions: &str) -> String {
+pub fn system_prompt(cfg: &FamiliarConfig, rolling_summary: &str, recent_missions: &str) -> String {
     let style_clause = match cfg.style {
-        Style::Concise =>
-            "Speak in short, direct sentences. No filler. Pack information densely.",
-        Style::Formal =>
-            "Speak with professional, measured prose. Avoid contractions.",
-        Style::Conversational =>
-            "Speak naturally, like a colleague chatting. Friendly but focused.",
-        Style::Sarcastic =>
-            "Speak with dry wit. Stay useful — sarcasm garnishes, never replaces, signal.",
+        Style::Concise => "Speak in short, direct sentences. No filler. Pack information densely.",
+        Style::Formal => "Speak with professional, measured prose. Avoid contractions.",
+        Style::Conversational => {
+            "Speak naturally, like a colleague chatting. Friendly but focused."
+        }
+        Style::Sarcastic => {
+            "Speak with dry wit. Stay useful — sarcasm garnishes, never replaces, signal."
+        }
     };
 
     format!(
@@ -69,10 +68,10 @@ pub fn summary_prompt(
     let scope_label = match scope {
         SummaryScope::Session => "current session",
         SummaryScope::Mission => "active mission",
-        SummaryScope::Today   => "rolling 24h",
+        SummaryScope::Today => "rolling 24h",
     };
     let system = format!(
-"You are producing an executive summary of what the operator did, focused on \
+        "You are producing an executive summary of what the operator did, focused on \
 autonomous decisions taken on behalf of the coordinator while they were AFK.
 
 Language: detect the language of the coordinator's most recent messages and \
@@ -93,9 +92,10 @@ Rules:
 - Do NOT propose directives. This command never emits `<<DIRECTIVE>>` blocks.
 - If you have to invent to fill a section, omit the section instead.
 - Scope of this summary: {scope_label}.
-");
+"
+    );
     let user = format!(
-"COORDINATOR'S RECENT MESSAGES (for language detection — do not summarize them):
+        "COORDINATOR'S RECENT MESSAGES (for language detection — do not summarize them):
 ---
 {last_user_msgs}
 ---
@@ -117,9 +117,21 @@ DIRECTIVES IN WINDOW (chronological):
 
 COSTS IN WINDOW: ${costs:.4} USD
 ",
-        rolling = if rolling_summary.is_empty() { "(empty)" } else { rolling_summary },
-        missions = if missions_text.is_empty() { "(none)" } else { missions_text },
-        directives = if directives_text.is_empty() { "(none)" } else { directives_text },
+        rolling = if rolling_summary.is_empty() {
+            "(empty)"
+        } else {
+            rolling_summary
+        },
+        missions = if missions_text.is_empty() {
+            "(none)"
+        } else {
+            missions_text
+        },
+        directives = if directives_text.is_empty() {
+            "(none)"
+        } else {
+            directives_text
+        },
         costs = costs_usd,
     );
     (system, user)
@@ -131,8 +143,11 @@ mod tests {
 
     #[test]
     fn includes_name_and_style_hint() {
-        let cfg = FamiliarConfig { name: "Marcus".into(),
-                                    style: Style::Sarcastic, daily_cap_usd: 5.0 };
+        let cfg = FamiliarConfig {
+            name: "Marcus".into(),
+            style: Style::Sarcastic,
+            daily_cap_usd: 5.0,
+        };
         let p = system_prompt(&cfg, "running tests", "");
         assert!(p.contains("Marcus"));
         assert!(p.contains("dry wit"));

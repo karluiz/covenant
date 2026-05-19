@@ -10,8 +10,7 @@ pub const KEYCHAIN_USERNAME: &str = "github-token";
 pub const KEYCHAIN_JWT_USERNAME: &str = "covenant-jwt";
 
 pub fn backend_url() -> String {
-    std::env::var("COVENANT_BACKEND_URL")
-        .unwrap_or_else(|_| "https://covenant.uno".to_string())
+    std::env::var("COVENANT_BACKEND_URL").unwrap_or_else(|_| "https://covenant.uno".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +30,8 @@ pub async fn exchange_with_backend(
         .post(&url)
         .header("User-Agent", "covenant-client")
         .json(&serde_json::json!({"github_access_token": github_access_token}))
-        .send().await?
+        .send()
+        .await?
         .error_for_status()?;
     Ok(resp.json().await?)
 }
@@ -188,7 +188,9 @@ pub async fn finalize_signin(
     store_token_in_keychain(token)?;
     session::set_current(store, &user)?;
     match exchange_with_backend(backend_url, token).await {
-        Ok(r) => { let _ = store_jwt(&r.jwt); }
+        Ok(r) => {
+            let _ = store_jwt(&r.jwt);
+        }
         Err(e) => tracing::warn!(error = %e, "backend exchange failed (will retry on next sync)"),
     }
     Ok(user)

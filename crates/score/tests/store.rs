@@ -8,7 +8,9 @@ fn append_and_summary_counts_prompts_and_commits() {
     let now = chrono::Utc::now().timestamp_millis();
     store.append(now, EventKind::Prompt, "anthropic").unwrap();
     store.append(now, EventKind::Prompt, "anthropic").unwrap();
-    store.append(now, EventKind::Commit, "repo:abc1234").unwrap();
+    store
+        .append(now, EventKind::Commit, "repo:abc1234")
+        .unwrap();
     let s = store.summary().unwrap();
     assert_eq!(s.total_prompts, 2);
     assert_eq!(s.total_commits, 1);
@@ -24,8 +26,12 @@ fn heatmap_returns_one_cell_per_day_with_data() {
     store.append(0, EventKind::Prompt, "anthropic").unwrap();
     store.append(1000, EventKind::Prompt, "anthropic").unwrap();
     store.append(2000, EventKind::Prompt, "anthropic").unwrap();
-    store.append(day_ms, EventKind::Prompt, "anthropic").unwrap();
-    store.append(day_ms + 1000, EventKind::Prompt, "anthropic").unwrap();
+    store
+        .append(day_ms, EventKind::Prompt, "anthropic")
+        .unwrap();
+    store
+        .append(day_ms + 1000, EventKind::Prompt, "anthropic")
+        .unwrap();
     let cells = store.heatmap_all().unwrap();
     assert_eq!(cells.len(), 2);
     assert_eq!(cells[0].prompts, 3);
@@ -52,19 +58,28 @@ fn migration_adds_context_columns_on_existing_db() {
     // Pre-create a v1 DB without context columns
     {
         let conn = rusqlite::Connection::open(dir.path().join("score.sqlite")).unwrap();
-        conn.execute_batch("CREATE TABLE score_events(
+        conn.execute_batch(
+            "CREATE TABLE score_events(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp_ms INTEGER NOT NULL,
             kind TEXT NOT NULL,
             executor TEXT NOT NULL,
-            day TEXT NOT NULL)").unwrap();
+            day TEXT NOT NULL)",
+        )
+        .unwrap();
         conn.execute("INSERT INTO score_events(timestamp_ms,kind,executor,day) VALUES (1,'prompt','x','2026-01-01')", []).unwrap();
     }
     // Open with new code — should ALTER and preserve row
     let store = karl_score::ScoreStore::open(dir.path()).unwrap();
     let c = store.connection();
     let g = c.lock().unwrap();
-    let cnt: i64 = g.query_row("SELECT COUNT(*) FROM score_events WHERE repo IS NULL", [], |r| r.get(0)).unwrap();
+    let cnt: i64 = g
+        .query_row(
+            "SELECT COUNT(*) FROM score_events WHERE repo IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(cnt, 1);
 }
 
@@ -77,12 +92,23 @@ fn append_with_context_stores_fields() {
         branch: Some("notch".into()),
         group_name: Some("main".into()),
     };
-    store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "anthropic", &ctx).unwrap();
+    store
+        .append_with_context(
+            1_700_000_000_000,
+            karl_score::EventKind::Prompt,
+            "anthropic",
+            &ctx,
+        )
+        .unwrap();
     let c = store.connection();
     let g = c.lock().unwrap();
-    let row: (String, String, String) = g.query_row(
-        "SELECT repo, branch, group_name FROM score_events", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-    ).unwrap();
+    let row: (String, String, String) = g
+        .query_row(
+            "SELECT repo, branch, group_name FROM score_events",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
     assert_eq!(row, ("karlTerminal".into(), "notch".into(), "main".into()));
 }
 
@@ -90,11 +116,32 @@ fn append_with_context_stores_fields() {
 fn summary_filtered_by_repo() {
     let dir = tempfile::tempdir().unwrap();
     let store = karl_score::ScoreStore::open(dir.path()).unwrap();
-    let kt = karl_score::Context { repo: Some("kt".into()), branch: Some("n".into()), group_name: None };
-    let cs = karl_score::Context { repo: Some("cs".into()), branch: Some("m".into()), group_name: None };
-    for _ in 0..3 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt).unwrap(); }
-    for _ in 0..7 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs).unwrap(); }
-    let s = store.summary_filtered(&karl_score::ScoreFilter { repo: Some("kt".into()), ..Default::default() }).unwrap();
+    let kt = karl_score::Context {
+        repo: Some("kt".into()),
+        branch: Some("n".into()),
+        group_name: None,
+    };
+    let cs = karl_score::Context {
+        repo: Some("cs".into()),
+        branch: Some("m".into()),
+        group_name: None,
+    };
+    for _ in 0..3 {
+        store
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt)
+            .unwrap();
+    }
+    for _ in 0..7 {
+        store
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs)
+            .unwrap();
+    }
+    let s = store
+        .summary_filtered(&karl_score::ScoreFilter {
+            repo: Some("kt".into()),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(s.total_prompts, 3);
 }
 
@@ -102,11 +149,32 @@ fn summary_filtered_by_repo() {
 fn heatmap_filtered_by_repo() {
     let dir = tempfile::tempdir().unwrap();
     let store = karl_score::ScoreStore::open(dir.path()).unwrap();
-    let kt = karl_score::Context { repo: Some("kt".into()), branch: None, group_name: None };
-    for _ in 0..4 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt).unwrap(); }
-    let cs = karl_score::Context { repo: Some("cs".into()), branch: None, group_name: None };
-    for _ in 0..2 { store.append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs).unwrap(); }
-    let cells = store.heatmap_filtered(&karl_score::ScoreFilter { repo: Some("kt".into()), ..Default::default() }).unwrap();
+    let kt = karl_score::Context {
+        repo: Some("kt".into()),
+        branch: None,
+        group_name: None,
+    };
+    for _ in 0..4 {
+        store
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt)
+            .unwrap();
+    }
+    let cs = karl_score::Context {
+        repo: Some("cs".into()),
+        branch: None,
+        group_name: None,
+    };
+    for _ in 0..2 {
+        store
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs)
+            .unwrap();
+    }
+    let cells = store
+        .heatmap_filtered(&karl_score::ScoreFilter {
+            repo: Some("kt".into()),
+            ..Default::default()
+        })
+        .unwrap();
     let total: u32 = cells.iter().map(|c| c.prompts).sum();
     assert_eq!(total, 4);
 }
@@ -118,7 +186,11 @@ use std::process::Command;
 fn scan_repo_since_counts_new_commits() {
     let repo = tempdir().unwrap();
     let run = |args: &[&str]| {
-        Command::new("git").args(args).current_dir(repo.path()).output().unwrap();
+        Command::new("git")
+            .args(args)
+            .current_dir(repo.path())
+            .output()
+            .unwrap();
     };
     run(&["init", "-q"]);
     run(&["config", "user.email", "test@x.com"]);

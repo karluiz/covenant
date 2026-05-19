@@ -12,8 +12,7 @@ pub struct ScaffoldRequest<'a> {
 
 const SKILL_BODY: &str = "\n# Overview\n\nDescribe what this skill does and when to use it.\n\n## Instructions\n\nTODO: instructions for the agent.\n";
 const SLASH_BODY: &str = "\nTODO: command body\n";
-const HOOK_JSON: &str =
-    r#"{"matcher":"*","hooks":[{"type":"command","command":"echo TODO"}]}"#;
+const HOOK_JSON: &str = r#"{"matcher":"*","hooks":[{"type":"command","command":"echo TODO"}]}"#;
 const MCP_JSON: &str = r#"{"command":"TODO","type":"stdio"}"#;
 
 /// Render the file content for `(tool, kind)`. Returns `None` if unsupported.
@@ -45,7 +44,12 @@ mod tests {
     use crate::frontmatter;
 
     fn req<'a>(tool: Tool, kind: Kind, name: &'a str, desc: &'a str) -> ScaffoldRequest<'a> {
-        ScaffoldRequest { tool, kind, name, description: desc }
+        ScaffoldRequest {
+            tool,
+            kind,
+            name,
+            description: desc,
+        }
     }
 
     #[test]
@@ -108,7 +112,13 @@ mod tests {
 
     #[test]
     fn codex_slash_roundtrips() {
-        let s = render(&req(Tool::Codex, Kind::SlashCommand, "review", "code review")).unwrap();
+        let s = render(&req(
+            Tool::Codex,
+            Kind::SlashCommand,
+            "review",
+            "code review",
+        ))
+        .unwrap();
         let fm = frontmatter::parse(&s);
         assert_eq!(fm.name(), Some("review"));
     }

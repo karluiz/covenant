@@ -18,7 +18,9 @@ pub struct ContextResolver {
 
 impl ContextResolver {
     pub fn new() -> Self {
-        Self { cache: Mutex::new(HashMap::new()) }
+        Self {
+            cache: Mutex::new(HashMap::new()),
+        }
     }
 
     pub fn resolve(&self, session_id: &str, cwd: &Path, group_name: Option<String>) -> Context {
@@ -35,7 +37,13 @@ impl ContextResolver {
         }
         let ctx = Self::compute(cwd, group_name);
         if let Ok(mut g) = self.cache.lock() {
-            g.insert(session_id.to_string(), Entry { ctx: ctx.clone(), at: Instant::now() });
+            g.insert(
+                session_id.to_string(),
+                Entry {
+                    ctx: ctx.clone(),
+                    at: Instant::now(),
+                },
+            );
         }
         ctx
     }
@@ -50,24 +58,44 @@ impl ContextResolver {
             let b = Self::git(cwd, &["branch", "--show-current"]).unwrap_or_default();
             if b.is_empty() {
                 let sha = Self::git(cwd, &["rev-parse", "--short=7", "HEAD"]).unwrap_or_default();
-                if sha.is_empty() { None } else { Some(format!("detached:{sha}")) }
+                if sha.is_empty() {
+                    None
+                } else {
+                    Some(format!("detached:{sha}"))
+                }
             } else {
                 Some(b)
             }
         } else {
             None
         };
-        Context { repo, branch, group_name }
+        Context {
+            repo,
+            branch,
+            group_name,
+        }
     }
 
     fn git(cwd: &Path, args: &[&str]) -> Option<String> {
-        let out = Command::new("git").current_dir(cwd).args(args).output().ok()?;
-        if !out.status.success() { return None; }
+        let out = Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
 }
 
 impl Default for ContextResolver {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

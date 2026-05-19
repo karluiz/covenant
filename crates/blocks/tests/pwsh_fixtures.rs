@@ -42,17 +42,17 @@ fn pwsh_full_block_sequence() {
     let evs = parse(stream);
 
     // Must see at least a CommandSubmitted and a CommandFinished.
-    let submitted = evs.iter().find(|e| {
-        matches!(e, BlockEvent::CommandSubmitted { command } if command == "Get-Process pwsh")
-    });
+    let submitted = evs.iter().find(
+        |e| matches!(e, BlockEvent::CommandSubmitted { command } if command == "Get-Process pwsh"),
+    );
     assert!(
         submitted.is_some(),
         "expected CommandSubmitted {{ command: \"Get-Process pwsh\" }}, got: {evs:?}"
     );
 
-    let finished = evs.iter().find(|e| {
-        matches!(e, BlockEvent::CommandFinished { exit_code: Some(0) })
-    });
+    let finished = evs
+        .iter()
+        .find(|e| matches!(e, BlockEvent::CommandFinished { exit_code: Some(0) }));
     assert!(
         finished.is_some(),
         "expected CommandFinished {{ exit_code: Some(0) }}, got: {evs:?}"
@@ -92,9 +92,8 @@ fn pwsh_chunked_command_finished() {
 /// (PS renders autosuggestions inline); the payload must win.
 #[test]
 fn pwsh_c_payload_overrides_byte_capture() {
-    let evs = parse(
-        b"\x1b]133;B\x07Get-Process\x1b[2m pwsh\x1b[0m\x1b]133;C;Get-Process pwsh\x1b\\",
-    );
+    let evs =
+        parse(b"\x1b]133;B\x07Get-Process\x1b[2m pwsh\x1b[0m\x1b]133;C;Get-Process pwsh\x1b\\");
     assert_eq!(
         evs,
         vec![BlockEvent::CommandSubmitted {
@@ -109,8 +108,6 @@ fn pwsh_nonzero_exit_code() {
     let evs = parse(b"\x1b]133;D;1\x07");
     assert_eq!(
         evs,
-        vec![BlockEvent::CommandFinished {
-            exit_code: Some(1)
-        }]
+        vec![BlockEvent::CommandFinished { exit_code: Some(1) }]
     );
 }

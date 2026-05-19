@@ -28,19 +28,25 @@ pub fn format_escalation(tab_name: &str, kind: &str, summary: &str) -> String {
 
 pub fn keyboard_for(actions: &[String], escalation_id: &str) -> super::types::InlineKeyboardMarkup {
     use super::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-    let buttons: Vec<InlineKeyboardButton> = actions.iter().map(|a| {
-        let label = match a.as_str() {
-            "Approve" => "✓ Approve",
-            "Reject" => "✗ Reject",
-            "Snooze10m" => "⏸ Snooze 10m",
-            other => other,
-        }.to_string();
-        InlineKeyboardButton {
-            text: label,
-            callback_data: format!("esc:{escalation_id}:{a}"),
-        }
-    }).collect();
-    InlineKeyboardMarkup { inline_keyboard: vec![buttons] }
+    let buttons: Vec<InlineKeyboardButton> = actions
+        .iter()
+        .map(|a| {
+            let label = match a.as_str() {
+                "Approve" => "✓ Approve",
+                "Reject" => "✗ Reject",
+                "Snooze10m" => "⏸ Snooze 10m",
+                other => other,
+            }
+            .to_string();
+            InlineKeyboardButton {
+                text: label,
+                callback_data: format!("esc:{escalation_id}:{a}"),
+            }
+        })
+        .collect();
+    InlineKeyboardMarkup {
+        inline_keyboard: vec![buttons],
+    }
 }
 
 #[cfg(test)]

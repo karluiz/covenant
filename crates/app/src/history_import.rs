@@ -149,7 +149,7 @@ fn parse_header<'a>(
         if let Some(semi) = rest.find(';') {
             let (meta, cmd) = rest.split_at(semi);
             let cmd = &cmd[1..]; // skip ';'
-            // meta = "<epoch>:<elapsed>"
+                                 // meta = "<epoch>:<elapsed>"
             let mut parts = meta.splitn(2, ':');
             let ts_str = parts.next().unwrap_or("");
             let dur_str = parts.next().unwrap_or("0");

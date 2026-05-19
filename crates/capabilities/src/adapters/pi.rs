@@ -86,11 +86,7 @@ pub fn scan_project(_repo: &Path) -> CapabilityResult<Vec<Capability>> {
     Ok(Vec::new())
 }
 
-fn scan_extensions(
-    dir: &Path,
-    scope: PiScope,
-    out: &mut Vec<Capability>,
-) -> CapabilityResult<()> {
+fn scan_extensions(dir: &Path, scope: PiScope, out: &mut Vec<Capability>) -> CapabilityResult<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -282,7 +278,10 @@ mod tests {
     fn scan_user_uses_dir_name_when_skill_md_lacks_frontmatter() {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path();
-        write(&home.join(".pi/skills/quick/SKILL.md"), "no frontmatter here");
+        write(
+            &home.join(".pi/skills/quick/SKILL.md"),
+            "no frontmatter here",
+        );
         let caps = scan_user(home).unwrap();
         let skill = caps.iter().find_map(|c| match c {
             Capability::Skill(s) => Some(s),

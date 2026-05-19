@@ -30,10 +30,15 @@ pub fn build_suggest_user_message(section: SuggestSection, draft_text: &str) -> 
 
 pub fn parse_suggestions(text: &str) -> Result<Vec<String>, DraftError> {
     #[derive(Deserialize)]
-    struct Wrap { suggestions: Vec<String> }
-    let trimmed = text.trim()
-        .trim_start_matches("```json").trim_start_matches("```")
-        .trim_end_matches("```").trim();
+    struct Wrap {
+        suggestions: Vec<String>,
+    }
+    let trimmed = text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
     let wrap: Wrap = serde_json::from_str(trimmed)
         .map_err(|e| DraftError::Validation(format!("bad llm json: {e}")))?;
     if wrap.suggestions.is_empty() {
@@ -60,11 +65,11 @@ pub enum DraftError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DraftFrontmatter {
-    pub status: String,        // always "draft"
+    pub status: String, // always "draft"
     pub title: String,
     pub slug: String,
-    pub created_at: String,    // RFC3339
-    pub updated_at: String,    // RFC3339
+    pub created_at: String, // RFC3339
+    pub updated_at: String, // RFC3339
     #[serde(default)]
     pub llm_calls: u32,
 }
@@ -76,9 +81,11 @@ pub struct DraftDocument {
 }
 
 pub fn parse_draft(text: &str) -> Result<DraftDocument, DraftError> {
-    let rest = text.strip_prefix("---\n")
+    let rest = text
+        .strip_prefix("---\n")
         .ok_or_else(|| DraftError::InvalidFrontmatter("missing opening ---".into()))?;
-    let end = rest.find("\n---\n")
+    let end = rest
+        .find("\n---\n")
         .ok_or_else(|| DraftError::InvalidFrontmatter("missing closing ---".into()))?;
     let yaml = &rest[..end];
     let body = rest[end + 5..].to_string();
@@ -106,7 +113,11 @@ pub fn slugify(title: &str) -> String {
         }
     }
     let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() { "untitled".into() } else { trimmed.to_string() }
+    if trimmed.is_empty() {
+        "untitled".into()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Find max `<major>.<minor>` ID among `docs/specs/*.md` (excluding
@@ -131,10 +142,16 @@ pub fn next_spec_id(repo_root: &Path) -> Result<String, DraftError> {
         let stem = name.trim_end_matches(".md");
         let prefix = stem.split('-').next().unwrap_or("");
         let mut parts = prefix.split('.');
-        let (Some(maj), Some(min)) = (parts.next(), parts.next()) else { continue };
+        let (Some(maj), Some(min)) = (parts.next(), parts.next()) else {
+            continue;
+        };
         if let (Ok(maj), Ok(min)) = (maj.parse::<u32>(), min.parse::<u32>()) {
             best = Some(best.map_or((maj, min), |(m, n)| {
-                if (maj, min) > (m, n) { (maj, min) } else { (m, n) }
+                if (maj, min) > (m, n) {
+                    (maj, min)
+                } else {
+                    (m, n)
+                }
             }));
         }
     }
@@ -245,10 +262,7 @@ pub fn list_published_specs_sync(repo_root: &Path) -> Result<Vec<PublishedSpec>,
         let path = entry.path();
         let text = std::fs::read_to_string(&path)?;
         // First non-empty line should be the H1 heading.
-        let heading_line = text
-            .lines()
-            .find(|l| !l.trim().is_empty())
-            .unwrap_or("");
+        let heading_line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
         let Some((id, title)) = parse_published_spec_heading(heading_line) else {
             continue; // not a published spec we can interpret
         };
@@ -258,7 +272,8 @@ pub fn list_published_specs_sync(repo_root: &Path) -> Result<Vec<PublishedSpec>,
             .and_then(|m| m.modified())
             .ok()
             .and_then(|t| {
-                t.duration_since(std::time::UNIX_EPOCH).ok()
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .ok()
                     .map(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
             })
             .flatten()
@@ -357,7 +372,10 @@ pub fn save_draft_sync(
             llm_calls: 0,
         }
     };
-    let doc = DraftDocument { frontmatter, body: body.into() };
+    let doc = DraftDocument {
+        frontmatter,
+        body: body.into(),
+    };
     let text = serialize_draft(&doc)?;
     let tmp = path.with_extension("md.tmp");
     std::fs::write(&tmp, text)?;
@@ -401,7 +419,9 @@ pub fn publish_draft_sync(
         )));
     }
 
-    let dest = repo_root.join("docs/specs").join(format!("{id}-{final_slug}.md"));
+    let dest = repo_root
+        .join("docs/specs")
+        .join(format!("{id}-{final_slug}.md"));
     if dest.exists() {
         return Err(DraftError::Collision(format!("{}", dest.display())));
     }
@@ -413,7 +433,9 @@ pub fn publish_draft_sync(
             let name = entry.file_name();
             let name = name.to_string_lossy().to_string();
             if name.starts_with(&format!("{id}-")) {
-                return Err(DraftError::Collision(format!("id {id} already used: {name}")));
+                return Err(DraftError::Collision(format!(
+                    "id {id} already used: {name}"
+                )));
             }
         }
     }
@@ -447,7 +469,11 @@ pub struct SpecBody {
 /// pane can't lock the UI on a pathological file. `max_bytes = 0` means
 /// "use default" (200 KB).
 pub fn read_spec_body_sync(path: &std::path::Path, max_bytes: usize) -> std::io::Result<SpecBody> {
-    let cap = if max_bytes == 0 { 200 * 1024 } else { max_bytes };
+    let cap = if max_bytes == 0 {
+        200 * 1024
+    } else {
+        max_bytes
+    };
     let bytes = std::fs::read(path)?;
     let truncated = bytes.len() > cap;
     let slice = if truncated { &bytes[..cap] } else { &bytes[..] };
@@ -571,13 +597,19 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
         delete_draft_sync(tmp.path(), "a").unwrap();
-        assert!(matches!(read_draft_sync(tmp.path(), "a"), Err(DraftError::NotFound(_))));
+        assert!(matches!(
+            read_draft_sync(tmp.path(), "a"),
+            Err(DraftError::NotFound(_))
+        ));
     }
 
     #[test]
     fn delete_missing_errors() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(matches!(delete_draft_sync(tmp.path(), "x"), Err(DraftError::NotFound(_))));
+        assert!(matches!(
+            delete_draft_sync(tmp.path(), "x"),
+            Err(DraftError::NotFound(_))
+        ));
     }
 
     #[test]
@@ -588,13 +620,18 @@ mod tests {
             "mission-drafts",
             "Mission Drafts",
             "# Draft — Mission Drafts\n\n## Goal\nx\n",
-        ).unwrap();
-        let dest = publish_draft_sync(tmp.path(), "mission-drafts", "3.10", "mission-drafts").unwrap();
+        )
+        .unwrap();
+        let dest =
+            publish_draft_sync(tmp.path(), "mission-drafts", "3.10", "mission-drafts").unwrap();
         assert!(dest.ends_with("docs/specs/3.10-mission-drafts.md"));
         let text = std::fs::read_to_string(&dest).unwrap();
         assert!(text.starts_with("# 3.10 — Mission Drafts\n"));
         assert!(!text.contains("---\nstatus:"));
-        assert!(!tmp.path().join("docs/specs/drafts/mission-drafts.md").exists());
+        assert!(!tmp
+            .path()
+            .join("docs/specs/drafts/mission-drafts.md")
+            .exists());
     }
 
     #[test]
@@ -725,8 +762,16 @@ mod tests {
         let specs = tmp.path().join("docs/specs");
         std::fs::create_dir_all(specs.join("drafts")).unwrap();
         std::fs::write(specs.join("_template.md"), "# Template\n## Goal\nx\n").unwrap();
-        std::fs::write(specs.join("3.1-foo.md"), "# 3.1 — Foo\n\n## Goal\nFoo goal.\n").unwrap();
-        std::fs::write(specs.join("3.10-bar.md"), "# 3.10 — Bar\n\n## Goal\nBar goal.\n").unwrap();
+        std::fs::write(
+            specs.join("3.1-foo.md"),
+            "# 3.1 — Foo\n\n## Goal\nFoo goal.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            specs.join("3.10-bar.md"),
+            "# 3.10 — Bar\n\n## Goal\nBar goal.\n",
+        )
+        .unwrap();
         std::fs::write(specs.join("drafts/draft-x.md"), "---\nstatus: draft\ntitle: x\nslug: draft-x\ncreated_at: 2026-01-01T00:00:00Z\nupdated_at: 2026-01-01T00:00:00Z\n---\n# Draft — x\n## Goal\nignored.\n").unwrap();
 
         let r = list_published_specs_sync(tmp.path()).unwrap();
@@ -847,12 +892,11 @@ pub async fn publish_draft(
     final_slug: String,
 ) -> Result<String, String> {
     let path = PathBuf::from(repo_root);
-    let dest = tokio::task::spawn_blocking(move || {
-        publish_draft_sync(&path, &slug, &id, &final_slug)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    let dest =
+        tokio::task::spawn_blocking(move || publish_draft_sync(&path, &slug, &id, &final_slug))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().into_owned())
 }
 

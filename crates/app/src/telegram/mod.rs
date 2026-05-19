@@ -30,7 +30,10 @@ impl TelegramNotifier {
 use crate::telegram::outbound::{format_escalation, keyboard_for};
 use crate::telegram::types::SendMessageReq;
 
-pub enum MissionKind { Completed, Failed }
+pub enum MissionKind {
+    Completed,
+    Failed,
+}
 
 #[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -43,18 +46,11 @@ pub enum TelegramStatus {
 impl TelegramNotifier {
     pub async fn status(&self) -> TelegramStatus {
         let s = self.settings.lock().await;
-        if !s.telegram.enabled
-            || s.telegram.bot_token.is_empty()
-            || s.telegram.chat_id.is_empty()
-        {
+        if !s.telegram.enabled || s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
             return TelegramStatus::Disabled;
         }
         drop(s);
-        match self
-            .state
-            .status
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        match self.state.status.load(std::sync::atomic::Ordering::Relaxed) {
             outbound::STATUS_ERROR => TelegramStatus::Error,
             // Settings are valid; default (no traffic yet) and STATUS_OK
             // both render as "Ok" so the user sees the configured state
@@ -103,7 +99,11 @@ impl TelegramNotifier {
             parse_mode: None,
         };
         let result = self.client.send_message(&token, req).await?;
-        self.state.map.lock().unwrap().insert(result.message_id, escalation_id.to_string());
+        self.state
+            .map
+            .lock()
+            .unwrap()
+            .insert(result.message_id, escalation_id.to_string());
         self.state
             .session_map
             .lock()
@@ -112,7 +112,13 @@ impl TelegramNotifier {
         Ok(())
     }
 
-    pub async fn send_mission_event(&self, mission_kind: MissionKind, tab: &str, body: &str, tab_id: Option<&str>) -> anyhow::Result<()> {
+    pub async fn send_mission_event(
+        &self,
+        mission_kind: MissionKind,
+        tab: &str,
+        body: &str,
+        tab_id: Option<&str>,
+    ) -> anyhow::Result<()> {
         let s = self.settings.lock().await;
         if !s.telegram.enabled {
             return Ok(());
@@ -128,10 +134,7 @@ impl TelegramNotifier {
             MissionKind::Completed => s.telegram.events.mission_completed,
             MissionKind::Failed => s.telegram.events.mission_failed,
         };
-        if !allowed
-            || s.telegram.bot_token.is_empty()
-            || s.telegram.chat_id.is_empty()
-        {
+        if !allowed || s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
             return Ok(());
         }
         let token = s.telegram.bot_token.clone();
@@ -160,7 +163,9 @@ impl TelegramNotifier {
                 .map(|(k, _)| *k);
             key.and_then(|k| map.remove(&k).map(|_| k))
         };
-        let Some(message_id) = entry else { return Ok(()); };
+        let Some(message_id) = entry else {
+            return Ok(());
+        };
         let s = self.settings.lock().await;
         if s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
             return Ok(());
@@ -169,7 +174,13 @@ impl TelegramNotifier {
         let chat = s.telegram.chat_id.clone();
         drop(s);
         self.client
-            .edit_message_text(&token, &chat, message_id, format!("✓ Resolved: {status}"), true)
+            .edit_message_text(
+                &token,
+                &chat,
+                message_id,
+                format!("✓ Resolved: {status}"),
+                true,
+            )
             .await?;
         Ok(())
     }
@@ -184,7 +195,10 @@ impl TelegramNotifier {
         let token = s.telegram.bot_token.clone();
         let chat = s.telegram.chat_id.clone();
         drop(s);
-        self.client.get_me(&token).await.map_err(|e| format!("getMe: {e}"))?;
+        self.client
+            .get_me(&token)
+            .await
+            .map_err(|e| format!("getMe: {e}"))?;
         self.client
             .send_message(
                 &token,
@@ -217,7 +231,10 @@ impl TelegramNotifier {
         inbound::spawn(
             self.client.clone(),
             self.state.clone(),
-            inbound::InboundConfig { token, allowed_chat_id },
+            inbound::InboundConfig {
+                token,
+                allowed_chat_id,
+            },
             tx,
         )
     }
@@ -245,8 +262,17 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("tab1", "BLOCKED", "summary", "esc-1",
-            &["Approve".into(), "Reject".into()], "sess-1", None).await.unwrap();
+        n.send_escalation(
+            "tab1",
+            "BLOCKED",
+            "summary",
+            "esc-1",
+            &["Approve".into(), "Reject".into()],
+            "sess-1",
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(fake.sent.lock().unwrap().len(), 1);
         let map = n.state.map.lock().unwrap();
         assert_eq!(map.get(&101).map(String::as_str), Some("esc-1"));
@@ -256,7 +282,9 @@ mod tests {
     async fn send_escalation_skipped_when_disabled() {
         let fake = Arc::new(FakeTelegramClient::default());
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(false, "42"));
-        n.send_escalation("t", "K", "s", "id", &["Approve".into()], "sess", None).await.unwrap();
+        n.send_escalation("t", "K", "s", "id", &["Approve".into()], "sess", None)
+            .await
+            .unwrap();
         assert!(fake.sent.lock().unwrap().is_empty());
     }
 
@@ -265,8 +293,12 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()], "sess", None).await.unwrap();
-        n.on_resolved("esc-1", "Approved via terminal").await.unwrap();
+        n.send_escalation("t", "K", "s", "esc-1", &["Approve".into()], "sess", None)
+            .await
+            .unwrap();
+        n.on_resolved("esc-1", "Approved via terminal")
+            .await
+            .unwrap();
         assert_eq!(fake.edits.lock().unwrap().len(), 1);
         assert!(n.state.map.lock().unwrap().is_empty());
     }
@@ -281,7 +313,12 @@ mod tests {
             callback_query: Some(CallbackQuery {
                 id: "cb1".into(),
                 from: From { id: 42 },
-                message: Some(IncomingMessage { message_id: 99, chat: Chat { id: 42 }, text: None, reply_to_message: None }),
+                message: Some(IncomingMessage {
+                    message_id: 99,
+                    chat: Chat { id: 42 },
+                    text: None,
+                    reply_to_message: None,
+                }),
                 data: Some("esc:abc:Approve".into()),
             }),
         }]);
@@ -293,7 +330,10 @@ mod tests {
 
         let evt = rx.try_recv().expect("expected resolution");
         match evt {
-            InboundEvent::Resolved { escalation_id, resolution } => {
+            InboundEvent::Resolved {
+                escalation_id,
+                resolution,
+            } => {
                 assert_eq!(escalation_id, "abc");
                 assert!(matches!(resolution, ResolutionFromTelegram::Approved));
             }
@@ -310,7 +350,10 @@ mod tests {
             update_id: 1,
             callback_query: None,
             message: Some(IncomingMessage {
-                message_id: 1, chat: Chat { id: 999 }, text: Some("hi".into()), reply_to_message: None,
+                message_id: 1,
+                chat: Chat { id: 999 },
+                text: Some("hi".into()),
+                reply_to_message: None,
             }),
         }]);
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
@@ -327,15 +370,21 @@ mod tests {
         let fake = Arc::new(FakeTelegramClient::default());
         *fake.next_message_id.lock().unwrap() = 100;
         let n = TelegramNotifier::new(fake.clone(), settings_with_telegram(true, "42"));
-        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()], "sess", None).await.unwrap();
+        n.send_escalation("t", "K", "s", "esc-7", &["Approve".into()], "sess", None)
+            .await
+            .unwrap();
         fake.queued_updates.lock().unwrap().push(vec![Update {
             update_id: 1,
             callback_query: None,
             message: Some(IncomingMessage {
-                message_id: 200, chat: Chat { id: 42 },
+                message_id: 200,
+                chat: Chat { id: 42 },
                 text: Some("usa --force".into()),
                 reply_to_message: Some(Box::new(IncomingMessage {
-                    message_id: 101, chat: Chat { id: 42 }, text: None, reply_to_message: None,
+                    message_id: 101,
+                    chat: Chat { id: 42 },
+                    text: None,
+                    reply_to_message: None,
                 })),
             }),
         }]);
@@ -345,9 +394,14 @@ mod tests {
         handle.abort();
         let evt = rx.recv().await.unwrap();
         match evt {
-            InboundEvent::Resolved { escalation_id, resolution } => {
+            InboundEvent::Resolved {
+                escalation_id,
+                resolution,
+            } => {
                 assert_eq!(escalation_id, "esc-7");
-                assert!(matches!(resolution, ResolutionFromTelegram::FreeText(t) if t == "usa --force"));
+                assert!(
+                    matches!(resolution, ResolutionFromTelegram::FreeText(t) if t == "usa --force")
+                );
             }
             _ => panic!(),
         }

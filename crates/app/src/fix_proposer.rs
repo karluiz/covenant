@@ -81,7 +81,17 @@ async fn run_loop(
                     continue;
                 }
 
-                match propose_fix(session_id, &settings, &command, &cwd, code, &output_text, &vitals).await {
+                match propose_fix(
+                    session_id,
+                    &settings,
+                    &command,
+                    &cwd,
+                    code,
+                    &output_text,
+                    &vitals,
+                )
+                .await
+                {
                     Ok(Some((fix_cmd, why))) => {
                         let _ = bus_tx.send(SessionEvent::FixSuggested {
                             session: session_id,
@@ -166,7 +176,12 @@ async fn propose_fix(
         latency_ms = started.elapsed().as_millis() as u64,
         "fix proposal generated"
     );
-    vitals.record_complete(session_id, model_for_vitals, usage, started.elapsed().as_millis() as u32);
+    vitals.record_complete(
+        session_id,
+        model_for_vitals,
+        usage,
+        started.elapsed().as_millis() as u32,
+    );
 
     Ok(parse_response(&response))
 }
@@ -220,8 +235,7 @@ impl SimpleRate {
 
     fn try_acquire(&mut self) -> bool {
         let now = Instant::now();
-        self.bucket
-            .retain(|&t| now.duration_since(t) < self.window);
+        self.bucket.retain(|&t| now.duration_since(t) < self.window);
         if self.bucket.len() < self.max {
             self.bucket.push(now);
             true

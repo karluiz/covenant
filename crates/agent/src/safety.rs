@@ -93,7 +93,11 @@ mod tests {
             "git push origin main --force",
             ":(){ :|:& };:",
         ] {
-            assert_eq!(classify(cmd), Risk::Destructive, "should be destructive: {cmd}");
+            assert_eq!(
+                classify(cmd),
+                Risk::Destructive,
+                "should be destructive: {cmd}"
+            );
         }
     }
 

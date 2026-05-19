@@ -1,11 +1,11 @@
 use crate::error::Result;
 use crate::memory::Memory;
 use crate::summarizer::{Llm, Summarizer};
+use karl_session::SessionEvent;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::sync::{Mutex, Notify};
-use karl_session::SessionEvent;
 
 pub struct Observer<L: Llm + 'static> {
     pub memory: Arc<Mutex<Memory>>,
@@ -27,9 +27,16 @@ impl<L: Llm + 'static> Observer<L> {
         let mut pending: usize = 0;
         let mut last_flush = tokio::time::Instant::now();
         // Use a sentinel Notify when none provided; it's never triggered.
-        let shutdown = self.shutdown.clone().unwrap_or_else(|| Arc::new(Notify::new()));
+        let shutdown = self
+            .shutdown
+            .clone()
+            .unwrap_or_else(|| Arc::new(Notify::new()));
         loop {
-            enum Step { Event(std::result::Result<SessionEvent, broadcast::error::RecvError>), Timeout, Shutdown }
+            enum Step {
+                Event(std::result::Result<SessionEvent, broadcast::error::RecvError>),
+                Timeout,
+                Shutdown,
+            }
             let step = tokio::select! {
                 biased;
                 _ = shutdown.notified() => Step::Shutdown,

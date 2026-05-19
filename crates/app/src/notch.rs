@@ -11,7 +11,9 @@ use tokio::sync::{broadcast, Mutex};
 
 struct Entry {
     detector: ExecutorPhaseDetector,
-    bus: broadcast::Sender<SessionEvent>,
+    /// Per-session event bus for PTY-backed sessions. `None` for sessions
+    /// driven externally (e.g. pi RPC sessions that have no PTY).
+    bus: Option<broadcast::Sender<SessionEvent>>,
     last_emit: std::time::Instant,
     /// Wall-clock of the most recent phase *transition* (changed = true).
     /// Used to time out stale Running/Reading/Writing phases that keep
@@ -91,7 +93,9 @@ impl NotchHub {
                     phase: karl_session::ExecutorPhase::Idle,
                     tab_label: labels.get(sid).cloned(),
                 };
-                let _ = entry.bus.send(ev.clone());
+                if let Some(bus) = &entry.bus {
+                    let _ = bus.send(ev.clone());
+                }
                 let _ = self.notch_tx.send(ev);
             }
         }
@@ -111,7 +115,7 @@ impl NotchHub {
             session,
             Entry {
                 detector: ExecutorPhaseDetector::default(),
-                bus,
+                bus: Some(bus),
                 last_emit: stale,
                 last_change: stale,
                 agent: None,
@@ -122,17 +126,81 @@ impl NotchHub {
         );
     }
 
+    /// Register a session that is *not* backed by a PTY — e.g. a pi RPC
+    /// session whose phase is driven entirely by [`set_phase`] from a
+    /// structured event stream, not by [`ingest`]ing PTY bytes.
+    pub async fn register_external(&self, session: SessionId, agent: String) {
+        let stale = std::time::Instant::now() - std::time::Duration::from_secs(60);
+        self.sessions.lock().await.insert(
+            session,
+            Entry {
+                detector: ExecutorPhaseDetector::default(),
+                bus: None,
+                last_emit: stale,
+                last_change: stale,
+                agent: Some(agent),
+                done_emitted: false,
+                display: karl_session::ExecutorPhase::Idle,
+                last_active_at: stale,
+            },
+        );
+    }
+
+    /// Inject a phase directly, bypassing the PTY-byte detector. Used by
+    /// transports that already deliver structured phase information (pi
+    /// RPC: `AgentStart`, `ToolExecutionStart`, `TurnEnd`, …). Applies the
+    /// same Done-dedupe behavior as [`ingest`] so a chatty `TurnEnd` flood
+    /// doesn't re-fire the chime.
+    pub async fn set_phase(&self, session: SessionId, phase: karl_session::ExecutorPhase) {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut map = self.sessions.lock().await;
+        let Some(entry) = map.get_mut(&session) else {
+            return;
+        };
+        if entry.agent.is_none() {
+            return;
+        }
+        let is_done = matches!(phase, karl_session::ExecutorPhase::Done { .. });
+        if !is_done {
+            entry.done_emitted = false;
+        } else if entry.done_emitted {
+            return;
+        }
+        if phase == entry.display {
+            return;
+        }
+        entry.display = phase.clone();
+        entry.last_emit = std::time::Instant::now();
+        entry.last_change = entry.last_emit;
+        if is_done {
+            entry.done_emitted = true;
+        }
+        let tab_label = self.labels.lock().await.get(&session).cloned();
+        let ev = SessionEvent::ExecutorStateChanged {
+            session,
+            phase,
+            tab_label,
+        };
+        if let Some(bus) = &entry.bus {
+            let _ = bus.send(ev.clone());
+        }
+        let _ = self.notch_tx.send(ev);
+    }
+
     /// Update the agent currently running in foreground for a session.
     /// Resets the detector when the agent transitions to/from None so
     /// stale phases don't leak across executor lifecycles.
     pub async fn set_foreground_agent(&self, session: SessionId, agent: Option<String>) {
         let mut map = self.sessions.lock().await;
-        let Some(entry) = map.get_mut(&session) else { return };
+        let Some(entry) = map.get_mut(&session) else {
+            return;
+        };
         if entry.agent != agent {
             entry.agent = agent;
             entry.detector = ExecutorPhaseDetector::default();
-            let stale = std::time::Instant::now()
-                - std::time::Duration::from_secs(60);
+            let stale = std::time::Instant::now() - std::time::Duration::from_secs(60);
             entry.last_emit = stale;
             entry.last_change = stale;
             entry.display = karl_session::ExecutorPhase::Idle;
@@ -162,6 +230,12 @@ impl NotchHub {
         };
         // Skip sessions where no executor agent is currently in foreground.
         if entry.agent.is_none() {
+            return;
+        }
+        // Pi drives the notch via structured RPC events (see `set_phase`).
+        // Its PTY output doesn't match the Claude/Codex regex pipeline, so
+        // running the detector on it would only produce stale phases.
+        if entry.agent.as_deref() == Some("pi") {
             return;
         }
         let changed = entry.detector.feed(bytes);
@@ -219,7 +293,9 @@ impl NotchHub {
                 phase: karl_session::ExecutorPhase::Idle,
                 tab_label,
             };
-            let _ = entry.bus.send(ev.clone());
+            if let Some(bus) = &entry.bus {
+                let _ = bus.send(ev.clone());
+            }
             let _ = self.notch_tx.send(ev);
             return;
         }
@@ -255,7 +331,9 @@ impl NotchHub {
                 phase,
                 tab_label,
             };
-            let _ = entry.bus.send(ev.clone());
+            if let Some(bus) = &entry.bus {
+                let _ = bus.send(ev.clone());
+            }
             let _ = self.notch_tx.send(ev);
         }
     }
@@ -377,7 +455,9 @@ fn apply_macos_collection_behavior(_win: &tauri::WebviewWindow) {}
 
 fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::NotchCorner) {
     use crate::settings::NotchCorner;
-    let Ok(Some(monitor)) = win.current_monitor() else { return };
+    let Ok(Some(monitor)) = win.current_monitor() else {
+        return;
+    };
     let size = monitor.size();
     let scale = monitor.scale_factor();
     let w = (360.0 * scale) as i32;
@@ -391,7 +471,10 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
     // (38px) and its window controls, so the pill doesn't crowd the icons.
     let pad_y_top = (72.0 * scale) as i32;
     let (x, y) = match corner {
-        NotchCorner::BottomRight => (size.width as i32 - w - pad_x, size.height as i32 - h - pad_y_bottom),
+        NotchCorner::BottomRight => (
+            size.width as i32 - w - pad_x,
+            size.height as i32 - h - pad_y_bottom,
+        ),
         NotchCorner::BottomLeft => (pad_x, size.height as i32 - h - pad_y_bottom),
         NotchCorner::TopRight => (size.width as i32 - w - pad_x, pad_y_top),
         NotchCorner::TopLeft => (pad_x, pad_y_top),
@@ -400,10 +483,7 @@ fn position_at_corner(win: &tauri::WebviewWindow, corner: crate::settings::Notch
 }
 
 #[tauri::command]
-pub async fn notch_set_passthrough(
-    window: tauri::Window,
-    passthrough: bool,
-) -> Result<(), String> {
+pub async fn notch_set_passthrough(window: tauri::Window, passthrough: bool) -> Result<(), String> {
     window
         .set_ignore_cursor_events(passthrough)
         .map_err(|e| e.to_string())
@@ -418,9 +498,9 @@ pub async fn notch_ready(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<serde_json::Value, String> {
     let snap = state.notch_hub.snapshot().await;
-    let (corner, sound_on_done) = {
+    let (corner, sound_on_done, theme) = {
         let s = state.settings.lock().await;
-        (s.notch_corner, s.notch_sound_on_done)
+        (s.notch_corner, s.notch_sound_on_done, s.window.theme)
     };
     tracing::info!(target: "notch", n = snap.len(), "notch_ready: replaying snapshot");
     let app = window.app_handle();
@@ -430,6 +510,7 @@ pub async fn notch_ready(
     Ok(serde_json::json!({
         "corner": corner,
         "sound_on_done": sound_on_done,
+        "theme": theme,
     }))
 }
 
@@ -514,11 +595,17 @@ mod tests {
         let ev = rx.recv().await.expect("writing");
         assert!(matches!(
             ev,
-            SessionEvent::ExecutorStateChanged { phase: ExecutorPhase::Writing { .. }, .. }
+            SessionEvent::ExecutorStateChanged {
+                phase: ExecutorPhase::Writing { .. },
+                ..
+            }
         ));
         // Detector flaps to Thinking immediately — hub must swallow it.
         hub.ingest(sid, "✻ Flowing… (1s)\n".as_bytes()).await;
-        assert!(rx.try_recv().is_err(), "thinking flap leaked through sticky window");
+        assert!(
+            rx.try_recv().is_err(),
+            "thinking flap leaked through sticky window"
+        );
     }
 
     #[tokio::test]

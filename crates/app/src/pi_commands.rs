@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use karl_agent::pi_rpc::{
-    parse_session_stats, parse_state, PiCommand, PiSession, PiSessionStats, PiSpawnOpts, PiState,
-    StreamingBehavior, ThinkingLevel,
+    parse_session_stats, parse_state, DeltaEvent, PiCommand, PiEvent, PiSession, PiSessionStats,
+    PiSpawnOpts, PiState, StreamingBehavior, ThinkingLevel,
 };
-use karl_session::SessionId;
+use karl_session::{ExecutorPhase, SessionId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
@@ -30,6 +30,75 @@ use tokio::sync::Mutex;
 use ulid::Ulid;
 
 use crate::AppState;
+
+/// Map a Pi RPC event onto the notch's `ExecutorPhase` taxonomy. Returns
+/// `None` for events that don't change the user-visible phase (e.g. raw
+/// text deltas, message boundaries) so the forwarder can skip the hub
+/// call entirely.
+fn pi_event_to_phase(ev: &PiEvent) -> Option<ExecutorPhase> {
+    match ev {
+        PiEvent::AgentStart | PiEvent::TurnStart => Some(ExecutorPhase::Thinking),
+        PiEvent::ToolExecutionStart { tool_name, args, .. } => {
+            Some(tool_to_phase(tool_name, args))
+        }
+        PiEvent::ToolExecutionEnd { .. } => Some(ExecutorPhase::Thinking),
+        PiEvent::MessageUpdate {
+            assistant_message_event,
+            ..
+        } => match assistant_message_event {
+            DeltaEvent::ThinkingStart { .. } | DeltaEvent::ThinkingDelta { .. } => {
+                Some(ExecutorPhase::Thinking)
+            }
+            _ => None,
+        },
+        PiEvent::CompactionStart { .. } => Some(ExecutorPhase::Thinking),
+        PiEvent::AutoRetryStart { .. } => Some(ExecutorPhase::Waiting {
+            reason: "retrying".to_string(),
+        }),
+        PiEvent::TurnEnd { .. } | PiEvent::AgentEnd { .. } => {
+            Some(ExecutorPhase::Done { summary: None })
+        }
+        PiEvent::ProcessExited { .. } => Some(ExecutorPhase::Idle),
+        _ => None,
+    }
+}
+
+/// Bucket a pi tool name into Reading / Writing / Running. Pi's tool
+/// namespace isn't fixed (extensions add tools), so we match on common
+/// substrings rather than an exhaustive enum.
+fn tool_to_phase(tool_name: &str, args: &Value) -> ExecutorPhase {
+    let lname = tool_name.to_ascii_lowercase();
+    let target = args
+        .get("path")
+        .or_else(|| args.get("file"))
+        .or_else(|| args.get("filepath"))
+        .or_else(|| args.get("file_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let is_write = ["write", "edit", "update", "create", "patch", "apply"]
+        .iter()
+        .any(|k| lname.contains(k));
+    let is_read = ["read", "grep", "glob", "ls", "list", "search", "find", "view"]
+        .iter()
+        .any(|k| lname.contains(k));
+    if is_write {
+        ExecutorPhase::Writing {
+            file: target.unwrap_or_else(|| tool_name.to_string()),
+        }
+    } else if is_read {
+        ExecutorPhase::Reading {
+            file: target.unwrap_or_else(|| tool_name.to_string()),
+        }
+    } else {
+        let cmd = args
+            .get("command")
+            .or_else(|| args.get("cmd"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| tool_name.to_string());
+        ExecutorPhase::Running { cmd }
+    }
+}
 
 /// Shared registry of live Pi sessions. Held on [`AppState`].
 #[derive(Default)]
@@ -110,10 +179,17 @@ pub async fn spawn_pi_session(
     let mut rx = sess.events();
     let app_for_task = app.clone();
     let topic = format!("session://{}/pi", session_id.0);
+    let notch_hub = state.notch_hub.clone();
+    notch_hub
+        .register_external(session_id, "pi".to_string())
+        .await;
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(tagged) => {
+                    if let Some(phase) = pi_event_to_phase(&tagged.envelope) {
+                        notch_hub.set_phase(session_id, phase).await;
+                    }
                     if let Err(e) = app_for_task.emit(&topic, &tagged.envelope) {
                         tracing::warn!(?e, topic = %topic, "pi event emit failed");
                     }
@@ -125,6 +201,7 @@ pub async fn spawn_pi_session(
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
+        notch_hub.drop_session(&session_id).await;
     });
 
     state.pi_sessions.insert(session_id, sess).await;
@@ -139,6 +216,7 @@ pub async fn close_pi_session(
     if let Some(sess) = state.pi_sessions.remove(&session_id).await {
         sess.shutdown(Duration::from_secs(2)).await;
     }
+    state.notch_hub.drop_session(&session_id).await;
     Ok(())
 }
 
@@ -189,12 +267,11 @@ pub async fn pi_follow_up(
 }
 
 #[tauri::command]
-pub async fn pi_abort(
-    state: State<'_, AppState>,
-    session_id: SessionId,
-) -> Result<(), String> {
+pub async fn pi_abort(state: State<'_, AppState>, session_id: SessionId) -> Result<(), String> {
     let sess = require(&state, &session_id).await?;
-    sess.send(&PiCommand::Abort).await.map_err(|e| e.to_string())
+    sess.send(&PiCommand::Abort)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

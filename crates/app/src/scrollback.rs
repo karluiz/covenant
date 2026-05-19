@@ -173,7 +173,10 @@ pub struct Writer {
 
 impl Writer {
     pub fn new(file: File) -> Self {
-        Self { file, failed: false }
+        Self {
+            file,
+            failed: false,
+        }
     }
     pub fn append(&mut self, bytes: &[u8]) {
         if self.failed {
@@ -202,7 +205,10 @@ mod tests {
             // doesn't (correctly) discard a pre-command tail.
             w.append(b"\x1b]133;D;0\x07");
         }
-        assert_eq!(read_tail(dir.path(), key), b"hello world\x1b]133;D;0\x07\r\n");
+        assert_eq!(
+            read_tail(dir.path(), key),
+            b"hello world\x1b]133;D;0\x07\r\n"
+        );
     }
 
     #[test]
@@ -233,7 +239,9 @@ mod tests {
         fs::write(&path, &log).unwrap();
         let tail = read_tail(dir.path(), key);
         assert!(tail.ends_with(b"\x1b]133;D;0\x07\r\n"));
-        assert!(!tail.windows(8).any(|w| w == b"prompt$ " && tail.ends_with(w)));
+        assert!(!tail
+            .windows(8)
+            .any(|w| w == b"prompt$ " && tail.ends_with(w)));
     }
 
     #[test]

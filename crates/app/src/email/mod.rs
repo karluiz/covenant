@@ -72,7 +72,10 @@ impl EmailNotifier {
         drop(s);
 
         let activated = cfg.email_enabled
-            && key.as_deref().map(|k| !k.trim().is_empty()).unwrap_or(false)
+            && key
+                .as_deref()
+                .map(|k| !k.trim().is_empty())
+                .unwrap_or(false)
             && cfg.email_from.is_some()
             && cfg.email_to.is_some();
         if !activated {
@@ -150,7 +153,12 @@ mod tests {
         let client: Arc<dyn SendGridClient> = rec.clone();
         let n = EmailNotifier::new(client, settings_with(true, None, Some("a@b"), Some("c@d")));
         let out = n
-            .emit(Trigger::OperatorEscalate, "s".into(), "b".into(), "01H".into())
+            .emit(
+                Trigger::OperatorEscalate,
+                "s".into(),
+                "b".into(),
+                "01H".into(),
+            )
             .await;
         assert_eq!(out, EmailOutcome::SuppressedByConfig);
         assert!(rec.snapshot().is_empty());
@@ -165,7 +173,12 @@ mod tests {
             settings_with(true, Some("SG"), Some("a@b"), Some("c@d")),
         );
         let out = n
-            .emit(Trigger::OperatorEscalate, "s".into(), "blocked".into(), "01H".into())
+            .emit(
+                Trigger::OperatorEscalate,
+                "s".into(),
+                "blocked".into(),
+                "01H".into(),
+            )
             .await;
         assert_eq!(out, EmailOutcome::Sent);
         let snap = rec.snapshot();
@@ -182,7 +195,12 @@ mod tests {
             settings_with(true, Some("SG"), Some("a@b"), Some("c@d")),
         );
         let out = n
-            .emit(Trigger::AomComplete, "s".into(), "done".into(), "01H".into())
+            .emit(
+                Trigger::AomComplete,
+                "s".into(),
+                "done".into(),
+                "01H".into(),
+            )
             .await;
         assert_eq!(out, EmailOutcome::Buffered);
         assert!(rec.snapshot().is_empty());
@@ -198,10 +216,20 @@ mod tests {
             settings_with(true, Some("SG"), Some("a@b"), Some("c@d")),
         );
         let _ = n
-            .emit(Trigger::OperatorEscalate, "s".into(), "x".into(), "01H".into())
+            .emit(
+                Trigger::OperatorEscalate,
+                "s".into(),
+                "x".into(),
+                "01H".into(),
+            )
             .await;
         let out = n
-            .emit(Trigger::OperatorEscalate, "s".into(), "y".into(), "01H".into())
+            .emit(
+                Trigger::OperatorEscalate,
+                "s".into(),
+                "y".into(),
+                "01H".into(),
+            )
             .await;
         assert_eq!(out, EmailOutcome::SuppressedByThrottle);
         assert_eq!(rec.snapshot().len(), 1);

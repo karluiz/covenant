@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { dismissBootSplash } from "./boot-splash";
+import { attachTooltip } from "./tooltip/tooltip";
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
 import { AgentPanel } from "./agent/panel";
@@ -26,7 +27,7 @@ import {
   getSpecPromptState,
 } from "./aom/spec-prompt";
 import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
-import type { SpecCandidate } from "./api";
+import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, setWindowTheme, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
@@ -424,13 +425,13 @@ async function boot(): Promise<void> {
     <span class="new-tab-plus">${Icons.terminal({ size: 14 })}</span>
     <kbd class="new-tab-kbd">${MOD_KEY}T</kbd>
   `;
-  newTabBtn.title = `New tab (${MOD_KEY}T)`;
+  attachTooltip(newTabBtn, `New tab (${MOD_KEY}T)`);
 
   newGroupBtn.innerHTML = `
     <span class="new-tab-plus">${Icons.folderPlus({ size: 14 })}</span>
     <kbd class="new-tab-kbd">${MOD_KEY}⇧G</kbd>
   `;
-  newGroupBtn.title = `New group (${MOD_KEY}⇧G)`;
+  attachTooltip(newGroupBtn, `New group (${MOD_KEY}⇧G)`);
 
   const manager = new TabManager(tabbar, workspace, newTabBtn, () => {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
@@ -554,13 +555,16 @@ async function boot(): Promise<void> {
   // status-bar chip — keep the rendering in one place.
   manager.onMissionViewRequested = (mission, sessionId) =>
     void statusBar.openMissionFor(mission, sessionId);
+  let closeWorkspacePagesForMission: () => void = () => {};
+  const openMissionFromStatusBar = (sessionId: SessionId): void => {
+    closeWorkspacePagesForMission();
+    manager.promptAndSetMissionForSession(sessionId);
+  };
   // Inverse direction: the "+ Set mission" affordance the status bar
   // surfaces on project-like cwds clicks back into TabManager so the
   // file-picker prompt is a single shared flow with the tab menu.
-  statusBar.onMissionSetRequested = (sessionId) =>
-    manager.promptAndSetMissionForSession(sessionId);
-  statusBar.onMissionEditRequested = (sessionId) =>
-    manager.promptAndSetMissionForSession(sessionId);
+  statusBar.onMissionSetRequested = openMissionFromStatusBar;
+  statusBar.onMissionEditRequested = openMissionFromStatusBar;
   statusBar.onMissionClearRequested = (sessionId) =>
     manager.clearMissionForSession(sessionId);
 
@@ -901,6 +905,19 @@ async function boot(): Promise<void> {
     getCwd: () => manager.activeCwd() ?? null,
   });
 
+  closeWorkspacePagesForMission = () => {
+    // Always call Settings.close(), even when isOpen() is still false:
+    // Settings.open() awaits backend/subpanel work before flipping open,
+    // and close() invalidates that pending async open so it cannot paint
+    // over the mission picker later.
+    settings.close();
+    if (docsPanel.isOpen()) docsPanel.close();
+    if (draftsPanel.isOpen()) draftsPanel.close();
+    if (operator.isOpen()) operator.close();
+    if (capabilities.isOpen()) capabilities.close();
+    if (specChat.isOpen()) specChat.close();
+  };
+
   window.addEventListener("spec-chat:open", () => specChat.open());
 
   // Open the spec-author wizard for a given repoRoot (no slug → fresh draft).
@@ -1112,8 +1129,12 @@ async function boot(): Promise<void> {
       return;
     }
     // ⌘F → in-terminal finder (Apple Terminal-style). Floating bar
-    // pinned to the active tab's pane; Esc closes.
+    // pinned to the active tab's pane; Esc closes. If CodeMirror or
+    // the structure preview already handled ⌘F, leave editor search in
+    // control instead of stacking the terminal finder above it.
     if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === "f" || e.key === "F")) {
+      const target = e.target as HTMLElement | null;
+      if (e.defaultPrevented || target?.closest(".structure-editor, .cm-editor")) return;
       e.preventDefault();
       manager.openFinder();
       return;
@@ -1140,10 +1161,7 @@ async function boot(): Promise<void> {
       if (missionPanel.isOpen()) {
         missionPanel.close();
       } else {
-        if (settings.isOpen()) settings.close();
-        if (docsPanel.isOpen()) docsPanel.close();
-        if (draftsPanel.isOpen()) draftsPanel.close();
-        if (operator.isOpen()) operator.close();
+        closeWorkspacePagesForMission();
         void manager.openMissionForActive();
       }
       return;
@@ -1301,6 +1319,11 @@ async function boot(): Promise<void> {
       if (afk.isOpen()) {
         e.preventDefault();
         afk.close();
+        return;
+      }
+      if (missionPanel.isOpen()) {
+        e.preventDefault();
+        missionPanel.close();
         return;
       }
       if (settings.isOpen()) {

@@ -52,11 +52,20 @@ listen<StatePayload>("notch:state", (ev) => {
 setInterval(() => store.gc(), 500);
 
 type NotchCorner = "bottom-right" | "bottom-left" | "top-right" | "top-left";
-type NotchReady = { corner: NotchCorner; sound_on_done: boolean };
+type NotchTheme = "dark" | "light" | "system";
+type NotchReady = { corner: NotchCorner; sound_on_done: boolean; theme?: NotchTheme };
 const applyCorner = (corner: NotchCorner) => {
   document.body.dataset.corner = corner;
 };
+const applyTheme = (theme: NotchTheme) => {
+  // `system` intentionally leaves both classes off so CSS can follow
+  // prefers-color-scheme even if the notch webview mounted before the
+  // main window resolved the setting.
+  document.body.classList.toggle("notch-theme-light", theme === "light");
+  document.body.classList.toggle("notch-theme-dark", theme === "dark");
+};
 applyCorner("bottom-right");
+applyTheme("system");
 
 // Done chime — soft 880 Hz sine pop. Quick attack, gentle decay.
 // Generated on demand via Web Audio so we don't ship an audio file.
@@ -89,11 +98,13 @@ invoke<NotchReady>("notch_ready")
   .then((r) => {
     if (!r) return;
     applyCorner(r.corner);
+    applyTheme(r.theme ?? "system");
     soundOnDone = r.sound_on_done;
   })
   .catch(() => {});
 
 listen<{ corner: NotchCorner }>("notch:corner", (ev) => applyCorner(ev.payload.corner));
+listen<{ mode: NotchTheme }>("notch:theme", (ev) => applyTheme(ev.payload.mode));
 listen<{ sound_on_done: boolean }>("notch:sound", (ev) => {
   soundOnDone = ev.payload.sound_on_done;
 });

@@ -1,4 +1,6 @@
-use karl_score::{BranchCell, DailyCell, GroupCell, RepoCell, ScoreFilter, ScoreStore, SessionRow, Summary};
+use karl_score::{
+    BranchCell, DailyCell, GroupCell, RepoCell, ScoreFilter, ScoreStore, SessionRow, Summary,
+};
 use std::sync::Arc;
 use tauri::State;
 
@@ -62,7 +64,10 @@ pub fn score_breakdown_branches(
     repo: String,
     filter: ScoreFilter,
 ) -> Result<Vec<BranchCell>, String> {
-    state.0.breakdown_branches(&repo, &filter).map_err(|e| e.to_string())
+    state
+        .0
+        .breakdown_branches(&repo, &filter)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

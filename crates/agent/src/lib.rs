@@ -132,10 +132,12 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
                 if let Ok(mut existing) = usage_for_cb.lock() {
                     existing.input_tokens = existing.input_tokens.max(u.input_tokens);
                     existing.output_tokens = existing.output_tokens.max(u.output_tokens);
-                    existing.cache_creation_input_tokens =
-                        existing.cache_creation_input_tokens.max(u.cache_creation_input_tokens);
-                    existing.cache_read_input_tokens =
-                        existing.cache_read_input_tokens.max(u.cache_read_input_tokens);
+                    existing.cache_creation_input_tokens = existing
+                        .cache_creation_input_tokens
+                        .max(u.cache_creation_input_tokens);
+                    existing.cache_read_input_tokens = existing
+                        .cache_read_input_tokens
+                        .max(u.cache_read_input_tokens);
                 }
             }
             AgentEvent::Done => {}
@@ -154,7 +156,10 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
         }
     })
     .await?;
-    let thinking_full_str = thinking_buffer.lock().map(|t| t.clone()).unwrap_or_default();
+    let thinking_full_str = thinking_buffer
+        .lock()
+        .map(|t| t.clone())
+        .unwrap_or_default();
     let thinking_full: Vec<String> = if thinking_full_str.is_empty() {
         vec![]
     } else {
@@ -219,7 +224,8 @@ pub struct TriageVerdict {
 
 /// System-prompt fragment appended to whatever the caller passes.
 /// Forces the structured JSON shape we parse.
-pub const TRIAGE_OUTPUT_INSTRUCTIONS: &str = "\n\nYou are a fast triage classifier in front of a more expensive decision model. \
+pub const TRIAGE_OUTPUT_INSTRUCTIONS: &str =
+    "\n\nYou are a fast triage classifier in front of a more expensive decision model. \
 Decide whether the candidate moment is worth escalating.\n\
 - act: there is a clear pending prompt or stuck state that warrants a real decision.\n\
 - wait: the executor is making progress (output churn, spinner, partial answers). Stay quiet.\n\
@@ -234,7 +240,10 @@ pub fn parse_triage_reply(text: &str) -> Result<TriageVerdict, AgentError> {
     let value: serde_json::Value =
         serde_json::from_str(&candidate).map_err(|e| AgentError::Api {
             status: 0,
-            body: format!("triage reply not JSON: {e} — raw: {}", truncate_for_err(text)),
+            body: format!(
+                "triage reply not JSON: {e} — raw: {}",
+                truncate_for_err(text)
+            ),
         })?;
     let action_str = value
         .get("action")
@@ -332,7 +341,6 @@ pub async fn triage_oneshot(req: AskRequest) -> Result<(TriageVerdict, TokenUsag
     Ok((verdict, resp.usage))
 }
 
-
 #[cfg(test)]
 mod triage_tests {
     use super::*;
@@ -362,7 +370,8 @@ mod triage_tests {
 
     #[test]
     fn tolerates_prose_around_json() {
-        let raw = "Sure thing! ```json\n{\"action\":\"act\",\"confidence\":0.7,\"rationale\":\"x\"}\n```";
+        let raw =
+            "Sure thing! ```json\n{\"action\":\"act\",\"confidence\":0.7,\"rationale\":\"x\"}\n```";
         let v = parse_triage_reply(raw).expect("parse");
         assert_eq!(v.action, TriageAction::Act);
     }

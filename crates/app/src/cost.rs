@@ -103,7 +103,10 @@ mod tests {
         };
         let sonnet = estimate_usd("claude-sonnet-4-6", usage);
         let opus = estimate_usd("claude-opus-4-7", usage);
-        assert!(opus > sonnet * 4.0, "opus {opus} should be ~5x sonnet {sonnet}");
+        assert!(
+            opus > sonnet * 4.0,
+            "opus {opus} should be ~5x sonnet {sonnet}"
+        );
     }
 
     #[test]

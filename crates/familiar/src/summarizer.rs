@@ -27,7 +27,9 @@ impl<'a, L: Llm> Summarizer<'a, L> {
         let prev = self.memory.latest_summary()?;
         let after = prev.as_ref().map(|s| s.last_event_id).unwrap_or(0);
         let new_events = self.memory.events_since(after)?;
-        if new_events.is_empty() { return Ok(None); }
+        if new_events.is_empty() {
+            return Ok(None);
+        }
 
         let prev_text = prev.as_ref().map(|s| s.summary.as_str()).unwrap_or("");
         let user = render_eager_input(prev_text, &new_events);
@@ -36,25 +38,30 @@ impl<'a, L: Llm> Summarizer<'a, L> {
                    Preserve key decisions, blockers, and current focus.";
         let resp = self.llm.complete(sys, &user).await?;
         let last_id = new_events.last().map(|e| e.id).unwrap_or(after);
-        self.memory.write_summary(now_ms, &resp.text, last_id, resp.tokens_in, resp.tokens_out)?;
+        self.memory
+            .write_summary(now_ms, &resp.text, last_id, resp.tokens_in, resp.tokens_out)?;
         Ok(Some(resp.text))
     }
 
-    pub async fn run_lazy_for_mission(&self, mission_id: &str, now_ms: i64)
-        -> Result<String>
-    {
-        let row = self.memory.mission(mission_id)?
+    pub async fn run_lazy_for_mission(&self, mission_id: &str, now_ms: i64) -> Result<String> {
+        let row = self
+            .memory
+            .mission(mission_id)?
             .ok_or_else(|| crate::FamiliarError::NotFound(mission_id.into()))?;
-        let events = self.memory.events_since(0)?
+        let events = self
+            .memory
+            .events_since(0)?
             .into_iter()
-            .filter(|e| e.ts_ms >= row.started_ms
-                     && row.finished_ms.map_or(true, |f| e.ts_ms <= f))
+            .filter(|e| e.ts_ms >= row.started_ms && row.finished_ms.map_or(true, |f| e.ts_ms <= f))
             .collect::<Vec<_>>();
 
-        let prev = self.memory.latest_summary()?
-            .map(|s| s.summary).unwrap_or_default();
+        let prev = self
+            .memory
+            .latest_summary()?
+            .map(|s| s.summary)
+            .unwrap_or_default();
         let user = format!(
-"MISSION OBJECTIVE: {}
+            "MISSION OBJECTIVE: {}
 ROLLING SUMMARY AT END:
 {}
 
@@ -69,9 +76,11 @@ Produce a structured digest (≤2000 chars):
 - One-line takeaway",
             row.objective,
             prev,
-            events.iter()
+            events
+                .iter()
                 .map(|e| format!("[{}] {}: {}", e.ts_ms, e.kind, e.payload_json))
-                .collect::<Vec<_>>().join("\n"),
+                .collect::<Vec<_>>()
+                .join("\n"),
         );
         let sys = "You produce concise mission digests. Output the digest only.";
         let resp = self.llm.complete(sys, &user).await?;
@@ -86,7 +95,10 @@ fn render_eager_input(prev: &str, events: &[EventRow]) -> String {
     s.push_str(if prev.is_empty() { "(none)\n" } else { prev });
     s.push_str("\n\nNEW EVENTS:\n");
     for e in events {
-        s.push_str(&format!("[{}] {} {}: {}\n", e.ts_ms, e.session_id, e.kind, e.payload_json));
+        s.push_str(&format!(
+            "[{}] {} {}: {}\n",
+            e.ts_ms, e.session_id, e.kind, e.payload_json
+        ));
     }
     s.push_str("\nReturn the updated summary text only — no preamble.");
     s
@@ -130,10 +142,11 @@ impl Llm for AnthropicLlm {
             thinking_budget: None,
             force_tool: None,
         };
-        let resp = karl_agent::ask_oneshot_with_usage(req).await
+        let resp = karl_agent::ask_oneshot_with_usage(req)
+            .await
             .map_err(crate::FamiliarError::Agent)?;
         let cost_usd = (resp.usage.input_tokens as f64 / 1_000_000.0) * self.price_in_per_mtok
-                     + (resp.usage.output_tokens as f64 / 1_000_000.0) * self.price_out_per_mtok;
+            + (resp.usage.output_tokens as f64 / 1_000_000.0) * self.price_out_per_mtok;
         Ok(LlmResponse {
             text: resp.text,
             tokens_in: resp.usage.input_tokens as i64,
@@ -154,13 +167,19 @@ mod tests {
     }
     impl MockLlm {
         fn new(resps: Vec<LlmResponse>) -> Self {
-            Self { responses: Mutex::new(resps), prompts_seen: Mutex::new(vec![]) }
+            Self {
+                responses: Mutex::new(resps),
+                prompts_seen: Mutex::new(vec![]),
+            }
         }
     }
     #[async_trait]
     impl Llm for MockLlm {
         async fn complete(&self, sys: &str, user: &str) -> Result<LlmResponse> {
-            self.prompts_seen.lock().unwrap().push((sys.into(), user.into()));
+            self.prompts_seen
+                .lock()
+                .unwrap()
+                .push((sys.into(), user.into()));
             Ok(self.responses.lock().unwrap().remove(0))
         }
     }
@@ -169,7 +188,10 @@ mod tests {
     async fn no_events_no_call() {
         let m = Memory::open_in_memory().unwrap();
         let llm = MockLlm::new(vec![]);
-        let s = Summarizer { memory: &m, llm: &llm };
+        let s = Summarizer {
+            memory: &m,
+            llm: &llm,
+        };
         assert!(s.run_eager(1000).await.unwrap().is_none());
         assert_eq!(llm.prompts_seen.lock().unwrap().len(), 0);
     }
@@ -177,12 +199,18 @@ mod tests {
     #[tokio::test]
     async fn first_run_seeds_summary() {
         let m = Memory::open_in_memory().unwrap();
-        m.append_event(100, "BlockFinished", "S", r#"{"cmd":"ls","exit":0}"#).unwrap();
+        m.append_event(100, "BlockFinished", "S", r#"{"cmd":"ls","exit":0}"#)
+            .unwrap();
         let llm = MockLlm::new(vec![LlmResponse {
             text: "operator listed files".into(),
-            tokens_in: 50, tokens_out: 10, cost_usd: 0.001,
+            tokens_in: 50,
+            tokens_out: 10,
+            cost_usd: 0.001,
         }]);
-        let s = Summarizer { memory: &m, llm: &llm };
+        let s = Summarizer {
+            memory: &m,
+            llm: &llm,
+        };
         let out = s.run_eager(200).await.unwrap();
         assert_eq!(out.as_deref(), Some("operator listed files"));
         let latest = m.latest_summary().unwrap().unwrap();
@@ -194,15 +222,34 @@ mod tests {
         let m = Memory::open_in_memory().unwrap();
         m.append_event(100, "BlockFinished", "S", "{}").unwrap();
         let llm1 = MockLlm::new(vec![LlmResponse {
-            text: "first".into(), tokens_in: 1, tokens_out: 1, cost_usd: 0.0,
+            text: "first".into(),
+            tokens_in: 1,
+            tokens_out: 1,
+            cost_usd: 0.0,
         }]);
-        Summarizer { memory: &m, llm: &llm1 }.run_eager(200).await.unwrap();
+        Summarizer {
+            memory: &m,
+            llm: &llm1,
+        }
+        .run_eager(200)
+        .await
+        .unwrap();
 
-        m.append_event(300, "BlockFinished", "S", r#"{"new":true}"#).unwrap();
+        m.append_event(300, "BlockFinished", "S", r#"{"new":true}"#)
+            .unwrap();
         let llm2 = MockLlm::new(vec![LlmResponse {
-            text: "second".into(), tokens_in: 1, tokens_out: 1, cost_usd: 0.0,
+            text: "second".into(),
+            tokens_in: 1,
+            tokens_out: 1,
+            cost_usd: 0.0,
         }]);
-        Summarizer { memory: &m, llm: &llm2 }.run_eager(400).await.unwrap();
+        Summarizer {
+            memory: &m,
+            llm: &llm2,
+        }
+        .run_eager(400)
+        .await
+        .unwrap();
 
         let user_input = &llm2.prompts_seen.lock().unwrap()[0].1;
         assert!(user_input.contains(r#"{"new":true}"#));
@@ -213,13 +260,20 @@ mod tests {
     async fn mission_digest_writes_to_store() {
         let m = Memory::open_in_memory().unwrap();
         m.start_mission("M1", 1000, "ship feature").unwrap();
-        m.append_event(1100, "BlockFinished", "S", r#"{"cmd":"git push"}"#).unwrap();
-        m.append_event(1200, "BlockFinished", "S", r#"{"cmd":"npm test"}"#).unwrap();
+        m.append_event(1100, "BlockFinished", "S", r#"{"cmd":"git push"}"#)
+            .unwrap();
+        m.append_event(1200, "BlockFinished", "S", r#"{"cmd":"npm test"}"#)
+            .unwrap();
         let llm = MockLlm::new(vec![LlmResponse {
             text: "Pushed feature; tests green.".into(),
-            tokens_in: 100, tokens_out: 30, cost_usd: 0.05,
+            tokens_in: 100,
+            tokens_out: 30,
+            cost_usd: 0.05,
         }]);
-        let s = Summarizer { memory: &m, llm: &llm };
+        let s = Summarizer {
+            memory: &m,
+            llm: &llm,
+        };
         s.run_lazy_for_mission("M1", 1300).await.unwrap();
         let row = m.mission("M1").unwrap().unwrap();
         assert_eq!(row.digest, "Pushed feature; tests green.");

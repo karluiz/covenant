@@ -75,7 +75,9 @@ pub fn list_dir(cwd: &Path, show_ignored: bool) -> Result<Vec<DirEntry>, String>
         };
         let abs = entry.path();
         if !show_ignored
-            && matcher.matched(&abs, matches!(kind, EntryKind::Dir)).is_ignore()
+            && matcher
+                .matched(&abs, matches!(kind, EntryKind::Dir))
+                .is_ignore()
         {
             continue;
         }
@@ -116,11 +118,19 @@ pub fn read_file_text(path: &Path, max_bytes: u64) -> Result<ReadResult, String>
     }
     let size = metadata.len();
     if size > max_bytes {
-        return Ok(ReadResult { kind: ReadKind::TooLarge, content: None, size_bytes: size });
+        return Ok(ReadResult {
+            kind: ReadKind::TooLarge,
+            content: None,
+            size_bytes: size,
+        });
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     if bytes.contains(&0u8) {
-        return Ok(ReadResult { kind: ReadKind::Binary, content: None, size_bytes: size });
+        return Ok(ReadResult {
+            kind: ReadKind::Binary,
+            content: None,
+            size_bytes: size,
+        });
     }
     match std::str::from_utf8(&bytes) {
         Ok(s) => Ok(ReadResult {
@@ -128,21 +138,21 @@ pub fn read_file_text(path: &Path, max_bytes: u64) -> Result<ReadResult, String>
             content: Some(s.to_string()),
             size_bytes: size,
         }),
-        Err(_) => Ok(ReadResult { kind: ReadKind::Binary, content: None, size_bytes: size }),
+        Err(_) => Ok(ReadResult {
+            kind: ReadKind::Binary,
+            content: None,
+            size_bytes: size,
+        }),
     }
 }
 
 pub fn write_file_text(path: &Path, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            return Err(format!(
-                "parent dir does not exist: {}",
-                parent.display()
-            ));
+            return Err(format!("parent dir does not exist: {}", parent.display()));
         }
     }
-    std::fs::write(path, content.as_bytes())
-        .map_err(|e| format!("write: {e}"))
+    std::fs::write(path, content.as_bytes()).map_err(|e| format!("write: {e}"))
 }
 
 /// Write `bytes` to `path` verbatim. Mirrors `write_file_text` but
@@ -152,10 +162,7 @@ pub fn write_file_text(path: &Path, content: &str) -> Result<(), String> {
 pub fn write_file_binary(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            return Err(format!(
-                "parent dir does not exist: {}",
-                parent.display()
-            ));
+            return Err(format!("parent dir does not exist: {}", parent.display()));
         }
     }
     std::fs::write(path, bytes).map_err(|e| format!("write: {e}"))
@@ -181,7 +188,10 @@ pub fn read_file_binary(path: &Path, max_bytes: u64) -> Result<BinaryReadResult,
         return Ok(BinaryReadResult::TooLarge { size_bytes: size });
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
-    Ok(BinaryReadResult::Found { bytes, size_bytes: size })
+    Ok(BinaryReadResult::Found {
+        bytes,
+        size_bytes: size,
+    })
 }
 
 /// Create an empty file at `path`. Refuses if the path already
@@ -195,10 +205,7 @@ pub fn create_file(path: &Path) -> Result<String, String> {
     }
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            return Err(format!(
-                "parent dir does not exist: {}",
-                parent.display()
-            ));
+            return Err(format!("parent dir does not exist: {}", parent.display()));
         }
     }
     std::fs::File::create(path).map_err(|e| format!("create_file: {e}"))?;
@@ -215,10 +222,7 @@ pub fn create_dir(path: &Path) -> Result<String, String> {
     }
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
-            return Err(format!(
-                "parent dir does not exist: {}",
-                parent.display()
-            ));
+            return Err(format!("parent dir does not exist: {}", parent.display()));
         }
     }
     std::fs::create_dir(path).map_err(|e| format!("create_dir: {e}"))?;
@@ -373,8 +377,12 @@ pub fn search(root: &Path, query: &str, limit: u32) -> Result<Vec<SearchHit>, St
 
             // Truncate display text if absurdly long; keep the match
             // visible by centering on it.
-            let (display, adj_start, adj_end) =
-                truncate_around(line, match_start_chars, match_end_chars, SEARCH_MAX_LINE_CHARS);
+            let (display, adj_start, adj_end) = truncate_around(
+                line,
+                match_start_chars,
+                match_end_chars,
+                SEARCH_MAX_LINE_CHARS,
+            );
 
             hits.push(SearchHit {
                 path: path.display().to_string(),
@@ -578,7 +586,10 @@ mod tests {
     #[test]
     fn skips_hardcoded_ignores() {
         let tmp = TempDir::new().unwrap();
-        make_tree(&tmp, &["src/", "node_modules/", ".git/", "target/", "README.md"]);
+        make_tree(
+            &tmp,
+            &["src/", "node_modules/", ".git/", "target/", "README.md"],
+        );
         let entries = list_dir(tmp.path(), false).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["src", "README.md"]);
@@ -604,13 +615,16 @@ mod tests {
     #[test]
     fn honors_gitignore() {
         let tmp = TempDir::new().unwrap();
-        make_tree(&tmp, &[
-            "src/main.rs",
-            "build/output.bin",
-            "secret.env",
-            "README.md",
-            ".gitignore",
-        ]);
+        make_tree(
+            &tmp,
+            &[
+                "src/main.rs",
+                "build/output.bin",
+                "secret.env",
+                "README.md",
+                ".gitignore",
+            ],
+        );
         fs::write(tmp.path().join(".gitignore"), "build/\n*.env\n").unwrap();
         let entries = list_dir(tmp.path(), false).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
@@ -626,13 +640,16 @@ mod tests {
     #[test]
     fn show_ignored_bypasses_gitignore_but_keeps_hardcoded() {
         let tmp = TempDir::new().unwrap();
-        make_tree(&tmp, &[
-            "src/main.rs",
-            "node_modules/foo/",
-            ".env",
-            "README.md",
-            ".gitignore",
-        ]);
+        make_tree(
+            &tmp,
+            &[
+                "src/main.rs",
+                "node_modules/foo/",
+                ".env",
+                "README.md",
+                ".gitignore",
+            ],
+        );
         fs::write(tmp.path().join(".gitignore"), ".env\n").unwrap();
         let entries = list_dir(tmp.path(), true).unwrap();
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();

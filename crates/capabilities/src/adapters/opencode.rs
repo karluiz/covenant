@@ -57,7 +57,11 @@ pub fn scan_user(home: &Path) -> CapabilityResult<Vec<Capability>> {
 pub fn scan_project(repo: &Path) -> CapabilityResult<Vec<Capability>> {
     let scope = OpencodeScope::Project(repo.to_path_buf());
     let mut out = Vec::new();
-    scan_agents_dir(&repo.join(".opencode").join("agent"), scope.clone(), &mut out)?;
+    scan_agents_dir(
+        &repo.join(".opencode").join("agent"),
+        scope.clone(),
+        &mut out,
+    )?;
     scan_opencode_json(&repo.join("opencode.json"), scope, &mut out)?;
     Ok(out)
 }
@@ -66,14 +70,22 @@ pub fn scan_project(repo: &Path) -> CapabilityResult<Vec<Capability>> {
 pub fn detect() -> bool {
     let Some(home) = home_dir() else { return false };
     home.join(".config").join("opencode").is_dir()
-        || home.join(".opencode").join("bin").join("opencode").is_file()
+        || home
+            .join(".opencode")
+            .join("bin")
+            .join("opencode")
+            .is_file()
 }
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-fn scan_agents_dir(dir: &Path, scope: OpencodeScope, out: &mut Vec<Capability>) -> CapabilityResult<()> {
+fn scan_agents_dir(
+    dir: &Path,
+    scope: OpencodeScope,
+    out: &mut Vec<Capability>,
+) -> CapabilityResult<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -88,7 +100,11 @@ fn scan_agents_dir(dir: &Path, scope: OpencodeScope, out: &mut Vec<Capability>) 
         }
         let raw = std::fs::read_to_string(&path)?;
         let fm = frontmatter::parse(&raw);
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
         let name = fm.name().map(str::to_string).unwrap_or(stem);
         let description = fm.description().unwrap_or("").to_string();
         let model = fm.get("model").map(str::to_string);
@@ -103,7 +119,11 @@ fn scan_agents_dir(dir: &Path, scope: OpencodeScope, out: &mut Vec<Capability>) 
     Ok(())
 }
 
-fn scan_opencode_json(path: &Path, scope: OpencodeScope, out: &mut Vec<Capability>) -> CapabilityResult<()> {
+fn scan_opencode_json(
+    path: &Path,
+    scope: OpencodeScope,
+    out: &mut Vec<Capability>,
+) -> CapabilityResult<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -114,13 +134,24 @@ fn scan_opencode_json(path: &Path, scope: OpencodeScope, out: &mut Vec<Capabilit
         return Ok(());
     };
     for (name, server) in map {
-        let kind = server.get("type").and_then(|v| v.as_str()).unwrap_or("local").to_string();
-        let command = server
-            .get("command")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect::<Vec<_>>());
-        let url = server.get("url").and_then(|v| v.as_str()).map(str::to_string);
-        let enabled = server.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+        let kind = server
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("local")
+            .to_string();
+        let command = server.get("command").and_then(|v| v.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        });
+        let url = server
+            .get("url")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let enabled = server
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
         out.push(Capability::McpServer(McpServer {
             name: name.clone(),
             kind,
@@ -164,7 +195,9 @@ mod tests {
         );
         let caps = scan_user(home).unwrap();
         assert_eq!(caps.len(), 1);
-        let Capability::Agent(a) = &caps[0] else { panic!("expected agent") };
+        let Capability::Agent(a) = &caps[0] else {
+            panic!("expected agent")
+        };
         assert_eq!(a.name, "reviewer");
         assert_eq!(a.description, "reviews PRs");
         assert_eq!(a.model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
@@ -175,9 +208,14 @@ mod tests {
     fn agent_without_frontmatter_falls_back_to_stem() {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path();
-        write(&home.join(".config/opencode/agent/plain.md"), "just body text");
+        write(
+            &home.join(".config/opencode/agent/plain.md"),
+            "just body text",
+        );
         let caps = scan_user(home).unwrap();
-        let Capability::Agent(a) = &caps[0] else { panic!() };
+        let Capability::Agent(a) = &caps[0] else {
+            panic!()
+        };
         assert_eq!(a.name, "plain");
         assert_eq!(a.description, "");
         assert!(a.model.is_none());
@@ -192,7 +230,9 @@ mod tests {
             "---\nname: a\nmodel: anthropic/claude-sonnet-4-6\n---\n",
         );
         let caps = scan_user(home).unwrap();
-        let Capability::Agent(a) = &caps[0] else { panic!() };
+        let Capability::Agent(a) = &caps[0] else {
+            panic!()
+        };
         assert_eq!(a.model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
     }
 
@@ -206,13 +246,25 @@ mod tests {
                 "remote": { "type": "remote", "url": "https://example.com/mcp" }
             }
         });
-        write(&home.join(".config/opencode/opencode.json"), &cfg.to_string());
+        write(
+            &home.join(".config/opencode/opencode.json"),
+            &cfg.to_string(),
+        );
         let caps = scan_user(home).unwrap();
-        let mcps: Vec<_> = caps.iter().filter_map(|c| match c { Capability::McpServer(m) => Some(m), _ => None }).collect();
+        let mcps: Vec<_> = caps
+            .iter()
+            .filter_map(|c| match c {
+                Capability::McpServer(m) => Some(m),
+                _ => None,
+            })
+            .collect();
         assert_eq!(mcps.len(), 2);
         let local = mcps.iter().find(|m| m.name == "ctx7").unwrap();
         assert_eq!(local.kind, "local");
-        assert_eq!(local.command.as_ref().unwrap(), &vec!["npx".to_string(), "context7".to_string()]);
+        assert_eq!(
+            local.command.as_ref().unwrap(),
+            &vec!["npx".to_string(), "context7".to_string()]
+        );
         assert!(local.enabled);
         let remote = mcps.iter().find(|m| m.name == "remote").unwrap();
         assert_eq!(remote.kind, "remote");
@@ -226,9 +278,14 @@ mod tests {
         let cfg = serde_json::json!({
             "mcp": { "x": { "type": "local", "command": ["x"] } }
         });
-        write(&home.join(".config/opencode/opencode.json"), &cfg.to_string());
+        write(
+            &home.join(".config/opencode/opencode.json"),
+            &cfg.to_string(),
+        );
         let caps = scan_user(home).unwrap();
-        let Capability::McpServer(m) = &caps[0] else { panic!() };
+        let Capability::McpServer(m) = &caps[0] else {
+            panic!()
+        };
         assert!(m.enabled);
     }
 
@@ -239,9 +296,14 @@ mod tests {
         let cfg = serde_json::json!({
             "mcp": { "x": { "type": "local", "command": ["x"], "enabled": false } }
         });
-        write(&home.join(".config/opencode/opencode.json"), &cfg.to_string());
+        write(
+            &home.join(".config/opencode/opencode.json"),
+            &cfg.to_string(),
+        );
         let caps = scan_user(home).unwrap();
-        let Capability::McpServer(m) = &caps[0] else { panic!() };
+        let Capability::McpServer(m) = &caps[0] else {
+            panic!()
+        };
         assert!(!m.enabled);
     }
 
@@ -254,7 +316,9 @@ mod tests {
             "---\nname: proj\ndescription: project-scoped\n---\n",
         );
         let caps = scan_project(repo).unwrap();
-        let Capability::Agent(a) = &caps[0] else { panic!() };
+        let Capability::Agent(a) = &caps[0] else {
+            panic!()
+        };
         assert_eq!(a.scope, OpencodeScope::Project(repo.to_path_buf()));
     }
 
@@ -267,7 +331,9 @@ mod tests {
         });
         write(&repo.join("opencode.json"), &cfg.to_string());
         let caps = scan_project(repo).unwrap();
-        let Capability::McpServer(m) = &caps[0] else { panic!() };
+        let Capability::McpServer(m) = &caps[0] else {
+            panic!()
+        };
         assert_eq!(m.name, "p");
         assert_eq!(m.scope, OpencodeScope::Project(repo.to_path_buf()));
     }
@@ -301,10 +367,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path();
         write(&home.join(".config/opencode/agent/notes.txt"), "ignore me");
-        write(&home.join(".config/opencode/agent/keep.md"), "---\nname: keep\n---\n");
+        write(
+            &home.join(".config/opencode/agent/keep.md"),
+            "---\nname: keep\n---\n",
+        );
         let caps = scan_user(home).unwrap();
         assert_eq!(caps.len(), 1);
-        let Capability::Agent(a) = &caps[0] else { panic!() };
+        let Capability::Agent(a) = &caps[0] else {
+            panic!()
+        };
         assert_eq!(a.name, "keep");
     }
 }

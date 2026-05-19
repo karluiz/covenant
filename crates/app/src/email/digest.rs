@@ -36,11 +36,10 @@ pub fn format_entries(entries: &[DigestEntry]) -> String {
     entries
         .iter()
         .map(|e| {
-            let secs = e
-                .at
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+            let secs =
+                e.at.duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
             format!("- t={secs} [{}] {}", e.label, e.summary)
         })
         .collect::<Vec<_>>()

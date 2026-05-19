@@ -1,6 +1,6 @@
 use serde::Deserialize;
-use tauri::{AppHandle, Manager};
 use tauri::window::{Effect, EffectState, EffectsBuilder};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -25,5 +25,15 @@ pub fn set_window_theme(app: AppHandle, mode: ResolvedTheme) -> Result<(), Strin
         })
         .state(EffectState::FollowsWindowActiveState)
         .build();
-    win.set_effects(effects).map_err(|e| e.to_string())
+    win.set_effects(effects).map_err(|e| e.to_string())?;
+
+    // Keep the floating notch webview visually aligned with the app
+    // chrome. It may mount after this event; notch_ready also returns
+    // the persisted mode for that cold-start path.
+    let mode = match mode {
+        ResolvedTheme::Dark => "dark",
+        ResolvedTheme::Light => "light",
+    };
+    let _ = app.emit("notch:theme", serde_json::json!({ "mode": mode }));
+    Ok(())
 }

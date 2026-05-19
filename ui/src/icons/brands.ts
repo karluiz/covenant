@@ -13,6 +13,7 @@
 //   - codex → no canonical OpenAI logo (trademark; Simple Icons does
 //     not include it). We use a generic 4-point sparkle as a neutral
 //     stand-in.
+//   - pi → local monogram matching Pi's terminal startup mark.
 //
 // Every icon is rendered with `fill="currentColor"` so the
 // surrounding chip's brand color drives the tint via CSS — no
@@ -52,6 +53,10 @@ const OPENCODE_FRAME_PATH = "M4 3H20V21H4V3ZM7 6V18H17V6H7Z";
 const CODEX_SPARKLE_PATH =
   "M12 2L13.5 9.5L21 11L13.5 12.5L12 22L10.5 12.5L3 11L10.5 9.5L12 2Z";
 
+// Pi — compact filled π monogram, intentionally generic/local rather
+// than borrowing another project's logo.
+const PI_MONOGRAM_PATH = "M4 5H20V8H17V19H14V8H10V19H7V8H4V5Z";
+
 const BRAND_ICONS: Record<string, BrandIcon> = {
   claude: { pathD: siClaude.path },
   copilot: { pathD: siGithubcopilot.path },
@@ -59,6 +64,7 @@ const BRAND_ICONS: Record<string, BrandIcon> = {
   aider: { pathD: AIDER_BRAIN_PATH },
   opencode: { pathD: OPENCODE_FRAME_PATH, evenodd: true },
   codex: { pathD: CODEX_SPARKLE_PATH },
+  pi: { pathD: PI_MONOGRAM_PATH },
 };
 
 /// Render the brand icon for an executor as an inline SVG string, or

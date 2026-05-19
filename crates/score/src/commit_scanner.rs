@@ -24,8 +24,11 @@ pub fn scan_repo_since(
         return Ok(0);
     }
     let s = String::from_utf8_lossy(&out.stdout);
-    let repo_name = repo_path.file_name()
-        .and_then(|n| n.to_str()).unwrap_or("repo").to_string();
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("repo")
+        .to_string();
     let branch = Command::new("git")
         .current_dir(repo_path)
         .args(["branch", "--show-current"])
@@ -37,9 +40,15 @@ pub fn scan_repo_since(
     let mut n = 0u32;
     for line in s.lines() {
         let mut parts = line.split_whitespace();
-        let (Some(sha), Some(ts)) = (parts.next(), parts.next()) else { continue };
-        let Ok(ts_s) = ts.parse::<i64>() else { continue };
-        if ts_s <= since_ts_seconds { continue; }
+        let (Some(sha), Some(ts)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let Ok(ts_s) = ts.parse::<i64>() else {
+            continue;
+        };
+        if ts_s <= since_ts_seconds {
+            continue;
+        }
         let ctx = crate::types::Context {
             repo: Some(repo_name.clone()),
             branch: branch.clone(),

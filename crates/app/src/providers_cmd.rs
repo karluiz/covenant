@@ -18,7 +18,10 @@ pub fn anthropic_models() -> Vec<ModelInfo> {
         karl_agent::DEFAULT_TRIAGE_MODEL,
     ]
     .into_iter()
-    .map(|id| ModelInfo { id: id.to_string(), label: None })
+    .map(|id| ModelInfo {
+        id: id.to_string(),
+        label: None,
+    })
     .collect::<Vec<_>>()
 }
 
@@ -33,7 +36,11 @@ pub async fn probe_openai_compat_models(base_url: &str) -> Result<Vec<ModelInfo>
         return Err(format!("{}: {}", resp.status(), url));
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let items = body.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+    let items = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
     Ok(items
         .into_iter()
         .filter_map(|v| {

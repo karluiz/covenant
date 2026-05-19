@@ -53,18 +53,28 @@ pub async fn push_once(store: &ScoreStore) -> std::result::Result<u64, SyncError
         return Ok(0);
     }
     let max_id = rows.iter().map(|(id, ..)| *id).max().unwrap_or(last_id);
-    let events: Vec<PushEvent> = rows.iter().map(|(_id, ts, kind, exec, repo, branch, group)| {
-        let day = chrono::Local.timestamp_millis_opt(*ts).unwrap().format("%Y-%m-%d").to_string();
-        PushEvent {
-            client_ts_ms: *ts,
-            kind: match kind { EventKind::Prompt => "prompt", EventKind::Commit => "commit" },
-            executor: exec.as_str(),
-            day,
-            repo: repo.as_deref(),
-            branch: branch.as_deref(),
-            group_name: group.as_deref(),
-        }
-    }).collect();
+    let events: Vec<PushEvent> = rows
+        .iter()
+        .map(|(_id, ts, kind, exec, repo, branch, group)| {
+            let day = chrono::Local
+                .timestamp_millis_opt(*ts)
+                .unwrap()
+                .format("%Y-%m-%d")
+                .to_string();
+            PushEvent {
+                client_ts_ms: *ts,
+                kind: match kind {
+                    EventKind::Prompt => "prompt",
+                    EventKind::Commit => "commit",
+                },
+                executor: exec.as_str(),
+                day,
+                repo: repo.as_deref(),
+                branch: branch.as_deref(),
+                group_name: group.as_deref(),
+            }
+        })
+        .collect();
 
     let count = events.len() as u64;
     let url = format!("{backend}/sync/events");
@@ -72,7 +82,8 @@ pub async fn push_once(store: &ScoreStore) -> std::result::Result<u64, SyncError
         .post(&url)
         .bearer_auth(&jwt)
         .json(&serde_json::json!({"events": events}))
-        .send().await?;
+        .send()
+        .await?;
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
         return Err(SyncError::Server(body));
@@ -99,8 +110,10 @@ pub fn status(store: &ScoreStore) -> std::result::Result<SyncStatus, SyncError> 
         let c = c.lock().unwrap();
         c.query_row(
             "SELECT COUNT(*) FROM score_events WHERE id > ?1",
-            rusqlite::params![last_pushed_id], |r| r.get::<_, i64>(0)
-        ).map_err(crate::store::ScoreError::from)?
+            rusqlite::params![last_pushed_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(crate::store::ScoreError::from)?
     };
     Ok(SyncStatus {
         signed_in,
