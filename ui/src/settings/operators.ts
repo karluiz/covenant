@@ -630,6 +630,9 @@ export function openOperatorModal(opts: {
 
   const el = document.createElement("div");
   el.className = "op-modal";
+  el.addEventListener("click", (ev) => {
+    if (ev.target === el) el.remove();
+  });
   document.body.appendChild(el);
 
   const h: ModalHandle = {
