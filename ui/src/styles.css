@@ -12115,14 +12115,13 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  border-top: 1px solid var(--border, #232831);
   margin-top: auto; /* push to bottom of the flex column */
   min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
   font: 11px ui-monospace, "JetBrains Mono", Menlo, monospace;
   color: var(--text, #d5d9de);
-  background: linear-gradient(180deg, rgba(135,167,255,0.02), transparent 60%);
+  background: transparent;
 }
 /* Only show in fullscreen + vertical tabbar layout. */
 body:not(.app-fullscreen) #inline-notch-host { display: none; }
