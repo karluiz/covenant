@@ -12,6 +12,21 @@
 .op-chip-md { font-size: 13px; }
 .op-chip-lg { font-size: 15px; }
 
+.op-chip-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.op-chip-avatar-pixel {
+  border-radius: 4px;
+  image-rendering: pixelated;
+  object-fit: cover;
+}
+.op-chip-avatar-emoji {
+  line-height: 1;
+}
+
 .op-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

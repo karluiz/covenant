@@ -1,6 +1,9 @@
 import type { Operator } from '../api';
+import { parseAvatar } from '../operator/avatars';
 
 export type ChipSize = 'sm' | 'md' | 'lg';
+
+const AVATAR_PX: Record<ChipSize, number> = { sm: 16, md: 20, lg: 28 };
 
 export function renderOperatorChip(
   op: Pick<Operator, 'name' | 'emoji' | 'color'>,
@@ -10,9 +13,23 @@ export function renderOperatorChip(
   el.className = `op-chip op-chip-${size}`;
   el.style.setProperty('--operator-color', op.color);
 
-  const avatar = document.createElement('span');
-  avatar.className = 'op-chip-avatar';
-  avatar.textContent = op.emoji || op.name.charAt(0).toUpperCase();
+  const px = AVATAR_PX[size];
+  const parsed = parseAvatar(op.emoji || '');
+  let avatar: HTMLElement;
+  if (parsed.kind === 'pack') {
+    const img = document.createElement('img');
+    img.className = 'op-chip-avatar op-chip-avatar-pixel';
+    img.src = parsed.url;
+    img.width = px;
+    img.height = px;
+    img.alt = '';
+    img.draggable = false;
+    avatar = img;
+  } else {
+    avatar = document.createElement('span');
+    avatar.className = 'op-chip-avatar op-chip-avatar-emoji';
+    avatar.textContent = parsed.char || op.name.charAt(0).toUpperCase();
+  }
 
   const name = document.createElement('span');
   name.className = 'op-chip-name';
