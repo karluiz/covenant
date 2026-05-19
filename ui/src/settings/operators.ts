@@ -2,12 +2,15 @@
 import {
   Operator,
   OperatorDraft,
+  VoiceTone,
   operatorCreate,
   operatorDelete,
   operatorList,
   operatorSetDefault,
   operatorUpdate,
 } from "../api";
+import { PRESETS, type PresetKey } from "./operator_presets";
+import { renderOperatorChip } from "./operator_chip";
 import { AVATAR_PACK, parseAvatar, renderAvatarHtml } from "../operator/avatars";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
@@ -22,6 +25,7 @@ const DEFAULT_DRAFT: OperatorDraft = {
   escalate_threshold: 0.6,
   model: "claude-sonnet-4-6",
   hard_constraints: "",
+  voice: "Terse",
 };
 
 export class OperatorsPane {
@@ -71,6 +75,7 @@ export class OperatorsPane {
       escalate_threshold: sel.escalate_threshold,
       model: sel.model,
       hard_constraints: sel.hard_constraints,
+      voice: sel.voice,
     };
     this.dirty = false;
   }
@@ -382,6 +387,7 @@ export class OperatorsPane {
       escalate_threshold: sel.escalate_threshold,
       model: sel.model,
       hard_constraints: sel.hard_constraints,
+      voice: sel.voice,
     };
     this.dirty = true;
     this.renderList();
@@ -395,4 +401,261 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 14 — two-step "New Operator" modal.
+// Step 1: Identity (name, emoji, color, voice + chip preview)
+// Step 2: Behavior (model, escalate_threshold, persona, hard_constraints)
+// Public surface: openOperatorModal, canProceedFromStep1, saveOperator.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ModalDraft extends OperatorDraft {
+  id?: string;
+}
+
+export interface ModalState {
+  mode: "create" | "edit";
+  step: 1 | 2;
+  draft: ModalDraft;
+}
+
+export interface ModalHandle {
+  state: ModalState;
+  el: HTMLElement;
+  setName(s: string): void;
+  setEmoji(s: string): void;
+  setColor(s: string): void;
+  setVoice(v: VoiceTone): void;
+  goToStep(n: 1 | 2): void;
+}
+
+export function canProceedFromStep1(m: ModalHandle): boolean {
+  const n = m.state.draft.name.trim();
+  return n.length > 0 && [...n].length <= 24;
+}
+
+const SWATCHES = [
+  "#a855f7", "#22c55e", "#3b82f6", "#eab308",
+  "#f97316", "#ef4444", "#a16207", "#94a3b8",
+];
+
+function defaultDraft(): ModalDraft {
+  return {
+    name: "",
+    emoji: "🟣",
+    color: "#a855f7",
+    voice: "Terse",
+    tags: [],
+    persona: "",
+    escalate_threshold: 0.5,
+    model: "claude-sonnet-4-6",
+    hard_constraints: "",
+  };
+}
+
+function draftFromExisting(op: Operator): ModalDraft {
+  return {
+    id: op.id,
+    name: op.name,
+    emoji: op.emoji,
+    color: op.color,
+    voice: op.voice,
+    tags: [...op.tags],
+    persona: op.persona,
+    escalate_threshold: op.escalate_threshold,
+    model: op.model,
+    hard_constraints: op.hard_constraints,
+  };
+}
+
+export function openOperatorModal(opts: {
+  mode: "create" | "edit";
+  preset?: PresetKey;
+  existing?: Operator;
+}): ModalHandle {
+  let draft: ModalDraft;
+  if (opts.existing) {
+    draft = draftFromExisting(opts.existing);
+  } else if (opts.preset) {
+    const preset = PRESETS.find((p) => p.key === opts.preset);
+    draft = preset ? { ...preset.seed() } : defaultDraft();
+  } else {
+    draft = defaultDraft();
+  }
+
+  const state: ModalState = {
+    mode: opts.mode,
+    step: opts.existing ? 2 : 1,
+    draft,
+  };
+
+  const el = document.createElement("div");
+  el.className = "op-modal";
+  document.body.appendChild(el);
+
+  const h: ModalHandle = {
+    state,
+    el,
+    setName(s) { state.draft.name = s; render(); },
+    setEmoji(s) { state.draft.emoji = s; render(); },
+    setColor(s) { state.draft.color = s; render(); },
+    setVoice(v) { state.draft.voice = v; render(); },
+    goToStep(n) { state.step = n; render(); },
+  };
+
+  function render(): void {
+    el.innerHTML = "";
+    el.append(state.step === 1 ? renderStep1(h) : renderStep2(h));
+  }
+  render();
+  return h;
+}
+
+function labeled(text: string, child: HTMLElement): HTMLElement {
+  const w = document.createElement("label");
+  w.className = "op-modal-field";
+  const t = document.createElement("span");
+  t.className = "op-modal-label";
+  t.textContent = text;
+  w.append(t, child);
+  return w;
+}
+
+function renderStep1(h: ModalHandle): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "op-modal-step op-modal-step-1";
+
+  const preview = renderOperatorChip(
+    {
+      name: h.state.draft.name || "Operator",
+      emoji: h.state.draft.emoji,
+      color: h.state.draft.color,
+    },
+    "lg",
+  );
+  wrap.append(preview);
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.maxLength = 24;
+  name.placeholder = "Operator name";
+  name.value = h.state.draft.name;
+  name.addEventListener("input", () => h.setName(name.value));
+  wrap.append(labeled("Name", name));
+
+  const emoji = document.createElement("input");
+  emoji.type = "text";
+  emoji.maxLength = 4;
+  emoji.value = h.state.draft.emoji;
+  emoji.addEventListener("input", () => h.setEmoji(emoji.value));
+  wrap.append(labeled("Emoji", emoji));
+
+  const colors = document.createElement("div");
+  colors.className = "op-color-row";
+  SWATCHES.forEach((c) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "op-color-swatch" + (h.state.draft.color === c ? " is-selected" : "");
+    b.style.background = c;
+    b.dataset.color = c;
+    b.addEventListener("click", () => h.setColor(c));
+    colors.append(b);
+  });
+  wrap.append(labeled("Color", colors));
+
+  const voiceRow = document.createElement("div");
+  voiceRow.className = "op-voice-row";
+  (["Terse", "Warm", "Formal"] as VoiceTone[]).forEach((v) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = v;
+    b.className = "op-voice" + (h.state.draft.voice === v ? " op-voice-active" : "");
+    b.addEventListener("click", () => h.setVoice(v));
+    voiceRow.append(b);
+  });
+  wrap.append(labeled("Voice", voiceRow));
+
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "op-modal-next primary";
+  next.textContent = "Next";
+  next.disabled = !canProceedFromStep1(h);
+  next.addEventListener("click", () => h.goToStep(2));
+  wrap.append(next);
+
+  return wrap;
+}
+
+function renderStep2(h: ModalHandle): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "op-modal-step op-modal-step-2";
+
+  const model = document.createElement("input");
+  model.type = "text";
+  model.value = h.state.draft.model;
+  model.addEventListener("input", () => {
+    h.state.draft.model = model.value;
+  });
+  wrap.append(labeled("Model", model));
+
+  const thr = document.createElement("input");
+  thr.type = "number";
+  thr.min = "0";
+  thr.max = "1";
+  thr.step = "0.05";
+  thr.value = String(h.state.draft.escalate_threshold);
+  thr.addEventListener("input", () => {
+    const v = Number.parseFloat(thr.value);
+    if (!Number.isNaN(v)) h.state.draft.escalate_threshold = v;
+  });
+  wrap.append(labeled("Escalate threshold", thr));
+
+  const persona = document.createElement("textarea");
+  persona.rows = 8;
+  persona.value = h.state.draft.persona;
+  persona.addEventListener("input", () => {
+    h.state.draft.persona = persona.value;
+  });
+  wrap.append(labeled("Persona", persona));
+
+  const hc = document.createElement("textarea");
+  hc.rows = 4;
+  hc.value = h.state.draft.hard_constraints;
+  hc.addEventListener("input", () => {
+    h.state.draft.hard_constraints = hc.value;
+  });
+  wrap.append(labeled("Hard constraints", hc));
+
+  const actions = document.createElement("div");
+  actions.className = "op-modal-actions";
+
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "op-modal-back";
+  back.textContent = "Back";
+  back.addEventListener("click", () => h.goToStep(1));
+
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "op-modal-save primary";
+  save.textContent = "Save";
+  save.addEventListener("click", () => {
+    void saveOperator(h);
+  });
+
+  actions.append(back, save);
+  wrap.append(actions);
+
+  return wrap;
+}
+
+export async function saveOperator(h: ModalHandle): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { id, ...draft } = h.state.draft;
+  if (h.state.mode === "edit" && id) {
+    await invoke("operator_update", { id, draft });
+  } else {
+    await invoke("operator_create", { draft });
+  }
 }
