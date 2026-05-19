@@ -12,6 +12,7 @@ import {
 import { PRESETS, type PresetKey } from "./operator_presets";
 import { renderOperatorChip } from "./operator_chip";
 import { AVATAR_PACK, parseAvatar, renderAvatarHtml } from "../operator/avatars";
+import { workspacesManager } from "../main";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { PersonaComposerModal } from "../operator/persona-composer";
@@ -719,11 +720,16 @@ function renderForm(h: ModalHandle): HTMLElement {
   wrap.className = "op-modal-step op-modal-form";
 
   wrap.append(renderTopBar(h));
-  if (h.state.mode === "create") wrap.append(renderPresets(h));
-  wrap.append(renderHero(h));
-  wrap.append(renderIdentity(h));
-  wrap.append(renderBehavior(h));
-  wrap.append(renderAdvanced(h));
+
+  const body = document.createElement("div");
+  body.className = "op-modal-body";
+  if (h.state.mode === "create") body.append(renderPresets(h));
+  body.append(renderHero(h));
+  body.append(renderIdentity(h));
+  body.append(renderBehavior(h));
+  body.append(renderAdvanced(h));
+  wrap.append(body);
+
   wrap.append(renderFooter(h));
 
   return wrap;
@@ -824,7 +830,7 @@ function renderTelegramPreview(h: ModalHandle): HTMLElement {
   const headerText = document.createElement("span");
   headerText.className = "op-tg-header-text";
   const name = (h.state.draft.name || "Operator").trim();
-  headerText.textContent = `${name} · karlTerminal (main)`;
+  headerText.textContent = `${name} · ${currentProjectLabel()} (main)`;
   headerText.style.color = h.state.draft.color;
   headerLine.append(av, headerText);
   bubble.append(headerLine);
@@ -1157,6 +1163,17 @@ const VOICE_SAMPLES: Record<VoiceTone, string> = {
   Warm: '"All set on feat/x — want me to push?"',
   Formal: '"Feature feat/x is complete. Shall I proceed with the push?"',
 };
+
+/// Best-effort read of the active workspace name for the modal preview.
+/// Falls back to a neutral label if the manager isn't bootstrapped yet
+/// (e.g. settings is opened before workspaces load).
+function currentProjectLabel(): string {
+  try {
+    const w = workspacesManager?.getActive();
+    if (w?.name) return w.name;
+  } catch { /* manager may be null at boot */ }
+  return "your project";
+}
 
 export async function saveOperator(h: ModalHandle): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");

@@ -510,11 +510,14 @@ body.theme-light .covenant-page .btn {
     color: #ffffff;
 }
 body.theme-light .covenant-page .btn.ghost {
-    color: var(--muted);
-    border-color: var(--border);
+    background: #ffffff;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    font-weight: 500;
 }
 body.theme-light .covenant-page .btn.ghost:hover {
+    background: color-mix(in srgb, var(--text-primary) 5%, #ffffff);
     color: var(--text-primary);
-    border-color: var(--border);
+    border-color: color-mix(in srgb, var(--text-primary) 24%, transparent);
 }
 body.theme-light .cov-empty { color: var(--muted); }

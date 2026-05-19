@@ -3420,7 +3420,11 @@ body.theme-light .block-item-history .block-exit.fail {
 
 .settings-form input[type="text"],
 .settings-form input[type="password"],
-.settings-form input[type="number"] {
+.settings-form input[type="number"],
+.settings-form input[type="email"],
+.settings-form input[type="url"],
+.settings-form input[type="search"],
+.settings-form input[type="tel"] {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 6px;

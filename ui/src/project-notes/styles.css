@@ -365,7 +365,7 @@ body.theme-light .pn-panel {
 }
 .pn-docs-mode.active {
   background: var(--pn-accent, var(--accent, #6aa9ff));
-  color: #0a0a14;
+  color: #fff;
 }
 .pn-docs-modes:has(.pn-docs-mode.active) .pn-docs-mode.active {
   background: transparent;
