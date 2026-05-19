@@ -179,6 +179,33 @@ fn heatmap_filtered_by_repo() {
     assert_eq!(total, 4);
 }
 
+#[test]
+fn migration_v3_creates_specs_and_llm_calls_and_agent_column() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = karl_score::ScoreStore::open(tmp.path()).unwrap();
+    let conn = store.connection();
+    let c = conn.lock().unwrap();
+
+    let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert!(v >= 3, "expected user_version >= 3, got {v}");
+
+    // agent column present on score_events
+    let cols: Vec<String> = c
+        .prepare("PRAGMA table_info(score_events)").unwrap()
+        .query_map([], |r| r.get::<_, String>(1)).unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    assert!(cols.contains(&"agent".to_string()));
+
+    // tables exist
+    c.execute("INSERT INTO specs(ts_ms, day, path) VALUES (1, '1970-01-01', 'a')", []).unwrap();
+    c.execute(
+        "INSERT INTO llm_calls(ts_ms, day, source, provider, model, input_tokens, output_tokens) \
+         VALUES (1, '1970-01-01', 'internal', 'anthropic', 'claude-opus-4-7', 100, 50)",
+        [],
+    ).unwrap();
+}
+
 use karl_score::commit_scanner::scan_repo_since;
 use std::process::Command;
 

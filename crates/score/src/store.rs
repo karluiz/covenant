@@ -64,6 +64,58 @@ impl ScoreStore {
                  PRAGMA user_version = 2;",
             )?;
         }
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 3 {
+            conn.execute_batch(
+                "ALTER TABLE score_events ADD COLUMN agent TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_events_agent ON score_events(agent);
+
+                 CREATE TABLE IF NOT EXISTS specs (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts_ms       INTEGER NOT NULL,
+                    day         TEXT    NOT NULL,
+                    path        TEXT    NOT NULL UNIQUE,
+                    repo        TEXT,
+                    branch      TEXT,
+                    group_name  TEXT
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_specs_ts   ON specs(ts_ms);
+                 CREATE INDEX IF NOT EXISTS idx_specs_day  ON specs(day);
+                 CREATE INDEX IF NOT EXISTS idx_specs_repo ON specs(repo);
+
+                 CREATE TABLE IF NOT EXISTS llm_calls (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts_ms           INTEGER NOT NULL,
+                    day             TEXT    NOT NULL,
+                    source          TEXT    NOT NULL CHECK (source IN ('internal','external')),
+                    agent           TEXT,
+                    provider        TEXT    NOT NULL,
+                    model           TEXT    NOT NULL,
+                    input_tokens    INTEGER NOT NULL DEFAULT 0,
+                    output_tokens   INTEGER NOT NULL DEFAULT 0,
+                    cache_read      INTEGER NOT NULL DEFAULT 0,
+                    cache_creation  INTEGER NOT NULL DEFAULT 0,
+                    repo            TEXT,
+                    branch          TEXT,
+                    group_name      TEXT
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_llm_ts          ON llm_calls(ts_ms);
+                 CREATE INDEX IF NOT EXISTS idx_llm_day         ON llm_calls(day);
+                 CREATE INDEX IF NOT EXISTS idx_llm_source_mod  ON llm_calls(source, model);
+                 CREATE INDEX IF NOT EXISTS idx_llm_agent       ON llm_calls(agent);
+
+                 CREATE TABLE IF NOT EXISTS external_watermarks (
+                    source      TEXT NOT NULL,
+                    path        TEXT NOT NULL,
+                    byte_offset INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (source, path)
+                 );
+
+                 PRAGMA user_version = 3;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
