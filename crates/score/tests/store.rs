@@ -97,6 +97,7 @@ fn append_with_context_stores_fields() {
             1_700_000_000_000,
             karl_score::EventKind::Prompt,
             "anthropic",
+            None,
             &ctx,
         )
         .unwrap();
@@ -128,12 +129,12 @@ fn summary_filtered_by_repo() {
     };
     for _ in 0..3 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt)
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &kt)
             .unwrap();
     }
     for _ in 0..7 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs)
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &cs)
             .unwrap();
     }
     let s = store
@@ -156,7 +157,7 @@ fn heatmap_filtered_by_repo() {
     };
     for _ in 0..4 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &kt)
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &kt)
             .unwrap();
     }
     let cs = karl_score::Context {
@@ -166,7 +167,7 @@ fn heatmap_filtered_by_repo() {
     };
     for _ in 0..2 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", &cs)
+            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &cs)
             .unwrap();
     }
     let cells = store

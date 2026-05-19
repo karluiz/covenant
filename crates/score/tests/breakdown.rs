@@ -13,6 +13,7 @@ fn seed(
             ts,
             kind,
             "x",
+            None,
             &Context {
                 repo: Some(repo.into()),
                 branch: Some(branch.into()),

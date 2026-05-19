@@ -14,6 +14,8 @@ pub struct ScoreEvent {
     pub kind: EventKind,
     /// "anthropic" / "openai_compat" / "<repo>:<sha7>" for commits
     pub executor: String,
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +78,8 @@ pub struct ScoreFilter {
     pub branch: Option<String>,
     pub group_name: Option<String>,
     pub day: Option<String>, // "YYYY-MM-DD"
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

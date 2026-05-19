@@ -145,6 +145,7 @@ impl ScoreStore {
         timestamp_ms: i64,
         kind: EventKind,
         executor: &str,
+        agent: Option<&str>,
         ctx: &Context,
     ) -> Result<()> {
         let day = day_from_ms_local(timestamp_ms);
@@ -154,8 +155,8 @@ impl ScoreStore {
         };
         let c = self.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name, agent)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 timestamp_ms,
                 kind_s,
@@ -163,7 +164,8 @@ impl ScoreStore {
                 day,
                 ctx.repo,
                 ctx.branch,
-                ctx.group_name
+                ctx.group_name,
+                agent
             ],
         )?;
         Ok(())

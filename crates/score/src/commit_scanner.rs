@@ -55,7 +55,7 @@ pub fn scan_repo_since(
             group_name: None,
         };
         let exec = format!("{repo_name}:{}", &sha[..sha.len().min(7)]);
-        let _ = store.append_with_context(ts_s * 1000, EventKind::Commit, &exec, &ctx);
+        let _ = store.append_with_context(ts_s * 1000, EventKind::Commit, &exec, None, &ctx);
         n += 1;
     }
     Ok(n)

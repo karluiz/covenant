@@ -44,3 +44,25 @@ fn record_commit_with_context_persists_branch() {
     assert_eq!((repo.as_str(), branch.as_str()), ("repoX", "featY"));
     karl_score::clear_recorder_for_test();
 }
+
+#[test]
+fn record_prompt_with_agent_persists_label() {
+    let _guard = LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let store = std::sync::Arc::new(karl_score::ScoreStore::open(tmp.path()).unwrap());
+    karl_score::set_recorder(store.clone());
+    karl_score::record_prompt_with_agent("anthropic", Some("claude_code"));
+
+    let conn = store.connection();
+    let c = conn.lock().unwrap();
+    let (executor, agent): (String, Option<String>) = c
+        .query_row(
+            "SELECT executor, agent FROM score_events ORDER BY id DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(executor, "anthropic");
+    assert_eq!(agent.as_deref(), Some("claude_code"));
+    karl_score::clear_recorder_for_test();
+}
