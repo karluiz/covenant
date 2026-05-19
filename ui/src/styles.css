@@ -12938,6 +12938,12 @@ body:has(#status-bar[hidden]) #activity-sidebar { bottom: 0; }
   font-size: 10px;
   color: var(--muted, #8a93a0);
   flex: 0 0 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inline-notch .inline-notch-name .tab-id {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* ── Light-mode: card surface + readable ink ─────────────────── */

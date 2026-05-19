@@ -116,7 +116,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       [...phases.values()].find((p) => p.phase.kind !== "idle") ??
       null;
     if (focus) {
-      headName.textContent = `claude · ${focus.tab}`;
+      headName.innerHTML = `claude · <span class="tab-id">${escapeHtml(focus.tab)}</span>`;
       headSub.textContent = `▸ ${phaseLabel(focus.phase)}`;
       headAv.style.background = `linear-gradient(135deg, ${tabColorFor(focus.tab)}, #c7a8ff)`;
     } else {
