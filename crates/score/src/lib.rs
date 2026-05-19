@@ -1,4 +1,5 @@
 pub mod agent_label;
+pub mod spec_watcher;
 pub mod auth;
 pub mod commit_scanner;
 pub mod context;
