@@ -50,7 +50,6 @@ export class OperatorsPane {
     this.mount.innerHTML = `
       <div class="operators-pane-v2">
         <header class="operators-pane-v2__head">
-          <h4>Operators</h4>
           <button type="button" class="primary" data-role="new">+ New operator</button>
         </header>
         <div class="operators-pane-v2__grid" data-role="grid"></div>
@@ -96,16 +95,35 @@ export class OperatorsPane {
         (async () => {
           try {
             await saveOperator(handle);
+            // Promote to default if the toggle was flipped on.
+            if (
+              handle.state.setAsDefault &&
+              !handle.state.isDefault &&
+              (handle.state.draft.id || handle.state.existing?.id)
+            ) {
+              const id = handle.state.draft.id ?? handle.state.existing!.id;
+              try { await operatorSetDefault(id); } catch (e) {
+                console.warn("operator_set_default failed", e);
+              }
+            }
             handle.el.remove();
             await this.refresh();
             pushInfoToast({
               message: `${handle.state.mode === "edit" ? "Saved" : "Created"} operator: ${handle.state.draft.name}`,
             });
           } catch (e) {
-            // eslint-disable-next-line no-console
             console.error("operator save failed", e);
             alert(`Save failed: ${e}`);
           }
+        })();
+      } else if (target.classList.contains("op-modal-delete")) {
+        ev.stopImmediatePropagation();
+        ev.preventDefault();
+        const existing = handle.state.existing;
+        if (!existing) return;
+        (async () => {
+          await this.deleteOperator(existing);
+          handle.el.remove();
         })();
       }
     }, true);
@@ -555,6 +573,14 @@ export interface ModalDraft extends OperatorDraft {
 export interface ModalState {
   mode: "create" | "edit";
   draft: ModalDraft;
+  /// Snapshot of `is_default` at modal-open time. Immutable for the
+  /// modal lifetime; `setAsDefault` carries the user's intent.
+  isDefault: boolean;
+  /// User-toggleable. On save, if differs from `isDefault`, the
+  /// `operator_set_default` Tauri command runs after create/update.
+  setAsDefault: boolean;
+  /// Present in edit/duplicate mode; needed for Delete + default flow.
+  existing?: Operator;
 }
 
 export interface ModalHandle {
@@ -564,6 +590,11 @@ export interface ModalHandle {
   setEmoji(s: string): void;
   setColor(s: string): void;
   setVoice(v: VoiceTone): void;
+  setModel(s: string): void;
+  setThreshold(n: number): void;
+  setPersona(s: string): void;
+  setHardConstraints(s: string): void;
+  setAsDefault(b: boolean): void;
   applyPreset(key: PresetKey): void;
 }
 
@@ -625,9 +656,13 @@ export function openOperatorModal(opts: {
     draft = defaultDraft();
   }
 
+  const isDefault = opts.existing?.is_default ?? false;
   const state: ModalState = {
     mode: opts.mode,
     draft,
+    isDefault,
+    setAsDefault: isDefault,
+    existing: opts.existing,
   };
 
   const el = document.createElement("div");
@@ -644,6 +679,11 @@ export function openOperatorModal(opts: {
     setEmoji(s) { state.draft.emoji = s; render(); },
     setColor(s) { state.draft.color = s; render(); },
     setVoice(v) { state.draft.voice = v; render(); },
+    setModel(s) { state.draft.model = s; render(); },
+    setThreshold(n) { state.draft.escalate_threshold = n; render(); },
+    setPersona(s) { state.draft.persona = s; render(); },
+    setHardConstraints(s) { state.draft.hard_constraints = s; render(); },
+    setAsDefault(b) { state.setAsDefault = b; render(); },
     applyPreset(key) {
       const preset = PRESETS.find((p) => p.key === key);
       if (!preset) return;
@@ -678,65 +718,183 @@ function renderForm(h: ModalHandle): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "op-modal-step op-modal-form";
 
-  // ── Header: live chip preview + dismiss "×" ────────────────────────────
-  const header = document.createElement("div");
-  header.className = "op-modal-header";
-  header.append(
-    renderOperatorChip(
-      {
-        name: h.state.draft.name || "New operator",
-        emoji: h.state.draft.emoji,
-        color: h.state.draft.color,
-      },
-      "lg",
-    ),
-  );
+  wrap.append(renderTopBar(h));
+  if (h.state.mode === "create") wrap.append(renderPresets(h));
+  wrap.append(renderHero(h));
+  wrap.append(renderIdentity(h));
+  wrap.append(renderBehavior(h));
+  wrap.append(renderAdvanced(h));
+  wrap.append(renderFooter(h));
+
+  return wrap;
+}
+
+function renderTopBar(h: ModalHandle): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "op-modal-topbar";
+  const title = document.createElement("h3");
+  title.className = "op-modal-title";
+  title.textContent = h.state.mode === "edit" ? "Edit operator" : "New operator";
+  bar.append(title);
   const close = document.createElement("button");
   close.type = "button";
   close.className = "op-modal-close";
   close.setAttribute("aria-label", "Close");
   close.textContent = "×";
   close.addEventListener("click", () => h.el.remove());
-  header.append(close);
-  wrap.append(header);
+  bar.append(close);
+  return bar;
+}
 
-  // ── Presets (create mode only) ─────────────────────────────────────────
-  if (h.state.mode === "create") {
-    const presetRow = document.createElement("div");
-    presetRow.className = "op-preset-row";
-    const presetLabel = document.createElement("span");
-    presetLabel.className = "op-modal-label op-preset-label";
-    presetLabel.textContent = "Start from preset";
-    presetRow.append(presetLabel);
-    const chips = document.createElement("div");
-    chips.className = "op-preset-chips";
-    PRESETS.forEach((p) => {
-      const c = document.createElement("button");
-      c.type = "button";
-      c.className = "op-preset-chip";
-      c.title = p.description;
-      c.textContent = p.label;
-      c.addEventListener("click", () => h.applyPreset(p.key));
-      chips.append(c);
-    });
-    presetRow.append(chips);
-    wrap.append(presetRow);
+function renderPresets(h: ModalHandle): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "op-preset-row";
+  const label = document.createElement("span");
+  label.className = "op-modal-label";
+  label.textContent = "Start from preset";
+  row.append(label);
+  const chips = document.createElement("div");
+  chips.className = "op-preset-chips";
+  PRESETS.forEach((p) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "op-preset-chip";
+    b.title = p.description;
+    b.textContent = p.label;
+    b.addEventListener("click", () => h.applyPreset(p.key));
+    chips.append(b);
+  });
+  row.append(chips);
+  return row;
+}
+
+// ── Hero: avatar card + live "where this shows up" preview ─────────────────
+function renderHero(h: ModalHandle): HTMLElement {
+  const hero = document.createElement("div");
+  hero.className = "op-hero";
+  hero.style.setProperty("--operator-color", h.state.draft.color);
+
+  // Left: large avatar + name typography
+  const card = document.createElement("div");
+  card.className = "op-hero-card";
+  const av = document.createElement("div");
+  av.className = "op-hero-avatar";
+  av.innerHTML = renderAvatarHtml(h.state.draft.emoji || "🤖", 88);
+  card.append(av);
+  const nm = document.createElement("div");
+  nm.className = "op-hero-name";
+  nm.textContent = h.state.draft.name || "New operator";
+  card.append(nm);
+  if (h.state.isDefault) {
+    const badge = document.createElement("span");
+    badge.className = "op-hero-default-badge";
+    badge.textContent = "DEFAULT";
+    card.append(badge);
   }
+  hero.append(card);
 
-  // ── Identity section ───────────────────────────────────────────────────
-  wrap.append(section("Identity"));
+  // Right: live previews — Telegram bubble + tab pill + activity feed line
+  const previews = document.createElement("div");
+  previews.className = "op-hero-previews";
 
+  const previewLabel = document.createElement("div");
+  previewLabel.className = "op-hero-previews-label";
+  previewLabel.textContent = "How this operator will look";
+  previews.append(previewLabel);
+
+  previews.append(renderTelegramPreview(h));
+  previews.append(renderTabAndFeedPreview(h));
+
+  hero.append(previews);
+  return hero;
+}
+
+function renderTelegramPreview(h: ModalHandle): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "op-tg-preview";
+
+  const bubble = document.createElement("div");
+  bubble.className = "op-tg-bubble";
+
+  const headerLine = document.createElement("div");
+  headerLine.className = "op-tg-header";
+  const av = document.createElement("span");
+  av.className = "op-tg-avatar";
+  av.innerHTML = renderAvatarHtml(h.state.draft.emoji || "🤖", 16);
+  const headerText = document.createElement("span");
+  headerText.className = "op-tg-header-text";
+  const name = (h.state.draft.name || "Operator").trim();
+  headerText.textContent = `${name} · karlTerminal (main)`;
+  headerText.style.color = h.state.draft.color;
+  headerLine.append(av, headerText);
+  bubble.append(headerLine);
+
+  const body = document.createElement("div");
+  body.className = "op-tg-body";
+  body.textContent = "feat/task-dnd is done — wants to push & open PR.";
+  bubble.append(body);
+
+  const actions = document.createElement("div");
+  actions.className = "op-tg-actions";
+  ["✓ Approve push", "✗ Reject", "⏸ 10m"].forEach((label) => {
+    const b = document.createElement("span");
+    b.className = "op-tg-btn";
+    b.textContent = label;
+    actions.append(b);
+  });
+  bubble.append(actions);
+
+  wrap.append(bubble);
+  return wrap;
+}
+
+function renderTabAndFeedPreview(h: ModalHandle): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "op-mini-previews";
+
+  // Tab pill
+  const tab = document.createElement("div");
+  tab.className = "op-mini-tab";
+  tab.innerHTML = `${renderAvatarHtml(h.state.draft.emoji || "🤖", 14)}<span class="op-mini-tab-name">${escapeHtml(h.state.draft.name || "Operator")}</span><span class="op-mini-tab-level">L1</span>`;
+  wrap.append(tab);
+
+  // Activity feed sample line
+  const feed = document.createElement("div");
+  feed.className = "op-mini-feed";
+  const av = document.createElement("span");
+  av.className = "op-mini-feed-avatar";
+  av.innerHTML = renderAvatarHtml(h.state.draft.emoji || "🤖", 14);
+  const txt = document.createElement("span");
+  txt.className = "op-mini-feed-text";
+  const nm = (h.state.draft.name || "Operator").trim();
+  txt.textContent = `${nm} approved push to main`;
+  txt.style.setProperty("--operator-color", h.state.draft.color);
+  feed.append(av, txt);
+  wrap.append(feed);
+
+  return wrap;
+}
+
+// ── Identity: avatar grid, color, voice ─────────────────────────────────────
+function renderIdentity(h: ModalHandle): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "op-modal-section-block";
+
+  wrap.append(sectionHeader("Identity"));
+
+  // Name (full-width)
   const name = document.createElement("input");
   name.type = "text";
+  name.className = "op-modal-input";
   name.maxLength = 24;
   name.placeholder = "Operator name";
   name.value = h.state.draft.name;
   name.addEventListener("input", () => h.setName(name.value));
   wrap.append(labeled("Name", name));
 
-  // Avatar picker — grid of pack thumbnails. Selected = ring.
-  const avatarGrid = document.createElement("div");
-  avatarGrid.className = "op-avatar-grid";
+  // Avatar grid
+  const grid = document.createElement("div");
+  grid.className = "op-avatar-grid";
   AVATAR_PACK.forEach((entry) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -747,24 +905,25 @@ function renderForm(h: ModalHandle): HTMLElement {
     const img = document.createElement("img");
     img.src = entry.url;
     img.alt = entry.label;
-    img.width = 40;
-    img.height = 40;
+    img.width = 44;
+    img.height = 44;
     img.draggable = false;
     b.append(img);
     b.addEventListener("click", () => h.setEmoji(`pack:${entry.id}`));
-    avatarGrid.append(b);
+    grid.append(b);
   });
-  wrap.append(labeled("Avatar", avatarGrid));
+  wrap.append(labeled("Avatar", grid));
 
-  // Custom emoji fallback
-  const emoji = document.createElement("input");
-  emoji.type = "text";
-  emoji.maxLength = 16;
-  emoji.placeholder = "Or type an emoji / leave a pack: value";
-  emoji.value = h.state.draft.emoji;
-  emoji.addEventListener("input", () => h.setEmoji(emoji.value));
-  wrap.append(labeled("Custom emoji", emoji));
+  // Color + Voice side-by-side
+  const sideBySide = document.createElement("div");
+  sideBySide.className = "op-modal-row-2";
 
+  const colorWrap = document.createElement("div");
+  colorWrap.className = "op-modal-field";
+  const colorLbl = document.createElement("span");
+  colorLbl.className = "op-modal-label";
+  colorLbl.textContent = "Color";
+  colorWrap.append(colorLbl);
   const colors = document.createElement("div");
   colors.className = "op-color-row";
   SWATCHES.forEach((c) => {
@@ -776,8 +935,14 @@ function renderForm(h: ModalHandle): HTMLElement {
     b.addEventListener("click", () => h.setColor(c));
     colors.append(b);
   });
-  wrap.append(labeled("Color", colors));
+  colorWrap.append(colors);
 
+  const voiceWrap = document.createElement("div");
+  voiceWrap.className = "op-modal-field";
+  const voiceLbl = document.createElement("span");
+  voiceLbl.className = "op-modal-label";
+  voiceLbl.textContent = "Voice";
+  voiceWrap.append(voiceLbl);
   const voiceRow = document.createElement("div");
   voiceRow.className = "op-voice-row";
   (["Terse", "Warm", "Formal"] as VoiceTone[]).forEach((v) => {
@@ -788,78 +953,210 @@ function renderForm(h: ModalHandle): HTMLElement {
     b.addEventListener("click", () => h.setVoice(v));
     voiceRow.append(b);
   });
-  wrap.append(labeled("Voice", voiceRow));
+  voiceWrap.append(voiceRow);
+  const sample = document.createElement("div");
+  sample.className = "op-voice-sample";
+  sample.textContent = VOICE_SAMPLES[h.state.draft.voice];
+  voiceWrap.append(sample);
 
-  // ── Behavior section ───────────────────────────────────────────────────
-  wrap.append(section("Behavior"));
+  sideBySide.append(colorWrap, voiceWrap);
+  wrap.append(sideBySide);
 
-  const model = document.createElement("input");
-  model.type = "text";
-  model.value = h.state.draft.model;
-  model.addEventListener("input", () => {
-    h.state.draft.model = model.value;
+  return wrap;
+}
+
+// ── Behavior: model, threshold slider, persona ──────────────────────────────
+function renderBehavior(h: ModalHandle): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "op-modal-section-block";
+  wrap.append(sectionHeader("Behavior"));
+
+  const row = document.createElement("div");
+  row.className = "op-modal-row-2";
+
+  // Model select
+  const modelWrap = document.createElement("div");
+  modelWrap.className = "op-modal-field";
+  const modelLbl = document.createElement("span");
+  modelLbl.className = "op-modal-label";
+  modelLbl.textContent = "Model";
+  modelWrap.append(modelLbl);
+  const model = document.createElement("select");
+  model.className = "op-modal-input op-modal-select";
+  MODELS.forEach((opt) => {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (h.state.draft.model === opt.value) o.selected = true;
+    model.append(o);
   });
-  wrap.append(labeled("Model", model));
+  // Allow custom values that don't match the catalog
+  if (!MODELS.some((m) => m.value === h.state.draft.model)) {
+    const o = document.createElement("option");
+    o.value = h.state.draft.model;
+    o.textContent = `${h.state.draft.model} (custom)`;
+    o.selected = true;
+    model.append(o);
+  }
+  model.addEventListener("change", () => h.setModel(model.value));
+  modelWrap.append(model);
+  row.append(modelWrap);
 
-  const thr = document.createElement("input");
-  thr.type = "number";
-  thr.min = "0";
-  thr.max = "1";
-  thr.step = "0.05";
-  thr.value = String(h.state.draft.escalate_threshold);
-  thr.addEventListener("input", () => {
-    const v = Number.parseFloat(thr.value);
-    if (!Number.isNaN(v)) h.state.draft.escalate_threshold = v;
+  // Threshold slider with anchor labels
+  const thrWrap = document.createElement("div");
+  thrWrap.className = "op-modal-field op-modal-field-threshold";
+  const thrLbl = document.createElement("span");
+  thrLbl.className = "op-modal-label op-modal-label-row";
+  const thrLblText = document.createElement("span");
+  thrLblText.textContent = "Escalate threshold";
+  const thrReadout = document.createElement("span");
+  thrReadout.className = "op-threshold-readout";
+  thrReadout.textContent = h.state.draft.escalate_threshold.toFixed(2);
+  thrLbl.append(thrLblText, thrReadout);
+  thrWrap.append(thrLbl);
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.className = "op-threshold-slider";
+  slider.min = "0";
+  slider.max = "1";
+  slider.step = "0.05";
+  slider.value = String(h.state.draft.escalate_threshold);
+  slider.addEventListener("input", () => {
+    const v = Number.parseFloat(slider.value);
+    if (!Number.isNaN(v)) {
+      h.state.draft.escalate_threshold = v;
+      thrReadout.textContent = v.toFixed(2);
+    }
   });
-  wrap.append(labeled("Escalate threshold", thr));
+  thrWrap.append(slider);
+  const anchors = document.createElement("div");
+  anchors.className = "op-threshold-anchors";
+  anchors.innerHTML = `<span>Cautious</span><span>Autonomous</span>`;
+  thrWrap.append(anchors);
+  row.append(thrWrap);
+  wrap.append(row);
 
+  // Persona textarea
   const persona = document.createElement("textarea");
-  persona.rows = 10;
+  persona.rows = 8;
+  persona.className = "op-modal-textarea";
+  persona.placeholder = "How should this operator behave? Free-form prompt addition.";
   persona.value = h.state.draft.persona;
   persona.addEventListener("input", () => {
     h.state.draft.persona = persona.value;
   });
   wrap.append(labeled("Persona", persona));
 
+  return wrap;
+}
+
+// ── Advanced (collapsed): custom emoji override + hard constraints ──────────
+function renderAdvanced(h: ModalHandle): HTMLElement {
+  const det = document.createElement("details");
+  det.className = "op-modal-advanced";
+  if (h.state.draft.hard_constraints.trim() || !h.state.draft.emoji.startsWith("pack:")) {
+    det.open = true;
+  }
+  const sum = document.createElement("summary");
+  sum.textContent = "Advanced";
+  det.append(sum);
+
+  // Custom emoji
+  const emoji = document.createElement("input");
+  emoji.type = "text";
+  emoji.className = "op-modal-input";
+  emoji.maxLength = 24;
+  emoji.placeholder = "Override avatar with text or emoji";
+  emoji.value = h.state.draft.emoji.startsWith("pack:") ? "" : h.state.draft.emoji;
+  emoji.addEventListener("input", () => {
+    // Empty = revert to whichever pack avatar was already selected (no-op
+    // here; we just keep the existing pack: value). Non-empty = literal
+    // override.
+    if (emoji.value.length > 0) h.setEmoji(emoji.value);
+  });
+  det.append(labeled("Custom avatar (emoji or text)", emoji));
+
+  // Hard constraints
   const hc = document.createElement("textarea");
   hc.rows = 4;
+  hc.className = "op-modal-textarea";
+  hc.placeholder =
+    "One rule per line. Examples:\nalways ask before touching ~/.aws or ~/.ssh\nnever auto-merge to main";
   hc.value = h.state.draft.hard_constraints;
   hc.addEventListener("input", () => {
     h.state.draft.hard_constraints = hc.value;
   });
-  wrap.append(labeled("Hard constraints", hc));
+  det.append(labeled("Hard constraints", hc));
 
-  // ── Actions (right-aligned, matches Settings page) ─────────────────────
-  const actions = document.createElement("div");
-  actions.className = "op-modal-actions settings-actions";
+  return det;
+}
+
+// ── Footer: default toggle (left), delete + cancel + save (right) ───────────
+function renderFooter(h: ModalHandle): HTMLElement {
+  const foot = document.createElement("div");
+  foot.className = "op-modal-footer";
+
+  const left = document.createElement("label");
+  left.className = "op-modal-default-toggle";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = h.state.setAsDefault;
+  // Existing default can't un-default itself directly — must promote another.
+  cb.disabled = h.state.isDefault;
+  cb.addEventListener("change", () => h.setAsDefault(cb.checked));
+  const cbLbl = document.createElement("span");
+  cbLbl.textContent = h.state.isDefault ? "Default operator" : "Set as default";
+  left.append(cb, cbLbl);
+  foot.append(left);
+
+  const right = document.createElement("div");
+  right.className = "op-modal-footer-actions settings-actions";
+
+  if (h.state.mode === "edit" && h.state.existing) {
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "op-modal-delete";
+    del.textContent = "Delete";
+    del.disabled = h.state.isDefault;
+    right.append(del);
+  }
 
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "settings-cancel";
   cancel.textContent = "Cancel";
   cancel.addEventListener("click", () => h.el.remove());
+  right.append(cancel);
 
   const save = document.createElement("button");
   save.type = "button";
   save.className = "op-modal-save settings-save";
   save.textContent = h.state.mode === "edit" ? "Save changes" : "Create operator";
   save.disabled = !canSave(h);
-  save.addEventListener("click", () => {
-    void saveOperator(h);
-  });
+  right.append(save);
 
-  actions.append(cancel, save);
-  wrap.append(actions);
-
-  return wrap;
+  foot.append(right);
+  return foot;
 }
 
-function section(title: string): HTMLElement {
+function sectionHeader(title: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "op-modal-section";
   el.textContent = title;
   return el;
 }
+
+const MODELS: Array<{ value: string; label: string }> = [
+  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { value: "claude-opus-4-7", label: "Opus 4.7" },
+];
+
+const VOICE_SAMPLES: Record<VoiceTone, string> = {
+  Terse: '"feat/x done. push?"',
+  Warm: '"All set on feat/x — want me to push?"',
+  Formal: '"Feature feat/x is complete. Shall I proceed with the push?"',
+};
 
 export async function saveOperator(h: ModalHandle): Promise<void> {
   const { invoke } = await import("@tauri-apps/api/core");
