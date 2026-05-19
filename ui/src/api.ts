@@ -225,6 +225,19 @@ export async function clearAllAomExcluded(): Promise<void> {
   return invoke<void>("clear_all_aom_excluded");
 }
 
+/// Operator voice tone — drives prompt directive for the operator's
+/// generated text (banner messages, escalations, replies).
+export type VoiceTone = "Terse" | "Warm" | "Formal";
+
+/// Action surfaced by the operator in the banner / activity feed.
+/// Tagged union mirrors the Rust `OperatorAction` enum.
+export type OperatorAction =
+  | { type: "PushAndPR" }
+  | { type: "RunCommand"; cmd: string }
+  | { type: "Reply" }
+  | { type: "Snooze"; minutes: number }
+  | { type: "Custom"; id: string; label: string };
+
 export interface Operator {
   id: string;
   name: string;
@@ -235,6 +248,7 @@ export interface Operator {
   escalate_threshold: number;
   model: string;
   hard_constraints: string;
+  voice: VoiceTone;
   is_default: boolean;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
@@ -264,6 +278,7 @@ export interface OperatorDraft {
   escalate_threshold: number;
   model: string;
   hard_constraints: string;
+  voice: VoiceTone;
 }
 
 export async function operatorList(): Promise<Operator[]> {
