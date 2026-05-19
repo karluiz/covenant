@@ -31,7 +31,11 @@ pub fn project_ref_from_cwd(cwd: &Path) -> ProjectRef {
 }
 
 fn git_str(cwd: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").current_dir(cwd).args(args).output().ok()?;
+    let out = Command::new("git")
+        .current_dir(cwd)
+        .args(args)
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }

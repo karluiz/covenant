@@ -85,4 +85,19 @@ describe("VitalsCluster rendering", () => {
 
     c.dispose();
   });
+
+  it("keeps first in-flight call visible and uses its model", () => {
+    const c = new VitalsCluster();
+    c.setVitals(
+      fixture({
+        is_idle: true,
+        idle_secs: Number.MAX_SAFE_INTEGER,
+        in_flight: { model: "claude-sonnet-4-6", started_unix_ms: Date.now() },
+      }),
+    );
+    expect(c.el.classList.contains("is-idle")).toBe(false);
+    expect(c.el.querySelector(".sb-vitals-pill--model")?.textContent).toBe("Sonnet 4.6");
+    expect(c.el.querySelector(".sb-vitals-lat-dot--inflight")).not.toBeNull();
+    c.dispose();
+  });
 });

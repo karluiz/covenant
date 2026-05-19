@@ -59,10 +59,14 @@ pub fn spawn(
                         continue;
                     }
                     let _ = client.answer_callback_query(&cfg.token, &cb.id).await;
-                    let Some(data) = cb.data else { continue; };
+                    let Some(data) = cb.data else {
+                        continue;
+                    };
                     if let Some(cb) = parse_callback(&data) {
                         let res = match cb.action_kind {
-                            ActionKind::PushPR | ActionKind::Run => ResolutionFromTelegram::Approved,
+                            ActionKind::PushPR | ActionKind::Run => {
+                                ResolutionFromTelegram::Approved
+                            }
                             ActionKind::Reply => ResolutionFromTelegram::Rejected,
                             ActionKind::Snooze => ResolutionFromTelegram::Snoozed,
                             ActionKind::Custom => continue,
@@ -146,7 +150,10 @@ pub fn parse_callback(data: &str) -> Option<Callback> {
         "custom" => ActionKind::Custom,
         _ => return None,
     };
-    Some(Callback { escalation_id, action_kind: kind })
+    Some(Callback {
+        escalation_id,
+        action_kind: kind,
+    })
 }
 
 pub fn render_confirmation(operator_name: &str, kind: ActionKind, detail: Option<&str>) -> String {

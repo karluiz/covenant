@@ -129,12 +129,24 @@ fn summary_filtered_by_repo() {
     };
     for _ in 0..3 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &kt)
+            .append_with_context(
+                1_700_000_000_000,
+                karl_score::EventKind::Prompt,
+                "a",
+                None,
+                &kt,
+            )
             .unwrap();
     }
     for _ in 0..7 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &cs)
+            .append_with_context(
+                1_700_000_000_000,
+                karl_score::EventKind::Prompt,
+                "a",
+                None,
+                &cs,
+            )
             .unwrap();
     }
     let s = store
@@ -157,7 +169,13 @@ fn heatmap_filtered_by_repo() {
     };
     for _ in 0..4 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &kt)
+            .append_with_context(
+                1_700_000_000_000,
+                karl_score::EventKind::Prompt,
+                "a",
+                None,
+                &kt,
+            )
             .unwrap();
     }
     let cs = karl_score::Context {
@@ -167,7 +185,13 @@ fn heatmap_filtered_by_repo() {
     };
     for _ in 0..2 {
         store
-            .append_with_context(1_700_000_000_000, karl_score::EventKind::Prompt, "a", None, &cs)
+            .append_with_context(
+                1_700_000_000_000,
+                karl_score::EventKind::Prompt,
+                "a",
+                None,
+                &cs,
+            )
             .unwrap();
     }
     let cells = store
@@ -187,24 +211,33 @@ fn migration_v3_creates_specs_and_llm_calls_and_agent_column() {
     let conn = store.connection();
     let c = conn.lock().unwrap();
 
-    let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    let v: i64 = c
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
     assert!(v >= 3, "expected user_version >= 3, got {v}");
 
     // agent column present on score_events
     let cols: Vec<String> = c
-        .prepare("PRAGMA table_info(score_events)").unwrap()
-        .query_map([], |r| r.get::<_, String>(1)).unwrap()
+        .prepare("PRAGMA table_info(score_events)")
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(1))
+        .unwrap()
         .map(|r| r.unwrap())
         .collect();
     assert!(cols.contains(&"agent".to_string()));
 
     // tables exist
-    c.execute("INSERT INTO specs(ts_ms, day, path) VALUES (1, '1970-01-01', 'a')", []).unwrap();
+    c.execute(
+        "INSERT INTO specs(ts_ms, day, path) VALUES (1, '1970-01-01', 'a')",
+        [],
+    )
+    .unwrap();
     c.execute(
         "INSERT INTO llm_calls(ts_ms, day, source, provider, model, input_tokens, output_tokens) \
          VALUES (1, '1970-01-01', 'internal', 'anthropic', 'claude-opus-4-7', 100, 50)",
         [],
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 use karl_score::commit_scanner::scan_repo_since;

@@ -580,7 +580,9 @@ mod voice_tests {
         let f = voice_directive(VoiceTone::Formal);
         assert!(t.to_lowercase().contains("terse") || t.contains("12 words"));
         assert!(w.to_lowercase().contains("warm") || w.to_lowercase().contains("conversational"));
-        assert!(f.to_lowercase().contains("formal") || f.to_lowercase().contains("no contractions"));
+        assert!(
+            f.to_lowercase().contains("formal") || f.to_lowercase().contains("no contractions")
+        );
         assert_ne!(t, w);
         assert_ne!(w, f);
     }

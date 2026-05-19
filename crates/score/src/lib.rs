@@ -1,11 +1,11 @@
-pub mod external;
 pub mod agent_label;
-pub mod spec_watcher;
 pub mod auth;
 pub mod commit_scanner;
 pub mod context;
+pub mod external;
 pub mod filter;
 pub mod session;
+pub mod spec_watcher;
 pub mod store;
 pub mod sync;
 pub mod types;
@@ -74,7 +74,8 @@ pub fn record_prompt_with_agent(executor: &str, agent: Option<&str>) {
     };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
-            if let Err(e) = store.append_with_context(now, EventKind::Prompt, executor, agent, &ctx) {
+            if let Err(e) = store.append_with_context(now, EventKind::Prompt, executor, agent, &ctx)
+            {
                 tracing::warn!(target: "score", error = %e, "record_prompt_with_agent failed");
             }
         }

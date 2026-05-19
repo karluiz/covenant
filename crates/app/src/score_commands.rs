@@ -109,5 +109,8 @@ pub fn score_breakdown_models(
     filter: ScoreFilter,
     source: ModelSource,
 ) -> Result<Vec<ModelCell>, String> {
-    state.0.breakdown_models(&filter, source).map_err(|e| e.to_string())
+    state
+        .0
+        .breakdown_models(&filter, source)
+        .map_err(|e| e.to_string())
 }

@@ -20,10 +20,12 @@ type StatePayload = {
 
 type Row = {
   ts: number;
+  firstTs: number;
   session: string;
   tag: string;          // tab label
   kind: "run" | "ok" | "warn" | "err" | "info";
   message: string;
+  count: number;
 };
 
 const TAB_COLORS = ["#7c5cff", "#5ad1ff", "#7cffb2", "#ffcb5a", "#ffb13a", "#ff7cb2"];
@@ -58,6 +60,16 @@ function phaseLabel(p: ExecutorPhase): string {
 function fmtTime(ts: number): string {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function fmtDuration(ms: number): string {
+  const s = Math.max(1, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 60) return rem === 0 ? `${m}m` : `${m}m ${rem}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
 }
 
 /// Mount the inline slot into `host`. Visibility is driven by
@@ -132,17 +144,39 @@ export function mountInlineNotch(host: HTMLElement): void {
       .reverse()
       .map(
         (r) => `
-          <div class="row ${r.kind}">
+          <div class="row ${r.kind}" title="${escapeHtml(`${r.message} — ${r.tag}`)}">
             <span class="ts">${fmtTime(r.ts)}</span>
-            <span class="msg">${escapeHtml(r.message)}</span>
-            <span class="tag">${escapeHtml(r.tag)}</span>
+            <span class="row-copy">
+              <span class="msg">${escapeHtml(r.message)}</span>
+              <span class="row-meta">
+                <span class="tag">${escapeHtml(r.tag)}</span>
+                ${r.count > 1 ? `<span class="count">×${r.count}</span>` : ""}
+                ${r.ts > r.firstTs ? `<span class="dur">${fmtDuration(r.ts - r.firstTs)}</span>` : ""}
+              </span>
+            </span>
           </div>`,
       )
       .join("");
   }
 
-  function pushRow(r: Row): void {
-    rows.push(r);
+  function pushRow(input: Omit<Row, "firstTs" | "count">): void {
+    const prev = rows[rows.length - 1];
+    // Heartbeats and redraws can generate many identical rows ("thinking",
+    // "running commands", …). Coalesce adjacent repeats into one richer row
+    // so the feed says "what changed" instead of becoming a metronome.
+    if (
+      prev &&
+      prev.session === input.session &&
+      prev.kind === input.kind &&
+      prev.message === input.message &&
+      Date.now() - prev.ts < 30_000
+    ) {
+      prev.ts = input.ts;
+      prev.tag = input.tag;
+      prev.count += 1;
+      return;
+    }
+    rows.push({ ...input, firstTs: input.ts, count: 1 });
     if (rows.length > MAX_ROWS) rows.splice(0, rows.length - MAX_ROWS);
   }
 

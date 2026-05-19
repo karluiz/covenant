@@ -6,19 +6,30 @@ use std::path::{Path, PathBuf};
 const SOURCE: &str = "claude_code";
 
 #[derive(Deserialize)]
-struct Line { message: Option<Msg> }
+struct Line {
+    message: Option<Msg>,
+}
 #[derive(Deserialize)]
-struct Msg { model: Option<String>, usage: Option<Usage> }
+struct Msg {
+    model: Option<String>,
+    usage: Option<Usage>,
+}
 #[derive(Deserialize)]
 struct Usage {
-    #[serde(default)] input_tokens: u64,
-    #[serde(default)] output_tokens: u64,
-    #[serde(default)] cache_read_input_tokens: u64,
-    #[serde(default)] cache_creation_input_tokens: u64,
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
 }
 
 pub fn candidate_files() -> Vec<PathBuf> {
-    let Some(home) = dirs::home_dir() else { return vec![]; };
+    let Some(home) = dirs::home_dir() else {
+        return vec![];
+    };
     let root = home.join(".claude").join("projects");
     walkdir::WalkDir::new(&root)
         .into_iter()
@@ -33,16 +44,24 @@ pub fn poll_one(store: &ScoreStore, path: &Path) -> Result<(), Box<dyn std::erro
     let watermark = store.get_watermark(SOURCE, &path_s)?;
     let mut file = std::fs::File::open(path)?;
     let size = file.metadata()?.len();
-    if size <= watermark { return Ok(()); }
+    if size <= watermark {
+        return Ok(());
+    }
     file.seek(SeekFrom::Start(watermark))?;
     let reader = BufReader::new(&mut file);
 
     let ctx = Context::default();
     let mut new_offset = watermark;
     for line in reader.lines() {
-        let line = match line { Ok(l) => l, Err(_) => break };
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
         new_offset += line.len() as u64 + 1; // newline
-        let parsed: Line = match serde_json::from_str(&line) { Ok(v) => v, Err(_) => continue };
+        let parsed: Line = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
         let Some(msg) = parsed.message else { continue };
         let Some(usage) = msg.usage else { continue };
         let model = msg.model.unwrap_or_else(|| "unknown".into());

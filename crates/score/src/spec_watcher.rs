@@ -40,7 +40,13 @@ pub fn start(roots: Vec<PathBuf>) -> (WatcherHandle, mpsc::Sender<()>) {
         }
     });
 
-    (WatcherHandle { _watcher: watcher, _thread: thread }, stop_tx)
+    (
+        WatcherHandle {
+            _watcher: watcher,
+            _thread: thread,
+        },
+        stop_tx,
+    )
 }
 
 fn handle_event(

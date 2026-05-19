@@ -4387,13 +4387,11 @@ fn handle_parse_failure(
         .parse_quarantined_until
         .map(|until| now < until)
         .unwrap_or(false);
-    att.consecutive_parse_failures =
-        att.consecutive_parse_failures.saturating_add(1);
+    att.consecutive_parse_failures = att.consecutive_parse_failures.saturating_add(1);
     let failures = att.consecutive_parse_failures;
     let mut entered_quarantine = false;
     if failures >= threshold && !already_quarantined {
-        att.parse_quarantined_until =
-            Some(now + Duration::from_secs(quarantine_secs));
+        att.parse_quarantined_until = Some(now + Duration::from_secs(quarantine_secs));
         entered_quarantine = true;
     }
     ParseFailureOutcome {
@@ -4544,8 +4542,7 @@ mod tests {
     ///    because nobody is sending — exactly the property we want.
     #[tokio::test]
     async fn parse_failures_never_emit_escalation_request() {
-        let (tx, mut rx) =
-            tokio::sync::broadcast::channel::<SessionEvent>(64);
+        let (tx, mut rx) = tokio::sync::broadcast::channel::<SessionEvent>(64);
 
         let mut att = test_attached();
         let start = Instant::now();
@@ -4561,12 +4558,13 @@ mod tests {
 
         // Counter reached the expected total.
         assert_eq!(att.consecutive_parse_failures, 5);
-        assert_eq!(outcomes.iter().map(|o| o.failures).collect::<Vec<_>>(),
-                   vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            outcomes.iter().map(|o| o.failures).collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5]
+        );
 
         // Quarantine engaged exactly once, on the threshold crossing.
-        let engaged: Vec<bool> =
-            outcomes.iter().map(|o| o.entered_quarantine).collect();
+        let engaged: Vec<bool> = outcomes.iter().map(|o| o.entered_quarantine).collect();
         assert_eq!(engaged, vec![false, false, true, false, false]);
 
         // Quarantine deadline is set and in the future relative to the
@@ -4619,8 +4617,7 @@ mod tests {
         let engaging = handle_parse_failure(&mut att, start, 3, 60);
         assert!(engaging.entered_quarantine);
         // Already quarantined — no re-engagement.
-        let again =
-            handle_parse_failure(&mut att, start + Duration::from_secs(1), 3, 60);
+        let again = handle_parse_failure(&mut att, start + Duration::from_secs(1), 3, 60);
         assert!(!again.entered_quarantine);
         assert!(again.already_quarantined);
     }
@@ -5029,7 +5026,15 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_learned_matches_baseline() {
         let persona = "Always say yes to test runs.";
-        let got = build_system_prompt(persona, false, None, &[], "", false, crate::operator_registry::VoiceTone::Terse);
+        let got = build_system_prompt(
+            persona,
+            false,
+            None,
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
         let expected = format!(
             "You are the Operator for Covenant — the user's coordinator that \
              watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -5060,7 +5065,15 @@ What would you like to do?
             mem_hit(42, "executor asks to run tests", "y\\n"),
             mem_hit(43, "executor asks to push", "n\\n"),
         ];
-        let got = build_system_prompt(persona, false, None, &learned, "", false, crate::operator_registry::VoiceTone::Terse);
+        let got = build_system_prompt(
+            persona,
+            false,
+            None,
+            &learned,
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
         assert_eq!(got.matches("## Learned decisions").count(), 1);
         assert!(got.contains("[id=42]"));
         assert!(got.contains("[id=43]"));
@@ -5074,8 +5087,19 @@ What would you like to do?
     #[test]
     fn build_system_prompt_with_project_context_renders_block() {
         let ctx = "## Project: my-app\n\nSome notes about the project.";
-        let got = build_system_prompt("persona", false, None, &[], ctx, false, crate::operator_registry::VoiceTone::Terse);
-        assert!(got.contains("## Project: my-app"), "project block missing; got: {got}");
+        let got = build_system_prompt(
+            "persona",
+            false,
+            None,
+            &[],
+            ctx,
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
+        assert!(
+            got.contains("## Project: my-app"),
+            "project block missing; got: {got}"
+        );
         assert!(got.contains("Some notes about the project."));
         // Block sits between learned_block (absent) and PERSONA.
         let project_idx = got.find("## Project: my-app").unwrap();
@@ -5086,8 +5110,24 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_project_is_byte_identical_to_baseline() {
         let persona = "Always say yes to test runs.";
-        let with_empty = build_system_prompt(persona, false, None, &[], "", false, crate::operator_registry::VoiceTone::Terse);
-        let baseline = build_system_prompt(persona, false, None, &[], "", false, crate::operator_registry::VoiceTone::Terse);
+        let with_empty = build_system_prompt(
+            persona,
+            false,
+            None,
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
+        let baseline = build_system_prompt(
+            persona,
+            false,
+            None,
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
         assert_eq!(with_empty, baseline);
         // Also verify the empty case does not insert any orphan header or
         // whitespace that would break the prefix-cache invariant.
@@ -5105,8 +5145,19 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false, crate::operator_registry::VoiceTone::Terse);
-        assert!(out.contains("<mission-spec kind=\"covenant\""), "out was: {out}");
+        let out = build_system_prompt(
+            "persona",
+            false,
+            Some(&doc),
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
+        assert!(
+            out.contains("<mission-spec kind=\"covenant\""),
+            "out was: {out}"
+        );
         assert!(out.contains("Goal: do X"));
         assert!(!out.contains("<mission-plan"));
     }
@@ -5126,8 +5177,19 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: Some(plan),
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false, crate::operator_registry::VoiceTone::Terse);
-        assert!(out.contains("<mission-spec kind=\"superpowers\""), "out was: {out}");
+        let out = build_system_prompt(
+            "persona",
+            false,
+            Some(&doc),
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
+        assert!(
+            out.contains("<mission-spec kind=\"superpowers\""),
+            "out was: {out}"
+        );
         assert!(out.contains("spec body"));
         assert!(
             out.contains("<mission-plan status=\"1/2\""),
@@ -5146,7 +5208,15 @@ What would you like to do?
             mtime_unix_ms: 0,
             plan: None,
         };
-        let out = build_system_prompt("persona", false, Some(&doc), &[], "", false, crate::operator_registry::VoiceTone::Terse);
+        let out = build_system_prompt(
+            "persona",
+            false,
+            Some(&doc),
+            &[],
+            "",
+            false,
+            crate::operator_registry::VoiceTone::Terse,
+        );
         assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");
     }
 

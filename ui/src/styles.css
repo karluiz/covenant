@@ -13050,9 +13050,12 @@ body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host
   flex: 1 1 auto; min-height: 0;
 }
 .inline-notch .inline-notch-stream .row {
-  display: flex; gap: 8px; align-items: baseline;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
   font-size: 11px;
-  padding: 4px 6px;
+  padding: 5px 6px;
   border-left: 2px solid transparent;
   color: var(--muted, #8a93a0);
 }
@@ -13061,22 +13064,43 @@ body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host
 .inline-notch .inline-notch-stream .row.warn { border-left-color: #f5c66a; }
 .inline-notch .inline-notch-stream .row.err  { border-left-color: #ff7676; }
 .inline-notch .inline-notch-stream .row .ts {
-  flex: 0 0 34px;
   font-size: 10px;
+  line-height: 1.35;
   color: var(--muted, #8a93a0);
   opacity: 0.7;
 }
+.inline-notch .inline-notch-stream .row .row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .inline-notch .inline-notch-stream .row .msg {
   color: var(--text, #d5d9de);
-  flex: 1 1 auto;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.inline-notch .inline-notch-stream .row .tag {
+.inline-notch .inline-notch-stream .row .row-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
   font-size: 10px;
   color: var(--muted, #8a93a0);
-  flex: 0 0 auto;
+}
+.inline-notch .inline-notch-stream .row .tag {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+.inline-notch .inline-notch-stream .row .count,
+.inline-notch .inline-notch-stream .row .dur {
+  flex: 0 0 auto;
+  opacity: 0.75;
 }
 .inline-notch .inline-notch-name .tab-id {
   text-transform: uppercase;

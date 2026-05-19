@@ -176,9 +176,12 @@ export class VitalsCluster {
   // -- internals -----------------------------------------------------------
 
   private apply(v: Vitals): void {
-    // Idle: fade the whole cluster, skip per-chip updates.
-    this.el.classList.toggle("is-idle", v.is_idle);
-    if (v.is_idle) {
+    // Idle: fade the whole cluster, skip per-chip updates. Treat an
+    // in-flight call as active even if an older backend payload still
+    // marks it idle (fresh sessions have no completed call yet).
+    const effectivelyIdle = v.is_idle && v.in_flight === null;
+    this.el.classList.toggle("is-idle", effectivelyIdle);
+    if (effectivelyIdle) {
       this.stopInFlightTimer();
       return;
     }
@@ -195,12 +198,15 @@ export class VitalsCluster {
       this.cachePill.textContent = `cache ${v.cache_hit_pct}%`;
     }
 
-    // Model pill (omit when null).
-    if (v.last_model === null) {
+    // Model pill (omit when null). During a session's first in-flight
+    // call, there may be no `last_model` yet; show the in-flight model
+    // so the cluster doesn't look half-empty while the agent is working.
+    const displayModel = v.last_model ?? v.in_flight?.model ?? null;
+    if (displayModel === null) {
       this.modelPill.classList.add("is-hidden");
     } else {
       this.modelPill.classList.remove("is-hidden");
-      this.modelPill.textContent = prettifyModel(v.last_model);
+      this.modelPill.textContent = prettifyModel(displayModel);
     }
 
     // Latency or in-flight elapsed.

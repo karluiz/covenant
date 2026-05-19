@@ -108,7 +108,9 @@ fn breakdown_agents_ranks_by_prompt_count() {
     karl_score::record_prompt_with_agent("anthropic", Some("codex"));
     karl_score::record_prompt_with_agent("anthropic", None);
 
-    let cells = store.breakdown_agents(&karl_score::ScoreFilter::default()).unwrap();
+    let cells = store
+        .breakdown_agents(&karl_score::ScoreFilter::default())
+        .unwrap();
     assert_eq!(cells[0].agent, "claude_code");
     assert_eq!(cells[0].prompts, 2);
     assert_eq!(cells[1].agent, "codex");
@@ -124,12 +126,24 @@ fn summary_includes_tokens_and_specs() {
     let store = std::sync::Arc::new(karl_score::ScoreStore::open(tmp.path()).unwrap());
     karl_score::set_recorder(store.clone());
 
-    karl_score::record_llm_call(karl_score::ModelSource::Internal, None, "anthropic", "m",
-        karl_score::LlmUsage { input: 10, output: 5, cache_read: 0, cache_creation: 0 },
-        &karl_score::Context::default());
+    karl_score::record_llm_call(
+        karl_score::ModelSource::Internal,
+        None,
+        "anthropic",
+        "m",
+        karl_score::LlmUsage {
+            input: 10,
+            output: 5,
+            cache_read: 0,
+            cache_creation: 0,
+        },
+        &karl_score::Context::default(),
+    );
     karl_score::record_spec("/x/y.md", &karl_score::Context::default());
 
-    let s = store.summary_filtered(&karl_score::ScoreFilter::default()).unwrap();
+    let s = store
+        .summary_filtered(&karl_score::ScoreFilter::default())
+        .unwrap();
     assert_eq!(s.total_tokens, 15);
     assert_eq!(s.total_specs, 1);
     karl_score::clear_recorder_for_test();

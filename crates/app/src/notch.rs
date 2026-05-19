@@ -232,10 +232,11 @@ impl NotchHub {
         if entry.agent.is_none() {
             return;
         }
-        // Pi drives the notch via structured RPC events (see `set_phase`).
-        // Its PTY output doesn't match the Claude/Codex regex pipeline, so
-        // running the detector on it would only produce stale phases.
-        if entry.agent.as_deref() == Some("pi") {
+        // Pi RPC sessions drive the notch via structured events
+        // (`set_phase`). Pi can also be launched as a normal PTY CLI; those
+        // entries have a per-session bus and should still use the byte
+        // detector below for status-spinner notifications.
+        if entry.agent.as_deref() == Some("pi") && entry.bus.is_none() {
             return;
         }
         let changed = entry.detector.feed(bytes);
@@ -271,8 +272,11 @@ impl NotchHub {
         if detected_is_active {
             entry.last_active_at = now;
         }
-        // Stale-phase clear: detector has been stuck in the same active
-        // phase for >8s with no transitions → CC is just redrawing.
+        // Stale-phase clear: detector has been stuck in the same tool-work
+        // phase for >8s with no transitions → CC is just redrawing an old
+        // tool line. Do NOT stale-clear Thinking: long Claude turns can
+        // legitimately hold a spinner for minutes, and the frontend TTL is
+        // kept alive by heartbeat events below.
         let stale_active = !changed
             && entry.last_change.elapsed() > std::time::Duration::from_secs(8)
             && matches!(
@@ -280,7 +284,6 @@ impl NotchHub {
                 karl_session::ExecutorPhase::Running { .. }
                     | karl_session::ExecutorPhase::Reading { .. }
                     | karl_session::ExecutorPhase::Writing { .. }
-                    | karl_session::ExecutorPhase::Thinking
             );
         if stale_active {
             entry.detector = ExecutorPhaseDetector::default();
@@ -570,6 +573,28 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn pty_pi_cli_status_spinner_emits_thinking() {
+        // Pi RPC tabs use structured `set_phase` events, but a user can also
+        // launch `pi` inside a normal terminal tab. Those PTY-backed sessions
+        // must not be skipped, otherwise the sidebar stays at "no agent".
+        let (tx, mut rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.set_foreground_agent(sid, Some("pi".into())).await;
+        while rx.try_recv().is_ok() {}
+
+        hub.ingest(sid, "∶ Transcoding reality...\n".as_bytes())
+            .await;
+        match rx.recv().await.expect("thinking") {
+            SessionEvent::ExecutorStateChanged { phase, .. } => {
+                assert!(matches!(phase, ExecutorPhase::Thinking), "got {phase:?}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
     #[test]
     fn bridge_serializes_event_payload() {
         let ev = SessionEvent::ExecutorStateChanged {
@@ -607,6 +632,44 @@ mod tests {
             rx.try_recv().is_err(),
             "thinking flap leaked through sticky window"
         );
+    }
+
+    #[tokio::test]
+    async fn long_thinking_spinner_heartbeats_instead_of_stale_clear() {
+        // Claude Code can legitimately sit in the same Thinking phase for
+        // minutes. Repeated spinner redraws must keep the UI alive instead
+        // of tripping the stale-tool-line clear path.
+        let (tx, mut rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        while rx.try_recv().is_ok() {}
+
+        hub.ingest(sid, "✻ Fiddle-faddling… (9s)\n".as_bytes())
+            .await;
+        match rx.recv().await.expect("thinking") {
+            SessionEvent::ExecutorStateChanged { phase, .. } => {
+                assert!(matches!(phase, ExecutorPhase::Thinking));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+
+        {
+            let mut sessions = hub.sessions.lock().await;
+            let entry = sessions.get_mut(&sid).expect("entry");
+            entry.last_change = std::time::Instant::now() - std::time::Duration::from_secs(9);
+            entry.last_emit = std::time::Instant::now() - std::time::Duration::from_secs(4);
+        }
+
+        hub.ingest(sid, "✻ Fiddle-faddling… (10s)\n".as_bytes())
+            .await;
+        match rx.recv().await.expect("heartbeat") {
+            SessionEvent::ExecutorStateChanged { phase, .. } => {
+                assert!(matches!(phase, ExecutorPhase::Thinking), "got {phase:?}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 
     #[tokio::test]

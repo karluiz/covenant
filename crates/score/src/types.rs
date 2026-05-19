@@ -34,8 +34,10 @@ pub struct Summary {
     pub today_commits: u32,
     pub current_streak: u32,
     pub longest_streak: u32,
-    #[serde(default)] pub total_tokens: u64,
-    #[serde(default)] pub total_specs: u32,
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub total_specs: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +132,10 @@ pub struct SpecBreakdown {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ModelSource { Internal, External }
+pub enum ModelSource {
+    Internal,
+    External,
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LlmUsage {

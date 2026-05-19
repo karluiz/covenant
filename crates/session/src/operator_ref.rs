@@ -79,9 +79,11 @@ mod ref_tests {
             OperatorAction::Snooze { minutes: 10 }.button_label(),
             "⏸ Snooze 10m"
         );
-        assert!(OperatorAction::RunCommand { cmd: "git status".into() }
-            .button_label()
-            .contains("git status"));
+        assert!(OperatorAction::RunCommand {
+            cmd: "git status".into()
+        }
+        .button_label()
+        .contains("git status"));
     }
 
     #[test]

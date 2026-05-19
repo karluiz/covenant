@@ -100,7 +100,10 @@ mod tests {
         assert!(out.contains("🟣 Maya"), "got: {out}");
         assert!(out.contains("karlTerminal (main)"), "got: {out}");
         assert!(out.contains("tests failing"), "got: {out}");
-        assert!(!out.contains("[tab: session:"), "legacy prefix leaked: {out}");
+        assert!(
+            !out.contains("[tab: session:"),
+            "legacy prefix leaked: {out}"
+        );
     }
 
     #[test]

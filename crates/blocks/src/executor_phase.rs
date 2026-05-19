@@ -22,6 +22,7 @@ static RE_READ_HEADER: OnceLock<Regex> = OnceLock::new();
 static RE_RUNNING_TOOL: OnceLock<Regex> = OnceLock::new();
 static RE_RUNNING_HEADER: OnceLock<Regex> = OnceLock::new();
 static RE_THINKING: OnceLock<Regex> = OnceLock::new();
+static RE_PI_THINKING_STATUS: OnceLock<Regex> = OnceLock::new();
 static RE_WAITING: OnceLock<Regex> = OnceLock::new();
 
 /// Cap on target string length so a missing newline (Claude Code v2.1
@@ -81,7 +82,20 @@ fn re_running_header() -> &'static Regex {
 /// done with the turn — that's matched by `re_done` and routed to Done,
 /// not Thinking.
 fn re_thinking() -> &'static Regex {
-    RE_THINKING.get_or_init(|| Regex::new(r"\b[A-Z][a-zA-Z]+ing…").unwrap())
+    // Claude Code v2.1 status verbs can be hyphenated, e.g.
+    // `Fiddle-faddling… (1m 42s · ↑ 1.8k tokens · thought for 1s)`.
+    // Some CLIs use ASCII `...` instead of the single ellipsis glyph.
+    RE_THINKING.get_or_init(|| Regex::new(r"\b[A-Z][A-Za-z-]+ing(?:…|\.{3})").unwrap())
+}
+fn re_pi_thinking_status() -> &'static Regex {
+    RE_PI_THINKING_STATUS.get_or_init(|| {
+        // Pi's TUI renders a live status line like:
+        //   `∶ Transcoding reality...`
+        // It is not structured JSON when Pi is run as a normal PTY CLI, so
+        // treat this spinner as the Thinking phase. Keep the colon/spinner
+        // prefix requirement to avoid matching arbitrary assistant prose.
+        Regex::new(r"(?:^|[\r\n])\s*[:∶：]\s*[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}(?:…|\.{3})").unwrap()
+    })
 }
 static RE_DONE: OnceLock<Regex> = OnceLock::new();
 /// Claude Code's "turn finished" recap: a past-tense verb + `for Ns`.
@@ -173,6 +187,9 @@ impl ExecutorPhaseDetector {
                     reason: clamp_target(trimmed),
                 };
             }
+            if re_pi_thinking_status().is_match(trimmed) {
+                return ExecutorPhase::Thinking;
+            }
             if let Some(cmd) = trimmed.strip_prefix("$ ") {
                 let cmd = cmd.trim();
                 if !cmd.is_empty() {
@@ -191,7 +208,7 @@ impl ExecutorPhaseDetector {
         if re_done().is_match(&raw) {
             return ExecutorPhase::Done { summary: None };
         }
-        if re_thinking().is_match(&raw) {
+        if re_thinking().is_match(&raw) || re_pi_thinking_status().is_match(&raw) {
             return ExecutorPhase::Thinking;
         }
 
@@ -233,6 +250,23 @@ mod tests {
     fn detects_thinking_from_claude_code_spinner() {
         let mut d = ExecutorPhaseDetector::new();
         let changed = d.feed("✻ Hyperspacing… (3s · ↓ 73 tokens)\n".as_bytes());
+        assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn detects_hyphenated_claude_code_spinner() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed =
+            d.feed("* Fiddle-faddling… (1m 42s · ↑ 1.8k tokens · thought for 1s)\n".as_bytes());
+        assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn detects_pi_cli_thinking_spinner() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("∶ Transcoding reality...\n".as_bytes());
         assert!(changed);
         assert_eq!(d.phase(), &ExecutorPhase::Thinking);
     }

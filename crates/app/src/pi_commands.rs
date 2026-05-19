@@ -16,11 +16,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use karl_agent::pi_rpc::{
-    parse_session_stats, parse_state, DeltaEvent, PiCommand, PiEvent, PiSession, PiSessionStats,
-    PiSpawnOpts, PiState, StreamingBehavior, ThinkingLevel,
+use karl_agent::{
+    pi_rpc::{
+        parse_session_stats, parse_state, AgentMessage, DeltaEvent, PiCommand, PiEvent, PiSession,
+        PiSessionStats, PiSpawnOpts, PiState, StreamingBehavior, ThinkingLevel,
+    },
+    TokenUsage,
 };
 use karl_session::{ExecutorPhase, SessionId};
 use serde::{Deserialize, Serialize};
@@ -38,9 +41,9 @@ use crate::AppState;
 fn pi_event_to_phase(ev: &PiEvent) -> Option<ExecutorPhase> {
     match ev {
         PiEvent::AgentStart | PiEvent::TurnStart => Some(ExecutorPhase::Thinking),
-        PiEvent::ToolExecutionStart { tool_name, args, .. } => {
-            Some(tool_to_phase(tool_name, args))
-        }
+        PiEvent::ToolExecutionStart {
+            tool_name, args, ..
+        } => Some(tool_to_phase(tool_name, args)),
         PiEvent::ToolExecutionEnd { .. } => Some(ExecutorPhase::Thinking),
         PiEvent::MessageUpdate {
             assistant_message_event,
@@ -78,9 +81,11 @@ fn tool_to_phase(tool_name: &str, args: &Value) -> ExecutorPhase {
     let is_write = ["write", "edit", "update", "create", "patch", "apply"]
         .iter()
         .any(|k| lname.contains(k));
-    let is_read = ["read", "grep", "glob", "ls", "list", "search", "find", "view"]
-        .iter()
-        .any(|k| lname.contains(k));
+    let is_read = [
+        "read", "grep", "glob", "ls", "list", "search", "find", "view",
+    ]
+    .iter()
+    .any(|k| lname.contains(k));
     if is_write {
         ExecutorPhase::Writing {
             file: target.unwrap_or_else(|| tool_name.to_string()),
@@ -98,6 +103,61 @@ fn tool_to_phase(tool_name: &str, args: &Value) -> ExecutorPhase {
             .unwrap_or_else(|| tool_name.to_string());
         ExecutorPhase::Running { cmd }
     }
+}
+
+fn pi_usage_from_value(raw: &Value) -> Option<TokenUsage> {
+    let v = raw.get("usage").unwrap_or(raw);
+    let get = |keys: &[&str]| -> u32 {
+        keys.iter()
+            .find_map(|key| v.get(*key).and_then(|n| n.as_u64()))
+            .map(|n| n.min(u32::MAX as u64) as u32)
+            .unwrap_or(0)
+    };
+    let usage = TokenUsage {
+        input_tokens: get(&[
+            "inputTokens",
+            "input_tokens",
+            "promptTokens",
+            "prompt_tokens",
+        ]),
+        output_tokens: get(&[
+            "outputTokens",
+            "output_tokens",
+            "completionTokens",
+            "completion_tokens",
+        ]),
+        cache_read_input_tokens: get(&[
+            "cacheReadInputTokens",
+            "cache_read_input_tokens",
+            "cacheReadTokens",
+            "cachedInputTokens",
+        ]),
+        cache_creation_input_tokens: get(&[
+            "cacheCreationInputTokens",
+            "cache_creation_input_tokens",
+            "cacheCreationTokens",
+        ]),
+    };
+    if usage.input_tokens == 0
+        && usage.output_tokens == 0
+        && usage.cache_read_input_tokens == 0
+        && usage.cache_creation_input_tokens == 0
+    {
+        None
+    } else {
+        Some(usage)
+    }
+}
+
+fn pi_usage_from_agent_end(messages: &[AgentMessage]) -> Option<(String, TokenUsage)> {
+    messages.iter().rev().find_map(|msg| match msg {
+        AgentMessage::Assistant(a) => a
+            .usage
+            .as_ref()
+            .and_then(pi_usage_from_value)
+            .map(|usage| (a.model.clone().unwrap_or_else(|| "pi".to_string()), usage)),
+        _ => None,
+    })
 }
 
 /// Shared registry of live Pi sessions. Held on [`AppState`].
@@ -180,13 +240,65 @@ pub async fn spawn_pi_session(
     let app_for_task = app.clone();
     let topic = format!("session://{}/pi", session_id.0);
     let notch_hub = state.notch_hub.clone();
+    let vitals = state.vitals.clone();
     notch_hub
         .register_external(session_id, "pi".to_string())
         .await;
     tokio::spawn(async move {
+        let mut vitals_call: Option<crate::vitals::CallHandle> = None;
+        let mut vitals_started: Option<Instant> = None;
         loop {
             match rx.recv().await {
                 Ok(tagged) => {
+                    match &tagged.envelope {
+                        PiEvent::AgentStart | PiEvent::TurnStart => {
+                            if vitals_call.is_none() {
+                                vitals_call =
+                                    Some(vitals.record_started(session_id, "pi".to_string()));
+                                vitals_started = Some(Instant::now());
+                            }
+                        }
+                        PiEvent::TurnEnd { message, .. } => {
+                            if let Some(usage) =
+                                message.usage.as_ref().and_then(pi_usage_from_value)
+                            {
+                                let model =
+                                    message.model.clone().unwrap_or_else(|| "pi".to_string());
+                                let latency_ms = vitals_started
+                                    .take()
+                                    .map(|t| t.elapsed().as_millis().min(u32::MAX as u128) as u32)
+                                    .unwrap_or(50);
+                                if let Some(call) = vitals_call.take() {
+                                    call.complete_with_model(model, usage, latency_ms);
+                                } else {
+                                    vitals.record_complete(session_id, model, usage, latency_ms);
+                                }
+                            }
+                        }
+                        PiEvent::AgentEnd { messages } => {
+                            if let Some(call) = vitals_call.take() {
+                                if let Some((model, usage)) = pi_usage_from_agent_end(messages) {
+                                    let latency_ms = vitals_started
+                                        .take()
+                                        .map(|t| {
+                                            t.elapsed().as_millis().min(u32::MAX as u128) as u32
+                                        })
+                                        .unwrap_or(50);
+                                    call.complete_with_model(model, usage, latency_ms);
+                                } else {
+                                    vitals_started = None;
+                                    call.abandon();
+                                }
+                            }
+                        }
+                        PiEvent::ProcessExited { .. } => {
+                            vitals_started = None;
+                            if let Some(call) = vitals_call.take() {
+                                call.abandon();
+                            }
+                        }
+                        _ => {}
+                    }
                     if let Some(phase) = pi_event_to_phase(&tagged.envelope) {
                         notch_hub.set_phase(session_id, phase).await;
                     }
@@ -200,6 +312,9 @@ pub async fn spawn_pi_session(
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
+        }
+        if let Some(call) = vitals_call.take() {
+            call.abandon();
         }
         notch_hub.drop_session(&session_id).await;
     });
@@ -424,4 +539,38 @@ async fn require(state: &State<'_, AppState>, id: &SessionId) -> Result<Arc<PiSe
         .get(id)
         .await
         .ok_or_else(|| format!("no pi session: {id:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pi_usage_parser_accepts_camel_case() {
+        let usage = pi_usage_from_value(&json!({
+            "inputTokens": 10,
+            "outputTokens": 4,
+            "cacheReadInputTokens": 3,
+            "cacheCreationInputTokens": 2
+        }))
+        .expect("usage");
+        assert_eq!(usage.input_tokens, 10);
+        assert_eq!(usage.output_tokens, 4);
+        assert_eq!(usage.cache_read_input_tokens, 3);
+        assert_eq!(usage.cache_creation_input_tokens, 2);
+    }
+
+    #[test]
+    fn pi_usage_parser_accepts_openai_shape() {
+        let usage = pi_usage_from_value(&json!({
+            "usage": {
+                "prompt_tokens": 20,
+                "completion_tokens": 5
+            }
+        }))
+        .expect("usage");
+        assert_eq!(usage.input_tokens, 20);
+        assert_eq!(usage.output_tokens, 5);
+    }
 }

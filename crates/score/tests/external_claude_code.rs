@@ -15,13 +15,23 @@ fn claude_code_parser_records_usage_with_watermark() {
     }
 
     karl_score::external::claude_code::poll_one(&store, &jsonl).unwrap();
-    let m = store.breakdown_models(&karl_score::ScoreFilter::default(), karl_score::ModelSource::External).unwrap();
+    let m = store
+        .breakdown_models(
+            &karl_score::ScoreFilter::default(),
+            karl_score::ModelSource::External,
+        )
+        .unwrap();
     assert_eq!(m.len(), 1);
     assert_eq!(m[0].calls, 2);
     assert_eq!(m[0].input_tokens, 140);
 
     karl_score::external::claude_code::poll_one(&store, &jsonl).unwrap();
-    let m2 = store.breakdown_models(&karl_score::ScoreFilter::default(), karl_score::ModelSource::External).unwrap();
+    let m2 = store
+        .breakdown_models(
+            &karl_score::ScoreFilter::default(),
+            karl_score::ModelSource::External,
+        )
+        .unwrap();
     assert_eq!(m2[0].calls, 2, "watermark should prevent re-parsing");
     karl_score::clear_recorder_for_test();
 }

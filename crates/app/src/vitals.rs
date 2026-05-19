@@ -255,11 +255,19 @@ impl VitalsState {
         self.purge_cache_window(now_ms);
 
         let tok_per_min: u32 = self.buckets.iter().copied().sum();
-        let idle_secs = self
-            .last_call_unix_ms
-            .map(|t| ((now_ms.saturating_sub(t)) / 1000) as u32)
-            .unwrap_or(u32::MAX);
-        let is_idle = idle_secs >= IDLE_THRESHOLD_SECS;
+        // An in-flight call is active even before the first completion
+        // in a session. Without this special-case, a fresh tab's first
+        // LLM request reports `idle_secs = u32::MAX` (no last call yet),
+        // causing the UI to hide the live elapsed timer until the call
+        // finishes.
+        let idle_secs = if self.in_flight.is_some() {
+            0
+        } else {
+            self.last_call_unix_ms
+                .map(|t| ((now_ms.saturating_sub(t)) / 1000) as u32)
+                .unwrap_or(u32::MAX)
+        };
+        let is_idle = self.in_flight.is_none() && idle_secs >= IDLE_THRESHOLD_SECS;
 
         VitalsPayload {
             tok_per_min,
@@ -357,10 +365,15 @@ pub struct CallHandle {
 
 impl CallHandle {
     pub fn complete(mut self, usage: TokenUsage, latency_ms: u32) {
+        let model = std::mem::take(&mut self.model);
+        self.complete_with_model(model, usage, latency_ms);
+    }
+
+    pub fn complete_with_model(mut self, model: String, usage: TokenUsage, latency_ms: u32) {
         self.consumed = true;
         let _ = self.tx.send(VitalsEvent::CallCompleted {
             session: self.session,
-            model: std::mem::take(&mut self.model),
+            model,
             usage,
             latency_ms,
         });
@@ -557,6 +570,19 @@ mod tests {
         let p2 = s.snapshot(65_000);
         assert_eq!(p2.idle_secs, 65);
         assert!(p2.is_idle);
+    }
+
+    #[test]
+    fn in_flight_without_prior_completion_is_active() {
+        let mut s = VitalsState::new(0);
+        s.in_flight = Some(InFlight {
+            model: "m".into(),
+            started_unix_ms: 0,
+        });
+        let payload = s.snapshot(10_000);
+        assert_eq!(payload.idle_secs, 0);
+        assert!(!payload.is_idle);
+        assert!(payload.in_flight.is_some());
     }
 
     #[test]

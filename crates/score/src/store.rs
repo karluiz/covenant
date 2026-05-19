@@ -304,7 +304,8 @@ impl ScoreStore {
             }
         }
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
-        let mut fcopy = f.clone(); fcopy.agent = None;
+        let mut fcopy = f.clone();
+        fcopy.agent = None;
         let w_st = crate::filter::build_where(&fcopy);
         let tokens_sql = format!(
             "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls WHERE {}",
@@ -313,8 +314,16 @@ impl ScoreStore {
         let specs_sql = format!("SELECT COUNT(*) FROM specs WHERE {}", w_st.sql);
         let (total_tokens, total_specs) = {
             let c = self.conn.lock().unwrap();
-            let tok: i64 = c.query_row(&tokens_sql, rusqlite::params_from_iter(w_st.params.iter()), |r| r.get(0))?;
-            let sp: i64 = c.query_row(&specs_sql, rusqlite::params_from_iter(w_st.params.iter()), |r| r.get(0))?;
+            let tok: i64 = c.query_row(
+                &tokens_sql,
+                rusqlite::params_from_iter(w_st.params.iter()),
+                |r| r.get(0),
+            )?;
+            let sp: i64 = c.query_row(
+                &specs_sql,
+                rusqlite::params_from_iter(w_st.params.iter()),
+                |r| r.get(0),
+            )?;
             (tok as u64, sp as u32)
         };
         Ok(Summary {
@@ -469,7 +478,9 @@ impl ScoreStore {
             let c = self.conn.lock().unwrap();
             let tok: i64 = c.query_row(
                 "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls",
-                [], |r| r.get(0))?;
+                [],
+                |r| r.get(0),
+            )?;
             let sp: i64 = c.query_row("SELECT COUNT(*) FROM specs", [], |r| r.get(0))?;
             (tok as u64, sp as u32)
         };
@@ -491,7 +502,14 @@ impl ScoreStore {
         let rows = c.execute(
             "INSERT OR IGNORE INTO specs(ts_ms, day, path, repo, branch, group_name)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![timestamp_ms, day, path, ctx.repo, ctx.branch, ctx.group_name],
+            params![
+                timestamp_ms,
+                day,
+                path,
+                ctx.repo,
+                ctx.branch,
+                ctx.group_name
+            ],
         )?;
         Ok(rows > 0)
     }
@@ -507,7 +525,10 @@ impl ScoreStore {
         ctx: &Context,
     ) -> Result<()> {
         let day = day_from_ms_local(timestamp_ms);
-        let src = match source { crate::ModelSource::Internal => "internal", crate::ModelSource::External => "external" };
+        let src = match source {
+            crate::ModelSource::Internal => "internal",
+            crate::ModelSource::External => "external",
+        };
         let c = self.conn.lock().unwrap();
         c.execute(
             "INSERT INTO llm_calls(ts_ms, day, source, agent, provider, model,
@@ -515,9 +536,19 @@ impl ScoreStore {
                                    repo, branch, group_name)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
             params![
-                timestamp_ms, day, src, agent, provider, model,
-                u.input as i64, u.output as i64, u.cache_read as i64, u.cache_creation as i64,
-                ctx.repo, ctx.branch, ctx.group_name
+                timestamp_ms,
+                day,
+                src,
+                agent,
+                provider,
+                model,
+                u.input as i64,
+                u.output as i64,
+                u.cache_read as i64,
+                u.cache_creation as i64,
+                ctx.repo,
+                ctx.branch,
+                ctx.group_name
             ],
         )?;
         Ok(())
@@ -529,7 +560,10 @@ impl ScoreStore {
         source: crate::ModelSource,
     ) -> Result<Vec<crate::ModelCell>> {
         let w = crate::filter::build_where(f);
-        let src = match source { crate::ModelSource::Internal => "internal", crate::ModelSource::External => "external" };
+        let src = match source {
+            crate::ModelSource::Internal => "internal",
+            crate::ModelSource::External => "external",
+        };
         let sql = format!(
             "SELECT agent, provider, model,
                     COUNT(*),
@@ -560,7 +594,8 @@ impl ScoreStore {
                 cache_read: r.get::<_, i64>(6)? as u64,
             })
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     pub fn breakdown_agents(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::AgentCell>> {
@@ -581,19 +616,29 @@ impl ScoreStore {
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let total: u32 = raw.iter().map(|(_, n)| *n).sum();
-        Ok(raw.into_iter().map(|(agent, prompts)| crate::AgentCell {
-            agent,
-            prompts,
-            share: if total == 0 { 0.0 } else { prompts as f32 / total as f32 },
-        }).collect())
+        Ok(raw
+            .into_iter()
+            .map(|(agent, prompts)| crate::AgentCell {
+                agent,
+                prompts,
+                share: if total == 0 {
+                    0.0
+                } else {
+                    prompts as f32 / total as f32
+                },
+            })
+            .collect())
     }
 
     pub fn get_watermark(&self, source: &str, path: &str) -> Result<u64> {
         let c = self.conn.lock().unwrap();
-        let off: Option<i64> = c.query_row(
-            "SELECT byte_offset FROM external_watermarks WHERE source = ?1 AND path = ?2",
-            params![source, path], |r| r.get(0)
-        ).optional()?;
+        let off: Option<i64> = c
+            .query_row(
+                "SELECT byte_offset FROM external_watermarks WHERE source = ?1 AND path = ?2",
+                params![source, path],
+                |r| r.get(0),
+            )
+            .optional()?;
         Ok(off.unwrap_or(0) as u64)
     }
 
@@ -619,7 +664,11 @@ impl ScoreStore {
         );
 
         let c = self.conn.lock().unwrap();
-        let total: i64 = c.query_row(&count_sql, rusqlite::params_from_iter(w.params.iter()), |r| r.get(0))?;
+        let total: i64 = c.query_row(
+            &count_sql,
+            rusqlite::params_from_iter(w.params.iter()),
+            |r| r.get(0),
+        )?;
         let mut stmt = c.prepare(&recent_sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
             Ok(crate::SpecRow {
