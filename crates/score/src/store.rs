@@ -459,6 +459,44 @@ impl ScoreStore {
             longest_streak,
         })
     }
+
+    pub fn append_spec(&self, timestamp_ms: i64, path: &str, ctx: &Context) -> Result<bool> {
+        let day = day_from_ms_local(timestamp_ms);
+        let c = self.conn.lock().unwrap();
+        let rows = c.execute(
+            "INSERT OR IGNORE INTO specs(ts_ms, day, path, repo, branch, group_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![timestamp_ms, day, path, ctx.repo, ctx.branch, ctx.group_name],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn breakdown_specs(&self, f: &crate::ScoreFilter) -> Result<crate::SpecBreakdown> {
+        let mut fcopy = f.clone();
+        fcopy.agent = None;
+        let w = crate::filter::build_where(&fcopy);
+
+        let count_sql = format!("SELECT COUNT(*) FROM specs WHERE {}", w.sql);
+        let recent_sql = format!(
+            "SELECT ts_ms, path, repo FROM specs WHERE {} ORDER BY ts_ms DESC LIMIT 5",
+            w.sql
+        );
+
+        let c = self.conn.lock().unwrap();
+        let total: i64 = c.query_row(&count_sql, rusqlite::params_from_iter(w.params.iter()), |r| r.get(0))?;
+        let mut stmt = c.prepare(&recent_sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+            Ok(crate::SpecRow {
+                ts_ms: r.get(0)?,
+                path: r.get(1)?,
+                repo: r.get(2)?,
+            })
+        })?;
+        Ok(crate::SpecBreakdown {
+            total: total as u32,
+            recent: rows.collect::<rusqlite::Result<Vec<_>>>()?,
+        })
+    }
 }
 
 fn compute_streaks(cells: &[DailyCell], today: &str) -> (u32, u32) {

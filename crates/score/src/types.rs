@@ -113,6 +113,19 @@ pub struct SessionRow {
     pub commits: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecRow {
+    pub ts_ms: i64,
+    pub path: String,
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecBreakdown {
+    pub total: u32,
+    pub recent: Vec<SpecRow>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

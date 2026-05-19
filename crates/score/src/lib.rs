@@ -13,7 +13,7 @@ pub use sync::SyncStatus;
 pub use store::{ScoreError, ScoreStore};
 pub use types::{
     BranchCell, Context, DailyCell, EventKind, GroupCell, RepoCell, ScoreEvent, ScoreFilter,
-    SessionRow, Summary, TimeRange, User,
+    SessionRow, SpecBreakdown, SpecRow, Summary, TimeRange, User,
 };
 
 use crate::context::ContextResolver;
@@ -103,4 +103,15 @@ pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>
 
 pub fn record_commit(repo: &str, sha7: &str) {
     record_commit_with_context(repo, sha7, None)
+}
+
+pub fn record_spec(path: &str, ctx: &Context) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            if let Err(e) = store.append_spec(now, path, ctx) {
+                tracing::warn!(target: "score", error = %e, "record_spec failed");
+            }
+        }
+    }
 }
