@@ -11,6 +11,7 @@
 
 mod aom;
 mod capabilities_commands;
+mod theme;
 pub mod notch;
 mod connectivity;
 mod context;
@@ -3323,6 +3324,7 @@ pub fn run() {
             spawns_commands::spawns_delete,
             vitals::get_vitals,
             vitals::set_active_session_for_vitals,
+            theme::set_window_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
