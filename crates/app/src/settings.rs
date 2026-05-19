@@ -379,16 +379,34 @@ mod familiars_tests {
 /// the OS level. The frontend translates `background` into a body class
 /// (`body.bg-solid` / `bg-vibrant` / `bg-translucent`) which sets the
 /// `--surface-alpha` custom property cascading through every `--bg-*`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeMode {
+    /// Follow the macOS appearance via `prefers-color-scheme`.
+    System,
+    /// Force dark chrome + dark xterm palette.
+    Dark,
+    /// Force light chrome + GitHub Light xterm palette.
+    Light,
+}
+
+impl Default for ThemeMode {
+    fn default() -> Self { Self::System }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowConfig {
     #[serde(default)]
     pub background: WindowBackground,
+    #[serde(default)]
+    pub theme: ThemeMode,
 }
 
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             background: WindowBackground::default(),
+            theme: ThemeMode::default(),
         }
     }
 }
@@ -860,5 +878,31 @@ mod tests {
         let c: OperatorConfig = serde_json::from_str(legacy).unwrap();
         assert!(!c.mind_v2);
         assert_eq!(c.mind_thinking_budget, 2000);
+    }
+}
+
+#[cfg(test)]
+mod theme_mode_tests {
+    use super::*;
+
+    #[test]
+    fn theme_mode_defaults_to_system() {
+        assert_eq!(ThemeMode::default(), ThemeMode::System);
+    }
+
+    #[test]
+    fn window_config_parses_legacy_without_theme() {
+        let json = r#"{ "background": "vibrant" }"#;
+        let cfg: WindowConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.theme, ThemeMode::System);
+    }
+
+    #[test]
+    fn window_config_roundtrips_with_theme() {
+        let json = r#"{ "background": "solid", "theme": "light" }"#;
+        let cfg: WindowConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.theme, ThemeMode::Light);
+        let back = serde_json::to_string(&cfg).unwrap();
+        assert!(back.contains("\"theme\":\"light\""));
     }
 }
