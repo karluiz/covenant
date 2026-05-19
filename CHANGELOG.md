@@ -6,6 +6,62 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## Unreleased — Operator identity v1 (2026-05-17)
+
+### Added
+
+- **Operator identity** (`crates/operator/src/registry.rs`,
+  `crates/storage/src/lib.rs`, `crates/operator/src/lib.rs`): operators now
+  carry a `voice` (`Terse` / `Warm` / `Formal`) tone that flows into the
+  per-operator system prompt. `operators.voice` column lands via migration
+  with a `Terse` default; existing rows keep working.
+- **Telegram messages get operator + project context**
+  (`crates/telegram/src/outbound.rs`, `crates/session/src/event.rs`):
+  escalations render as `🟣 Maya · karlTerminal (main)\n<summary>` with
+  typed action buttons (Approve push / Reject / Snooze / Custom) instead
+  of `[tab: session:01KRRP] BLOCKED`. `SessionEvent::EscalationRequested`
+  now carries typed `operator: OperatorRef`, `project: ProjectRef`, and
+  `actions: Vec<OperatorAction>` (was `Vec<String>`).
+- **Named confirmation replies** (`crates/telegram/src/inbound.rs`):
+  Telegram resolutions reply with `✓ Maya pushed and opened …` instead of
+  a generic "Resolved" message. Inbound callback data is parsed through a
+  typed dispatch.
+- **Operator settings redesigned**
+  (`ui/src/operators/modal.ts`, `ui/src/operators/grid.ts`,
+  `ui/src/operators/chip.ts`, `ui/src/operators/presets.ts`): two-step
+  modal (Identity, Behavior) with starter presets (Reviewer, Pair,
+  Watcher, Auto) and a card-grid list view. Shared `OperatorChip`
+  component used in settings and the AFK active-operators strip.
+
+### Fixed
+
+- **Parse-failure quarantine** (`crates/operator/src/operator_mind.rs`,
+  `crates/operator/tests/compile_fail/parse_failure_to_outbound.rs`):
+  `operator_mind` JSON parse failures can no longer surface as Telegram
+  escalations. After 3 failures in a 60-second window the session is
+  force-quarantined (suggest-only) and a single in-app notice fires.
+  Quarantine is enforced via a typed `ParseFailure` boundary that has no
+  conversion into `OutboundContext` — proven by a `trybuild` compile-fail
+  test.
+
+### Changed
+
+- `SessionEvent::EscalationRequested` payload is now typed
+  (`OperatorRef` / `ProjectRef` / `Vec<OperatorAction>`); previous
+  consumers passing `Vec<String>` will not compile.
+- `TelegramNotifier::send_escalation` takes a typed
+  `SendEscalationArgs<'_>` instead of positional fields.
+
+### Known follow-ups
+
+- **AOM banner** doesn't yet render the operator chip — it currently
+  shows AOM mode state only; needs an operator slot.
+- **Activity feed** entries can't render the operator chip yet —
+  `DecisionEvent` payload only carries `session_id`; needs operator
+  threading.
+- **Tab pill** still uses the legacy `renderAvatarHtml` + level overlay;
+  needs a name-less chip variant before swapping in.
+
 ## v0.7.4 — Updater banner inline in titlebar
 
 ### Fixed
