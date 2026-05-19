@@ -3068,6 +3068,20 @@ pub fn run() {
                 }
             });
 
+            // Spec watcher — watches configured roots for spec files.
+            // TODO: expose roots via settings UI (M7+).
+            let watch_roots: Vec<std::path::PathBuf> = std::env::var("COVENANT_SPEC_WATCH_ROOTS")
+                .ok()
+                .map(|s| s.split(':').filter(|s| !s.is_empty()).map(std::path::PathBuf::from).collect())
+                .unwrap_or_default();
+            let _spec_watcher = karl_score::spec_watcher::start(watch_roots);
+            std::mem::forget(_spec_watcher);
+
+            // External LLM-usage pollers (Claude Code JSONL, Codex, etc).
+            let pollers_store = score_store.clone();
+            let _pollers = karl_score::external::start(pollers_store);
+            std::mem::forget(_pollers);
+
             let gc_storage = storage.clone();
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
@@ -3303,6 +3317,9 @@ pub fn run() {
             score_commands::score_breakdown_branches,
             score_commands::score_breakdown_groups,
             score_commands::score_recent_sessions,
+            score_commands::score_breakdown_agents,
+            score_commands::score_breakdown_specs,
+            score_commands::score_breakdown_models,
             notch::notch_set_passthrough,
             notch::notch_ready,
             spawns_commands::spawns_list,
