@@ -487,9 +487,14 @@ async function boot(): Promise<void> {
   const statusBarHost = requireEl<HTMLElement>("status-bar");
   const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
-  // Inline notch rack — appears in the status-bar host when Covenant
-  // enters fullscreen and the floating overlay is suppressed.
-  void import("./inline-notch").then((m) => m.mountInlineNotch(statusBarHost));
+  // Inline notch slot — appears at the bottom of the left vertical
+  // tabbar when Covenant enters fullscreen and the floating overlay is
+  // suppressed. Renders the D-combo layout (agent header + activity
+  // stream); see docs/mockups/fullscreen-notch-slot-v2.html.
+  const inlineNotchHost = document.getElementById("inline-notch-host");
+  if (inlineNotchHost instanceof HTMLElement) {
+    void import("./inline-notch").then((m) => m.mountInlineNotch(inlineNotchHost));
+  }
   manager.onActiveContextChange = (cwd) => {
     statusBar.setCwd(cwd);
     if (cwd) void ensureDetectorForRepo(cwd);

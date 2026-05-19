@@ -12103,3 +12103,101 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
   0%, 100% { opacity: 0.55; transform: scale(1); }
   50%      { opacity: 1;    transform: scale(1.15); }
 }
+
+/* ===========================================================
+   Inline notch slot — bottom of the vertical tabbar, fullscreen only.
+   Mirrors docs/mockups/fullscreen-notch-slot-v2.html (option D combo).
+   Hidden in windowed mode; the floating overlay handles that.
+   =========================================================== */
+#inline-notch-host[hidden] { display: none !important; }
+#inline-notch-host {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border, #232831);
+  margin-top: auto; /* push to bottom of the flex column */
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font: 11px ui-monospace, "JetBrains Mono", Menlo, monospace;
+  color: var(--text, #d5d9de);
+  background: linear-gradient(180deg, rgba(135,167,255,0.02), transparent 60%);
+}
+/* Only show in fullscreen + vertical tabbar layout. */
+body:not(.app-fullscreen) #inline-notch-host { display: none; }
+body:not(.tabbar-left) #inline-notch-host { display: none; }
+
+#inline-notch-host .inline-notch-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2, #181c22);
+  border: 1px solid var(--border, #232831);
+  border-radius: 6px;
+}
+#inline-notch-host .inline-notch-av {
+  width: 22px; height: 22px; flex: 0 0 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #87a7ff, #c7a8ff);
+}
+#inline-notch-host .inline-notch-meta {
+  display: flex; flex-direction: column; min-width: 0;
+}
+#inline-notch-host .inline-notch-name {
+  font-size: 11px; font-weight: 600;
+  color: var(--text, #d5d9de);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#inline-notch-host .inline-notch-sub {
+  font-size: 10px; color: var(--muted, #8a93a0);
+}
+
+#inline-notch-host .inline-notch-stream-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 4px;
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #8a93a0);
+}
+#inline-notch-host .inline-notch-stream-head .clear {
+  background: transparent; border: 0;
+  color: var(--muted, #8a93a0); cursor: pointer;
+  font: inherit; font-size: 10px;
+  padding: 0;
+}
+#inline-notch-host .inline-notch-stream-head .clear:hover {
+  color: var(--text, #d5d9de);
+}
+
+#inline-notch-host .inline-notch-stream {
+  display: flex; flex-direction: column; gap: 1px;
+  overflow: auto;
+  flex: 1 1 auto; min-height: 0;
+}
+#inline-notch-host .inline-notch-stream .row {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-left: 2px solid transparent;
+  color: var(--muted, #8a93a0);
+}
+#inline-notch-host .inline-notch-stream .row.run  { border-left-color: #a8c3ff; }
+#inline-notch-host .inline-notch-stream .row.ok   { border-left-color: #6ee7a8; }
+#inline-notch-host .inline-notch-stream .row.warn { border-left-color: #f5c66a; }
+#inline-notch-host .inline-notch-stream .row.err  { border-left-color: #ff7676; }
+#inline-notch-host .inline-notch-stream .row .ts {
+  flex: 0 0 34px;
+  font-size: 10px;
+  color: var(--muted, #8a93a0);
+  opacity: 0.7;
+}
+#inline-notch-host .inline-notch-stream .row .msg {
+  color: var(--text, #d5d9de);
+  flex: 1 1 auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#inline-notch-host .inline-notch-stream .row .tag {
+  font-size: 10px;
+  color: var(--muted, #8a93a0);
+  flex: 0 0 auto;
+}
