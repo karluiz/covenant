@@ -1,0 +1,13 @@
+.op-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--operator-color) 18%, transparent);
+  color: var(--operator-color);
+  font-weight: 500;
+}
+.op-chip-sm { font-size: 11px; }
+.op-chip-md { font-size: 13px; }
+.op-chip-lg { font-size: 15px; }

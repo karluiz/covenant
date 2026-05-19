@@ -3,6 +3,7 @@
 // prev/next), and closes the app window when the last tab is gone.
 
 import "@xterm/xterm/css/xterm.css";
+import "./styles/operator_chip.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
