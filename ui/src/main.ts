@@ -29,7 +29,8 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, setWindowTheme, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -109,6 +110,35 @@ function applyWindowBackground(kind: WindowBackground): void {
   const body = document.body;
   body.classList.remove("bg-solid", "bg-vibrant", "bg-translucent");
   body.classList.add(`bg-${kind}`);
+}
+
+let unwatchSystem: (() => void) | null = null;
+
+/// Single source of truth for theme application. Resolves system mode,
+/// flips the body class, calls the Rust effect swap, and reapplies the
+/// xterm palette to every live terminal. Idempotent.
+async function applyTheme(
+  mode: ThemeMode,
+  tabs: { applyTerminalTheme: () => void },
+): Promise<void> {
+  const resolved = resolveTheme(mode);
+  const body = document.body;
+  body.classList.toggle("theme-light", resolved === "light");
+  body.classList.toggle("theme-dark", resolved === "dark");
+
+  unwatchSystem?.();
+  unwatchSystem = null;
+  if (mode === "system") {
+    unwatchSystem = watchSystemTheme((t) => {
+      body.classList.toggle("theme-light", t === "light");
+      body.classList.toggle("theme-dark", t === "dark");
+      tabs.applyTerminalTheme();
+      void setWindowTheme(t).catch(() => {});
+    });
+  }
+
+  tabs.applyTerminalTheme();
+  await setWindowTheme(resolved).catch(() => {});
 }
 
 /// Toggle the vertical-tabbar layout. CSS does the heavy lifting via
@@ -407,6 +437,13 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
+
+  // Initial theme apply now that the TabManager exists. Settings may have
+  // been unreachable at the early boot block above — fall back to "system".
+  void applyTheme(
+    (initialSettings?.window?.theme ?? "system") as ThemeMode,
+    manager,
+  );
 
   // Late-binding ref so the spawns chip onAdd callback can open Settings
   // even though SettingsPanel is instantiated further down in boot().
@@ -711,6 +748,7 @@ async function boot(): Promise<void> {
   settings.onSaved = (next) => {
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
+    void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);

@@ -645,8 +645,16 @@ export interface TerminalConfig {
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";
 
+export type ThemeMode = "dark" | "light" | "system";
+export type ResolvedTheme = "dark" | "light";
+
+export async function setWindowTheme(mode: ResolvedTheme): Promise<void> {
+  await invoke("set_window_theme", { mode });
+}
+
 export interface WindowConfig {
   background: WindowBackground;
+  theme?: ThemeMode;
 }
 
 export interface AomConfig {

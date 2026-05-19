@@ -53,9 +53,11 @@ interface TerminalConfig {
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
+type ThemeMode = "dark" | "light" | "system";
 
 interface WindowConfig {
   background: WindowBackground;
+  theme?: ThemeMode;
 }
 
 interface AomConfig {
@@ -303,6 +305,30 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-appearance">
           <h3 class="settings-section-title">Appearance</h3>
+          <fieldset class="settings-field settings-radio-group">
+            <legend class="settings-label">Theme</legend>
+            <label class="settings-radio">
+              <input type="radio" name="theme" value="system" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">System <span class="settings-badge">default</span></span>
+                <span class="settings-radio-hint">Follows macOS appearance.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="theme" value="dark" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Dark</span>
+                <span class="settings-radio-hint">Force the dark chrome and dark xterm palette.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="theme" value="light" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Light</span>
+                <span class="settings-radio-hint">Force the light chrome and GitHub Light xterm palette.</span>
+              </span>
+            </label>
+          </fieldset>
           <fieldset class="settings-field settings-radio-group">
             <legend class="settings-label">Window background</legend>
             <label class="settings-radio">
@@ -666,6 +692,9 @@ export class SettingsPanel {
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
+    const themeRadios = form.querySelectorAll<HTMLInputElement>(
+      'input[name="theme"]',
+    );
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
@@ -738,6 +767,10 @@ export class SettingsPanel {
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
       r.checked = r.value === currentBg;
+    });
+    const currentTheme = this.current.window?.theme ?? "system";
+    themeRadios.forEach((r) => {
+      r.checked = r.value === currentTheme;
     });
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
     notchEnabled.checked = this.current.notch_enabled ?? true;
@@ -1025,6 +1058,9 @@ export class SettingsPanel {
           background:
             (Array.from(windowBgRadios).find((r) => r.checked)
               ?.value as WindowBackground) || "vibrant",
+          theme:
+            (Array.from(themeRadios).find((r) => r.checked)
+              ?.value as ThemeMode) || "system",
         },
         aom: {
           default_budget_usd: Math.max(
