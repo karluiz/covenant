@@ -28,7 +28,145 @@ const DEFAULT_DRAFT: OperatorDraft = {
   voice: "Terse",
 };
 
+/// New settings pane (Task 16) — uses the shared
+/// `renderOperatorList` card grid + the two-step `openOperatorModal`.
+/// The legacy split-pane editor is retained below as
+/// `LegacyOperatorsPane` for reference; the panel.ts wiring now
+/// targets this thinner shell.
+///
+/// Behavior preserved from the legacy pane:
+///   - List + Edit + Duplicate + Delete (Delete still calls
+///     `operator_delete`).
+///   - Re-fetch on save (via `refresh()`).
+///   - Discard-confirm on close-without-save is now handled inside the
+///     modal lifecycle (Cancel/X simply discards — TODO(task-17) port
+///     the "discard unsaved changes?" prompt if it shows up missing
+///     in QA).
 export class OperatorsPane {
+  private operators: Operator[] = [];
+  private grid: HTMLElement | null = null;
+
+  constructor(private mount: HTMLElement) {
+    this.mount.innerHTML = `
+      <div class="operators-pane-v2">
+        <header class="operators-pane-v2__head">
+          <h4>Operators</h4>
+          <button type="button" class="primary" data-role="new">+ New operator</button>
+        </header>
+        <div class="operators-pane-v2__grid" data-role="grid"></div>
+      </div>
+    `;
+    this.grid = this.mount.querySelector<HTMLElement>('[data-role="grid"]');
+    this.mount
+      .querySelector<HTMLButtonElement>('[data-role="new"]')
+      ?.addEventListener("click", () => this.startCreate());
+  }
+
+  async open(): Promise<void> {
+    await this.refresh();
+  }
+
+  private async refresh(): Promise<void> {
+    this.operators = await operatorList();
+    if (!this.grid) return;
+    this.grid.innerHTML = "";
+    const list = renderOperatorList(this.operators, {
+      onEdit: (op) => this.startEdit(op),
+      onDelete: (op) => void this.deleteOperator(op),
+      onDuplicate: (op) => this.startDuplicate(op),
+    });
+    this.grid.appendChild(list);
+  }
+
+  private openModalWith(handle: ModalHandle): void {
+    // Wrap the modal save so we refresh the grid after the underlying
+    // `operator_create` / `operator_update` Tauri command resolves.
+    const origSave = handle.el.querySelector<HTMLButtonElement>(".op-modal-save");
+    // The modal autowires its save button to `saveOperator(h)`; we
+    // observe completion by polling for the modal being torn down.
+    // Simpler: hook a one-shot click that wraps saveOperator + refresh.
+    // We re-bind the save button after each render — use event
+    // delegation off the modal root.
+    handle.el.addEventListener("click", (ev) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      if (target.classList.contains("op-modal-save")) {
+        ev.stopImmediatePropagation();
+        ev.preventDefault();
+        (async () => {
+          try {
+            await saveOperator(handle);
+            handle.el.remove();
+            await this.refresh();
+            pushInfoToast({
+              message: `${handle.state.mode === "edit" ? "Saved" : "Created"} operator: ${handle.state.draft.name}`,
+            });
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error("operator save failed", e);
+            alert(`Save failed: ${e}`);
+          }
+        })();
+      }
+    }, true);
+    // Reference origSave to suppress unused-var lints; the capture
+    // listener above pre-empts the inner click handler.
+    void origSave;
+
+    // Lightweight close affordance: click outside the inner card or
+    // press Escape. We don't have a wrapper backdrop in the modal,
+    // so add a global Escape listener tied to this modal instance.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape" && document.body.contains(handle.el)) {
+        handle.el.remove();
+        document.removeEventListener("keydown", onKey);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+  }
+
+  private startCreate(): void {
+    this.openModalWith(openOperatorModal({ mode: "create" }));
+  }
+
+  private startEdit(op: Operator): void {
+    this.openModalWith(openOperatorModal({ mode: "edit", existing: op }));
+  }
+
+  private startDuplicate(op: Operator): void {
+    // Duplicate = create-mode seeded from existing draft, name suffixed.
+    const seeded: Operator = { ...op, name: `${op.name} copy` };
+    this.openModalWith(openOperatorModal({ mode: "create", existing: seeded }));
+  }
+
+  private async deleteOperator(op: Operator): Promise<void> {
+    if (op.is_default) {
+      alert("Cannot delete the default operator. Set a different default first.");
+      return;
+    }
+    if (this.operators.length <= 1) {
+      alert("Cannot delete the last operator.");
+      return;
+    }
+    if (!confirm(`Delete operator "${op.name}"? Tabs pinned to it will fall back to the default.`)) {
+      return;
+    }
+    try {
+      await operatorDelete(op.id);
+      await this.refresh();
+      pushInfoToast({ message: `Deleted operator: ${op.name}` });
+    } catch (e) {
+      alert(`Delete failed: ${e}`);
+    }
+  }
+}
+
+/// Legacy pane — kept for reference until Task 17 visual QA confirms
+/// the new grid handles every code path the old form did (set-default,
+/// persona composer, hard-constraints expander). The panel does NOT
+/// instantiate this class anymore. Exported so noUnusedLocals doesn't
+/// complain; rename or drop after Task 17.
+export class LegacyOperatorsPane {
   private operators: Operator[] = [];
   private selectedId: string | null = null;
   private dirty = false;

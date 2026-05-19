@@ -4027,6 +4027,10 @@ export class TabManager {
 
     // Operator chip renders to the LEFT of the title so the avatar is the
     // first thing the eye lands on when a tab has a pinned operator.
+    // TODO(task-17): consider swapping the inner avatar for
+    // `renderOperatorChip(op, 'sm')` once we have a chip variant that
+    // omits the name label — the tab pill cannot afford a second name
+    // beside the title, and chip currently always includes name.
     if (tab.operator_id) {
       const op = this.operatorCache.get(tab.operator_id) ?? null;
       if (op) {

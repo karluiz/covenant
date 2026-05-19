@@ -14,6 +14,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { Icons } from "../icons";
 
+// TODO(task-17): once `operator-decision` events carry `operator_id`
+// (the AFK overlay already opts-in via the typed field), prepend
+// `renderOperatorChip(operator, 'sm')` to each card. Today the
+// activity-feed event shape doesn't include the operator entity, so
+// we can't render the chip without fabricating types.
 interface DecisionEvent {
   id: number | null;
   session_id: string;

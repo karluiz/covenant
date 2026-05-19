@@ -179,6 +179,11 @@ export class AomBanner {
   }
 
   private render(): void {
+    // TODO(task-17): the AOM banner currently shows mode-level state
+    // (phase + cost + decisions) but not the *Operator entity* driving
+    // the active tab. If/when product wants the active operator's chip
+    // here, render `renderOperatorChip(activeOperator, 'md')` to the
+    // left of the icon. Today no `activeOperator` is plumbed in.
     this.root.hidden = false;
     // Liveness Task 3: the primary readout is now `phase + elapsed`
     // (e.g. "observing 4s", "deciding…"). Cost is no longer the

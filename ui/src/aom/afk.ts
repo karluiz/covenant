@@ -17,7 +17,7 @@ import {
   type Operator,
   type OperatorDecisionRow,
 } from "../api";
-import { renderAvatarHtml } from "../operator/avatars";
+import { renderOperatorChip } from "../settings/operator_chip";
 import type { TabManager } from "../tabs/manager";
 
 interface DecisionEvent {
@@ -146,16 +146,18 @@ export class AfkOverlay {
       el.innerHTML = "";
       return;
     }
-    const chips = Array.from(this.activeOperatorIds)
-      .map((id) => {
-        const op = this.opCache.get(id);
-        const color = op?.color ?? "#6B7280";
-        const name = op ? op.name : `…${id.slice(-6)}`;
-        const avatarHtml = op ? renderAvatarHtml(op.emoji, 24) : "";
-        return `<span class="afk-op-chip" style="--op-color:${escapeHtml(color)}" title="${escapeHtml(name)}">${avatarHtml}<span>${escapeHtml(name)}</span></span>`;
-      })
-      .join("");
-    el.innerHTML = `<span class="afk-active-label">Active operators:</span>${chips}`;
+    el.innerHTML = `<span class="afk-active-label">Active operators:</span>`;
+    for (const id of this.activeOperatorIds) {
+      const op = this.opCache.get(id);
+      if (op) {
+        el.appendChild(renderOperatorChip(op, "sm"));
+      } else {
+        const placeholder = document.createElement("span");
+        placeholder.className = "afk-op-chip-placeholder";
+        placeholder.textContent = `…${id.slice(-6)}`;
+        el.appendChild(placeholder);
+      }
+    }
   }
 
   close(): void {

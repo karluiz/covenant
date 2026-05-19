@@ -43,6 +43,10 @@ import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
 import { VitalsCluster } from "./vitals";
+// TODO(task-17): integrate `renderOperatorChip` here once the LIVE
+// badge + colored-dot composition can be expressed via the shared
+// chip primitive. Today the status-bar operator chip carries a LIVE
+// badge sibling that the shared chip doesn't model.
 
 const GIT_BRANCH_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
