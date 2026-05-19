@@ -6,10 +6,48 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## Unreleased — Operator identity v1 (2026-05-17)
+## v0.7.5 — Operator identity v1 + metrics, themes, landing
 
 ### Added
 
+- **Covenant Score metrics expansion** (`crates/score/src/store.rs`,
+  `crates/score/src/spec_watcher.rs`, `crates/score/src/external/`,
+  `crates/score/src/agent_label.rs`, `ui/src/score/`): migration v3
+  adds `specs`, `llm_calls`, and an `agent` column on `score_events`.
+  Internal LLM calls are recorded via `record_llm_call`; specs are
+  picked up by a `notify`-based watcher; external pollers tail Claude
+  Code JSONL, Codex, opencode, and pi token logs. New
+  `breakdown_models` / `breakdown_agents` / `breakdown_specs` queries
+  back three new Settings → Covenant cards (by-agent, specs, token
+  usage). New top-level doc `covenant-metrics.md` describes the full
+  surface.
+- **Inline notch D-combo slot in vertical tabbar**
+  (`ui/src/inline-notch.ts`, `ui/src/styles.css`, `ui/src/main.ts`):
+  in fullscreen, the floating notch overlay is suppressed and a
+  foldable inline slot rides inside the vertical tabbar with a strict
+  60/40 split between tab pills and notch content. Light-mode palette
+  fixed; seam/gradient dropped for a flat continuous surface.
+- **Activity sidebar view** (`ui/src/`): a third right-sidebar view
+  alongside Blocks/Files, with group/project tags uppercased via CSS.
+- **Theme: dark / light / system** (`crates/app/src/settings.rs`,
+  `crates/app/src/window.rs`, `ui/src/theme.ts`, `ui/src/styles.css`):
+  `ThemeMode` lands on `WindowConfig`. A new `set_window_theme`
+  command swaps the macOS `NSVisualEffectView` material at runtime.
+  Frontend exposes `resolveTheme` + `watchSystemTheme` and applies a
+  `body.theme-light` class that drives token overrides, including a
+  GitHub Light xterm palette. Chrome hex literals were tokenized via a
+  new `--ink-rgb` invertible surface token for legibility under light.
+- **Landing site** (`landing/`): Astro + Tailwind project with hero,
+  four-pillar companion section, safety-contract Covenant section,
+  Covenant Score funnel animation, deep-dive, open-source, install,
+  and footer sections. Playwright smoke test covers sections + score
+  funnel. README, OG placeholder, and size budget verified.
+- **SDD steering workspace** (`docs/sdd/`): scaffolding for spec /
+  design / decision docs.
+- **Pi session rename** (`crates/pi/`, `crates/app/`, `ui/src/api.ts`,
+  `ui/src/tabs/manager.ts`): `set_session_name` exposed as a Tauri
+  command and wrapped in `api.ts`; tab rename now forwards into the
+  pi session when previously unnamed.
 - **Operator identity** (`crates/operator/src/registry.rs`,
   `crates/storage/src/lib.rs`, `crates/operator/src/lib.rs`): operators now
   carry a `voice` (`Terse` / `Warm` / `Formal`) tone that flows into the
@@ -35,6 +73,21 @@ Each version section may include any of: **Added**, **Changed**, **Fixed**,
 
 ### Fixed
 
+- **Operator chip avatar resolution** (`ui/src/operators/chip.ts`):
+  operator chips now resolve `pack:<id>` avatars instead of rendering
+  the literal string.
+- **Operator edit modal styled as overlay** (`ui/src/operators/modal.ts`,
+  `ui/src/operators/styles.css`): backdrop + card + form polish so it
+  reads as a proper modal instead of an inline form. Sticky topbar
+  and footer, dynamic project name in preview, email-type inputs
+  styled, light-mode score-sync buttons readable, modal inputs use
+  `box-sizing: border-box` so they no longer overflow the card, and
+  the slider track + fill render visibly under light mode.
+- **Workspace row menu anchoring** (`ui/src/workspaces/`): row menu
+  now anchors to the popover edge instead of the cursor position.
+- **Notch overlay on fullscreen Space** (`crates/app/src/notch.rs`):
+  keep the floating overlay off the fullscreen Space; inline slot
+  carries the load there.
 - **Parse-failure quarantine** (`crates/operator/src/operator_mind.rs`,
   `crates/operator/tests/compile_fail/parse_failure_to_outbound.rs`):
   `operator_mind` JSON parse failures can no longer surface as Telegram
