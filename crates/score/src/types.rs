@@ -34,6 +34,8 @@ pub struct Summary {
     pub today_commits: u32,
     pub current_streak: u32,
     pub longest_streak: u32,
+    #[serde(default)] pub total_tokens: u64,
+    #[serde(default)] pub total_specs: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

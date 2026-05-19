@@ -304,6 +304,19 @@ impl ScoreStore {
             }
         }
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
+        let mut fcopy = f.clone(); fcopy.agent = None;
+        let w_st = crate::filter::build_where(&fcopy);
+        let tokens_sql = format!(
+            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls WHERE {}",
+            w_st.sql
+        );
+        let specs_sql = format!("SELECT COUNT(*) FROM specs WHERE {}", w_st.sql);
+        let (total_tokens, total_specs) = {
+            let c = self.conn.lock().unwrap();
+            let tok: i64 = c.query_row(&tokens_sql, rusqlite::params_from_iter(w_st.params.iter()), |r| r.get(0))?;
+            let sp: i64 = c.query_row(&specs_sql, rusqlite::params_from_iter(w_st.params.iter()), |r| r.get(0))?;
+            (tok as u64, sp as u32)
+        };
         Ok(Summary {
             total_prompts: total_p,
             total_commits: total_c,
@@ -311,6 +324,8 @@ impl ScoreStore {
             today_commits: today_c,
             current_streak,
             longest_streak,
+            total_tokens,
+            total_specs,
         })
     }
 
@@ -450,6 +465,14 @@ impl ScoreStore {
             }
         }
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
+        let (total_tokens, total_specs) = {
+            let c = self.conn.lock().unwrap();
+            let tok: i64 = c.query_row(
+                "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls",
+                [], |r| r.get(0))?;
+            let sp: i64 = c.query_row("SELECT COUNT(*) FROM specs", [], |r| r.get(0))?;
+            (tok as u64, sp as u32)
+        };
         Ok(Summary {
             total_prompts: total_p,
             total_commits: total_c,
@@ -457,6 +480,8 @@ impl ScoreStore {
             today_commits: today_c,
             current_streak,
             longest_streak,
+            total_tokens,
+            total_specs,
         })
     }
 
@@ -536,6 +561,31 @@ impl ScoreStore {
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn breakdown_agents(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::AgentCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT COALESCE(agent, 'shell') AS a, COUNT(*)
+             FROM score_events
+             WHERE kind = 'prompt' AND {}
+             GROUP BY a
+             ORDER BY 2 DESC, CASE WHEN agent IS NULL THEN 1 ELSE 0 END ASC, a ASC",
+            w.sql
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let raw: Vec<(String, u32)> = stmt
+            .query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let total: u32 = raw.iter().map(|(_, n)| *n).sum();
+        Ok(raw.into_iter().map(|(agent, prompts)| crate::AgentCell {
+            agent,
+            prompts,
+            share: if total == 0 { 0.0 } else { prompts as f32 / total as f32 },
+        }).collect())
     }
 
     pub fn breakdown_specs(&self, f: &crate::ScoreFilter) -> Result<crate::SpecBreakdown> {
