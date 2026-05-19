@@ -64,6 +64,58 @@ impl ScoreStore {
                  PRAGMA user_version = 2;",
             )?;
         }
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 3 {
+            conn.execute_batch(
+                "ALTER TABLE score_events ADD COLUMN agent TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_events_agent ON score_events(agent);
+
+                 CREATE TABLE IF NOT EXISTS specs (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts_ms       INTEGER NOT NULL,
+                    day         TEXT    NOT NULL,
+                    path        TEXT    NOT NULL UNIQUE,
+                    repo        TEXT,
+                    branch      TEXT,
+                    group_name  TEXT
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_specs_ts   ON specs(ts_ms);
+                 CREATE INDEX IF NOT EXISTS idx_specs_day  ON specs(day);
+                 CREATE INDEX IF NOT EXISTS idx_specs_repo ON specs(repo);
+
+                 CREATE TABLE IF NOT EXISTS llm_calls (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts_ms           INTEGER NOT NULL,
+                    day             TEXT    NOT NULL,
+                    source          TEXT    NOT NULL CHECK (source IN ('internal','external')),
+                    agent           TEXT,
+                    provider        TEXT    NOT NULL,
+                    model           TEXT    NOT NULL,
+                    input_tokens    INTEGER NOT NULL DEFAULT 0,
+                    output_tokens   INTEGER NOT NULL DEFAULT 0,
+                    cache_read      INTEGER NOT NULL DEFAULT 0,
+                    cache_creation  INTEGER NOT NULL DEFAULT 0,
+                    repo            TEXT,
+                    branch          TEXT,
+                    group_name      TEXT
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_llm_ts          ON llm_calls(ts_ms);
+                 CREATE INDEX IF NOT EXISTS idx_llm_day         ON llm_calls(day);
+                 CREATE INDEX IF NOT EXISTS idx_llm_source_mod  ON llm_calls(source, model);
+                 CREATE INDEX IF NOT EXISTS idx_llm_agent       ON llm_calls(agent);
+
+                 CREATE TABLE IF NOT EXISTS external_watermarks (
+                    source      TEXT NOT NULL,
+                    path        TEXT NOT NULL,
+                    byte_offset INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (source, path)
+                 );
+
+                 PRAGMA user_version = 3;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -93,6 +145,7 @@ impl ScoreStore {
         timestamp_ms: i64,
         kind: EventKind,
         executor: &str,
+        agent: Option<&str>,
         ctx: &Context,
     ) -> Result<()> {
         let day = day_from_ms_local(timestamp_ms);
@@ -102,8 +155,8 @@ impl ScoreStore {
         };
         let c = self.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name, agent)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 timestamp_ms,
                 kind_s,
@@ -111,7 +164,8 @@ impl ScoreStore {
                 day,
                 ctx.repo,
                 ctx.branch,
-                ctx.group_name
+                ctx.group_name,
+                agent
             ],
         )?;
         Ok(())
@@ -250,6 +304,19 @@ impl ScoreStore {
             }
         }
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
+        let mut fcopy = f.clone(); fcopy.agent = None;
+        let w_st = crate::filter::build_where(&fcopy);
+        let tokens_sql = format!(
+            "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls WHERE {}",
+            w_st.sql
+        );
+        let specs_sql = format!("SELECT COUNT(*) FROM specs WHERE {}", w_st.sql);
+        let (total_tokens, total_specs) = {
+            let c = self.conn.lock().unwrap();
+            let tok: i64 = c.query_row(&tokens_sql, rusqlite::params_from_iter(w_st.params.iter()), |r| r.get(0))?;
+            let sp: i64 = c.query_row(&specs_sql, rusqlite::params_from_iter(w_st.params.iter()), |r| r.get(0))?;
+            (tok as u64, sp as u32)
+        };
         Ok(Summary {
             total_prompts: total_p,
             total_commits: total_c,
@@ -257,6 +324,8 @@ impl ScoreStore {
             today_commits: today_c,
             current_streak,
             longest_streak,
+            total_tokens,
+            total_specs,
         })
     }
 
@@ -396,6 +465,14 @@ impl ScoreStore {
             }
         }
         let (current_streak, longest_streak) = compute_streaks(&cells, &today);
+        let (total_tokens, total_specs) = {
+            let c = self.conn.lock().unwrap();
+            let tok: i64 = c.query_row(
+                "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM llm_calls",
+                [], |r| r.get(0))?;
+            let sp: i64 = c.query_row("SELECT COUNT(*) FROM specs", [], |r| r.get(0))?;
+            (tok as u64, sp as u32)
+        };
         Ok(Summary {
             total_prompts: total_p,
             total_commits: total_c,
@@ -403,6 +480,157 @@ impl ScoreStore {
             today_commits: today_c,
             current_streak,
             longest_streak,
+            total_tokens,
+            total_specs,
+        })
+    }
+
+    pub fn append_spec(&self, timestamp_ms: i64, path: &str, ctx: &Context) -> Result<bool> {
+        let day = day_from_ms_local(timestamp_ms);
+        let c = self.conn.lock().unwrap();
+        let rows = c.execute(
+            "INSERT OR IGNORE INTO specs(ts_ms, day, path, repo, branch, group_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![timestamp_ms, day, path, ctx.repo, ctx.branch, ctx.group_name],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn append_llm_call(
+        &self,
+        timestamp_ms: i64,
+        source: crate::ModelSource,
+        agent: Option<&str>,
+        provider: &str,
+        model: &str,
+        u: crate::LlmUsage,
+        ctx: &Context,
+    ) -> Result<()> {
+        let day = day_from_ms_local(timestamp_ms);
+        let src = match source { crate::ModelSource::Internal => "internal", crate::ModelSource::External => "external" };
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO llm_calls(ts_ms, day, source, agent, provider, model,
+                                   input_tokens, output_tokens, cache_read, cache_creation,
+                                   repo, branch, group_name)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            params![
+                timestamp_ms, day, src, agent, provider, model,
+                u.input as i64, u.output as i64, u.cache_read as i64, u.cache_creation as i64,
+                ctx.repo, ctx.branch, ctx.group_name
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn breakdown_models(
+        &self,
+        f: &crate::ScoreFilter,
+        source: crate::ModelSource,
+    ) -> Result<Vec<crate::ModelCell>> {
+        let w = crate::filter::build_where(f);
+        let src = match source { crate::ModelSource::Internal => "internal", crate::ModelSource::External => "external" };
+        let sql = format!(
+            "SELECT agent, provider, model,
+                    COUNT(*),
+                    COALESCE(SUM(input_tokens),0),
+                    COALESCE(SUM(output_tokens),0),
+                    COALESCE(SUM(cache_read),0)
+             FROM llm_calls
+             WHERE source = ? AND {}
+             GROUP BY agent, provider, model
+             ORDER BY 4 DESC
+             LIMIT 50",
+            w.sql
+        );
+        let mut params: Vec<rusqlite::types::Value> = vec![src.to_string().into()];
+        params.extend(w.params.iter().cloned());
+
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok(crate::ModelCell {
+                source,
+                agent: r.get::<_, Option<String>>(0)?,
+                provider: r.get(1)?,
+                model: r.get(2)?,
+                calls: r.get::<_, i64>(3)? as u32,
+                input_tokens: r.get::<_, i64>(4)? as u64,
+                output_tokens: r.get::<_, i64>(5)? as u64,
+                cache_read: r.get::<_, i64>(6)? as u64,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn breakdown_agents(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::AgentCell>> {
+        let w = crate::filter::build_where(f);
+        let sql = format!(
+            "SELECT COALESCE(agent, 'shell') AS a, COUNT(*)
+             FROM score_events
+             WHERE kind = 'prompt' AND {}
+             GROUP BY a
+             ORDER BY 2 DESC, CASE WHEN agent IS NULL THEN 1 ELSE 0 END ASC, a ASC",
+            w.sql
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let raw: Vec<(String, u32)> = stmt
+            .query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let total: u32 = raw.iter().map(|(_, n)| *n).sum();
+        Ok(raw.into_iter().map(|(agent, prompts)| crate::AgentCell {
+            agent,
+            prompts,
+            share: if total == 0 { 0.0 } else { prompts as f32 / total as f32 },
+        }).collect())
+    }
+
+    pub fn get_watermark(&self, source: &str, path: &str) -> Result<u64> {
+        let c = self.conn.lock().unwrap();
+        let off: Option<i64> = c.query_row(
+            "SELECT byte_offset FROM external_watermarks WHERE source = ?1 AND path = ?2",
+            params![source, path], |r| r.get(0)
+        ).optional()?;
+        Ok(off.unwrap_or(0) as u64)
+    }
+
+    pub fn set_watermark(&self, source: &str, path: &str, byte_offset: u64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO external_watermarks(source, path, byte_offset) VALUES (?1, ?2, ?3)
+             ON CONFLICT(source, path) DO UPDATE SET byte_offset = excluded.byte_offset",
+            params![source, path, byte_offset as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn breakdown_specs(&self, f: &crate::ScoreFilter) -> Result<crate::SpecBreakdown> {
+        let mut fcopy = f.clone();
+        fcopy.agent = None;
+        let w = crate::filter::build_where(&fcopy);
+
+        let count_sql = format!("SELECT COUNT(*) FROM specs WHERE {}", w.sql);
+        let recent_sql = format!(
+            "SELECT ts_ms, path, repo FROM specs WHERE {} ORDER BY ts_ms DESC LIMIT 5",
+            w.sql
+        );
+
+        let c = self.conn.lock().unwrap();
+        let total: i64 = c.query_row(&count_sql, rusqlite::params_from_iter(w.params.iter()), |r| r.get(0))?;
+        let mut stmt = c.prepare(&recent_sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
+            Ok(crate::SpecRow {
+                ts_ms: r.get(0)?,
+                path: r.get(1)?,
+                repo: r.get(2)?,
+            })
+        })?;
+        Ok(crate::SpecBreakdown {
+            total: total as u32,
+            recent: rows.collect::<rusqlite::Result<Vec<_>>>()?,
         })
     }
 }

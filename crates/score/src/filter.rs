@@ -37,6 +37,10 @@ pub fn build_where(f: &ScoreFilter) -> Where {
         parts.push("day = ?".into());
         params.push(d.clone().into());
     }
+    if let Some(a) = &f.agent {
+        parts.push("agent = ?".into());
+        params.push(a.clone().into());
+    }
     Where {
         sql: parts.join(" AND "),
         params,

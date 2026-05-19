@@ -1,5 +1,6 @@
 use karl_score::{
-    BranchCell, DailyCell, GroupCell, RepoCell, ScoreFilter, ScoreStore, SessionRow, Summary,
+    AgentCell, BranchCell, DailyCell, GroupCell, ModelCell, ModelSource, RepoCell, ScoreFilter,
+    ScoreStore, SessionRow, SpecBreakdown, Summary,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -84,4 +85,29 @@ pub fn score_recent_sessions(
     limit: u32,
 ) -> Result<Vec<SessionRow>, String> {
     state.0.recent_sessions(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_breakdown_agents(
+    state: State<'_, ScoreState>,
+    filter: ScoreFilter,
+) -> Result<Vec<AgentCell>, String> {
+    state.0.breakdown_agents(&filter).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_breakdown_specs(
+    state: State<'_, ScoreState>,
+    filter: ScoreFilter,
+) -> Result<SpecBreakdown, String> {
+    state.0.breakdown_specs(&filter).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_breakdown_models(
+    state: State<'_, ScoreState>,
+    filter: ScoreFilter,
+    source: ModelSource,
+) -> Result<Vec<ModelCell>, String> {
+    state.0.breakdown_models(&filter, source).map_err(|e| e.to_string())
 }

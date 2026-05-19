@@ -67,7 +67,8 @@ pub async fn collect_oneshot(
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::OpenAiCompat => "openai_compat",
     };
-    karl_score::record_prompt_with_context(executor_label);
+    karl_score::record_prompt_with_agent(executor_label, Some("internal"));
+    let model_name = req.model.clone();
     let buffer = Arc::new(Mutex::new(String::new()));
     let usage = Arc::new(Mutex::new(crate::TokenUsage::default()));
     let stop_reason = Arc::new(Mutex::new(Option::<String>::None));
@@ -112,9 +113,23 @@ pub async fn collect_oneshot(
         .await?;
     let thinking_full = thinking.lock().map(|t| t.clone()).unwrap_or_default();
     let thinking_summary: String = thinking_full.chars().take(200).collect();
+    let final_usage = usage.lock().map(|u| *u).unwrap_or_default();
+    karl_score::record_llm_call(
+        karl_score::ModelSource::Internal,
+        None,
+        executor_label,
+        &model_name,
+        karl_score::LlmUsage {
+            input: final_usage.input_tokens as u64,
+            output: final_usage.output_tokens as u64,
+            cache_read: final_usage.cache_read_input_tokens as u64,
+            cache_creation: final_usage.cache_creation_input_tokens as u64,
+        },
+        &karl_score::Context::default(),
+    );
     Ok(crate::AskResponse {
         text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),
-        usage: usage.lock().map(|u| *u).unwrap_or_default(),
+        usage: final_usage,
         stop_reason: stop_reason.lock().map(|s| s.clone()).unwrap_or_default(),
         thinking_summary,
         thinking_full: if thinking_full.is_empty() {

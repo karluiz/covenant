@@ -110,6 +110,7 @@ pub async fn ask_oneshot(req: AskRequest) -> Result<String, AgentError> {
 /// accumulator. Same wire path as `ask_oneshot`; the only extra cost
 /// is two atomic field updates per call.
 pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, AgentError> {
+    let model_name = req.model.clone();
     let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let usage = std::sync::Arc::new(std::sync::Mutex::new(TokenUsage::default()));
     let thinking_buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
@@ -166,9 +167,28 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
         vec![thinking_full_str.clone()]
     };
     let thinking_summary: String = thinking_full_str.chars().take(200).collect();
+    let final_usage = usage.lock().map(|u| *u).unwrap_or_default();
+    let provider_label = if model_name.to_lowercase().starts_with("claude") {
+        "anthropic"
+    } else {
+        "openai_compat"
+    };
+    karl_score::record_llm_call(
+        karl_score::ModelSource::Internal,
+        None,
+        provider_label,
+        &model_name,
+        karl_score::LlmUsage {
+            input: final_usage.input_tokens as u64,
+            output: final_usage.output_tokens as u64,
+            cache_read: final_usage.cache_read_input_tokens as u64,
+            cache_creation: final_usage.cache_creation_input_tokens as u64,
+        },
+        &karl_score::Context::default(),
+    );
     Ok(AskResponse {
         text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),
-        usage: usage.lock().map(|u| *u).unwrap_or_default(),
+        usage: final_usage,
         stop_reason: stop_reason.lock().map(|s| s.clone()).unwrap_or_default(),
         thinking_summary,
         thinking_full,

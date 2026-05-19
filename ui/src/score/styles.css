@@ -521,3 +521,24 @@ body.theme-light .covenant-page .btn.ghost:hover {
     border-color: color-mix(in srgb, var(--text-primary) 24%, transparent);
 }
 body.theme-light .cov-empty { color: var(--muted); }
+
+.cov-row { display:grid; grid-template-columns: 12px 1fr 4fr auto; gap:8px; align-items:center;
+  background:transparent; border:none; color:inherit; padding:6px 4px; cursor:pointer; width:100%; text-align:left; }
+.cov-row:hover { background: rgba(255,255,255,0.04); border-radius:6px; }
+.cov-dot { width:8px; height:8px; border-radius:50%; }
+.cov-row-bar { background: rgba(255,255,255,0.05); height:8px; border-radius:4px; overflow:hidden; }
+.cov-row-bar > span { display:block; height:100%; }
+.cov-row-val { font-variant-numeric: tabular-nums; opacity:0.8; }
+
+.cov-specs-total { font-size:36px; font-weight:600; }
+.cov-specs-sub { opacity:0.7; margin-bottom:8px; }
+.cov-specs-list { list-style:none; padding:0; margin:0; }
+.cov-specs-list li { display:flex; justify-content:space-between; padding:4px 0; opacity:0.85; }
+.cov-spec-when { opacity:0.6; }
+
+.cov-toggle { display:inline-flex; border:1px solid rgba(255,255,255,0.12); border-radius:999px; overflow:hidden; margin-bottom:8px; }
+.cov-toggle button { background:transparent; color:inherit; padding:4px 12px; border:none; cursor:pointer; }
+.cov-toggle button.active { background: rgba(255,255,255,0.10); }
+.cov-model-table { width:100%; border-collapse:collapse; }
+.cov-model-table th, .cov-model-table td { padding:6px 8px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.06); font-variant-numeric: tabular-nums; }
+.cov-dim { opacity:0.5; }

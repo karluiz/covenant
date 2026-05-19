@@ -14,6 +14,8 @@ pub struct ScoreEvent {
     pub kind: EventKind,
     /// "anthropic" / "openai_compat" / "<repo>:<sha7>" for commits
     pub executor: String,
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +34,8 @@ pub struct Summary {
     pub today_commits: u32,
     pub current_streak: u32,
     pub longest_streak: u32,
+    #[serde(default)] pub total_tokens: u64,
+    #[serde(default)] pub total_specs: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +80,8 @@ pub struct ScoreFilter {
     pub branch: Option<String>,
     pub group_name: Option<String>,
     pub day: Option<String>, // "YYYY-MM-DD"
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +113,50 @@ pub struct SessionRow {
     pub group_name: Option<String>,
     pub prompts: u32,
     pub commits: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecRow {
+    pub ts_ms: i64,
+    pub path: String,
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecBreakdown {
+    pub total: u32,
+    pub recent: Vec<SpecRow>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSource { Internal, External }
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LlmUsage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCell {
+    pub source: ModelSource,
+    pub agent: Option<String>,
+    pub provider: String,
+    pub model: String,
+    pub calls: u32,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentCell {
+    pub agent: String,
+    pub prompts: u32,
+    pub share: f32,
 }
 
 #[cfg(test)]

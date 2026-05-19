@@ -1,6 +1,8 @@
 import type { ScoreFilter, Summary, DailyCell } from "./api";
 import * as api from "./api";
+import type { ModelSource } from "./api";
 import { renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
+import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
 import { getCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -9,6 +11,7 @@ import { scoreSignout, scoreSyncNow, scoreSyncStatus } from "./api";
 interface State {
   filter: ScoreFilter;
   mounted: boolean;
+  modelSource?: ModelSource;
 }
 
 const TEMPLATE = /* html */ `
@@ -36,6 +39,20 @@ const TEMPLATE = /* html */ `
     <div class="cov-card">
       <h4>By group <span class="hint">karlTerminal tab groups</span></h4>
       <div data-role="groups"></div>
+    </div>
+    <div class="cov-card">
+      <h4>By agent <span class="hint">click to filter</span></h4>
+      <div data-role="agents"></div>
+    </div>
+    <div class="cov-two">
+      <div class="cov-card">
+        <h4>Specs created</h4>
+        <div data-role="specs"></div>
+      </div>
+      <div class="cov-card">
+        <h4>Token usage · per model</h4>
+        <div data-role="models"></div>
+      </div>
     </div>
     <div class="cov-card">
       <h4>Recent sessions</h4>
@@ -66,16 +83,21 @@ async function refresh(host: HTMLElement, state: State): Promise<void> {
   const branchesHost = host.querySelector<HTMLElement>("[data-role=branches]")!;
   const branchesTitle = host.querySelector<HTMLElement>("[data-role=branches-title]")!;
   const groupsHost = host.querySelector<HTMLElement>("[data-role=groups]")!;
+  const agentsHost = host.querySelector<HTMLElement>("[data-role=agents]")!;
+  const specsHost  = host.querySelector<HTMLElement>("[data-role=specs]")!;
+  const modelsHost = host.querySelector<HTMLElement>("[data-role=models]")!;
   const sessionsHost = host.querySelector<HTMLElement>("[data-role=sessions]")!;
   const syncHost = host.querySelector<HTMLElement>("[data-role=sync]")!;
 
-  const [summary, heatmap, repos, groups, sessions, user] = await Promise.all([
+  const [summary, heatmap, repos, groups, sessions, user, agents, specs] = await Promise.all([
     api.scoreSummaryFiltered(state.filter),
     api.scoreHeatmapFiltered(state.filter),
     api.scoreBreakdownRepos(state.filter),
     api.scoreBreakdownGroups(state.filter),
     api.scoreRecentSessions(10),
     getCurrentUser(),
+    api.scoreBreakdownAgents(state.filter),
+    api.scoreBreakdownSpecs(state.filter),
   ]);
 
   renderFilters(filtersHost, state, host);
@@ -103,6 +125,19 @@ async function refresh(host: HTMLElement, state: State): Promise<void> {
   }
 
   renderGroupBars(groupsHost, groups);
+  renderAgentBars(agentsHost, agents, (agent) => {
+    state.filter.agent = agent;
+    void refresh(host, state);
+  });
+  renderSpecsCard(specsHost, specs);
+
+  const modelSource: ModelSource = state.modelSource ?? "internal";
+  const models = await api.scoreBreakdownModels(state.filter, modelSource);
+  renderModelsCard(modelsHost, modelSource, models, (next) => {
+    state.modelSource = next;
+    void refresh(host, state);
+  });
+
   renderSessions(sessionsHost, sessions);
   renderSync(syncHost, user, host, state);
 }
@@ -152,6 +187,14 @@ function renderFilters(host: HTMLElement, state: State, page: HTMLElement): void
       }),
     );
   }
+  if (state.filter.agent) {
+    host.appendChild(
+      chipDismiss(`Agent: ${state.filter.agent}`, () => {
+        state.filter.agent = null;
+        void refresh(page, state);
+      }),
+    );
+  }
 }
 
 function chipButton(label: string, onClick: () => void): HTMLElement {
@@ -194,6 +237,10 @@ function renderStats(host: HTMLElement, summary: Summary): void {
     <div class="cov-stat">
       <div class="v">${summary.total_commits.toLocaleString()}</div>
       <div class="l">Total commits</div>
+    </div>
+    <div class="cov-stat">
+      <div class="v">${summary.total_tokens.toLocaleString()}</div>
+      <div class="l">Total tokens</div>
     </div>
   `;
 }

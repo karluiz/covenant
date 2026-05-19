@@ -1,3 +1,6 @@
+pub mod external;
+pub mod agent_label;
+pub mod spec_watcher;
 pub mod auth;
 pub mod commit_scanner;
 pub mod context;
@@ -11,8 +14,9 @@ pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
 pub use types::{
-    BranchCell, Context, DailyCell, EventKind, GroupCell, RepoCell, ScoreEvent, ScoreFilter,
-    SessionRow, Summary, TimeRange, User,
+    AgentCell, BranchCell, Context, DailyCell, EventKind, GroupCell, LlmUsage, ModelCell,
+    ModelSource, RepoCell, ScoreEvent, ScoreFilter, SessionRow, SpecBreakdown, SpecRow, Summary,
+    TimeRange, User,
 };
 
 use crate::context::ContextResolver;
@@ -61,7 +65,7 @@ pub fn clear_recorder_for_test() {
     }
 }
 
-pub fn record_prompt_with_context(executor: &str) {
+pub fn record_prompt_with_agent(executor: &str, agent: Option<&str>) {
     let now = chrono::Utc::now().timestamp_millis();
     let cur = current_slot().lock().ok().and_then(|g| g.clone());
     let ctx = match cur {
@@ -70,15 +74,19 @@ pub fn record_prompt_with_context(executor: &str) {
     };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
-            if let Err(e) = store.append_with_context(now, EventKind::Prompt, executor, &ctx) {
-                tracing::warn!(target: "score", error = %e, "record_prompt_with_context failed");
+            if let Err(e) = store.append_with_context(now, EventKind::Prompt, executor, agent, &ctx) {
+                tracing::warn!(target: "score", error = %e, "record_prompt_with_agent failed");
             }
         }
     }
 }
 
+pub fn record_prompt_with_context(executor: &str) {
+    record_prompt_with_agent(executor, None)
+}
+
 pub fn record_prompt(executor: &str) {
-    record_prompt_with_context(executor)
+    record_prompt_with_agent(executor, None)
 }
 
 pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>) {
@@ -91,11 +99,40 @@ pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>
     };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
-            let _ = store.append_with_context(now, EventKind::Commit, &exec, &ctx);
+            let _ = store.append_with_context(now, EventKind::Commit, &exec, None, &ctx);
         }
     }
 }
 
 pub fn record_commit(repo: &str, sha7: &str) {
     record_commit_with_context(repo, sha7, None)
+}
+
+pub fn record_llm_call(
+    source: ModelSource,
+    agent: Option<&str>,
+    provider: &str,
+    model: &str,
+    usage: LlmUsage,
+    ctx: &Context,
+) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            if let Err(e) = store.append_llm_call(now, source, agent, provider, model, usage, ctx) {
+                tracing::warn!(target: "score", error = %e, "record_llm_call failed");
+            }
+        }
+    }
+}
+
+pub fn record_spec(path: &str, ctx: &Context) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            if let Err(e) = store.append_spec(now, path, ctx) {
+                tracing::warn!(target: "score", error = %e, "record_spec failed");
+            }
+        }
+    }
 }
