@@ -11,3 +11,49 @@
 .op-chip-sm { font-size: 11px; }
 .op-chip-md { font-size: 13px; }
 .op-chip-lg { font-size: 15px; }
+
+.op-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+.op-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.op-card:hover {
+  border-color: color-mix(in srgb, currentColor 24%, transparent);
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+.op-card-summary {
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.4;
+}
+.op-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+.op-card-btn {
+  flex: 1;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.op-card-btn:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-color: color-mix(in srgb, currentColor 32%, transparent);
+}

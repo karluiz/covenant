@@ -659,3 +659,39 @@ export async function saveOperator(h: ModalHandle): Promise<void> {
     await invoke("operator_create", { draft });
   }
 }
+
+export interface ListHandlers {
+  onEdit(op: Operator): void;
+  onDelete(op: Operator): void;
+  onDuplicate(op: Operator): void;
+}
+
+export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "op-card-grid";
+  for (const op of ops) {
+    const card = document.createElement("div");
+    card.className = "op-card";
+    card.append(renderOperatorChip(op, "lg"));
+    const summary = document.createElement("div");
+    summary.className = "op-card-summary";
+    summary.textContent = `${op.voice} · threshold ${op.escalate_threshold.toFixed(2)} · ${op.model || "—"}`;
+    card.append(summary);
+    const actions = document.createElement("div");
+    actions.className = "op-card-actions";
+    const mk = (label: string, fn: () => void) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "op-card-btn";
+      b.textContent = label;
+      b.addEventListener("click", fn);
+      return b;
+    };
+    actions.append(mk("Edit", () => h.onEdit(op)));
+    actions.append(mk("Duplicate", () => h.onDuplicate(op)));
+    actions.append(mk("Delete", () => h.onDelete(op)));
+    card.append(actions);
+    root.append(card);
+  }
+  return root;
+}

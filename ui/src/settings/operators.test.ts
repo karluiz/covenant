@@ -6,7 +6,8 @@ const { invokeMock } = vi.hoisted(() => ({
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
-import { openOperatorModal, canProceedFromStep1, saveOperator } from './operators';
+import { openOperatorModal, canProceedFromStep1, saveOperator, renderOperatorList } from './operators';
+import type { Operator } from '../api';
 
 beforeEach(() => {
   document.body.innerHTML = '';
@@ -44,5 +45,21 @@ describe('operator modal', () => {
         draft: expect.objectContaining({ name: 'Cal', voice: 'Terse' }),
       }),
     );
+  });
+});
+
+describe('operator list grid', () => {
+  it('renders one card per operator', () => {
+    const ops: Operator[] = [{
+      id: '1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.5, model: 'gpt-4o',
+      hard_constraints: '', is_default: true,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse',
+    }];
+    const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
+    expect(root.querySelectorAll('.op-card').length).toBe(1);
+    expect(root.textContent).toContain('Maya');
+    expect(root.textContent).toContain('gpt-4o');
+    expect(root.textContent).toContain('Terse');
   });
 });
