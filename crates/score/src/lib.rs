@@ -12,8 +12,9 @@ pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
 pub use types::{
-    BranchCell, Context, DailyCell, EventKind, GroupCell, RepoCell, ScoreEvent, ScoreFilter,
-    SessionRow, SpecBreakdown, SpecRow, Summary, TimeRange, User,
+    AgentCell, BranchCell, Context, DailyCell, EventKind, GroupCell, LlmUsage, ModelCell,
+    ModelSource, RepoCell, ScoreEvent, ScoreFilter, SessionRow, SpecBreakdown, SpecRow, Summary,
+    TimeRange, User,
 };
 
 use crate::context::ContextResolver;
@@ -103,6 +104,24 @@ pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>
 
 pub fn record_commit(repo: &str, sha7: &str) {
     record_commit_with_context(repo, sha7, None)
+}
+
+pub fn record_llm_call(
+    source: ModelSource,
+    agent: Option<&str>,
+    provider: &str,
+    model: &str,
+    usage: LlmUsage,
+    ctx: &Context,
+) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            if let Err(e) = store.append_llm_call(now, source, agent, provider, model, usage, ctx) {
+                tracing::warn!(target: "score", error = %e, "record_llm_call failed");
+            }
+        }
+    }
 }
 
 pub fn record_spec(path: &str, ctx: &Context) {

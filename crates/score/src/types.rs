@@ -126,6 +126,37 @@ pub struct SpecBreakdown {
     pub recent: Vec<SpecRow>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSource { Internal, External }
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LlmUsage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCell {
+    pub source: ModelSource,
+    pub agent: Option<String>,
+    pub provider: String,
+    pub model: String,
+    pub calls: u32,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_read: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentCell {
+    pub agent: String,
+    pub prompts: u32,
+    pub share: f32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

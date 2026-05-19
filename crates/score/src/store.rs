@@ -471,6 +471,73 @@ impl ScoreStore {
         Ok(rows > 0)
     }
 
+    pub fn append_llm_call(
+        &self,
+        timestamp_ms: i64,
+        source: crate::ModelSource,
+        agent: Option<&str>,
+        provider: &str,
+        model: &str,
+        u: crate::LlmUsage,
+        ctx: &Context,
+    ) -> Result<()> {
+        let day = day_from_ms_local(timestamp_ms);
+        let src = match source { crate::ModelSource::Internal => "internal", crate::ModelSource::External => "external" };
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO llm_calls(ts_ms, day, source, agent, provider, model,
+                                   input_tokens, output_tokens, cache_read, cache_creation,
+                                   repo, branch, group_name)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            params![
+                timestamp_ms, day, src, agent, provider, model,
+                u.input as i64, u.output as i64, u.cache_read as i64, u.cache_creation as i64,
+                ctx.repo, ctx.branch, ctx.group_name
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn breakdown_models(
+        &self,
+        f: &crate::ScoreFilter,
+        source: crate::ModelSource,
+    ) -> Result<Vec<crate::ModelCell>> {
+        let w = crate::filter::build_where(f);
+        let src = match source { crate::ModelSource::Internal => "internal", crate::ModelSource::External => "external" };
+        let sql = format!(
+            "SELECT agent, provider, model,
+                    COUNT(*),
+                    COALESCE(SUM(input_tokens),0),
+                    COALESCE(SUM(output_tokens),0),
+                    COALESCE(SUM(cache_read),0)
+             FROM llm_calls
+             WHERE source = ? AND {}
+             GROUP BY agent, provider, model
+             ORDER BY 4 DESC
+             LIMIT 50",
+            w.sql
+        );
+        let mut params: Vec<rusqlite::types::Value> = vec![src.to_string().into()];
+        params.extend(w.params.iter().cloned());
+
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok(crate::ModelCell {
+                source,
+                agent: r.get::<_, Option<String>>(0)?,
+                provider: r.get(1)?,
+                model: r.get(2)?,
+                calls: r.get::<_, i64>(3)? as u32,
+                input_tokens: r.get::<_, i64>(4)? as u64,
+                output_tokens: r.get::<_, i64>(5)? as u64,
+                cache_read: r.get::<_, i64>(6)? as u64,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
     pub fn breakdown_specs(&self, f: &crate::ScoreFilter) -> Result<crate::SpecBreakdown> {
         let mut fcopy = f.clone();
         fcopy.agent = None;
