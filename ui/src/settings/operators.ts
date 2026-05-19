@@ -179,7 +179,7 @@ export class OperatorsPane {
 
       <div class="operators-pane__field">
         <label>Tags <span class="muted">(comma-separated)</span></label>
-        <input data-bind="tags" type="text"
+        <input data-bind="tags" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
                value="${escapeHtml(this.editing.tags.join(", "))}" />
       </div>
 

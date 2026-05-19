@@ -622,19 +622,21 @@ export class StatusBar {
     }
 
     // ─── CENTER ──────────────────────────────────────────
-    // Vitals cluster sits to the left of the executor chip. When the
-    // cluster is idle (no LLM activity in 60s), its CSS collapses it,
-    // so the executor chip recenters naturally.
+    // Vitals cluster owns the center zone on its own. The executor
+    // chip used to live here too, but was moved into the right
+    // cluster (immediately left of the Telegram icon) so the
+    // currently-running agent reads naturally with the other
+    // identity/connectivity affordances.
     if (this.vitals) {
       center.appendChild(this.vitals.el);
     }
-    if (this.currentExecutor) {
-      center.appendChild(executorSegment(this.currentExecutor, this.online));
-    } else if (!this.online) {
-      center.appendChild(offlineSegment());
-    }
 
     // ─── RIGHT ───────────────────────────────────────────
+    if (this.currentExecutor) {
+      right.appendChild(executorSegment(this.currentExecutor, this.online));
+    } else if (!this.online) {
+      right.appendChild(offlineSegment());
+    }
     right.appendChild(telegramSegment(this.currentTgStatus));
     if (!this.scoreChip) {
       this.scoreChip = makeScoreChip();
