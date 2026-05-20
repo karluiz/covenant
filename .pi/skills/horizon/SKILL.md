@@ -18,13 +18,40 @@ fully autonomous.
 
 ## Steps (do them in order, in a single sequence)
 
-### 1. Read current state
+### 0. Commit current WIP on main
+
+Before the release check, take everything currently present on `main` and save
+it as a normal commit so the release includes the latest work.
+
+Run:
+
+- `git branch --show-current` — must be `main`. If not, **STOP** and report:
+  "Not on main — switch to main, then re-run /skill:horizon."
+- `git status --porcelain`
+
+If status is dirty (modified, deleted, staged, or untracked files):
+
+1. Inspect enough context to write a useful Conventional Commit message:
+   - `git diff --stat`
+   - `git diff --cached --stat`
+   - `git diff -- <paths>` for the changed files when needed
+2. Commit all WIP:
+   ```bash
+   git add -A
+   git commit -m "<type(scope): concise WIP summary>"
+   ```
+
+Use the most specific Conventional Commit type/scope you can infer from the
+changes. Do **not** use `--no-verify`. If the commit fails, stop and report the
+failed command verbatim. If status is clean, continue.
+
+### 1. Read current release state
 
 Run these in parallel:
 
-- `git status --porcelain` — must be **clean** (only ignored files OK). If
-  there are uncommitted/untracked changes, **STOP** and tell the user:
-  "Working tree dirty — commit or stash first, then re-run /skill:horizon."
+- `git status --porcelain` — must be **clean** after the WIP commit step (only
+  ignored files OK). If dirty remains, **STOP** and tell the user:
+  "Working tree still dirty after WIP commit — fix it, then re-run /skill:horizon."
 - `git tag --sort=-v:refname | head -1` — last release tag (e.g. `v0.5.6`).
 - `grep '^version' Cargo.toml` — workspace version (source of truth).
 
@@ -139,8 +166,8 @@ Watch: gh run list --workflow=release-macos.yml --limit 1
 
 ## Hard rules
 
-- **Never** push if the working tree had pre-existing uncommitted changes —
-  stop in step 1.
+- **Never** push if the WIP commit step failed or if the working tree remains
+  dirty after step 0.
 - **Never** skip hooks (no `--no-verify`).
 - **Never** force-push or amend.
 - **Never** push without the tag, or the tag without main.
