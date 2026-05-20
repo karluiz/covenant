@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.8 — Activity card cap + boot splash polish
+
+### Changed
+
+- **Activity card height cap and light boot splash polish**: The inline Activity/Notch selector now caps the header card and clamps long process text so active commands no longer stretch the sidebar (`ui/src/styles.css`). Light-mode boot splash styles in `ui/index.html` and `ui/src/styles.css` now mirror the persisted theme surface earlier in startup.
+
+- **Horizon WIP handoff**: The release skill now commits current WIP on `main` before release checks so `/skill:horizon` can include the latest local work while still refusing to push if the tree stays dirty (`.pi/skills/horizon/SKILL.md`).
+
 ## v0.7.7 — Pi activity tracking + workspace UI polish
 
 ### Added
