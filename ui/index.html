@@ -26,11 +26,24 @@
       }
       #boot-splash.is-leaving { opacity: 0; pointer-events: none; }
       @media (prefers-color-scheme: light) {
-        #boot-splash {
+        body:not(.theme-dark) #boot-splash {
+          --accent: #2f6fed;
+          --text-primary: #1a1d22;
           background:
-            radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.13), transparent 38%),
+            radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.15), transparent 38%),
+            radial-gradient(circle at 50% 100%, rgba(24, 36, 64, 0.045), transparent 44%),
             linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
           color: #1a1d22;
+        }
+        body:not(.theme-dark) #boot-splash .boot-splash-card {
+          border: 1px solid rgba(47, 111, 237, 0.16);
+          border-radius: 24px;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.78));
+          box-shadow:
+            0 1px 0 rgba(255, 255, 255, 0.95) inset,
+            0 0 0 1px rgba(255, 255, 255, 0.72) inset,
+            0 26px 72px rgba(24, 36, 64, 0.14),
+            0 6px 20px rgba(24, 36, 64, 0.08);
         }
       }
     </style>

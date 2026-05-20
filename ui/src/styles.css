@@ -12469,8 +12469,54 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
 }
 
 /* Light-mode boot splash. The inline index.html rule handles the very
-   first paint for system-light users; these token-based rules take over
-   as soon as main.ts applies body.theme-light from persisted settings. */
+   first paint for system-light users; the media query keeps that first
+   loaded stylesheet frame aligned before main.ts adds body.theme-light.
+   The token-based body.theme-light rules below then take over for the
+   persisted app theme. */
+@media (prefers-color-scheme: light) {
+    body:not(.theme-dark) #boot-splash {
+        --accent: #2f6fed;
+        --text-primary: #1a1d22;
+        background:
+            radial-gradient(circle at 50% 42%, rgba(47, 111, 237, 0.15), transparent 38%),
+            radial-gradient(circle at 50% 100%, rgba(24, 36, 64, 0.045), transparent 44%),
+            linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
+        color: #1a1d22;
+    }
+    body:not(.theme-dark) .boot-splash-card {
+        border: 1px solid rgba(47, 111, 237, 0.16);
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.78));
+        box-shadow:
+            0 1px 0 rgba(255, 255, 255, 0.95) inset,
+            0 0 0 1px rgba(255, 255, 255, 0.72) inset,
+            0 26px 72px rgba(24, 36, 64, 0.14),
+            0 6px 20px rgba(24, 36, 64, 0.08);
+    }
+    body:not(.theme-dark) .boot-splash-headline {
+        color: color-mix(in srgb, #2f6fed 78%, #10254c);
+        text-shadow:
+            0 1px 0 rgba(255, 255, 255, 0.85),
+            0 0 22px rgba(47, 111, 237, 0.22);
+    }
+    body:not(.theme-dark) .boot-splash-sub,
+    body:not(.theme-dark) .boot-splash-meta {
+        color: rgba(26, 29, 34, 0.58);
+    }
+    body:not(.theme-dark) .boot-splash-orb-core {
+        background: #2f6fed;
+        box-shadow:
+            0 0 18px rgba(47, 111, 237, 0.46),
+            0 0 44px rgba(47, 111, 237, 0.22);
+    }
+    body:not(.theme-dark) .boot-splash-orb-ring {
+        border-color: rgba(47, 111, 237, 0.34);
+    }
+    body:not(.theme-dark) .boot-splash-meta-dot {
+        background: #2f6fed;
+        box-shadow: 0 0 8px rgba(47, 111, 237, 0.55);
+    }
+}
 body.theme-dark #boot-splash {
     background:
         radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 38%),
@@ -12480,18 +12526,19 @@ body.theme-dark #boot-splash {
 body.theme-light #boot-splash {
     background:
         radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 38%),
-        radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.04), transparent 42%),
+        radial-gradient(circle at 50% 100%, rgba(24, 36, 64, 0.045), transparent 44%),
         linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
     color: var(--text-primary);
 }
 body.theme-light .boot-splash-card {
-    border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, #cbd5e1);
     border-radius: 24px;
-    background: rgba(255, 255, 255, 0.72);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.78));
     box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.9) inset,
-        0 24px 70px rgba(24, 36, 64, 0.14),
-        0 4px 16px rgba(24, 36, 64, 0.08);
+        0 1px 0 rgba(255, 255, 255, 0.95) inset,
+        0 0 0 1px rgba(255, 255, 255, 0.72) inset,
+        0 26px 72px rgba(24, 36, 64, 0.14),
+        0 6px 20px rgba(24, 36, 64, 0.08);
 }
 body.theme-light .boot-splash-headline {
     color: color-mix(in srgb, var(--accent) 78%, #10254c);
@@ -13711,6 +13758,8 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   text-align: left;
   cursor: pointer;
   width: 100%;
+  max-height: 64px;
+  overflow: hidden;
 }
 .inline-notch .inline-notch-head:hover {
   border-color: color-mix(in srgb, var(--accent, #a8c3ff) 35%, var(--border, #232831));
@@ -13735,6 +13784,8 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
 }
 .inline-notch .inline-notch-meta {
   display: flex; flex-direction: column; min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 .inline-notch .inline-notch-name {
   font-size: 11px; font-weight: 600;
@@ -13743,6 +13794,12 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
 }
 .inline-notch .inline-notch-sub {
   font-size: 10px; color: var(--muted, #8a93a0);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .inline-notch .inline-notch-stream-head {
