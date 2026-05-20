@@ -252,10 +252,7 @@ pub fn detect_git_context(cwd: &Path) -> Option<GitInfo> {
     if toplevel.is_empty() {
         return None;
     }
-    let repo_name = Path::new(toplevel)
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let repo_name = crate::git_tools::display_repo_name(Path::new(toplevel));
 
     // Branch first, fall back to detached short-sha.
     let branch = match run_git(cwd, &["symbolic-ref", "--short", "HEAD"]) {
@@ -353,6 +350,12 @@ impl ContextCache {
                 value,
             },
         );
+    }
+
+    pub fn invalidate(&self, cwd: &Path) {
+        if let Ok(mut map) = self.inner.lock() {
+            map.remove(cwd);
+        }
     }
 
     #[cfg(test)]

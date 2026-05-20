@@ -17,7 +17,9 @@
 //! tokio primitives (`Mutex`, `mpsc`, `broadcast`).
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::env;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,6 +41,69 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 /// stdin write queue depth. Commands are tiny; this just bounds the
 /// pathological case of a runaway caller.
 const STDIN_CHANNEL_CAPACITY: usize = 128;
+
+#[cfg(unix)]
+const GUI_APP_PATH_DIRS: &[&str] = &[
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+];
+
+#[cfg(not(unix))]
+const GUI_APP_PATH_DIRS: &[&str] = &[];
+
+fn default_pi_program() -> PathBuf {
+    let path = augmented_path(env::var_os("PATH"));
+    find_program_on_path("pi", path.as_deref()).unwrap_or_else(|| PathBuf::from("pi"))
+}
+
+fn augmented_path(existing: Option<OsString>) -> Option<OsString> {
+    let mut paths: Vec<PathBuf> = existing
+        .as_deref()
+        .map(env::split_paths)
+        .map(|paths| paths.collect())
+        .unwrap_or_default();
+
+    for dir in GUI_APP_PATH_DIRS {
+        let candidate = PathBuf::from(dir);
+        if !paths.iter().any(|p| p == &candidate) {
+            paths.push(candidate);
+        }
+    }
+
+    env::join_paths(paths).ok()
+}
+
+fn find_program_on_path(program: &str, path: Option<&OsStr>) -> Option<PathBuf> {
+    let program_path = Path::new(program);
+    if program_path.components().count() > 1 {
+        return program_path.is_file().then(|| program_path.to_path_buf());
+    }
+
+    let path = path?;
+    for dir in env::split_paths(path) {
+        let candidate = dir.join(program);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+
+        #[cfg(windows)]
+        {
+            let candidate = dir.join(format!("{program}.cmd"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            let candidate = dir.join(format!("{program}.exe"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct PiSpawnOpts {
@@ -117,8 +182,14 @@ impl PiSession {
     /// live. The `session_id` is yours — pass any string that uniquely
     /// identifies this session in your app.
     pub async fn spawn(session_id: String, opts: PiSpawnOpts) -> Result<Arc<Self>, PiSpawnError> {
-        let program = opts.program.clone().unwrap_or_else(|| PathBuf::from("pi"));
+        let program = opts.program.clone().unwrap_or_else(default_pi_program);
         let mut cmd = Command::new(&program);
+        if let Some(path) = augmented_path(env::var_os("PATH")) {
+            // GUI-launched macOS apps often inherit a sparse PATH. Keep the
+            // user's PATH first, then add Homebrew/system bins so both `pi`
+            // and its `#!/usr/bin/env node` shebang can resolve.
+            cmd.env("PATH", path);
+        }
         cmd.arg("--mode").arg("rpc");
         if let Some(p) = &opts.provider {
             cmd.arg("--provider").arg(p);
@@ -423,7 +494,7 @@ mod tests {
         // (POSIX) so this works on any unix-like CI.
         let script = r#"printf '{"type":"agent_start"}\n{"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"hi"}}\n{"type":"agent_end","messages":[]}\n'"#;
 
-        let opts = PiSpawnOpts {
+        let _opts = PiSpawnOpts {
             program: Some(PathBuf::from("sh")),
             extra_args: vec!["-c".into(), script.into()],
             no_session: false, // irrelevant; --mode rpc isn't even passed

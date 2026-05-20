@@ -20,7 +20,7 @@
   top: 76px; /* app titlebar (38) + horizontal tabbar (38) */
   right: 0;
   bottom: 26px; /* status bar height; overridden below when hidden */
-  width: min(240px, calc(100vw - 32px));
+  width: min(var(--right-sidebar-w, 240px), calc(100vw - 32px));
   max-width: 100vw;
   min-width: 0;
   height: auto;

@@ -19,7 +19,7 @@ function renderChipText(s: Summary, u: { login: string; avatar_url: string } | n
 export function makeScoreChip(): ScoreChip {
   const el = document.createElement("button");
   el.className = "status-segment status-score";
-  el.setAttribute("aria-label", "Covenant score — click to open");
+  el.setAttribute("aria-label", "Metrics — click to open");
   el.style.cursor = "pointer";
 
   const text = document.createElement("span");

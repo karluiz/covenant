@@ -77,11 +77,12 @@ describe("PiChatView", () => {
     vi.unstubAllGlobals();
   });
 
-  it("mounts header, message list, and input", () => {
+  it("mounts header, message list, empty state, and input", () => {
     const host = mountHost();
     new PiChatView({ sessionId: "s1" as never, host });
     expect(host.querySelector(".pi-chat-header")).toBeTruthy();
     expect(host.querySelector(".pi-chat-messages")).toBeTruthy();
+    expect(host.querySelector(".pi-chat-empty")?.textContent).toContain("not a terminal");
     expect(host.querySelector(".pi-chat-textarea")).toBeTruthy();
     expect(host.querySelector(".pi-chat-send")).toBeTruthy();
   });
@@ -98,6 +99,7 @@ describe("PiChatView", () => {
     expect(sendPromptMock).toHaveBeenCalledWith("s1", "hello pi");
     const userMsg = host.querySelector(".pi-msg-user .pi-msg-content");
     expect(userMsg?.textContent).toBe("hello pi");
+    expect(host.querySelector<HTMLElement>(".pi-chat-empty")?.hidden).toBe(true);
   });
 
   it("streams text_delta events into the assistant bubble", async () => {

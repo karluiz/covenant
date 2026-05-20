@@ -184,6 +184,10 @@ pub enum SessionEvent {
     ExecutorStateChanged {
         session: SessionId,
         phase: ExecutorPhase,
+        /// Foreground executor agent driving the phase, when known
+        /// (e.g. "claude", "codex", "pi").
+        #[serde(default)]
+        agent: Option<String>,
         tab_label: Option<String>,
     },
 }
@@ -733,11 +737,13 @@ mod event_serde_tests {
             phase: ExecutorPhase::Writing {
                 file: "profile.rs".into(),
             },
+            agent: Some("pi".into()),
             tab_label: None,
         };
         let json = serde_json::to_string(&ev).expect("serialize");
         assert!(json.contains("executor_state_changed"));
         assert!(json.contains("profile.rs"));
+        assert!(json.contains("pi"));
     }
 
     #[test]

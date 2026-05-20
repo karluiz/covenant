@@ -91,6 +91,7 @@ impl NotchHub {
                 let ev = SessionEvent::ExecutorStateChanged {
                     session: *sid,
                     phase: karl_session::ExecutorPhase::Idle,
+                    agent: entry.agent.clone(),
                     tab_label: labels.get(sid).cloned(),
                 };
                 if let Some(bus) = &entry.bus {
@@ -168,12 +169,20 @@ impl NotchHub {
         } else if entry.done_emitted {
             return;
         }
-        if phase == entry.display {
+        let now = std::time::Instant::now();
+        let same_phase = phase == entry.display;
+        let heartbeat = same_phase
+            && entry.last_emit.elapsed() > std::time::Duration::from_secs(3)
+            && !matches!(phase, karl_session::ExecutorPhase::Idle)
+            && !is_done;
+        if same_phase && !heartbeat {
             return;
         }
-        entry.display = phase.clone();
-        entry.last_emit = std::time::Instant::now();
-        entry.last_change = entry.last_emit;
+        if !same_phase {
+            entry.display = phase.clone();
+            entry.last_change = now;
+        }
+        entry.last_emit = now;
         if is_done {
             entry.done_emitted = true;
         }
@@ -181,6 +190,7 @@ impl NotchHub {
         let ev = SessionEvent::ExecutorStateChanged {
             session,
             phase,
+            agent: entry.agent.clone(),
             tab_label,
         };
         if let Some(bus) = &entry.bus {
@@ -211,6 +221,7 @@ impl NotchHub {
             let ev = SessionEvent::ExecutorStateChanged {
                 session,
                 phase: karl_session::ExecutorPhase::Idle,
+                agent: entry.agent.clone(),
                 tab_label,
             };
             let _ = self.notch_tx.send(ev);
@@ -294,6 +305,7 @@ impl NotchHub {
             let ev = SessionEvent::ExecutorStateChanged {
                 session,
                 phase: karl_session::ExecutorPhase::Idle,
+                agent: entry.agent.clone(),
                 tab_label,
             };
             if let Some(bus) = &entry.bus {
@@ -332,6 +344,7 @@ impl NotchHub {
             let ev = SessionEvent::ExecutorStateChanged {
                 session,
                 phase,
+                agent: entry.agent.clone(),
                 tab_label,
             };
             if let Some(bus) = &entry.bus {
@@ -355,10 +368,11 @@ impl NotchHub {
         let labels = self.labels.lock().await;
         sessions
             .iter()
-            .filter(|(_, e)| !matches!(e.detector.phase(), karl_session::ExecutorPhase::Idle))
+            .filter(|(_, e)| !matches!(e.display, karl_session::ExecutorPhase::Idle))
             .map(|(sid, entry)| SessionEvent::ExecutorStateChanged {
                 session: *sid,
-                phase: entry.detector.phase().clone(),
+                phase: entry.display.clone(),
+                agent: entry.agent.clone(),
                 tab_label: labels.get(sid).cloned(),
             })
             .collect()
@@ -585,11 +599,60 @@ mod tests {
         hub.set_foreground_agent(sid, Some("pi".into())).await;
         while rx.try_recv().is_ok() {}
 
-        hub.ingest(sid, "∶ Transcoding reality...\n".as_bytes())
+        hub.ingest(sid, "∴ Waiting for heat death of universe...\n".as_bytes())
             .await;
         match rx.recv().await.expect("thinking") {
             SessionEvent::ExecutorStateChanged { phase, .. } => {
                 assert!(matches!(phase, ExecutorPhase::Thinking), "got {phase:?}");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_uses_external_display_phase() {
+        let hub = NotchHub::new();
+        let sid = SessionId::new();
+        hub.register_external(sid, "pi".into()).await;
+        hub.set_phase(sid, ExecutorPhase::Thinking).await;
+
+        let snap = hub.snapshot().await;
+        assert_eq!(snap.len(), 1);
+        match &snap[0] {
+            SessionEvent::ExecutorStateChanged { session, phase, .. } => {
+                assert_eq!(*session, sid);
+                assert!(matches!(phase, ExecutorPhase::Thinking));
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn external_same_phase_heartbeats() {
+        let hub = NotchHub::new();
+        let mut rx = hub.subscribe();
+        let sid = SessionId::new();
+        hub.register_external(sid, "pi".into()).await;
+        hub.set_phase(sid, ExecutorPhase::Thinking).await;
+        let _ = rx.recv().await.expect("initial thinking");
+
+        {
+            let mut sessions = hub.sessions.lock().await;
+            let entry = sessions.get_mut(&sid).expect("entry");
+            entry.last_emit = std::time::Instant::now() - std::time::Duration::from_secs(4);
+        }
+
+        hub.set_phase(sid, ExecutorPhase::Thinking).await;
+        match rx.recv().await.expect("heartbeat") {
+            SessionEvent::ExecutorStateChanged {
+                session,
+                phase,
+                agent,
+                ..
+            } => {
+                assert_eq!(session, sid);
+                assert_eq!(agent.as_deref(), Some("pi"));
+                assert!(matches!(phase, ExecutorPhase::Thinking));
             }
             other => panic!("unexpected: {other:?}"),
         }
@@ -600,6 +663,7 @@ mod tests {
         let ev = SessionEvent::ExecutorStateChanged {
             session: SessionId::new(),
             phase: ExecutorPhase::Done { summary: None },
+            agent: Some("pi".into()),
             tab_label: None,
         };
         let json = serde_json::to_value(&ev).expect("json");

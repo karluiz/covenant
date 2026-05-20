@@ -89,12 +89,14 @@ fn re_thinking() -> &'static Regex {
 }
 fn re_pi_thinking_status() -> &'static Regex {
     RE_PI_THINKING_STATUS.get_or_init(|| {
-        // Pi's TUI renders a live status line like:
+        // Pi's TUI renders live status lines like:
         //   `∶ Transcoding reality...`
+        //   `∴ Waiting for heat death of universe...`
         // It is not structured JSON when Pi is run as a normal PTY CLI, so
         // treat this spinner as the Thinking phase. Keep the colon/spinner
         // prefix requirement to avoid matching arbitrary assistant prose.
-        Regex::new(r"(?:^|[\r\n])\s*[:∶：]\s*[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}(?:…|\.{3})").unwrap()
+        Regex::new(r"(?:^|[\r\n])\s*[:∶：∴]\s*[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}(?:…|\.{3})")
+            .unwrap()
     })
 }
 static RE_DONE: OnceLock<Regex> = OnceLock::new();
@@ -267,6 +269,14 @@ mod tests {
     fn detects_pi_cli_thinking_spinner() {
         let mut d = ExecutorPhaseDetector::new();
         let changed = d.feed("∶ Transcoding reality...\n".as_bytes());
+        assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn detects_pi_cli_thinking_spinner_with_therefore_glyph() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("∴ Waiting for heat death of universe...\n".as_bytes());
         assert!(changed);
         assert_eq!(d.phase(), &ExecutorPhase::Thinking);
     }

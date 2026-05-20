@@ -15,7 +15,7 @@ import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 
 import { Icons } from "../icons";
-import { editorHighlight, editorTheme } from "../structure/theme";
+import { currentEditorMode, editorHighlight, editorTheme } from "../structure/theme";
 import { draftsApi, type DraftDocument, type SuggestSection } from "./api";
 
 export interface DraftWizardOpts {
@@ -186,7 +186,7 @@ export class DraftWizard {
         <button id="wiz-back" type="button" class="drafts-back" aria-label="Back">←</button>
         <input id="wiz-title" type="text" class="wiz-title" value="${escapeAttr(this.title)}" />
         <div class="drafts-actions">
-          <button id="wiz-save" type="button">Save</button>
+          <button id="wiz-save" type="button" class="drafts-secondary">Save</button>
           <button id="wiz-publish" type="button" class="drafts-primary" disabled>Publish</button>
           <button id="wiz-close" type="button" class="drafts-close" aria-label="Close">×</button>
         </div>
@@ -233,13 +233,14 @@ export class DraftWizard {
 
       const key = s.key;
       const initialValue = this.values.get(key) ?? "";
+      const mode = currentEditorMode();
 
       const view = new EditorView({
         state: EditorState.create({
           doc: initialValue,
           extensions: [
-            editorTheme(document.body.classList.contains("theme-light") ? "light" : "dark"),
-            editorHighlight(document.body.classList.contains("theme-light") ? "light" : "dark"),
+            editorTheme(mode),
+            editorHighlight(mode),
             highlightActiveLine(),
             drawSelection(),
             history(),

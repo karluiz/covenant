@@ -40,6 +40,9 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "⇧", "N"], label: "Notch overlay", description: "Toggle the floating executor-status notch (global shortcut; works app-unfocused)." },
   { category: "Panels", keys: ["⌘", "⇧", "I"], label: "Capabilities", description: "Browse Skills / Commands / Hooks / MCPs across Claude, Copilot, opencode, Shared." },
   { category: "Panels", keys: ["⌘", "⇧", "P"], label: "Workspace picker", description: "Toggle the workspace switcher popover: pick, rename, duplicate, recolor, delete." },
+  { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Open version history / release notes." },
+  { category: "Operator & AI", keys: ["⌘", "⌥", "P"], label: "Pi overlay", description: "Toggle the transient Pi RPC overlay for the active cwd." },
+  { category: "Tabs", keys: ["⌘", "⌥", "⇧", "P"], label: "New Pi tab", description: "Create a permanent Pi RPC tab in the tabbar." },
   { category: "Tabs", keys: ["⌘", "⌥", "N"], label: "New workspace", description: "Create a new workspace and switch to it. The outgoing workspace's PTYs are killed and respawned from manifest on next switch." },
 
   // Operator & AI — agent-driven features (super-agent, operators, mission, familiars)
@@ -52,6 +55,8 @@ export const SHORTCUTS: ShortcutEntry[] = [
 
   // AOM — autonomous overnight mode
   { category: "AOM", keys: ["⌘", "⇧", "A"], label: "Toggle AOM", description: "Start or stop autonomous overnight mode." },
+  { category: "AOM", keys: ["⌘", "⇧", "E"], label: "Exclude / include active tab", description: "While AOM is running, keep the active tab manual or include it again." },
+  { category: "AOM", keys: ["⌘", "⇧", "R"], label: "AOM report", description: "Open the read-only report for the most recent AOM session." },
 
   // Navigation / view
   { category: "Navigation", keys: ["⌘", "+"], label: "Zoom in", description: "Increase UI zoom." },
@@ -59,6 +64,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Navigation", keys: ["⌘", "0"], label: "Reset zoom", description: "Restore zoom to 100%." },
 
   // Misc
+  { category: "Misc", keys: ["⌘", "⇧", "."], label: "Kill foreground process", description: "Terminate the active tab's foreground process tree when Ctrl+C is swallowed." },
   { category: "Misc", keys: ["Esc"], label: "Close modal / overlay", description: "Closes the topmost panel; routes to terminal otherwise." },
 ];
 

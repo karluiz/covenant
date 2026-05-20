@@ -74,7 +74,7 @@ export function renderGroupBars(host: HTMLElement, rows: GroupCell[]): void {
     const el = document.createElement("div");
     el.className = "bar-row";
     el.innerHTML = `
-      <div class="name"><span class="dotc" style="background:${color}"></span>${escHtml(row.group_name)}</div>
+      <div class="name"><span class="dotc" style="background:${color}"></span>${escHtml(displayGroupName(row.group_name))}</div>
       <div class="bar"><div class="seg-p" style="width:${pPct.toFixed(1)}%"></div></div>
       <div class="meta">${row.prompts} prompts</div>
     `;
@@ -100,7 +100,7 @@ export function renderSessions(host: HTMLElement, rows: SessionRow[]): void {
       ? `<span class="slash">/</span><span class="branch">${escHtml(row.branch)}</span>`
       : "";
     const group = row.group_name
-      ? `<span class="group">${escHtml(row.group_name).toUpperCase()}</span>`
+      ? `<span class="group">${escHtml(displayGroupName(row.group_name))}</span>`
       : "";
     el.innerHTML = `
       <div class="when">${when}</div>
@@ -113,6 +113,16 @@ export function renderSessions(host: HTMLElement, rows: SessionRow[]): void {
     `;
     host.appendChild(el);
   }
+}
+
+export function displayGroupName(name: string): string {
+  return name
+    .split(/(\s+|-|_)/)
+    .map((part) => {
+      if (/^(\s+|-|_)$/u.test(part) || part === "") return part;
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join("");
 }
 
 function relativeDate(ts: number): string {

@@ -602,6 +602,14 @@ export class TabManager {
     | ((sessionId: SessionId | null) => void)
     | null = null;
 
+  /// Fires whenever the active tab's executor label changes without a tab
+  /// activation (e.g. a PTY tab starts/stops `pi`, `claude`, or `codex`).
+  /// The Activity sidebar uses this to keep its header in sync while the
+  /// session id itself is unchanged.
+  public onActiveExecutorChange:
+    | ((executor: string | null) => void)
+    | null = null;
+
   /// Fires after every tabbar re-render so the collapsed-rail (the
   /// thin sidebar shown in vertical mode when the user folds the
   /// tabbar) can rebuild its dot/cell view from the same source of
@@ -1815,6 +1823,7 @@ export class TabManager {
                 tabRef.current.executor = next;
                 if (tabRef.current.id === this.activeId) {
                   this.statusBar?.setExecutor(next);
+                  this.onActiveExecutorChange?.(next);
                 }
                 // Tear down any Recall popup the moment an executor
                 // takes over the PTY: its buffer is now stale shell
@@ -1833,6 +1842,7 @@ export class TabManager {
                 tabRef.current.executor = null;
                 if (tabRef.current.id === this.activeId) {
                   this.statusBar?.setExecutor(null);
+                  this.onActiveExecutorChange?.(null);
                 }
               }
             }
@@ -1995,7 +2005,11 @@ export class TabManager {
     // we persist it in localStorage and re-apply on every editor open.
     // CSS handles the default ratio when no override is set.
     const SPLITTER_PREF_KEY = "covenant.editor.terminal-width";
-    const SIDEBAR_WIDTH = 220; // matches CSS for the editor-open layout
+    const sidebarWidth = (): number => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue("--right-sidebar-w");
+      const n = Number.parseFloat(raw);
+      return Number.isFinite(n) && n > 0 ? n : 240;
+    };
     const TERMINAL_MIN = 200;
     const EDITOR_MIN = 280;
     const SPLITTER_PX = 4;
@@ -2005,12 +2019,13 @@ export class TabManager {
         pane.style.gridTemplateColumns = "";
         return;
       }
+      const sidebar = sidebarWidth();
       const clamped = Math.max(
         TERMINAL_MIN,
-        Math.min(px, pane.offsetWidth - SIDEBAR_WIDTH - EDITOR_MIN - SPLITTER_PX),
+        Math.min(px, pane.offsetWidth - sidebar - EDITOR_MIN - SPLITTER_PX),
       );
       pane.style.gridTemplateColumns =
-        `${clamped}px ${SPLITTER_PX}px 1fr ${SIDEBAR_WIDTH}px`;
+        `${clamped}px ${SPLITTER_PX}px 1fr ${sidebar}px`;
     };
 
     const persistedTerminalWidth = (): number | null => {
@@ -2129,6 +2144,7 @@ export class TabManager {
         showSplitter(false);
         refitAfterLayoutTransition();
       },
+      onOpenPath: (path) => openEditor(path),
       onApplySpec: (path) => {
         void (async () => {
           const tab = this.tabs.find((t) => t.id === this.activeId);
@@ -3350,6 +3366,7 @@ export class TabManager {
     this.emitActiveSpawn();
     this.emitActiveTab();
     this.statusBar?.setExecutor(tab.executor);
+    this.onActiveExecutorChange?.(tab.executor);
 
     if (tab.kind === "pi") {
       // Pi tabs have no xterm to fit/resize; just hand focus to the

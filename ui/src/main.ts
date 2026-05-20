@@ -163,6 +163,111 @@ function applyUiFont(stack: string | null | undefined): void {
 }
 
 const TABBAR_LEFT_COLLAPSED_KEY = "covenant.tabbar-left-collapsed";
+const LEFT_SIDEBAR_WIDTH_KEY = "covenant.left-sidebar-width";
+const RIGHT_SIDEBAR_WIDTH_KEY = "covenant.right-sidebar-width";
+const LEFT_SIDEBAR_DEFAULT = 232;
+const RIGHT_SIDEBAR_DEFAULT = 240;
+const LEFT_SIDEBAR_MIN = 180;
+const LEFT_SIDEBAR_MAX = 420;
+const RIGHT_SIDEBAR_MIN = 180;
+const RIGHT_SIDEBAR_MAX = 520;
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+function readStoredPx(key: string, fallback: number, min: number, max: number): number {
+  const raw = localStorage.getItem(key);
+  const n = raw === null ? NaN : Number(raw);
+  return Number.isFinite(n) ? clamp(n, min, max) : fallback;
+}
+
+function setRootPx(name: string, px: number): void {
+  document.documentElement.style.setProperty(name, `${Math.round(px)}px`);
+}
+
+function applyStoredSidebarWidths(): void {
+  setRootPx(
+    "--tabbar-w-expanded",
+    readStoredPx(LEFT_SIDEBAR_WIDTH_KEY, LEFT_SIDEBAR_DEFAULT, LEFT_SIDEBAR_MIN, LEFT_SIDEBAR_MAX),
+  );
+  setRootPx(
+    "--right-sidebar-w",
+    readStoredPx(RIGHT_SIDEBAR_WIDTH_KEY, RIGHT_SIDEBAR_DEFAULT, RIGHT_SIDEBAR_MIN, RIGHT_SIDEBAR_MAX),
+  );
+}
+
+function installSidebarResizers(layout: HTMLElement, manager: TabManager): void {
+  const mk = (id: string): HTMLElement => {
+    const el = document.createElement("div");
+    el.id = id;
+    el.className = "sidebar-resizer";
+    el.setAttribute("role", "separator");
+    el.setAttribute("aria-orientation", "vertical");
+    layout.appendChild(el);
+    return el;
+  };
+  const left = mk("left-sidebar-resizer");
+  const right = mk("right-sidebar-resizer");
+
+  const beginDrag = (
+    e: PointerEvent,
+    side: "left" | "right",
+  ): void => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const key = side === "left" ? LEFT_SIDEBAR_WIDTH_KEY : RIGHT_SIDEBAR_WIDTH_KEY;
+    const cssName = side === "left" ? "--tabbar-w-expanded" : "--right-sidebar-w";
+    const min = side === "left" ? LEFT_SIDEBAR_MIN : RIGHT_SIDEBAR_MIN;
+    const max = side === "left" ? LEFT_SIDEBAR_MAX : RIGHT_SIDEBAR_MAX;
+    const fallback = side === "left" ? LEFT_SIDEBAR_DEFAULT : RIGHT_SIDEBAR_DEFAULT;
+    const startWidth = readStoredPx(key, fallback, min, max);
+    const prevSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.classList.add("sidebar-resizing");
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    let current = startWidth;
+    let raf = 0;
+    const apply = (w: number): void => {
+      current = clamp(w, min, max);
+      setRootPx(cssName, current);
+      if (side === "right") {
+        document.querySelectorAll<HTMLElement>(".tab-pane").forEach((pane) => {
+          const cols = pane.style.gridTemplateColumns;
+          if (!cols) return;
+          pane.style.gridTemplateColumns = cols.replace(/(\S+\s+\S+\s+\S+\s+)\d+(?:\.\d+)?px$/, `$1${Math.round(current)}px`);
+        });
+      }
+      if (raf === 0) {
+        raf = window.requestAnimationFrame(() => {
+          raf = 0;
+          manager.refitActive();
+        });
+      }
+    };
+    const onMove = (ev: PointerEvent): void => {
+      const delta = side === "left" ? ev.clientX - startX : startX - ev.clientX;
+      apply(startWidth + delta);
+    };
+    const onUp = (): void => {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      document.body.classList.remove("sidebar-resizing");
+      document.body.style.userSelect = prevSelect;
+      document.body.style.cursor = prevCursor;
+      localStorage.setItem(key, String(Math.round(current)));
+      manager.refitActive();
+    };
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+  };
+
+  left.addEventListener("pointerdown", (e) => beginDrag(e, "left"));
+  right.addEventListener("pointerdown", (e) => beginDrag(e, "right"));
+}
 
 /// Toggle the collapsed state of the vertical tabbar. Only meaningful
 /// when `body.tabbar-left` is active; in top mode the fold chevron is
@@ -312,6 +417,7 @@ async function boot(): Promise<void> {
   document.body.classList.toggle("theme-light", initialResolvedTheme === "light");
   document.body.classList.toggle("theme-dark", initialResolvedTheme === "dark");
   applyTabbarCollapsed(localStorage.getItem(TABBAR_LEFT_COLLAPSED_KEY) === "1");
+  applyStoredSidebarWidths();
 
   const tabbar = requireEl<HTMLElement>("tabs");
   tabbar.addEventListener("wheel", (e) => {
@@ -504,6 +610,24 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
+  installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
+
+  const publishActivityActiveSession = (): void => {
+    const sessionId = manager.activeSessionId();
+    const tabId = manager.getActiveTabId();
+    const tabName = tabId ? manager.getTabLabel(tabId) : null;
+    const group = manager.activeGroup();
+    const tabLabel = tabName ? (group ? `${group.name} › ${tabName}` : tabName) : null;
+    window.dispatchEvent(
+      new CustomEvent("ui:active-session", {
+        detail: {
+          session_id: sessionId,
+          agent: manager.activeExecutor(),
+          tab_label: tabLabel,
+        },
+      }),
+    );
+  };
 
   // Initial theme apply now that the TabManager exists. Settings may have
   // been unreachable at the early boot block above — fall back to "system".
@@ -594,7 +718,10 @@ async function boot(): Promise<void> {
   // the mockup: active-agent header + chronological activity stream.
   const activityHost = document.getElementById("activity-sidebar");
   if (activityHost instanceof HTMLElement) {
-    void import("./inline-notch").then((m) => m.mountInlineNotch(activityHost));
+    void import("./inline-notch").then((m) => {
+      m.mountInlineNotch(activityHost);
+      publishActivityActiveSession();
+    });
   }
   manager.onActiveContextChange = (cwd) => {
     statusBar.setCwd(cwd);
@@ -609,6 +736,7 @@ async function boot(): Promise<void> {
   // don't paint until the user switches to that tab.
   manager.onActiveSessionChange = (sessionId) => {
     void invoke("set_active_session_for_vitals", { sessionId });
+    publishActivityActiveSession();
   };
   manager.onActiveMissionChange = (mission, sessionId) =>
     statusBar.setMission(mission, sessionId);
@@ -619,6 +747,7 @@ async function boot(): Promise<void> {
     statusBar.setOperator(state, sessionId);
   manager.onActiveOperatorEntityChange = (op) =>
     statusBar.setOperatorEntity(op);
+  manager.onActiveExecutorChange = () => publishActivityActiveSession();
   // Tab context-menu "View mission…" reuses the same modal as the
   // status-bar chip — keep the rendering in one place.
   manager.onMissionViewRequested = (mission, sessionId) =>
@@ -635,6 +764,9 @@ async function boot(): Promise<void> {
   statusBar.onMissionEditRequested = openMissionFromStatusBar;
   statusBar.onMissionClearRequested = (sessionId) =>
     manager.clearMissionForSession(sessionId);
+  statusBar.onOpenGitWorktree = (path, label) => {
+    void manager.createTab({ cwd: path, customName: label });
+  };
 
   // Post-publish toast "Open in Set Mission" fires this event with the
   // published spec path so we can wire it directly into the active tab

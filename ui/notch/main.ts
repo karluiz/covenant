@@ -28,7 +28,7 @@ type StatePayload = {
   tab_label?: string | null;
 };
 
-listen<StatePayload>("notch:state", (ev) => {
+const onNotchState = (ev: { payload: StatePayload }): void => {
   const sid = ev.payload.session;
   // Idle is the explicit "agent stopped" signal — drop any existing pill.
   if (ev.payload.phase.kind === "idle") {
@@ -47,7 +47,9 @@ listen<StatePayload>("notch:state", (ev) => {
     phase: ev.payload.phase,
   };
   store.apply(input);
-});
+};
+
+const notchStateListenerReady = listen<StatePayload>("notch:state", onNotchState);
 
 setInterval(() => store.gc(), 500);
 
@@ -93,8 +95,10 @@ function playDoneChime(): void {
 }
 
 // Replay phases from sessions that started before this WebView mounted.
-// Also returns the current corner + sound preference from settings.
-invoke<NotchReady>("notch_ready")
+// Also returns the current corner + sound preference from settings. Wait
+// until the listener is registered so snapshot events are not lost.
+notchStateListenerReady
+  .then(() => invoke<NotchReady>("notch_ready"))
   .then((r) => {
     if (!r) return;
     applyCorner(r.corner);

@@ -1,7 +1,7 @@
 import type { ScoreFilter, Summary, DailyCell } from "./api";
 import * as api from "./api";
 import type { ModelSource } from "./api";
-import { renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
+import { displayGroupName, renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
 import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
 import { getCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
@@ -37,7 +37,7 @@ const TEMPLATE = /* html */ `
       </div>
     </div>
     <div class="cov-card">
-      <h4>By group <span class="hint">karlTerminal tab groups</span></h4>
+      <h4>By group <span class="hint">Covenant tab groups</span></h4>
       <div data-role="groups"></div>
     </div>
     <div class="cov-card">
@@ -173,7 +173,7 @@ function renderFilters(host: HTMLElement, state: State, page: HTMLElement): void
   }
   if (state.filter.group_name) {
     host.appendChild(
-      chipDismiss(`Group: ${state.filter.group_name}`, () => {
+      chipDismiss(`Group: ${displayGroupName(state.filter.group_name)}`, () => {
         state.filter.group_name = null;
         void refresh(page, state);
       }),

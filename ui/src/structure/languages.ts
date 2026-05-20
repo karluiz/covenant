@@ -145,6 +145,7 @@ const BY_EXT: Record<string, () => Extension> = {
   scss: () => css(),
   html: () => html(),
   htm: () => html(),
+  astro: () => html(),
   xml: () => html(),
   yaml: () => yaml(),
   yml: () => yaml(),

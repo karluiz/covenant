@@ -15,6 +15,13 @@ const MAX_ROWS = 40;
 type StatePayload = {
   session: string;
   phase: ExecutorPhase;
+  agent?: string | null;
+  tab_label?: string | null;
+};
+
+type ActiveSessionPayload = {
+  session_id: string | null;
+  agent?: string | null;
   tab_label?: string | null;
 };
 
@@ -72,6 +79,19 @@ function fmtDuration(ms: number): string {
   return `${h}h ${m % 60}m`;
 }
 
+function fmtAgent(agent: string | null | undefined): string {
+  switch (agent) {
+    case "pi": return "Pi";
+    case "claude": return "Claude";
+    case "codex": return "Codex";
+    case "copilot": return "Copilot";
+    case "opencode": return "opencode";
+    case "aider": return "aider";
+    case "gemini": return "Gemini";
+    default: return agent ? agent : "agent";
+  }
+}
+
 /// Mount the inline slot into `host`. Visibility is driven by
 /// `notch:inline-mode` events from the backend (true when main window is
 /// fullscreen, false otherwise).
@@ -119,18 +139,22 @@ export function mountInlineNotch(host: HTMLElement): void {
   const clearBtn = host.querySelector<HTMLButtonElement>(".clear")!;
 
   const rows: Row[] = [];
-  const phases = new Map<string, { tab: string; phase: ExecutorPhase }>();
+  const phases = new Map<string, { tab: string; agent: string | null; phase: ExecutorPhase }>();
   let activeSession: string | null = null;
+  let activeMeta: { tab: string; agent: string | null } | null = null;
 
   function render(): void {
     // Header reflects the active session's executor, falling back to
     // any running session if no active one is set.
+    const activePhase = activeSession ? phases.get(activeSession) : null;
     const focus =
-      (activeSession && phases.get(activeSession)) ??
+      (activePhase && (activePhase.phase.kind !== "idle" || activePhase.agent)
+        ? activePhase
+        : null) ??
       [...phases.values()].find((p) => p.phase.kind !== "idle") ??
-      null;
+      (activeMeta?.agent ? { ...activeMeta, phase: { kind: "idle" } as ExecutorPhase } : null);
     if (focus) {
-      headName.innerHTML = `claude · <span class="tab-id">${escapeHtml(focus.tab)}</span>`;
+      headName.innerHTML = `${escapeHtml(fmtAgent(focus.agent))} · <span class="tab-id">${escapeHtml(focus.tab)}</span>`;
       headSub.textContent = `▸ ${phaseLabel(focus.phase)}`;
       headAv.style.background = `linear-gradient(135deg, ${tabColorFor(focus.tab)}, #c7a8ff)`;
     } else {
@@ -144,7 +168,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       .reverse()
       .map(
         (r) => `
-          <div class="row ${r.kind}" title="${escapeHtml(`${r.message} — ${r.tag}`)}">
+          <div class="row ${r.kind}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}">
             <span class="ts">${fmtTime(r.ts)}</span>
             <span class="row-copy">
               <span class="msg">${escapeHtml(r.message)}</span>
@@ -157,6 +181,13 @@ export function mountInlineNotch(host: HTMLElement): void {
           </div>`,
       )
       .join("");
+
+    streamEl.querySelectorAll<HTMLElement>(".row").forEach((row) => {
+      attachTooltip(row, {
+        title: row.dataset.tipMessage ?? "",
+        meta: row.dataset.tipTag ?? "",
+      });
+    });
   }
 
   function pushRow(input: Omit<Row, "firstTs" | "count">): void {
@@ -189,10 +220,10 @@ export function mountInlineNotch(host: HTMLElement): void {
     render();
   });
 
-  listen<StatePayload>("notch:state", (ev) => {
+  const onNotchState = (ev: { payload: StatePayload }): void => {
     const sid = ev.payload.session;
     const tab = ev.payload.tab_label ?? `session ${sid.slice(0, 6)}`;
-    phases.set(sid, { tab, phase: ev.payload.phase });
+    phases.set(sid, { tab, agent: ev.payload.agent ?? null, phase: ev.payload.phase });
     pushRow({
       ts: Date.now(),
       session: sid,
@@ -201,15 +232,26 @@ export function mountInlineNotch(host: HTMLElement): void {
       message: phaseLabel(ev.payload.phase),
     });
     render();
-  });
+  };
 
-  listen<{ session_id: string | null }>("ui:active-session", (ev) => {
-    activeSession = ev.payload.session_id;
+  void listen<StatePayload>("notch:state", onNotchState)
+    // Replay current state only after the listener is definitely installed;
+    // otherwise `notch_ready` can emit the Pi snapshot into the void and
+    // leave the Activity sidebar stuck at "no agent".
+    .then(() => invoke("notch_ready").catch(() => {}))
+    .catch(() => {});
+
+  window.addEventListener("ui:active-session", (ev) => {
+    const detail = (ev as CustomEvent<ActiveSessionPayload>).detail;
+    activeSession = detail?.session_id ?? null;
+    activeMeta = detail?.session_id
+      ? {
+          tab: detail.tab_label ?? `session ${detail.session_id.slice(0, 6)}`,
+          agent: detail.agent ?? null,
+        }
+      : null;
     render();
   });
-
-  // Replay current state in case fullscreen toggled before we mounted.
-  invoke("notch_ready").catch(() => {});
 
   // Paint the empty "no agent" state so the sidebar isn't blank on first open.
   render();

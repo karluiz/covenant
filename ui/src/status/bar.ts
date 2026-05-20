@@ -20,6 +20,8 @@
 import type {
   AomStatus,
   DirContext,
+  GitRepoSummary,
+  GitWorktreeSummary,
   MissionInfo,
   MissionPlanInfo,
   MissionSaveResult,
@@ -31,6 +33,8 @@ import {
   aomStatus,
   getDirContext,
   getSessionMissionContent,
+  gitRepoSummary,
+  gitSwitchBranch,
   getSessionPlanContent,
   setSessionMissionContent,
   telegramStatus,
@@ -97,6 +101,8 @@ export class StatusBar {
   /// `live` is meaningful only when `enabled: true` (backend invariant).
   private currentOperator: { enabled: boolean; live: boolean } | null = null;
   private currentAom: AomStatus | null = null;
+  private branchPopover: HTMLElement | null = null;
+  private branchPopoverTicket = 0;
   /// Tabs currently excluded from AOM. Pushed by TabManager whenever
   /// the set changes (toggle, AOM transition, restore). Empty when
   /// AOM is off OR no exclusions exist — both collapse the suffix.
@@ -145,6 +151,10 @@ export class StatusBar {
   /// Fires when the user clicks the operator chip in the status bar.
   /// No-op stub until the picker is wired in Plan 3 Task 5.
   public onOperatorChipClick: ((sessionId: SessionId) => void) | null = null;
+
+  /// Fired from the branch/worktree popover when the user wants a
+  /// worktree in its own terminal tab.
+  public onOpenGitWorktree: ((path: string, label: string) => void) | null = null;
 
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("status-bar");
@@ -211,6 +221,7 @@ export class StatusBar {
   /// tab emits a cwd_changed event. Null cwd → empty bar (no detection).
   setCwd(cwd: string | null): void {
     if (this.currentCwd === cwd) return;
+    this.closeBranchPopover();
     this.currentCwd = cwd;
     void this.refresh();
   }
@@ -550,9 +561,7 @@ export class StatusBar {
     // ─── LEFT ────────────────────────────────────────────
     if (this.currentTab) left.appendChild(activeTabSegment(this.currentTab));
     if (ctx.git) {
-      left.appendChild(
-        segment(GIT_BRANCH_SVG, ctx.git.repo_name, ctx.git.branch),
-      );
+      left.appendChild(this.gitSegment(ctx.git.repo_name, ctx.git.branch));
     }
     // Runtime (node 25.2.1 etc) dropped — vestigial tooling info, not
     // useful for an AI-native terminal's primary chrome. Lives in About.
@@ -658,6 +667,227 @@ export class StatusBar {
     this.host.appendChild(framing);
     this.host.appendChild(center);
     this.host.appendChild(right);
+  }
+
+  private gitSegment(repoName: string, branch: string): HTMLElement {
+    const el = document.createElement("span");
+    el.className = "status-segment status-git";
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", `Git: ${repoName} on ${branch}. Click to switch branch or open a worktree.`);
+    attachTooltip(el, {
+      title: `${repoName} · ${branch}`,
+      hint: "Click for branches + worktrees",
+    });
+
+    const icon = document.createElement("span");
+    icon.className = "status-icon";
+    icon.innerHTML = GIT_BRANCH_SVG;
+    el.appendChild(icon);
+
+    const text = document.createElement("span");
+    text.className = "status-text";
+    text.textContent = repoName;
+    el.appendChild(text);
+
+    const sec = document.createElement("span");
+    sec.className = "status-secondary";
+    sec.textContent = branch;
+    el.appendChild(sec);
+
+    el.addEventListener("click", () => this.openBranchPopover(el));
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.openBranchPopover(el);
+    });
+    return el;
+  }
+
+  private openBranchPopover(anchor: HTMLElement): void {
+    if (this.branchPopover) {
+      this.closeBranchPopover();
+      return;
+    }
+    const cwd = this.currentCwd;
+    if (!cwd) return;
+
+    const pop = document.createElement("div");
+    pop.className = "status-git-popover";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", "Git branch switcher and worktrees");
+    pop.innerHTML = `<div class="status-git-pop-loading">Loading git context…</div>`;
+    document.body.appendChild(pop);
+    this.positionBranchPopover(pop, anchor);
+    this.branchPopover = pop;
+
+    const onDocClick = (e: MouseEvent): void => {
+      if (!this.branchPopover) return;
+      if (this.branchPopover.contains(e.target as Node)) return;
+      if (anchor.contains(e.target as Node)) return;
+      this.closeBranchPopover();
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") this.closeBranchPopover();
+    };
+    setTimeout(() => {
+      document.addEventListener("click", onDocClick);
+      document.addEventListener("keydown", onKey);
+    }, 0);
+    (pop as HTMLElement & { _cleanup?: () => void })._cleanup = () => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+
+    const ticket = ++this.branchPopoverTicket;
+    void gitRepoSummary(cwd)
+      .then((summary) => {
+        if (ticket !== this.branchPopoverTicket || this.branchPopover !== pop) return;
+        this.renderBranchPopoverSummary(pop, summary, cwd);
+        this.positionBranchPopover(pop, anchor);
+      })
+      .catch((err) => {
+        if (ticket !== this.branchPopoverTicket || this.branchPopover !== pop) return;
+        this.renderBranchPopoverError(pop, String(err));
+        this.positionBranchPopover(pop, anchor);
+      });
+  }
+
+  private positionBranchPopover(pop: HTMLElement, anchor: HTMLElement): void {
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    const width = pop.offsetWidth || 420;
+    const height = pop.offsetHeight || 240;
+    const left = Math.min(
+      Math.max(margin, rect.left),
+      Math.max(margin, window.innerWidth - width - margin),
+    );
+    const above = rect.top - height - 6;
+    const top = above >= margin ? above : Math.min(window.innerHeight - height - margin, rect.bottom + 6);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${Math.max(margin, top)}px`;
+  }
+
+  private renderBranchPopoverSummary(pop: HTMLElement, summary: GitRepoSummary, cwd: string): void {
+    const current = currentGitLabel(summary);
+    const dirty = summary.dirty_count > 0
+      ? `<span class="status-git-pop-dirty">${summary.dirty_count} changed</span>`
+      : `<span class="status-git-pop-clean">clean</span>`;
+    const branches = summary.branches.length > 0
+      ? summary.branches.map((b) => {
+        const inOtherWorktree = !!b.worktree_path && !b.current;
+        const disabled = b.current || inOtherWorktree;
+        const meta = [b.upstream, b.last_commit].filter(Boolean).join(" · ");
+        const badge = b.current
+          ? `<span class="status-git-pop-badge">current</span>`
+          : inOtherWorktree
+            ? `<span class="status-git-pop-badge">worktree</span>`
+            : "";
+        return `
+          <button type="button" class="status-git-pop-row status-git-pop-branch${b.current ? " is-current" : ""}" data-branch="${escapeHtml(b.name)}" ${disabled ? "disabled" : ""}>
+            <span class="status-git-pop-row-main">
+              <span class="status-git-pop-row-name">${escapeHtml(b.name)}</span>
+              ${meta ? `<span class="status-git-pop-row-meta">${escapeHtml(meta)}</span>` : ""}
+              ${inOtherWorktree && b.worktree_path ? `<span class="status-git-pop-row-meta">checked out at ${escapeHtml(compactPath(b.worktree_path))}</span>` : ""}
+            </span>
+            ${badge}
+          </button>`;
+      }).join("")
+      : `<div class="status-git-pop-empty">No local branches found.</div>`;
+
+    const worktrees = summary.worktrees.length > 0
+      ? summary.worktrees.map((wt) => {
+        const label = worktreeLabel(wt);
+        const state = wt.current ? "here" : wt.dirty_count > 0 ? `${wt.dirty_count} changed` : "clean";
+        return `
+          <div class="status-git-pop-row status-git-pop-worktree${wt.current ? " is-current" : ""}">
+            <span class="status-git-pop-row-main">
+              <span class="status-git-pop-row-name">${escapeHtml(label)}</span>
+              <span class="status-git-pop-row-meta">${escapeHtml(compactPath(wt.path))}</span>
+            </span>
+            <span class="status-git-pop-badge">${escapeHtml(state)}</span>
+            <button type="button" class="status-git-pop-open-wt" data-path="${escapeHtml(wt.path)}" data-label="${escapeHtml(label)}" ${wt.current ? "disabled" : ""}>${wt.current ? "Here" : "Open tab"}</button>
+          </div>`;
+      }).join("")
+      : `<div class="status-git-pop-empty">No worktrees reported by git.</div>`;
+
+    pop.innerHTML = `
+      <div class="status-git-pop-header">
+        <span class="status-git-pop-icon">${GIT_BRANCH_SVG}</span>
+        <span class="status-git-pop-title">${escapeHtml(summary.repo_name)}</span>
+        <span class="status-git-pop-current">${escapeHtml(current)}</span>
+        ${dirty}
+      </div>
+      <div class="status-git-pop-root">${escapeHtml(compactPath(summary.repo_root))}</div>
+      <section class="status-git-pop-section">
+        <h3>Branches</h3>
+        <div class="status-git-pop-list">${branches}</div>
+      </section>
+      <section class="status-git-pop-section">
+        <h3>Worktrees</h3>
+        <div class="status-git-pop-list">${worktrees}</div>
+      </section>
+    `;
+
+    pop.querySelectorAll<HTMLButtonElement>(".status-git-pop-branch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const branch = btn.dataset.branch;
+        if (!branch) return;
+        void this.switchBranchFromPopover(cwd, branch, pop);
+      });
+    });
+    pop.querySelectorAll<HTMLButtonElement>(".status-git-pop-open-wt").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const path = btn.dataset.path;
+        const label = btn.dataset.label;
+        if (!path || !label) return;
+        this.onOpenGitWorktree?.(path, label);
+        this.closeBranchPopover();
+      });
+    });
+  }
+
+  private renderBranchPopoverError(pop: HTMLElement, msg: string): void {
+    pop.innerHTML = `
+      <div class="status-git-pop-header">
+        <span class="status-git-pop-icon">${GIT_BRANCH_SVG}</span>
+        <span class="status-git-pop-title">Git</span>
+      </div>
+      <div class="status-git-pop-error">${escapeHtml(msg)}</div>
+    `;
+  }
+
+  private async switchBranchFromPopover(cwd: string, branch: string, pop: HTMLElement): Promise<void> {
+    pop.innerHTML = `<div class="status-git-pop-loading">Switching to ${escapeHtml(branch)}…</div>`;
+    try {
+      const summary = await gitSwitchBranch(cwd, branch);
+      this.updateGitContextFromSummary(summary);
+      this.closeBranchPopover();
+      this.render(this.lastDirCtx);
+      void this.refresh();
+    } catch (err) {
+      this.renderBranchPopoverError(pop, String(err));
+    }
+  }
+
+  private updateGitContextFromSummary(summary: GitRepoSummary): void {
+    const branch = currentGitLabel(summary);
+    this.lastDirCtx = {
+      ...this.lastDirCtx,
+      git: {
+        repo_name: summary.repo_name,
+        branch,
+      },
+    };
+  }
+
+  private closeBranchPopover(): void {
+    if (!this.branchPopover) return;
+    const cleanup = (this.branchPopover as HTMLElement & { _cleanup?: () => void })._cleanup;
+    cleanup?.();
+    this.branchPopover.remove();
+    this.branchPopover = null;
+    this.branchPopoverTicket += 1;
   }
 
   private async openMission(): Promise<void> {
@@ -772,29 +1002,6 @@ function activeTabSegment(info: ActiveTabInfo): HTMLElement {
   text.textContent = info.name;
   el.appendChild(text);
 
-  return el;
-}
-
-function segment(iconSvg: string, primary: string, secondary: string | null): HTMLElement {
-  const el = document.createElement("span");
-  el.className = "status-segment";
-
-  const icon = document.createElement("span");
-  icon.className = "status-icon";
-  icon.innerHTML = iconSvg;
-  el.appendChild(icon);
-
-  const text = document.createElement("span");
-  text.className = "status-text";
-  text.textContent = primary;
-  el.appendChild(text);
-
-  if (secondary && secondary.trim() !== "") {
-    const sec = document.createElement("span");
-    sec.className = "status-secondary";
-    sec.textContent = secondary;
-    el.appendChild(sec);
-  }
   return el;
 }
 
@@ -1658,6 +1865,23 @@ class MissionViewerModal {
   private bodyEl(): HTMLElement | null {
     return this.overlay?.querySelector<HTMLElement>(".mission-viewer-body") ?? null;
   }
+}
+
+function currentGitLabel(summary: GitRepoSummary): string {
+  if (summary.current_branch) return summary.current_branch;
+  if (summary.detached_head) return `DETACHED@${summary.detached_head}`;
+  return "DETACHED";
+}
+
+function worktreeLabel(wt: GitWorktreeSummary): string {
+  if (wt.branch) return wt.branch;
+  if (wt.detached && wt.head) return `DETACHED@${wt.head.slice(0, 7)}`;
+  if (wt.bare) return `${basename(wt.path)} (bare)`;
+  return basename(wt.path);
+}
+
+function compactPath(path: string): string {
+  return path.replace(/^\/Users\/[^/]+/, "~");
 }
 
 function escapeHtml(s: string): string {

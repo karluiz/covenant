@@ -23,6 +23,7 @@ mod exec_vitals;
 mod executor_idle;
 mod familiar_commands;
 mod fix_proposer;
+mod git_tools;
 mod history_import;
 mod memory;
 mod mission_pair;
@@ -1985,6 +1986,30 @@ async fn get_dir_context(state: State<'_, AppState>, cwd: String) -> Result<DirC
 }
 
 #[tauri::command]
+async fn git_repo_summary(cwd: String) -> Result<git_tools::GitRepoSummary, String> {
+    let path = PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::repo_summary(&path))
+        .await
+        .map_err(|e| format!("git_repo_summary join: {e}"))?
+}
+
+#[tauri::command]
+async fn git_switch_branch(
+    state: State<'_, AppState>,
+    cwd: String,
+    branch: String,
+) -> Result<git_tools::GitRepoSummary, String> {
+    let cache = state.dir_context_cache.clone();
+    let path = PathBuf::from(cwd);
+    let invalidate_path = path.clone();
+    let summary = tokio::task::spawn_blocking(move || git_tools::switch_branch(&path, &branch))
+        .await
+        .map_err(|e| format!("git_switch_branch join: {e}"))??;
+    cache.invalidate(&invalidate_path);
+    Ok(summary)
+}
+
+#[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
     Ok(state.settings.lock().await.clone())
 }
@@ -3232,6 +3257,8 @@ pub fn run() {
             write_text_file,
             recent_blocks_by_cwd,
             get_dir_context,
+            git_repo_summary,
+            git_switch_branch,
             resolve_existing_path,
             structure_list_dir,
             structure_create_path,

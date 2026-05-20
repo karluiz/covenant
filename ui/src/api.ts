@@ -762,6 +762,42 @@ export async function getDirContext(cwd: string): Promise<DirContext> {
   return invoke<DirContext>("get_dir_context", { cwd });
 }
 
+export interface GitBranchSummary {
+  name: string;
+  current: boolean;
+  upstream: string | null;
+  last_commit: string | null;
+  worktree_path: string | null;
+}
+
+export interface GitWorktreeSummary {
+  path: string;
+  branch: string | null;
+  head: string | null;
+  current: boolean;
+  detached: boolean;
+  bare: boolean;
+  dirty_count: number;
+}
+
+export interface GitRepoSummary {
+  repo_name: string;
+  repo_root: string;
+  current_branch: string | null;
+  detached_head: string | null;
+  dirty_count: number;
+  branches: GitBranchSummary[];
+  worktrees: GitWorktreeSummary[];
+}
+
+export async function gitRepoSummary(cwd: string): Promise<GitRepoSummary> {
+  return invoke<GitRepoSummary>("git_repo_summary", { cwd });
+}
+
+export async function gitSwitchBranch(cwd: string, branch: string): Promise<GitRepoSummary> {
+  return invoke<GitRepoSummary>("git_switch_branch", { cwd, branch });
+}
+
 export async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
 }

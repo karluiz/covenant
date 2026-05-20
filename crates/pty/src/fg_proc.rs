@@ -59,17 +59,33 @@ const LOGICAL_CLIS: &[&str] = &[
     "cursor-agent",
     "gemini",
     "ollama",
+    "pi",
 ];
+
+fn logical_name_from_arg(arg: &str) -> Option<&'static str> {
+    let basename = arg.rsplit('/').next().unwrap_or(arg);
+    for cli in LOGICAL_CLIS {
+        if *cli == "pi" {
+            // Pi's npm/shebang process often reports as `node` with either
+            // argv[1] = `/.../bin/pi` or a realpath under `pi-coding-agent`.
+            // Keep this exact/package-scoped so random paths like
+            // `pi-clipboard-*.png` don't get mistaken for the Pi CLI.
+            if basename == "pi" || basename == "pi.js" || arg.contains("pi-coding-agent") {
+                return Some("pi");
+            }
+        } else if basename.contains(cli) {
+            return Some(*cli);
+        }
+    }
+    None
+}
 
 #[cfg(target_os = "macos")]
 fn logical_name_from_argv(pid: i32) -> Option<String> {
     let argv = read_proc_argv(pid)?;
     for arg in &argv {
-        let basename = arg.rsplit('/').next().unwrap_or(arg);
-        for cli in LOGICAL_CLIS {
-            if basename.contains(cli) {
-                return Some((*cli).to_string());
-            }
+        if let Some(cli) = logical_name_from_arg(arg) {
+            return Some(cli.to_string());
         }
     }
     None
@@ -191,7 +207,24 @@ mod tests {
 
     #[test]
     fn logical_match_recognises_copilot_path() {
-        let basename = "copilot.js";
-        assert!(LOGICAL_CLIS.iter().any(|c| basename.contains(c)));
+        assert_eq!(
+            logical_name_from_arg("/usr/local/bin/copilot.js"),
+            Some("copilot")
+        );
+    }
+
+    #[test]
+    fn logical_match_recognises_pi_npm_entrypoints_without_false_clipboard_hit() {
+        assert_eq!(logical_name_from_arg("/opt/homebrew/bin/pi"), Some("pi"));
+        assert_eq!(
+            logical_name_from_arg(
+                "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
+            ),
+            Some("pi")
+        );
+        assert_eq!(
+            logical_name_from_arg("/var/folders/tmp/pi-clipboard-123.png"),
+            None
+        );
     }
 }

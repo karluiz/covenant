@@ -35,6 +35,9 @@ import {
   piSteer,
   subscribePiEvents,
 } from "../../api";
+import { brandIconSvg } from "../../icons/brands";
+
+const PI_LOGO = brandIconSvg("pi", 16) ?? "π";
 
 const escapeHtml = (s: string): string =>
   s
@@ -107,6 +110,7 @@ export class PiChatView {
 
   private statusEl!: HTMLElement;
   private messagesEl!: HTMLElement;
+  private emptyEl!: HTMLElement;
   private queueEl!: HTMLElement;
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
@@ -155,16 +159,28 @@ export class PiChatView {
     this.host.classList.add("pi-chat-view");
     this.host.innerHTML = `
       <div class="pi-chat-header">
+        <span class="pi-chat-logo" aria-hidden="true">${PI_LOGO}</span>
         <span class="pi-chat-title">Pi</span>
         <span class="pi-chat-status" data-state="idle" aria-live="polite">idle</span>
       </div>
-      <div class="pi-chat-messages" role="log" aria-live="polite"></div>
+      <div class="pi-chat-messages" role="log" aria-live="polite">
+        <div class="pi-chat-empty" role="note">
+          <span class="pi-chat-empty-logo" aria-hidden="true">${PI_LOGO}</span>
+          <h3>Pi panel, not a terminal</h3>
+          <p>This is a structured chat session with the Pi coding agent. Your prompt goes to <code>pi --mode rpc</code>; Covenant renders replies, tool runs, and errors as chat UI instead of raw shell output.</p>
+          <ul>
+            <li><strong>Use Pi</strong> for code review, bug investigation, explanations, and guided edits.</li>
+            <li><strong>Use Terminal</strong> when you need a raw shell, interactive CLI, or direct command control.</li>
+            <li>Press Enter for a new line; press <kbd>⌘↩</kbd> to send.</li>
+          </ul>
+        </div>
+      </div>
       <div class="pi-chat-queue" hidden aria-live="polite"></div>
       <form class="pi-chat-input" autocomplete="off">
         <textarea
           class="pi-chat-textarea"
           rows="2"
-          placeholder="Message Pi…  (⌘↩ to send)"
+          placeholder="Message Pi…  (Enter newline · ⌘↩ send)"
           aria-label="Message Pi"
         ></textarea>
         <div class="pi-chat-actions">
@@ -177,6 +193,7 @@ export class PiChatView {
     `;
     this.statusEl = requireChild(this.host, ".pi-chat-status");
     this.messagesEl = requireChild(this.host, ".pi-chat-messages");
+    this.emptyEl = requireChild(this.host, ".pi-chat-empty");
     this.queueEl = requireChild(this.host, ".pi-chat-queue");
     this.inputEl = requireChild(this.host, ".pi-chat-textarea") as HTMLTextAreaElement;
     this.sendBtn = requireChild(this.host, ".pi-chat-send") as HTMLButtonElement;
@@ -193,8 +210,7 @@ export class PiChatView {
     this.steerBtn.addEventListener("click", () => void this.handleSteer());
     this.followUpBtn.addEventListener("click", () => void this.handleFollowUp());
     this.inputEl.addEventListener("keydown", (e) => {
-      // ⌘↩ / Ctrl+↩ submits. Plain Enter inserts a newline so multi-line
-      // prompts work without an explicit "shift to newline" hint.
+      // ⌘↩ / Ctrl+↩ submits. Plain Enter inserts a newline.
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         void this.handleSend();
@@ -677,7 +693,7 @@ export class PiChatView {
     this.inputEl.placeholder = message;
     this.inputEl.classList.add("pi-chat-textarea-flash");
     window.setTimeout(() => {
-      this.inputEl.placeholder = "Message Pi…  (⌘↩ to send)";
+      this.inputEl.placeholder = "Message Pi…  (Enter newline · ⌘↩ send)";
       this.inputEl.classList.remove("pi-chat-textarea-flash");
     }, 1500);
   }
@@ -701,6 +717,7 @@ export class PiChatView {
   // -------------------------------------------------------------------------
 
   private appendUserMessage(msg: PiUserMessage): void {
+    this.hideEmptyState();
     const el = document.createElement("div");
     el.className = "pi-msg pi-msg-user";
     el.innerHTML = `
@@ -721,6 +738,7 @@ export class PiChatView {
   }
 
   private beginAssistantTurn(): TurnDom {
+    this.hideEmptyState();
     const root = document.createElement("div");
     root.className = "pi-msg pi-msg-assistant";
     root.innerHTML = `
@@ -742,11 +760,16 @@ export class PiChatView {
   }
 
   private appendSystemNote(text: string, kind: "info" | "error" = "info"): void {
+    this.hideEmptyState();
     const el = document.createElement("div");
     el.className = `pi-msg pi-msg-system pi-msg-system-${kind}`;
     el.textContent = text;
     this.messagesEl.appendChild(el);
     this.scrollToBottom();
+  }
+
+  private hideEmptyState(): void {
+    this.emptyEl.hidden = true;
   }
 
   private setStatus(

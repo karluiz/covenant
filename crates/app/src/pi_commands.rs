@@ -43,15 +43,24 @@ fn pi_event_to_phase(ev: &PiEvent) -> Option<ExecutorPhase> {
         PiEvent::AgentStart | PiEvent::TurnStart => Some(ExecutorPhase::Thinking),
         PiEvent::ToolExecutionStart {
             tool_name, args, ..
+        }
+        | PiEvent::ToolExecutionUpdate {
+            tool_name, args, ..
         } => Some(tool_to_phase(tool_name, args)),
         PiEvent::ToolExecutionEnd { .. } => Some(ExecutorPhase::Thinking),
         PiEvent::MessageUpdate {
             assistant_message_event,
             ..
         } => match assistant_message_event {
-            DeltaEvent::ThinkingStart { .. } | DeltaEvent::ThinkingDelta { .. } => {
-                Some(ExecutorPhase::Thinking)
-            }
+            // Text/thinking deltas do not change the label, but they are
+            // important heartbeats for long Pi turns. `NotchHub::set_phase`
+            // throttles same-phase emissions, so forwarding them here keeps
+            // the sidebar/floating pill alive without turning token streams
+            // into a metronome.
+            DeltaEvent::TextStart { .. }
+            | DeltaEvent::TextDelta { .. }
+            | DeltaEvent::ThinkingStart { .. }
+            | DeltaEvent::ThinkingDelta { .. } => Some(ExecutorPhase::Thinking),
             _ => None,
         },
         PiEvent::CompactionStart { .. } => Some(ExecutorPhase::Thinking),
@@ -572,5 +581,41 @@ mod tests {
         .expect("usage");
         assert_eq!(usage.input_tokens, 20);
         assert_eq!(usage.output_tokens, 5);
+    }
+
+    #[test]
+    fn pi_text_delta_keeps_notch_alive_as_thinking() {
+        let ev = PiEvent::MessageUpdate {
+            message: AgentMessage::Assistant(karl_agent::pi_rpc::AssistantMessage {
+                content: vec![],
+                model: None,
+                stop_reason: None,
+                usage: None,
+                timestamp: None,
+            }),
+            assistant_message_event: DeltaEvent::TextDelta {
+                content_index: 0,
+                delta: "hello".into(),
+                partial: None,
+            },
+        };
+        assert!(matches!(
+            pi_event_to_phase(&ev),
+            Some(ExecutorPhase::Thinking)
+        ));
+    }
+
+    #[test]
+    fn pi_tool_update_repeats_tool_phase_for_heartbeat() {
+        let ev = PiEvent::ToolExecutionUpdate {
+            tool_call_id: "call_1".into(),
+            tool_name: "bash".into(),
+            args: json!({ "command": "cargo test" }),
+            partial_result: json!({ "content": [] }),
+        };
+        assert!(matches!(
+            pi_event_to_phase(&ev),
+            Some(ExecutorPhase::Running { cmd }) if cmd == "cargo test"
+        ));
     }
 }

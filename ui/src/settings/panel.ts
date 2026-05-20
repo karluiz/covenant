@@ -299,7 +299,7 @@ export class SettingsPanel {
       <a href="#sec-updates" data-target="sec-updates">Updates</a>
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
-      <a href="#sec-covenant" data-target="sec-covenant">Covenant</a>
+      <a href="#sec-covenant" data-target="sec-covenant">Metrics</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
     `;
     body.appendChild(nav);
@@ -673,7 +673,7 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-telegram"></section>
         <section class="settings-section" id="sec-covenant">
-          <h3 class="settings-section-title">Covenant Score</h3>
+          <h3 class="settings-section-title">Metrics</h3>
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
           <div id="covenant-page-root"></div>
         </section>

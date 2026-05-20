@@ -53,6 +53,7 @@ import {
 
 import { Icons } from "../icons";
 import {
+  resolveExistingPath,
   structureReadBinaryFile,
   structureReadFile,
   structureWriteBinaryFile,
@@ -85,6 +86,9 @@ export interface EditorCallbacks {
   /// mission. Wired from the "Apply spec" header button; only invoked
   /// when the open file looks like a spec (see `isSpecPath`).
   onApplySpec?: (path: string) => void;
+  /// Open another file in this editor. Used for Cmd/Ctrl-clicking
+  /// Astro component tags that are imported in the current file.
+  onOpenPath?: (path: string) => void;
 }
 
 /// Heuristic: a file is "spec-like" when it's markdown and lives under
@@ -567,6 +571,17 @@ export class StructureEditor {
           indentWithTab,
         ]),
 
+        // Cmd/Ctrl-click imported Astro component tags to jump to the
+        // component file. This is intentionally local/static: no LSP,
+        // no project index, just imports in the current document.
+        EditorView.domEventHandlers({
+          click: (event, view) => {
+            if (!event.metaKey && !event.ctrlKey) return false;
+            void this.handleComponentCmdClick(event, view);
+            return false;
+          },
+        }),
+
         // Track dirty state. Cheaper than diffing the whole doc — the
         // listener fires only when the document actually changes.
         EditorView.updateListener.of((u) => {
@@ -574,6 +589,28 @@ export class StructureEditor {
         }),
       ],
     });
+  }
+
+  private async handleComponentCmdClick(event: MouseEvent, view: EditorView): Promise<void> {
+    if (!this.currentPath || !/\.astro$/i.test(this.currentPath)) return;
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (pos === null) return;
+    const doc = view.state.doc.toString();
+    const name = componentNameAt(doc, pos);
+    if (!name) return;
+    const spec = importedComponentSpec(doc, name);
+    if (!spec) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const baseDir = dirname(this.currentPath);
+    for (const candidate of componentCandidates(spec)) {
+      const resolved = await resolveExistingPath(candidate, baseDir).catch(() => null);
+      if (resolved) {
+        this.callbacks.onOpenPath?.(resolved);
+        return;
+      }
+    }
+    this.callbacks.toast?.(`Component not found: ${name}`, "error");
   }
 
   private onDocChanged(): void {
@@ -1079,6 +1116,48 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function componentNameAt(doc: string, pos: number): string | null {
+  const left = doc.slice(Math.max(0, pos - 80), pos);
+  const right = doc.slice(pos, Math.min(doc.length, pos + 80));
+  const around = left + right;
+  const offset = left.length;
+  for (const m of around.matchAll(/<\/?([A-Z][A-Za-z0-9_$]*)\b/g)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (offset >= start && offset <= end) return m[1];
+  }
+  return null;
+}
+
+function importedComponentSpec(doc: string, name: string): string | null {
+  const re = new RegExp(`import\\s+${escapeRegExp(name)}\\s+from\\s+["']([^"']+)["']`, "m");
+  return re.exec(doc)?.[1] ?? null;
+}
+
+function componentCandidates(spec: string): string[] {
+  if (/\.[A-Za-z0-9]+$/.test(spec)) return [spec];
+  return [
+    spec,
+    `${spec}.astro`,
+    `${spec}.tsx`,
+    `${spec}.jsx`,
+    `${spec}.ts`,
+    `${spec}.js`,
+    `${spec}/index.astro`,
+    `${spec}/index.tsx`,
+    `${spec}/index.jsx`,
+  ];
+}
+
+function dirname(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i >= 0 ? path.slice(0, i) : ".";
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extensionOf(path: string): string | null {

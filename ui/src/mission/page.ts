@@ -261,7 +261,13 @@ export class MissionPage {
     const header = document.createElement("header");
     header.className = "mission-page-header";
     header.innerHTML = `
-      <h2 class="mission-page-title">Set mission</h2>
+      <div class="mission-page-titlebar">
+        <span class="mission-page-title-icon" aria-hidden="true">${Icons.target({ size: 16 })}</span>
+        <div>
+          <h2 class="mission-page-title">Set mission</h2>
+          <p class="mission-page-subtitle">Choose the spec that anchors this tab.</p>
+        </div>
+      </div>
       <button type="button" class="mission-page-close" aria-label="Close" title="Close (Esc)">${Icons.x({ size: 14 })}</button>
     `;
     this.pageHost.appendChild(header);
@@ -458,7 +464,17 @@ export class MissionPage {
     const main = document.createElement("main");
     main.className = "mission-page-preview";
     if (!this.previewPath) {
-      main.innerHTML = `<div class="mission-page-preview-empty">Select a spec on the left to preview.</div>`;
+      main.innerHTML = `
+        <div class="mission-page-preview-empty mission-page-preview-empty--hero">
+          <span class="mission-page-preview-empty-icon" aria-hidden="true">${Icons.target({ size: 28 })}</span>
+          <h3>Select a mission spec</h3>
+          <p>Pick a published spec, a Superpowers mission, or paste a Markdown path to preview it here before setting it on the tab.</p>
+          <div class="mission-page-preview-empty-steps" aria-hidden="true">
+            <span>1. Search</span>
+            <span>2. Preview</span>
+            <span>3. Set mission</span>
+          </div>
+        </div>`;
       return main;
     }
     if (this.previewLoading) {

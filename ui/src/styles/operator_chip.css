@@ -8,6 +8,20 @@
   color: var(--operator-color);
   font-weight: 500;
 }
+body:not(.theme-light) .op-chip,
+body.theme-dark .op-chip {
+  color: color-mix(in srgb, var(--operator-color) 24%, #ffffff 76%) !important;
+}
+body:not(.theme-light) .op-card .op-chip,
+body.theme-dark .op-card .op-chip {
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--operator-color) 24%, rgba(255,255,255,0.08)),
+      color-mix(in srgb, var(--operator-color) 14%, rgba(255,255,255,0.035)));
+  border: 1px solid color-mix(in srgb, var(--operator-color) 30%, rgba(255,255,255,0.12));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
 .op-chip-sm { font-size: 11px; }
 .op-chip-md { font-size: 13px; }
 .op-chip-lg { font-size: 15px; }
@@ -45,21 +59,42 @@
 .op-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
-  border-radius: 8px;
+  border-radius: 10px;
   background: color-mix(in srgb, currentColor 3%, transparent);
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 .op-card:hover {
   border-color: color-mix(in srgb, currentColor 24%, transparent);
   background: color-mix(in srgb, currentColor 6%, transparent);
 }
+body:not(.theme-light) .op-card,
+body.theme-dark .op-card {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.018)),
+    color-mix(in srgb, var(--bg-panel, #11141a) 92%, #ffffff 8%);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+body:not(.theme-light) .op-card:hover,
+body.theme-dark .op-card:hover {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+    color-mix(in srgb, var(--bg-panel, #11141a) 88%, #ffffff 12%);
+  border-color: rgba(255,255,255,0.22);
+}
 .op-card-summary {
   font-size: 12px;
   opacity: 0.72;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+body:not(.theme-light) .op-card-summary,
+body.theme-dark .op-card-summary {
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 76%, transparent);
+  opacity: 1;
 }
 .op-card-actions {
   display: flex;
@@ -69,17 +104,28 @@
 .op-card-btn {
   flex: 1;
   font-size: 12px;
-  padding: 4px 8px;
+  padding: 5px 8px;
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .op-card-btn:hover {
   background: color-mix(in srgb, currentColor 8%, transparent);
   border-color: color-mix(in srgb, currentColor 32%, transparent);
+}
+body:not(.theme-light) .op-card-btn,
+body.theme-dark .op-card-btn {
+  color: var(--text-primary, #f5f6f7);
+  background: rgba(255,255,255,0.025);
+  border-color: rgba(255,255,255,0.16);
+}
+body:not(.theme-light) .op-card-btn:hover,
+body.theme-dark .op-card-btn:hover {
+  background: rgba(255,255,255,0.075);
+  border-color: rgba(255,255,255,0.28);
 }
 
 /* Two-step operator modal */
