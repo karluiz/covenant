@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.7 — Pi activity tracking + workspace UI polish
+
+### Added
+
+- **Pi activity sidebar tracking** (`crates/app/src/pi_commands.rs`,
+  `crates/app/src/notch.rs`, `crates/session/src/lib.rs`,
+  `ui/src/inline-notch.ts`, `ui/notch/main.ts`): Pi RPC text/tool
+  updates now heartbeat through the notch hub, external-session
+  snapshots replay the displayed phase with the executor label, and the
+  Activity sidebar waits for its listener before requesting replay so Pi
+  no longer appears as "no agent" while it is active.
+- **Pi RPC launch and panel polish** (`crates/agent/src/pi_rpc/session.rs`,
+  `ui/src/executors/pi/view.ts`, `ui/src/executors/pi/pi.css`): GUI
+  launches augment PATH so `pi --mode rpc` and its Node shebang resolve
+  reliably, while the Pi chat panel gains a branded empty state, clearer
+  submit hint, and light-theme-safe controls.
+- **Git branch/worktree controls** (`crates/app/src/git_tools.rs`,
+  `crates/app/src/lib.rs`, `ui/src/api.ts`, `ui/src/status/bar.ts`,
+  `ui/src/main.ts`): Covenant can summarize the active repo's branches
+  and worktrees, switch branches through the status-bar popover, and open
+  worktrees in dedicated terminal tabs.
+- **Workspace UI and release-command polish** (`ui/src/styles.css`,
+  `ui/src/structure/editor.ts`, `ui/src/tabs/manager.ts`,
+  `.pi/prompts/horizon.md`, `.pi/skills/horizon/SKILL.md`): sidebars and
+  editor panes pick up new resizing/open-path affordances, score and
+  operator chips get styling refinements, and the Horizon release ritual
+  is available as both a Pi prompt and skill.
+
 ## v0.7.6 — Formatting pass + pi/operator/score iteration
 
 ### Changed
