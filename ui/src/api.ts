@@ -305,6 +305,50 @@ export async function operatorSetDefault(id: string): Promise<void> {
   return invoke<void>("operator_set_default", { id });
 }
 
+// ── Teammate (Phase 1) ───────────────────────────────────────────────
+
+export type TeammateRole = "user" | "operator" | "system";
+
+export interface TeammateText  { kind: "text";        data: string; }
+export interface TeammateOther {
+  kind: "task_draft" | "task_update" | "propose" | "report";
+  data: unknown;
+}
+export type TeammateContent = TeammateText | TeammateOther;
+
+export interface TeammateMessage {
+  id: string;
+  operator_id: string;
+  task_id: string | null;
+  role: TeammateRole;
+  content: TeammateContent;
+  created_at_unix_ms: number;
+}
+
+export async function teammateListMessages(
+  operatorId: string,
+  limit = 200,
+): Promise<TeammateMessage[]> {
+  return invoke<TeammateMessage[]>("teammate_list_messages_for_operator", {
+    operatorId,
+    limit,
+  });
+}
+
+export async function teammateSendText(
+  operatorId: string,
+  text: string,
+): Promise<TeammateMessage> {
+  return invoke<TeammateMessage>("teammate_send_text_message", {
+    operatorId,
+    text,
+  });
+}
+
+export async function teammateListTasks(): Promise<unknown[]> {
+  return invoke<unknown[]>("teammate_list_tasks");
+}
+
 /// M-OP6 mission spec attached to a session. The Operator reads it
 /// as authoritative scope (Out of scope → escalate, File boundaries
 /// → constraints, Open questions → auto-escalate). Pass an absolute
