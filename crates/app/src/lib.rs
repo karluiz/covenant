@@ -52,6 +52,7 @@ pub mod storage;
 mod structure;
 mod summarizer;
 mod tab_manifest;
+pub mod teammate;
 pub mod telegram;
 mod theme;
 mod vitals;
@@ -2726,6 +2727,7 @@ pub fn run() {
             let registry_arc = Arc::new(registry);
             app.manage(registry_arc.clone());
             app.manage(Arc::new(storage.clone()));
+            app.manage(teammate::TeammateRuntime::new());
             app.manage(project_notes::Store::new(storage.conn()));
 
             // Familiars: per-session AI companion with persistent
@@ -3287,6 +3289,9 @@ pub fn run() {
             operator_registry::commands::operator_set_default,
             operator_registry::commands::session_set_operator,
             operator_registry::commands::session_get_operator,
+            teammate::commands::teammate_list_messages_for_operator,
+            teammate::commands::teammate_send_text_message,
+            teammate::commands::teammate_list_tasks,
             spec_detector::start_spec_detector,
             spec_detector::mark_spec_seen,
             familiar_commands::familiar_list,

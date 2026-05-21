@@ -31,7 +31,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, setWindowTheme, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, operatorList, setWindowTheme, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -65,6 +65,7 @@ import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
+import { TeammatePanel } from "./teammate/panel";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -509,6 +510,9 @@ async function boot(): Promise<void> {
     viewActivityBtn.addEventListener("click", () => pickView("activity"));
     window.addEventListener("sidebar-view:active", (e) => {
       const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
+      // Teammate panel owns the right rail. Do not light two titlebar view
+      // buttons at once.
+      if (document.body.classList.contains("sidebar-view-teammate")) return;
       // Tabs only know about blocks/structure — respect the activity
       // override if it's currently active.
       if (document.body.classList.contains("sidebar-view-activity")) return;
@@ -522,6 +526,47 @@ async function boot(): Promise<void> {
     });
     // Restore titlebar state on reload.
     syncSidebarTitlebarButtons(activeSidebarTitlebarView);
+  }
+
+  const teammatePanelHost = requireEl<HTMLElement>("teammate-panel");
+  const teammatePanel = new TeammatePanel(teammatePanelHost);
+  const teammateBtn = document.getElementById("titlebar-view-teammate");
+  if (teammateBtn) {
+    teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });
+    attachTooltip(teammateBtn, "Teammate chat");
+    teammateBtn.addEventListener("click", async () => {
+      const wasOpen = document.body.classList.contains("sidebar-view-teammate");
+
+      // Clear all other view states; the titlebar view buttons manage their
+      // own active classes through syncSidebarTitlebarButtons / pickView, but
+      // we need to clean up their highlights here.
+      document.body.classList.remove("sidebar-view-activity");
+      document
+        .querySelectorAll("#app-titlebar-right .titlebar-view-active")
+        .forEach((b) => b.classList.remove("titlebar-view-active"));
+
+      if (wasOpen) {
+        document.body.classList.remove("sidebar-view-teammate");
+        teammatePanelHost.setAttribute("hidden", "");
+        teammatePanel.close();
+        // Restore the blocks view as default.
+        syncSidebarTitlebarButtons(activeSidebarTitlebarView);
+        return;
+      }
+
+      document.body.classList.add("sidebar-view-teammate");
+      teammateBtn.classList.add("titlebar-view-active");
+      teammatePanelHost.removeAttribute("hidden");
+
+      const ops = await operatorList();
+      const def = ops.find((o) => o.is_default) ?? ops[0];
+      if (def) {
+        await teammatePanel.openFor(def.id, def.name);
+      } else {
+        teammatePanelHost.innerHTML =
+          `<div class="teammate-panel-empty">No hay operadores configurados. Andá a Settings → Operators.</div>`;
+      }
+    });
   }
 
   const projectNotesBtn = document.getElementById("titlebar-project-notes");
