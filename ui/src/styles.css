@@ -13873,25 +13873,25 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
 }
 
 .inline-notch .inline-notch-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px;
-  background: var(--panel-2, #181c22);
-  border: 1px solid var(--border, #232831);
-  border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
   font: inherit;
   color: inherit;
   text-align: left;
   cursor: pointer;
   width: 100%;
-  max-height: 64px;
+  max-height: 72px;
   overflow: hidden;
 }
 .inline-notch .inline-notch-head:hover {
-  border-color: color-mix(in srgb, var(--accent, #a8c3ff) 35%, var(--border, #232831));
+  background: color-mix(in srgb, var(--text, #d5d9de) 6%, transparent);
 }
 .inline-notch .inline-notch-chev {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted, #8a93a0);
   transition: transform 150ms ease;
 }
@@ -13903,22 +13903,23 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   overflow: hidden;
 }
 .inline-notch .inline-notch-av {
-  width: 22px; height: 22px; flex: 0 0 22px;
+  width: 28px; height: 28px; flex: 0 0 28px;
   border-radius: 50%;
   background: linear-gradient(135deg, #87a7ff, #c7a8ff);
 }
 .inline-notch .inline-notch-meta {
   display: flex; flex-direction: column; min-width: 0;
   min-height: 0;
+  gap: 2px;
   overflow: hidden;
 }
 .inline-notch .inline-notch-name {
-  font-size: 11px; font-weight: 600;
+  font-size: 12px; font-weight: 600;
   color: var(--text, #d5d9de);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .inline-notch .inline-notch-sub {
-  font-size: 10px; color: var(--muted, #8a93a0);
+  font-size: 11px; color: var(--muted, #8a93a0);
   line-height: 1.25;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -14012,9 +14013,12 @@ body.theme-light .inline-notch {
   color: var(--text-primary);
 }
 body.theme-light .inline-notch .inline-notch-head {
-  background: #ffffff;
-  border-color: var(--border);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+body.theme-light .inline-notch .inline-notch-head:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 body.theme-light .inline-notch .inline-notch-name {
   color: var(--text-primary);

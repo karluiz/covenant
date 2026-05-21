@@ -806,7 +806,7 @@ export class StructureEditor {
       this.view = null;
     }
     this.currentPreview = makePreview(this.previewKind);
-    this.currentPreview.mount(this.previewHostEl, text);
+    this.currentPreview.mount(this.previewHostEl, text, { path: this.currentPath });
     if (this.findOpen) this.recomputeMatches();
     if (opts.focus) {
       // Preview is read-only but should be focusable for ⌘⇧P / Esc.
