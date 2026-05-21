@@ -510,6 +510,9 @@ async function boot(): Promise<void> {
     viewActivityBtn.addEventListener("click", () => pickView("activity"));
     window.addEventListener("sidebar-view:active", (e) => {
       const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
+      // Teammate panel owns the right rail. Do not light two titlebar view
+      // buttons at once.
+      if (document.body.classList.contains("sidebar-view-teammate")) return;
       // Tabs only know about blocks/structure — respect the activity
       // override if it's currently active.
       if (document.body.classList.contains("sidebar-view-activity")) return;
