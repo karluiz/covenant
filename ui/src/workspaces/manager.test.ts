@@ -64,6 +64,14 @@ function makeMockTabManager(initial?: TabManifestV1): {
         (g) => g.id !== groupId,
       );
     },
+    snapshotForFinder() {
+      return state.manifest.tabs.map((t, index) => ({
+        index,
+        title: t.custom_name ?? `Tab ${index + 1}`,
+        groupId: t.group_id ?? null,
+        isActive: index === state.manifest.active_index,
+      }));
+    },
   };
   return { manager, state };
 }
@@ -309,6 +317,92 @@ describe("WorkspaceManager.moveGroupTo", () => {
     await ws.moveGroupTo("g1", sourceId);
     expect(state.manifest.groups).toHaveLength(1);
     expect(state.manifest.tabs).toHaveLength(1);
+  });
+});
+
+describe("WorkspaceManager.listAllTabs", () => {
+  beforeEach(() => saveSpy.mockClear());
+
+  it("flattens active (live) + inactive (manifest) workspaces with group denorm", async () => {
+    const v2 = {
+      version: 2,
+      active_workspace_id: "ws-a",
+      workspaces: [
+        {
+          id: "ws-a",
+          name: "Alpha",
+          color: "#ef4444",
+          root_dir: null,
+          created_at: 1,
+          last_used_at: 1,
+          active_index: 1,
+          tabs: [
+            // These tabs will be overridden by the live TabManager state
+            // since ws-a is active.
+            { custom_name: "stale", cwd: null, color: null, group_id: null,
+              mission_path: null, operator_id: null },
+          ],
+          groups: [],
+        },
+        {
+          id: "ws-b",
+          name: "Beta",
+          color: null,
+          root_dir: null,
+          created_at: 2,
+          last_used_at: 2,
+          active_index: 0,
+          tabs: [
+            { custom_name: "named-b", cwd: null, color: null, group_id: "g-b",
+              mission_path: null, operator_id: null },
+            { custom_name: null, cwd: null, color: null, group_id: null,
+              mission_path: null, operator_id: null },
+          ],
+          groups: [
+            { id: "g-b", name: "MyGroup", color: "#22c55e", collapsed: false },
+          ],
+        },
+      ],
+    };
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(JSON.stringify(v2));
+
+    // Replace live TabManager state for the active workspace.
+    state.manifest = {
+      version: 1,
+      active_index: 0,
+      tabs: [
+        { custom_name: "live-a1", cwd: null, color: null, group_id: null,
+          mission_path: null, operator_id: null },
+        { custom_name: null, cwd: null, color: null, group_id: null,
+          mission_path: null, operator_id: null },
+      ],
+      groups: [],
+    };
+
+    const rows = ws.listAllTabs();
+    // 2 from active + 2 from inactive = 4
+    expect(rows).toHaveLength(4);
+
+    // Active workspace rows come first, in tabIndex order, with live titles.
+    expect(rows[0].workspaceId).toBe("ws-a");
+    expect(rows[0].workspaceActive).toBe(true);
+    expect(rows[0].title).toBe("live-a1");
+    expect(rows[0].isActiveTabInWorkspace).toBe(true);
+    expect(rows[1].title).toBe("Tab 2");
+    expect(rows[1].isActiveTabInWorkspace).toBe(false);
+
+    // Inactive rows next, also in tabIndex order, with group denorm.
+    expect(rows[2].workspaceId).toBe("ws-b");
+    expect(rows[2].workspaceActive).toBe(false);
+    expect(rows[2].title).toBe("named-b");
+    expect(rows[2].groupId).toBe("g-b");
+    expect(rows[2].groupName).toBe("MyGroup");
+    expect(rows[2].groupColor).toBe("#22c55e");
+    expect(rows[2].isActiveTabInWorkspace).toBe(true);
+    expect(rows[3].title).toBe("Tab 2");
+    expect(rows[3].groupName).toBeNull();
   });
 });
 
