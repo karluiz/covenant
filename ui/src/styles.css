@@ -3965,21 +3965,6 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     flex-direction: row;
 }
 
-.settings-btn {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 7px 16px;
-    color: #fff;
-    font-size: 12px;
-    cursor: pointer;
-    font-family: inherit;
-}
-
-.settings-btn:hover {
-    background: var(--border);
-}
-
 /* ─── Agent (⌘K) overlay ───────────────────────────── */
 
 .agent-overlay {
