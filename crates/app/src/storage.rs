@@ -183,6 +183,45 @@ CREATE TABLE IF NOT EXISTS operator_mind (
 );
 CREATE INDEX IF NOT EXISTS idx_operator_mind_updated_at
     ON operator_mind(updated_at);
+
+CREATE TABLE IF NOT EXISTS teammate_tasks (
+    id                  TEXT PRIMARY KEY,
+    operator_id         TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    archetype           TEXT NOT NULL,           -- 'watch' | 'do' | 'review'
+    title               TEXT NOT NULL,
+    body                TEXT NOT NULL DEFAULT '',
+    deliverable         TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL,           -- 'draft'|'active'|'blocked'|'done'|'cancelled'
+    scope_json          TEXT NOT NULL DEFAULT '{}',
+    spawned_session     TEXT,                    -- session id, NULL unless archetype='do'
+    created_at_unix_ms  INTEGER NOT NULL,
+    updated_at_unix_ms  INTEGER NOT NULL,
+    completed_at_unix_ms INTEGER,
+    cost_usd_cents      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_operator ON teammate_tasks(operator_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status   ON teammate_tasks(status);
+
+CREATE TABLE IF NOT EXISTS teammate_messages (
+    id                  TEXT PRIMARY KEY,
+    operator_id         TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    task_id             TEXT REFERENCES teammate_tasks(id) ON DELETE SET NULL,
+    role                TEXT NOT NULL,           -- 'user' | 'operator' | 'system'
+    content_kind        TEXT NOT NULL,           -- 'text' | 'task_draft' | 'task_update' | 'propose' | 'report'
+    content_json        TEXT NOT NULL,           -- JSON payload for the kind
+    created_at_unix_ms  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_operator ON teammate_messages(operator_id, created_at_unix_ms);
+CREATE INDEX IF NOT EXISTS idx_messages_task     ON teammate_messages(task_id) WHERE task_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS teammate_artifacts (
+    id                  TEXT PRIMARY KEY,
+    task_id             TEXT NOT NULL REFERENCES teammate_tasks(id) ON DELETE CASCADE,
+    kind                TEXT NOT NULL,           -- 'diff' | 'file' | 'link' | 'commit' | 'report'
+    payload             BLOB NOT NULL,
+    created_at_unix_ms  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifacts_task ON teammate_artifacts(task_id);
 ";
 
 #[derive(Debug, Error)]
@@ -436,6 +475,12 @@ impl Storage {
         // Existing rows get 'Terse' (the VoiceTone default).
         let _ = conn.execute(
             "ALTER TABLE operators ADD COLUMN voice TEXT NOT NULL DEFAULT 'Terse'",
+            [],
+        );
+        // Teammate phase 1: rolling summary per operator for prompt
+        // caching when DMing. Empty for existing rows.
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN rolling_summary TEXT NOT NULL DEFAULT ''",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
