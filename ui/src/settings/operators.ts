@@ -698,8 +698,14 @@ export function openOperatorModal(opts: {
   };
 
   function render(): void {
+    // Preserve scroll across full-DOM rebuilds (voice/color/avatar/model
+    // toggles all call render(), which would otherwise jump the modal
+    // back to the top).
+    const prevScroll = el.querySelector<HTMLElement>(".op-modal-body")?.scrollTop ?? 0;
     el.innerHTML = "";
     el.append(renderForm(h));
+    const body = el.querySelector<HTMLElement>(".op-modal-body");
+    if (body) body.scrollTop = prevScroll;
   }
   render();
   return h;
