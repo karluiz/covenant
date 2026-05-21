@@ -13780,6 +13780,62 @@ body.sidebar-view-activity .tab-pane:has(.editor-host:not([hidden])) > .editor-h
   right: 0 !important;
 }
 
+/* ===================================================================
+   Teammate DM panel — reuses the same right-rail grid column as Activity.
+   body.sidebar-view-teammate shows #teammate-panel, hides the per-tab
+   Blocks/Files column so the two never stack.
+   =================================================================== */
+#teammate-panel[hidden] { display: none !important; }
+#teammate-panel {
+  position: relative;
+  grid-row: 2 / 3;
+  grid-column: 2 / 3;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+  background: var(--bg-panel, #11141a);
+  border-left: 1px solid var(--border, #232831);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+body:not(.sidebar-view-teammate) #teammate-panel { display: none; }
+body.blocks-globally-collapsed #teammate-panel { display: none; }
+
+body.sidebar-view-teammate:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-teammate:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
+body.sidebar-view-teammate:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-teammate.tabbar-left:not(.blocks-globally-collapsed) #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-teammate.tabbar-left:not(.blocks-globally-collapsed) #teammate-panel {
+  grid-row: 1 / 2;
+  grid-column: 3 / 4;
+}
+body.sidebar-view-teammate.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-pane {
+  grid-template-columns: 1fr 0 0 0 !important;
+}
+body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-blocks {
+  display: none !important;
+}
+body.sidebar-view-teammate .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+  right: 0 !important;
+}
+.teammate-panel-empty {
+  padding: 24px 16px;
+  font: 12px ui-monospace, "JetBrains Mono", Menlo, monospace;
+  color: var(--text-muted, #6b7280);
+  text-align: center;
+}
+
 /* Project Notes uses the same right rail as Activity. Its panel is fixed,
    but the layout still reserves a 240px rail so it does not cover the
    terminal, and the active tab's Blocks/Files column is removed underneath. */
