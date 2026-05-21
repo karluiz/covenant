@@ -1817,6 +1817,159 @@ impl Storage {
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
+
+    /// Insert a TaskMessage. `content_json` is the serde repr of `MessageContent`
+    /// (tagged with `kind`/`data` per the type's derive attributes).
+    pub async fn teammate_insert_message(
+        &self,
+        msg: &crate::teammate::TaskMessage,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        let msg = msg.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            let role = serde_json::to_string(&msg.role)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let role = role.trim_matches('"').to_string();
+            let content_json = serde_json::to_string(&msg.content)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let content_kind = match &msg.content {
+                crate::teammate::MessageContent::Text(_)         => "text",
+                crate::teammate::MessageContent::TaskDraft(_)    => "task_draft",
+                crate::teammate::MessageContent::TaskUpdate {..} => "task_update",
+                crate::teammate::MessageContent::Propose(_)      => "propose",
+                crate::teammate::MessageContent::Report(_)       => "report",
+            };
+            c.execute(
+                "INSERT INTO teammate_messages \
+                 (id, operator_id, task_id, role, content_kind, content_json, created_at_unix_ms) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    msg.id.0.to_string(),
+                    msg.operator_id.0.to_string(),
+                    msg.task_id.map(|t| t.0.to_string()),
+                    role,
+                    content_kind,
+                    content_json,
+                    msg.created_at_unix_ms as i64,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// List the most recent `limit` messages for an operator, returned oldest first.
+    pub async fn teammate_list_messages(
+        &self,
+        operator_id: crate::operator_registry::OperatorId,
+        limit: usize,
+    ) -> Result<Vec<crate::teammate::TaskMessage>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<crate::teammate::TaskMessage>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, operator_id, task_id, role, content_json, created_at_unix_ms \
+                 FROM teammate_messages WHERE operator_id = ?1 \
+                 ORDER BY created_at_unix_ms ASC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(
+                params![operator_id.0.to_string(), limit as i64],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, i64>(5)?,
+                    ))
+                },
+            )?;
+            let mut out = Vec::new();
+            for row in rows {
+                let (id, op_id, task_id, role, content_json, ts) = row?;
+                let id = ulid::Ulid::from_string(&id)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let op_id = ulid::Ulid::from_string(&op_id)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let task_id = task_id
+                    .as_deref()
+                    .map(ulid::Ulid::from_string)
+                    .transpose()
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let role: crate::teammate::Role =
+                    serde_json::from_str(&format!("\"{}\"", role))
+                        .map_err(|e| StorageError::Other(e.to_string()))?;
+                let content: crate::teammate::MessageContent =
+                    serde_json::from_str(&content_json)
+                        .map_err(|e| StorageError::Other(e.to_string()))?;
+                out.push(crate::teammate::TaskMessage {
+                    id: crate::teammate::MessageId(id),
+                    operator_id: crate::operator_registry::OperatorId(op_id),
+                    task_id: task_id.map(crate::teammate::TaskId),
+                    role,
+                    content,
+                    created_at_unix_ms: ts as u64,
+                });
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Insert a Task. Phase 1: callers limited to internal seeds + tests.
+    pub async fn teammate_insert_task(
+        &self,
+        task: &crate::teammate::Task,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        let task = task.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            let archetype = match task.archetype {
+                crate::teammate::TaskArchetype::Watch  => "watch",
+                crate::teammate::TaskArchetype::Do     => "do",
+                crate::teammate::TaskArchetype::Review => "review",
+            };
+            let status = match task.status {
+                crate::teammate::TaskStatus::Draft     => "draft",
+                crate::teammate::TaskStatus::Active    => "active",
+                crate::teammate::TaskStatus::Blocked   => "blocked",
+                crate::teammate::TaskStatus::Done      => "done",
+                crate::teammate::TaskStatus::Cancelled => "cancelled",
+            };
+            let scope_json = serde_json::to_string(&task.scope)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            c.execute(
+                "INSERT INTO teammate_tasks \
+                 (id, operator_id, archetype, title, body, deliverable, status, \
+                  scope_json, spawned_session, created_at_unix_ms, updated_at_unix_ms, \
+                  completed_at_unix_ms, cost_usd_cents) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                params![
+                    task.id.0.to_string(),
+                    task.operator_id.0.to_string(),
+                    archetype,
+                    task.title,
+                    task.body,
+                    task.deliverable,
+                    status,
+                    scope_json,
+                    task.spawned_session.map(|s| s.to_string()),
+                    task.created_at_unix_ms as i64,
+                    task.updated_at_unix_ms as i64,
+                    task.completed_at_unix_ms.map(|t| t as i64),
+                    task.cost_usd_cents as i64,
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
 }
 
 /// Recall ranker. Tuned so the obvious-good answer wins:

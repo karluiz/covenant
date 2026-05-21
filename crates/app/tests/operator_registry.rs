@@ -147,6 +147,33 @@ async fn pin_unpin_round_trip() {
 }
 
 #[tokio::test]
+async fn teammate_messages_roundtrip() {
+    use covenant_lib::teammate::{MessageContent, MessageId, Role, TaskMessage};
+    use ulid::Ulid;
+
+    let (_tmp, storage) = tmp_storage();
+    // Need an operator row for the FK.
+    let op = sample("Mibli", true);
+    let op_id = op.id;
+    storage.operator_insert(op).await.unwrap();
+
+    let msg = TaskMessage {
+        id: MessageId(Ulid::new()),
+        operator_id: op_id,
+        task_id: None,
+        role: Role::User,
+        content: MessageContent::Text("hola Mibli".into()),
+        created_at_unix_ms: now_ms(),
+    };
+    storage.teammate_insert_message(&msg).await.unwrap();
+
+    let listed = storage.teammate_list_messages(op_id, 50).await.unwrap();
+    assert_eq!(listed.len(), 1, "message should round-trip");
+    let MessageContent::Text(t) = &listed[0].content else { panic!("wrong kind") };
+    assert_eq!(t, "hola Mibli");
+}
+
+#[tokio::test]
 async fn deleting_pinned_operator_falls_back_to_default() {
     let (_d, s) = tmp_storage();
     let reg = OperatorRegistry::load(&s).await.unwrap();
