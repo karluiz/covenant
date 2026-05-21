@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Operator tab treatments — v2</title>
+<style>
+  :root {
+    color-scheme: dark light;
+    --radius: 10px;
+    --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 28px;
+    background: #0c0f14;
+    color: #e7eaf0;
+    font-family: var(--font);
+  }
+  header { max-width: 1180px; margin: 0 auto 22px; }
+  h1 { margin: 0 0 8px; font-size: 22px; letter-spacing: -0.02em; }
+  .lede { margin: 0; max-width: 840px; color: #9aa3af; line-height: 1.45; }
+  .grid {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(260px, 1fr));
+    gap: 18px;
+  }
+  .proposal {
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.035);
+    padding: 16px;
+  }
+  .proposal h2 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #8aa0ff;
+  }
+  .proposal h3 { margin: 0 0 8px; font-size: 16px; }
+  .proposal p { margin: 0 0 14px; color: #9aa3af; line-height: 1.42; font-size: 12.5px; }
+  .wins { margin: 12px 0 0; padding-left: 18px; color: #b7beca; font-size: 12px; line-height: 1.5; }
+  .theme-pair { display: grid; gap: 12px; }
+
+  .mock {
+    --bg: #151922;
+    --tab: transparent;
+    --tab-hover: #1b202a;
+    --tab-active: #222938;
+    --text: #d6d9e0;
+    --muted: #747b89;
+    --line: #6370ff;
+    --border: rgba(255,255,255,0.08);
+    --op-a: #7c86ff;
+    --op-b: #ff8b68;
+    --op-c: #62d08c;
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border-radius: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .mock.light {
+    --bg: #f4f6fb;
+    --tab-hover: #eef1f8;
+    --tab-active: #e7ebf5;
+    --text: #242a35;
+    --muted: #687184;
+    --border: rgba(20,30,50,0.10);
+    --line: #7d8cff;
+  }
+  .mock-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 24px;
+    padding: 0 8px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+  }
+  .mock-label::before { content: "▾"; color: var(--line); }
+  .tabs { position: relative; display: grid; gap: 2px; }
+  .tabs::before {
+    content: "";
+    position: absolute;
+    left: 13px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--line) 55%, transparent);
+  }
+  .tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 31px;
+    margin-left: 25px;
+    padding: 0 28px 0 10px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    color: color-mix(in srgb, var(--text) 76%, transparent);
+    font: 12px/1 var(--mono);
+    overflow: hidden;
+  }
+  .tab.active {
+    background: var(--tab-active);
+    border-color: var(--border);
+    color: var(--text);
+    font-weight: 650;
+  }
+  .tab .title {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .close {
+    position: absolute;
+    right: 8px;
+    color: var(--muted);
+    opacity: 0;
+    font-size: 14px;
+  }
+  .tab.active .close { opacity: 1; }
+  .avatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    object-fit: contain;
+    flex: 0 0 auto;
+    background: rgba(255,255,255,0.08);
+  }
+  .avatar.soft { filter: saturate(0.76) contrast(0.9); opacity: 0.92; }
+  .light .avatar.soft { filter: saturate(0.68) contrast(0.88) brightness(1.04); }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--op-a);
+    box-shadow: 0 0 0 2px var(--bg);
+    flex: 0 0 auto;
+  }
+  .dot.live { background: #ff5872; box-shadow: 0 0 0 2px var(--bg), 0 0 8px rgba(255,88,114,0.5); }
+  .dot.idle { background: #748093; }
+
+  /* Proposal 1: operator rail */
+  .p1 .tab.has-op { padding-left: 12px; }
+  .p1 .op-rail {
+    position: absolute;
+    left: -25px;
+    top: 5px;
+    bottom: 5px;
+    width: 4px;
+    border-radius: 99px;
+    background: var(--op-color);
+    box-shadow: 0 0 0 3px var(--bg), 0 0 10px color-mix(in srgb, var(--op-color) 45%, transparent);
+  }
+  .p1 .op-mark {
+    width: 16px;
+    height: 16px;
+    border-radius: 6px;
+    display: inline-grid;
+    place-items: center;
+    font: 800 8px/1 var(--font);
+    letter-spacing: 0.03em;
+    color: color-mix(in srgb, var(--op-color) 28%, white);
+    background: color-mix(in srgb, var(--op-color) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--op-color) 32%, transparent);
+  }
+
+  /* Proposal 2: inline identity chip */
+  .p2 .op-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 82px;
+    height: 21px;
+    padding: 0 6px 0 3px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--op-color) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--op-color) 26%, transparent);
+    color: var(--text);
+    flex: 0 1 auto;
+  }
+  .p2 .op-chip .avatar { width: 15px; height: 15px; }
+  .p2 .op-chip .name {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font: 700 10px/1 var(--font);
+  }
+  .p2 .tab.active .op-chip { background: color-mix(in srgb, var(--op-color) 21%, transparent); }
+
+  /* Proposal 3: trailing operator dock */
+  .p3 .tab { padding-right: 58px; }
+  .p3 .op-dock {
+    position: absolute;
+    right: 25px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+  }
+  .p3 .op-dock .avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 6px;
+    padding: 1px;
+    background: color-mix(in srgb, var(--op-color) 18%, var(--bg));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--op-color) 38%, transparent);
+  }
+  .p3 .op-ring {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    display: inline-grid;
+    place-items: center;
+  }
+  .p3 .op-ring::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background:
+      conic-gradient(var(--op-color) 0 72%, color-mix(in srgb, var(--text) 10%, transparent) 72% 100%);
+    mask: radial-gradient(circle, transparent 56%, #000 58%);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Three cleaner ways to show Operators on tabs</h1>
+  <p class="lede">The current circular portrait + level bubble is visually loud: it competes with the active-tab border, the group rail, and the title. These options reduce the tab to the minimum signal: <strong>is there an operator, who is it, and is it live?</strong> XP/level should move to tooltip, status bar, or the operator picker.</p>
+</header>
+
+<main class="grid">
+  <section class="proposal p1">
+    <h2>Proposal 1</h2>
+    <h3>Operator rail + small mark</h3>
+    <p>Replace the avatar badge with a color rail on the existing group tree line plus a tiny “OP” mark. This is the calmest treatment and keeps tab titles perfectly aligned.</p>
+    <div class="theme-pair">
+      <div class="mock p1 dark">
+        <div class="mock-label">COVENANT</div>
+        <div class="tabs">
+          <div class="tab"><span class="title">notifications</span><span class="close">×</span></div>
+          <div class="tab active has-op" style="--op-color:var(--op-a)"><span class="op-rail"></span><span class="op-mark">OP</span><span class="title">resume sessions</span><span class="close">×</span></div>
+          <div class="tab has-op" style="--op-color:var(--op-b)"><span class="op-rail"></span><span class="op-mark">OP</span><span class="title">operator layout</span><span class="close">×</span></div>
+        </div>
+      </div>
+      <div class="mock p1 light">
+        <div class="mock-label">COVENANT</div>
+        <div class="tabs">
+          <div class="tab"><span class="title">notifications</span><span class="close">×</span></div>
+          <div class="tab active has-op" style="--op-color:var(--op-a)"><span class="op-rail"></span><span class="op-mark">OP</span><span class="title">resume sessions</span><span class="close">×</span></div>
+          <div class="tab has-op" style="--op-color:var(--op-b)"><span class="op-rail"></span><span class="op-mark">OP</span><span class="title">operator layout</span><span class="close">×</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="wins">
+      <li>Best for dense tab lists.</li>
+      <li>No portrait noise, no level bubble.</li>
+      <li>Operator color becomes the identity.</li>
+    </ul>
+  </section>
+
+  <section class="proposal p2">
+    <h2>Proposal 2</h2>
+    <h3>Inline identity chip</h3>
+    <p>Show a tiny avatar plus the operator’s short name before the title. The chip uses low-alpha operator color, so it feels intentional instead of stuck on top.</p>
+    <div class="theme-pair">
+      <div class="mock p2 dark">
+        <div class="mock-label">COVENANT</div>
+        <div class="tabs">
+          <div class="tab"><span class="title">notifications</span><span class="close">×</span></div>
+          <div class="tab active has-op" style="--op-color:var(--op-a)"><span class="op-chip"><img class="avatar soft" src="../../ui/operators/femalestudent1_transparent.png" alt=""><span class="name">Sora</span></span><span class="title">resume sessions</span><span class="close">×</span></div>
+          <div class="tab has-op" style="--op-color:var(--op-b)"><span class="op-chip"><img class="avatar soft" src="../../ui/operators/malepunk1_transparent.png" alt=""><span class="name">Mika</span></span><span class="title">operator layout</span><span class="close">×</span></div>
+        </div>
+      </div>
+      <div class="mock p2 light">
+        <div class="mock-label">COVENANT</div>
+        <div class="tabs">
+          <div class="tab"><span class="title">notifications</span><span class="close">×</span></div>
+          <div class="tab active has-op" style="--op-color:var(--op-a)"><span class="op-chip"><img class="avatar soft" src="../../ui/operators/femalestudent1_transparent.png" alt=""><span class="name">Sora</span></span><span class="title">resume sessions</span><span class="close">×</span></div>
+          <div class="tab has-op" style="--op-color:var(--op-b)"><span class="op-chip"><img class="avatar soft" src="../../ui/operators/malepunk1_transparent.png" alt=""><span class="name">Mika</span></span><span class="title">operator layout</span><span class="close">×</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="wins">
+      <li>Best when operator identity matters.</li>
+      <li>Works in top tabs and left tabs.</li>
+      <li>Can collapse name on narrow widths.</li>
+    </ul>
+  </section>
+
+  <section class="proposal p3">
+    <h2>Proposal 3</h2>
+    <h3>Trailing dock + live dot</h3>
+    <p>Keep the title clean. Put the operator at the right edge before the close button, with a status dot and optional ring. This makes the tab read like “file title first, operator metadata second”.</p>
+    <div class="theme-pair">
+      <div class="mock p3 dark">
+        <div class="mock-label">COVENANT</div>
+        <div class="tabs">
+          <div class="tab"><span class="title">notifications</span><span class="close">×</span></div>
+          <div class="tab active has-op" style="--op-color:var(--op-a)"><span class="title">resume sessions</span><span class="op-dock"><span class="dot live"></span><span class="op-ring"><img class="avatar soft" src="../../ui/operators/femalestudent1_transparent.png" alt=""></span></span><span class="close">×</span></div>
+          <div class="tab has-op" style="--op-color:var(--op-b)"><span class="title">operator layout</span><span class="op-dock"><span class="dot idle"></span><span class="op-ring"><img class="avatar soft" src="../../ui/operators/malepunk1_transparent.png" alt=""></span></span><span class="close">×</span></div>
+        </div>
+      </div>
+      <div class="mock p3 light">
+        <div class="mock-label">COVENANT</div>
+        <div class="tabs">
+          <div class="tab"><span class="title">notifications</span><span class="close">×</span></div>
+          <div class="tab active has-op" style="--op-color:var(--op-a)"><span class="title">resume sessions</span><span class="op-dock"><span class="dot live"></span><span class="op-ring"><img class="avatar soft" src="../../ui/operators/femalestudent1_transparent.png" alt=""></span></span><span class="close">×</span></div>
+          <div class="tab has-op" style="--op-color:var(--op-b)"><span class="title">operator layout</span><span class="op-dock"><span class="dot idle"></span><span class="op-ring"><img class="avatar soft" src="../../ui/operators/malepunk1_transparent.png" alt=""></span></span><span class="close">×</span></div>
+        </div>
+      </div>
+    </div>
+    <ul class="wins">
+      <li>Best compromise for current UI.</li>
+      <li>Title never shifts left/right.</li>
+      <li>Live state is visible without text.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

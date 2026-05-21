@@ -142,13 +142,30 @@ function termTheme(): typeof TERMINAL_THEME_DARK | typeof TERMINAL_THEME_LIGHT {
     : TERMINAL_THEME_DARK;
 }
 
+/// Scale negative letter-spacing by DPR. The user calibrates the
+/// value on whatever display they use most (typically Retina, DPR=2),
+/// where sub-pixel anti-aliasing absorbs the overlap. On a 1x
+/// external display each CSS pixel is one device pixel, so the same
+/// negative value renders glyphs literally on top of each other. We
+/// normalize so the same setting looks the same across DPRs.
+function scaledLetterSpacing(raw: number): number {
+  if (raw >= 0) return raw;
+  const dpr = window.devicePixelRatio || 1;
+  // DPR=2 → full value; DPR=1 → 0 (no overlap on 1x displays);
+  // linear in between. Negative letter-spacing only works visually
+  // when sub-pixel anti-aliasing absorbs the overlap, which requires
+  // DPR > 1.
+  const factor = Math.max(0, Math.min(1, dpr - 1));
+  return raw * factor;
+}
+
 function buildTerminalOptions(font: TerminalConfig | null): Record<string, unknown> {
   const baseSize = font?.font_size || DEFAULT_FONT_SIZE;
   return {
     fontFamily: font?.font_family || DEFAULT_FONT_FAMILY,
     fontSize: baseSize * zoom.level(),
     lineHeight: font?.line_height ?? 1.2,
-    letterSpacing: font?.letter_spacing ?? 0,
+    letterSpacing: scaledLetterSpacing(font?.letter_spacing ?? 0),
     cursorBlink: true,
     cursorStyle: "block",
     allowProposedApi: true,
@@ -713,6 +730,7 @@ export class TabManager {
       mql.addEventListener("change", onChange, { once: true });
     };
     armDprListener();
+
     window.addEventListener("beforeunload", () => {
       for (const tab of this.tabs) {
         void closeSession(tab.sessionId).catch(() => {});
@@ -1406,7 +1424,7 @@ export class TabManager {
         try {
           term.options.fontFamily = family;
           term.options.fontSize = size;
-          term.options.letterSpacing = cfg.letter_spacing ?? 0;
+          term.options.letterSpacing = scaledLetterSpacing(cfg.letter_spacing ?? 0);
           term.options.lineHeight = cfg.line_height ?? 1.2;
 
           // Ligatures pipeline: canvas renderer + custom font-ligatures

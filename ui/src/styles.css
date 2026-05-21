@@ -230,7 +230,7 @@ body.bg-translucent {
     display: grid;
     /* Row 3 = status bar (3.7). `auto` so it collapses to 0 height when
      the bar is hidden (settings.status_bar_enabled === false). */
-    grid-template-rows: 38px 1fr auto;
+    grid-template-rows: 38px 1fr [status-start] auto;
     grid-template-columns: minmax(0, 1fr);
     height: 100%;
     width: 100%;
@@ -7774,7 +7774,7 @@ body.tabbar-left {
 
 body.tabbar-left #layout {
     grid-template-columns: var(--tabbar-w) 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: 1fr [status-start] auto;
 }
 
 body.tabbar-left #tabbar-host {
@@ -13708,6 +13708,13 @@ body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host
   top: 0;
   bottom: 0;
   width: 8px;
+  /* Confine to rows above the status-bar via grid placement on the
+     absolutely-positioned item — the containing block becomes that
+     grid area, so the handle naturally stops at the status-bar's top
+     edge regardless of its rendered height. When the status bar is
+     hidden the row collapses to 0 and the handle reclaims the space. */
+  grid-row: 1 / status-start;
+  grid-column: 1 / -1;
   z-index: 45;
   cursor: col-resize;
   -webkit-app-region: no-drag;
@@ -13736,10 +13743,6 @@ body.sidebar-resizing .sidebar-resizer::after {
 #right-sidebar-resizer {
   right: var(--right-sidebar-w);
   transform: translateX(4px);
-}
-body:not(.tabbar-left) #right-sidebar-resizer {
-  top: 38px;
-  bottom: 26px;
 }
 body:not(.tabbar-left) #left-sidebar-resizer,
 body.tabbar-left-collapsed #left-sidebar-resizer,
