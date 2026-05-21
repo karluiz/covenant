@@ -101,32 +101,8 @@ body.theme-dark .op-card-summary {
   gap: 6px;
   margin-top: auto;
 }
-.op-card-btn {
-  flex: 1;
-  font-size: 12px;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.op-card-btn:hover {
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  border-color: color-mix(in srgb, currentColor 32%, transparent);
-}
-body:not(.theme-light) .op-card-btn,
-body.theme-dark .op-card-btn {
-  color: var(--text-primary, #f5f6f7);
-  background: rgba(255,255,255,0.025);
-  border-color: rgba(255,255,255,0.16);
-}
-body:not(.theme-light) .op-card-btn:hover,
-body.theme-dark .op-card-btn:hover {
-  background: rgba(255,255,255,0.075);
-  border-color: rgba(255,255,255,0.28);
-}
+/* Layout-only; visual styling comes from .settings-btn. */
+.op-card-btn { flex: 1; }
 
 /* Two-step operator modal */
 .op-modal {

@@ -1206,17 +1206,17 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     card.append(summary);
     const actions = document.createElement("div");
     actions.className = "op-card-actions";
-    const mk = (label: string, fn: () => void) => {
+    const mk = (label: string, fn: () => void, danger = false) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "op-card-btn";
+      b.className = danger ? "settings-btn is-danger op-card-btn" : "settings-btn op-card-btn";
       b.textContent = label;
       b.addEventListener("click", fn);
       return b;
     };
     actions.append(mk("Edit", () => h.onEdit(op)));
     actions.append(mk("Duplicate", () => h.onDuplicate(op)));
-    actions.append(mk("Delete", () => h.onDelete(op)));
+    actions.append(mk("Delete", () => h.onDelete(op), true));
     card.append(actions);
     root.append(card);
   }
