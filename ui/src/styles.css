@@ -3024,6 +3024,37 @@ body.theme-light .block-item-history .block-exit.fail {
     display: none;
 }
 
+/* When Settings (or any other full-page route) is open, it must cover the
+   entire layout — including the right rail (Activity / Project Notes). The
+   default grid assignment pins these pages to column 1, but the activity
+   sidebar lives in column 2 when body.sidebar-view-activity is set, so it
+   would otherwise bleed through to the right of Settings. Force the open
+   page to span all columns and hide the right rail underneath. */
+#layout:has(> #settings-page:not([hidden])),
+#layout:has(> #docs-page:not([hidden])),
+#layout:has(> #drafts-page:not([hidden])),
+#layout:has(> #mission-page:not([hidden])),
+#layout:has(> #operator-page:not([hidden])),
+#layout:has(> #capabilities-page:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+#layout > #settings-page:not([hidden]),
+#layout > #docs-page:not([hidden]),
+#layout > #drafts-page:not([hidden]),
+#layout > #mission-page:not([hidden]),
+#layout > #operator-page:not([hidden]),
+#layout > #capabilities-page:not([hidden]) {
+    grid-column: 1 / -1 !important;
+}
+#layout:has(> #settings-page:not([hidden])) #activity-sidebar,
+#layout:has(> #docs-page:not([hidden])) #activity-sidebar,
+#layout:has(> #drafts-page:not([hidden])) #activity-sidebar,
+#layout:has(> #mission-page:not([hidden])) #activity-sidebar,
+#layout:has(> #operator-page:not([hidden])) #activity-sidebar,
+#layout:has(> #capabilities-page:not([hidden])) #activity-sidebar {
+    display: none !important;
+}
+
 @keyframes settings-fade {
     from {
         opacity: 0;
