@@ -524,6 +524,17 @@ async function boot(): Promise<void> {
     syncSidebarTitlebarButtons(activeSidebarTitlebarView);
   }
 
+  const teammateBtn = document.getElementById("titlebar-view-teammate");
+  if (teammateBtn) {
+    teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });
+    attachTooltip(teammateBtn, "Teammate chat");
+    teammateBtn.addEventListener("click", () => {
+      // Real toggle wired in Task 10.
+      document.body.classList.toggle("sidebar-view-teammate");
+      teammateBtn.classList.toggle("titlebar-view-active");
+    });
+  }
+
   const projectNotesBtn = document.getElementById("titlebar-project-notes");
   if (projectNotesBtn) {
     projectNotesBtn.innerHTML = Icons.clipboard({ size: 16 });
