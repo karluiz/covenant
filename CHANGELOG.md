@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.0 — Teammate foundation + light-mode operator cards
+
+### Added
+
+- **Teammate runtime scaffold**: New `crates/app/src/teammate/` with an in-memory per-operator state machine (`Idle` / `Pinned(s)` / `OnTask(t, _)`) and Tauri-managed instance held from app boot (`crates/app/src/lib.rs`). No LLM dispatch yet — Phase 2 plugs in.
+
+- **Teammate persistence**: SQLite tables `teammate_tasks`, `teammate_messages`, `teammate_artifacts`, plus `operators.rolling_summary` column for Phase 2 prompt caching. Schema additions are idempotent (`crates/app/src/storage.rs`).
+
+- **Teammate Tauri commands**: `teammate_list_messages_for_operator`, `teammate_send_text_message`, `teammate_list_tasks` (stub) — text-only DM persistence end-to-end (`crates/app/src/teammate/commands.rs`).
+
+- **DM rail placeholder**: New chat icon in the titlebar (`ui/index.html`, `ui/src/icons/index.ts`) toggles a `TeammatePanel` in the right rail. Text-only echo end-to-end; no operator reply yet (`ui/src/teammate/panel.ts`, `ui/src/main.ts`).
+
+### Fixed
+
+- **Light-theme contrast on operator cards**: Edit / Duplicate buttons no longer ghost into the card background in light mode. Semantic `--settings-btn-fill` and `--op-card-fill` tokens with light-mode overrides give cards a white surface + drop shadow and buttons a visible fill. Also removed a stale duplicate `.settings-btn` block that was silently defeating the new tokens (`ui/src/styles.css`, `ui/src/styles/operator_chip.css`).
+
+- **Tabbar-left right-rail bleed on full-page routes**: Earlier in this cycle, `:has()`-scoped overrides were added so the layout collapses to a 2-column grid when Settings / Docs / Drafts / Mission / Operator / Capabilities is open under `sidebar-view-activity` or `project-notes-open` (`ui/src/styles.css`).
+
 ## v0.7.12 — Tabbar-left full-page rail collapse fix
 
 ### Fixed
