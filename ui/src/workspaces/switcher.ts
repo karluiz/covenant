@@ -230,7 +230,7 @@ export class WorkspaceSwitcher {
     this.popover.innerHTML = `
       <div class="workspace-popover-searchwrap">
         <input class="workspace-search" type="text" spellcheck="false"
-               placeholder="Search tabs across workspaces…"
+               placeholder="Find tab across workspaces… (⌘⌥T)"
                value="${esc(this.query)}">
       </div>
       <div class="workspace-popover-list" data-region="list"></div>
