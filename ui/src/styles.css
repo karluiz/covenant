@@ -3030,20 +3030,25 @@ body.theme-light .block-item-history .block-exit.fail {
    sidebar lives in column 2 when body.sidebar-view-activity is set, so it
    would otherwise bleed through to the right of Settings. Force the open
    page to span all columns and hide the right rail underneath. */
-#layout:has(> #settings-page:not([hidden])),
-#layout:has(> #docs-page:not([hidden])),
-#layout:has(> #drafts-page:not([hidden])),
-#layout:has(> #mission-page:not([hidden])),
-#layout:has(> #operator-page:not([hidden])),
-#layout:has(> #capabilities-page:not([hidden])) {
+/* Only collapse the grid in horizontal-tabbar mode. In tabbar-left mode
+   the sidebar lives in column 1 and these pages live in column 2; we
+   keep that two-column layout and rely on #activity-sidebar { display:none }
+   below to hide the right rail. Collapsing to 1fr there would push the
+   page off-screen and let the sidebar expand to full width. */
+body:not(.tabbar-left) #layout:has(> #settings-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #docs-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #drafts-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #mission-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #operator-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #capabilities-page:not([hidden])) {
     grid-template-columns: minmax(0, 1fr) !important;
 }
-#layout > #settings-page:not([hidden]),
-#layout > #docs-page:not([hidden]),
-#layout > #drafts-page:not([hidden]),
-#layout > #mission-page:not([hidden]),
-#layout > #operator-page:not([hidden]),
-#layout > #capabilities-page:not([hidden]) {
+body:not(.tabbar-left) #layout > #settings-page:not([hidden]),
+body:not(.tabbar-left) #layout > #docs-page:not([hidden]),
+body:not(.tabbar-left) #layout > #drafts-page:not([hidden]),
+body:not(.tabbar-left) #layout > #mission-page:not([hidden]),
+body:not(.tabbar-left) #layout > #operator-page:not([hidden]),
+body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
     grid-column: 1 / -1 !important;
 }
 #layout:has(> #settings-page:not([hidden])) #activity-sidebar,
@@ -7967,15 +7972,12 @@ body.tabbar-left .tab-group-body > .tab-grouped.tab-pill-folded {
     border-right-width: 1px;
 }
 
-/* Top accent stripe → left accent stripe. */
+/* Active-tab left accent stripe removed — the pill's own background +
+   border-color already signal selection clearly enough, and the stripe
+   was visually competing with the operator avatar / XP ring that now
+   sits at the same left edge. */
 body.tabbar-left .tab-btn.active::before {
-    top: 4px;
-    bottom: 4px;
-    left: -1px;
-    right: auto;
-    width: 2px;
-    height: auto;
-    border-radius: 2px;
+    display: none;
 }
 
 /* Group member indent so the hierarchy reads at a glance. Flat chrome
@@ -8019,20 +8021,11 @@ body.tabbar-left .tab-grouped.active {
     border-color: transparent;
     color: #fff;
 }
+/* Active-tab left stripe (grouped variant) removed — the pill's own
+   background already conveys selection, and the stripe collides with
+   the operator avatar / XP ring at the same left edge. */
 body.tabbar-left .tab-grouped.active::before {
-    display: block;
-    content: "";
-    position: absolute;
-    top: 5px;
-    bottom: 5px;
-    left: -3px;
-    right: auto;
-    width: 3px;
-    height: auto;
-    border-radius: 2px;
-    background: var(--group-color, var(--accent));
-    box-shadow: 0 0 8px
-        color-mix(in srgb, var(--group-color, var(--accent)) 70%, transparent);
+    display: none;
 }
 
 /* Restore vertical-stack body for sidebar (horizontal default uses row). */
@@ -9713,6 +9706,52 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
   box-shadow:
     inset 0 0 0 1px rgba(var(--ink-rgb), 0.1),
     0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* XP ring around the operator avatar on tabs.
+   Driven by --xp-progress (0..1) set inline from manager.ts.
+   r=11 ⇒ circumference = 2π·11 ≈ 69.115. The fill arc renders
+   stroke-dashoffset = C·(1 − progress), which empties the ring at
+   level-up and fills clockwise as XP accrues. Drawn just outside
+   the wrap (inset:-2px) so it doesn't fight the existing inner
+   1px frame on the wrap. */
+/* XP ring around the operator avatar.
+   Hugs the avatar tightly — inset:-3 / 26×26 / r=12 (circumference 75.398)
+   so it never bleeds into the tab above or below in the vertical tabbar.
+   The active-tab `::before` halo is suppressed below so there's no clash. */
+.tab-btn .tab-op-xp-ring {
+  position: absolute;
+  inset: -3px;
+  width: 26px;
+  height: 26px;
+  display: block;
+  transform: rotate(-90deg);
+  pointer-events: none;
+  overflow: visible;
+  z-index: 3;
+}
+.tab-btn .tab-op-xp-ring circle {
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+.tab-btn .tab-op-xp-ring .track {
+  stroke: rgba(255, 255, 255, 0.10);
+}
+.tab-btn .tab-op-xp-ring .fill {
+  stroke: var(--tab-stripe, var(--accent));
+  stroke-dasharray: 75.398;
+  stroke-dashoffset: calc(75.398 * (1 - var(--xp-progress, 0)));
+  transition: stroke-dashoffset 600ms cubic-bezier(.4,.2,.2,1);
+  opacity: 0.95;
+  filter: drop-shadow(
+    0 0 2px color-mix(in srgb, var(--tab-stripe, var(--accent)) 45%, transparent)
+  );
+}
+/* When the tab is active the existing `::before` halo would collide with
+   the ring — suppress it so the XP arc becomes the sole anchor. */
+body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::before {
+  display: none;
 }
 
 .tab-btn .tab-op-avatar-wrap .op-avatar-pixel {
@@ -11526,21 +11565,39 @@ button.status-segment.status-tg:focus-visible {
 /* "Agent idle waiting" indicator: thin pulsing stripe on the tab's left
    edge instead of a noisy dot. Much calmer when many tabs are in this
    state at once. */
+/* Idle indicator: a 1.5px amber comet sweeps the bottom edge of the tab
+   pill. We use `background-position` (not `transform: translateX`) so the
+   moving highlight never extends past the badge's own box — the tab pill
+   doesn't clip overflow (the avatar pokes out on the left in tabbar-left),
+   so a transform-based slide would draw the gradient on neighboring tabs.
+   The badge inherits the pill's bottom-corner radius so the highlight
+   curves out cleanly. */
 .tab-idle-badge {
   position: absolute;
-  left: -3px;
-  top: 5px;
-  bottom: 5px;
-  width: 3px;
-  border-radius: 2px;
-  background: #f5a524;
-  box-shadow: 0 0 8px rgba(245, 165, 36, 0.6);
-  animation: idle-pulse 1.6s ease-in-out infinite;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  border-radius: 0 0 var(--tab-radius, 6px) var(--tab-radius, 6px);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 38%,
+      rgba(245, 165, 36, 0.95) 50%,
+      transparent 62%,
+      transparent 100%
+    );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  background-position: -110% 0;
+  animation: idle-hairline 2.2s linear infinite;
+  filter: drop-shadow(0 0 4px rgba(245, 165, 36, 0.55));
   pointer-events: none;
 }
-@keyframes idle-pulse {
-  0%, 100% { opacity: 0.9; }
-  50%      { opacity: 0.35; }
+@keyframes idle-hairline {
+  from { background-position: -110% 0; }
+  to   { background-position: 210% 0;  }
 }
 
 /* Palpitating dot: a non-shell process is running in this tab's PTY

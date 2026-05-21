@@ -4073,10 +4073,20 @@ export class TabManager {
       if (op) {
         const opChip = document.createElement("span");
         opChip.className = "tab-op-chip tab-op-chip-leading";
-        const level = operatorLevelFromXp(op.xp ?? 0);
-        opChip.title = `${op.name} — Lv ${level} · ${op.xp ?? 0} XP`;
+        const xp = op.xp ?? 0;
+        const level = operatorLevelFromXp(xp);
+        // Progress within current level (0..1). 100 XP per level — see
+        // operatorLevelFromXp in api.ts. The ring fills clockwise from
+        // 12 o'clock and resets to 0 at each level-up.
+        const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
+        opChip.title = `${op.name} — Lv ${level} · ${xp} XP`;
         opChip.innerHTML =
-          `<span class="tab-op-avatar-wrap">` +
+          `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}" ` +
+                `style="--xp-progress:${xpProgress.toFixed(3)};">` +
+            `<svg class="tab-op-xp-ring" viewBox="0 0 24 24" aria-hidden="true">` +
+              `<circle class="track" cx="12" cy="12" r="11"/>` +
+              `<circle class="fill"  cx="12" cy="12" r="11"/>` +
+            `</svg>` +
             `${renderAvatarHtml(op.emoji, 18)}` +
             `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
           `</span>`;
