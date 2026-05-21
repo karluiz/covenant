@@ -3082,6 +3082,23 @@ export class TabManager {
     }, 200);
   }
 
+  /// Per-tab view for the global tab finder. Live titles (default_title
+  /// resolves from runtime spawn sequence, not persisted in the manifest)
+  /// + group/active info, indexed by position in the current tab list.
+  snapshotForFinder(): Array<{
+    index: number;
+    title: string;
+    groupId: string | null;
+    isActive: boolean;
+  }> {
+    return this.tabs.map((t, index) => ({
+      index,
+      title: tabDisplayName(t),
+      groupId: t.groupId,
+      isActive: t.id === this.activeId,
+    }));
+  }
+
   /// Serialize current tab + group state into the manifest schema.
   /// Public so main.ts can call `tabManifestSave` on `beforeunload`
   /// for a synchronous final flush.

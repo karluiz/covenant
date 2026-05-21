@@ -9,6 +9,7 @@
 
 import { tabManifestSave } from "../api";
 import { TabManager, type TabManifestV1 } from "../tabs/manager";
+import type { TabRow } from "./finder";
 
 export interface Workspace {
   id: string;
@@ -178,6 +179,61 @@ export class WorkspaceManager {
     this.workspaces = [fresh];
     this.activeId = fresh.id;
     return fresh;
+  }
+
+  /// Public read-only accessor for the active workspace id. The finder
+  /// needs it to decide whether selecting a row requires a workspace
+  /// switch first.
+  activeId_(): string {
+    return this.activeId;
+  }
+
+  /// Flatten every workspace's tabs into a single TabRow list for the
+  /// global finder. The active workspace contributes live titles via
+  /// `TabManager.snapshotForFinder()`; inactive workspaces read from
+  /// their persisted manifest body. Order: workspace-list order, then
+  /// tabIndex within each workspace.
+  listAllTabs(): TabRow[] {
+    const rows: TabRow[] = [];
+    for (const w of this.workspaces) {
+      const isActiveWs = w.id === this.activeId;
+      const groupById = new Map(w.groups.map((g) => [g.id, g]));
+      if (isActiveWs) {
+        const snap = this.tabManager.snapshotForFinder();
+        for (const t of snap) {
+          const g = t.groupId ? groupById.get(t.groupId) : null;
+          rows.push({
+            workspaceId: w.id,
+            workspaceName: w.name,
+            workspaceColor: w.color,
+            workspaceActive: true,
+            groupId: t.groupId,
+            groupName: g?.name ?? null,
+            groupColor: g?.color ?? null,
+            tabIndex: t.index,
+            title: t.title,
+            isActiveTabInWorkspace: t.isActive,
+          });
+        }
+      } else {
+        w.tabs.forEach((t, i) => {
+          const g = t.group_id ? groupById.get(t.group_id) : null;
+          rows.push({
+            workspaceId: w.id,
+            workspaceName: w.name,
+            workspaceColor: w.color,
+            workspaceActive: false,
+            groupId: t.group_id ?? null,
+            groupName: g?.name ?? null,
+            groupColor: g?.color ?? null,
+            tabIndex: i,
+            title: t.custom_name ?? `Tab ${i + 1}`,
+            isActiveTabInWorkspace: i === w.active_index,
+          });
+        });
+      }
+    }
+    return rows;
   }
 
   list(): WorkspaceView[] {
