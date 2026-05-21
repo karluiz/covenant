@@ -122,6 +122,9 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
     --tab-h: 30px;
     --tabbar-w-expanded: 232px;
     --right-sidebar-w: 240px;
+    --settings-btn-fill: transparent;
+    --settings-btn-fill-hover: color-mix(in srgb, var(--fg) 6%, transparent);
+    --op-card-fill: color-mix(in srgb, currentColor 3%, transparent);
 }
 
 /* Light theme — overrides the dark tokens defined in :root. Activated
@@ -156,6 +159,9 @@ body.theme-light {
     --tab-border-rest: rgba(0, 0, 0, 0.05);
     --tab-border-hover: rgba(0, 0, 0, 0.1);
     --tab-border-active: rgba(0, 0, 0, 0.14);
+    --settings-btn-fill: #ffffff;
+    --settings-btn-fill-hover: #f3f5f8;
+    --op-card-fill: #ffffff;
 }
 
 /* Light mode forces opaque chrome regardless of the user's window-background
@@ -3272,7 +3278,7 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
 
 .settings-btn {
     appearance: none;
-    background: transparent;
+    background: var(--settings-btn-fill);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 6px 12px;
@@ -3283,7 +3289,7 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .settings-btn:hover {
-    background: color-mix(in srgb, var(--fg) 6%, transparent);
+    background: var(--settings-btn-fill-hover);
     border-color: color-mix(in srgb, var(--fg) 24%, var(--border));
 }
 .settings-btn:active { transform: translateY(1px); }
