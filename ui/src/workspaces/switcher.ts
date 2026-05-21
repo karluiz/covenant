@@ -7,7 +7,9 @@
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { pushInfoToast } from "../notifications/toast";
+import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
+import { filterAndRankTabs, type TabRow } from "./finder";
 import { WorkspaceManager } from "./manager";
 
 const KBD_NEW = "⌘⌥N";
@@ -47,8 +49,14 @@ export class WorkspaceSwitcher {
   private chip: HTMLButtonElement | null = null;
   private popover: HTMLElement | null = null;
   private unsubscribe: (() => void) | null = null;
+  private query: string = "";
+  private selectedIndex: number = 0;
+  private lastResults: TabRow[] = [];
 
-  constructor(private readonly ws: WorkspaceManager) {}
+  constructor(
+    private readonly ws: WorkspaceManager,
+    private readonly tabManager: TabManager,
+  ) {}
 
   /// Mount the chip into the given host element. Returns the chip so
   /// callers can position it (e.g. prepend vs append).
@@ -183,8 +191,57 @@ export class WorkspaceSwitcher {
 
   private renderPopover(): void {
     if (!this.popover) return;
+    this.popover.innerHTML = `
+      <div class="workspace-popover-searchwrap">
+        <input class="workspace-search" type="text" spellcheck="false"
+               placeholder="Search tabs across workspaces…"
+               value="${esc(this.query)}">
+      </div>
+      <div class="workspace-popover-list" data-region="list"></div>
+      <div class="workspace-popover-footer">
+        <button type="button" class="workspace-new-btn">+ New workspace</button>
+        <span class="workspace-popover-kbd">${esc(KBD_NEW)}</span>
+      </div>
+    `;
+
+    const input = this.popover.querySelector<HTMLInputElement>(".workspace-search");
+    input?.addEventListener("input", () => {
+      this.query = input.value;
+      this.selectedIndex = 0;
+      this.renderList();
+    });
+    // Defer focus so the popover's positioning math completes first.
+    setTimeout(() => input?.focus(), 0);
+
+    this.popover
+      .querySelector<HTMLButtonElement>(".workspace-new-btn")
+      ?.addEventListener("click", () => {
+        this.closePopover();
+        void this.createAndSwitch();
+      });
+
+    this.renderList();
+  }
+
+  private renderList(): void {
+    if (!this.popover) return;
+    const region = this.popover.querySelector<HTMLElement>('[data-region="list"]');
+    if (!region) return;
+    const q = this.query.trim();
+    if (q === "") {
+      this.lastResults = [];
+      region.innerHTML = this.renderWorkspaceRows();
+      this.attachWorkspaceRowHandlers(region);
+    } else {
+      this.lastResults = filterAndRankTabs(q, this.ws.listAllTabs());
+      region.innerHTML = this.renderResultRows(this.lastResults);
+      this.attachResultRowHandlers(region);
+    }
+  }
+
+  private renderWorkspaceRows(): string {
     const list = this.ws.list();
-    const rows = list
+    return list
       .map((w) => {
         const dotStyle = w.color
           ? `background:${esc(w.color)};`
@@ -198,15 +255,10 @@ export class WorkspaceSwitcher {
           </div>`;
       })
       .join("");
-    this.popover.innerHTML = `
-      <div class="workspace-popover-list">${rows}</div>
-      <div class="workspace-popover-footer">
-        <button type="button" class="workspace-new-btn">+ New workspace</button>
-        <span class="workspace-popover-kbd">${esc(KBD_NEW)}</span>
-      </div>
-    `;
+  }
 
-    for (const row of this.popover.querySelectorAll<HTMLElement>(".workspace-row")) {
+  private attachWorkspaceRowHandlers(region: HTMLElement): void {
+    for (const row of region.querySelectorAll<HTMLElement>(".workspace-row")) {
       const id = row.dataset.id ?? "";
       row.addEventListener("click", () => {
         const target = this.ws.list().find((w) => w.id === id);
@@ -219,12 +271,57 @@ export class WorkspaceSwitcher {
         this.showRowMenu(row, id);
       });
     }
-    this.popover
-      .querySelector<HTMLButtonElement>(".workspace-new-btn")
-      ?.addEventListener("click", () => {
-        this.closePopover();
-        void this.createAndSwitch();
+  }
+
+  private renderResultRows(rows: TabRow[]): string {
+    if (rows.length === 0) {
+      return `<div class="workspace-empty">No tabs match.</div>`;
+    }
+    return rows
+      .map((r, i) => {
+        const sel = i === this.selectedIndex ? " workspace-result-row-selected" : "";
+        const dotColor = r.groupColor ?? r.workspaceColor ?? "var(--chip-dot, #888)";
+        const dotFill = r.isActiveTabInWorkspace && r.workspaceActive
+          ? `background:${esc(dotColor)};`
+          : `background:transparent;border:1.5px solid ${esc(dotColor)};`;
+        const meta = [r.groupName, r.workspaceName]
+          .filter((s): s is string => Boolean(s))
+          .map((s) => esc(s))
+          .join(" · ");
+        return `
+          <div class="workspace-result-row${sel}"
+               data-ws="${esc(r.workspaceId)}"
+               data-idx="${r.tabIndex}">
+            <span class="workspace-result-dot" style="${dotFill}"></span>
+            <span class="workspace-result-title">${esc(r.title)}</span>
+            <span class="workspace-result-meta">${meta}</span>
+          </div>`;
+      })
+      .join("");
+  }
+
+  private attachResultRowHandlers(region: HTMLElement): void {
+    for (const el of region.querySelectorAll<HTMLElement>(".workspace-result-row")) {
+      el.addEventListener("click", () => {
+        const ws = el.dataset.ws ?? "";
+        const idx = Number(el.dataset.idx ?? "-1");
+        void this.runSelect(ws, idx);
       });
+    }
+  }
+
+  private async runSelect(workspaceId: string, tabIndex: number): Promise<void> {
+    if (tabIndex < 0) return;
+    const needsSwitch = workspaceId !== this.ws.activeId_();
+    if (needsSwitch) {
+      const target = this.ws.list().find((w) => w.id === workspaceId);
+      if (!target) return;
+      this.closePopover();
+      await this.runSwitch(workspaceId, target.name);
+    } else {
+      this.closePopover();
+    }
+    this.tabManager.activateByIndex(tabIndex);
   }
 
   /// Replace the row's name span with an input. window.prompt is

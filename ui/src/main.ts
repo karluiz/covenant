@@ -685,7 +685,7 @@ async function boot(): Promise<void> {
   // Covenant wordmark so the brand text isn't truncated. Chip
   // auto-rerenders via WorkspaceManager.onChange.
   const tabbarActions = document.getElementById("tabbar-actions");
-  const switcher = new WorkspaceSwitcher(workspaceManager);
+  const switcher = new WorkspaceSwitcher(workspaceManager, manager);
   if (tabbarActions) switcher.mount(tabbarActions);
 
   newGroupBtn.addEventListener("click", () => {
