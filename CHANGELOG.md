@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.10 — Full-page rail coverage + zsh % marker suppression
+
+### Fixed
+
+- **Full-page routes cover the right rail**: Settings, Docs, Drafts, Mission, Operator, and Capabilities pages now span the full layout grid (`grid-column: 1 / -1`) and hide `#activity-sidebar` while open, so the Activity / Project Notes rail no longer bleeds through next to an open page when `body.sidebar-view-activity` is set (`ui/src/styles.css`).
+
+- **Zsh partial-line `%` marker suppressed**: The OSC 133 zsh integration now `unsetopt PROMPT_SP` and blanks `PROMPT_EOL_MARK`, so the inverse `%` that zsh shows when the previous output lacks a trailing newline no longer appears on every fresh session. Covenant already segments output into Blocks via OSC 133, and the `OSC 133;A` sequence itself counts as output without a newline, which made the marker fire spuriously (`shell-integration/osc133.zsh`).
+
 ## v0.7.9 — Sidebar resizer + DPR-aware letter spacing
 
 ### Fixed
