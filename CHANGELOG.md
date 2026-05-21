@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.9 — Sidebar resizer + DPR-aware letter spacing
+
+### Fixed
+
+- **Sidebar resizers stop at the status bar**: The left/right sidebar resize handles are now placed into a named grid row (`status-start`) instead of using hardcoded `top: 38px; bottom: 26px` offsets, so they naturally confine to rows above the status bar and reclaim the space when the status bar is hidden (`ui/src/styles.css`).
+
+- **Letter-spacing on 1x external displays**: Negative `letter_spacing` values are now scaled by `devicePixelRatio` in `ui/src/tabs/manager.ts`. On Retina (DPR=2) sub-pixel AA absorbs glyph overlap so the value applies in full; on a 1x external display the same setting fell back to 0 instead of literally stacking glyphs on top of each other. Applied to both initial terminal options and live config updates.
+
 ## v0.7.8 — Activity card cap + boot splash polish
 
 ### Changed
