@@ -16,6 +16,14 @@
 [[ -n "${_KARL_OSC133_LOADED:-}" ]] && return 0
 _KARL_OSC133_LOADED=1
 
+# Suppress zsh's "partial line" indicator (the inverse `%` shown when the
+# previous command's output didn't end with a newline). Covenant segments
+# output into Blocks via OSC 133, so the visual marker is redundant noise
+# — and appears on every fresh session because the OSC 133;A sequence
+# itself counts as output without a trailing newline.
+unsetopt PROMPT_SP 2>/dev/null
+PROMPT_EOL_MARK=''
+
 # Tracks whether a `preexec` has fired without a matching `D` yet, so the
 # very first prompt — before any user command has run — does not emit a
 # spurious `D ; 0` based on the shell's own initialization $?.
