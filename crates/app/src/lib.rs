@@ -52,6 +52,7 @@ pub mod storage;
 mod structure;
 mod summarizer;
 mod tab_manifest;
+pub mod teammate;
 pub mod telegram;
 mod theme;
 mod vitals;
