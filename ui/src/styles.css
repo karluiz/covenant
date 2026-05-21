@@ -3060,6 +3060,27 @@ body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
     display: none !important;
 }
 
+/* In tabbar-left mode the layout reserves a 3rd column for the activity
+   sidebar (see body.sidebar-view-activity.tabbar-left rule). When a
+   full-page route is open the sidebar is hidden, but without collapsing
+   the column the workspace area keeps the reserved gap on the right and
+   the window background bleeds through next to Settings/Docs/etc. Drop
+   the right rail column for the duration of those routes. */
+body.tabbar-left.sidebar-view-activity #layout:has(> #settings-page:not([hidden])),
+body.tabbar-left.sidebar-view-activity #layout:has(> #docs-page:not([hidden])),
+body.tabbar-left.sidebar-view-activity #layout:has(> #drafts-page:not([hidden])),
+body.tabbar-left.sidebar-view-activity #layout:has(> #mission-page:not([hidden])),
+body.tabbar-left.sidebar-view-activity #layout:has(> #operator-page:not([hidden])),
+body.tabbar-left.sidebar-view-activity #layout:has(> #capabilities-page:not([hidden])),
+body.tabbar-left.project-notes-open #layout:has(> #settings-page:not([hidden])),
+body.tabbar-left.project-notes-open #layout:has(> #docs-page:not([hidden])),
+body.tabbar-left.project-notes-open #layout:has(> #drafts-page:not([hidden])),
+body.tabbar-left.project-notes-open #layout:has(> #mission-page:not([hidden])),
+body.tabbar-left.project-notes-open #layout:has(> #operator-page:not([hidden])),
+body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden])) {
+    grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important;
+}
+
 @keyframes settings-fade {
     from {
         opacity: 0;
