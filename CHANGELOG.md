@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.11 — Persona preset chips + tab XP ring + tabbar-left polish
+
+### Added
+
+- **Rich operator persona presets**: Expanded the "Start from preset" row in the New / Edit Operator modal from 4 stubs to 8 chips (**Reviewer, Yolo, QA, Scout, Pair, Spec, Watcher, Auto**) and wired each chip to a full persona charter from `ui/src/operator/persona-templates.ts`. One click now seeds name, color, voice, model, escalate threshold and a multi-paragraph persona instead of a one-liner like *"Autonomous operator with conservative allowlist."* (`ui/src/settings/operator_presets.ts`).
+
+- **XP ring on tab operator avatars**: Tab pills now render an SVG progress ring around the leading operator avatar, driven by a per-tab `--xp-progress` CSS variable that resets at each level-up. Makes XP gain visible without opening the operator panel (`ui/src/tabs/manager.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Settings tabs share a styling vocabulary**: Introduced shared tokens (`.settings-section-desc`, `.settings-card`, `.settings-card-title`, `.settings-field-label`, `.settings-btn`) and migrated Providers, Models and Operators onto them. Fixes the oversized intro paragraph in Providers (was browser-default ~16px) and unifies button sizing and radius across the three tabs (`ui/src/settings/providers.ts`, `ui/src/settings/model_routes.ts`, `ui/src/settings/operators.ts`, `ui/src/styles.css`, `ui/src/styles/operator_chip.css`).
+
+- **Drop active-tab left accent stripe in vertical tabbar**: The pill background plus border-color already convey selection, and the stripe collided with the new XP ring at the same left edge. Removed the `::before` rules for both `.tab-btn.active` and `.tab-grouped.active` under `body.tabbar-left` (`ui/src/styles.css`).
+
+### Fixed
+
+- **Operator modal scroll no longer snaps to top**: Toggling Voice / Color / Avatar / Model in the New / Edit Operator modal called a full `render()` rebuild, which reset `.op-modal-body` scroll to 0. The render path now snapshots and restores `scrollTop` so deep fields stay anchored while editing (`ui/src/settings/operators.ts`).
+
+- **Full-page routes coexist with vertical tabbar**: The `#layout:has(> #settings-page:not([hidden]))` rules that collapsed the grid to `1fr` were unconditional, which under `body.tabbar-left` pushed Settings / Docs / Drafts / Mission / Operators / Capabilities off-screen and let the sidebar swallow the viewport. The collapse is now scoped to `body:not(.tabbar-left)`, preserving the two-column layout in vertical-tabbar mode while horizontal-tabbar still gets full-width pages (`ui/src/styles.css`).
+
 ## v0.7.10 — Full-page rail coverage + zsh % marker suppression
 
 ### Fixed
