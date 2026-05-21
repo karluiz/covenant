@@ -95,9 +95,10 @@ function renderProviderCard(
   onChange: (next: Settings) => void,
 ): HTMLElement {
   const card = document.createElement("div");
-  card.className = "provider-card";
+  card.className = "settings-card provider-card";
 
   const title = document.createElement("h3");
+  title.className = "settings-card-title";
   title.textContent = `${entry.label} (${entry.kind})`;
   card.appendChild(title);
 
@@ -128,6 +129,7 @@ function renderProviderCard(
     const testBtn = document.createElement("button");
     testBtn.textContent = "Test connection";
     testBtn.type = "button";
+    testBtn.className = "settings-btn";
     const status = document.createElement("span");
     status.className = "provider-status";
     testBtn.onclick = async () => {
@@ -147,7 +149,7 @@ function renderProviderCard(
     const del = document.createElement("button");
     del.textContent = "Delete";
     del.type = "button";
-    del.className = "btn-danger";
+    del.className = "settings-btn is-danger";
     del.onclick = () => {
       const next = JSON.parse(JSON.stringify(settings)) as Settings;
       next.providers = { ...next.providers };
@@ -164,6 +166,7 @@ function labeled(text: string, input: HTMLElement): HTMLElement {
   const wrap = document.createElement("label");
   wrap.className = "field";
   const span = document.createElement("span");
+  span.className = "settings-field-label";
   span.textContent = text;
   wrap.appendChild(span);
   wrap.appendChild(input);

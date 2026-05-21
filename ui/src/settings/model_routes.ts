@@ -35,9 +35,10 @@ function renderRoleRow(
 ): HTMLElement {
   const route = settings.model_routes?.[role] ?? { provider_id: "anthropic", model: "" };
   const wrap = document.createElement("div");
-  wrap.className = "model-route-row";
+  wrap.className = "settings-card model-route-row";
 
   const title = document.createElement("h4");
+  title.className = "settings-card-title";
   title.textContent = ROLE_LABEL[role];
   wrap.appendChild(title);
 
@@ -160,6 +161,7 @@ function labeled(text: string, ctl: HTMLElement): HTMLElement {
   const w = document.createElement("label");
   w.className = "field";
   const span = document.createElement("span");
+  span.className = "settings-field-label";
   span.textContent = text;
   w.appendChild(span);
   w.appendChild(ctl);
