@@ -168,7 +168,43 @@ export class WorkspaceSwitcher {
       this.closePopover();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") this.closePopover();
+      if (!this.popover) return;
+      if (e.key === "Escape") {
+        if (this.query !== "") {
+          this.query = "";
+          this.selectedIndex = 0;
+          this.renderPopover();
+          e.preventDefault();
+          return;
+        }
+        this.closePopover();
+        return;
+      }
+      if (this.query.trim() === "") return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (this.lastResults.length === 0) return;
+        this.selectedIndex =
+          (this.selectedIndex + 1) % this.lastResults.length;
+        this.renderList();
+        this.scrollSelectedIntoView();
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (this.lastResults.length === 0) return;
+        this.selectedIndex =
+          (this.selectedIndex - 1 + this.lastResults.length) %
+          this.lastResults.length;
+        this.renderList();
+        this.scrollSelectedIntoView();
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const pick = this.lastResults[this.selectedIndex];
+        if (pick) void this.runSelect(pick.workspaceId, pick.tabIndex);
+      }
     };
     setTimeout(() => {
       document.addEventListener("click", onDocClick);
@@ -308,6 +344,13 @@ export class WorkspaceSwitcher {
         void this.runSelect(ws, idx);
       });
     }
+  }
+
+  private scrollSelectedIntoView(): void {
+    const el = this.popover?.querySelector<HTMLElement>(
+      ".workspace-result-row-selected",
+    );
+    el?.scrollIntoView({ block: "nearest" });
   }
 
   private async runSelect(workspaceId: string, tabIndex: number): Promise<void> {
