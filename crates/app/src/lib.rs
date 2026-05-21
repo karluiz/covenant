@@ -2727,6 +2727,7 @@ pub fn run() {
             let registry_arc = Arc::new(registry);
             app.manage(registry_arc.clone());
             app.manage(Arc::new(storage.clone()));
+            app.manage(teammate::TeammateRuntime::new());
             app.manage(project_notes::Store::new(storage.conn()));
 
             // Familiars: per-session AI companion with persistent
