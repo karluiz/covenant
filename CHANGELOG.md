@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.7.12 — Tabbar-left full-page rail collapse fix
+
+### Fixed
+
+- **Background bleed next to full-page routes in tabbar-left mode**: With the activity sidebar enabled, the layout reserves a 3rd grid column for the right rail. When Settings / Docs / Drafts / Mission / Operator / Capabilities are open the rail is hidden, but the reserved column kept the gap and the window background showed through. Added `:has()`-scoped overrides that collapse `#layout` to a 2-column `var(--tabbar-w) minmax(0, 1fr)` grid for each of those routes under both `sidebar-view-activity` and `project-notes-open` (`ui/src/styles.css`). Also ignores local `scratch/` from git.
+
 ## v0.7.11 — Persona preset chips + tab XP ring + tabbar-left polish
 
 ### Added
