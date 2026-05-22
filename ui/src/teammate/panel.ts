@@ -1,17 +1,20 @@
 import type { Operator, TeammateMessage } from "../api";
-import { operatorList, teammateListMessages, teammateSendText } from "../api";
+import { onTeammateMessage, operatorList, teammateListMessages, teammateSendText } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 
 export interface TeammatePanelDeps {
-  listMessages: (operatorId: string, limit?: number) => Promise<TeammateMessage[]>;
-  sendText:     (operatorId: string, text: string) => Promise<TeammateMessage>;
+  listMessages:  (operatorId: string, limit?: number) => Promise<TeammateMessage[]>;
+  sendText:      (operatorId: string, text: string) => Promise<TeammateMessage>;
   listOperators: () => Promise<Operator[]>;
+  /// Optional in tests; production wires to the real Tauri listener.
+  onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
-  listMessages: teammateListMessages,
-  sendText:     teammateSendText,
+  listMessages:  teammateListMessages,
+  sendText:      teammateSendText,
   listOperators: operatorList,
+  onMessage:     onTeammateMessage,
 };
 
 export class TeammatePanel {
@@ -24,6 +27,7 @@ export class TeammatePanel {
   private headerEl: HTMLElement | null = null;
   private switcherEl: HTMLElement | null = null;
   private dismissSwitcher: ((e: Event) => void) | null = null;
+  private unlisten: (() => void) | null = null;
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -44,10 +48,15 @@ export class TeammatePanel {
       this.deps.listOperators().then((ops) => { this.roster = ops; }).catch(() => { /* ignore */ }),
     ]);
     this.paintMessages(messages);
+    if (!this.unlisten && this.deps.onMessage) {
+      this.unlisten = await this.deps.onMessage((m) => this.onIncomingMessage(m));
+    }
   }
 
   close(): void {
     this.closeSwitcher();
+    this.unlisten?.();
+    this.unlisten = null;
     this.operator = null;
     this.host.innerHTML = "";
     this.host.classList.remove("teammate-panel");
@@ -58,6 +67,7 @@ export class TeammatePanel {
     if (!text.trim()) return;
     const msg = await this.deps.sendText(this.operator.id, text.trim());
     this.appendBubble(msg);
+    this.setTyping(true);
     if (this.inputEl) this.inputEl.value = "";
   }
 
@@ -122,6 +132,26 @@ export class TeammatePanel {
     b.textContent = msg.content.data;
     this.threadEl.append(b);
     this.threadEl.scrollTop = this.threadEl.scrollHeight;
+  }
+
+  private setTyping(on: boolean): void {
+    if (!this.threadEl) return;
+    const existing = this.threadEl.querySelector(".teammate-typing");
+    if (on && !existing) {
+      const t = document.createElement("div");
+      t.className = "teammate-bubble teammate-bubble-operator teammate-typing";
+      t.innerHTML = `<span class="teammate-typing-dot"></span><span class="teammate-typing-dot"></span><span class="teammate-typing-dot"></span>`;
+      this.threadEl.append(t);
+      this.threadEl.scrollTop = this.threadEl.scrollHeight;
+    } else if (!on && existing) {
+      existing.remove();
+    }
+  }
+
+  private onIncomingMessage(msg: TeammateMessage): void {
+    if (!this.operator || msg.operator_id !== this.operator.id) return;
+    this.setTyping(false);
+    this.appendBubble(msg);
   }
 
   private toggleSwitcher(): void {
