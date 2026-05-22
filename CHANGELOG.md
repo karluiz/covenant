@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.10 — Operators-as-teammate redesign + Mibli reads files
+
+First tagged release of the operators-as-teammate cut (v0.7.12 → v0.8.10). The full cycle is documented section-by-section in **v0.8.0 → v0.8.9** below — DM rail foundation, conversational operator, world-model context, multi-turn tool-use with `read_file`, plus light-mode contrast fix, header/avatar/XP-ring polish, and right-rail toggle exclusivity.
+
+### Changed
+
+- **Info toasts get a softer border**: dropped the bright green `border-left` accent on `.toast.toast-info` and lowered the outer border alpha so info toasts read as ambient hints, not notifications (`ui/src/styles.css`).
+
 ## v0.8.9 — Teammate composer breathing room (focus halo no longer clips)
 
 ### Fixed
