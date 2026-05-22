@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.2 — Conversational operator (Mibli actually replies)
+
+### Added
+
+- **Operator replies via LLM dispatch**: Text sent to the DM rail now triggers a background task that loads the thread, builds a system prompt from the operator's persona, resolves the configured Operator-role provider, overrides the model with the operator's own field, and calls `collect_oneshot`. The reply persists and surfaces in the rail via a new `teammate-message` Tauri event (`crates/app/src/teammate/llm.rs`, `crates/app/src/teammate/commands.rs`, `ui/src/teammate/panel.ts`).
+- **Typing indicator**: While the dispatch is in flight, a three-dot bouncing bubble sits where the reply will land (`ui/src/styles.css`).
+- **System-role error surfacing**: If dispatch fails (no provider configured, API error, empty reply), a `System` role message is persisted and emitted into the thread so the user can see what went wrong.
+
+### Notes
+
+- Conversation window is the last 20 messages, sent as a single user-side string. Phase 3 will introduce rolling summary compaction once threads grow long enough to matter.
+- The operator does not see PTY blocks yet — world-model integration lands in Phase 3 (Review/Do tasks need it anyway).
+
 ## v0.8.1 — Teammate rail polish (avatar + switcher + composer)
 
 ### Added

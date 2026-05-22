@@ -1674,3 +1674,15 @@ export async function onVitalsUpdate(
   );
   return unlisten;
 }
+
+/// Subscribe to `teammate-message` events pushed by the backend when the
+/// operator produces a reply. Returns an unlisten fn.
+export async function onTeammateMessage(
+  handler: (msg: TeammateMessage) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<TeammateMessage>("teammate-message", (e) =>
+    handler(e.payload),
+  );
+  return unlisten;
+}

@@ -65,7 +65,31 @@ describe("TeammatePanel", () => {
     await panel.openFor(makeOp());
     await panel.send("hola");
     expect(send).toHaveBeenCalledWith("op-mibli", "hola");
-    expect(host.querySelectorAll(".teammate-bubble").length).toBe(1);
+    expect(host.querySelectorAll(".teammate-bubble:not(.teammate-typing)").length).toBe(1);
+  });
+
+  it("shows typing indicator after send and replaces it on incoming reply", async () => {
+    let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
+    const host = document.createElement("div");
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn().mockResolvedValue({
+        id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
+        content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
+      }),
+      listOperators: vi.fn().mockResolvedValue([]),
+      onMessage: vi.fn(async (h) => { captured = h; return () => {}; }),
+    });
+    await panel.openFor(makeOp());
+    await panel.send("hola");
+    expect(host.querySelector(".teammate-typing")).not.toBeNull();
+    captured!({
+      id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
+      content: { kind: "text", data: "hola, ¿en qué te ayudo?" }, created_at_unix_ms: 2,
+    });
+    expect(host.querySelector(".teammate-typing")).toBeNull();
+    const bubbles = host.querySelectorAll(".teammate-bubble:not(.teammate-typing)");
+    expect(bubbles.length).toBe(2);
   });
 
   it("opens a switcher with all operators on header click", async () => {
