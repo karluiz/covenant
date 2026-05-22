@@ -22,6 +22,7 @@ interface LiveEntry {
   manager: PoolableTabManager;
   tracker: ActivityTracker;
   unsubscribeBlocks: () => void;
+  unsubscribeActivity: () => void;
 }
 
 interface HibernatedEntry {
@@ -38,6 +39,7 @@ export class LivePool {
   private lru: string[] = [];
   private liveLimit: number;
   private activeId: string | null = null;
+  private activityListeners = new Set<(id: string, state: ActivityState) => void>();
 
   constructor(
     private readonly factory: TabManagerFactory,
@@ -71,6 +73,13 @@ export class LivePool {
     return null;
   }
 
+  /// Fires whenever any tracked workspace's activity state changes.
+  /// Used by the switcher to re-render chip badges.
+  onActivityChange(cb: (workspaceId: string, state: ActivityState) => void): () => void {
+    this.activityListeners.add(cb);
+    return () => { this.activityListeners.delete(cb); };
+  }
+
   async setLimit(n: number): Promise<void> {
     this.liveLimit = clampLimit(n);
     await this.enforceLimit();
@@ -90,7 +99,10 @@ export class LivePool {
     const unsubscribeBlocks = manager.onBlockFinished((ev) => {
       if (this.activeId !== id) tracker.recordBlock({ exitCode: ev.exitCode });
     });
-    this.live.set(id, { manager, tracker, unsubscribeBlocks });
+    const unsubscribeActivity = tracker.onChange((s) => {
+      for (const l of this.activityListeners) l(id, s);
+    });
+    this.live.set(id, { manager, tracker, unsubscribeBlocks, unsubscribeActivity });
     this.touch(id);
     this.activeId = id;
   }
@@ -140,7 +152,10 @@ export class LivePool {
     const unsubscribeBlocks = manager.onBlockFinished((ev) => {
       if (this.activeId !== id) tracker.recordBlock({ exitCode: ev.exitCode });
     });
-    this.live.set(id, { manager, tracker, unsubscribeBlocks });
+    const unsubscribeActivity = tracker.onChange((s) => {
+      for (const l of this.activityListeners) l(id, s);
+    });
+    this.live.set(id, { manager, tracker, unsubscribeBlocks, unsubscribeActivity });
     this.touch(id);
     return manager;
   }
@@ -159,6 +174,7 @@ export class LivePool {
     const scrollback = entry.manager.serializeScrollback();
     const lastActivity = { ...entry.tracker.state };
     entry.unsubscribeBlocks();
+    entry.unsubscribeActivity();
     await entry.manager.dispose();
     this.live.delete(id);
     this.lru = this.lru.filter((x) => x !== id);
@@ -171,6 +187,7 @@ export class LivePool {
     const entry = this.live.get(id);
     if (entry) {
       entry.unsubscribeBlocks();
+      entry.unsubscribeActivity();
       await entry.manager.dispose();
       this.live.delete(id);
     }

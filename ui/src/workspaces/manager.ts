@@ -221,6 +221,16 @@ export class WorkspaceManager {
     return this.activeId;
   }
 
+  /// Returns activity state for the given workspace, delegating to the pool.
+  getActivity(id: string): import("./activity").ActivityState | null {
+    return this.pool.activityOf(id);
+  }
+
+  /// Subscribe to activity-state changes across all tracked workspaces.
+  onActivityChange(cb: (workspaceId: string, state: import("./activity").ActivityState) => void): () => void {
+    return this.pool.onActivityChange(cb);
+  }
+
   /// Flatten every workspace's tabs into a single TabRow list for the
   /// global finder. The active workspace contributes live titles via
   /// `TabManager.snapshotForFinder()`; inactive workspaces read from
