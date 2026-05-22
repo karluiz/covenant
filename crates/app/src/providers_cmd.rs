@@ -50,6 +50,56 @@ pub async fn probe_openai_compat_models(base_url: &str) -> Result<Vec<ModelInfo>
         .collect())
 }
 
+pub async fn probe_azure_foundry_models(
+    endpoint: &str,
+    api_key: &str,
+    mode: karl_agent::provider::azure_foundry::AzureMode,
+    api_version: &str,
+) -> Result<Vec<ModelInfo>, String> {
+    use karl_agent::provider::azure_foundry::AzureMode;
+    let base = endpoint.trim_end_matches('/');
+    let url = match mode {
+        AzureMode::AzureOpenAi => format!("{}/openai/models?api-version={}", base, api_version),
+        AzureMode::AiInference => format!("{}/models?api-version={}", base, api_version),
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .header("api-key", api_key)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("{}: {}", resp.status(), url));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let items = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(items
+        .into_iter()
+        .filter_map(|v| {
+            let id = v.get("id").and_then(|s| s.as_str())?.to_string();
+            Some(ModelInfo { id, label: None })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn list_models_azure_foundry(
+    endpoint: String,
+    api_key: String,
+    mode: karl_agent::provider::azure_foundry::AzureMode,
+    api_version: String,
+) -> Result<Vec<ModelInfo>, String> {
+    probe_azure_foundry_models(&endpoint, &api_key, mode, &api_version).await
+}
+
 #[tauri::command]
 pub fn list_models_anthropic() -> Vec<ModelInfo> {
     anthropic_models()
@@ -69,5 +119,33 @@ mod tests {
         let ids: Vec<_> = anthropic_models().into_iter().map(|m| m.id).collect();
         assert!(ids.iter().any(|i| i == "claude-opus-4-7"));
         assert!(ids.iter().any(|i| i == "claude-sonnet-4-6"));
+    }
+
+    #[tokio::test]
+    async fn probe_azure_ai_inference_models_parses_data_array() {
+        use wiremock::matchers::{header, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .and(query_param("api-version", "2024-05-01-preview"))
+            .and(header("api-key", "k"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"id": "Phi-3"}, {"id": "Llama-3"}]
+            })))
+            .mount(&server)
+            .await;
+
+        let out = probe_azure_foundry_models(
+            &server.uri(),
+            "k",
+            karl_agent::provider::azure_foundry::AzureMode::AiInference,
+            "2024-05-01-preview",
+        )
+        .await
+        .expect("ok");
+        let ids: Vec<_> = out.into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, vec!["Phi-3", "Llama-3"]);
     }
 }
