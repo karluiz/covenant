@@ -303,12 +303,12 @@ export class WorkspaceManager {
       if (target.tabs.length === 0) {
         // Replace clears existing; then spawn one fresh tab so the
         // incoming workspace isn't empty.
-        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target));
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target), { targetName: target.name });
         if (this.tabManager.activeSessionId() === null) {
           await this.tabManager.createTab();
         }
       } else {
-        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target));
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target), { targetName: target.name });
       }
     } finally {
       this.suspendPersist = false;

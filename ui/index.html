@@ -136,9 +136,20 @@
         </div>
       </header>
       <section id="workspace"></section>
-      <div id="workspace-switch-overlay" hidden>
-        <div class="workspace-switch-spinner" aria-hidden="true"></div>
-        <div class="workspace-switch-label">Switching workspace…</div>
+      <div id="workspace-switch-overlay" role="status" aria-live="polite" aria-label="Switching workspace" hidden>
+        <div class="boot-splash-card">
+          <div class="boot-splash-orb" aria-hidden="true">
+            <span class="boot-splash-orb-core"></span>
+            <span class="boot-splash-orb-ring"></span>
+            <span class="boot-splash-orb-ring boot-splash-orb-ring--two"></span>
+          </div>
+          <div class="boot-splash-headline" id="workspace-switch-name">WORKSPACE</div>
+          <div class="boot-splash-sub">AI-NATIVE TERMINAL</div>
+          <div class="boot-splash-meta">
+            <span class="boot-splash-meta-dot"></span>
+            <span class="boot-splash-meta-text">Switching</span>
+          </div>
+        </div>
       </div>
       <section id="settings-page" hidden></section>
       <section id="docs-page" hidden></section>
