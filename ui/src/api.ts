@@ -735,10 +735,14 @@ export interface NotificationConfig {
 }
 
 export interface ProviderEntry {
-  kind: "anthropic" | "openai_compat";
+  kind: "anthropic" | "openai_compat" | "azure_foundry";
   label: string;
   api_key?: string | null;
   base_url?: string | null;
+  // Azure Foundry only:
+  azure_mode?: "azure_open_ai" | "ai_inference" | null;
+  azure_api_version?: string | null;
+  azure_deployment?: string | null;
 }
 
 export interface RouteEntry {
@@ -1335,6 +1339,20 @@ export async function listModelsAnthropic(): Promise<ModelInfo[]> {
 
 export async function listModelsOpenAiCompat(baseUrl: string): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("list_models_openai_compat", { baseUrl });
+}
+
+export async function listModelsAzureFoundry(args: {
+  endpoint: string;
+  apiKey: string;
+  mode: "azure_open_ai" | "ai_inference";
+  apiVersion: string;
+}): Promise<ModelInfo[]> {
+  return invoke<ModelInfo[]>("list_models_azure_foundry", {
+    endpoint: args.endpoint,
+    apiKey: args.apiKey,
+    mode: args.mode,
+    apiVersion: args.apiVersion,
+  });
 }
 
 // ---------------------------------------------------------------------------
