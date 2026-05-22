@@ -96,6 +96,15 @@ use thiserror::Error;
 use crate::provider_resolve::{resolve_route, ResolveError};
 use crate::settings::{Role as SettingsRole, Settings};
 
+/// What `dispatch_reply_with_tools` returns: either plain assistant
+/// text (existing behavior) or a structured task proposal that should
+/// be persisted as `MessageContent::Propose`.
+#[derive(Debug, Clone)]
+pub enum DispatchOutcome {
+    Text(String),
+    Propose(crate::teammate::MessageContent),
+}
+
 #[derive(Error, Debug)]
 pub enum TeammateLlmError {
     #[error("no operator-role provider configured: {0}")]
@@ -169,7 +178,7 @@ pub async fn dispatch_reply_with_tools<F>(
     world_context: Option<&str>,
     tool_env: ToolEnv,
     mut on_progress: F,
-) -> Result<String, TeammateLlmError>
+) -> Result<DispatchOutcome, TeammateLlmError>
 where
     F: FnMut(ToolProgress) + Send,
 {
@@ -178,7 +187,9 @@ where
     if resolved.provider.kind() != ProviderKind::Anthropic {
         // Non-Anthropic providers don't yet have a tool-use path here.
         // Fall back to the text-only dispatch so Mibli still answers.
-        return dispatch_reply(operator, thread, settings, world_context).await;
+        return dispatch_reply(operator, thread, settings, world_context)
+            .await
+            .map(DispatchOutcome::Text);
     }
 
     // Pull the api_key + base_url directly from settings — the trait
@@ -206,7 +217,7 @@ where
 
     let system_prompt = build_system_prompt(operator);
     let initial_user = build_user_message(thread, operator, world_context);
-    let tools = vec![tools::read_file_tool_def()];
+    let tools = vec![tools::read_file_tool_def(), tools::propose_task_tool_def()];
 
     let mut messages: Vec<AnthropicMessage> = vec![AnthropicMessage::user_text(initial_user)];
 
@@ -228,6 +239,14 @@ where
 
         let stop = resp.stop_reason.as_deref().unwrap_or("");
         if stop == "tool_use" {
+            // Fast-path: propose_task is "structured output". If the assistant
+            // emitted one, end the loop and surface it as a Propose message.
+            if let Some(propose) = extract_propose_from_content(
+                &serde_json::Value::Array(resp.content.clone())
+            ) {
+                return Ok(DispatchOutcome::Propose(propose));
+            }
+
             // 1) Echo the assistant turn back so the next request keeps
             //    the conversation continuous.
             let content_value = serde_json::Value::Array(resp.content.clone());
@@ -242,6 +261,15 @@ where
                         Ok(text) => (text, true, None),
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
+                    "propose_task" => (
+                        // Unreachable in practice because the fast-path above
+                        // returns. Defensive guard if the LLM stacks propose_task
+                        // with other tool calls in the same turn — tell it to
+                        // answer with text next.
+                        "propose_task already considered; respond with text now.".into(),
+                        false,
+                        Some("propose_task in non-leading position".into()),
+                    ),
                     _ => (
                         format!("unknown tool: {}", name),
                         false,
@@ -273,12 +301,53 @@ where
         if text.is_empty() {
             return Err(TeammateLlmError::EmptyReply);
         }
-        return Ok(text);
+        return Ok(DispatchOutcome::Text(text));
     }
 
     Err(TeammateLlmError::Provider(
         "tool-use loop hit max iterations (8)".into(),
     ))
+}
+
+/// If the assistant turn contains a `propose_task` tool_use block,
+/// build a `MessageContent::Propose` from its input. Returns None if
+/// no such block is present. If multiple propose_task calls appear in
+/// one turn, take the first.
+pub(crate) fn extract_propose_from_content(
+    content: &serde_json::Value,
+) -> Option<crate::teammate::MessageContent> {
+    let arr = content.as_array()?;
+    for block in arr {
+        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+            continue;
+        }
+        if block.get("name").and_then(|v| v.as_str()) != Some("propose_task") {
+            continue;
+        }
+        let input = block.get("input")?;
+        let archetype_s = input.get("archetype")?.as_str()?;
+        let archetype = match archetype_s {
+            "do"     => crate::teammate::TaskArchetype::Do,
+            "review" => crate::teammate::TaskArchetype::Review,
+            "watch"  => crate::teammate::TaskArchetype::Watch,
+            _ => return None,
+        };
+        let title = input.get("title")?.as_str()?.to_string();
+        let deliverable = input.get("deliverable")?.as_str()?.to_string();
+        let rationale = input.get("rationale")?.as_str()?.to_string();
+        let scope = input.get("scope")
+            .and_then(|s| serde_json::from_value::<crate::teammate::TaskScope>(s.clone()).ok())
+            .unwrap_or_default();
+        return Some(crate::teammate::MessageContent::Propose(
+            crate::teammate::types::ProposeTask {
+                draft: crate::teammate::types::TaskDraft {
+                    archetype, title, deliverable, scope,
+                },
+                rationale,
+            },
+        ));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -418,5 +487,42 @@ mod tests {
         assert!(p.contains("Terminal context"));
         assert!(p.contains("open terminal tabs"));
         assert!(p.contains("read_file"));
+    }
+
+    #[test]
+    fn parse_propose_task_tool_use_builds_propose_content() {
+        let content_blocks = serde_json::json!([
+            {
+                "type": "tool_use",
+                "id": "toolu_01abc",
+                "name": "propose_task",
+                "input": {
+                    "archetype": "do",
+                    "title": "Revisar migración de auth",
+                    "deliverable": "resumen + lista de riesgos + PR draft",
+                    "rationale": "user asked for an audit and a write-up",
+                    "scope": { "paths": ["crates/app/src/auth_mig.rs"] }
+                }
+            }
+        ]);
+        let result = extract_propose_from_content(&content_blocks)
+            .expect("expected a Propose payload");
+        use crate::teammate::types::{MessageContent, TaskArchetype};
+        let MessageContent::Propose(p) = result else {
+            panic!("expected Propose variant");
+        };
+        assert!(matches!(p.draft.archetype, TaskArchetype::Do));
+        assert_eq!(p.draft.title, "Revisar migración de auth");
+        assert_eq!(p.draft.deliverable, "resumen + lista de riesgos + PR draft");
+        assert_eq!(p.rationale, "user asked for an audit and a write-up");
+        assert_eq!(p.draft.scope.paths.len(), 1);
+    }
+
+    #[test]
+    fn extract_propose_returns_none_when_no_propose_task_block() {
+        let content_blocks = serde_json::json!([
+            { "type": "text", "text": "hola" }
+        ]);
+        assert!(extract_propose_from_content(&content_blocks).is_none());
     }
 }

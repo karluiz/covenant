@@ -122,7 +122,8 @@ pub async fn teammate_send_text_message(
             None
         };
 
-        let reply_text = if let Some(root) = active_cwd {
+        use crate::teammate::llm::DispatchOutcome;
+        let outcome: DispatchOutcome = if let Some(root) = active_cwd {
             let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024);
             let app_for_progress = app_bg.clone();
             let op_id_for_progress = operator_id;
@@ -136,7 +137,7 @@ pub async fn teammate_send_text_message(
             match crate::teammate::llm::dispatch_reply_with_tools(
                 &operator, &thread, &settings, world_context_opt, tool_env, progress,
             ).await {
-                Ok(t) => t,
+                Ok(o) => o,
                 Err(e) => {
                     tracing::warn!(error = %e, "teammate: tool-use dispatch failed");
                     emit_system_error(&app_bg, &storage_bg, operator_id, &format!("{e}")).await;
@@ -147,7 +148,7 @@ pub async fn teammate_send_text_message(
             match crate::teammate::llm::dispatch_reply(
                 &operator, &thread, &settings, world_context_opt,
             ).await {
-                Ok(t) => t,
+                Ok(t) => DispatchOutcome::Text(t),
                 Err(e) => {
                     tracing::warn!(error = %e, "teammate: dispatch failed");
                     emit_system_error(&app_bg, &storage_bg, operator_id, &format!("{e}")).await;
@@ -155,12 +156,16 @@ pub async fn teammate_send_text_message(
                 }
             }
         };
+        let reply_content = match outcome {
+            DispatchOutcome::Text(t)    => MessageContent::Text(t),
+            DispatchOutcome::Propose(c) => c,
+        };
         let reply_msg = TaskMessage {
             id: MessageId::new(),
             operator_id,
             task_id: None,
             role: TmRole::Operator,
-            content: MessageContent::Text(reply_text),
+            content: reply_content,
             created_at_unix_ms: now_ms(),
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
