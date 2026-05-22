@@ -31,7 +31,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, getVitals, injectCommand, killSessionForeground, onVitalsUpdate, operatorList, setWindowTheme, tabManifestLoad, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, setWindowTheme, tabManifestLoad, teammateListMessages, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -529,7 +529,16 @@ async function boot(): Promise<void> {
   }
 
   const teammatePanelHost = requireEl<HTMLElement>("teammate-panel");
-  const teammatePanel = new TeammatePanel(teammatePanelHost);
+  const teammatePanel = new TeammatePanel(teammatePanelHost, {
+    listMessages: teammateListMessages,
+    sendText: teammateSendText,
+    listOperators: operatorList,
+    onMessage: onTeammateMessage,
+    getActiveSessionId: () => {
+      const sid = manager.activeSessionId();
+      return sid ? sid.toString() : null;
+    },
+  });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
   if (teammateBtn) {
     teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });

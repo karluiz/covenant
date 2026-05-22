@@ -12,6 +12,7 @@ pub mod commands;
 pub mod llm;
 pub mod runtime;
 pub mod types;
+pub mod world_snapshot;
 
 pub use runtime::TeammateRuntime;
 pub use types::{

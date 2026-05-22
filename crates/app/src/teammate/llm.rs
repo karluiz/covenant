@@ -26,7 +26,17 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         "You are {name}, an operator inside Covenant — an AI-native terminal. \
          You are messaging the user directly in a side panel (DM). \
          Reply concisely; the panel is narrow. Plain text only, no Markdown \
-         tables. Tone: {voice}.",
+         tables. Tone: {voice}.\n\
+         \n\
+         The user message may include a `# Terminal context` section listing \
+         their open terminal tabs (sessions). One tab may be marked active \
+         and includes a rolling summary, recent commands, and any in-flight \
+         command. Use this when the user asks about their terminal. If a \
+         tab is not in the context, do not claim to see it.\n\
+         \n\
+         You cannot execute commands yet — that ships in a later phase. If \
+         the user asks you to run something, acknowledge and offer to walk \
+         them through it instead.",
         name = operator.name,
         voice = voice,
     );
@@ -38,8 +48,16 @@ pub fn build_system_prompt(operator: &Operator) -> String {
 }
 
 /// Turn the recent thread into the user-side message for the API call.
-pub fn build_user_message(thread: &[TaskMessage], operator: &Operator) -> String {
+pub fn build_user_message(
+    thread: &[TaskMessage],
+    operator: &Operator,
+    world_context: Option<&str>,
+) -> String {
     let mut out = String::with_capacity(1024);
+    if let Some(ctx) = world_context {
+        out.push_str(ctx.trim());
+        out.push_str("\n\n");
+    }
     let start = thread.len().saturating_sub(CONTEXT_WINDOW);
     out.push_str("# Conversation so far\n\n");
     if start >= thread.len() {
@@ -53,7 +71,7 @@ pub fn build_user_message(thread: &[TaskMessage], operator: &Operator) -> String
         };
         let text = match &msg.content {
             MessageContent::Text(t) => t.as_str(),
-            _ => continue, // Phase 2: only text round-trips
+            _ => continue,
         };
         out.push_str(role_label);
         out.push_str(": ");
@@ -91,6 +109,7 @@ pub async fn dispatch_reply(
     operator: &Operator,
     thread: &[TaskMessage],
     settings: &Settings,
+    world_context: Option<&str>,
 ) -> Result<String, TeammateLlmError> {
     let resolved = resolve_route(settings, SettingsRole::Operator)
         .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
@@ -98,7 +117,7 @@ pub async fn dispatch_reply(
         api_key: String::new(),
         model:   operator.model.clone(),
         system_prompt: build_system_prompt(operator),
-        user_message:  build_user_message(thread, operator),
+        user_message:  build_user_message(thread, operator, world_context),
         max_tokens:    REPLY_MAX_TOKENS,
         thinking_budget: None,
         force_tool: None,
@@ -170,7 +189,7 @@ mod tests {
     #[test]
     fn user_message_handles_empty_thread() {
         let op = sample_op("Mibli", "");
-        let m = build_user_message(&[], &op);
+        let m = build_user_message(&[], &op, None);
         assert!(m.contains("no prior messages"));
         assert!(m.ends_with("Reply as Mibli (one message)."));
     }
@@ -183,7 +202,7 @@ mod tests {
             text_msg(Role::Operator, "hola, ¿en qué te ayudo?"),
             text_msg(Role::User, "¿qué hora es?"),
         ];
-        let m = build_user_message(&thread, &op);
+        let m = build_user_message(&thread, &op, None);
         assert!(m.contains("User: hola"));
         assert!(m.contains("Mibli: hola, ¿en qué te ayudo?"));
         assert!(m.contains("User: ¿qué hora es?"));
@@ -196,10 +215,36 @@ mod tests {
         for i in 0..30 {
             thread.push(text_msg(Role::User, &format!("msg {i}")));
         }
-        let m = build_user_message(&thread, &op);
+        let m = build_user_message(&thread, &op, None);
         assert!(!m.contains("msg 0"));
         assert!(!m.contains("msg 9"));
         assert!(m.contains("msg 10"));
         assert!(m.contains("msg 29"));
+    }
+
+    #[test]
+    fn user_message_includes_world_context_when_provided() {
+        let op = sample_op("Mibli", "");
+        let ctx = "# Terminal context\n\n## Active session\n- cwd: `/tmp/x`\n";
+        let m = build_user_message(&[], &op, Some(ctx));
+        assert!(m.starts_with("# Terminal context"));
+        assert!(m.contains("/tmp/x"));
+        assert!(m.contains("# Conversation so far"));
+        assert!(m.contains("# Your turn"));
+    }
+
+    #[test]
+    fn user_message_omits_world_context_when_none() {
+        let op = sample_op("Mibli", "");
+        let m = build_user_message(&[], &op, None);
+        assert!(!m.contains("Terminal context"));
+    }
+
+    #[test]
+    fn system_prompt_describes_terminal_context() {
+        let op = sample_op("Mibli", "");
+        let p = build_system_prompt(&op);
+        assert!(p.contains("Terminal context"));
+        assert!(p.contains("open terminal tabs"));
     }
 }

@@ -64,7 +64,7 @@ describe("TeammatePanel", () => {
     });
     await panel.openFor(makeOp());
     await panel.send("hola");
-    expect(send).toHaveBeenCalledWith("op-mibli", "hola");
+    expect(send).toHaveBeenCalledWith("op-mibli", "hola", null);
     expect(host.querySelectorAll(".teammate-bubble:not(.teammate-typing)").length).toBe(1);
   });
 
@@ -105,5 +105,22 @@ describe("TeammatePanel", () => {
     const rows = host.querySelectorAll(".teammate-panel-switcher-row");
     expect(rows.length).toBe(2);
     expect(host.textContent).toMatch(/Karluiz/);
+  });
+
+  it("passes active session id from resolver to sendText", async () => {
+    const host = document.createElement("div");
+    const send = vi.fn().mockResolvedValue({
+      id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
+      content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
+    });
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      send,
+      listOperators: vi.fn().mockResolvedValue([]),
+      getActiveSessionId: () => "session-abc",
+    });
+    await panel.openFor(makeOp());
+    await panel.send("hola");
+    expect(send).toHaveBeenCalledWith("op-mibli", "hola", "session-abc");
   });
 });

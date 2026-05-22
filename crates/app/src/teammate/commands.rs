@@ -28,6 +28,7 @@ pub async fn teammate_send_text_message(
     registry: tauri::State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
     operator_id: crate::operator_registry::OperatorId,
     text: String,
+    active_session_id: Option<String>,
 ) -> Result<crate::teammate::TaskMessage, String> {
     use crate::teammate::types::{MessageContent, MessageId, Role as TmRole, TaskMessage};
     use tauri::Emitter;
@@ -53,8 +54,17 @@ pub async fn teammate_send_text_message(
         .await
         .map_err(|e| e.to_string())?;
 
-    // 2) Spawn the reply dispatch. The reply lands via the
-    //    `teammate-message` event when ready.
+    // 2) Snapshot the open sessions' world arcs while we hold the
+    //    sessions lock, then drop it before locking individual worlds.
+    let session_worlds: Vec<(karl_session::SessionId, std::sync::Arc<tokio::sync::Mutex<crate::world::SessionWorldModel>>)> = {
+        let g = state.sessions.lock().await;
+        g.iter().map(|(id, m)| (*id, m.world.clone())).collect()
+    };
+
+    let active_session_id_parsed: Option<karl_session::SessionId> = active_session_id
+        .as_deref()
+        .and_then(|s| s.parse::<karl_session::SessionId>().ok());
+
     let storage_bg = storage.inner().clone();
     let registry_bg = registry.inner().clone();
     let settings_bg = state.settings.clone();
@@ -74,8 +84,30 @@ pub async fn teammate_send_text_message(
                 return;
             }
         };
+
+        // Build snapshot per session under each world's own lock.
+        let mut snapshots = Vec::with_capacity(session_worlds.len());
+        for (sid, world_arc) in session_worlds {
+            let w = world_arc.lock().await;
+            let is_active = Some(sid) == active_session_id_parsed;
+            snapshots.push(crate::teammate::world_snapshot::project(
+                sid, &*w, is_active, now_ms(),
+            ));
+        }
+        let world_context_str = crate::teammate::world_snapshot::render(&snapshots);
+        let world_context_opt: Option<&str> = if snapshots.is_empty() {
+            None
+        } else {
+            Some(world_context_str.as_str())
+        };
+
         let settings = settings_bg.lock().await.clone();
-        let reply_text = match crate::teammate::llm::dispatch_reply(&operator, &thread, &settings).await {
+        let reply_text = match crate::teammate::llm::dispatch_reply(
+            &operator,
+            &thread,
+            &settings,
+            world_context_opt,
+        ).await {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %e, "teammate: dispatch failed");

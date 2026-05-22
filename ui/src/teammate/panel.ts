@@ -4,10 +4,11 @@ import { renderAvatarHtml } from "../operator/avatars";
 
 export interface TeammatePanelDeps {
   listMessages:  (operatorId: string, limit?: number) => Promise<TeammateMessage[]>;
-  sendText:      (operatorId: string, text: string) => Promise<TeammateMessage>;
+  sendText:      (operatorId: string, text: string, activeSessionId?: string | null) => Promise<TeammateMessage>;
   listOperators: () => Promise<Operator[]>;
   /// Optional in tests; production wires to the real Tauri listener.
   onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
+  getActiveSessionId?: () => string | null;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
@@ -65,10 +66,11 @@ export class TeammatePanel {
   async send(text: string): Promise<void> {
     if (!this.operator) return;
     if (!text.trim()) return;
-    const msg = await this.deps.sendText(this.operator.id, text.trim());
+    const activeId = this.deps.getActiveSessionId?.() ?? null;
+    const msg = await this.deps.sendText(this.operator.id, text.trim(), activeId);
     this.appendBubble(msg);
-    this.setTyping(true);
     if (this.inputEl) this.inputEl.value = "";
+    this.setTyping(true);
   }
 
   private renderHeader(): HTMLElement {
