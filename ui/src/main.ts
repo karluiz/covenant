@@ -198,7 +198,7 @@ function applyStoredSidebarWidths(): void {
   );
 }
 
-function installSidebarResizers(layout: HTMLElement, manager: TabManager): void {
+function installSidebarResizers(layout: HTMLElement, getManager: () => TabManager): void {
   const mk = (id: string): HTMLElement => {
     const el = document.createElement("div");
     el.id = id;
@@ -245,7 +245,7 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
       if (raf === 0) {
         raf = window.requestAnimationFrame(() => {
           raf = 0;
-          manager.refitActive();
+          getManager().refitActive();
         });
       }
     };
@@ -260,7 +260,7 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
       document.body.style.userSelect = prevSelect;
       document.body.style.cursor = prevCursor;
       localStorage.setItem(key, String(Math.round(current)));
-      manager.refitActive();
+      getManager().refitActive();
     };
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);
@@ -677,7 +677,7 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
-  installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
+  installSidebarResizers(requireEl<HTMLElement>("layout"), () => manager);
 
   const publishActivityActiveSession = (): void => {
     const sessionId = manager.activeSessionId();
@@ -752,7 +752,7 @@ async function boot(): Promise<void> {
   // Covenant wordmark so the brand text isn't truncated. Chip
   // auto-rerenders via WorkspaceManager.onChange.
   const tabbarActions = document.getElementById("tabbar-actions");
-  const switcher = new WorkspaceSwitcher(workspaceManager, manager);
+  const switcher = new WorkspaceSwitcher(workspaceManager, () => manager);
   if (tabbarActions) switcher.mount(tabbarActions);
 
   newGroupBtn.addEventListener("click", () => {
@@ -771,7 +771,7 @@ async function boot(): Promise<void> {
     },
   });
 
-  const convergence = new ConvergenceOverlay(makeTabsBridge(manager));
+  const convergence = new ConvergenceOverlay(makeTabsBridge(() => manager));
 
   // 3.7 status bar — bottom of #layout. Hidden when status_bar_enabled
   // is false (collapses the third grid row). TabManager pushes the
@@ -975,7 +975,7 @@ async function boot(): Promise<void> {
   const piPanel = getPiPanel();
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
   const operatorPage = requireEl<HTMLElement>("operator-page");
-  const operator = new OperatorPanel(operatorPage, workspace, manager);
+  const operator = new OperatorPanel(operatorPage, workspace, () => manager);
   operator.onClosed = () => {
     manager.refitActive();
   };
@@ -1127,7 +1127,7 @@ async function boot(): Promise<void> {
   // panel.
   const aomReportPanel = new AomReportPanel(document.body);
   const afk = new AfkOverlay(document.body, {
-    manager,
+    getManager: () => manager,
     openReport: () => void aomReportPanel.open(),
     onExit: () => manager.refitActive(),
   });

@@ -94,7 +94,7 @@ export class OperatorPanel {
   constructor(
     private readonly pageHost: HTMLElement,
     private readonly workspace: HTMLElement,
-    private readonly manager: TabManager,
+    private readonly getManager: () => TabManager,
   ) {}
 
   private async refreshOperatorCache(): Promise<void> {
@@ -326,7 +326,7 @@ export class OperatorPanel {
             <option value="all">All tabs</option>
             ${sessionShorts
               .map((s) => {
-                const info = this.manager.tabBySessionShort(s);
+                const info = this.getManager().tabBySessionShort(s);
                 const meta = sessionMeta.get(s)!;
                 const label = formatSessionLabel(s, info, meta);
                 const sel = this.filter.session === s ? " selected" : "";
@@ -579,7 +579,7 @@ export class OperatorPanel {
           ? `<span class="op-muted">(no args)</span>`
           : `<span class="op-muted">(no in-flight command)</span>`;
 
-    const tabInfo = this.manager.tabBySessionShort(r.session_id_short);
+    const tabInfo = this.getManager().tabBySessionShort(r.session_id_short);
     const tabName = tabInfo
       ? escapeHtml(tabInfo.displayName)
       : `…${escapeHtml(r.session_id_short)}`;

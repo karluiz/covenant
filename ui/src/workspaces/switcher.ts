@@ -55,7 +55,7 @@ export class WorkspaceSwitcher {
 
   constructor(
     private readonly ws: WorkspaceManager,
-    private readonly tabManager: TabManager,
+    private readonly getTabManager: () => TabManager,
   ) {}
 
   /// Mount the chip into the given host element. Returns the chip so
@@ -364,7 +364,7 @@ export class WorkspaceSwitcher {
     } else {
       this.closePopover();
     }
-    this.tabManager.activateByIndex(tabIndex);
+    this.getTabManager().activateByIndex(tabIndex);
   }
 
   /// Replace the row's name span with an input. window.prompt is
