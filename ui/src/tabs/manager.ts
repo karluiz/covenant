@@ -70,6 +70,7 @@ import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL } from "../menu/cont
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
+import { serializeTab, restoreSnapshot } from "./scrollback-snapshot";
 import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
 import { spawnPiSession, piSetSessionName } from "../api";
@@ -4475,6 +4476,34 @@ export class TabManager {
       this.finalizeCloseTab(id, { suppressCallbacks: true });
     }
     this.detach();
+  }
+
+  /// Workspace-keepalive: snapshot every tab's current scrollback.
+  /// Returns a Map keyed by tab id. Pi tabs return empty strings —
+  /// their state lives in PiChatView and is rehydrated separately.
+  serializeScrollback(): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const tab of this.tabs) {
+      if (tab.kind === "pi" || !tab.term) {
+        out.set(tab.id, "");
+        continue;
+      }
+      out.set(tab.id, serializeTab(tab.term));
+    }
+    return out;
+  }
+
+  /// Apply snapshots produced by a prior serializeScrollback into the
+  /// currently-mounted tabs. Tabs not in the map are left untouched.
+  /// Must be called AFTER restoreFromManifest has spawned the new
+  /// tabs but BEFORE the user can interact (LivePool guarantees this
+  /// ordering).
+  restoreScrollback(snapshots: Map<string, string>): void {
+    for (const tab of this.tabs) {
+      if (!tab.term) continue;
+      const snap = snapshots.get(tab.id);
+      if (snap) restoreSnapshot(tab.term, snap);
+    }
   }
 }
 
