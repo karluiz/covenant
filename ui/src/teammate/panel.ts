@@ -1,6 +1,11 @@
-import type { Operator, TeammateMessage, TeammateToolCall } from "../api";
-import { onTeammateMessage, onTeammateToolCall, operatorLevelFromXp, operatorList, teammateListMessages, teammateSendText } from "../api";
+import type { Operator, Task, TeammateMessage, TeammateToolCall, UpdateKind } from "../api";
+import {
+  onTeammateMessage, onTeammateToolCall, operatorLevelFromXp, operatorList,
+  teammateAttachSessionToTask, teammateCancelTaskProposal, teammateConfirmTask,
+  teammateEditTaskProposal, teammateListMessages, teammateSendText,
+} from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
+import { renderTaskCard } from "./task-card";
 
 const CHEVRON_DOWN_SVG =
   '<svg class="teammate-panel-header-chevron" viewBox="0 0 16 16" aria-hidden="true">' +
@@ -33,6 +38,14 @@ export interface TeammatePanelDeps {
   onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
   onToolCall?:   (handler: (call: TeammateToolCall) => void) => Promise<() => void>;
   getActiveSessionId?: () => string | null;
+  confirmTask?:        (operatorId: string, messageId: string) => Promise<Task>;
+  cancelTaskProposal?: (messageId: string) => Promise<void>;
+  editTaskProposal?:   (messageId: string, draft: import("../api").TaskDraft) => Promise<void>;
+  attachSessionToTask?: (operatorId: string, taskId: string, sessionId: string) => Promise<void>;
+  /// Wraps tabsManager.createTab. Returned shape gives the new SessionId
+  /// once the tab is mounted and backend spawn has completed. Wired in
+  /// Task 9 at the panel mount site (main.ts).
+  spawnTabForTask?: (task: Task) => Promise<{ sessionId: string }>;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
@@ -41,7 +54,23 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   listOperators: operatorList,
   onMessage:     onTeammateMessage,
   onToolCall:    onTeammateToolCall,
+  confirmTask:         teammateConfirmTask,
+  cancelTaskProposal:  teammateCancelTaskProposal,
+  editTaskProposal:    teammateEditTaskProposal,
+  attachSessionToTask: teammateAttachSessionToTask,
+  // spawnTabForTask is wired by the caller in main.ts (Task 9).
 };
+
+function taskUpdateSummary(kind: UpdateKind): string {
+  switch (kind) {
+    case "started":   return "tab abierto · tarea iniciada";
+    case "progress":  return "actualización en curso";
+    case "blocked":   return "bloqueado";
+    case "resumed":   return "retomada";
+    case "completed": return "completada";
+    case "cancelled": return "cancelada";
+  }
+}
 
 export class TeammatePanel {
   private host: HTMLElement;
@@ -156,6 +185,7 @@ export class TeammatePanel {
 
   private paintMessages(msgs: TeammateMessage[]): void {
     if (!this.threadEl) return;
+    this.threadEl.innerHTML = "";
     if (msgs.length === 0) {
       const empty = document.createElement("div");
       empty.className = "teammate-panel-empty";
@@ -164,14 +194,38 @@ export class TeammatePanel {
       this.threadEl.append(empty);
       return;
     }
-    for (const m of msgs) this.appendBubble(m);
+    for (const m of msgs) this.paintMessage(m);
+  }
+
+  private paintMessage(msg: TeammateMessage): void {
+    if (!this.threadEl) return;
+    switch (msg.content.kind) {
+      case "text":
+        this.paintTextBubble(msg);
+        return;
+      case "propose":
+        this.paintProposeCard(msg);
+        return;
+      case "task_update":
+        this.paintSystemLine(msg, taskUpdateSummary(msg.content.data.kind));
+        return;
+      case "task_draft":
+      case "report":
+        this.paintSystemLine(msg, `(${msg.content.kind})`);
+        return;
+    }
   }
 
   private appendBubble(msg: TeammateMessage): void {
     if (!this.threadEl) return;
     const empty = this.threadEl.querySelector(".teammate-panel-empty");
     empty?.remove();
-    if (msg.content.kind !== "text") return; // Phase 1: text only
+    this.paintMessage(msg);
+  }
+
+  private paintTextBubble(msg: TeammateMessage): void {
+    if (!this.threadEl) return;
+    if (msg.content.kind !== "text") return;
 
     // Skip the typing indicator when computing role-grouping — it's a
     // transient placeholder that should not be treated as a peer bubble.
@@ -205,6 +259,75 @@ export class TeammatePanel {
       this.threadEl.append(row);
     }
     this.threadEl.scrollTop = this.threadEl.scrollHeight;
+  }
+
+  private paintProposeCard(msg: TeammateMessage): void {
+    if (!this.threadEl) return;
+    const card = renderTaskCard(msg, {
+      onConfirm: (id) => { void this.handleConfirm(id, msg); },
+      onCancel:  (id) => { void this.handleCancel(id); },
+      onEdit:    (id) => { this.openEditDialog(id, msg); },
+    });
+    const wrap = document.createElement("div");
+    wrap.className = "teammate-row teammate-row--operator";
+    wrap.appendChild(card);
+    this.threadEl.appendChild(wrap);
+    this.threadEl.scrollTop = this.threadEl.scrollHeight;
+  }
+
+  private paintSystemLine(msg: TeammateMessage, text: string): void {
+    if (!this.threadEl) return;
+    void msg; // currently unused beyond classification — kept for symmetry
+    const row = document.createElement("div");
+    row.className = "teammate-row teammate-row--system";
+    row.textContent = text;
+    this.threadEl.appendChild(row);
+    this.threadEl.scrollTop = this.threadEl.scrollHeight;
+  }
+
+  private async handleConfirm(messageId: string, msg: TeammateMessage): Promise<void> {
+    if (!this.operator) return;
+    const { confirmTask, spawnTabForTask, attachSessionToTask } = this.deps;
+    if (!confirmTask) return;
+    try {
+      const task = await confirmTask(this.operator.id, messageId);
+      if (task.archetype === "do" && spawnTabForTask && attachSessionToTask) {
+        const { sessionId } = await spawnTabForTask(task);
+        await attachSessionToTask(this.operator.id, task.id, sessionId);
+      }
+      // Re-render the thread so the card flips to its confirmed state.
+      const refreshed = await this.deps.listMessages(this.operator.id, 200);
+      this.paintMessages(refreshed);
+    } catch (e) {
+      console.error("confirmTask failed", e);
+    }
+    void msg;
+  }
+
+  private async handleCancel(messageId: string): Promise<void> {
+    const { cancelTaskProposal } = this.deps;
+    if (!cancelTaskProposal || !this.operator) return;
+    try {
+      await cancelTaskProposal(messageId);
+      const refreshed = await this.deps.listMessages(this.operator.id, 200);
+      this.paintMessages(refreshed);
+    } catch (e) {
+      console.error("cancelTaskProposal failed", e);
+    }
+  }
+
+  private openEditDialog(messageId: string, msg: TeammateMessage): void {
+    if (msg.content.kind !== "propose") return;
+    const current = msg.content.data.draft;
+    const nextTitle = window.prompt("Editar título de la tarea:", current.title);
+    if (nextTitle === null || nextTitle === current.title) return;
+    const { editTaskProposal } = this.deps;
+    if (!editTaskProposal || !this.operator) return;
+    const operatorId = this.operator.id;
+    void editTaskProposal(messageId, { ...current, title: nextTitle })
+      .then(() => this.deps.listMessages(operatorId, 200))
+      .then((refreshed) => this.paintMessages(refreshed))
+      .catch((e) => console.error("editTaskProposal failed", e));
   }
 
   private setTyping(on: boolean): void {

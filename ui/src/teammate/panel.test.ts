@@ -237,3 +237,73 @@ describe("TeammatePanel", () => {
     expect(line?.textContent ?? "").toMatch(/src\/main\.rs/);
   });
 });
+
+describe("TeammatePanel propose rendering", () => {
+  it("renders a task card for propose messages and dispatches confirm", async () => {
+    const operator = {
+      id: "op1", name: "Mibli", emoji: "🧪", color: "#aaa",
+      tags: [], persona: "", escalate_threshold: 0.6,
+      model: "claude-sonnet-4-6", hard_constraints: "",
+      voice: "terse", is_default: true,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+    } as unknown as import("../api").Operator;
+
+    const proposeMsg: import("../api").TeammateMessage = {
+      id: "msg-propose",
+      operator_id: "op1",
+      task_id: null,
+      role: "operator",
+      content: {
+        kind: "propose",
+        data: {
+          draft: {
+            archetype: "do",
+            title: "Revisar migración de auth",
+            deliverable: "resumen",
+            scope: { paths: ["crates/app/src/auth_mig.rs"] },
+          },
+          rationale: "audit",
+        },
+      },
+      created_at_unix_ms: 0,
+      confirmed_at_unix_ms: null,
+      dismissed_at_unix_ms: null,
+    };
+
+    const confirmTask = vi.fn().mockResolvedValue({
+      id: "task-1", operator_id: "op1", archetype: "do", title: "Revisar migración de auth",
+      body: "", deliverable: "resumen", status: "active",
+      scope: { paths: ["crates/app/src/auth_mig.rs"] },
+      spawned_session: null,
+      created_at_unix_ms: 1, updated_at_unix_ms: 1, completed_at_unix_ms: null,
+      cost_usd_cents: 0,
+    });
+    const createTab = vi.fn().mockResolvedValue({ sessionId: "S-NEW" });
+    const attachSession = vi.fn().mockResolvedValue(undefined);
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      listMessages: async () => [proposeMsg],
+      sendText:     async () => proposeMsg,
+      listOperators: async () => [operator],
+      onMessage:    async () => () => {},
+      onToolCall:   async () => () => {},
+      confirmTask,
+      cancelTaskProposal: vi.fn(),
+      editTaskProposal:   vi.fn(),
+      attachSessionToTask: attachSession,
+      spawnTabForTask: createTab,
+    });
+    await panel.openFor(operator);
+
+    const card = host.querySelector(".task-card") as HTMLElement;
+    expect(card).not.toBeNull();
+    (card.querySelector('[data-action="confirm"]') as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(confirmTask).toHaveBeenCalledWith("op1", "msg-propose");
+    expect(createTab).toHaveBeenCalled();
+    expect(attachSession).toHaveBeenCalledWith("op1", "task-1", "S-NEW");
+  });
+});
