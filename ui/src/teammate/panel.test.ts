@@ -89,6 +89,7 @@ describe("TeammatePanel", () => {
       sendText:      vi.fn().mockResolvedValue({
         id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
         content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
+        confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
       }),
       listOperators: vi.fn().mockResolvedValue([]),
       onMessage: vi.fn(async (h) => { captured = h; return () => {}; }),
@@ -98,6 +99,7 @@ describe("TeammatePanel", () => {
     captured!({
       id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
       content: { kind: "text", data: "hola, ¿en qué te ayudo?" }, created_at_unix_ms: 2,
+      confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
     // User bubble: no row wrapper
     expect(host.querySelectorAll(".teammate-bubble-user").length).toBe(1);
@@ -120,6 +122,7 @@ describe("TeammatePanel", () => {
     captured!({
       id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
       content: { kind: "text", data: "the file is `src/main.rs`" }, created_at_unix_ms: 2,
+      confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
     const code = host.querySelector(".teammate-bubble code");
     expect(code).not.toBeNull();
@@ -135,6 +138,8 @@ describe("TeammatePanel", () => {
       role: "user",
       content: { kind: "text", data: "hola" },
       created_at_unix_ms: 1,
+      confirmed_at_unix_ms: null,
+      dismissed_at_unix_ms: null,
     });
     const panel = new TeammatePanel(host, {
       listMessages:  vi.fn().mockResolvedValue([]),
@@ -155,6 +160,7 @@ describe("TeammatePanel", () => {
       sendText:      vi.fn().mockResolvedValue({
         id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
         content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
+        confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
       }),
       listOperators: vi.fn().mockResolvedValue([]),
       onMessage: vi.fn(async (h) => { captured = h; return () => {}; }),
@@ -165,6 +171,7 @@ describe("TeammatePanel", () => {
     captured!({
       id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
       content: { kind: "text", data: "hola, ¿en qué te ayudo?" }, created_at_unix_ms: 2,
+      confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
     expect(host.querySelector(".teammate-typing")).toBeNull();
     const bubbles = host.querySelectorAll(".teammate-bubble:not(.teammate-typing)");
@@ -191,6 +198,7 @@ describe("TeammatePanel", () => {
     const send = vi.fn().mockResolvedValue({
       id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
       content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
+      confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
     const panel = new TeammatePanel(host, {
       listMessages:  vi.fn().mockResolvedValue([]),

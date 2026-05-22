@@ -309,12 +309,55 @@ export async function operatorSetDefault(id: string): Promise<void> {
 
 export type TeammateRole = "user" | "operator" | "system";
 
-export interface TeammateText  { kind: "text";        data: string; }
-export interface TeammateOther {
-  kind: "task_draft" | "task_update" | "propose" | "report";
-  data: unknown;
+export type TaskArchetype = "do" | "review" | "watch";
+export type TaskStatus    = "draft" | "active" | "blocked" | "done" | "cancelled";
+export type UpdateKind    = "started" | "progress" | "blocked" | "resumed" | "completed" | "cancelled";
+
+export interface TaskScope {
+  paths?: string[];
+  tabs?:  string[];
+  watch_predicate?: unknown;
 }
-export type TeammateContent = TeammateText | TeammateOther;
+
+export interface TaskDraft {
+  archetype:   TaskArchetype;
+  title:       string;
+  deliverable: string;
+  scope:       TaskScope;
+}
+
+export interface ProposeTask {
+  draft:     TaskDraft;
+  rationale: string;
+}
+
+export interface TaskReport {
+  summary:      string;
+  artifact_ids: string[];
+}
+
+export interface Task {
+  id: string;
+  operator_id: string;
+  archetype: TaskArchetype;
+  title: string;
+  body: string;
+  deliverable: string;
+  status: TaskStatus;
+  scope: TaskScope;
+  spawned_session: string | null;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+  completed_at_unix_ms: number | null;
+  cost_usd_cents: number;
+}
+
+export type TeammateContent =
+  | { kind: "text";        data: string }
+  | { kind: "task_draft";  data: TaskDraft }
+  | { kind: "task_update"; data: { task: string; kind: UpdateKind } }
+  | { kind: "propose";     data: ProposeTask }
+  | { kind: "report";      data: TaskReport };
 
 export interface TeammateMessage {
   id: string;
@@ -323,6 +366,8 @@ export interface TeammateMessage {
   role: TeammateRole;
   content: TeammateContent;
   created_at_unix_ms: number;
+  confirmed_at_unix_ms: number | null;
+  dismissed_at_unix_ms: number | null;
 }
 
 export async function teammateListMessages(
@@ -347,8 +392,46 @@ export async function teammateSendText(
   });
 }
 
-export async function teammateListTasks(): Promise<unknown[]> {
-  return invoke<unknown[]>("teammate_list_tasks");
+export async function teammateConfirmTask(
+  operatorId: string,
+  messageId: string,
+): Promise<Task> {
+  return invoke<Task>("teammate_confirm_task", { operatorId, messageId });
+}
+
+export async function teammateCancelTaskProposal(
+  messageId: string,
+): Promise<void> {
+  return invoke<void>("teammate_cancel_task_proposal", { messageId });
+}
+
+export async function teammateEditTaskProposal(
+  messageId: string,
+  draft: TaskDraft,
+): Promise<void> {
+  return invoke<void>("teammate_edit_task_proposal", { messageId, draft });
+}
+
+export async function teammateAttachSessionToTask(
+  operatorId: string,
+  taskId: string,
+  sessionId: string,
+): Promise<void> {
+  return invoke<void>("teammate_attach_session_to_task", {
+    operatorId, taskId, sessionId,
+  });
+}
+
+export async function teammateListTasks(operatorId: string): Promise<Task[]> {
+  return invoke<Task[]>("teammate_list_tasks", { operatorId });
+}
+
+export async function onTeammateTask(
+  handler: (task: Task) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<Task>("teammate-task", (e) => handler(e.payload));
+  return unlisten;
 }
 
 /// M-OP6 mission spec attached to a session. The Operator reads it
