@@ -1,6 +1,31 @@
 import type { Operator, TeammateMessage } from "../api";
-import { onTeammateMessage, operatorList, teammateListMessages, teammateSendText } from "../api";
+import { onTeammateMessage, operatorLevelFromXp, operatorList, teammateListMessages, teammateSendText } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
+
+const CHEVRON_DOWN_SVG =
+  '<svg class="teammate-panel-header-chevron" viewBox="0 0 16 16" aria-hidden="true">' +
+    '<path d="M4 6.5 L8 10.5 L12 6.5" fill="none" stroke="currentColor" ' +
+          'stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>' +
+  '</svg>';
+
+function renderHeaderAvatarWithRing(operator: Operator | null): string {
+  const xp = operator?.xp ?? 0;
+  const level = operatorLevelFromXp(xp);
+  // 100 XP per level, fills clockwise from 12 o'clock, resets at level-up.
+  const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
+  const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32);
+  return (
+    `<span class="teammate-panel-avatar-wrap" data-operator-id="${operator?.id ?? ""}" ` +
+          `style="--xp-progress:${xpProgress.toFixed(3)};">` +
+      `<svg class="teammate-panel-xp-ring" viewBox="0 0 32 32" aria-hidden="true">` +
+        `<circle class="track" cx="16" cy="16" r="15"/>` +
+        `<circle class="fill"  cx="16" cy="16" r="15"/>` +
+      `</svg>` +
+      `<span class="teammate-panel-avatar">${avatar}</span>` +
+      `<span class="teammate-panel-level">${level}</span>` +
+    `</span>`
+  );
+}
 
 export interface TeammatePanelDeps {
   listMessages:  (operatorId: string, limit?: number) => Promise<TeammateMessage[]>;
@@ -84,14 +109,12 @@ export class TeammatePanel {
     h.setAttribute("aria-label", "Switch teammate");
     const op = this.operator;
     h.innerHTML = `
-      <span class="teammate-panel-avatar">${renderAvatarHtml(op?.emoji ?? "🤖", 32)}</span>
+      ${renderHeaderAvatarWithRing(op)}
       <span class="teammate-panel-titlebox">
-        <span class="teammate-panel-title">
-          <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
-          <span class="teammate-panel-header-caret" aria-hidden="true">▾</span>
-        </span>
+        <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
         <span class="teammate-panel-subtitle">${escapeHtml(op?.model ?? "")}</span>
       </span>
+      ${CHEVRON_DOWN_SVG}
     `;
     h.addEventListener("click", () => this.toggleSwitcher());
     this.headerEl = h;
