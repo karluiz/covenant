@@ -48,6 +48,7 @@ import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { WorkspaceManager } from "./workspaces/manager";
+import { LivePool, type PoolableTabManager, type TabManagerFactory } from "./workspaces/live-pool";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
 
 /// Module-level reference to the singleton TabManager. Assigned during
@@ -672,12 +673,30 @@ async function boot(): Promise<void> {
   `;
   attachTooltip(newGroupBtn, `New group (${MOD_KEY}⇧G)`);
 
-  const manager = new TabManager(tabbar, workspace, newTabBtn, () => {
+  // `let` not `const`: WorkspaceManager.switchTo (via LivePool) replaces the
+  // active TabManager on every workspace swap. All external modules that
+  // need to track the current manager receive a `() => manager` getter so
+  // closure resolution picks up the latest binding on each call.
+  let manager = new TabManager(tabbar, workspace, newTabBtn, () => {
     // Closing the last tab quits the app — matches iTerm/Terminal.app.
     void getCurrentWindow().close();
   });
   tabsManager = manager;
   installSidebarResizers(requireEl<HTMLElement>("layout"), () => manager);
+
+  // Wiring registry: every per-manager assignment (`manager.onX = ...`,
+  // `manager.setX(...)`) goes through `wire(fn)`. The fn runs immediately
+  // against the current manager AND is replayed by `rewire(m)` on every
+  // workspace swap, so a freshly-created TabManager picks up the same
+  // callbacks/options without duplicating the wiring code.
+  const wireFns: Array<(m: TabManager) => void> = [];
+  const wire = (fn: (m: TabManager) => void): void => {
+    wireFns.push(fn);
+    fn(manager);
+  };
+  const rewire = (m: TabManager): void => {
+    for (const fn of wireFns) fn(m);
+  };
 
   const publishActivityActiveSession = (): void => {
     const sessionId = manager.activeSessionId();
@@ -726,27 +745,59 @@ async function boot(): Promise<void> {
       },
       onAdd: () => { void settingsRef.panel?.open("spawns"); },
     });
-    manager.onActiveSpawnChange = (_spawnId) => {
-      void chip.refresh();
-    };
+    wire((m) => {
+      m.onActiveSpawnChange = (_spawnId) => {
+        void chip.refresh();
+      };
+    });
     void chip.refresh();
   }
 
+  // Construct the LivePool with a factory that builds fresh TabManagers
+  // sharing the same DOM hosts + onAllTabsClosed quit-callback as the
+  // initial manager. Each new TabManager goes through the same wiring
+  // function (`rewire`) so callbacks, options, and panel hooks attach
+  // correctly to whichever instance is currently active.
+  const tabManagerFactory: TabManagerFactory = {
+    create(_workspaceId: string): PoolableTabManager {
+      const fresh = new TabManager(tabbar, workspace, newTabBtn, () => {
+        void getCurrentWindow().close();
+      });
+      rewire(fresh);
+      return fresh as unknown as PoolableTabManager;
+    },
+    hosts(_workspaceId: string) {
+      return { tabbar, workspace };
+    },
+  };
+  const pool = new LivePool(tabManagerFactory, { liveLimit: 5 });
+
   // Construct the WorkspaceManager up-front so listeners wired before
   // boot() (settings import/export, switcher chip) can reference it.
-  // Actual tab restoration happens later in workspaceManager.boot().
-  const workspaceManager = new WorkspaceManager(manager);
+  // The pool adopts `manager` as the initial active entry during boot;
+  // subsequent switchTo calls go through pool.activate. onActiveChanged
+  // fires when the pool returns a fresh TabManager (cold-path switch) so
+  // we update the module-level reference + the public `tabsManager`
+  // export and re-run wiring against the new instance.
+  const workspaceManager = new WorkspaceManager(pool, manager, (next) => {
+    if (next === manager) return;
+    manager = next;
+    tabsManager = next;
+    rewire(next);
+  });
   workspacesManager = workspaceManager;
 
   // Thread workspace context into the TabManager so the group context
   // menu can populate the "Move to workspace…" submenu and createTab
   // can fall back to the active workspace's root_dir when no tab/group
   // cwd is set.
-  manager.setWorkspaceCatalog(
-    () => workspaceManager.list().map((w) => ({ id: w.id, name: w.name, active: w.active })),
-    (groupId, wsId) => workspaceManager.moveGroupTo(groupId, wsId),
-  );
-  manager.setActiveWorkspaceRootDirGetter(() => workspaceManager.getActive().root_dir);
+  wire((m) => {
+    m.setWorkspaceCatalog(
+      () => workspaceManager.list().map((w) => ({ id: w.id, name: w.name, active: w.active })),
+      (groupId, wsId) => workspaceManager.moveGroupTo(groupId, wsId),
+    );
+    m.setActiveWorkspaceRootDirGetter(() => workspaceManager.getActive().root_dir);
+  });
 
   // Mount the workspace switcher chip into its own row above the
   // Covenant wordmark so the brand text isn't truncated. Chip
@@ -763,12 +814,17 @@ async function boot(): Promise<void> {
   // collapsed mode; CSS handles visibility, the component just keeps
   // its DOM in sync with the manager's render cycle.
   const railHost = requireEl<HTMLElement>("tabbar-rail");
+  let railAfterRenderCb: (() => void) | null = null;
   new CollapsedRail(railHost, {
     snapshot: () => manager.getRailSnapshot(),
     selectTab: (id) => manager.activate(id),
     setOnAfterRender: (cb) => {
+      railAfterRenderCb = cb;
       manager.onAfterRender = cb;
     },
+  });
+  wire((m) => {
+    if (railAfterRenderCb) m.onAfterRender = railAfterRenderCb;
   });
 
   const convergence = new ConvergenceOverlay(makeTabsBridge(() => manager));
@@ -790,35 +846,37 @@ async function boot(): Promise<void> {
       publishActivityActiveSession();
     });
   }
-  manager.onActiveContextChange = (cwd) => {
-    statusBar.setCwd(cwd);
-    if (cwd) void ensureDetectorForRepo(cwd);
-  };
-  manager.onActiveTabChange = (info) => {
-    statusBar.setActiveTab(info);
-  };
-  // Tell the vitals aggregator which session's snapshot should drive
-  // the status-bar cluster. Other sessions' summariser / fix-proposer
-  // bursts still accumulate per-session in the backend — they just
-  // don't paint until the user switches to that tab.
-  manager.onActiveSessionChange = (sessionId) => {
-    void invoke("set_active_session_for_vitals", { sessionId });
-    publishActivityActiveSession();
-  };
-  manager.onActiveMissionChange = (mission, sessionId) =>
-    statusBar.setMission(mission, sessionId);
-  // Mirror the active tab's Operator state into the status bar — the
-  // per-tab pill icon was removed in favor of this single chip so the
-  // tab strip stays minimal.
-  manager.onActiveOperatorChange = (state, sessionId) =>
-    statusBar.setOperator(state, sessionId);
-  manager.onActiveOperatorEntityChange = (op) =>
-    statusBar.setOperatorEntity(op);
-  manager.onActiveExecutorChange = () => publishActivityActiveSession();
-  // Tab context-menu "View mission…" reuses the same modal as the
-  // status-bar chip — keep the rendering in one place.
-  manager.onMissionViewRequested = (mission, sessionId) =>
-    void statusBar.openMissionFor(mission, sessionId);
+  wire((m) => {
+    m.onActiveContextChange = (cwd) => {
+      statusBar.setCwd(cwd);
+      if (cwd) void ensureDetectorForRepo(cwd);
+    };
+    m.onActiveTabChange = (info) => {
+      statusBar.setActiveTab(info);
+    };
+    // Tell the vitals aggregator which session's snapshot should drive
+    // the status-bar cluster. Other sessions' summariser / fix-proposer
+    // bursts still accumulate per-session in the backend — they just
+    // don't paint until the user switches to that tab.
+    m.onActiveSessionChange = (sessionId) => {
+      void invoke("set_active_session_for_vitals", { sessionId });
+      publishActivityActiveSession();
+    };
+    m.onActiveMissionChange = (mission, sessionId) =>
+      statusBar.setMission(mission, sessionId);
+    // Mirror the active tab's Operator state into the status bar — the
+    // per-tab pill icon was removed in favor of this single chip so the
+    // tab strip stays minimal.
+    m.onActiveOperatorChange = (state, sessionId) =>
+      statusBar.setOperator(state, sessionId);
+    m.onActiveOperatorEntityChange = (op) =>
+      statusBar.setOperatorEntity(op);
+    m.onActiveExecutorChange = () => publishActivityActiveSession();
+    // Tab context-menu "View mission…" reuses the same modal as the
+    // status-bar chip — keep the rendering in one place.
+    m.onMissionViewRequested = (mission, sessionId) =>
+      void statusBar.openMissionFor(mission, sessionId);
+  });
   let closeWorkspacePagesForMission: () => void = () => {};
   const openMissionFromStatusBar = (sessionId: SessionId): void => {
     closeWorkspacePagesForMission();
@@ -893,8 +951,10 @@ async function boot(): Promise<void> {
     }).mount(document.body);
   }
 
-  manager.setOptions({
-    onOpenProjectNotes: openProjectNotes,
+  wire((m) => {
+    m.setOptions({
+      onOpenProjectNotes: openProjectNotes,
+    });
   });
 
   void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {
@@ -1088,8 +1148,10 @@ async function boot(): Promise<void> {
   installConnectivityBridge();
 
   const aomBanner = new AomBanner(document.body);
-  manager.setAomBanner(aomBanner);
-  manager.setStatusBar(statusBar);
+  wire((m) => {
+    m.setAomBanner(aomBanner);
+    m.setStatusBar(statusBar);
+  });
   // Headless: the banner owns state + polling, but the chip in the
   // status bar handles all rendering. Without this we'd get both
   // the floating pill AND the chip on screen at once.
@@ -1160,25 +1222,29 @@ async function boot(): Promise<void> {
   const missionPageHost = requireEl<HTMLElement>("mission-page");
   const missionPanel = new MissionPage(missionPageHost, workspace);
   missionPanel.onClosed = () => { manager.refitActive(); };
-  manager.setMissionPicker((opts) => missionPanel.open(opts));
+  wire((m) => {
+    m.setMissionPicker((opts) => missionPanel.open(opts));
+  });
 
   // Selecting a tab implies "show me this terminal" — dismiss any
   // fullscreen overlay panel so the terminal pane is actually visible.
-  manager.onTabActivated = () => {
-    if (capabilities.isOpen()) capabilities.close();
-    if (settings.isOpen()) settings.close();
-    // Note: don't dismiss the release modal here. It's a centered
-    // "what's new" dialog auto-shown on version bump — during boot,
-    // tab restoration fires onTabActivated and would close it the
-    // moment it appeared. The user closes it via ×, ESC, or backdrop.
-    if (shortcutsPanel.isOpen()) shortcutsPanel.close();
-    if (aomReportPanel.isOpen()) aomReportPanel.close();
-    if (docsPanel.isOpen()) docsPanel.close();
-    if (draftsPanel.isOpen()) draftsPanel.close();
-    if (missionPanel.isOpen()) missionPanel.close();
-    if (operator.isOpen()) operator.close();
-    if (specChat.isOpen()) specChat.close();
-  };
+  wire((m) => {
+    m.onTabActivated = () => {
+      if (capabilities.isOpen()) capabilities.close();
+      if (settings.isOpen()) settings.close();
+      // Note: don't dismiss the release modal here. It's a centered
+      // "what's new" dialog auto-shown on version bump — during boot,
+      // tab restoration fires onTabActivated and would close it the
+      // moment it appeared. The user closes it via ×, ESC, or backdrop.
+      if (shortcutsPanel.isOpen()) shortcutsPanel.close();
+      if (aomReportPanel.isOpen()) aomReportPanel.close();
+      if (docsPanel.isOpen()) docsPanel.close();
+      if (draftsPanel.isOpen()) draftsPanel.close();
+      if (missionPanel.isOpen()) missionPanel.close();
+      if (operator.isOpen()) operator.close();
+      if (specChat.isOpen()) specChat.close();
+    };
+  });
 
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {
@@ -1304,7 +1370,9 @@ async function boot(): Promise<void> {
   // TODO: scroll to specific operator row when openTo API is added to SettingsPanel
   operatorPicker.onEditRequested = (_op) => { settings.toggle(); };
   statusBar.onOperatorChipClick = (sid) => { void operatorPicker.open(sid); };
-  manager.onSetOperatorRequested = (sid) => { void operatorPicker.open(sid); };
+  wire((m) => {
+    m.onSetOperatorRequested = (sid) => { void operatorPicker.open(sid); };
+  });
 
   // ⌘⇧O → open operator picker for the active session.
   window.addEventListener("keydown", (e) => {

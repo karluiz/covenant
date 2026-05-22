@@ -76,6 +76,25 @@ export class LivePool {
     await this.enforceLimit();
   }
 
+  /// Register a pre-existing TabManager as a live entry. Used by main.ts
+  /// at boot: the initial TabManager is constructed eagerly (so chips,
+  /// spawn UI, etc. have something to read from before workspaces hydrate)
+  /// and then adopted into the pool as the first active entry. After
+  /// adoption, the pool owns its detach/attach/dispose lifecycle the
+  /// same as any factory-created manager.
+  adopt(id: string, manager: PoolableTabManager): void {
+    if (this.live.has(id)) {
+      throw new Error(`LivePool.adopt: id ${id} already live`);
+    }
+    const tracker = new ActivityTracker();
+    const unsubscribeBlocks = manager.onBlockFinished((ev) => {
+      if (this.activeId !== id) tracker.recordBlock({ exitCode: ev.exitCode });
+    });
+    this.live.set(id, { manager, tracker, unsubscribeBlocks });
+    this.touch(id);
+    this.activeId = id;
+  }
+
   async activate(id: string, manifest: unknown): Promise<PoolableTabManager> {
     if (this.activeId === id && this.live.has(id)) {
       return this.live.get(id)!.manager;
