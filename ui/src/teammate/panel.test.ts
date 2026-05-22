@@ -48,7 +48,7 @@ describe("TeammatePanel", () => {
     expect(host.querySelector(".teammate-panel-subtitle")?.textContent).toBe("claude-sonnet-4-6");
   });
 
-  it("renders an XP ring + level badge around the header avatar", async () => {
+  it("renders an XP ring around the avatar + level pill next to the name", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
       listMessages:  vi.fn().mockResolvedValue([]),
@@ -61,8 +61,10 @@ describe("TeammatePanel", () => {
     // Progress within current level: (142 % 100) / 100 = 0.42.
     expect(wrap!.style.getPropertyValue("--xp-progress")).toBe("0.420");
     expect(host.querySelector(".teammate-panel-xp-ring")).not.toBeNull();
-    // Level = floor(xp / 100) + 1 = 2.
-    expect(host.querySelector(".teammate-panel-level")?.textContent).toBe("2");
+    // Level = floor(xp / 100) + 1 = 2. Pill lives next to the name, not on the avatar.
+    const level = host.querySelector(".teammate-panel-title-row .teammate-panel-level");
+    expect(level?.textContent).toBe("Lv 2");
+    expect(wrap!.querySelector(".teammate-panel-level")).toBeNull();
   });
 
   it("renders the chevron as the last child of the header", async () => {

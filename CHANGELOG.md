@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.6 — Right-rail toggles are mutually exclusive + level pill moves next to the name
+
+### Fixed
+
+- **Right-rail toggles no longer stack**: Opening the teammate rail now dispatches `project-notes:close` and clears the activity-view class first, and conversely the activity/blocks/files (`pickView`) and project-notes button handlers now dispatch `teammate:close` before opening. The right rail is a single slot and only one panel renders at a time. Symptom was the teammate panel rendering on top of activity (or vice versa) when the user toggled between views without closing the previous one first (`ui/src/main.ts`).
+- **Stale `titlebar-view-active` highlight** on the chat icon is now cleared by the shared `closeTeammateIfOpen` path, including when teammate is closed from outside via the new `teammate:close` event (`ui/src/main.ts`).
+
+### Changed
+
+- **Level pill lives next to the name, not over the avatar**: The badge was crowding the 32px avatar at its bottom-right corner. It moved into a new `.teammate-panel-title-row` alongside the operator name (e.g., `Mibli  [LV 2]`), styled as a small tinted pill in the operator's color. The XP ring around the avatar stays as the per-level progress indicator (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+
+### Notes
+
+- The level test moved to assert the pill is in `.teammate-panel-title-row` and absent from the avatar wrap. `getActiveSessionId` resolver, sendText, message handling — all unchanged.
+
 ## v0.8.5 — Teammate header: XP ring + thin chevron at the right
 
 ### Added

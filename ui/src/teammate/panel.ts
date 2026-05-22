@@ -10,7 +10,6 @@ const CHEVRON_DOWN_SVG =
 
 function renderHeaderAvatarWithRing(operator: Operator | null): string {
   const xp = operator?.xp ?? 0;
-  const level = operatorLevelFromXp(xp);
   // 100 XP per level, fills clockwise from 12 o'clock, resets at level-up.
   const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
   const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32);
@@ -22,7 +21,6 @@ function renderHeaderAvatarWithRing(operator: Operator | null): string {
         `<circle class="fill"  cx="16" cy="16" r="15"/>` +
       `</svg>` +
       `<span class="teammate-panel-avatar">${avatar}</span>` +
-      `<span class="teammate-panel-level">${level}</span>` +
     `</span>`
   );
 }
@@ -108,10 +106,14 @@ export class TeammatePanel {
     h.className = "teammate-panel-header";
     h.setAttribute("aria-label", "Switch teammate");
     const op = this.operator;
+    const level = operatorLevelFromXp(op?.xp ?? 0);
     h.innerHTML = `
       ${renderHeaderAvatarWithRing(op)}
       <span class="teammate-panel-titlebox">
-        <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
+        <span class="teammate-panel-title-row">
+          <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
+          <span class="teammate-panel-level">Lv ${level}</span>
+        </span>
         <span class="teammate-panel-subtitle">${escapeHtml(op?.model ?? "")}</span>
       </span>
       ${CHEVRON_DOWN_SVG}
