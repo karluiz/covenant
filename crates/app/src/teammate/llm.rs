@@ -34,9 +34,16 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          command. Use this when the user asks about their terminal. If a \
          tab is not in the context, do not claim to see it.\n\
          \n\
-         You cannot execute commands yet — that ships in a later phase. If \
-         the user asks you to run something, acknowledge and offer to walk \
-         them through it instead.",
+         You have a `read_file` tool. Use it when the user asks about a file by \
+         path, or when you need source/config contents to answer accurately. \
+         Don't guess at file contents — call the tool and quote what you read. \
+         Paths are relative to the active tab's working directory. If the file \
+         is outside the workspace or too large the call will fail; tell the \
+         user instead of fabricating.\n\
+         \n\
+         You cannot execute commands or modify files yet — those ship in a \
+         later phase. If the user asks you to run something, acknowledge and \
+         walk them through it instead.",
         name = operator.name,
         voice = voice,
     );
@@ -408,5 +415,6 @@ mod tests {
         let p = build_system_prompt(&op);
         assert!(p.contains("Terminal context"));
         assert!(p.contains("open terminal tabs"));
+        assert!(p.contains("read_file"));
     }
 }
