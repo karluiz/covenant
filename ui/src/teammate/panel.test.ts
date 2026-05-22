@@ -35,7 +35,7 @@ describe("TeammatePanel", () => {
     expect(host.textContent ?? "").toMatch(/Sin conversación aún/);
   });
 
-  it("renders an avatar in the header", async () => {
+  it("renders avatar + name + model subtitle in the header", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
       listMessages:  vi.fn().mockResolvedValue([]),
@@ -44,7 +44,53 @@ describe("TeammatePanel", () => {
     });
     await panel.openFor(makeOp());
     expect(host.querySelector(".teammate-panel-avatar")).not.toBeNull();
-    expect(host.querySelector(".teammate-panel-title")?.textContent).toBe("Mibli");
+    expect(host.querySelector(".teammate-panel-title-name")?.textContent).toBe("Mibli");
+    expect(host.querySelector(".teammate-panel-subtitle")?.textContent).toBe("claude-sonnet-4-6");
+  });
+
+  it("renders operator bubbles in an avatar row, user bubbles solo", async () => {
+    const host = document.createElement("div");
+    let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn().mockResolvedValue({
+        id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
+        content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
+      }),
+      listOperators: vi.fn().mockResolvedValue([]),
+      onMessage: vi.fn(async (h) => { captured = h; return () => {}; }),
+    });
+    await panel.openFor(makeOp());
+    await panel.send("hola");
+    captured!({
+      id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
+      content: { kind: "text", data: "hola, ¿en qué te ayudo?" }, created_at_unix_ms: 2,
+    });
+    // User bubble: no row wrapper
+    expect(host.querySelectorAll(".teammate-bubble-user").length).toBe(1);
+    // Operator bubble: wrapped in a row with an avatar slot
+    const opRows = host.querySelectorAll(".teammate-bubble-row[data-role='operator']:not(.teammate-typing)");
+    expect(opRows.length).toBe(1);
+    expect(opRows[0].querySelector(".teammate-bubble-avatar")).not.toBeNull();
+  });
+
+  it("renders backtick spans as <code> in bubbles", async () => {
+    const host = document.createElement("div");
+    let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn(),
+      listOperators: vi.fn().mockResolvedValue([]),
+      onMessage: vi.fn(async (h) => { captured = h; return () => {}; }),
+    });
+    await panel.openFor(makeOp());
+    captured!({
+      id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
+      content: { kind: "text", data: "the file is `src/main.rs`" }, created_at_unix_ms: 2,
+    });
+    const code = host.querySelector(".teammate-bubble code");
+    expect(code).not.toBeNull();
+    expect(code?.textContent).toBe("src/main.rs");
   });
 
   it("appends a bubble after sendText resolves", async () => {

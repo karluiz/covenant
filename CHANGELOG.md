@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.4 — Teammate bubbles + header polish
+
+### Changed
+
+- **Operator bubbles tinted with the operator's color**: Each operator's `color` is set as a `--operator-color` CSS variable on the panel root and used as the bubble background (`color-mix` with `--bg-panel`). Mibli's bubbles look distinct from Karluiz's; reinforces identity (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+- **Operator bubbles grouped with a 22px inline avatar**: First bubble in a same-role run shows the avatar to its left; subsequent bubbles in the same run get an invisible spacer so they align. iMessage-style grouping. User bubbles stay solo on the right (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+- **Header makes the switcher affordance obvious**: Caret moved from the far-right corner to sit right after the operator name. Model id rendered as a small monospaced subtitle below the name. Avatar gets a subtle outline in the operator's color. Caret rotates 180° when the switcher popover is open. The popover top offset adjusts for the taller header (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+- **Inline code rendering in bubbles**: Text wrapped in backticks (`` `path/to/file` ``) renders as a monospace pill. Mibli already produces this in replies; it now surfaces correctly (`ui/src/teammate/panel.ts`).
+- **Bubble typography**: 13px / line-height 1.45 / 7×11 padding / 14px radius. Slightly larger, more breathing room, better readability in the narrow rail.
+- **System-role bubble** gets a "⚠" prefix and a danger-tinted background so dispatch errors look like errors, not chat.
+
+### Notes
+
+- 3 new vitest cases cover avatar/title/subtitle layout, operator-row grouping, and `<code>` rendering. Existing tests adapted to the new DOM shape.
+- The typing indicator is wrapped in the same row structure as a real operator bubble (avatar + bubble) so the dots animate in the spot the reply will land.
+
 ## v0.8.3 — Mibli sees your tabs (world-model in DM context)
 
 ### Added

@@ -41,9 +41,12 @@ export class TeammatePanel {
     this.operator = operator;
     this.host.innerHTML = "";
     this.host.classList.add("teammate-panel");
+    if (operator.color) {
+      this.host.style.setProperty("--operator-color", operator.color);
+    } else {
+      this.host.style.removeProperty("--operator-color");
+    }
     this.host.append(this.renderHeader(), this.renderThread(), this.renderComposer());
-    // Kick off thread load and roster fetch in parallel. Roster errors are
-    // non-fatal — the switcher just won't have anyone else to offer.
     const [messages] = await Promise.all([
       this.deps.listMessages(operator.id, 200),
       this.deps.listOperators().then((ops) => { this.roster = ops; }).catch(() => { /* ignore */ }),
@@ -59,6 +62,7 @@ export class TeammatePanel {
     this.unlisten?.();
     this.unlisten = null;
     this.operator = null;
+    this.host.style.removeProperty("--operator-color");
     this.host.innerHTML = "";
     this.host.classList.remove("teammate-panel");
   }
@@ -78,10 +82,16 @@ export class TeammatePanel {
     h.type = "button";
     h.className = "teammate-panel-header";
     h.setAttribute("aria-label", "Switch teammate");
+    const op = this.operator;
     h.innerHTML = `
-      <span class="teammate-panel-avatar">${renderAvatarHtml(this.operator?.emoji ?? "🤖", 28)}</span>
-      <span class="teammate-panel-title">${escapeHtml(this.operator?.name ?? "")}</span>
-      <span class="teammate-panel-header-caret" aria-hidden="true">▾</span>
+      <span class="teammate-panel-avatar">${renderAvatarHtml(op?.emoji ?? "🤖", 32)}</span>
+      <span class="teammate-panel-titlebox">
+        <span class="teammate-panel-title">
+          <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
+          <span class="teammate-panel-header-caret" aria-hidden="true">▾</span>
+        </span>
+        <span class="teammate-panel-subtitle">${escapeHtml(op?.model ?? "")}</span>
+      </span>
     `;
     h.addEventListener("click", () => this.toggleSwitcher());
     this.headerEl = h;
@@ -129,10 +139,38 @@ export class TeammatePanel {
     const empty = this.threadEl.querySelector(".teammate-panel-empty");
     empty?.remove();
     if (msg.content.kind !== "text") return; // Phase 1: text only
-    const b = document.createElement("div");
-    b.className = `teammate-bubble teammate-bubble-${msg.role}`;
-    b.textContent = msg.content.data;
-    this.threadEl.append(b);
+
+    // Skip the typing indicator when computing role-grouping — it's a
+    // transient placeholder that should not be treated as a peer bubble.
+    let prev: Element | null = this.threadEl.lastElementChild;
+    while (prev && prev.classList.contains("teammate-typing")) {
+      prev = prev.previousElementSibling;
+    }
+    const sameRoleAsPrev = prev?.getAttribute("data-role") === msg.role;
+
+    if (msg.role === "user") {
+      const b = document.createElement("div");
+      b.className = "teammate-bubble teammate-bubble-user";
+      b.setAttribute("data-role", "user");
+      b.innerHTML = renderInlineContent(msg.content.data);
+      this.threadEl.append(b);
+    } else {
+      const row = document.createElement("div");
+      row.className = `teammate-bubble-row teammate-bubble-row-${msg.role}`;
+      row.setAttribute("data-role", msg.role);
+      const av = document.createElement("div");
+      av.className = "teammate-bubble-avatar";
+      if (sameRoleAsPrev) {
+        av.classList.add("teammate-bubble-avatar-hidden");
+      } else if (msg.role === "operator" && this.operator) {
+        av.innerHTML = renderAvatarHtml(this.operator.emoji, 22);
+      }
+      const b = document.createElement("div");
+      b.className = `teammate-bubble teammate-bubble-${msg.role}`;
+      b.innerHTML = renderInlineContent(msg.content.data);
+      row.append(av, b);
+      this.threadEl.append(row);
+    }
     this.threadEl.scrollTop = this.threadEl.scrollHeight;
   }
 
@@ -140,10 +178,17 @@ export class TeammatePanel {
     if (!this.threadEl) return;
     const existing = this.threadEl.querySelector(".teammate-typing");
     if (on && !existing) {
-      const t = document.createElement("div");
-      t.className = "teammate-bubble teammate-bubble-operator teammate-typing";
-      t.innerHTML = `<span class="teammate-typing-dot"></span><span class="teammate-typing-dot"></span><span class="teammate-typing-dot"></span>`;
-      this.threadEl.append(t);
+      const row = document.createElement("div");
+      row.className = "teammate-bubble-row teammate-bubble-row-operator teammate-typing";
+      row.setAttribute("data-role", "operator");
+      const av = document.createElement("div");
+      av.className = "teammate-bubble-avatar";
+      if (this.operator) av.innerHTML = renderAvatarHtml(this.operator.emoji, 22);
+      const b = document.createElement("div");
+      b.className = "teammate-bubble teammate-bubble-operator teammate-typing";
+      b.innerHTML = `<span class="teammate-typing-dot"></span><span class="teammate-typing-dot"></span><span class="teammate-typing-dot"></span>`;
+      row.append(av, b);
+      this.threadEl.append(row);
       this.threadEl.scrollTop = this.threadEl.scrollHeight;
     } else if (!on && existing) {
       existing.remove();
@@ -185,8 +230,8 @@ export class TeammatePanel {
     }
     this.host.append(list);
     this.switcherEl = list;
+    this.host.classList.add("switcher-open");
 
-    // Click outside / Esc dismiss
     const dismiss = (e: Event) => {
       if (!this.switcherEl) return;
       if (e.type === "keydown" && (e as KeyboardEvent).key !== "Escape") return;
@@ -195,7 +240,6 @@ export class TeammatePanel {
       this.closeSwitcher();
     };
     this.dismissSwitcher = dismiss;
-    // Defer one tick so the current click doesn't immediately close.
     setTimeout(() => {
       document.addEventListener("click", dismiss);
       document.addEventListener("keydown", dismiss);
@@ -210,6 +254,7 @@ export class TeammatePanel {
     }
     this.switcherEl?.remove();
     this.switcherEl = null;
+    this.host.classList.remove("switcher-open");
   }
 }
 
@@ -220,4 +265,12 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/// Render a single text message as HTML. Escapes HTML first, then wraps
+/// backtick-delimited spans in <code>. Phase 1 keeps this small and safe;
+/// fuller Markdown rendering is a later polish if we need it.
+function renderInlineContent(text: string): string {
+  const escaped = escapeHtml(text);
+  return escaped.replace(/`([^`\n]+)`/g, '<code>$1</code>');
 }
