@@ -12,7 +12,8 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 
 use crate::provider::{Capabilities, LlmProvider, ProviderConfig, ProviderKind};
-use crate::{AgentError, AgentEvent, AskRequest, TokenUsage};
+use crate::provider::openai_sse;
+use crate::{AgentError, AgentEvent, AskRequest};
 
 pub struct OpenAiCompatProvider {
     cfg: ProviderConfig,
@@ -91,63 +92,16 @@ impl LlmProvider for OpenAiCompatProvider {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             buffer.extend_from_slice(&chunk);
-            while let Some(idx) = find_double_newline(&buffer) {
+            while let Some(idx) = openai_sse::find_double_newline(&buffer) {
                 let raw: Vec<u8> = buffer.drain(..idx + 2).collect();
                 let text = String::from_utf8_lossy(&raw);
-                for line in text.lines() {
-                    let Some(data) = line.strip_prefix("data:") else {
-                        continue;
-                    };
-                    let data = data.trim_start();
-                    if data.is_empty() {
-                        continue;
-                    }
-                    if data == "[DONE]" {
-                        on_event(AgentEvent::Done);
-                        return Ok(());
-                    }
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else {
-                        continue;
-                    };
-
-                    if let Some(choice) = v.get("choices").and_then(|c| c.get(0)) {
-                        if let Some(text) = choice
-                            .get("delta")
-                            .and_then(|d| d.get("content"))
-                            .and_then(|t| t.as_str())
-                        {
-                            if !text.is_empty() {
-                                on_event(AgentEvent::Delta(text.to_string()));
-                            }
-                        }
-                        if let Some(reason) = choice.get("finish_reason").and_then(|r| r.as_str()) {
-                            on_event(AgentEvent::StopReason(reason.to_string()));
-                        }
-                    }
-
-                    if let Some(usage) = v.get("usage") {
-                        let get = |k: &str| {
-                            usage
-                                .get(k)
-                                .and_then(|n| n.as_u64())
-                                .map(|n| n as u32)
-                                .unwrap_or(0)
-                        };
-                        on_event(AgentEvent::Usage(TokenUsage {
-                            input_tokens: get("prompt_tokens"),
-                            output_tokens: get("completion_tokens"),
-                            cache_creation_input_tokens: 0,
-                            cache_read_input_tokens: 0,
-                        }));
-                    }
+                let done = openai_sse::handle_event_block(&text, &mut |e| on_event(e));
+                if done {
+                    return Ok(());
                 }
             }
         }
         on_event(AgentEvent::Done);
         Ok(())
     }
-}
-
-fn find_double_newline(buf: &[u8]) -> Option<usize> {
-    buf.windows(2).position(|w| w == b"\n\n")
 }

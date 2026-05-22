@@ -4,6 +4,7 @@
 
 pub mod anthropic;
 pub mod openai_compat;
+pub mod openai_sse;
 
 use crate::{AgentError, AgentEvent, AskRequest};
 use async_trait::async_trait;
