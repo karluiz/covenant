@@ -12315,6 +12315,39 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
 }
 .workspace-chip .new-tab-plus { display: inline-flex; align-items: center; }
 
+/* Activity badge styles */
+.workspace-chip__unseen {
+  display: inline-flex;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 6px;
+  border-radius: 8px;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+}
+.workspace-chip--has-failure::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--danger, #ff5555);
+}
+.workspace-chip--has-note::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--agent-accent, #b08cff);
+}
+
 .workspace-popover {
   min-width: 260px;
   max-width: 340px;

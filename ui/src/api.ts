@@ -778,6 +778,12 @@ export interface Settings {
   providers?: Record<string, ProviderEntry>;
   /// Model routing table mapping role names to provider+model.
   model_routes?: Record<string, RouteEntry>;
+  /// Workspace keep-alive settings.
+  workspace?: {
+    /// Maximum number of simultaneously live (non-hibernated) tab
+    /// managers. Range [1, 20]. Default 5.
+    live_limit?: number;
+  };
 }
 
 export async function validateSendGridKey(apiKey: string): Promise<boolean> {

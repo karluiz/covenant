@@ -35,7 +35,10 @@ interface DecisionEvent {
 }
 
 export interface AfkOverlayDeps {
-  manager: TabManager;
+  /// Resolve the currently-active TabManager. Workspace swap replaces the
+  /// underlying TabManager singleton, so we read it on-demand instead of
+  /// caching a reference at construction time.
+  getManager: () => TabManager;
   /// Open the morning report panel. AFK calls this when the user
   /// clicks "Run complete — open report?" after AOM ends.
   openReport: () => void;
@@ -215,7 +218,7 @@ export class AfkOverlay {
       elapsedEl.textContent = formatElapsed(ms);
     }
     if (tabsEl) {
-      const n = this.deps.manager.aomActiveTabCount();
+      const n = this.deps.getManager().aomActiveTabCount();
       tabsEl.textContent = `${n} tab${n === 1 ? "" : "s"}`;
     }
     if (this.status && !this.status.enabled) {
@@ -261,7 +264,7 @@ export class AfkOverlay {
 
     const card = renderDecisionCard(d);
     card.addEventListener("click", () => {
-      this.deps.manager.activate(d.session_id);
+      this.deps.getManager().activate(d.session_id);
       this.close();
     });
     feed.appendChild(card);
