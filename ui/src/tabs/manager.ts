@@ -464,11 +464,7 @@ export class TabManager {
   /// disk always carries the V2 wrapper.
   private onPersistRequest: (() => void) | null = null;
 
-  /// True while replaceFromManifest is tearing down + rebuilding tabs.
-  /// Guards `onAllTabsClosed` so a workspace switch (which transiently
-  /// empties this.tabs) doesn't fire the "no tabs left → close window"
-  /// handler that main.ts wired up.
-  private inReplace = false;
+
 
   setOnPersistRequest(cb: (() => void) | null): void {
     this.onPersistRequest = cb;
@@ -516,13 +512,8 @@ export class TabManager {
   /// Mirrors the bypass used by `replaceFromManifest`.
   removeGroupAndTabs(groupId: string): void {
     const ids = this.tabs.filter((t) => t.groupId === groupId).map((t) => t.id);
-    this.inReplace = true;
-    try {
-      for (const id of ids) this.finalizeCloseTab(id);
-      this.groups.delete(groupId);
-    } finally {
-      this.inReplace = false;
-    }
+    for (const id of ids) this.finalizeCloseTab(id, { suppressCallbacks: true });
+    this.groups.delete(groupId);
     this.renderTabbar();
     this.scheduleSave();
   }
@@ -3266,19 +3257,19 @@ export class TabManager {
     if (m.version !== 1 || !Array.isArray(m.tabs)) {
       throw new Error("invalid manifest");
     }
-    this.inReplace = true;
+    if (this.tabs.length > 0 || this.groups.size > 0) {
+      throw new Error(
+        "replaceFromManifest requires an empty TabManager; call dispose() first",
+      );
+    }
     // First-boot restore passes `silent: true` so the workspace-switch
     // loader doesn't flash on app launch — that overlay is meant for
     // explicit user-driven workspace swaps, not for initial hydration.
     const showLoader = !opts?.silent;
     if (showLoader) document.body.classList.add("workspace-switching");
     try {
-      const existing = this.tabs.slice();
-      for (const t of existing) this.finalizeCloseTab(t.id);
-      this.groups.clear();
       await this.restoreFromManifest(m);
     } finally {
-      this.inReplace = false;
       if (showLoader) document.body.classList.remove("workspace-switching");
     }
     this.scheduleSave();
@@ -3310,7 +3301,11 @@ export class TabManager {
       });
   }
 
-  private finalizeCloseTab(id: string): void {
+  private finalizeCloseTab(
+    id: string,
+    opts?: { suppressCallbacks?: boolean },
+  ): void {
+    const suppressCallbacks = opts?.suppressCallbacks ?? false;
     const idx = this.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
 
@@ -3333,10 +3328,9 @@ export class TabManager {
     } else {
       void closeSession(tab.sessionId).catch(() => {});
       // Drop the persisted scrollback log — the tab is gone for good.
-      // Workspace-switch teardown also flows through here, which is the
-      // wrong behavior for those tabs (they reopen in another workspace).
-      // Suppress during in-flight replace.
-      if (!this.inReplace) {
+      // Group-removal teardown suppresses this via suppressCallbacks since
+      // the tab may reopen in another workspace.
+      if (!suppressCallbacks) {
         void deleteScrollback(tab.replayKey).catch(() => {});
       }
       tab.finder?.dispose();
@@ -3351,10 +3345,10 @@ export class TabManager {
       this.activeId = null;
       this.renderTabbar();
       this.emitActiveTab();
-      if (!this.inReplace) {
-        // During workspace-switch teardown we transiently hit zero tabs;
+      if (!suppressCallbacks) {
+        // During group-removal teardown we may transiently hit zero tabs;
         // suppress the "last tab closed → close window" callback and the
-        // disk write that would clobber the in-flight manifest.
+        // disk write that would clobber the in-flight state.
         this.scheduleSave();
         this.onAllTabsClosed();
       }
