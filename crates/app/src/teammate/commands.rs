@@ -75,7 +75,7 @@ pub async fn teammate_send_text_message(
             }
         };
         let settings = settings_bg.lock().await.clone();
-        let reply_text = match crate::teammate::llm::dispatch_reply(&operator, &thread, &settings).await {
+        let reply_text = match crate::teammate::llm::dispatch_reply(&operator, &thread, &settings, None).await {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %e, "teammate: dispatch failed");
