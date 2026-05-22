@@ -4465,11 +4465,14 @@ export class TabManager {
   /// the returned Promise resolves once DOM is detached, not once
   /// backend sessions are confirmed closed). Disposes xterm instances
   /// and the persisted scrollback log per tab via `finalizeCloseTab`.
+  /// Passes `suppressCallbacks: true` so the manager's onAllTabsClosed
+  /// callback does not fire — the LivePool is already coordinating
+  /// teardown and any "last tab closed" UI flow would be wrong here.
   /// After this returns, the instance is unusable.
   async dispose(): Promise<void> {
     const ids = this.tabs.map((t) => t.id);
     for (const id of ids) {
-      this.finalizeCloseTab(id);
+      this.finalizeCloseTab(id, { suppressCallbacks: true });
     }
     this.detach();
   }
