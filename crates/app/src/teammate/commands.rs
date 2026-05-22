@@ -102,17 +102,55 @@ pub async fn teammate_send_text_message(
         };
 
         let settings = settings_bg.lock().await.clone();
-        let reply_text = match crate::teammate::llm::dispatch_reply(
-            &operator,
-            &thread,
-            &settings,
-            world_context_opt,
-        ).await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!(error = %e, "teammate: dispatch failed");
-                emit_system_error(&app_bg, &storage_bg, operator_id, &format!("{e}")).await;
-                return;
+
+        // Find the cwd of the marked-active session, if any. The tool
+        // sandbox roots into that directory. If no cwd is known (no active
+        // session id, or cwd not captured yet) we fall back to the no-tool
+        // dispatch so the operator can still answer.
+        let active_cwd: Option<std::path::PathBuf> = if let Some(active_id) = active_session_id_parsed {
+            snapshots.iter().find(|s| s.id == active_id).and_then(|s| {
+                let raw = std::path::PathBuf::from(&s.cwd);
+                if raw.as_os_str().is_empty() {
+                    None
+                } else {
+                    raw.canonicalize().ok()
+                }
+            })
+        } else {
+            None
+        };
+
+        let reply_text = if let Some(root) = active_cwd {
+            let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024);
+            let app_for_progress = app_bg.clone();
+            let op_id_for_progress = operator_id;
+            let progress = move |p: crate::teammate::llm::ToolProgress| {
+                let payload = serde_json::json!({
+                    "operator_id": op_id_for_progress,
+                    "progress": p,
+                });
+                let _ = app_for_progress.emit("teammate-tool-call", payload);
+            };
+            match crate::teammate::llm::dispatch_reply_with_tools(
+                &operator, &thread, &settings, world_context_opt, tool_env, progress,
+            ).await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(error = %e, "teammate: tool-use dispatch failed");
+                    emit_system_error(&app_bg, &storage_bg, operator_id, &format!("{e}")).await;
+                    return;
+                }
+            }
+        } else {
+            match crate::teammate::llm::dispatch_reply(
+                &operator, &thread, &settings, world_context_opt,
+            ).await {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(error = %e, "teammate: dispatch failed");
+                    emit_system_error(&app_bg, &storage_bg, operator_id, &format!("{e}")).await;
+                    return;
+                }
             }
         };
         let reply_msg = TaskMessage {
