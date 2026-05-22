@@ -208,9 +208,280 @@ async fn emit_system_error(
 
 #[tauri::command]
 pub async fn teammate_list_tasks(
-    _storage: State<'_, Arc<Storage>>,
+    storage: State<'_, Arc<Storage>>,
+    operator_id: OperatorId,
 ) -> Result<Vec<crate::teammate::Task>, String> {
-    // Phase 1: tasks are not surfaced from the UI yet. Return empty so
-    // the rail can show the "no tasks" placeholder without erroring.
-    Ok(Vec::new())
+    storage.teammate_list_tasks_for_operator(operator_id).await
+        .map_err(|e| e.to_string())
+}
+
+// ── Task-lifecycle helpers + Tauri commands ───────────────────────────────────
+
+use crate::teammate::runtime::TeammateRuntime;
+use crate::teammate::types::{
+    ProposeTask, Task, TaskId, TaskStatus, UpdateKind,
+};
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Pure inner: confirm a Propose message → persist a Task → transition
+/// operator state. Spawning the actual session happens in the UI via
+/// `teammate_attach_session_to_task`.
+pub(crate) async fn confirm_task_inner(
+    storage: &Arc<Storage>,
+    runtime: &Arc<TeammateRuntime>,
+    operator_id: OperatorId,
+    message_id: MessageId,
+    now_ms: u64,
+) -> Result<Task, String> {
+    let msg = storage.teammate_get_message(message_id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "message not found".to_string())?;
+    if msg.confirmed_at_unix_ms.is_some() {
+        return Err("proposal already confirmed".into());
+    }
+    if msg.dismissed_at_unix_ms.is_some() {
+        return Err("proposal was cancelled".into());
+    }
+    let propose = match msg.content {
+        MessageContent::Propose(p) => p,
+        _ => return Err("message is not a proposal".into()),
+    };
+    if msg.operator_id != operator_id {
+        return Err("operator mismatch".into());
+    }
+
+    let task = Task {
+        id: TaskId::new(),
+        operator_id,
+        archetype: propose.draft.archetype,
+        title: propose.draft.title.clone(),
+        body: propose.rationale.clone(),
+        deliverable: propose.draft.deliverable.clone(),
+        status: TaskStatus::Active,
+        scope: propose.draft.scope.clone(),
+        spawned_session: None,
+        created_at_unix_ms: now_ms,
+        updated_at_unix_ms: now_ms,
+        completed_at_unix_ms: None,
+        cost_usd_cents: 0,
+    };
+    storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
+    storage.teammate_mark_message_confirmed(message_id, now_ms).await
+        .map_err(|e| e.to_string())?;
+    runtime.start_task(operator_id, task.id, None).map_err(|e| e.to_string())?;
+
+    let started = TaskMessage {
+        id: MessageId::new(),
+        operator_id,
+        task_id: Some(task.id),
+        role: Role::System,
+        content: MessageContent::TaskUpdate { task: task.id, kind: UpdateKind::Started },
+        created_at_unix_ms: now_ms,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
+    };
+    storage.teammate_insert_message(&started).await.map_err(|e| e.to_string())?;
+    Ok(task)
+}
+
+pub(crate) async fn cancel_task_proposal_inner(
+    storage: &Arc<Storage>,
+    message_id: MessageId,
+    now_ms: u64,
+) -> Result<(), String> {
+    let msg = storage.teammate_get_message(message_id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "message not found".to_string())?;
+    if msg.confirmed_at_unix_ms.is_some() {
+        return Err("proposal already confirmed".into());
+    }
+    if !matches!(msg.content, MessageContent::Propose(_)) {
+        return Err("message is not a proposal".into());
+    }
+    storage.teammate_mark_message_dismissed(message_id, now_ms).await
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) async fn edit_task_proposal_inner(
+    storage: &Arc<Storage>,
+    message_id: MessageId,
+    new_draft: crate::teammate::types::TaskDraft,
+) -> Result<(), String> {
+    let msg = storage.teammate_get_message(message_id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "message not found".to_string())?;
+    let existing = match msg.content {
+        MessageContent::Propose(p) => p,
+        _ => return Err("message is not a proposal".into()),
+    };
+    if msg.confirmed_at_unix_ms.is_some() || msg.dismissed_at_unix_ms.is_some() {
+        return Err("proposal is closed".into());
+    }
+    let updated = MessageContent::Propose(ProposeTask {
+        draft: new_draft,
+        rationale: existing.rationale,
+    });
+    storage.teammate_update_message_content(message_id, &updated).await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn teammate_confirm_task(
+    app: tauri::AppHandle,
+    storage: State<'_, Arc<Storage>>,
+    runtime: State<'_, Arc<TeammateRuntime>>,
+    operator_id: OperatorId,
+    message_id: MessageId,
+) -> Result<Task, String> {
+    use tauri::Emitter;
+    let now = now_unix_ms();
+    let task = confirm_task_inner(storage.inner(), runtime.inner(), operator_id, message_id, now).await?;
+    let _ = app.emit("teammate-task", &task);
+    if let Ok(thread) = storage.teammate_list_messages(operator_id, 1).await {
+        if let Some(last) = thread.last() {
+            let _ = app.emit("teammate-message", last);
+        }
+    }
+    Ok(task)
+}
+
+#[tauri::command]
+pub async fn teammate_cancel_task_proposal(
+    storage: State<'_, Arc<Storage>>,
+    message_id: MessageId,
+) -> Result<(), String> {
+    cancel_task_proposal_inner(storage.inner(), message_id, now_unix_ms()).await
+}
+
+#[tauri::command]
+pub async fn teammate_edit_task_proposal(
+    storage: State<'_, Arc<Storage>>,
+    message_id: MessageId,
+    draft: crate::teammate::types::TaskDraft,
+) -> Result<(), String> {
+    edit_task_proposal_inner(storage.inner(), message_id, draft).await
+}
+
+#[tauri::command]
+pub async fn teammate_attach_session_to_task(
+    app: tauri::AppHandle,
+    storage: State<'_, Arc<Storage>>,
+    runtime: State<'_, Arc<TeammateRuntime>>,
+    operator_id: OperatorId,
+    task_id: TaskId,
+    session_id: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let session = session_id.parse::<karl_session::SessionId>()
+        .map_err(|e| format!("bad session id: {e}"))?;
+    let now = now_unix_ms();
+    storage.teammate_update_task_spawned_session(task_id, session, now).await
+        .map_err(|e| e.to_string())?;
+    let _ = runtime.finish_task(operator_id, task_id);
+    runtime.start_task(operator_id, task_id, Some(session)).map_err(|e| e.to_string())?;
+    let _ = app.emit("teammate-task", serde_json::json!({
+        "task_id": task_id,
+        "spawned_session": session.to_string(),
+    }));
+    Ok(())
+}
+
+#[cfg(test)]
+mod task_lifecycle_tests {
+    use super::*;
+    use crate::operator_registry::{Operator, OperatorId, VoiceTone};
+    use crate::storage::Storage;
+    use crate::teammate::types::{
+        MessageContent, MessageId, ProposeTask, Role, TaskArchetype,
+        TaskDraft, TaskMessage, TaskScope,
+    };
+    use std::sync::Arc;
+    use ulid::Ulid;
+
+    async fn seed_storage() -> (Arc<Storage>, OperatorId, MessageId) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        Box::leak(Box::new(dir));
+        let storage = Arc::new(Storage::open(&path).unwrap());
+
+        let op_id = OperatorId(Ulid::new());
+        storage.operator_insert(Operator {
+            id: op_id,
+            name: "T".into(),
+            emoji: "🤖".into(),
+            color: "#000".into(),
+            tags: vec![],
+            persona: "".into(),
+            escalate_threshold: 0.6,
+            model: "x".into(),
+            hard_constraints: "".into(),
+            voice: VoiceTone::Terse,
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+        }).await.unwrap();
+
+        let msg_id = MessageId::new();
+        let msg = TaskMessage {
+            id: msg_id,
+            operator_id: op_id,
+            task_id: None,
+            role: Role::Operator,
+            content: MessageContent::Propose(ProposeTask {
+                draft: TaskDraft {
+                    archetype: TaskArchetype::Do,
+                    title: "Revisar migración".into(),
+                    deliverable: "resumen".into(),
+                    scope: TaskScope::default(),
+                },
+                rationale: "audit".into(),
+            }),
+            created_at_unix_ms: 1_700_000_000_000,
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
+        };
+        storage.teammate_insert_message(&msg).await.unwrap();
+        (storage, op_id, msg_id)
+    }
+
+    #[tokio::test]
+    async fn confirm_proposal_creates_task_and_marks_message() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1_700_000_000_500)
+            .await
+            .expect("confirm should succeed");
+
+        assert!(matches!(task.status, crate::teammate::types::TaskStatus::Active));
+        assert!(matches!(task.archetype, crate::teammate::types::TaskArchetype::Do));
+        assert_eq!(task.spawned_session, None, "spawn happens in UI; backend leaves it None initially");
+
+        let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
+        assert_eq!(fetched.confirmed_at_unix_ms, Some(1_700_000_000_500));
+    }
+
+    #[tokio::test]
+    async fn confirm_twice_returns_error() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+        confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
+        let err = confirm_task_inner(&storage, &runtime, op_id, msg_id, 2).await.unwrap_err();
+        assert!(err.contains("already confirmed"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn cancel_proposal_sets_dismissed() {
+        let (storage, _op_id, msg_id) = seed_storage().await;
+        cancel_task_proposal_inner(&storage, msg_id, 1_700_000_000_999).await.unwrap();
+        let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
+        assert_eq!(fetched.dismissed_at_unix_ms, Some(1_700_000_000_999));
+    }
 }

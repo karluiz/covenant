@@ -2727,7 +2727,7 @@ pub fn run() {
             let registry_arc = Arc::new(registry);
             app.manage(registry_arc.clone());
             app.manage(Arc::new(storage.clone()));
-            app.manage(teammate::TeammateRuntime::new());
+            app.manage(Arc::new(teammate::TeammateRuntime::new()));
             app.manage(project_notes::Store::new(storage.conn()));
 
             // Familiars: per-session AI companion with persistent
@@ -3292,6 +3292,10 @@ pub fn run() {
             teammate::commands::teammate_list_messages_for_operator,
             teammate::commands::teammate_send_text_message,
             teammate::commands::teammate_list_tasks,
+            teammate::commands::teammate_confirm_task,
+            teammate::commands::teammate_cancel_task_proposal,
+            teammate::commands::teammate_edit_task_proposal,
+            teammate::commands::teammate_attach_session_to_task,
             spec_detector::start_spec_detector,
             spec_detector::mark_spec_seen,
             familiar_commands::familiar_list,
