@@ -13869,10 +13869,8 @@ body.project-notes-open:not(.blocks-globally-collapsed) .tab-blocks {
 body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
-#titlebar-project-notes.titlebar-view-active {
-  color: var(--text, #d5d9de) !important;
-  background: rgba(var(--ink-rgb), 0.06);
-}
+/* Project-notes active styling now comes from the shared
+   .titlebar-view-btn.titlebar-view-active rule. */
 
 #activity-sidebar.is-collapsed .inline-notch-body { display: none; }
 #activity-sidebar.is-collapsed .inline-notch-chev { transform: rotate(-90deg); }

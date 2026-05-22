@@ -599,14 +599,13 @@ async function boot(): Promise<void> {
         activeProjectNotesPanel.close();
         return;
       }
-      // Project Notes also claims the right rail.
-      window.dispatchEvent(new CustomEvent("teammate:close"));
       if (document.body.classList.contains("blocks-globally-collapsed")) {
         applyBlocksCollapsed(false);
         localStorage.removeItem(BLOCKS_GLOBAL_KEY);
         setTimeout(() => manager.refitActive(), 320);
       }
       const g = manager.activeGroup();
+      // openProjectNotes() closes competing right-rail panels.
       if (g) openProjectNotes(g.id, g.name, g.color ?? null);
     });
   }
@@ -856,6 +855,9 @@ async function boot(): Promise<void> {
     opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
   ): void {
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
+    // Project Notes claims the right rail — close any competing panel
+    // first so two never render together.
+    window.dispatchEvent(new CustomEvent("teammate:close"));
     projectNotesReturnView = activeSidebarTitlebarView;
     document.body.classList.add("project-notes-open");
     document.body.classList.remove("sidebar-view-activity");
@@ -863,6 +865,7 @@ async function boot(): Promise<void> {
     viewBlocksBtn?.classList.remove("titlebar-view-active");
     viewFilesBtn?.classList.remove("titlebar-view-active");
     viewActivityBtn?.classList.remove("titlebar-view-active");
+    teammateBtn?.classList.remove("titlebar-view-active");
     const groupRootDir = manager.groupRootDirFor(groupId);
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
