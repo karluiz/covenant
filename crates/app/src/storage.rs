@@ -206,10 +206,12 @@ CREATE TABLE IF NOT EXISTS teammate_messages (
     id                  TEXT PRIMARY KEY,
     operator_id         TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
     task_id             TEXT REFERENCES teammate_tasks(id) ON DELETE SET NULL,
-    role                TEXT NOT NULL,           -- 'user' | 'operator' | 'system'
-    content_kind        TEXT NOT NULL,           -- 'text' | 'task_draft' | 'task_update' | 'propose' | 'report'
-    content_json        TEXT NOT NULL,           -- JSON payload for the kind
-    created_at_unix_ms  INTEGER NOT NULL
+    role                TEXT NOT NULL,
+    content_kind        TEXT NOT NULL,
+    content_json        TEXT NOT NULL,
+    created_at_unix_ms  INTEGER NOT NULL,
+    confirmed_at_unix_ms INTEGER,
+    dismissed_at_unix_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_messages_operator ON teammate_messages(operator_id, created_at_unix_ms);
 CREATE INDEX IF NOT EXISTS idx_messages_task     ON teammate_messages(task_id) WHERE task_id IS NOT NULL;
@@ -481,6 +483,17 @@ impl Storage {
         // caching when DMing. Empty for existing rows.
         let _ = conn.execute(
             "ALTER TABLE operators ADD COLUMN rolling_summary TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        // 5.x Teammate task cards: track whether a Propose message has been
+        // confirmed (turned into a Task) or dismissed (user cancelled the
+        // proposal). Both NULL for older rows.
+        let _ = conn.execute(
+            "ALTER TABLE teammate_messages ADD COLUMN confirmed_at_unix_ms INTEGER",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE teammate_messages ADD COLUMN dismissed_at_unix_ms INTEGER",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
