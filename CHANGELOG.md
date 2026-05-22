@@ -6,7 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## v0.8.10 — Operators-as-teammate redesign + Mibli reads files
+## v0.8.11 — Teammate task cards in DM (operators take tasks)
+
+### Added
+
+- **`propose_task` LLM tool**: Operators get a new structured-output tool so when the user asks for actionable work ("Mibli, revisa la migración de auth…"), the model emits a `MessageContent::Propose` payload instead of free text. Tool description steers it away from chitchat. Defined in `crates/app/src/teammate/tools.rs`; the dispatcher (`crates/app/src/teammate/llm.rs`) returns a new `DispatchOutcome::{Text, Propose}` so propose calls short-circuit the tool-use loop.
+- **Task lifecycle commands**: Four new Tauri commands wire the chat to the existing `Task` types — `teammate_confirm_task` creates the row + transitions operator state + inserts a `TaskUpdate::Started`; `teammate_cancel_task_proposal` marks the propose dismissed; `teammate_edit_task_proposal` rewrites the draft; `teammate_attach_session_to_task` binds the spawned tab's SessionId. `teammate_list_tasks` stops returning an empty stub. Tests cover confirm/twice/cancel paths (`crates/app/src/teammate/commands.rs`, `crates/app/src/lib.rs`).
+- **Task card component in the DM rail**: New `ui/src/teammate/task-card.ts` renders Propose messages as a card with archetype badge (Do/Review/Watch), title, deliverable, scope, and Confirmar/Editar/Cancelar buttons. Disabled/confirmed/cancelled states match the mockup. CSS scoped to `.task-card*` in `ui/src/styles.css`.
+- **Panel switches on `content.kind`**: `ui/src/teammate/panel.ts` now dispatches per message kind — text bubble, propose card, system line for `task_update`. Confirmar handler calls `teammateConfirmTask` → spawns a new tab via the injected `spawnTabForTask` (wired to `tabsManager.createTab` in `ui/src/main.ts`) → `teammateAttachSessionToTask` to bind the SessionId. Editar opens a prompt-based inline edit for the title.
+- **Tagged `TeammateContent` API**: `ui/src/api.ts` replaced the loose `kind: ... data: unknown` shape with a discriminated union covering `text | task_draft | task_update | propose | report`. Added `Task`, `TaskDraft`, `ProposeTask`, `TaskReport`, `TaskArchetype`, `TaskStatus`, `UpdateKind` interfaces and wrappers for the new commands plus an `onTeammateTask` event listener.
+- **Schema: confirm/dismiss timestamps**: `teammate_messages` gets `confirmed_at_unix_ms` and `dismissed_at_unix_ms` (idempotent ALTERs for existing DBs). Six new storage helpers (`teammate_get_message`, `teammate_mark_message_confirmed`/`_dismissed`, `teammate_update_message_content`, `teammate_list_tasks_for_operator`, `teammate_update_task_spawned_session`) expose proposal + task state to the commands layer (`crates/app/src/storage.rs`, `crates/app/src/teammate/types.rs`).
+
+### Changed
+
+- **Workspace keep-alive (LivePool) attempt reverted**: The keep-alive series (PR #2) shipped LivePool with LRU hibernation, activity badges, and detach/attach/dispose on `TabManager`. It introduced a workspace-switch hang because the new `TabManager.detach()` removed the global tabbar/workspace elements from the DOM while the factory then constructed fresh managers pointing at those same (now-orphan) elements, so xterm.js never resolved layout. Reverted the whole merge until the design is reworked to give each manager its own internal containers under the shared parents (not the parents themselves).
+
+
 
 First tagged release of the operators-as-teammate cut (v0.7.12 → v0.8.10). The full cycle is documented section-by-section in **v0.8.0 → v0.8.9** below — DM rail foundation, conversational operator, world-model context, multi-turn tool-use with `read_file`, plus light-mode contrast fix, header/avatar/XP-ring polish, and right-rail toggle exclusivity.
 
