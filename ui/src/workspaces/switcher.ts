@@ -6,7 +6,6 @@
 // duplicate / set root dir / set color / delete.
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { pushInfoToast } from "../notifications/toast";
 import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
 import { filterAndRankTabs, type TabRow } from "./finder";
@@ -103,11 +102,11 @@ export class WorkspaceSwitcher {
     await this.runSwitch(id, name);
   }
 
-  /// Wraps switchTo with a busy state on the chip + a toast so the user
-  /// has feedback during PTY teardown/respawn (can take a second).
-  async runSwitch(id: string, name: string): Promise<void> {
+  /// Wraps switchTo with a busy state on the chip. The workspace-switch
+  /// overlay (orb + name) provides the user-facing feedback during PTY
+  /// teardown/respawn, so no toast is needed.
+  async runSwitch(id: string, _name: string): Promise<void> {
     this.chip?.classList.add("workspace-chip-busy");
-    pushInfoToast({ message: `Switching to ${name}…` });
     try {
       await this.ws.switchTo(id);
     } finally {

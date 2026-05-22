@@ -1281,16 +1281,16 @@ body.tabbar-left .tab-drop-right > .tab-drop-anchor {
     justify-content: center;
     margin-left: auto;
     padding: 0;
-    width: 18px;
-    height: 18px;
-    background: rgba(0, 0, 0, 0.35);
-    border-radius: 999px;
+    min-width: 14px;
+    height: 14px;
+    background: transparent;
+    border-radius: 3px;
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0;
     text-transform: none;
     font-variant-numeric: tabular-nums;
-    color: rgba(var(--ink-rgb), 0.85);
+    color: rgba(var(--ink-rgb), 0.42);
     flex-shrink: 0;
 }
 
@@ -8169,8 +8169,8 @@ body.tabbar-left:not(.theme-light) .group-chip:hover {
 }
 
 body.tabbar-left:not(.theme-light) .group-chip-count {
-    background: rgba(4, 7, 12, 0.58);
-    color: color-mix(in srgb, var(--group-color, #fff) 58%, #fff 42%);
+    background: transparent;
+    color: rgba(var(--ink-rgb), 0.38);
 }
 
 body.tabbar-left:not(.theme-light)
@@ -12283,7 +12283,12 @@ body.has-update-banner #app-titlebar-brand { display: none; }
    the tab strip + workspace hidden so the user does not see tabs
    appearing one-by-one. Layout is preserved via visibility:hidden. */
 body.workspace-switching #tabbar-host,
-body.workspace-switching #workspace { visibility: hidden; }
+body.workspace-switching #workspace,
+body.workspace-switching #app-titlebar,
+body.workspace-switching #activity-sidebar,
+body.workspace-switching #teammate-panel,
+body.workspace-switching #status-bar,
+body.workspace-switching #familiar-panel { visibility: hidden; }
 body.workspace-switching #workspace-switch-overlay { display: flex; }
 /* Workspace switch overlay reuses the boot-splash orb verbatim so the
    visual vocabulary is identical to first boot — only the headline text
@@ -13591,8 +13596,8 @@ body.theme-light .ck-tooltip__hint kbd {
 
 /* ── Group count badges: dark filled circles in light mode → soft tint ─ */
 body.theme-light .group-chip-count {
-    background: rgba(0, 0, 0, 0.08) !important;
-    color: var(--text-primary) !important;
+    background: transparent !important;
+    color: rgba(0, 0, 0, 0.4) !important;
 }
 
 /* ── Editor host + previews: kill the dark backplate ─────────── */
@@ -13734,6 +13739,22 @@ body.theme-light .workspace-chip:hover .new-tab-kbd {
    active-agent header pinned on top + chronological stream below.
    Lives in #activity-sidebar; shown when body.sidebar-view-activity.
    =========================================================== */
+@keyframes right-rail-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.sidebar-view-activity #activity-sidebar,
+  body.sidebar-view-teammate #teammate-panel {
+    animation: none;
+  }
+}
 #activity-sidebar[hidden] { display: none !important; }
 #activity-sidebar {
   position: relative;
@@ -13760,6 +13781,9 @@ body.blocks-globally-collapsed #activity-sidebar { display: none; }
 /* Give Activity the same right rail as Blocks/Files. The outer layout
    creates the 240px rail, while the active tab's own Blocks/Files column is
    hidden so the two sidebars never stack or appear side-by-side. */
+body.sidebar-view-activity #activity-sidebar {
+  animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
 body.sidebar-view-activity:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
   grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
 }
@@ -13810,6 +13834,9 @@ body.sidebar-view-activity .tab-pane:has(.editor-host:not([hidden])) > .editor-h
 body:not(.sidebar-view-teammate) #teammate-panel { display: none; }
 body.blocks-globally-collapsed #teammate-panel { display: none; }
 
+body.sidebar-view-teammate #teammate-panel {
+  animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
 body.sidebar-view-teammate:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
   grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
 }

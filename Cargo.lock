@@ -2944,6 +2944,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
+ "wiremock",
 ]
 
 [[package]]
