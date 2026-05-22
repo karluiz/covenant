@@ -27,3 +27,4 @@ regex = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true }
 async-trait = { workspace = true }
+wiremock = "0.6"

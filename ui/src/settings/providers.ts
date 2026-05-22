@@ -1,5 +1,5 @@
 import type { Settings, ProviderEntry } from "../api";
-import { listModelsOpenAiCompat } from "../api";
+import { listModelsOpenAiCompat, listModelsAzureFoundry } from "../api";
 
 export function renderProvidersTab(
   root: HTMLElement,
@@ -31,6 +31,7 @@ export function renderProvidersTab(
     <select class="add-provider-preset">
       <option value="ollama">Ollama (http://localhost:11434/v1)</option>
       <option value="lmstudio">LM Studio (http://localhost:1234/v1)</option>
+      <option value="azure_foundry">Azure Foundry</option>
       <option value="custom">Custom OpenAI-compatible…</option>
     </select>
     <input class="add-provider-id" type="text" placeholder="id (e.g. ollama)" />
@@ -53,6 +54,9 @@ export function renderProvidersTab(
     } else if (preset.value === "lmstudio") {
       idInput.value = "lmstudio";
       urlInput.value = "http://localhost:1234/v1";
+    } else if (preset.value === "azure_foundry") {
+      idInput.value = "azure";
+      urlInput.value = "";
     } else {
       idInput.value = "";
       urlInput.value = "http://localhost:8080/v1";
@@ -77,11 +81,22 @@ export function renderProvidersTab(
     if (settings.providers?.[id]) { idInput.focus(); return; }
     const next = JSON.parse(JSON.stringify(settings)) as Settings;
     next.providers = { ...(next.providers ?? {}) };
-    next.providers[id] = {
-      kind: "openai_compat",
-      label: id,
-      base_url: url || "http://localhost:11434/v1",
-    };
+    if (preset.value === "azure_foundry") {
+      next.providers[id] = {
+        kind: "azure_foundry",
+        label: id,
+        base_url: url,
+        api_key: "",
+        azure_mode: "ai_inference",
+        azure_api_version: "2024-05-01-preview",
+      };
+    } else {
+      next.providers[id] = {
+        kind: "openai_compat",
+        label: id,
+        base_url: url || "http://localhost:11434/v1",
+      };
+    }
     onChange(next);
   };
 
@@ -115,6 +130,8 @@ function renderProviderCard(
       onChange(next);
     };
     card.appendChild(labeled("API key", keyInput));
+  } else if (entry.kind === "azure_foundry") {
+    renderAzureFoundryCard(card, id, entry, settings, onChange);
   } else {
     const urlInput = document.createElement("input");
     urlInput.type = "text";
@@ -160,6 +177,96 @@ function renderProviderCard(
   }
 
   return card;
+}
+
+function renderAzureFoundryCard(
+  card: HTMLElement,
+  id: string,
+  entry: ProviderEntry,
+  settings: Settings,
+  onChange: (next: Settings) => void,
+): void {
+  const update = (patch: Partial<ProviderEntry>) => {
+    const next = JSON.parse(JSON.stringify(settings)) as Settings;
+    next.providers![id] = { ...entry, ...patch };
+    onChange(next);
+  };
+
+  const modeSelect = document.createElement("select");
+  modeSelect.innerHTML = `
+    <option value="ai_inference">AI Inference (/models)</option>
+    <option value="azure_open_ai">Azure OpenAI (deployments)</option>
+  `;
+  modeSelect.value = entry.azure_mode ?? "ai_inference";
+  modeSelect.onchange = () => {
+    const mode = modeSelect.value as "ai_inference" | "azure_open_ai";
+    const defaultVersion =
+      mode === "azure_open_ai" ? "2024-10-21" : "2024-05-01-preview";
+    const keep =
+      entry.azure_api_version &&
+      entry.azure_api_version !== "2024-05-01-preview" &&
+      entry.azure_api_version !== "2024-10-21";
+    update({
+      azure_mode: mode,
+      azure_api_version: keep ? entry.azure_api_version : defaultVersion,
+    });
+  };
+  card.appendChild(labeled("Mode", modeSelect));
+
+  const endpoint = document.createElement("input");
+  endpoint.type = "text";
+  endpoint.placeholder = "https://my-resource.services.ai.azure.com";
+  endpoint.value = entry.base_url ?? "";
+  endpoint.oninput = () => update({ base_url: endpoint.value.trim() });
+  card.appendChild(labeled("Endpoint", endpoint));
+
+  const apiKey = document.createElement("input");
+  apiKey.type = "password";
+  apiKey.value = entry.api_key ?? "";
+  apiKey.oninput = () => update({ api_key: apiKey.value.trim() });
+  card.appendChild(labeled("API key", apiKey));
+
+  const apiVersion = document.createElement("input");
+  apiVersion.type = "text";
+  apiVersion.value =
+    entry.azure_api_version ??
+    (entry.azure_mode === "azure_open_ai" ? "2024-10-21" : "2024-05-01-preview");
+  apiVersion.oninput = () => update({ azure_api_version: apiVersion.value.trim() });
+  card.appendChild(labeled("API version", apiVersion));
+
+  if ((entry.azure_mode ?? "ai_inference") === "azure_open_ai") {
+    const deployment = document.createElement("input");
+    deployment.type = "text";
+    deployment.placeholder = "e.g. gpt-4o-deployment";
+    deployment.value = entry.azure_deployment ?? "";
+    deployment.oninput = () => update({ azure_deployment: deployment.value.trim() });
+    card.appendChild(labeled("Deployment", deployment));
+  }
+
+  const testBtn = document.createElement("button");
+  testBtn.textContent = "Test connection";
+  testBtn.type = "button";
+  testBtn.className = "settings-btn";
+  const status = document.createElement("span");
+  status.className = "provider-status";
+  testBtn.onclick = async () => {
+    status.textContent = "…";
+    try {
+      const models = await listModelsAzureFoundry({
+        endpoint: endpoint.value.trim(),
+        apiKey: apiKey.value.trim(),
+        mode: (entry.azure_mode ?? "ai_inference") as
+          | "ai_inference"
+          | "azure_open_ai",
+        apiVersion: apiVersion.value.trim(),
+      });
+      status.textContent = `OK — ${models.length} models`;
+    } catch (e) {
+      status.textContent = `Error: ${String(e)}`;
+    }
+  };
+  card.appendChild(testBtn);
+  card.appendChild(status);
 }
 
 function labeled(text: string, input: HTMLElement): HTMLElement {

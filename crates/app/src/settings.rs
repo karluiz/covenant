@@ -37,6 +37,13 @@ pub struct ProviderEntry {
     pub api_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    // Azure Foundry only — ignored for other kinds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure_mode: Option<karl_agent::provider::azure_foundry::AzureMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure_api_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub azure_deployment: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -324,6 +331,9 @@ fn default_anthropic_entry(api_key: Option<String>) -> ProviderEntry {
         label: "Anthropic".into(),
         api_key,
         base_url: None,
+        azure_mode: None,
+        azure_api_version: None,
+        azure_deployment: None,
     }
 }
 
@@ -876,6 +886,15 @@ mod tests {
     }
 
     #[test]
+    fn legacy_provider_entry_without_azure_fields_still_deserializes() {
+        let json = r#"{"kind":"anthropic","label":"Anthropic","api_key":"sk-x"}"#;
+        let e: ProviderEntry = serde_json::from_str(json).unwrap();
+        assert!(e.azure_mode.is_none());
+        assert!(e.azure_api_version.is_none());
+        assert!(e.azure_deployment.is_none());
+    }
+
+    #[test]
     fn round_trip_preserves_ollama_provider() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
@@ -887,6 +906,9 @@ mod tests {
                 api_key: None,
                 base_url: Some("http://localhost:11434/v1".into()),
                 label: "Ollama (local)".into(),
+                azure_mode: None,
+                azure_api_version: None,
+                azure_deployment: None,
             },
         );
         save(&path, &s).unwrap();

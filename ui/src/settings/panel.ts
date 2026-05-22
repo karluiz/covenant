@@ -77,10 +77,13 @@ interface NotificationConfig {
 }
 
 interface ProviderEntry {
-  kind: "anthropic" | "openai_compat";
+  kind: "anthropic" | "openai_compat" | "azure_foundry";
   label: string;
   api_key?: string | null;
   base_url?: string | null;
+  azure_mode?: "azure_open_ai" | "ai_inference" | null;
+  azure_api_version?: string | null;
+  azure_deployment?: string | null;
 }
 
 interface RouteEntry {
