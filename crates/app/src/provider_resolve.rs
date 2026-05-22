@@ -6,8 +6,10 @@
 use std::sync::Arc;
 
 use karl_agent::provider::{
-    anthropic::AnthropicProvider, openai_compat::OpenAiCompatProvider, LlmProvider, ProviderConfig,
-    ProviderKind,
+    anthropic::AnthropicProvider,
+    azure_foundry::{default_api_version, AzureFoundryConfig, AzureFoundryProvider},
+    openai_compat::OpenAiCompatProvider,
+    LlmProvider, ProviderConfig, ProviderKind,
 };
 
 use crate::settings::{Role, Settings};
@@ -52,6 +54,23 @@ pub fn resolve_route(settings: &Settings, role: Role) -> Result<ResolvedRoute, R
     let provider: Arc<dyn LlmProvider> = match entry.kind {
         ProviderKind::Anthropic => Arc::new(AnthropicProvider::new(cfg)),
         ProviderKind::OpenAiCompat => Arc::new(OpenAiCompatProvider::new(cfg)),
+        ProviderKind::AzureFoundry => {
+            let mode = entry
+                .azure_mode
+                .unwrap_or(karl_agent::provider::azure_foundry::AzureMode::AiInference);
+            let api_version = entry
+                .azure_api_version
+                .clone()
+                .unwrap_or_else(|| default_api_version(mode).to_owned());
+            let azure_cfg = AzureFoundryConfig {
+                mode,
+                endpoint: cfg.base_url.unwrap_or_default(),
+                api_key: cfg.api_key.unwrap_or_default(),
+                api_version,
+                deployment: entry.azure_deployment.clone(),
+            };
+            Arc::new(AzureFoundryProvider::new(azure_cfg))
+        }
     };
     Ok(ResolvedRoute {
         provider,
