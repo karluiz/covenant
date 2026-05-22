@@ -202,4 +202,30 @@ describe("TeammatePanel", () => {
     await panel.send("hola");
     expect(send).toHaveBeenCalledWith("op-mibli", "hola", "session-abc");
   });
+
+  it("renders a tool-call line when the operator reads a file", async () => {
+    let captured: ((call: import("../api").TeammateToolCall) => void) | null = null;
+    const host = document.createElement("div");
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn(),
+      listOperators: vi.fn().mockResolvedValue([]),
+      onToolCall: vi.fn(async (h) => { captured = h; return () => {}; }),
+    });
+    await panel.openFor(makeOp());
+    captured!({
+      operator_id: "op-mibli",
+      progress: {
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: "src/main.rs" },
+        ok: true,
+        error: null,
+      },
+    });
+    const line = host.querySelector(".teammate-tool-line");
+    expect(line).not.toBeNull();
+    expect(line?.textContent ?? "").toMatch(/read_file/);
+    expect(line?.textContent ?? "").toMatch(/src\/main\.rs/);
+  });
 });

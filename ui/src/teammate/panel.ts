@@ -1,5 +1,5 @@
-import type { Operator, TeammateMessage } from "../api";
-import { onTeammateMessage, operatorLevelFromXp, operatorList, teammateListMessages, teammateSendText } from "../api";
+import type { Operator, TeammateMessage, TeammateToolCall } from "../api";
+import { onTeammateMessage, onTeammateToolCall, operatorLevelFromXp, operatorList, teammateListMessages, teammateSendText } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
 
 const CHEVRON_DOWN_SVG =
@@ -31,6 +31,7 @@ export interface TeammatePanelDeps {
   listOperators: () => Promise<Operator[]>;
   /// Optional in tests; production wires to the real Tauri listener.
   onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
+  onToolCall?:   (handler: (call: TeammateToolCall) => void) => Promise<() => void>;
   getActiveSessionId?: () => string | null;
 }
 
@@ -39,6 +40,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   sendText:      teammateSendText,
   listOperators: operatorList,
   onMessage:     onTeammateMessage,
+  onToolCall:    onTeammateToolCall,
 };
 
 export class TeammatePanel {
@@ -52,6 +54,7 @@ export class TeammatePanel {
   private switcherEl: HTMLElement | null = null;
   private dismissSwitcher: ((e: Event) => void) | null = null;
   private unlisten: (() => void) | null = null;
+  private unlistenToolCall: (() => void) | null = null;
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -78,12 +81,17 @@ export class TeammatePanel {
     if (!this.unlisten && this.deps.onMessage) {
       this.unlisten = await this.deps.onMessage((m) => this.onIncomingMessage(m));
     }
+    if (!this.unlistenToolCall && this.deps.onToolCall) {
+      this.unlistenToolCall = await this.deps.onToolCall((c) => this.onIncomingToolCall(c));
+    }
   }
 
   close(): void {
     this.closeSwitcher();
     this.unlisten?.();
     this.unlisten = null;
+    this.unlistenToolCall?.();
+    this.unlistenToolCall = null;
     this.operator = null;
     this.host.style.removeProperty("--operator-color");
     this.host.innerHTML = "";
@@ -224,6 +232,30 @@ export class TeammatePanel {
     if (!this.operator || msg.operator_id !== this.operator.id) return;
     this.setTyping(false);
     this.appendBubble(msg);
+  }
+
+  private onIncomingToolCall(call: TeammateToolCall): void {
+    if (!this.operator || call.operator_id !== this.operator.id) return;
+    if (!this.threadEl) return;
+    const args = call.progress.args ?? {};
+    const path = typeof args["path"] === "string" ? (args["path"] as string) : "";
+    const ok = call.progress.ok;
+    const tool = call.progress.tool;
+    const line = document.createElement("div");
+    line.className = `teammate-tool-line${ok ? "" : " teammate-tool-line-error"}`;
+    const icon = ok ? "📖" : "⚠";
+    const escapedPath = path.replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c] as string));
+    line.innerHTML = `<span class="teammate-tool-line-icon" aria-hidden="true">${icon}</span>` +
+                     `<span class="teammate-tool-line-text">${escapeHtml(tool)}` +
+                     (path ? ` · <code>${escapedPath}</code>` : "") + `</span>`;
+    // Insert BEFORE the typing bubble if present, so the typing dots
+    // stay anchored at the bottom of the thread.
+    const typing = this.threadEl.querySelector(".teammate-typing");
+    if (typing) this.threadEl.insertBefore(line, typing);
+    else this.threadEl.append(line);
+    this.threadEl.scrollTop = this.threadEl.scrollHeight;
   }
 
   private toggleSwitcher(): void {
