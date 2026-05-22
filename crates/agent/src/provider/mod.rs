@@ -3,6 +3,7 @@
 //! live in `provider/anthropic.rs` and `provider/openai_compat.rs`.
 
 pub mod anthropic;
+pub mod azure_foundry;
 pub mod openai_compat;
 pub mod openai_sse;
 
