@@ -64,6 +64,55 @@ pub fn build_user_message(thread: &[TaskMessage], operator: &Operator) -> String
     out
 }
 
+use karl_agent::AskRequest;
+use karl_agent::provider::collect_oneshot;
+use thiserror::Error;
+
+use crate::provider_resolve::{resolve_route, ResolveError};
+use crate::settings::{Role as SettingsRole, Settings};
+
+#[derive(Error, Debug)]
+pub enum TeammateLlmError {
+    #[error("no operator-role provider configured: {0}")]
+    NoRoute(String),
+    #[error("provider rejected the call: {0}")]
+    Provider(String),
+    #[error("provider returned an empty reply")]
+    EmptyReply,
+}
+
+/// Call the LLM and return the operator's reply text.
+///
+/// Resolves the provider via the `Operator` settings role (so the user's
+/// configured Anthropic key + base URL is honored), but overrides the
+/// model with the operator's own `model` field — each persona can pick
+/// its own.
+pub async fn dispatch_reply(
+    operator: &Operator,
+    thread: &[TaskMessage],
+    settings: &Settings,
+) -> Result<String, TeammateLlmError> {
+    let resolved = resolve_route(settings, SettingsRole::Operator)
+        .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
+    let req = AskRequest {
+        api_key: String::new(),
+        model:   operator.model.clone(),
+        system_prompt: build_system_prompt(operator),
+        user_message:  build_user_message(thread, operator),
+        max_tokens:    REPLY_MAX_TOKENS,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let resp = collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| TeammateLlmError::Provider(e.to_string()))?;
+    let text = resp.text.trim().to_string();
+    if text.is_empty() {
+        return Err(TeammateLlmError::EmptyReply);
+    }
+    Ok(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
