@@ -128,6 +128,10 @@ pub struct TaskMessage {
     pub role: Role,
     pub content: MessageContent,
     pub created_at_unix_ms: u64,
+    #[serde(default)]
+    pub confirmed_at_unix_ms: Option<u64>,
+    #[serde(default)]
+    pub dismissed_at_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

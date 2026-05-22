@@ -335,6 +335,8 @@ mod tests {
             role,
             content: MessageContent::Text(text.into()),
             created_at_unix_ms: 0,
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
         }
     }
 

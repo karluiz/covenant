@@ -16,7 +16,7 @@ use std::sync::{Arc, Once};
 
 use karl_blocks::BlockId;
 use karl_session::SessionId;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension as _};
 
 /// Register sqlite-vec as a SQLite auto-extension exactly once per process.
 /// After registration, every subsequent `Connection::open` automatically
@@ -1883,7 +1883,8 @@ impl Storage {
         tokio::task::spawn_blocking(move || -> Result<Vec<crate::teammate::TaskMessage>, StorageError> {
             let c = inner.blocking_lock();
             let mut stmt = c.prepare(
-                "SELECT id, operator_id, task_id, role, content_json, created_at_unix_ms \
+                "SELECT id, operator_id, task_id, role, content_kind, content_json, \
+                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms \
                  FROM teammate_messages WHERE operator_id = ?1 \
                  ORDER BY created_at_unix_ms ASC LIMIT ?2",
             )?;
@@ -1896,13 +1897,16 @@ impl Storage {
                         r.get::<_, Option<String>>(2)?,
                         r.get::<_, String>(3)?,
                         r.get::<_, String>(4)?,
-                        r.get::<_, i64>(5)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, i64>(6)?,
+                        r.get::<_, Option<i64>>(7)?,
+                        r.get::<_, Option<i64>>(8)?,
                     ))
                 },
             )?;
             let mut out = Vec::new();
             for row in rows {
-                let (id, op_id, task_id, role, content_json, ts) = row?;
+                let (id, op_id, task_id, role, _kind, content_json, ts, confirmed, dismissed) = row?;
                 let id = ulid::Ulid::from_string(&id)
                     .map_err(|e| StorageError::Other(e.to_string()))?;
                 let op_id = ulid::Ulid::from_string(&op_id)
@@ -1925,6 +1929,8 @@ impl Storage {
                     role,
                     content,
                     created_at_unix_ms: ts as u64,
+                    confirmed_at_unix_ms: confirmed.map(|v| v as u64),
+                    dismissed_at_unix_ms: dismissed.map(|v| v as u64),
                 });
             }
             Ok(out)
@@ -1977,6 +1983,207 @@ impl Storage {
                     task.completed_at_unix_ms.map(|t| t as i64),
                     task.cost_usd_cents as i64,
                 ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_get_message(
+        &self,
+        id: crate::teammate::MessageId,
+    ) -> Result<Option<crate::teammate::TaskMessage>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Option<crate::teammate::TaskMessage>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, operator_id, task_id, role, content_kind, content_json, \
+                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms \
+                 FROM teammate_messages WHERE id = ?1",
+            )?;
+            let row = stmt.query_row([id.0.to_string()], |row| {
+                let id_s: String = row.get(0)?;
+                let op_s: String = row.get(1)?;
+                let task_s: Option<String> = row.get(2)?;
+                let role_s: String = row.get(3)?;
+                let _kind_s: String = row.get(4)?;
+                let content_s: String = row.get(5)?;
+                let created: i64 = row.get(6)?;
+                let confirmed: Option<i64> = row.get(7)?;
+                let dismissed: Option<i64> = row.get(8)?;
+                Ok((id_s, op_s, task_s, role_s, content_s, created, confirmed, dismissed))
+            }).optional()?;
+            let Some((id_s, op_s, task_s, role_s, content_s, created, confirmed, dismissed)) = row else {
+                return Ok(None);
+            };
+            let id = ulid::Ulid::from_string(&id_s).map_err(|e| StorageError::Other(e.to_string()))?;
+            let op = ulid::Ulid::from_string(&op_s).map_err(|e| StorageError::Other(e.to_string()))?;
+            let task = task_s.as_deref().map(ulid::Ulid::from_string).transpose()
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let role: crate::teammate::Role = serde_json::from_str(&format!("\"{}\"", role_s))
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let content: crate::teammate::MessageContent = serde_json::from_str(&content_s)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            Ok(Some(crate::teammate::TaskMessage {
+                id: crate::teammate::MessageId(id),
+                operator_id: crate::operator_registry::OperatorId(op),
+                task_id: task.map(crate::teammate::TaskId),
+                role,
+                content,
+                created_at_unix_ms: created as u64,
+                confirmed_at_unix_ms: confirmed.map(|v| v as u64),
+                dismissed_at_unix_ms: dismissed.map(|v| v as u64),
+            }))
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_mark_message_confirmed(
+        &self,
+        id: crate::teammate::MessageId,
+        now_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_messages SET confirmed_at_unix_ms = ?1 WHERE id = ?2",
+                params![now_unix_ms as i64, id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_mark_message_dismissed(
+        &self,
+        id: crate::teammate::MessageId,
+        now_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_messages SET dismissed_at_unix_ms = ?1 WHERE id = ?2",
+                params![now_unix_ms as i64, id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_update_message_content(
+        &self,
+        id: crate::teammate::MessageId,
+        content: &crate::teammate::MessageContent,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        let json = serde_json::to_string(content).map_err(|e| StorageError::Other(e.to_string()))?;
+        let kind = match content {
+            crate::teammate::MessageContent::Text(_)         => "text",
+            crate::teammate::MessageContent::TaskDraft(_)    => "task_draft",
+            crate::teammate::MessageContent::TaskUpdate {..} => "task_update",
+            crate::teammate::MessageContent::Propose(_)      => "propose",
+            crate::teammate::MessageContent::Report(_)       => "report",
+        };
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_messages SET content_kind = ?1, content_json = ?2 WHERE id = ?3",
+                params![kind, json, id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_list_tasks_for_operator(
+        &self,
+        op: crate::operator_registry::OperatorId,
+    ) -> Result<Vec<crate::teammate::Task>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<crate::teammate::Task>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, operator_id, archetype, title, body, deliverable, status, \
+                        scope_json, spawned_session, created_at_unix_ms, updated_at_unix_ms, \
+                        completed_at_unix_ms, cost_usd_cents \
+                 FROM teammate_tasks WHERE operator_id = ?1 \
+                 ORDER BY created_at_unix_ms DESC LIMIT 200",
+            )?;
+            let rows = stmt.query_map([op.0.to_string()], |row| {
+                let id_s: String = row.get(0)?;
+                let op_s: String = row.get(1)?;
+                let archetype_s: String = row.get(2)?;
+                let title: String = row.get(3)?;
+                let body: String = row.get(4)?;
+                let deliverable: String = row.get(5)?;
+                let status_s: String = row.get(6)?;
+                let scope_json: String = row.get(7)?;
+                let spawned: Option<String> = row.get(8)?;
+                let created: i64 = row.get(9)?;
+                let updated: i64 = row.get(10)?;
+                let completed: Option<i64> = row.get(11)?;
+                let cost: i64 = row.get(12)?;
+                Ok((id_s, op_s, archetype_s, title, body, deliverable, status_s, scope_json, spawned, created, updated, completed, cost))
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                let (id_s, op_s, archetype_s, title, body, deliverable, status_s, scope_json, spawned, created, updated, completed, cost) = r?;
+                let id = ulid::Ulid::from_string(&id_s).map_err(|e| StorageError::Other(e.to_string()))?;
+                let op = ulid::Ulid::from_string(&op_s).map_err(|e| StorageError::Other(e.to_string()))?;
+                let archetype = match archetype_s.as_str() {
+                    "watch"  => crate::teammate::TaskArchetype::Watch,
+                    "do"     => crate::teammate::TaskArchetype::Do,
+                    "review" => crate::teammate::TaskArchetype::Review,
+                    other => return Err(StorageError::Other(format!("bad archetype {other}"))),
+                };
+                let status = match status_s.as_str() {
+                    "draft"     => crate::teammate::TaskStatus::Draft,
+                    "active"    => crate::teammate::TaskStatus::Active,
+                    "blocked"   => crate::teammate::TaskStatus::Blocked,
+                    "done"      => crate::teammate::TaskStatus::Done,
+                    "cancelled" => crate::teammate::TaskStatus::Cancelled,
+                    other => return Err(StorageError::Other(format!("bad status {other}"))),
+                };
+                let scope: crate::teammate::TaskScope = serde_json::from_str(&scope_json)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let spawned_session = spawned.as_deref().map(|s| s.parse::<karl_session::SessionId>())
+                    .transpose().map_err(|e| StorageError::Other(e.to_string()))?;
+                out.push(crate::teammate::Task {
+                    id: crate::teammate::TaskId(id),
+                    operator_id: crate::operator_registry::OperatorId(op),
+                    archetype, title, body, deliverable, status, scope,
+                    spawned_session,
+                    created_at_unix_ms: created as u64,
+                    updated_at_unix_ms: updated as u64,
+                    completed_at_unix_ms: completed.map(|v| v as u64),
+                    cost_usd_cents: cost as u32,
+                });
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_update_task_spawned_session(
+        &self,
+        id: crate::teammate::TaskId,
+        session: karl_session::SessionId,
+        now_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_tasks SET spawned_session = ?1, updated_at_unix_ms = ?2 WHERE id = ?3",
+                params![session.to_string(), now_unix_ms as i64, id.0.to_string()],
             )?;
             Ok(())
         })
@@ -3027,5 +3234,68 @@ mod tests {
         let list3 = s.operator_list().await.unwrap();
         let legacy = list3.iter().find(|o| o.name == "legacy-op").unwrap();
         assert!(matches!(legacy.voice, VoiceTone::Terse));
+    }
+}
+
+#[cfg(test)]
+mod task_card_storage_tests {
+    use super::*;
+    use crate::operator_registry::OperatorId;
+    use crate::teammate::{MessageContent, MessageId, Role, TaskArchetype, TaskMessage, TaskScope};
+    use crate::teammate::types::{ProposeTask, TaskDraft};
+    use rusqlite::OptionalExtension as _;
+    use ulid::Ulid;
+
+    fn tmp_storage() -> Storage {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        // Keep tempdir alive by leaking — fine for a unit test process.
+        Box::leak(Box::new(dir));
+        Storage::open(&path).expect("open storage")
+    }
+
+    fn sample_op_id() -> OperatorId { OperatorId(Ulid::new()) }
+
+    fn make_propose_msg(op: OperatorId) -> TaskMessage {
+        TaskMessage {
+            id: MessageId::new(),
+            operator_id: op,
+            task_id: None,
+            role: Role::Operator,
+            content: MessageContent::Propose(ProposeTask {
+                draft: TaskDraft {
+                    archetype: TaskArchetype::Do,
+                    title: "Revisar migración".into(),
+                    deliverable: "resumen + riesgos".into(),
+                    scope: TaskScope::default(),
+                },
+                rationale: "user asked for an audit".into(),
+            }),
+            created_at_unix_ms: 1_700_000_000_000,
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn mark_message_confirmed_sets_timestamp_and_returns_msg() {
+        let s = tmp_storage();
+        let op = sample_op_id();
+        // operators FK: insert a minimal operator row so the FK passes.
+        s.operator_insert(crate::operator_registry::Operator {
+            id: op, name: "T".into(), emoji: "🤖".into(), color: "#000".into(),
+            tags: vec![], persona: "".into(), escalate_threshold: 0.6,
+            model: "x".into(), hard_constraints: "".into(),
+            voice: crate::operator_registry::VoiceTone::Terse,
+            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+        }).await.unwrap();
+
+        let msg = make_propose_msg(op);
+        s.teammate_insert_message(&msg).await.unwrap();
+        s.teammate_mark_message_confirmed(msg.id, 1_700_000_000_500).await.unwrap();
+
+        let fetched = s.teammate_get_message(msg.id).await.unwrap().expect("found");
+        assert_eq!(fetched.confirmed_at_unix_ms, Some(1_700_000_000_500));
+        assert_eq!(fetched.dismissed_at_unix_ms, None);
     }
 }

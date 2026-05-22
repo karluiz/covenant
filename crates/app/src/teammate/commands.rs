@@ -48,6 +48,8 @@ pub async fn teammate_send_text_message(
         role: TmRole::User,
         content: MessageContent::Text(text),
         created_at_unix_ms: now_ms(),
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
     };
     storage
         .teammate_insert_message(&user_msg)
@@ -160,6 +162,8 @@ pub async fn teammate_send_text_message(
             role: TmRole::Operator,
             content: MessageContent::Text(reply_text),
             created_at_unix_ms: now_ms(),
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
         };
         if let Err(e) = storage_bg.teammate_insert_message(&reply_msg).await {
             tracing::warn!(error = %e, "teammate: failed to persist reply");
@@ -190,6 +194,8 @@ async fn emit_system_error(
         role: TmRole::System,
         content: MessageContent::Text(format!("(dispatch failed) {error_text}")),
         created_at_unix_ms: now_ms,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
     };
     let _ = storage.teammate_insert_message(&msg).await;
     let _ = app.emit("teammate-message", &msg);

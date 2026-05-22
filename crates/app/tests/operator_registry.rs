@@ -164,6 +164,8 @@ async fn teammate_messages_roundtrip() {
         role: Role::User,
         content: MessageContent::Text("hola Mibli".into()),
         created_at_unix_ms: now_ms(),
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
     };
     storage.teammate_insert_message(&msg).await.unwrap();
 
