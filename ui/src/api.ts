@@ -1688,3 +1688,24 @@ export async function onTeammateMessage(
   );
   return unlisten;
 }
+
+export interface TeammateToolCall {
+  operator_id: string;
+  progress: {
+    kind: "tool_call";
+    tool: string;
+    args: Record<string, unknown>;
+    ok: boolean;
+    error: string | null;
+  };
+}
+
+export async function onTeammateToolCall(
+  handler: (call: TeammateToolCall) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<TeammateToolCall>("teammate-tool-call", (e) =>
+    handler(e.payload),
+  );
+  return unlisten;
+}

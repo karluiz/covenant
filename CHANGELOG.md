@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.8 — Operators can read files (tool-use loop with `read_file`)
+
+### Added
+
+- **`read_file` tool, sandboxed to the active tab's cwd**: New `crates/app/src/teammate/tools.rs` with a pure `read_file` function gated by a `ToolEnv` (canonicalized root + 200KB per-file cap). Rejects absolute paths outside root, `..` traversal, oversized files, missing files, and non-UTF-8 binaries. 9 unit tests cover the sandbox edges.
+- **Multi-turn tool-use dispatch**: New `dispatch_reply_with_tools` in `crates/app/src/teammate/llm.rs` loops up to 8 turns: assistant emits `tool_use` blocks → backend executes each call via the tools module → user reply carries `tool_result` blocks → repeat until the model emits final text. Powered by a thin reqwest helper (`crates/app/src/teammate/anthropic_http.rs`) since `karl_agent::AskRequest` only supports single-turn forced-tool calls.
+- **System prompt announces the tool**: Operators are told to invoke `read_file` instead of guessing file contents and that paths are relative to the active tab's cwd.
+- **`teammate-tool-call` Tauri events** stream each tool execution to the rail. The panel renders a small monospaced audit line per call (`📖 read_file · src/main.rs`); errors render with a `⚠` icon and danger tint. The line sits above the typing indicator so the order reads: history → reads → typing → final bubble (`ui/src/api.ts`, `ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Send command picks the dispatch path** based on whether the active session has a known cwd. With cwd: tool-use loop with `ToolEnv` rooted there. Without: plain `dispatch_reply` (no tools). Non-Anthropic providers always fall back to the plain path (`crates/app/src/teammate/commands.rs`).
+
+### Notes
+
+- Only `read_file` ships in this release. `grep`, `git_log`, `git_diff` follow the same pattern and can be added incrementally without touching the loop.
+- Tool calls are NOT persisted in the thread (`teammate_messages`). Only the final operator text is. Progress lines render live from events and live as DOM history within the open session, not across reopens.
+- Iteration cap is 8 turns; over that, the dispatch errors out with a system bubble explaining the loop exceeded budget.
+
 ## v0.8.7 — All five right-toolbar buttons share the same toggle visuals
 
 ### Fixed
