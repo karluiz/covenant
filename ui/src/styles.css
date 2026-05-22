@@ -3062,7 +3062,13 @@ body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
 #layout:has(> #drafts-page:not([hidden])) #activity-sidebar,
 #layout:has(> #mission-page:not([hidden])) #activity-sidebar,
 #layout:has(> #operator-page:not([hidden])) #activity-sidebar,
-#layout:has(> #capabilities-page:not([hidden])) #activity-sidebar {
+#layout:has(> #capabilities-page:not([hidden])) #activity-sidebar,
+#layout:has(> #settings-page:not([hidden])) #teammate-panel,
+#layout:has(> #docs-page:not([hidden])) #teammate-panel,
+#layout:has(> #drafts-page:not([hidden])) #teammate-panel,
+#layout:has(> #mission-page:not([hidden])) #teammate-panel,
+#layout:has(> #operator-page:not([hidden])) #teammate-panel,
+#layout:has(> #capabilities-page:not([hidden])) #teammate-panel {
     display: none !important;
 }
 
@@ -3078,6 +3084,12 @@ body.tabbar-left.sidebar-view-activity #layout:has(> #drafts-page:not([hidden]))
 body.tabbar-left.sidebar-view-activity #layout:has(> #mission-page:not([hidden])),
 body.tabbar-left.sidebar-view-activity #layout:has(> #operator-page:not([hidden])),
 body.tabbar-left.sidebar-view-activity #layout:has(> #capabilities-page:not([hidden])),
+body.tabbar-left.sidebar-view-teammate #layout:has(> #settings-page:not([hidden])),
+body.tabbar-left.sidebar-view-teammate #layout:has(> #docs-page:not([hidden])),
+body.tabbar-left.sidebar-view-teammate #layout:has(> #drafts-page:not([hidden])),
+body.tabbar-left.sidebar-view-teammate #layout:has(> #mission-page:not([hidden])),
+body.tabbar-left.sidebar-view-teammate #layout:has(> #operator-page:not([hidden])),
+body.tabbar-left.sidebar-view-teammate #layout:has(> #capabilities-page:not([hidden])),
 body.tabbar-left.project-notes-open #layout:has(> #settings-page:not([hidden])),
 body.tabbar-left.project-notes-open #layout:has(> #docs-page:not([hidden])),
 body.tabbar-left.project-notes-open #layout:has(> #drafts-page:not([hidden])),
