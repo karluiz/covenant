@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.7 — All five right-toolbar buttons share the same toggle visuals
+
+### Fixed
+
+- **Project Notes button now mutes when inactive and lights when active**, matching the four sibling buttons (Blocks / Files / Activity / Teammate). Cause: the button had `titlebar-icon-btn` but was missing `titlebar-view-btn`, so the muted-default + tinted-active rules in `.titlebar-view-btn` skipped it. Adding the class makes its visual lifecycle identical to the others; removed the now-redundant per-id active rule from CSS (`ui/index.html`, `ui/src/styles.css`).
+- **Project Notes claims the right rail from every entry point**, not just the toolbar click: `openProjectNotes` now dispatches `teammate:close` and clears the teammate button's active class, so opening Notes from drafts, group chips, or anywhere else still closes any competing rail (`ui/src/main.ts`).
+
+### Notes
+
+- No behavior change to Teammate or `pickView`; those already closed competitors via the events introduced in v0.8.6.
+
 ## v0.8.6 — Right-rail toggles are mutually exclusive + level pill moves next to the name
 
 ### Fixed
