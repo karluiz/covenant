@@ -11,6 +11,7 @@
 pub mod commands;
 pub mod llm;
 pub mod runtime;
+pub mod tools;
 pub mod types;
 pub mod world_snapshot;
 
