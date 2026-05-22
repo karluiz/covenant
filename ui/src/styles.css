@@ -14229,24 +14229,6 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   overflow: hidden;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
-.teammate-panel-level {
-  position: absolute;
-  bottom: -3px;
-  right: -3px;
-  z-index: 3;
-  background: var(--bg-panel);
-  border: 1.5px solid var(--operator-color, var(--accent));
-  border-radius: 999px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 11px;
-  color: var(--fg);
-  text-align: center;
-  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
-}
 .teammate-panel-titlebox {
   flex: 1;
   min-width: 0;
@@ -14255,6 +14237,12 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   gap: 1px;
   overflow: hidden;
 }
+.teammate-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .teammate-panel-title-name {
   font-weight: 600;
   font-size: 13px;
@@ -14262,6 +14250,20 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.teammate-panel-level {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--operator-color, var(--accent)) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent)) 45%, transparent);
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  text-transform: uppercase;
 }
 .teammate-panel-subtitle {
   font-size: 10px;

@@ -488,6 +488,7 @@ async function boot(): Promise<void> {
       const wasProjectNotesOpen = document.body.classList.contains("project-notes-open");
       const wasCollapsed = document.body.classList.contains("blocks-globally-collapsed");
       window.dispatchEvent(new CustomEvent("project-notes:close"));
+      window.dispatchEvent(new CustomEvent("teammate:close"));
 
       // Treat each titlebar view icon as a toggle: clicking the already-open
       // rail closes it, clicking any other icon swaps that same rail in place.
@@ -540,28 +541,39 @@ async function boot(): Promise<void> {
     },
   });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
+
+  /// Close the teammate rail if open. Safe to call from any toggle that
+  /// claims the right rail — the right rail is a single slot, no two
+  /// panels should ever render together.
+  const closeTeammateIfOpen = (): void => {
+    if (!document.body.classList.contains("sidebar-view-teammate")) return;
+    document.body.classList.remove("sidebar-view-teammate");
+    teammatePanelHost.setAttribute("hidden", "");
+    teammatePanel.close();
+    teammateBtn?.classList.remove("titlebar-view-active");
+  };
+  window.addEventListener("teammate:close", () => closeTeammateIfOpen());
+
   if (teammateBtn) {
     teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });
     attachTooltip(teammateBtn, "Teammate chat");
     teammateBtn.addEventListener("click", async () => {
       const wasOpen = document.body.classList.contains("sidebar-view-teammate");
 
-      // Clear all other view states; the titlebar view buttons manage their
-      // own active classes through syncSidebarTitlebarButtons / pickView, but
-      // we need to clean up their highlights here.
+      if (wasOpen) {
+        closeTeammateIfOpen();
+        // Restore the previous tabs-view button highlight (blocks/files/activity).
+        syncSidebarTitlebarButtons(activeSidebarTitlebarView);
+        return;
+      }
+
+      // Opening teammate claims the right rail — make every competing panel
+      // step aside first.
+      window.dispatchEvent(new CustomEvent("project-notes:close"));
       document.body.classList.remove("sidebar-view-activity");
       document
         .querySelectorAll("#app-titlebar-right .titlebar-view-active")
         .forEach((b) => b.classList.remove("titlebar-view-active"));
-
-      if (wasOpen) {
-        document.body.classList.remove("sidebar-view-teammate");
-        teammatePanelHost.setAttribute("hidden", "");
-        teammatePanel.close();
-        // Restore the blocks view as default.
-        syncSidebarTitlebarButtons(activeSidebarTitlebarView);
-        return;
-      }
 
       document.body.classList.add("sidebar-view-teammate");
       teammateBtn.classList.add("titlebar-view-active");
@@ -587,6 +599,8 @@ async function boot(): Promise<void> {
         activeProjectNotesPanel.close();
         return;
       }
+      // Project Notes also claims the right rail.
+      window.dispatchEvent(new CustomEvent("teammate:close"));
       if (document.body.classList.contains("blocks-globally-collapsed")) {
         applyBlocksCollapsed(false);
         localStorage.removeItem(BLOCKS_GLOBAL_KEY);
