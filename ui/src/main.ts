@@ -561,7 +561,7 @@ async function boot(): Promise<void> {
       const ops = await operatorList();
       const def = ops.find((o) => o.is_default) ?? ops[0];
       if (def) {
-        await teammatePanel.openFor(def.id, def.name);
+        await teammatePanel.openFor(def);
       } else {
         teammatePanelHost.innerHTML =
           `<div class="teammate-panel-empty">No hay operadores configurados. Andá a Settings → Operators.</div>`;

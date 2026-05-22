@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.1 — Teammate rail polish (avatar + switcher + composer)
+
+### Added
+
+- **Teammate switcher**: The DM rail header is now a button that opens a popover listing every operator in the roster with their avatar; click any of them to swap the thread. Default operator is tagged, the active one is highlighted. Esc or click-outside dismisses. (`ui/src/teammate/panel.ts`).
+
+- **Operator avatar in the rail header**: The Phase 1 placeholder showed only the name, which read as a label instead of a person. The header now renders the operator's avatar via the shared `renderAvatarHtml` helper, alongside the name and a caret hinting at the switcher (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Bubbles anchor to the composer when the thread is sparse**: `.teammate-panel-thread` now uses `justify-content: flex-end`, so a single message sits next to the input instead of floating at the top of a sea of empty space. The empty-state placeholder uses `margin: auto 0` to stay vertically centered (`ui/src/styles.css`).
+
+- **Composer focus state matches the rest of Covenant**: The input swaps from a raw `border-color: var(--accent)` swap to a soft accent border plus a 3px translucent accent halo, consistent with how settings inputs draw focus elsewhere (`ui/src/styles.css`).
+
+- **`TeammatePanel.openFor` accepts an `Operator` instead of `(id, name)`**: The panel now needs the full operator (for the avatar) and the roster (for the switcher). Internal API change only; the single caller in `ui/src/main.ts` was updated.
+
+### Fixed
+
+- **Dead `.teammate-panel-empty` rule removed**: A stale earlier-iteration block at `ui/src/styles.css` line ~13832 (monospace font + different padding) duplicated the canonical empty-state styling and only confused readers — it was already losing the cascade to the rule near the rest of the teammate styles. Cleaned up.
+
 ## v0.8.0 — Teammate foundation + light-mode operator cards
 
 ### Added
