@@ -540,6 +540,13 @@ async function boot(): Promise<void> {
       const sid = manager.activeSessionId();
       return sid ? sid.toString() : null;
     },
+    spawnTabForTask: async (task) => {
+      const tab = await manager.createTab({
+        customName: `${task.title.slice(0, 32)}`,
+      });
+      if (!tab) throw new Error("createTab returned null");
+      return { sessionId: tab.sessionId.toString() };
+    },
   });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
 
