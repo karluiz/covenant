@@ -51,7 +51,6 @@ export class BlockManager {
   constructor(
     private readonly host: HTMLElement,
     private readonly sessionId: SessionId,
-    private readonly onBlockFinishedCb?: (exitCode: number) => void,
   ) {
     this.host.classList.add("blocks-host");
     this.menu = new ContextMenu(document.body);
@@ -143,7 +142,6 @@ export class BlockManager {
         block.exitCode = event.exit_code;
         block.finishedAtMs = block.startedAtMs + event.duration_ms;
         this.render();
-        if (event.exit_code != null) this.onBlockFinishedCb?.(event.exit_code);
         break;
       }
 

@@ -10,7 +10,6 @@
 import { tabManifestSave } from "../api";
 import { TabManager, type TabManifestV1 } from "../tabs/manager";
 import type { TabRow } from "./finder";
-import type { LivePool, PoolableTabManager } from "./live-pool";
 
 export interface Workspace {
   id: string;
@@ -83,32 +82,7 @@ export class WorkspaceManager {
   /// outgoing state mid-flight.
   private suspendPersist = false;
 
-  /// `pool` owns the per-workspace TabManager instances; `initialManager`
-  /// is the eagerly-constructed (empty) TabManager from main.ts, adopted
-  /// into the pool once the active workspace id is known on boot.
-  /// `onActiveChanged` is called after every swap so main.ts can rebind
-  /// its `manager` ref and re-apply wiring callbacks.
-  constructor(
-    private readonly pool: LivePool,
-    private readonly initialManager: TabManager,
-    private readonly onActiveChanged: (m: TabManager) => void = () => {},
-  ) {}
-
-  /// Reach into the pool for the currently-active TabManager. All
-  /// per-manager method calls inside this class go through this getter
-  /// so a workspace swap is transparent — there's no cached field that
-  /// can go stale.
-  private get tabManager(): TabManager {
-    const m = this.pool.active() as TabManager | null;
-    if (!m) throw new Error("WorkspaceManager: no active TabManager in pool");
-    return m;
-  }
-
-  /// Convenience accessor that returns null when nothing is active yet
-  /// (pre-boot). Used by callers that want a soft read.
-  private tabManagerOrNull(): TabManager | null {
-    return (this.pool.active() as TabManager | null) ?? null;
-  }
+  constructor(private readonly tabManager: TabManager) {}
 
   /// Boot from a raw JSON manifest blob (as returned by tabManifestLoad).
   /// Handles all three cases: null/missing, V1 legacy, V2 native. Always
@@ -130,29 +104,22 @@ export class WorkspaceManager {
       this.activeId = migrated.active_workspace_id;
 
       const active = this.getActive();
-      // Adopt the pre-constructed (empty) initialManager into the pool
-      // under the active workspace's id, then restore the manifest body
-      // into it. Inactive workspaces stay as on-disk bodies until first
-      // switched to — keeps cold-boot fast.
-      this.pool.adopt(active.id, this.initialManager as unknown as PoolableTabManager);
-      if (active.tabs.length > 0) {
-        await this.initialManager.replaceFromManifest(
-          workspaceAsV1Body(active),
-          { silent: true },
-        );
-      }
-      const live = this.tabManager;
-      this.onActiveChanged(live);
       // Wire TabManager's persistence callback to round-trip through us.
-      live.setOnPersistRequest(() => {
+      this.tabManager.setOnPersistRequest(() => {
         if (this.suspendPersist) return;
         void this.saveAll();
       });
 
-      if (active.tabs.length === 0 && live.activeSessionId() === null) {
+      if (active.tabs.length === 0) {
         // Empty workspace (fresh boot or migration-from-nothing). Spin
         // up one fresh tab via the standard createTab path.
-        await live.createTab();
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(active), { silent: true });
+        // replaceFromManifest with zero tabs leaves us empty; createTab.
+        if (this.tabManager.activeSessionId() === null) {
+          await this.tabManager.createTab();
+        }
+      } else {
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(active), { silent: true });
       }
       active.last_used_at = nowMs();
     } finally {
@@ -219,16 +186,6 @@ export class WorkspaceManager {
   /// switch first.
   activeId_(): string {
     return this.activeId;
-  }
-
-  /// Returns activity state for the given workspace, delegating to the pool.
-  getActivity(id: string): import("./activity").ActivityState | null {
-    return this.pool.activityOf(id);
-  }
-
-  /// Subscribe to activity-state changes across all tracked workspaces.
-  onActivityChange(cb: (workspaceId: string, state: import("./activity").ActivityState) => void): () => void {
-    return this.pool.onActivityChange(cb);
   }
 
   /// Flatten every workspace's tabs into a single TabRow list for the
@@ -331,38 +288,27 @@ export class WorkspaceManager {
     const target = this.workspaces.find((w) => w.id === id);
     if (!target) return;
 
-    // Snapshot the outgoing workspace's state into our envelope before
-    // detaching it. The pool keeps the live TabManager alive (no PTY
-    // teardown), so we read the manifest from the live manager exactly
-    // as before — only the swap mechanic underneath has changed.
+    // Snapshot current state into the outgoing workspace before tearing
+    // its PTYs down.
     const out = this.getActive();
-    const outManager = this.tabManagerOrNull();
-    if (outManager) {
-      const body = outManager.serializeManifest();
-      out.active_index = body.active_index;
-      out.tabs = body.tabs;
-      out.groups = body.groups;
-    }
+    const body = this.tabManager.serializeManifest();
+    out.active_index = body.active_index;
+    out.tabs = body.tabs;
+    out.groups = body.groups;
 
     this.suspendPersist = true;
     try {
       this.activeId = id;
       target.last_used_at = nowMs();
-      await this.pool.activate(target.id, workspaceAsV1Body(target));
-      const m = this.tabManager;
-      this.onActiveChanged(m);
-      // Re-wire persistence callback on the freshly-active manager (cold
-      // path: brand-new TabManager created by the pool factory) and a
-      // no-op on the warm path (already wired previously, but assigning
-      // again is idempotent).
-      m.setOnPersistRequest(() => {
-        if (this.suspendPersist) return;
-        void this.saveAll();
-      });
-      if (target.tabs.length === 0 && m.activeSessionId() === null) {
-        // Brand-new empty workspace — drop the user into one fresh tab
-        // so they don't land on an empty workspace.
-        await m.createTab();
+      if (target.tabs.length === 0) {
+        // Replace clears existing; then spawn one fresh tab so the
+        // incoming workspace isn't empty.
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target));
+        if (this.tabManager.activeSessionId() === null) {
+          await this.tabManager.createTab();
+        }
+      } else {
+        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target));
       }
     } finally {
       this.suspendPersist = false;
@@ -445,9 +391,6 @@ export class WorkspaceManager {
     }
     const realIdx = this.workspaces.findIndex((w) => w.id === id);
     if (realIdx >= 0) this.workspaces.splice(realIdx, 1);
-    // Drop any live/hibernated entry for the deleted workspace so its
-    // PTYs are released. Safe to call even if the pool never saw the id.
-    await this.pool.forget(id);
     await this.saveAll();
     this.emitChange();
   }
@@ -467,26 +410,11 @@ export class WorkspaceManager {
   }
 
   /// Replace the currently-active workspace's body from an imported V1
-  /// manifest. Used by the settings import path. Drops the live PTYs of
-  /// the active workspace (the import payload becomes the new truth).
+  /// manifest. Used by the settings import path.
   async importIntoActive(m: TabManifestV1): Promise<void> {
     this.suspendPersist = true;
     try {
-      const active = this.getActive();
-      active.active_index = m.active_index;
-      active.tabs = m.tabs;
-      active.groups = m.groups;
-      // Forget the existing live entry so pool.activate spawns a fresh
-      // TabManager with the imported manifest. The outgoing PTYs are
-      // killed — import is destructive by design.
-      await this.pool.forget(active.id);
-      await this.pool.activate(active.id, workspaceAsV1Body(active));
-      const live = this.tabManager;
-      this.onActiveChanged(live);
-      live.setOnPersistRequest(() => {
-        if (this.suspendPersist) return;
-        void this.saveAll();
-      });
+      await this.tabManager.replaceFromManifest(m);
     } finally {
       this.suspendPersist = false;
     }

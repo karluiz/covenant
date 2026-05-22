@@ -70,7 +70,6 @@ import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL } from "../menu/cont
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
-import { serializeTab, restoreSnapshot } from "./scrollback-snapshot";
 import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
 import { spawnPiSession, piSetSessionName } from "../api";
@@ -465,7 +464,11 @@ export class TabManager {
   /// disk always carries the V2 wrapper.
   private onPersistRequest: (() => void) | null = null;
 
-
+  /// True while replaceFromManifest is tearing down + rebuilding tabs.
+  /// Guards `onAllTabsClosed` so a workspace switch (which transiently
+  /// empties this.tabs) doesn't fire the "no tabs left → close window"
+  /// handler that main.ts wired up.
+  private inReplace = false;
 
   setOnPersistRequest(cb: (() => void) | null): void {
     this.onPersistRequest = cb;
@@ -513,8 +516,13 @@ export class TabManager {
   /// Mirrors the bypass used by `replaceFromManifest`.
   removeGroupAndTabs(groupId: string): void {
     const ids = this.tabs.filter((t) => t.groupId === groupId).map((t) => t.id);
-    for (const id of ids) this.finalizeCloseTab(id, { suppressCallbacks: true });
-    this.groups.delete(groupId);
+    this.inReplace = true;
+    try {
+      for (const id of ids) this.finalizeCloseTab(id);
+      this.groups.delete(groupId);
+    } finally {
+      this.inReplace = false;
+    }
     this.renderTabbar();
     this.scheduleSave();
   }
@@ -1938,9 +1946,7 @@ export class TabManager {
         this.activate(this.activeId, { skipIfSame: false });
       return null;
     }
-    blocks = new BlockManager(blocksHost, sessionId, (exitCode) =>
-      this.notifyBlockFinished(id, exitCode),
-    );
+    blocks = new BlockManager(blocksHost, sessionId);
     recall = new RecallManager(
       blocksHost,
       (data) => writeToSession(sessionId, data),
@@ -3260,19 +3266,19 @@ export class TabManager {
     if (m.version !== 1 || !Array.isArray(m.tabs)) {
       throw new Error("invalid manifest");
     }
-    if (this.tabs.length > 0 || this.groups.size > 0) {
-      throw new Error(
-        "replaceFromManifest requires an empty TabManager; call dispose() first",
-      );
-    }
+    this.inReplace = true;
     // First-boot restore passes `silent: true` so the workspace-switch
     // loader doesn't flash on app launch — that overlay is meant for
     // explicit user-driven workspace swaps, not for initial hydration.
     const showLoader = !opts?.silent;
     if (showLoader) document.body.classList.add("workspace-switching");
     try {
+      const existing = this.tabs.slice();
+      for (const t of existing) this.finalizeCloseTab(t.id);
+      this.groups.clear();
       await this.restoreFromManifest(m);
     } finally {
+      this.inReplace = false;
       if (showLoader) document.body.classList.remove("workspace-switching");
     }
     this.scheduleSave();
@@ -3304,11 +3310,7 @@ export class TabManager {
       });
   }
 
-  private finalizeCloseTab(
-    id: string,
-    opts?: { suppressCallbacks?: boolean },
-  ): void {
-    const suppressCallbacks = opts?.suppressCallbacks ?? false;
+  private finalizeCloseTab(id: string): void {
     const idx = this.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
 
@@ -3331,9 +3333,10 @@ export class TabManager {
     } else {
       void closeSession(tab.sessionId).catch(() => {});
       // Drop the persisted scrollback log — the tab is gone for good.
-      // Group-removal teardown suppresses this via suppressCallbacks since
-      // the tab may reopen in another workspace.
-      if (!suppressCallbacks) {
+      // Workspace-switch teardown also flows through here, which is the
+      // wrong behavior for those tabs (they reopen in another workspace).
+      // Suppress during in-flight replace.
+      if (!this.inReplace) {
         void deleteScrollback(tab.replayKey).catch(() => {});
       }
       tab.finder?.dispose();
@@ -3348,10 +3351,10 @@ export class TabManager {
       this.activeId = null;
       this.renderTabbar();
       this.emitActiveTab();
-      if (!suppressCallbacks) {
-        // During group-removal teardown we may transiently hit zero tabs;
+      if (!this.inReplace) {
+        // During workspace-switch teardown we transiently hit zero tabs;
         // suppress the "last tab closed → close window" callback and the
-        // disk write that would clobber the in-flight state.
+        // disk write that would clobber the in-flight manifest.
         this.scheduleSave();
         this.onAllTabsClosed();
       }
@@ -4440,89 +4443,6 @@ export class TabManager {
         onClick: () => this.ungroup(group.id),
       },
     ]);
-  }
-
-  /// Workspace-keepalive: remove this manager's DOM nodes from the
-  /// page without killing PTYs. The instance remains alive in memory,
-  /// continues to receive output (each tab's xterm still buffers),
-  /// and can be reattached later via `attach`.
-  private blockFinishedListeners = new Set<(ev: { tabId: string; exitCode: number }) => void>();
-
-  /// Workspace-keepalive: subscribe to block-finished events across
-  /// every tab in this manager. The listener fires once per finished
-  /// command block with the owning tab id and its exit code.
-  onBlockFinished(cb: (ev: { tabId: string; exitCode: number }) => void): () => void {
-    this.blockFinishedListeners.add(cb);
-    return () => {
-      this.blockFinishedListeners.delete(cb);
-    };
-  }
-
-  /// Internal: invoked by BlockManager when a block resolves.
-  notifyBlockFinished(tabId: string, exitCode: number): void {
-    for (const l of this.blockFinishedListeners) l({ tabId, exitCode });
-  }
-
-  detach(): void {
-    if (this.tabbarHost.parentElement) {
-      this.tabbarHost.parentElement.removeChild(this.tabbarHost);
-    }
-    if (this.workspace.parentElement) {
-      this.workspace.parentElement.removeChild(this.workspace);
-    }
-  }
-
-  /// Re-insert this manager's DOM nodes under the given hosts. Pair
-  /// with a prior `detach`. Idempotent: skips parents that are already
-  /// connected.
-  attach(tabbarParent: HTMLElement, workspaceParent: HTMLElement): void {
-    if (!this.tabbarHost.isConnected) tabbarParent.appendChild(this.tabbarHost);
-    if (!this.workspace.isConnected) workspaceParent.appendChild(this.workspace);
-  }
-
-  /// Workspace-keepalive: terminal teardown for hibernation OR
-  /// workspace deletion. Closes every backend session (fire-and-forget;
-  /// the returned Promise resolves once DOM is detached, not once
-  /// backend sessions are confirmed closed). Disposes xterm instances
-  /// and the persisted scrollback log per tab via `finalizeCloseTab`.
-  /// Passes `suppressCallbacks: true` so the manager's onAllTabsClosed
-  /// callback does not fire — the LivePool is already coordinating
-  /// teardown and any "last tab closed" UI flow would be wrong here.
-  /// After this returns, the instance is unusable.
-  async dispose(): Promise<void> {
-    const ids = this.tabs.map((t) => t.id);
-    for (const id of ids) {
-      this.finalizeCloseTab(id, { suppressCallbacks: true });
-    }
-    this.detach();
-  }
-
-  /// Workspace-keepalive: snapshot every tab's current scrollback.
-  /// Returns a Map keyed by tab id. Pi tabs return empty strings —
-  /// their state lives in PiChatView and is rehydrated separately.
-  serializeScrollback(): Map<string, string> {
-    const out = new Map<string, string>();
-    for (const tab of this.tabs) {
-      if (tab.kind === "pi" || !tab.term) {
-        out.set(tab.id, "");
-        continue;
-      }
-      out.set(tab.id, serializeTab(tab.term));
-    }
-    return out;
-  }
-
-  /// Apply snapshots produced by a prior serializeScrollback into the
-  /// currently-mounted tabs. Tabs not in the map are left untouched.
-  /// Must be called AFTER restoreFromManifest has spawned the new
-  /// tabs but BEFORE the user can interact (LivePool guarantees this
-  /// ordering).
-  restoreScrollback(snapshots: Map<string, string>): void {
-    for (const tab of this.tabs) {
-      if (!tab.term) continue;
-      const snap = snapshots.get(tab.id);
-      if (snap) restoreSnapshot(tab.term, snap);
-    }
   }
 }
 

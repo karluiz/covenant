@@ -10,20 +10,16 @@ interface TabManagerInternal {
   }>;
 }
 
-export function makeTabsBridge(getManager: () => TabManager): ConvergenceTabBridge {
+export function makeTabsBridge(manager: TabManager): ConvergenceTabBridge {
+  const internal = manager as unknown as TabManagerInternal;
   return {
-    listTabs: () => {
-      const manager = getManager();
-      const internal = manager as unknown as TabManagerInternal;
-      return internal.tabs.map((t) => ({
+    listTabs: () =>
+      internal.tabs.map((t) => ({
         sessionId: t.sessionId,
         title: (t.customName?.trim() || t.defaultTitle) ?? "untitled",
         color: t.color,
-      }));
-    },
-    activateBySessionId: (id, _opts) => {
-      const manager = getManager();
-      return manager.activateBySessionId(id as Parameters<typeof manager.activateBySessionId>[0]);
-    },
+      })),
+    activateBySessionId: (id, _opts) =>
+      manager.activateBySessionId(id as Parameters<typeof manager.activateBySessionId>[0]),
   };
 }

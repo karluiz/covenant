@@ -11,15 +11,6 @@ import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
 import { filterAndRankTabs, type TabRow } from "./finder";
 import { WorkspaceManager } from "./manager";
-import type { ActivityState } from "./activity";
-
-export function chipBadge(state: ActivityState | null): { className: string; text: string } {
-  if (!state) return { className: "", text: "" };
-  if (state.hasFailure) return { className: "workspace-chip--has-failure", text: "" };
-  if (state.hasAgentNote) return { className: "workspace-chip--has-note", text: "" };
-  if (state.unseenBlocks > 0) return { className: "workspace-chip--unseen", text: String(state.unseenBlocks) };
-  return { className: "", text: "" };
-}
 
 const KBD_NEW = "⌘⌥N";
 const KBD_PICK = "⌘⇧P";
@@ -58,14 +49,13 @@ export class WorkspaceSwitcher {
   private chip: HTMLButtonElement | null = null;
   private popover: HTMLElement | null = null;
   private unsubscribe: (() => void) | null = null;
-  private unsubscribeActivity: (() => void) | null = null;
   private query: string = "";
   private selectedIndex: number = 0;
   private lastResults: TabRow[] = [];
 
   constructor(
     private readonly ws: WorkspaceManager,
-    private readonly getTabManager: () => TabManager,
+    private readonly tabManager: TabManager,
   ) {}
 
   /// Mount the chip into the given host element. Returns the chip so
@@ -86,10 +76,6 @@ export class WorkspaceSwitcher {
       this.renderChip();
       if (this.popover) this.renderPopover();
     });
-    this.unsubscribeActivity = this.ws.onActivityChange((_id, _state) => {
-      this.renderChip();
-      if (this.popover) this.renderPopover();
-    });
     return btn;
   }
 
@@ -97,8 +83,6 @@ export class WorkspaceSwitcher {
     this.closePopover();
     this.unsubscribe?.();
     this.unsubscribe = null;
-    this.unsubscribeActivity?.();
-    this.unsubscribeActivity = null;
     if (this.chip?.parentElement) this.chip.parentElement.removeChild(this.chip);
     this.chip = null;
   }
@@ -140,17 +124,6 @@ export class WorkspaceSwitcher {
     }
     attachTooltip(this.chip, `${active.name} — Workspaces (${KBD_PICK})`);
     const tint = active.color ? esc(active.color) : "currentColor";
-    const badge = chipBadge(this.ws.getActivity(active.id));
-    // Remove previous badge modifier classes, then apply current one.
-    this.chip.classList.remove(
-      "workspace-chip--has-failure",
-      "workspace-chip--has-note",
-      "workspace-chip--unseen",
-    );
-    if (badge.className) this.chip.classList.add(badge.className);
-    const unseenSpan = badge.text
-      ? `<span class="workspace-chip__unseen">${esc(badge.text)}</span>`
-      : "";
     this.chip.innerHTML = `
       <span class="new-tab-plus">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
@@ -159,7 +132,7 @@ export class WorkspaceSwitcher {
           <rect x="6.5" y="6.5" width="7" height="7" rx="1.4"></rect>
         </svg>
       </span>
-      <kbd class="new-tab-kbd">${esc(KBD_PICK)}</kbd>${unseenSpan}
+      <kbd class="new-tab-kbd">${esc(KBD_PICK)}</kbd>
     `;
   }
 
@@ -391,7 +364,7 @@ export class WorkspaceSwitcher {
     } else {
       this.closePopover();
     }
-    this.getTabManager().activateByIndex(tabIndex);
+    this.tabManager.activateByIndex(tabIndex);
   }
 
   /// Replace the row's name span with an input. window.prompt is

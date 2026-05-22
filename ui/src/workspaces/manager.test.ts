@@ -9,50 +9,6 @@ vi.mock("../api", () => ({
 
 import { WorkspaceManager } from "./manager";
 import type { TabManifestV1 } from "../tabs/manager";
-import type { LivePool, PoolableTabManager } from "./live-pool";
-
-/// Minimal LivePool fake. WorkspaceManager only reads `pool.active()` /
-/// `pool.adopt(id, m)` / `pool.activate(id, manifest)` / `pool.forget(id)`,
-/// so we don't need the LRU / hibernation machinery here — just track
-/// which manager is currently "active" and route adopt/activate to the
-/// underlying mock TabManager. Each test injects its own mock manager.
-function makeFakePool(initialManager: any): LivePool {
-  let active: any = null;
-  const live = new Map<string, any>();
-  const fake: Partial<LivePool> = {
-    adopt(id: string, m: PoolableTabManager) {
-      live.set(id, m);
-      active = m;
-    },
-    async activate(id: string, manifest: unknown): Promise<PoolableTabManager> {
-      // Tests reuse `initialManager` for every workspace (we don't have
-      // multi-instance machinery here). To preserve per-workspace state
-      // across switches, the fake replays the target workspace's manifest
-      // into the shared manager on every activate — mirroring how the
-      // real LivePool keeps per-id TabManagers alive with their own state.
-      await initialManager.replaceFromManifest(manifest);
-      live.set(id, initialManager);
-      active = initialManager;
-      return initialManager;
-    },
-    async forget(id: string): Promise<void> {
-      // Only drop `active` if we forgot the workspace that's currently
-      // active. Since the fake aliases every workspace to the same
-      // initialManager, we can't compare by identity — track via the
-      // map's last-known active id instead. Tests don't forget the
-      // active workspace mid-flow (delete() switches first), so the
-      // simplest correct behavior is to clear `live[id]` only.
-      live.delete(id);
-    },
-    active(): PoolableTabManager | null {
-      return active;
-    },
-    isLive: (id: string) => live.has(id),
-    isHibernated: () => false,
-    activityOf: () => null,
-  };
-  return fake as LivePool;
-}
 
 interface MockTabManagerState {
   manifest: TabManifestV1;
@@ -125,7 +81,7 @@ describe("WorkspaceManager.boot — migration", () => {
 
   it("falls back to a fresh Default workspace on null input", async () => {
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const list = ws.list();
     expect(list).toHaveLength(1);
@@ -137,7 +93,7 @@ describe("WorkspaceManager.boot — migration", () => {
 
   it("falls back to Default on malformed JSON", async () => {
     const { manager } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot("not json {{{");
     expect(ws.list()).toHaveLength(1);
     expect(ws.list()[0].name).toBe("Default");
@@ -160,7 +116,7 @@ describe("WorkspaceManager.boot — migration", () => {
       groups: [],
     };
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(JSON.stringify(v1));
     const list = ws.list();
     expect(list).toHaveLength(1);
@@ -202,7 +158,7 @@ describe("WorkspaceManager.boot — migration", () => {
       ],
     };
     const { manager } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(JSON.stringify(v2));
     const list = ws.list();
     expect(list).toHaveLength(2);
@@ -215,7 +171,7 @@ describe("WorkspaceManager.switchTo", () => {
 
   it("serializes outgoing state into the source workspace and restores incoming", async () => {
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const firstId = ws.list()[0].id;
     const secondId = ws.create("Second");
@@ -245,7 +201,7 @@ describe("WorkspaceManager.moveGroupTo", () => {
 
   it("moves a group and its tabs into the target workspace, clearing the source", async () => {
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const sourceId = ws.list()[0].id;
     const targetId = ws.create("Target");
@@ -313,7 +269,7 @@ describe("WorkspaceManager.moveGroupTo", () => {
 
   it("spawns a fresh tab if moving empties the source workspace", async () => {
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const targetId = ws.create("Target");
 
@@ -340,7 +296,7 @@ describe("WorkspaceManager.moveGroupTo", () => {
 
   it("is a no-op when target is the active workspace", async () => {
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const sourceId = ws.list()[0].id;
 
@@ -409,7 +365,7 @@ describe("WorkspaceManager.listAllTabs", () => {
       ],
     };
     const { manager, state } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(JSON.stringify(v2));
 
     // Replace live TabManager state for the active workspace.
@@ -455,7 +411,7 @@ describe("WorkspaceManager.delete", () => {
 
   it("refuses to delete the last workspace", async () => {
     const { manager } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const onlyId = ws.list()[0].id;
     await ws.delete(onlyId);
@@ -465,7 +421,7 @@ describe("WorkspaceManager.delete", () => {
 
   it("switches to most-recent then deletes when removing the active workspace", async () => {
     const { manager } = makeMockTabManager();
-    const ws = new WorkspaceManager(makeFakePool(manager), manager);
+    const ws = new WorkspaceManager(manager);
     await ws.boot(null);
     const firstId = ws.list()[0].id;
     const secondId = ws.create("Second");
