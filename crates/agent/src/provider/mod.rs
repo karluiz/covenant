@@ -14,6 +14,7 @@ pub enum ProviderKind {
     Anthropic,
     #[serde(rename = "openai_compat", alias = "open_ai_compat")]
     OpenAiCompat,
+    AzureFoundry,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -31,6 +32,7 @@ impl ProviderConfig {
             self.base_url = Some(match self.kind {
                 ProviderKind::Anthropic => "https://api.anthropic.com".to_string(),
                 ProviderKind::OpenAiCompat => "http://localhost:11434/v1".to_string(),
+                ProviderKind::AzureFoundry => String::new(),
             });
         }
         self
@@ -66,6 +68,7 @@ pub async fn collect_oneshot(
     let executor_label = match provider.kind() {
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::OpenAiCompat => "openai_compat",
+        ProviderKind::AzureFoundry => "azure_foundry",
     };
     karl_score::record_prompt_with_agent(executor_label, Some("internal"));
     let model_name = req.model.clone();
@@ -181,5 +184,13 @@ mod tests {
         }
         .with_defaults();
         assert_eq!(cfg.base_url.as_deref(), Some("http://localhost:11434/v1"));
+    }
+
+    #[test]
+    fn azure_foundry_kind_round_trips_through_serde() {
+        let k: ProviderKind = serde_json::from_str("\"azure_foundry\"").unwrap();
+        assert_eq!(k, ProviderKind::AzureFoundry);
+        let s = serde_json::to_string(&ProviderKind::AzureFoundry).unwrap();
+        assert_eq!(s, "\"azure_foundry\"");
     }
 }
