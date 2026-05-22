@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.3 — Mibli sees your tabs (world-model in DM context)
+
+### Added
+
+- **World-model snapshot in every DM dispatch**: Before each reply, the backend projects every open session's `SessionWorldModel` (cwd, rolling summary, last few blocks, in-flight command) into a `# Terminal context` section that lands at the top of the user message. The active tab gets the full render; others get one-liners. The operator now answers "¿qué pasó en tab 2?" or "¿en qué directorio estoy?" from real context (`crates/app/src/teammate/world_snapshot.rs`, `crates/app/src/teammate/commands.rs`).
+- **System prompt describes the context shape**: Cached portion of the prompt now explains what tabs the operator can see and when to ignore the section, so the model stops inventing context (`crates/app/src/teammate/llm.rs`).
+- **`active_session_id` plumbed end-to-end**: `teammateSendText` carries the current active tab id from the frontend through the Tauri command so the backend can mark which session is "active" in the snapshot (`ui/src/api.ts`, `ui/src/teammate/panel.ts`, `ui/src/main.ts`).
+
+### Notes
+
+- Snapshot is regenerated per call (state changes per call anyway); the system prompt stays stable so prompt caching still hits.
+- Tab labels in the snapshot are session-id last-6-chars + cwd. Human tab names from the manifest land in a later polish.
+
 ## v0.8.2 — Conversational operator (Mibli actually replies)
 
 ### Added
