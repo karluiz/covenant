@@ -14378,14 +14378,17 @@ body.theme-light .teammate-bubble-operator {
 }
 .teammate-panel-composer {
   border-top: 1px solid var(--border);
-  padding: 8px 10px;
+  /* Extra horizontal + bottom padding so the input's 3px focus halo
+     never clips against the panel's overflow:hidden border. */
+  padding: 10px 14px 12px;
 }
 .teammate-panel-input {
   width: 100%;
+  box-sizing: border-box;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 6px 10px;
+  padding: 7px 12px;
   color: var(--fg);
   font-size: 12px;
   outline: none;

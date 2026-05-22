@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.9 — Teammate composer breathing room (focus halo no longer clips)
+
+### Fixed
+
+- **3px focus halo on the chat input no longer cuts against the panel border**: The teammate rail uses `overflow: hidden`, which was clipping the input's translucent focus halo at the left/right/bottom edges. Bumped the composer's horizontal padding from 10→14 px and bottom padding from 8→12 px so the halo sits inside the safe area. Added `box-sizing: border-box` to the input and tightened its inner padding to keep the overall height visually identical to before (`ui/src/styles.css`).
+
 ## v0.8.8 — Operators can read files (tool-use loop with `read_file`)
 
 ### Added
