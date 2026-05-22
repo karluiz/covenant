@@ -48,6 +48,37 @@ describe("TeammatePanel", () => {
     expect(host.querySelector(".teammate-panel-subtitle")?.textContent).toBe("claude-sonnet-4-6");
   });
 
+  it("renders an XP ring + level badge around the header avatar", async () => {
+    const host = document.createElement("div");
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn(),
+      listOperators: vi.fn().mockResolvedValue([]),
+    });
+    await panel.openFor(makeOp({ xp: 142 }));
+    const wrap = host.querySelector(".teammate-panel-avatar-wrap") as HTMLElement | null;
+    expect(wrap).not.toBeNull();
+    // Progress within current level: (142 % 100) / 100 = 0.42.
+    expect(wrap!.style.getPropertyValue("--xp-progress")).toBe("0.420");
+    expect(host.querySelector(".teammate-panel-xp-ring")).not.toBeNull();
+    // Level = floor(xp / 100) + 1 = 2.
+    expect(host.querySelector(".teammate-panel-level")?.textContent).toBe("2");
+  });
+
+  it("renders the chevron as the last child of the header", async () => {
+    const host = document.createElement("div");
+    const panel = new TeammatePanel(host, {
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn(),
+      listOperators: vi.fn().mockResolvedValue([]),
+    });
+    await panel.openFor(makeOp());
+    const header = host.querySelector(".teammate-panel-header") as HTMLElement;
+    const chevron = header.querySelector(".teammate-panel-header-chevron");
+    expect(chevron).not.toBeNull();
+    expect(header.lastElementChild).toBe(chevron);
+  });
+
   it("renders operator bubbles in an avatar row, user bubbles solo", async () => {
     const host = document.createElement("div");
     let captured: ((m: import("../api").TeammateMessage) => void) | null = null;

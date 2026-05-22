@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.5 — Teammate header: XP ring + thin chevron at the right
+
+### Added
+
+- **XP ring around the panel avatar**, matching the tab-bar treatment. Driven by the operator's `xp` field via a `--xp-progress` CSS variable; the arc fills clockwise and resets at each level-up. Stroke uses the operator's color so it doubles as identity. A small level badge sits on the avatar's bottom-right corner — same gamification cue as on the tabs (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Chevron is now an inline SVG at the far right of the header**, not a thick `▾` text glyph next to the name. 1.25px stroke, muted color, rotates 180° when the switcher popover is open. Name + model subtitle have the whole left side to themselves (`ui/src/teammate/panel.ts`, `ui/src/styles.css`).
+- **Avatar outline removed**: the XP ring now handles the operator-color accent, so the extra outline is redundant.
+
+### Notes
+
+- 2 new vitest cases assert the ring renders with the right `--xp-progress` value (`0.420` for `xp=142`) and level badge text (`2`), and that the chevron is the last child of the header.
+
 ## v0.8.4 — Teammate bubbles + header polish
 
 ### Changed
