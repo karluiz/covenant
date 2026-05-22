@@ -770,7 +770,9 @@ async function boot(): Promise<void> {
       return { tabbar, workspace };
     },
   };
-  const pool = new LivePool(tabManagerFactory, { liveLimit: 5 });
+  const pool = new LivePool(tabManagerFactory, {
+    liveLimit: initialSettings?.workspace?.live_limit ?? 5,
+  });
 
   // Construct the WorkspaceManager up-front so listeners wired before
   // boot() (settings import/export, switcher chip) can reference it.
@@ -1119,6 +1121,13 @@ async function boot(): Promise<void> {
   settings.onImportWorkspace = async (parsed) => {
     await workspaceManager.importIntoActive(parsed as TabManifestV1);
   };
+
+  // Propagate workspace.live_limit changes from the settings panel to the
+  // active LivePool without requiring a restart.
+  window.addEventListener("ui:workspace-live-limit-changed", (e) => {
+    const { value } = (e as CustomEvent<{ value: number }>).detail;
+    void pool.setLimit(value);
+  });
 
   const toasts = new ToastHost(document.body, {
     onClick: (finding) => {

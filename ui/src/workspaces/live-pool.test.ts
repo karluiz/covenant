@@ -131,4 +131,16 @@ describe("LivePool", () => {
     await pool.activate("b", {});
     expect(pool.isHibernated("a")).toBe(true);
   });
+
+  it("setLimit accepts non-integer by flooring", async () => {
+    const f = fakeFactory();
+    const pool = new LivePool(f, { liveLimit: 5 });
+    await pool.setLimit(3.9);
+    // Resulting limit should be 3 (floored), so 4th activate evicts oldest
+    await pool.activate("a", {});
+    await pool.activate("b", {});
+    await pool.activate("c", {});
+    await pool.activate("d", {});
+    expect(pool.isHibernated("a")).toBe(true);
+  });
 });

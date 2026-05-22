@@ -111,6 +111,9 @@ interface Settings {
   telegram?: TelegramSettings;
   providers?: Record<string, ProviderEntry>;
   model_routes?: Record<string, RouteEntry>;
+  workspace?: {
+    live_limit?: number;
+  };
 }
 
 type TabbarPosition = "top" | "left";
@@ -679,6 +682,13 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-workspace">
           <h3 class="settings-section-title">Workspace</h3>
+          <label class="settings-field">
+            <span class="settings-label">Live workspaces limit</span>
+            <input type="number" name="workspace_live_limit" min="1" max="20" />
+            <small class="settings-hint">
+              Maximum number of simultaneously active (non-hibernated) workspaces. Range 1–20. Default 5.
+            </small>
+          </label>
           <div class="settings-field">
             <span class="settings-label">Export / Import</span>
             <div class="settings-input-row">
@@ -770,6 +780,9 @@ export class SettingsPanel {
     const digestWindowLabel = form.querySelector<HTMLElement>('#digest-window-label')!;
     const emailIncompleteWarn = form.querySelector<HTMLElement>('#email-incomplete-warn')!;
     const sendgridKeyWarn = form.querySelector<HTMLElement>('#sendgrid-key-warn')!;
+    const wsLiveLimit = form.querySelector<HTMLInputElement>(
+      'input[name="workspace_live_limit"]',
+    )!;
 
     maxCalls.value = String(this.current.agent.max_calls_per_minute);
     aomBudget.value = String(this.current.aom?.default_budget_usd ?? 10);
@@ -876,6 +889,8 @@ export class SettingsPanel {
     })();
 
     updateEmailIncompleteWarn();
+
+    wsLiveLimit.value = String(this.current.workspace?.live_limit ?? 5);
 
     const providersRoot = form.querySelector<HTMLElement>("#providers-tab-root");
     if (providersRoot && this.current) {
@@ -1118,11 +1133,19 @@ export class SettingsPanel {
         telegram: this.current!.telegram,
         providers: this.current!.providers,
         model_routes: this.current!.model_routes,
+        workspace: {
+          live_limit: Math.max(1, Math.min(20, Math.floor(Number(wsLiveLimit.value) || 5))),
+        },
       };
       try {
         await setSettings(next);
         this.current = next;
         if (this.onSaved) this.onSaved(next);
+        window.dispatchEvent(
+          new CustomEvent("ui:workspace-live-limit-changed", {
+            detail: { value: next.workspace?.live_limit ?? 5 },
+          }),
+        );
         pushInfoToast({ message: "Settings saved" });
         setTimeout(() => this.close(), 400);
       } catch (err) {
