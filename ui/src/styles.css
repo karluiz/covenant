@@ -2244,12 +2244,13 @@ body.theme-light .block-item-history .block-exit.fail {
 /* Info toasts are setup hints, not cross-session findings — give them
    a calmer accent so they don't feel like an alert. */
 .toast.toast-info {
-    border-color: rgba(var(--ink-rgb), 0.12);
-    border-left-color: var(--ok);
+    border-color: rgba(var(--ink-rgb), 0.06);
+    border-left: 1px solid rgba(var(--ink-rgb), 0.06);
 }
 
 .toast.toast-info:hover {
-    border-color: rgba(var(--ink-rgb), 0.22);
+    border-color: rgba(var(--ink-rgb), 0.12);
+    border-left-color: rgba(var(--ink-rgb), 0.12);
 }
 
 @keyframes toast-in {
