@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.12 — Azure Foundry provider + workspace-switch orb polish
+
+### Added
+
+- **Azure Foundry provider (AzureOpenAi + AiInference modes)**: New `ProviderKind::AzureFoundry` variant with a full `AzureFoundryProvider` implementation that speaks both Azure OpenAI's deployment-based endpoints and the Azure AI Inference catalog. Mode is chosen per-provider entry; the provider builds the right URL shape, headers (`api-key` for AOAI, `Authorization: Bearer …` for AI Inference), and request body for each. Streaming uses the shared OpenAI-compatible SSE parser (`crates/agent/src/provider/azure_foundry.rs`, `crates/agent/src/provider/mod.rs`).
+- **Foundry routing through `resolve_route`**: The provider resolver now validates and dispatches Foundry providers — checks endpoint, key, mode-specific fields (deployment name for AOAI, model name for AI Inference) before constructing the client, returning structured errors instead of panicking downstream (`crates/app/src/provider_resolve.rs`).
+- **`list_models_azure_foundry` Tauri command**: New command lets the settings UI query a Foundry endpoint for available deployments/models so the user can pick from a dropdown instead of typing names by hand (`crates/app/src/providers_cmd.rs`, `crates/app/src/lib.rs`).
+- **Provider entry settings + UI card**: `ProviderEntry` gains Azure Foundry fields (endpoint, key, mode, deployment, model, api version) with sensible defaults. The settings panel renders a dedicated Foundry card whose visible fields swap based on the mode toggle, mirroring the data model (`crates/app/src/settings.rs`, `ui/src/settings/providers.ts`, `ui/src/settings/panel.ts`).
+- **Typed API wrapper**: `ui/src/api.ts` adds Foundry types and a wrapper around `list_models_azure_foundry` for the settings card.
+- **Wiremock coverage**: New `crates/agent/tests/provider_azure_foundry.rs` exercises both modes end-to-end against a mock server — request shape, auth header, streaming SSE, and error paths.
+
+### Changed
+
+- **Shared OpenAI SSE parsing**: Extracted SSE chunk decoding out of `openai_compat.rs` into a new `crates/agent/src/provider/openai_sse.rs` so both the existing OpenAI-compatible provider and the new Foundry provider reuse one parser instead of duplicating delta logic.
+- **Workspace-switch overlay reuses the boot-splash orb**: The loader that appears during PTY teardown/respawn no longer uses the tiny spinner + label; it now renders the same orb/headline vocabulary as first boot, with the target workspace name as the headline and a "Switching" meta label. The overlay also hides the titlebar, activity sidebar, teammate panel, status bar, and familiar panel so the orb is the only visible surface (`ui/index.html`, `ui/src/styles.css`, `ui/src/tabs/manager.ts`, `ui/src/workspaces/manager.ts`).
+- **Titlebar reorder + lighter count badges**: Moved the project-notes button to the right of the view-button group with a separator so the blocks/files/activity trio reads as a single cluster. Tab and group count badges lost their dark filled circles in favor of transparent backgrounds and dimmer ink in both themes, so they no longer compete with primary chrome (`ui/index.html`, `ui/src/styles.css`).
+- **Right-rail panel slide-in**: Added a subtle 160ms slide-in animation for the Activity and Teammate side panels, respecting `prefers-reduced-motion` (`ui/src/styles.css`).
+- **Redundant switch toast dropped**: `WorkspaceSwitcher.runSwitch` no longer pushes a "Switching to X…" info toast since the new overlay already covers it (`ui/src/workspaces/switcher.ts`).
+
 ## v0.8.11 — Teammate task cards in DM (operators take tasks)
 
 ### Added
