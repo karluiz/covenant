@@ -338,10 +338,12 @@ export async function teammateListMessages(
 export async function teammateSendText(
   operatorId: string,
   text: string,
+  activeSessionId?: string | null,
 ): Promise<TeammateMessage> {
   return invoke<TeammateMessage>("teammate_send_text_message", {
     operatorId,
     text,
+    activeSessionId: activeSessionId ?? null,
   });
 }
 
