@@ -4444,6 +4444,41 @@ export class TabManager {
       },
     ]);
   }
+
+  /// Workspace-keepalive: remove this manager's DOM nodes from the
+  /// page without killing PTYs. The instance remains alive in memory,
+  /// continues to receive output (each tab's xterm still buffers),
+  /// and can be reattached later via `attach`.
+  detach(): void {
+    if (this.tabbarHost.parentElement) {
+      this.tabbarHost.parentElement.removeChild(this.tabbarHost);
+    }
+    if (this.workspace.parentElement) {
+      this.workspace.parentElement.removeChild(this.workspace);
+    }
+  }
+
+  /// Re-insert this manager's DOM nodes under the given hosts. Pair
+  /// with a prior `detach`. Idempotent: skips parents that are already
+  /// connected.
+  attach(tabbarParent: HTMLElement, workspaceParent: HTMLElement): void {
+    if (!this.tabbarHost.isConnected) tabbarParent.appendChild(this.tabbarHost);
+    if (!this.workspace.isConnected) workspaceParent.appendChild(this.workspace);
+  }
+
+  /// Workspace-keepalive: terminal teardown for hibernation OR
+  /// workspace deletion. Closes every backend session (fire-and-forget;
+  /// the returned Promise resolves once DOM is detached, not once
+  /// backend sessions are confirmed closed). Disposes xterm instances
+  /// and the persisted scrollback log per tab via `finalizeCloseTab`.
+  /// After this returns, the instance is unusable.
+  async dispose(): Promise<void> {
+    const ids = this.tabs.map((t) => t.id);
+    for (const id of ids) {
+      this.finalizeCloseTab(id);
+    }
+    this.detach();
+  }
 }
 
 
