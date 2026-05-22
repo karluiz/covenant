@@ -9,6 +9,7 @@
 //! No LLM calls happen yet — that lands in Phase 2 (v0.8.1).
 
 pub mod commands;
+pub mod llm;
 pub mod runtime;
 pub mod types;
 
