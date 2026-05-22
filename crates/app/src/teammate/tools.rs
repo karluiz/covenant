@@ -117,6 +117,44 @@ pub fn read_file_tool_def() -> Value {
     })
 }
 
+/// Anthropic tool definition for `propose_task`. The model calls this
+/// when the user's message is an actionable, multi-step request (not
+/// just Q&A). No execution handler — the LLM dispatcher consumes the
+/// tool_use payload directly and turns it into a Propose message.
+pub fn propose_task_tool_def() -> Value {
+    serde_json::json!({
+        "name": "propose_task",
+        "description":
+            "Propose a structured task when the user is asking for actionable, multi-step work. \
+             Do NOT call this for chitchat, clarifying questions, or simple Q&A — for those, \
+             just answer in plain text. Call this only when the user wants you to DO, REVIEW, \
+             or WATCH something concrete.",
+        "input_schema": {
+            "type": "object",
+            "required": ["archetype", "title", "deliverable", "rationale"],
+            "properties": {
+                "archetype": {
+                    "type": "string",
+                    "enum": ["do", "review", "watch"],
+                    "description":
+                        "'do' = perform the work in a new tab; 'review' = inspect a PR/file; \
+                         'watch' = subscribe to a trigger (CI, file touch, exit code)."
+                },
+                "title":       { "type": "string" },
+                "deliverable": { "type": "string", "description": "What the user will get when this is done." },
+                "rationale":   { "type": "string", "description": "Why you chose this archetype + scope." },
+                "scope": {
+                    "type": "object",
+                    "properties": {
+                        "paths": { "type": "array", "items": { "type": "string" } },
+                        "tabs":  { "type": "array", "items": { "type": "string" } }
+                    }
+                }
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +246,23 @@ mod tests {
         assert_eq!(def["name"], "read_file");
         assert_eq!(def["input_schema"]["required"][0], "path");
         assert_eq!(def["input_schema"]["properties"]["path"]["type"], "string");
+    }
+
+    #[test]
+    fn propose_task_tool_def_has_required_shape() {
+        let def = propose_task_tool_def();
+        assert_eq!(def["name"], "propose_task");
+        let schema = &def["input_schema"];
+        assert_eq!(schema["type"], "object");
+        let required = schema["required"].as_array().expect("required array");
+        let required_keys: Vec<&str> = required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_keys.contains(&"archetype"));
+        assert!(required_keys.contains(&"title"));
+        assert!(required_keys.contains(&"deliverable"));
+        assert!(required_keys.contains(&"rationale"));
+        let archetype_enum = schema["properties"]["archetype"]["enum"]
+            .as_array().expect("archetype enum");
+        let values: Vec<&str> = archetype_enum.iter().filter_map(|v| v.as_str()).collect();
+        assert_eq!(values, vec!["do", "review", "watch"]);
     }
 }
