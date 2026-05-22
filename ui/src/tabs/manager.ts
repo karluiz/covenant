@@ -1938,7 +1938,9 @@ export class TabManager {
         this.activate(this.activeId, { skipIfSame: false });
       return null;
     }
-    blocks = new BlockManager(blocksHost, sessionId);
+    blocks = new BlockManager(blocksHost, sessionId, (exitCode) =>
+      this.notifyBlockFinished(id, exitCode),
+    );
     recall = new RecallManager(
       blocksHost,
       (data) => writeToSession(sessionId, data),
@@ -4444,6 +4446,23 @@ export class TabManager {
   /// page without killing PTYs. The instance remains alive in memory,
   /// continues to receive output (each tab's xterm still buffers),
   /// and can be reattached later via `attach`.
+  private blockFinishedListeners = new Set<(ev: { tabId: string; exitCode: number }) => void>();
+
+  /// Workspace-keepalive: subscribe to block-finished events across
+  /// every tab in this manager. The listener fires once per finished
+  /// command block with the owning tab id and its exit code.
+  onBlockFinished(cb: (ev: { tabId: string; exitCode: number }) => void): () => void {
+    this.blockFinishedListeners.add(cb);
+    return () => {
+      this.blockFinishedListeners.delete(cb);
+    };
+  }
+
+  /// Internal: invoked by BlockManager when a block resolves.
+  notifyBlockFinished(tabId: string, exitCode: number): void {
+    for (const l of this.blockFinishedListeners) l({ tabId, exitCode });
+  }
+
   detach(): void {
     if (this.tabbarHost.parentElement) {
       this.tabbarHost.parentElement.removeChild(this.tabbarHost);
