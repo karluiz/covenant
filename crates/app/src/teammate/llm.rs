@@ -132,6 +132,168 @@ pub async fn dispatch_reply(
     Ok(text)
 }
 
+// ── Phase 4a: multi-turn tool-use dispatch ──────────────────────────
+
+use crate::teammate::anthropic_http::{
+    self, AnthropicHttpError, AnthropicMessage, AnthropicResponse,
+};
+use crate::teammate::tools::{self, ToolEnv, ToolError};
+use karl_agent::provider::ProviderKind;
+
+const MAX_TOOL_ITERATIONS: usize = 8;
+
+/// Progress event emitted during the tool-use loop. Callers (the
+/// teammate send command) map these to Tauri events for the rail UI.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToolProgress {
+    /// A tool call is about to start (or has just produced a result).
+    ToolCall { tool: String, args: serde_json::Value, ok: bool, error: Option<String> },
+}
+
+/// Like `dispatch_reply`, but supplies the operator with a `read_file`
+/// tool and loops over assistant tool_use → user tool_result turns until
+/// the model emits a plain-text turn. Anthropic-only; falls back to the
+/// non-tool path for other providers.
+pub async fn dispatch_reply_with_tools<F>(
+    operator: &Operator,
+    thread: &[TaskMessage],
+    settings: &Settings,
+    world_context: Option<&str>,
+    tool_env: ToolEnv,
+    mut on_progress: F,
+) -> Result<String, TeammateLlmError>
+where
+    F: FnMut(ToolProgress) + Send,
+{
+    let resolved = resolve_route(settings, SettingsRole::Operator)
+        .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
+    if resolved.provider.kind() != ProviderKind::Anthropic {
+        // Non-Anthropic providers don't yet have a tool-use path here.
+        // Fall back to the text-only dispatch so Mibli still answers.
+        return dispatch_reply(operator, thread, settings, world_context).await;
+    }
+
+    // Pull the api_key + base_url directly from settings — the trait
+    // provider hides them. The Operator role must point at an Anthropic
+    // provider (NoRoute would have errored above otherwise).
+    let route = settings
+        .model_routes
+        .get(&SettingsRole::Operator)
+        .ok_or_else(|| TeammateLlmError::NoRoute("operator route missing".into()))?;
+    let provider_cfg = settings
+        .providers
+        .get(&route.provider_id)
+        .ok_or_else(|| TeammateLlmError::NoRoute(format!("unknown provider {}", route.provider_id)))?;
+    let api_key = provider_cfg
+        .api_key
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let base_url = provider_cfg
+        .base_url
+        .as_deref()
+        .unwrap_or("https://api.anthropic.com")
+        .to_string();
+
+    let system_prompt = build_system_prompt(operator);
+    let initial_user = build_user_message(thread, operator, world_context);
+    let tools = vec![tools::read_file_tool_def()];
+
+    let mut messages: Vec<AnthropicMessage> = vec![AnthropicMessage::user_text(initial_user)];
+
+    for _ in 0..MAX_TOOL_ITERATIONS {
+        let resp: AnthropicResponse = anthropic_http::post(
+            &api_key,
+            &base_url,
+            &operator.model,
+            &system_prompt,
+            &messages,
+            &tools,
+            REPLY_MAX_TOKENS,
+        )
+        .await
+        .map_err(|e: AnthropicHttpError| match e {
+            AnthropicHttpError::MissingKey => TeammateLlmError::NoRoute("missing API key".into()),
+            other => TeammateLlmError::Provider(other.to_string()),
+        })?;
+
+        let stop = resp.stop_reason.as_deref().unwrap_or("");
+        if stop == "tool_use" {
+            // 1) Echo the assistant turn back so the next request keeps
+            //    the conversation continuous.
+            let content_value = serde_json::Value::Array(resp.content.clone());
+            messages.push(AnthropicMessage::assistant_blocks(content_value));
+
+            // 2) Execute every tool call in this turn.
+            let calls = anthropic_http::collect_tool_uses(&resp.content);
+            let mut tool_results: Vec<serde_json::Value> = Vec::with_capacity(calls.len());
+            for (id, name, input) in calls {
+                let (out_text, ok, err) = match name.as_str() {
+                    "read_file" => match tools::read_file(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    _ => (
+                        format!("unknown tool: {}", name),
+                        false,
+                        Some(format!("unknown tool: {}", name)),
+                    ),
+                };
+                on_progress(ToolProgress::ToolCall {
+                    tool: name.clone(),
+                    args: input,
+                    ok,
+                    error: err,
+                });
+                tool_results.push(serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": id,
+                    "content": out_text,
+                    "is_error": !ok,
+                }));
+            }
+            messages.push(AnthropicMessage::user_tool_results(
+                serde_json::Value::Array(tool_results),
+            ));
+            continue;
+        }
+
+        // Any other stop_reason ("end_turn", "stop_sequence", etc.):
+        // the assistant emitted final text. Return it.
+        let text = anthropic_http::extract_text(&resp.content).trim().to_string();
+        if text.is_empty() {
+            return Err(TeammateLlmError::EmptyReply);
+        }
+        return Ok(text);
+    }
+
+    Err(TeammateLlmError::Provider(
+        "tool-use loop hit max iterations (8)".into(),
+    ))
+}
+
+#[cfg(test)]
+mod tool_progress_tests {
+    use super::*;
+
+    #[test]
+    fn tool_progress_serializes_with_kind_tag() {
+        let p = ToolProgress::ToolCall {
+            tool: "read_file".into(),
+            args: serde_json::json!({"path": "a.rs"}),
+            ok: true,
+            error: None,
+        };
+        let s = serde_json::to_value(&p).unwrap();
+        assert_eq!(s["kind"], "tool_call");
+        assert_eq!(s["tool"], "read_file");
+        assert_eq!(s["args"]["path"], "a.rs");
+        assert_eq!(s["ok"], true);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
