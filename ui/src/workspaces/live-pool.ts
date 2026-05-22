@@ -100,10 +100,18 @@ export class LivePool {
     // Cold path: hibernated or never seen. Make room first.
     // Set activeId to the incoming id before enforcing so the previous active
     // workspace is eligible for LRU eviction when the pool is full.
+    const prevActiveId = this.activeId;
     this.activeId = id;
     await this.enforceLimit(/*incoming=*/ 1);
     const manager = this.factory.create(id);
-    await manager.replaceFromManifest(manifest);
+    try {
+      await manager.replaceFromManifest(manifest);
+    } catch (err) {
+      // Roll back: leave the pool in a consistent state if spawn fails.
+      await manager.dispose().catch(() => {});
+      this.activeId = prevActiveId;
+      throw err;
+    }
     const hibern = this.hibernated.get(id);
     if (hibern) {
       manager.restoreScrollback(hibern.scrollback);
