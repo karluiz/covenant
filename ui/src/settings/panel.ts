@@ -12,6 +12,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { listMonospaceFonts } from "../api";
 
 import { Icons } from "../icons";
 import { pushInfoToast } from "../notifications/toast";
@@ -469,15 +470,16 @@ export class SettingsPanel {
             <input
               type="text"
               name="term_font"
+              list="settings-monospace-fonts"
               autocomplete="off"
               spellcheck="false"
               placeholder='ui-monospace, "JetBrains Mono", monospace'
             />
+            <datalist id="settings-monospace-fonts"></datalist>
             <small class="settings-hint">
-              CSS font stack. Use the exact name macOS reports in Font Book
-              (e.g. <code>"JetBrains Mono"</code>, <code>"Fira Code"</code>,
-              <code>"Cascadia Code"</code>, <code>"Iosevka"</code>). Always
-              end with <code>monospace</code> as a fallback.
+              CSS font stack. Start typing to pick from monospace fonts
+              installed on this Mac, or paste a full stack. Always end with
+              <code>monospace</code> as a fallback.
             </small>
           </label>
           <label class="settings-field">
@@ -706,6 +708,23 @@ export class SettingsPanel {
     const mindV2Input = form.querySelector<HTMLInputElement>('input[name="mind_v2"]')!;
     const mindBudgetInput = form.querySelector<HTMLInputElement>('input[name="mind_thinking_budget"]')!;
     const termFont = form.querySelector<HTMLInputElement>('input[name="term_font"]')!;
+    const fontDatalist = form.querySelector<HTMLDataListElement>(
+      "#settings-monospace-fonts",
+    );
+    if (fontDatalist) {
+      void listMonospaceFonts()
+        .then((families) => {
+          fontDatalist.replaceChildren(
+            ...families.map((name) => {
+              const opt = document.createElement("option");
+              opt.value = name.includes(" ") ? `"${name}"` : name;
+              opt.label = name;
+              return opt;
+            }),
+          );
+        })
+        .catch(() => {/* best-effort; fall back to free-text */});
+    }
     const termSize = form.querySelector<HTMLInputElement>('input[name="term_size"]')!;
     const termLetterSpacing = form.querySelector<HTMLInputElement>(
       'input[name="term_letter_spacing"]',

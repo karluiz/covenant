@@ -779,6 +779,10 @@ export function readFontBytes(familyStack: string): Promise<Uint8Array> {
   );
 }
 
+export function listMonospaceFonts(): Promise<string[]> {
+  return invoke<string[]>("list_monospace_fonts", {});
+}
+
 export interface TerminalConfig {
   font_family: string;
   font_size: number;

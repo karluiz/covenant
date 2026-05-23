@@ -2341,6 +2341,34 @@ async fn read_font_bytes(family_stack: String) -> Result<Vec<u8>, String> {
     .map_err(|e| format!("read_font_bytes join: {e}"))?
 }
 
+/// Enumerate installed monospace font families so the settings UI can
+/// offer a typeahead instead of forcing the user to type the exact name.
+/// Returns unique family names (English US when available) sorted
+/// case-insensitively.
+#[tauri::command]
+async fn list_monospace_fonts() -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(|| -> Vec<String> {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for face in db.faces() {
+            if !face.monospaced {
+                continue;
+            }
+            if let Some((name, _)) = face.families.first() {
+                if !name.is_empty() {
+                    seen.insert(name.clone());
+                }
+            }
+        }
+        let mut out: Vec<String> = seen.into_iter().collect();
+        out.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        out
+    })
+    .await
+    .map_err(|e| format!("list_monospace_fonts join: {e}"))
+}
+
 #[tauri::command]
 async fn structure_read_binary_file(
     path: String,
@@ -3215,6 +3243,7 @@ pub fn run() {
             replay_scrollback,
             delete_scrollback,
             read_font_bytes,
+            list_monospace_fonts,
             write_to_session,
             resize_session,
             close_session,
