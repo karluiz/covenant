@@ -9,12 +9,134 @@
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SpecSource {
     Covenant,
     Superpowers,
+}
+
+fn canonical_or_self(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn git_toplevel(start: &Path) -> Option<PathBuf> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(start)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let root = text.trim();
+    if root.is_empty() {
+        None
+    } else {
+        Some(canonical_or_self(Path::new(root)))
+    }
+}
+
+fn git_worktree_roots(start: &Path) -> Vec<PathBuf> {
+    let out = match Command::new("git")
+        .arg("-C")
+        .arg(start)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+    {
+        Ok(out) if out.status.success() => out,
+        _ => return Vec::new(),
+    };
+    let Ok(text) = String::from_utf8(out.stdout) else {
+        return Vec::new();
+    };
+
+    let mut roots = Vec::new();
+    let mut current: Option<(PathBuf, bool)> = None;
+    let flush = |current: &mut Option<(PathBuf, bool)>, roots: &mut Vec<PathBuf>| {
+        let Some((path, bare)) = current.take() else {
+            return;
+        };
+        if bare {
+            return;
+        }
+        let path = canonical_or_self(&path);
+        if !roots.iter().any(|p| p == &path) {
+            roots.push(path);
+        }
+    };
+
+    for line in text.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            flush(&mut current, &mut roots);
+            current = Some((PathBuf::from(path), false));
+        } else if line == "bare" {
+            if let Some((_, bare)) = current.as_mut() {
+                *bare = true;
+            }
+        }
+    }
+    flush(&mut current, &mut roots);
+    roots
+}
+
+/// Resolve the directory whose spec folders should be watched for a tab.
+///
+/// The UI passes the tab's current cwd, which may be a nested directory inside
+/// a git worktree. Always watching that exact cwd misses specs written at the
+/// worktree root (`docs/specs/**`). Prefer git's worktree top-level; outside
+/// git, walk upward to the nearest existing spec folder; finally fall back to
+/// the cwd itself so non-git projects still get a detector.
+pub fn resolve_detector_root(start: &Path) -> PathBuf {
+    let start = if start.is_file() {
+        start.parent().unwrap_or(start)
+    } else {
+        start
+    };
+    let start = canonical_or_self(start);
+
+    if let Some(root) = git_toplevel(&start) {
+        return root;
+    }
+
+    let mut cur = start.clone();
+    loop {
+        if cur.join("docs/specs").is_dir() || cur.join("docs/superpowers/specs").is_dir() {
+            return cur;
+        }
+        let Some(parent) = cur.parent() else {
+            break;
+        };
+        cur = parent.to_path_buf();
+    }
+
+    start
+}
+
+/// Resolve all detector roots that should be active for a tab cwd.
+///
+/// For git repositories this includes non-bare sibling worktrees that already
+/// expose spec directories, not only the main checkout. That keeps suggestions
+/// alive when an executor writes a spec in a sibling worktree without creating
+/// empty `docs/` folders in unrelated worktrees.
+pub fn resolve_detector_roots(start: &Path) -> Vec<PathBuf> {
+    let primary = resolve_detector_root(start);
+    let mut roots = Vec::new();
+    roots.push(primary.clone());
+
+    for wt in git_worktree_roots(&primary) {
+        let has_spec_dirs = wt.join("docs/specs").is_dir()
+            || wt.join("docs/superpowers/specs").is_dir();
+        if has_spec_dirs && !roots.iter().any(|p| p == &wt) {
+            roots.push(wt);
+        }
+    }
+
+    roots
 }
 
 /// Classify a path relative to `repo_root`. Returns None if the path is
@@ -302,15 +424,35 @@ pub async fn start_spec_detector(
     app: AppHandle,
     repo_root: String,
 ) -> Result<(), String> {
-    let path = PathBuf::from(&repo_root);
+    let requested = PathBuf::from(&repo_root);
+    let roots = resolve_detector_roots(&requested);
     let db_path = state.storage.path().to_path_buf();
     let mut reg = state.spec_detectors.lock().await;
-    if reg.contains_key(&path) {
-        return Ok(());
+
+    let mut touched = false;
+    let mut last_err: Option<String> = None;
+    for path in roots {
+        if reg.contains_key(&path) {
+            touched = true;
+            continue;
+        }
+        match SpecDetector::start(app.clone(), path.clone(), db_path.clone()) {
+            Ok(det) => {
+                reg.insert(path, det);
+                touched = true;
+            }
+            Err(e) => {
+                tracing::warn!(requested = %requested.display(), root = %path.display(), error = %e, "spec_detector: start failed");
+                last_err = Some(e);
+            }
+        }
     }
-    let det = SpecDetector::start(app, path.clone(), db_path)?;
-    reg.insert(path, det);
-    Ok(())
+
+    if touched {
+        Ok(())
+    } else {
+        Err(last_err.unwrap_or_else(|| "no spec detector roots resolved".to_string()))
+    }
 }
 
 #[tauri::command]
@@ -389,6 +531,73 @@ mod tests {
     fn unrelated_path_ignored() {
         let p = root().join("README.md");
         assert_eq!(classify_spec(&root(), &p), None);
+    }
+
+    #[test]
+    fn resolve_detector_root_walks_up_to_existing_spec_dirs() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("docs/specs")).unwrap();
+        fs::create_dir_all(root.join("packages/app/src")).unwrap();
+
+        let got = resolve_detector_root(&root.join("packages/app/src"));
+        assert_eq!(got, root.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn resolve_detector_roots_include_git_worktrees_with_spec_dirs() {
+        use std::fs;
+        use std::process::Command;
+        use tempfile::TempDir;
+
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+
+        let tmp = TempDir::new().unwrap();
+        let main = tmp.path().join("repo");
+        let worktree = tmp.path().join("repo-hermes");
+        fs::create_dir_all(&main).unwrap();
+
+        let run = |cwd: &std::path::Path, args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(cwd)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+
+        run(&main, &["init"]);
+        run(&main, &["config", "user.email", "covenant@example.test"]);
+        run(&main, &["config", "user.name", "Covenant Tests"]);
+        fs::write(main.join("README.md"), "# repo\n").unwrap();
+        run(&main, &["add", "README.md"]);
+        run(&main, &["commit", "-m", "init"]);
+        run(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "feature/hermes",
+                worktree.to_str().unwrap(),
+            ],
+        );
+        fs::create_dir_all(worktree.join("docs/specs")).unwrap();
+
+        let roots = resolve_detector_roots(&main);
+        assert!(roots.contains(&main.canonicalize().unwrap()));
+        assert!(roots.contains(&worktree.canonicalize().unwrap()));
     }
 
     #[test]

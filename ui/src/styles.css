@@ -11810,44 +11810,144 @@ body[data-aom-phase="triaging"]
   font-size: 13px; flex-shrink: 0;
 }
 
-/* Spec-pending badge (Task 4) */
+/* Spec-pending badge (Task 4) — a mission target, not a paperclip. */
 .spec-badge {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 4px;
-  height: 16px;
-  margin-left: 4px;
-  font-size: 11px;
-  color: var(--accent, #3b82f6);
-  background: transparent;
-  border: 1px solid var(--accent, #3b82f6);
-  border-radius: 3px;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0;
+  color: color-mix(in srgb, var(--accent, #7aa2f7) 88%, white 12%);
+  background:
+    radial-gradient(circle at 50% 25%, rgb(255 255 255 / 0.18), transparent 45%),
+    color-mix(in srgb, var(--accent, #7aa2f7) 17%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 72%, transparent);
+  border-radius: 8px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    0 0 0 1px rgb(255 255 255 / 0.03),
+    0 6px 18px color-mix(in srgb, var(--accent, #7aa2f7) 18%, transparent);
   cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.spec-badge:hover {
+  transform: translateY(-1px);
+  background:
+    radial-gradient(circle at 50% 20%, rgb(255 255 255 / 0.24), transparent 48%),
+    color-mix(in srgb, var(--accent, #7aa2f7) 24%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #7aa2f7) 90%, white 10%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 0 0 1px rgb(255 255 255 / 0.04),
+    0 8px 22px color-mix(in srgb, var(--accent, #7aa2f7) 28%, transparent);
+}
+.spec-badge:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #7aa2f7) 70%, white 30%);
+  outline-offset: 2px;
 }
 .spec-badge.hidden { display: none; }
+.spec-badge-icon {
+  display: inline-flex;
+  line-height: 1;
+}
+.spec-badge-icon svg {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
+}
+.spec-badge-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  color: #07111f;
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 78%, white 22%);
+  border: 1px solid rgb(255 255 255 / 0.42);
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.35);
+}
 .spec-badge-count:empty { display: none; }
-.spec-badge-icon { font-size: 10px; line-height: 1; }
 .spec-badge-popover {
   z-index: 9999;
-  background: var(--bg-overlay, #1a1a1a);
-  border: 1px solid var(--border, #333);
-  border-radius: 6px;
-  padding: 6px;
-  min-width: 280px;
-  max-width: 380px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  color: var(--fg, #eef2ff);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.055), transparent 70%),
+    var(--bg-overlay, #11131a);
+  border: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 22%, var(--border, #333));
+  border-radius: 12px;
+  padding: 8px;
+  min-width: 300px;
+  max-width: 400px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.48), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  backdrop-filter: blur(16px);
 }
-.spec-badge-item { padding: 6px; border-bottom: 1px solid var(--border, #2a2a2a); }
-.spec-badge-item:last-child { border-bottom: none; }
-.spec-badge-item-file { font-weight: 600; font-size: 12px; }
-.spec-badge-item-snippet { font-size: 11px; color: var(--text-muted, #888); margin: 4px 0; }
-.spec-badge-item-actions { display: flex; gap: 6px; }
+.spec-badge-popover-head {
+  padding: 7px 8px 9px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  margin-bottom: 4px;
+}
+.spec-badge-popover-title {
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.01em;
+}
+.spec-badge-popover-subtitle {
+  margin-top: 2px;
+  color: var(--text-muted, #9aa3b2);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.spec-badge-item {
+  padding: 9px 8px;
+  border-radius: 9px;
+}
+.spec-badge-item + .spec-badge-item { border-top: 1px solid rgb(255 255 255 / 0.07); }
+.spec-badge-item:hover { background: rgb(255 255 255 / 0.045); }
+.spec-badge-item-kicker {
+  margin-bottom: 3px;
+  color: color-mix(in srgb, var(--accent, #7aa2f7) 78%, white 12%);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.spec-badge-item-file { font-weight: 720; font-size: 12px; }
+.spec-badge-item-snippet {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted, #9aa3b2);
+  margin: 5px 0 8px;
+}
+.spec-badge-item-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .spec-badge-item-actions button {
-  font-size: 11px; padding: 2px 8px; cursor: pointer;
-  background: transparent; border: 1px solid var(--border, #444); color: inherit; border-radius: 3px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 4px 9px;
+  cursor: pointer;
+  background: rgb(255 255 255 / 0.055);
+  border: 1px solid rgb(255 255 255 / 0.11);
+  color: inherit;
+  border-radius: 7px;
 }
-.spec-badge-set { color: var(--accent, #3b82f6); border-color: var(--accent, #3b82f6) !important; }
+.spec-badge-item-actions button:hover { background: rgb(255 255 255 / 0.09); }
+.spec-badge-set {
+  color: #07111f !important;
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 78%, white 22%) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28);
+}
 
 /* ── Spec-link contextual menu ── */
 .spec-link-menu {

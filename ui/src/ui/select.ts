@@ -296,6 +296,7 @@ export class CustomSelect {
       btn.addEventListener("click", () => this.chooseIndex(index));
       btn.addEventListener("mouseenter", () => {
         if (option.disabled) return;
+        if (this.highlighted === index) return;
         this.highlighted = index;
         this.renderPopover();
       });

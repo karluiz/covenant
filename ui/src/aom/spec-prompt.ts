@@ -46,7 +46,7 @@ export async function startSpecPrompts(host: SpecPromptHost) {
   unlisten = await subscribeSpecCandidates((cand) => onCandidate(cand));
 }
 
-/** Idempotent: starts a backend detector for the given repo root. */
+/** Idempotent: asks the backend to watch the given cwd's project/worktree root. */
 export async function ensureDetectorForRepo(repoRoot: string) {
   if (!repoRoot || startedRoots.has(repoRoot)) return;
   startedRoots.add(repoRoot);

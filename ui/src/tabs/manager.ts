@@ -565,6 +565,11 @@ export class TabManager {
   /// listener — there's only one bar.
   public onActiveContextChange: ((cwd: string | null) => void) | null = null;
 
+  /// Any tab's cwd changed, including background worktrees. Spec detection
+  /// uses this so a background executor writing docs/specs in its own
+  /// worktree still gets a detector before the user switches to it.
+  public onAnyTabContextChange: ((cwd: string | null) => void) | null = null;
+
   /// Mission-side companion to onActiveContextChange. Fires whenever the
   /// active tab's mission changes (set / cleared / hot-reloaded by the
   /// backend file watcher) OR when the active tab itself changes. Pushes
@@ -1909,6 +1914,7 @@ export class TabManager {
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) tabRef.current.cwd = event.cwd;
+              this.onAnyTabContextChange?.(event.cwd);
               recall?.setCwd(event.cwd);
               if (tabRef.current?.structure?.isVisible()) {
                 void tabRef.current.structure.setCwd(event.cwd);
@@ -2357,10 +2363,22 @@ export class TabManager {
         // first fit. Without this, the bottom row sometimes renders
         // under the status bar — invisible but selectable.
         requestAnimationFrame(() => {
+          const prevCols = term.cols;
+          const prevRows = term.rows;
           try {
             fit.fit();
           } catch {
             return;
+          }
+          // If fit() resolved to the same dimensions (sub-cell change),
+          // nudge to force xterm to re-sync its viewport scroll area.
+          if (term.cols === prevCols && term.rows === prevRows && prevRows > 1) {
+            try {
+              term.resize(prevCols, prevRows - 1);
+              term.resize(prevCols, prevRows);
+            } catch {
+              /* ignore */
+            }
           }
           void resizeSession(sessionId, term.cols, term.rows).catch((e) =>
             // eslint-disable-next-line no-console
@@ -2406,26 +2424,53 @@ export class TabManager {
       dispose: () => dprMql?.removeEventListener("change", onDprChange),
     };
 
-    // Last-resort refit when the user tries to scroll past the bottom
-    // and nothing happens. Catches drift cases no observer fires for
-    // (font reflow mid-stream, hidden-tab writes that wrapped against
-    // stale metrics). One wheel-down at the limit → refit + snap.
-    const onWheelAtBottom = (ev: WheelEvent): void => {
-      if (ev.deltaY <= 0) return;
-      const buf = term.buffer.active;
-      const atMaxScroll = buf.viewportY >= buf.baseY;
-      const hasContentBelow = term.rows - 1 > buf.cursorY || buf.baseY > 0;
-      if (!atMaxScroll || !hasContentBelow) return;
-      try {
-        fit.fit();
-      } catch {
-        /* ignore */
-      }
-      term.scrollToBottom();
+    // Last-resort viewport re-sync on wheel. Catches drift cases no
+    // observer fires for (data written while hidden, font reflow mid-
+    // stream, hidden-tab writes wrapped against stale metrics).
+    //
+    // Triggers: ANY wheel event where the viewport's scrollTop doesn't
+    // move (xterm ignores it because its internal scroll-area height is
+    // stale). We detect this by sampling scrollTop before and after a
+    // microtask — if the browser didn't scroll the viewport despite a
+    // nonzero deltaY, the geometry is wrong. Debounced: only one refit
+    // per 500ms to avoid hammering fit() on every wheel tick.
+    let wheelRefitTimer: ReturnType<typeof setTimeout> | null = null;
+    const onWheelStuck = (ev: WheelEvent): void => {
+      if (ev.deltaY === 0) return;
+      if (wheelRefitTimer !== null) return;
+      const vp = termHost.querySelector<HTMLElement>(".xterm-viewport");
+      if (!vp) return;
+      const before = vp.scrollTop;
+      // Check after the browser has processed the scroll.
+      requestAnimationFrame(() => {
+        const after = vp.scrollTop;
+        if (before !== after) return; // scroll worked — viewport is fine
+        // Viewport didn't scroll despite a wheel event → stale geometry.
+        // Force a resize cycle to rebuild the internal scroll area.
+        wheelRefitTimer = setTimeout(() => { wheelRefitTimer = null; }, 500);
+        const { cols, rows } = term;
+        try {
+          fit.fit();
+        } catch {
+          /* ignore */
+        }
+        // If fit() didn't change dimensions, nudge to force re-sync.
+        if (term.cols === cols && term.rows === rows && rows > 1) {
+          try {
+            term.resize(cols, rows - 1);
+            term.resize(cols, rows);
+          } catch {
+            /* ignore */
+          }
+        }
+      });
     };
-    termHost.addEventListener("wheel", onWheelAtBottom, { passive: true });
+    termHost.addEventListener("wheel", onWheelStuck, { passive: true });
     const wheelDispose = {
-      dispose: () => termHost.removeEventListener("wheel", onWheelAtBottom),
+      dispose: () => {
+        termHost.removeEventListener("wheel", onWheelStuck);
+        if (wheelRefitTimer !== null) clearTimeout(wheelRefitTimer);
+      },
     };
 
     // Pick up the backend's per-session enabled state (driven by
@@ -3439,6 +3484,25 @@ export class TabManager {
       doFit();
       requestAnimationFrame(() => {
         doFit();
+        // Force xterm to re-sync its viewport scroll area. When data
+        // was written while the pane was hidden (display:none), xterm
+        // updates its buffer but can't measure the viewport div — so
+        // the internal scroll-area height goes stale. If fit.fit()
+        // resolved to the same cols/rows, term.resize() was a no-op
+        // and the scroll area stayed wrong. The nudge below forces a
+        // real resize cycle: shrink by one row (recalculates scroll
+        // area) then grow back (recalculates again with correct
+        // geometry). Cost: two synchronous resize calls — negligible
+        // since this only runs on tab activation, not per-byte.
+        const { cols, rows } = term;
+        if (rows > 1) {
+          try {
+            term.resize(cols, rows - 1);
+            term.resize(cols, rows);
+          } catch {
+            /* ignore — terminal may be mid-dispose */
+          }
+        }
         void resizeSession(tab.sessionId, term.cols, term.rows).catch(() => {});
         term.scrollToBottom();
         term.focus();

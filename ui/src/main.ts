@@ -801,6 +801,9 @@ async function boot(): Promise<void> {
     statusBar.setCwd(cwd);
     if (cwd) void ensureDetectorForRepo(cwd);
   };
+  manager.onAnyTabContextChange = (cwd) => {
+    if (cwd) void ensureDetectorForRepo(cwd);
+  };
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
   };
@@ -970,6 +973,9 @@ async function boot(): Promise<void> {
     },
   });
 
+  for (const tab of manager.listTabSnapshots()) {
+    if (tab.cwd) void ensureDetectorForRepo(tab.cwd);
+  }
   const initialCwd = manager.activeCwd();
   if (initialCwd) void ensureDetectorForRepo(initialCwd);
 
@@ -982,7 +988,7 @@ async function boot(): Promise<void> {
   // Pi RPC overlay — singleton, lazy-spawns the backend session on first
   // open. Wired only as a keybinding entry (⌘⌥P) for PI-5; PI-6 will
   // promote it to a first-class TabKind.
-  const piPanel = getPiPanel();
+  getPiPanel();
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
   const operatorPage = requireEl<HTMLElement>("operator-page");
   const operator = new OperatorPanel(operatorPage, workspace, manager);

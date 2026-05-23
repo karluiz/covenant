@@ -1,3 +1,4 @@
+import { Icons } from "../icons";
 import type { SpecPromptState, TabSnapshot } from "./spec-prompt-state";
 
 export interface SpecBadgeHandle {
@@ -19,8 +20,9 @@ export function mountSpecBadge(
   const badge = document.createElement("button");
   badge.type = "button";
   badge.className = "spec-badge hidden";
-  badge.title = "Specs pending for this tab";
-  badge.innerHTML = `<span class="spec-badge-icon">📎</span><span class="spec-badge-count"></span>`;
+  badge.title = "New mission spec detected";
+  badge.setAttribute("aria-label", "New mission spec detected");
+  badge.innerHTML = `<span class="spec-badge-icon">${Icons.target({ size: 13, strokeWidth: 2 })}</span><span class="spec-badge-count"></span>`;
   parent.appendChild(badge);
 
   const render = () => {
@@ -36,6 +38,11 @@ export function mountSpecBadge(
       return;
     }
     badge.classList.remove("hidden");
+    const title = pending.length === 1
+      ? "1 new spec ready to set as mission"
+      : `${pending.length} new specs ready to set as missions`;
+    badge.title = title;
+    badge.setAttribute("aria-label", title);
     const count = badge.querySelector(".spec-badge-count")!;
     count.textContent = pending.length > 1 ? String(pending.length) : "";
   };
@@ -66,19 +73,28 @@ export function mountSpecBadge(
     if (pending.length === 0) return;
     popover = document.createElement("div");
     popover.className = "spec-badge-popover";
-    popover.innerHTML = pending.map((c) => {
+    const items = pending.map((c) => {
       const fileName = c.path.split("/").pop() ?? c.path;
+      const label = c.source === "covenant" ? "Covenant" : "Superpowers";
       return `
         <div class="spec-badge-item" data-path="${escapeAttr(c.path)}">
+          <div class="spec-badge-item-kicker">${escapeHtml(label)} spec</div>
           <div class="spec-badge-item-file">${escapeHtml(fileName)}</div>
-          <div class="spec-badge-item-snippet">${escapeHtml(c.goal_snippet)}</div>
+          <div class="spec-badge-item-snippet">${escapeHtml(c.goal_snippet || "No Goal snippet yet.")}</div>
           <div class="spec-badge-item-actions">
-            <button type="button" class="spec-badge-set">Asignar</button>
-            <button type="button" class="spec-badge-open">Abrir</button>
-            <button type="button" class="spec-badge-dismiss">Descartar</button>
+            <button type="button" class="spec-badge-set">Set mission</button>
+            <button type="button" class="spec-badge-open">Open</button>
+            <button type="button" class="spec-badge-dismiss">Dismiss</button>
           </div>
         </div>`;
     }).join("");
+    popover.innerHTML = `
+      <div class="spec-badge-popover-head">
+        <div class="spec-badge-popover-title">Mission candidate</div>
+        <div class="spec-badge-popover-subtitle">Detected in this folder/worktree</div>
+      </div>
+      ${items}
+    `;
     document.body.appendChild(popover);
     const r = badge.getBoundingClientRect();
     popover.style.position = "fixed";
