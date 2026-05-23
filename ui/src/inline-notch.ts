@@ -88,6 +88,7 @@ function fmtAgent(agent: string | null | undefined): string {
     case "opencode": return "opencode";
     case "aider": return "aider";
     case "gemini": return "Gemini";
+    case "hermes": return "Hermes";
     default: return agent ? agent : "agent";
   }
 }

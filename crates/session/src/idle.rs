@@ -18,12 +18,13 @@ pub const KNOWN_AGENTS: &[&str] = &[
     "aider",
     "gemini",
     "pi",
+    "hermes",
 ];
 
 /// Agents that render inline (no alternate screen). For these we skip the
 /// alt-screen gate but require a prompt-text regex match to avoid firing
 /// while the agent is mid-thought.
-pub const INLINE_AGENTS: &[&str] = &["claude", "codex", "pi"];
+pub const INLINE_AGENTS: &[&str] = &["claude", "codex", "pi", "hermes"];
 
 const QUIET_THRESHOLD: Duration = Duration::from_secs(3);
 

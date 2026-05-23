@@ -1,5 +1,5 @@
 import type { Settings } from "../api";
-import { listModelsAnthropic, listModelsOpenAiCompat } from "../api";
+import { listModelsAnthropic, listModelsAzureFoundry, listModelsOpenAiCompat } from "../api";
 import { CustomSelect, type SelectOption } from "../ui/select";
 
 type Role = "summary" | "chat" | "operator" | "triage";
@@ -85,6 +85,17 @@ function renderRoleRow(
     try {
       if (entry.kind === "anthropic") {
         models = await listModelsAnthropic();
+      } else if (entry.kind === "azure_foundry") {
+        models = await listModelsAzureFoundry({
+          endpoint: entry.base_url ?? "",
+          apiKey: entry.api_key ?? "",
+          mode: entry.azure_mode ?? "azure_open_ai",
+          apiVersion:
+            entry.azure_api_version ??
+            (entry.azure_mode === "ai_inference"
+              ? "2024-05-01-preview"
+              : "2024-10-21"),
+        });
       } else {
         models = await listModelsOpenAiCompat(entry.base_url ?? "");
       }

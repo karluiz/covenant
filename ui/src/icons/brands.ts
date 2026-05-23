@@ -57,6 +57,13 @@ const CODEX_SPARKLE_PATH =
 // than borrowing another project's logo.
 const PI_MONOGRAM_PATH = "M4 5H20V8H17V19H14V8H10V19H7V8H4V5Z";
 
+// Hermes (Nous Research) — stylised winged staff mark. A vertical
+// bar (the staff) topped with a pair of upswept wings, referencing the
+// petasos (winged helm) of the Greek god Hermes. Simple enough to read
+// at 12px while remaining distinct from the other executor glyphs.
+const HERMES_STAFF_PATH =
+  "M11 6h2v14h-2V6ZM3 4l8 5V6L3 1v3Zm18 0V1l-8 5v3l8-5Z";
+
 const BRAND_ICONS: Record<string, BrandIcon> = {
   claude: { pathD: siClaude.path },
   copilot: { pathD: siGithubcopilot.path },
@@ -65,6 +72,7 @@ const BRAND_ICONS: Record<string, BrandIcon> = {
   opencode: { pathD: OPENCODE_FRAME_PATH, evenodd: true },
   codex: { pathD: CODEX_SPARKLE_PATH },
   pi: { pathD: PI_MONOGRAM_PATH },
+  hermes: { pathD: HERMES_STAFF_PATH },
 };
 
 /// Render the brand icon for an executor as an inline SVG string, or

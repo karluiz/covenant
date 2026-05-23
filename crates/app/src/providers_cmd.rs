@@ -59,7 +59,12 @@ pub async fn probe_azure_foundry_models(
     use karl_agent::provider::azure_foundry::AzureMode;
     let base = endpoint.trim_end_matches('/');
     let url = match mode {
-        AzureMode::AzureOpenAi => format!("{}/openai/models?api-version={}", base, api_version),
+        // Azure OpenAI: list user-created *deployments* (the names used in
+        // `/openai/deployments/{name}/chat/completions`), not base models.
+        // The control-plane shape `{data:[{id, ...}]}` is the same.
+        AzureMode::AzureOpenAi => {
+            format!("{}/openai/deployments?api-version={}", base, api_version)
+        }
         AzureMode::AiInference => format!("{}/models?api-version={}", base, api_version),
     };
     let client = reqwest::Client::builder()
