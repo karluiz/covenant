@@ -113,7 +113,7 @@ const TERMINAL_THEME_DARK = {
 } as const;
 
 const TERMINAL_THEME_LIGHT = {
-  background: "rgba(0, 0, 0, 0)",
+  background: "rgba(255, 255, 255, 0.97)",
   foreground: "#24292f",
   cursor: "#2f6fed",
   cursorAccent: "#ffffff",

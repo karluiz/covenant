@@ -23,6 +23,8 @@ static RE_RUNNING_TOOL: OnceLock<Regex> = OnceLock::new();
 static RE_RUNNING_HEADER: OnceLock<Regex> = OnceLock::new();
 static RE_THINKING: OnceLock<Regex> = OnceLock::new();
 static RE_PI_THINKING_STATUS: OnceLock<Regex> = OnceLock::new();
+static RE_COPILOT_TOOL: OnceLock<Regex> = OnceLock::new();
+static RE_COPILOT_THINKING: OnceLock<Regex> = OnceLock::new();
 static RE_WAITING: OnceLock<Regex> = OnceLock::new();
 
 /// Cap on target string length so a missing newline (Claude Code v2.1
@@ -99,6 +101,25 @@ fn re_pi_thinking_status() -> &'static Regex {
             .unwrap()
     })
 }
+/// GitHub Copilot CLI renders tool plans as `● <Title> (<kind>)`, e.g.
+///   `● List current directory contents (shell)`
+///   `● Edit src/main.rs (write)`
+/// Capture the title and the kind so we can route to Running/Writing/Reading.
+fn re_copilot_tool() -> &'static Regex {
+    RE_COPILOT_TOOL.get_or_init(|| {
+        Regex::new(r"^●\s+([^(]{1,80}?)\s*\((shell|write|edit|create|read|search)\)").unwrap()
+    })
+}
+/// Copilot's live status footer: `Exploring workspace  esc cancel` — a
+/// present-participle gerund followed somewhere by `esc cancel`. No ellipsis
+/// (so `re_thinking` misses it). The literal `esc cancel` anchors the match
+/// to the active spinner line rather than arbitrary prose.
+fn re_copilot_thinking() -> &'static Regex {
+    RE_COPILOT_THINKING.get_or_init(|| {
+        Regex::new(r"\b[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}\besc\s+cancel\b").unwrap()
+    })
+}
+
 static RE_DONE: OnceLock<Regex> = OnceLock::new();
 /// Claude Code's "turn finished" recap: a past-tense verb + `for Ns`.
 /// Examples: `* Worked for 10s`, `* Cooked for 7s`, `* Crunched for 13s`.
@@ -164,6 +185,14 @@ impl ExecutorPhaseDetector {
                 let file = clamp_target(caps.get(1).unwrap().as_str());
                 return ExecutorPhase::Writing { file };
             }
+            if let Some(caps) = re_copilot_tool().captures(trimmed) {
+                let title = clamp_target(caps.get(1).unwrap().as_str());
+                return match caps.get(2).unwrap().as_str() {
+                    "write" | "edit" | "create" => ExecutorPhase::Writing { file: title },
+                    "read" | "search" => ExecutorPhase::Reading { file: title },
+                    _ => ExecutorPhase::Running { cmd: title },
+                };
+            }
             if let Some(caps) = re_read_tool().captures(trimmed) {
                 let file = clamp_target(caps.get(1).unwrap().as_str());
                 return ExecutorPhase::Reading { file };
@@ -210,7 +239,10 @@ impl ExecutorPhaseDetector {
         if re_done().is_match(&raw) {
             return ExecutorPhase::Done { summary: None };
         }
-        if re_thinking().is_match(&raw) || re_pi_thinking_status().is_match(&raw) {
+        if re_thinking().is_match(&raw)
+            || re_pi_thinking_status().is_match(&raw)
+            || re_copilot_thinking().is_match(&raw)
+        {
             return ExecutorPhase::Thinking;
         }
 

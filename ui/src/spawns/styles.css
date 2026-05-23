@@ -5,8 +5,8 @@
   gap: 8px;
   margin-left: 8px;
   padding: 4px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  background: transparent;
   border-radius: 8px;
   color: var(--text, #d5d9de);
   font: inherit;
@@ -37,7 +37,7 @@
 .spawns-popover {
   position: fixed;
   width: 240px;
-  background: rgba(14, 18, 24, 0.96);
+  background: rgba(20, 24, 30, 0.85);
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.14);

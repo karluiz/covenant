@@ -13989,7 +13989,7 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
 
 .inline-notch .inline-notch-head {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px;
+  padding: 14px 12px;
   background: transparent;
   border: 0;
   border-radius: 8px;
@@ -13998,11 +13998,14 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   text-align: left;
   cursor: pointer;
   width: 100%;
-  max-height: 72px;
+  height: 64px;
+  min-height: 64px;
+  max-height: 64px;
+  flex: 0 0 64px;
   overflow: hidden;
 }
 .inline-notch .inline-notch-head:hover {
-  background: color-mix(in srgb, var(--text, #d5d9de) 6%, transparent);
+  background: transparent;
 }
 .inline-notch .inline-notch-chev {
   margin-left: auto;
@@ -14036,11 +14039,9 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
 .inline-notch .inline-notch-sub {
   font-size: 11px; color: var(--muted, #8a93a0);
   line-height: 1.25;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: nowrap;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
 }
 
 .inline-notch .inline-notch-stream-head {
@@ -14133,7 +14134,7 @@ body.theme-light .inline-notch .inline-notch-head {
   box-shadow: none;
 }
 body.theme-light .inline-notch .inline-notch-head:hover {
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  background: transparent;
 }
 body.theme-light .inline-notch .inline-notch-name {
   color: var(--text-primary);
