@@ -23,6 +23,10 @@ const EXECUTORS: { match: RegExp; name: string }[] = [
   // `copilot` directly; older as `github-copilot-cli`.
   { match: /^copilot$/, name: "copilot" },
   { match: /^github-copilot-cli$/, name: "copilot" },
+  // Nous Research's Hermes agent — local MIT-licensed CLI (`hermes`).
+  // Spawn preset ships in spawns_store.rs; phase detection lives in
+  // crates/blocks/src/executor_phase.rs.
+  { match: /^hermes$/, name: "hermes" },
 ];
 
 /// Strip optional `env VAR=val ...` / `time` / `sudo` prefixes from
