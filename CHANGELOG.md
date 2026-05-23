@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.17 — Git popover redesign + providers overhaul + Sansation UI font
+
+### Added
+
+- **Git branch popover redesign**: filter input at the top (auto-focus, Esc clears) that filters both Branches and Worktrees lists in place. Rows are compact (single-line meta, fixed 32 px height) with flat hairline dividers drawn via `::before` so focused/current rows render with full border-radius. Current branch is pinned to the top of the Branches list and branches checked out in another worktree are removed from Branches entirely — they only appear in the Worktrees section below. Popover bottom corners are flat so it sits flush against the statusbar, and `z-index` was raised from `170` → `1450` so higher-stacked overlays no longer eat clicks (`ui/src/status/bar.ts`, `ui/src/styles.css`).
+- **Providers settings overhaul**: large rewrite of `ui/src/settings/providers.ts` (~860 lines) with new backing commands in `crates/app/src/providers_cmd.rs` and typed wrappers in `ui/src/api.ts`. Three exploratory layout mockups (master-detail / tiles / table) shipped under `docs/mockups/`.
+- **Sansation UI font**: loaded from Google Fonts via `@import` and inserted at the head of the `--ui-font` stack so the chrome picks it up while preserving the existing system fallback chain (`ui/src/styles.css`).
+
+### Changed
+
+- **Project-notes styles tweak**: minor adjustments in `ui/src/project-notes/styles.css`.
+
 ## v0.8.16 — CustomSelect rollout + right-panel polish + tooltip stability
 
 ### Added
