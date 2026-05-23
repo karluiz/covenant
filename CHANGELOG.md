@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.15 — Copilot CLI phase detection + activity notch polish
+
+### Added
+
+- **GitHub Copilot CLI executor phase detection**: The phase detector now recognizes Copilot's tool plan lines (`● <Title> (<kind>)` where kind is one of `shell`/`write`/`edit`/`create`/`read`/`search`) and routes them to `Writing`/`Reading`/`Running` accordingly, plus its live status footer (gerund + `esc cancel`) which now maps to `Thinking`. This brings Copilot in line with the existing Claude Code / Codex / Pi detection so the Activity sidebar reflects what Copilot is actually doing (`crates/blocks/src/executor_phase.rs`).
+
+### Changed
+
+- **Activity notch header is fixed-height and no longer grows**: The inline-notch agent card is now locked to 64px (`height` + `min-height` + `max-height` + `flex: 0 0 64px`) with `14px 12px` padding, and the sub line (`▸ <phase>`) uses single-line `text-overflow: ellipsis` instead of `-webkit-line-clamp: 2`. Long process descriptors truncate cleanly instead of expanding the card and pushing the activity stream down (`ui/src/styles.css`).
+- **Spawns chip is borderless by default**: Removed the always-on `1px solid rgba(255,255,255,.14)` border and faint `rgba(255,255,255,.02)` background from `.spawns-chip`; the chip now sits flush in the titlebar and only picks up its hover treatment when hovered. The popover background also shifted from the opaque `rgba(14,18,24,.96)` to the lighter glass `rgba(20,24,30,.85)` used elsewhere (`ui/src/spawns/styles.css`).
+
+### Fixed
+
+- **Activity notch header no longer flashes a hover background**: Both dark and light theme rules for `.inline-notch .inline-notch-head:hover` are now `background: transparent`, removing the `color-mix(... var(--text) 6%)` / `var(--text-primary) 5%` wash that appeared whenever the cursor crossed the agent card at the top of the Activity sidebar (`ui/src/styles.css`).
+- **Light-theme terminal background is opaque again**: `TERMINAL_THEME_LIGHT.background` was `rgba(0,0,0,0)`, which let whatever was behind the xterm canvas bleed through in light mode. Restored to `rgba(255,255,255,0.97)` so the terminal sits on a proper light surface (`ui/src/tabs/manager.ts`).
+
 ## v0.8.14 — Provider field focus fix + terminal font typeahead
 
 ### Added
