@@ -11,6 +11,7 @@ import {
 } from "../api";
 import { createSpecChatState } from "./state";
 import { mountSpecChatPanel } from "./panel";
+import { Icons } from "../icons";
 
 export interface SpecChatDeps {
   openWizardWithBody: (body: string) => void;
@@ -96,14 +97,24 @@ export function mountSpecChat(
       deps.openWizardWithBody(markdown);
       controller.close();
     };
+    currentPanel.onClose = () => {
+      panelMounted = false;
+      host.hidden = true;
+    };
     currentPanel.open();
     panelMounted = true;
   }
+
+  let chooserKeyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   function removeChooser(): void {
     if (chooserEl) {
       chooserEl.remove();
       chooserEl = null;
+    }
+    if (chooserKeyHandler) {
+      document.removeEventListener("keydown", chooserKeyHandler);
+      chooserKeyHandler = null;
     }
   }
 
@@ -112,11 +123,40 @@ export function mountSpecChat(
 
     const el = document.createElement("div");
     el.className = "spec-chat-chooser";
+    // Backdrop click (anywhere outside a button) dismisses the chooser.
+    el.addEventListener("click", (e) => {
+      if (e.target === el) controller.close();
+    });
+    // Esc dismisses while the chooser is mounted.
+    chooserKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        controller.close();
+      }
+    };
+    document.addEventListener("keydown", chooserKeyHandler);
 
-    const title = document.createElement("p");
-    title.className = "spec-chat-chooser-title";
-    title.textContent = "What do you want to do?";
-    el.appendChild(title);
+    const head = document.createElement("header");
+    head.className = "spec-chat-chooser-head";
+
+    const brand = document.createElement("h2");
+    brand.className = "spec-chat-chooser-brand";
+    const brandIcon = document.createElement("span");
+    brandIcon.className = "spec-chat-chooser-brand-icon";
+    brandIcon.innerHTML = Icons.sparkles({ size: 16 });
+    brandIcon.setAttribute("aria-hidden", "true");
+    const brandText = document.createElement("span");
+    brandText.textContent = "Spec Creator";
+    brand.appendChild(brandIcon);
+    brand.appendChild(brandText);
+
+    const lead = document.createElement("p");
+    lead.className = "spec-chat-chooser-lead";
+    lead.textContent = "what do you want to do?";
+
+    head.appendChild(brand);
+    head.appendChild(lead);
+    el.appendChild(head);
 
     // "Retomar" options (up to 3)
     const recent = drafts.slice(0, 3);

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Spec chooser — title proposals</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --bg-overlay: #15171c;
+    --bg-panel: #11141a;
+    --border: #2a2d35;
+    --text-primary: #e6e8eb;
+    --muted: #8a8aa8;
+    --accent: #6aa9ff;
+    --ink-rgb: 230 232 235;
+    font-family:
+      ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI",
+      Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #050608;
+    color: var(--text-primary);
+    padding: 24px;
+  }
+  h1.page {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 4px;
+  }
+  p.page-sub {
+    margin: 0 0 24px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .card-label {
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.015);
+  }
+  .stage {
+    /* the visual canvas where we drop the chooser, simulating the dim
+       backdrop the real overlay paints. */
+    position: relative;
+    height: 460px;
+    background:
+      radial-gradient(circle at 50% 50%, #181b21 0%, #0b0d11 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+  }
+
+  /* ---- Shared chooser body — mirrors ui/src/styles.css:11462 ----- */
+  .spec-chat-chooser {
+    width: 100%;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+  .spec-chat-chooser-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px;
+    text-align: center;
+  }
+  .spec-chat-chooser-btn {
+    display: block;
+    width: 100%;
+    max-width: 460px;
+    padding: 10px 14px;
+    background: var(--bg-overlay);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+    font-family: inherit;
+  }
+  .spec-chat-chooser-btn:hover {
+    border-color: var(--muted);
+    background: var(--bg-panel);
+  }
+  .spec-chat-chooser-btn--blank {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  /* ---- Proposal A: Eyebrow kicker ---- */
+  .head-a { text-align: center; display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+  .eyebrow {
+    margin: 0;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .eyebrow .sep {
+    margin: 0 6px;
+    opacity: 0.6;
+  }
+
+  /* ---- Proposal B: Sparkles + brand title ---- */
+  .head-b { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; margin-bottom: 6px; }
+  .brand {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .brand svg { color: var(--accent); }
+  .brand-lead {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 400;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+  }
+
+  /* ---- Proposal C: Pill chip badge ---- */
+  .head-c { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 10px;
+    border: 1px solid var(--border);
+    background: rgba(var(--ink-rgb), 0.03);
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .pill .dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    font-style: normal;
+  }
+</style>
+</head>
+<body>
+  <h1 class="page">Spec chooser — title proposals</h1>
+  <p class="page-sub">three variants of the header above "What do you want to do?".</p>
+
+  <div class="grid">
+
+    <!-- Proposal A — Eyebrow kicker ------------------------------- -->
+    <div class="card">
+      <div class="card-label">A · Eyebrow kicker</div>
+      <div class="stage">
+        <div class="spec-chat-chooser">
+          <header class="head-a">
+            <p class="eyebrow">Covenant<span class="sep">·</span>Spec Creator</p>
+            <p class="spec-chat-chooser-title">What do you want to do?</p>
+          </header>
+          <button class="spec-chat-chooser-btn" type="button">
+            Resume "i want to create a light mode for this terminal" (last edited: 3d ago)
+          </button>
+          <button class="spec-chat-chooser-btn" type="button">Start a new one</button>
+          <button class="spec-chat-chooser-btn spec-chat-chooser-btn--blank" type="button">
+            Blank draft (no chat)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proposal B — Sparkles + brand title ----------------------- -->
+    <div class="card">
+      <div class="card-label">B · Sparkles + brand</div>
+      <div class="stage">
+        <div class="spec-chat-chooser">
+          <header class="head-b">
+            <h2 class="brand">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>
+              </svg>
+              Spec Creator
+            </h2>
+            <p class="brand-lead">what do you want to do?</p>
+          </header>
+          <button class="spec-chat-chooser-btn" type="button">
+            Resume "i want to create a light mode for this terminal" (last edited: 3d ago)
+          </button>
+          <button class="spec-chat-chooser-btn" type="button">Start a new one</button>
+          <button class="spec-chat-chooser-btn spec-chat-chooser-btn--blank" type="button">
+            Blank draft (no chat)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Proposal C — Pill chip ------------------------------------ -->
+    <div class="card">
+      <div class="card-label">C · Pill chip</div>
+      <div class="stage">
+        <div class="spec-chat-chooser">
+          <header class="head-c">
+            <span class="pill">
+              <i class="dot" aria-hidden="true"></i>
+              covenant · spec creator
+            </span>
+            <p class="spec-chat-chooser-title">What do you want to do?</p>
+          </header>
+          <button class="spec-chat-chooser-btn" type="button">
+            Resume "i want to create a light mode for this terminal" (last edited: 3d ago)
+          </button>
+          <button class="spec-chat-chooser-btn" type="button">Start a new one</button>
+          <button class="spec-chat-chooser-btn spec-chat-chooser-btn--blank" type="button">
+            Blank draft (no chat)
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

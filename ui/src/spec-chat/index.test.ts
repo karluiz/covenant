@@ -37,9 +37,13 @@ function makeMockPanel(): { panel: SpecChatPanel; opened: boolean } {
   const record = { opened: false };
   const panel: SpecChatPanel = {
     onPublishRequest: null,
+    onClose: null,
     isOpen: () => record.opened,
     open() { record.opened = true; },
-    close() { record.opened = false; },
+    close() {
+      record.opened = false;
+      panel.onClose?.();
+    },
   };
   return { panel, ...record };
 }
@@ -209,5 +213,77 @@ describe("mountSpecChat — chooser logic", () => {
     expect(markPublished).toHaveBeenCalledWith("test-draft-id");
     // Controller closes itself after publish
     expect(ctrl.isOpen()).toBe(false);
+  });
+
+  it("6b. Escape dismisses the chooser overlay", async () => {
+    const draft = makeDraft();
+    const listDrafts = vi.fn().mockResolvedValue([draft]);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
+    ctrl.open();
+    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    expect(ctrl.isOpen()).toBe(false);
+  });
+
+  it("6c. Backdrop click on the chooser dismisses it", async () => {
+    const draft = makeDraft();
+    const listDrafts = vi.fn().mockResolvedValue([draft]);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
+    ctrl.open();
+    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+
+    const chooser = host.querySelector(".spec-chat-chooser") as HTMLElement;
+    chooser.click(); // click directly on chooser (backdrop), not on a button
+
+    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    expect(ctrl.isOpen()).toBe(false);
+  });
+
+  it("6. Closing via the panel's own X resets controller state so it can reopen", async () => {
+    const listDrafts = vi.fn().mockResolvedValue([]);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    let capturedPanel: SpecChatPanel | undefined;
+    const mountPanel = (_h: HTMLElement, _s: SpecChatState): SpecChatPanel => {
+      const { panel } = makeMockPanel();
+      capturedPanel = panel;
+      return panel;
+    };
+    const createState = (): SpecChatState => ({
+      draftId: () => null,
+      messages: () => [],
+      awaitingAnswer: () => false,
+      finalMarkdown: () => null,
+      phase: () => null,
+      submit: vi.fn().mockResolvedValue(undefined),
+      restoreDraft: vi.fn().mockResolvedValue(undefined),
+      reset: vi.fn(),
+      onChange: vi.fn().mockReturnValue(() => {}),
+    });
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountPanel, createState });
+    ctrl.open();
+    await vi.waitFor(() => expect(ctrl.isOpen()).toBe(true));
+
+    // User clicks the panel's own X — bypasses controller.close()
+    capturedPanel!.close();
+    expect(ctrl.isOpen()).toBe(false);
+
+    // Reopening must mount a fresh panel
+    capturedPanel = undefined;
+    ctrl.open();
+    await vi.waitFor(() => expect(capturedPanel).toBeDefined());
+    expect(capturedPanel!.isOpen()).toBe(true);
+    expect(ctrl.isOpen()).toBe(true);
   });
 });

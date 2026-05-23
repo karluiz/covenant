@@ -18,6 +18,8 @@ export interface SpecChatPanel {
   isOpen: () => boolean;
   /** Called when the agent emits final markdown and the user clicks "Revisar y publicar". */
   onPublishRequest: ((markdown: string, draftId: string) => void) | null;
+  /** Fired after the panel closes itself (e.g. user clicked the X). */
+  onClose: (() => void) | null;
 }
 
 export function mountSpecChatPanel(
@@ -26,9 +28,11 @@ export function mountSpecChatPanel(
 ): SpecChatPanel {
   let root: HTMLElement | null = null;
   let unsub: (() => void) | null = null;
+  let keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   const panel: SpecChatPanel = {
     onPublishRequest: null,
+    onClose: null,
     isOpen: () => root !== null,
 
     open() {
@@ -51,7 +55,7 @@ export function mountSpecChatPanel(
       titleIcon.innerHTML = Icons.sparkles({ size: 14 });
       const title = document.createElement("span");
       title.className = "spec-chat-title";
-      title.textContent = "New spec";
+      title.textContent = "Spec Creator";
       titleWrap.appendChild(titleIcon);
       titleWrap.appendChild(title);
 
@@ -151,6 +155,15 @@ export function mountSpecChatPanel(
         if (e.target === root) panel.close();
       });
 
+      // Esc dismisses the wizard.
+      keyHandler = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          panel.close();
+        }
+      };
+      document.addEventListener("keydown", keyHandler);
+
       // Submit logic
       const doSubmit = async () => {
         const text = textarea.value.trim();
@@ -234,6 +247,11 @@ export function mountSpecChatPanel(
         unsub();
         unsub = null;
       }
+      if (keyHandler) {
+        document.removeEventListener("keydown", keyHandler);
+        keyHandler = null;
+      }
+      panel.onClose?.();
     },
   };
 

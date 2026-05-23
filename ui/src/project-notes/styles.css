@@ -53,6 +53,12 @@
   font-family: var(--font-ui);
   /* left accent bar (group color) */
   box-shadow: inset 2px 0 0 0 var(--pn-accent, var(--accent, #6aa9ff));
+  animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pn-panel {
+    animation: none;
+  }
 }
 body.theme-light .pn-panel {
   --pn-code-bg: rgb(0 0 0 / 0.04);
