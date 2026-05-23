@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.14 — Provider field focus fix + terminal font typeahead
+
+### Added
+
+- **Monospace font typeahead in Terminal settings**: New `list_monospace_fonts` Tauri command enumerates installed monospace families via `fontdb` and feeds them into the Terminal settings font input as a `<datalist>`, so the font field now offers an autocomplete dropdown of what's actually installed instead of forcing users to guess exact family names (`crates/app/src/lib.rs`, `ui/src/api.ts`, `ui/src/settings/panel.ts`).
+
+### Fixed
+
+- **Provider field inputs no longer steal focus on every keystroke**: Every keystroke in the Anthropic key, OpenAI-compat URL, or any of the four Azure Foundry fields (endpoint, key, api version, deployment) was calling `onChange`, which made the settings panel re-render the whole providers tab via `root.innerHTML = ""`, destroying the input the user was typing into. Field inputs now mutate the entry object in place and skip the re-render entirely; persistence still works because `settings` is the same reference as `panel.current` and the Save submit serializes it as-is. The Mode dropdown still triggers a re-render (renamed `restructure()`) because flipping to Azure OpenAI shows/hides the Deployment field. This was also the proximate cause of the 401 on Test connection for Azure Foundry — focus loss made it impossible to paste/type the full 88-char key cleanly, so the persisted/sent value was truncated; with focus preserved the live DOM value reaches the Tauri command intact (`ui/src/settings/providers.ts`).
+- **Settings tabs render with uniform vertical padding**: Tab switching toggles section visibility via `display:none`, so `.settings-section:first-of-type`/`:last-of-type` always matched the DOM-first/last sections (Providers/Workspace) regardless of which tab was active, giving those two tabs a different vertical offset than the rest. Removed both pseudo-class paddings; every tab section now lines up the same way (`ui/src/styles.css`).
+- **Sidebar resizer no longer paints over full-page routes**: The absolutely-positioned `.sidebar-resizer` at z-index 45 was painting a faint vertical line over Settings, Docs, Drafts, Mission, Operator, and Capabilities pages on hover, even though the right rail underneath was `display:none`. The resizer handles are now hidden whenever any of those pages is open (`ui/src/styles.css`).
+
 ## v0.8.13 — Spec Creator chooser polish + project-notes slide-in
 
 ### Added
