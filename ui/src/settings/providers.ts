@@ -122,12 +122,13 @@ function renderProviderCard(
     keyInput.type = "password";
     keyInput.placeholder = "sk-ant-...";
     keyInput.value = entry.api_key ?? "";
+    // Field edits mutate the entry in place. We do NOT re-render the
+    // providers tab on each keystroke — that destroys the input and
+    // throws away focus + caret position. Persistence still works
+    // because `settings` is the same reference as `panel.current`,
+    // and the Save submit serializes it as-is.
     keyInput.oninput = () => {
-      const next = JSON.parse(JSON.stringify(settings)) as Settings;
-      // Trim — pasted keys often pick up trailing whitespace which
-      // Anthropic rejects without a clear error.
-      next.providers![id] = { ...entry, api_key: keyInput.value.trim() };
-      onChange(next);
+      entry.api_key = keyInput.value.trim();
     };
     card.appendChild(labeled("API key", keyInput));
   } else if (entry.kind === "azure_foundry") {
@@ -137,9 +138,7 @@ function renderProviderCard(
     urlInput.type = "text";
     urlInput.value = entry.base_url ?? "http://localhost:11434/v1";
     urlInput.oninput = () => {
-      const next = JSON.parse(JSON.stringify(settings)) as Settings;
-      next.providers![id] = { ...entry, base_url: urlInput.value };
-      onChange(next);
+      entry.base_url = urlInput.value;
     };
     card.appendChild(labeled("Base URL", urlInput));
 
@@ -186,7 +185,9 @@ function renderAzureFoundryCard(
   settings: Settings,
   onChange: (next: Settings) => void,
 ): void {
-  const update = (patch: Partial<ProviderEntry>) => {
+  // Structural change: triggers a parent re-render. Used for the mode
+  // toggle, which shows/hides the Deployment field.
+  const restructure = (patch: Partial<ProviderEntry>) => {
     const next = JSON.parse(JSON.stringify(settings)) as Settings;
     next.providers![id] = { ...entry, ...patch };
     onChange(next);
@@ -206,24 +207,27 @@ function renderAzureFoundryCard(
       entry.azure_api_version &&
       entry.azure_api_version !== "2024-05-01-preview" &&
       entry.azure_api_version !== "2024-10-21";
-    update({
+    restructure({
       azure_mode: mode,
       azure_api_version: keep ? entry.azure_api_version : defaultVersion,
     });
   };
   card.appendChild(labeled("Mode", modeSelect));
 
+  // Field edits mutate `entry` in place — no re-render, focus and caret
+  // survive. `settings` is the same reference as `panel.current`, so the
+  // Save submit picks up these mutations as-is.
   const endpoint = document.createElement("input");
   endpoint.type = "text";
   endpoint.placeholder = "https://my-resource.services.ai.azure.com";
   endpoint.value = entry.base_url ?? "";
-  endpoint.oninput = () => update({ base_url: endpoint.value.trim() });
+  endpoint.oninput = () => { entry.base_url = endpoint.value.trim(); };
   card.appendChild(labeled("Endpoint", endpoint));
 
   const apiKey = document.createElement("input");
   apiKey.type = "password";
   apiKey.value = entry.api_key ?? "";
-  apiKey.oninput = () => update({ api_key: apiKey.value.trim() });
+  apiKey.oninput = () => { entry.api_key = apiKey.value.trim(); };
   card.appendChild(labeled("API key", apiKey));
 
   const apiVersion = document.createElement("input");
@@ -231,7 +235,7 @@ function renderAzureFoundryCard(
   apiVersion.value =
     entry.azure_api_version ??
     (entry.azure_mode === "azure_open_ai" ? "2024-10-21" : "2024-05-01-preview");
-  apiVersion.oninput = () => update({ azure_api_version: apiVersion.value.trim() });
+  apiVersion.oninput = () => { entry.azure_api_version = apiVersion.value.trim(); };
   card.appendChild(labeled("API version", apiVersion));
 
   if ((entry.azure_mode ?? "ai_inference") === "azure_open_ai") {
@@ -239,7 +243,7 @@ function renderAzureFoundryCard(
     deployment.type = "text";
     deployment.placeholder = "e.g. gpt-4o-deployment";
     deployment.value = entry.azure_deployment ?? "";
-    deployment.oninput = () => update({ azure_deployment: deployment.value.trim() });
+    deployment.oninput = () => { entry.azure_deployment = deployment.value.trim(); };
     card.appendChild(labeled("Deployment", deployment));
   }
 

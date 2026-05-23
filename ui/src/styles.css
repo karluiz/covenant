@@ -3218,13 +3218,13 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     scroll-margin-top: 24px;
 }
 
-.settings-section:first-of-type {
-    padding-top: 64px;
-}
-
+/* Tabs render one section at a time via display:none, so first/last-of-type
+   would only ever match the DOM-first/last sections (Providers/Workspace)
+   regardless of which tab is active — causing those two tabs to render at
+   a different vertical offset than the rest. Keep padding uniform; the
+   border-bottom is harmless because only one section is visible. */
 .settings-section:last-of-type {
     border-bottom: none;
-    padding-bottom: 64px;
 }
 
 .settings-section-title {
