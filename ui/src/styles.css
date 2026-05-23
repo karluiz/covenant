@@ -13973,6 +13973,19 @@ body.tabbar-left-collapsed #left-sidebar-resizer,
 body.blocks-globally-collapsed #right-sidebar-resizer {
   display: none;
 }
+/* Hide sidebar resizers whenever a full-page route covers the layout
+   (Settings/Docs/Drafts/Mission/Operator/Capabilities). The right rail is
+   `display: none` in these states but the absolutely-positioned resizer
+   handle has its own z-index and would otherwise paint a faint vertical
+   line on hover across the open page. */
+#layout:has(> #settings-page:not([hidden])) .sidebar-resizer,
+#layout:has(> #docs-page:not([hidden])) .sidebar-resizer,
+#layout:has(> #drafts-page:not([hidden])) .sidebar-resizer,
+#layout:has(> #mission-page:not([hidden])) .sidebar-resizer,
+#layout:has(> #operator-page:not([hidden])) .sidebar-resizer,
+#layout:has(> #capabilities-page:not([hidden])) .sidebar-resizer {
+  display: none !important;
+}
 
 .inline-notch .inline-notch-head {
   display: flex; align-items: center; gap: 10px;
