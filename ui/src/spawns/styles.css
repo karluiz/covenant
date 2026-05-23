@@ -15,7 +15,7 @@
   position: relative;
 }
 .spawns-chip:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: transparent;
 }
 .spawns-chip__dot {
   width: 8px;
@@ -219,17 +219,27 @@
   line-height: 1;
 }
 
-select.spawns-settings-input {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 22px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path fill='none' stroke='%238a93a0' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 9px 6px;
+.spawns-settings-select {
+  min-width: 0;
+}
+.spawns-settings-select .ui-select__button {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: var(--text, #d5d9de);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 26px;
+  min-height: 26px;
+  line-height: 1;
 }
 
-.spawns-settings-input:focus {
+.spawns-settings-input:focus,
+.spawns-settings-select .ui-select__button:focus-visible,
+.spawns-settings-select .ui-select__button[aria-expanded="true"] {
   outline: none;
   border-color: var(--accent, #b794f4);
 }

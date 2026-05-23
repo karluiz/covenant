@@ -23,14 +23,6 @@ let openTimer: number | null = null;
 let closeTimer: number | null = null;
 let activeTarget: HTMLElement | null = null;
 let watchRaf: number | null = null;
-let lastPointer: { x: number; y: number } = { x: -1, y: -1 };
-window.addEventListener(
-  "pointermove",
-  (e) => {
-    lastPointer = { x: e.clientX, y: e.clientY };
-  },
-  { passive: true, capture: true },
-);
 
 function ensureHost(): HTMLElement {
   if (host) return host;
@@ -123,23 +115,17 @@ function hide(): void {
 
 /// Streaming UIs (activity sidebar, etc.) re-render the hovered row out
 /// from under the cursor, so the synthetic mouseleave never fires. Poll
-/// while visible: if the target detaches from the DOM or the cursor is
-/// no longer over its rect, hide.
+/// while visible and hide if the target detaches from the DOM. We
+/// intentionally do NOT compare the cursor against the target rect here:
+/// micro-movements and moving the cursor toward the tooltip itself would
+/// otherwise kill the tooltip within a second. Normal `mouseleave`
+/// handles the "cursor left the element" case.
 function startWatch(): void {
   stopWatch();
   const tick = () => {
     watchRaf = null;
     if (!activeTarget) return;
     if (!activeTarget.isConnected) {
-      hide();
-      return;
-    }
-    const r = activeTarget.getBoundingClientRect();
-    const { x, y } = lastPointer;
-    const outside =
-      x >= 0 &&
-      (x < r.left - 2 || x > r.right + 2 || y < r.top - 2 || y > r.bottom + 2);
-    if (outside) {
       hide();
       return;
     }

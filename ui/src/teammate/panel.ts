@@ -172,7 +172,11 @@ export class TeammatePanel {
     c.className = "teammate-panel-composer";
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = `Hablar con ${this.operator?.name ?? ""}…`;
+    input.placeholder = `hablar con ${this.operator?.name ?? ""}…`;
+    input.autocomplete = "off";
+    input.autocapitalize = "off";
+    input.setAttribute("autocorrect", "off");
+    input.spellcheck = false;
     input.className = "teammate-panel-input";
     this.inputEl = input;
     c.append(input);

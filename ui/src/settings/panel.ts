@@ -22,6 +22,7 @@ import { renderProvidersTab } from "./providers";
 import { renderModelsTab } from "./model_routes";
 import { renderSpawnsTab } from "./spawns";
 import { activateTab, type SettingsTab } from "./tabs";
+import { CustomSelect } from "../ui/select";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -405,12 +406,7 @@ export class SettingsPanel {
           </label>
           <label class="settings-field">
             <span class="settings-label">Notch position</span>
-            <select name="notch_corner">
-              <option value="bottom-right">Bottom right</option>
-              <option value="bottom-left">Bottom left</option>
-              <option value="top-right">Top right</option>
-              <option value="top-left">Top left</option>
-            </select>
+            <span data-role="notch-corner-select"></span>
             <small class="settings-hint">
               Screen corner where the floating overlay anchors.
             </small>
@@ -747,9 +743,21 @@ export class SettingsPanel {
     const notchEnabled = form.querySelector<HTMLInputElement>(
       'input[name="notch_enabled"]',
     )!;
-    const notchCorner = form.querySelector<HTMLSelectElement>(
-      'select[name="notch_corner"]',
+    const notchCornerHost = form.querySelector<HTMLElement>(
+      '[data-role="notch-corner-select"]',
     )!;
+    const notchCorner = new CustomSelect({
+      className: "settings-select",
+      ariaLabel: "Notch position",
+      value: this.current.notch_corner ?? "bottom-right",
+      options: [
+        { value: "bottom-right", label: "Bottom right" },
+        { value: "bottom-left", label: "Bottom left" },
+        { value: "top-right", label: "Top right" },
+        { value: "top-left", label: "Top left" },
+      ],
+    });
+    notchCornerHost.replaceWith(notchCorner.element);
     const notchSoundOnDone = form.querySelector<HTMLInputElement>(
       'input[name="notch_sound_on_done"]',
     )!;

@@ -1,5 +1,6 @@
 import type { SpawnSpec } from "../spawns/types";
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
+import { CustomSelect } from "../ui/select";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -119,14 +120,17 @@ function renderRow(
   row.dataset["id"] = spec.id;
 
   const isPreset = PRESET_KEYS.includes(spec.label);
-  const options = PRESET_KEYS
-    .map((k) => `<option value="${escHtml(k)}"${k === spec.label ? " selected" : ""}>${escHtml(k)}</option>`)
-    .join("");
+  const labelSelect = new CustomSelect({
+    className: "spawns-settings-select",
+    ariaLabel: "Spawn brand",
+    value: isPreset ? spec.label : "__custom__",
+    options: [
+      ...PRESET_KEYS.map((k) => ({ value: k, label: k })),
+      { value: "__custom__", label: "Custom…" },
+    ],
+  });
   row.innerHTML = `
-    <select class="spawns-settings-input" name="label">
-      ${options}
-      <option value="__custom__"${isPreset ? "" : " selected"}>Custom…</option>
-    </select>
+    <span data-role="label-select"></span>
     <input class="spawns-settings-input spawns-settings-input--wide" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" name="command" placeholder="e.g. claude, gh, ollama" value="${escHtml(spec.command)}" />
     <input class="spawns-settings-input spawns-settings-input--wide" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" name="args" placeholder="e.g. copilot, run llama3" value="${escHtml(spec.args.join(" "))}" />
     <input class="spawns-settings-input" type="text" name="model" placeholder="e.g. claude-sonnet-4-6" value="${escHtml(spec.model ?? "")}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
@@ -137,13 +141,13 @@ function renderRow(
     <button class="spawns-settings-delete btn-secondary" type="button" title="Delete">✕</button>
   `;
 
-  const sel = row.querySelector<HTMLSelectElement>('select[name="label"]')!;
+  row.querySelector<HTMLElement>('[data-role="label-select"]')!.replaceWith(labelSelect.element);
   const cmdInp = row.querySelector<HTMLInputElement>('input[name="command"]')!;
   const argsInp = row.querySelector<HTMLInputElement>('input[name="args"]')!;
   const modelInp = row.querySelector<HTMLInputElement>('input[name="model"]')!;
 
   const persist = async (): Promise<void> => {
-    const selVal = sel.value;
+    const selVal = labelSelect.value;
     const label = selVal === "__custom__" ? (spec.label || spec.id) : selVal;
     const command = cmdInp.value.trim();
     const argsRaw = argsInp.value.trim();
@@ -161,8 +165,8 @@ function renderRow(
     await onChange(updated);
   };
 
-  sel.addEventListener("change", () => {
-    const preset = PRESETS[sel.value];
+  labelSelect.element.addEventListener("change", () => {
+    const preset = PRESETS[labelSelect.value];
     if (preset) {
       cmdInp.value = preset.command;
       argsInp.value = preset.args.join(" ");
@@ -240,8 +244,8 @@ function renderRow(
       hintEl.appendChild(note);
     }
   };
-  renderHint(spec.label);
-  sel.addEventListener("change", () => renderHint(sel.value));
+  renderHint(labelSelect.value);
+  labelSelect.element.addEventListener("change", () => renderHint(labelSelect.value));
   host.appendChild(hintEl);
 }
 

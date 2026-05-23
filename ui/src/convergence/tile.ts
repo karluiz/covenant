@@ -1,5 +1,6 @@
 import type { EscalationCard, OperatorRosterEntry, SessionSummary } from "../api";
 import { renderAvatarHtml } from "../operator/avatars";
+import { CustomSelect } from "../ui/select";
 
 type SubmitFn = (
   sessionId: string,
@@ -79,14 +80,12 @@ function renderReplyComposer(sessionId: string, onSubmit: SubmitFn): HTMLElement
 
   const controls = document.createElement("div");
   controls.className = "cv-reply__controls";
-  const scope = document.createElement("select");
-  scope.className = "cv-reply__scope";
-  for (const v of ["one-shot", "mission", "global"]) {
-    const o = document.createElement("option");
-    o.value = v;
-    o.textContent = v;
-    scope.append(o);
-  }
+  const scope = new CustomSelect({
+    className: "cv-reply__scope-select",
+    ariaLabel: "Reply scope",
+    value: "one-shot",
+    options: ["one-shot", "mission", "global"].map((v) => ({ value: v, label: v })),
+  });
   const send = document.createElement("button");
   send.type = "button";
   send.className = "cv-reply__send";
@@ -112,7 +111,7 @@ function renderReplyComposer(sessionId: string, onSubmit: SubmitFn): HTMLElement
     }
   });
 
-  controls.append(scope, send);
+  controls.append(scope.element, send);
   wrap.append(textarea, controls);
   // Auto-focus the textarea so the active card is immediately ready
   // for typing — required by the spec's keyboard-first reply UX.

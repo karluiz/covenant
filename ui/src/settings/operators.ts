@@ -16,6 +16,7 @@ import { workspacesManager } from "../main";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { PersonaComposerModal } from "../operator/persona-composer";
+import { CustomSelect } from "../ui/select";
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
@@ -369,20 +370,7 @@ export class LegacyOperatorsPane {
         </div>
         <div class="operators-pane__field">
           <label>Model</label>
-          <select data-bind="model">
-            <option value="claude-haiku-4-5-20251001"
-              ${this.editing.model.startsWith("claude-haiku") ? "selected" : ""}>
-              Haiku 4.5
-            </option>
-            <option value="claude-sonnet-4-6"
-              ${this.editing.model.startsWith("claude-sonnet") ? "selected" : ""}>
-              Sonnet 4.6
-            </option>
-            <option value="claude-opus-4-7"
-              ${this.editing.model.startsWith("claude-opus") ? "selected" : ""}>
-              Opus 4.7
-            </option>
-          </select>
+          <span data-role="model-select"></span>
         </div>
       </div>
 
@@ -407,7 +395,7 @@ export class LegacyOperatorsPane {
 
   private wireEditor(root: HTMLElement): void {
     const bind = <K extends keyof OperatorDraft>(name: K, parse: (v: string) => OperatorDraft[K]) => {
-      const el = root.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+      const el = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
         `[data-bind="${String(name)}"]`,
       );
       el?.addEventListener("input", () => {
@@ -419,6 +407,25 @@ export class LegacyOperatorsPane {
         }
       });
     };
+
+    const modelHost = root.querySelector<HTMLElement>('[data-role="model-select"]');
+    if (modelHost) {
+      const modelOptions = [...MODELS];
+      if (!modelOptions.some((m) => m.value === this.editing.model)) {
+        modelOptions.push({ value: this.editing.model, label: `${this.editing.model} (custom)` });
+      }
+      const modelSelect = new CustomSelect({
+        className: "operators-pane__select",
+        ariaLabel: "Operator model",
+        value: this.editing.model,
+        options: modelOptions,
+      });
+      modelSelect.element.addEventListener("change", () => {
+        this.editing.model = modelSelect.value;
+        this.dirty = true;
+      });
+      modelHost.replaceWith(modelSelect.element);
+    }
 
     // Wire avatar grid clicks — each button sets emoji to "pack:<id>"
     root.querySelectorAll<HTMLButtonElement>('.operators-pane__avatar-cell').forEach((btn) => {
@@ -993,25 +1000,22 @@ function renderBehavior(h: ModalHandle): HTMLElement {
   modelLbl.className = "op-modal-label";
   modelLbl.textContent = "Model";
   modelWrap.append(modelLbl);
-  const model = document.createElement("select");
-  model.className = "op-modal-input op-modal-select";
-  MODELS.forEach((opt) => {
-    const o = document.createElement("option");
-    o.value = opt.value;
-    o.textContent = opt.label;
-    if (h.state.draft.model === opt.value) o.selected = true;
-    model.append(o);
-  });
+  const modelOptions = [...MODELS];
   // Allow custom values that don't match the catalog
-  if (!MODELS.some((m) => m.value === h.state.draft.model)) {
-    const o = document.createElement("option");
-    o.value = h.state.draft.model;
-    o.textContent = `${h.state.draft.model} (custom)`;
-    o.selected = true;
-    model.append(o);
+  if (!modelOptions.some((m) => m.value === h.state.draft.model)) {
+    modelOptions.push({
+      value: h.state.draft.model,
+      label: `${h.state.draft.model} (custom)`,
+    });
   }
-  model.addEventListener("change", () => h.setModel(model.value));
-  modelWrap.append(model);
+  const model = new CustomSelect({
+    className: "op-modal-select",
+    ariaLabel: "Operator model",
+    value: h.state.draft.model,
+    options: modelOptions,
+  });
+  model.element.addEventListener("change", () => h.setModel(model.value));
+  modelWrap.append(model.element);
   row.append(modelWrap);
 
   // Threshold slider with anchor labels

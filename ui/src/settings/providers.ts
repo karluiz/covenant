@@ -1,5 +1,6 @@
 import type { Settings, ProviderEntry } from "../api";
 import { listModelsOpenAiCompat, listModelsAzureFoundry } from "../api";
+import { CustomSelect } from "../ui/select";
 
 export function renderProvidersTab(
   root: HTMLElement,
@@ -28,12 +29,7 @@ export function renderProvidersTab(
   formWrap.className = "add-provider-form";
   formWrap.style.display = "none";
   formWrap.innerHTML = `
-    <select class="add-provider-preset">
-      <option value="ollama">Ollama (http://localhost:11434/v1)</option>
-      <option value="lmstudio">LM Studio (http://localhost:1234/v1)</option>
-      <option value="azure_foundry">Azure Foundry</option>
-      <option value="custom">Custom OpenAI-compatible…</option>
-    </select>
+    <span class="add-provider-preset-host"></span>
     <input class="add-provider-id" type="text" placeholder="id (e.g. ollama)" />
     <input class="add-provider-url" type="text" placeholder="base URL" />
     <button type="button" class="btn-secondary add-provider-confirm">Add</button>
@@ -41,7 +37,19 @@ export function renderProvidersTab(
   `;
   addBar.appendChild(formWrap);
 
-  const preset = formWrap.querySelector<HTMLSelectElement>(".add-provider-preset")!;
+  const presetHost = formWrap.querySelector<HTMLElement>(".add-provider-preset-host")!;
+  const preset = new CustomSelect({
+    className: "add-provider-preset",
+    ariaLabel: "Provider preset",
+    value: "ollama",
+    options: [
+      { value: "ollama", label: "Ollama (http://localhost:11434/v1)" },
+      { value: "lmstudio", label: "LM Studio (http://localhost:1234/v1)" },
+      { value: "azure_foundry", label: "Azure Foundry" },
+      { value: "custom", label: "Custom OpenAI-compatible…" },
+    ],
+  });
+  presetHost.replaceWith(preset.element);
   const idInput = formWrap.querySelector<HTMLInputElement>(".add-provider-id")!;
   const urlInput = formWrap.querySelector<HTMLInputElement>(".add-provider-url")!;
   const confirmBtn = formWrap.querySelector<HTMLButtonElement>(".add-provider-confirm")!;
@@ -63,7 +71,7 @@ export function renderProvidersTab(
     }
   };
   applyPreset();
-  preset.onchange = applyPreset;
+  preset.element.addEventListener("change", applyPreset);
 
   addBtn.onclick = () => {
     addBtn.style.display = "none";
@@ -193,13 +201,16 @@ function renderAzureFoundryCard(
     onChange(next);
   };
 
-  const modeSelect = document.createElement("select");
-  modeSelect.innerHTML = `
-    <option value="ai_inference">AI Inference (/models)</option>
-    <option value="azure_open_ai">Azure OpenAI (deployments)</option>
-  `;
-  modeSelect.value = entry.azure_mode ?? "ai_inference";
-  modeSelect.onchange = () => {
+  const modeSelect = new CustomSelect({
+    className: "settings-select",
+    ariaLabel: "Azure mode",
+    value: entry.azure_mode ?? "ai_inference",
+    options: [
+      { value: "ai_inference", label: "AI Inference (/models)" },
+      { value: "azure_open_ai", label: "Azure OpenAI (deployments)" },
+    ],
+  });
+  modeSelect.element.addEventListener("change", () => {
     const mode = modeSelect.value as "ai_inference" | "azure_open_ai";
     const defaultVersion =
       mode === "azure_open_ai" ? "2024-10-21" : "2024-05-01-preview";
@@ -211,8 +222,8 @@ function renderAzureFoundryCard(
       azure_mode: mode,
       azure_api_version: keep ? entry.azure_api_version : defaultVersion,
     });
-  };
-  card.appendChild(labeled("Mode", modeSelect));
+  });
+  card.appendChild(labeled("Mode", modeSelect.element));
 
   // Field edits mutate `entry` in place — no re-render, focus and caret
   // survive. `settings` is the same reference as `panel.current`, so the

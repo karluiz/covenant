@@ -20,6 +20,7 @@ import {
   capabilitiesWrite,
 } from "../api";
 import { pushInfoToast } from "../notifications/toast";
+import { CustomSelect } from "../ui/select";
 
 type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared";
 type SectionKey =
@@ -352,9 +353,7 @@ export class CapabilitiesPanel {
       <h3>New ${tool} capability</h3>
       <div class="cap-form-row">
         <label>Kind
-          <select name="kind">
-            ${kinds.map((k) => `<option value="${k.value}">${k.label}</option>`).join("")}
-          </select>
+          <span data-role="kind-select"></span>
         </label>
         <label>Name <input type="text" name="name" required placeholder="my-skill" autocomplete="off"></label>
       </div>
@@ -369,6 +368,15 @@ export class CapabilitiesPanel {
         <button type="button" class="cap-btn" data-act="cancel">Cancel</button>
       </div>
     `;
+    const kindSelect = new CustomSelect({
+      name: "kind",
+      className: "cap-kind-select",
+      ariaLabel: "Capability kind",
+      value: kinds[0]?.value ?? "",
+      options: kinds,
+    });
+    form.querySelector<HTMLElement>('[data-role="kind-select"]')!.replaceWith(kindSelect.element);
+
     form.querySelector<HTMLButtonElement>('[data-act="cancel"]')!.onclick = () => {
       this.newFormOpen = false;
       this.render();

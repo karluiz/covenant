@@ -600,7 +600,7 @@ async function boot(): Promise<void> {
   const projectNotesBtn = document.getElementById("titlebar-project-notes");
   if (projectNotesBtn) {
     projectNotesBtn.innerHTML = Icons.clipboard({ size: 16 });
-    attachTooltip(projectNotesBtn, { title: "Project notes", kbd: "⌘⇧J" });
+    attachTooltip(projectNotesBtn, "Project notes");
     projectNotesBtn.addEventListener("click", () => {
       if (activeProjectNotesPanel) {
         activeProjectNotesPanel.close();
@@ -893,7 +893,10 @@ async function boot(): Promise<void> {
         activeProjectNotesPanel?.close();
       },
       onOpenWizard: (_repoRoot) => {
-        activeProjectNotesPanel?.close();
+        // Keep the Project Notes drawer open underneath — the spec-chat
+        // overlay is fixed/z-index 10100, so it sits on top. Closing the
+        // drawer here would also restore the previous sidebar view
+        // (usually Blocks), which felt like the wizard "vanished".
         window.dispatchEvent(new CustomEvent("spec-chat:open"));
       },
       onSetRootDir: (gid) => manager.pickGroupRootDir(gid),

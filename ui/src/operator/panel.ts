@@ -21,6 +21,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { aomStatus, listOperatorDecisions, operatorLevelFromXp, operatorList, type MindUpdatedEvent, type Operator, type OperatorDecisionRow } from "../api";
 import { renderAvatarHtml } from "./avatars";
+import { CustomSelect } from "../ui/select";
 import { detectExecutor } from "../executor";
 import type { TabManager } from "../tabs/manager";
 
@@ -86,8 +87,8 @@ export class OperatorPanel {
   /// localStorage — expansion is a transient view state.
   private expandedGroups: Set<number> = new Set();
   private operatorCache: Map<string, Operator> = new Map();
-  /// Custom combobox mounted in place of the operator <select>. Native
-  /// <option> is text-only — pack-avatar PNGs can't render inside it —
+  /// Custom combobox mounted in place of the operator dropdown. Native
+  /// options are text-only — pack-avatar PNGs can't render inside them —
   /// so we use a button + popover that supports avatars.
   private operatorCombo: AvatarCombobox | null = null;
 
@@ -311,6 +312,15 @@ export class OperatorPanel {
       return `<button type="button" class="operator-pill${active}" data-action="${key}">${label}<span class="operator-pill-count">${n}</span></button>`;
     };
 
+    const sessionOptions = [
+      { value: "all", label: "All tabs" },
+      ...sessionShorts.map((s) => {
+        const info = this.manager.tabBySessionShort(s);
+        const meta = sessionMeta.get(s)!;
+        return { value: s, label: formatSessionLabel(s, info, meta) };
+      }),
+    ];
+
     const total = this.rows.length;
     this.filtersEl.innerHTML = `
       <div class="operator-pills">
@@ -322,18 +332,7 @@ export class OperatorPanel {
       <div class="operator-filter-controls">
         <label class="operator-filter-label">
           Tab
-          <select class="operator-session-select">
-            <option value="all">All tabs</option>
-            ${sessionShorts
-              .map((s) => {
-                const info = this.manager.tabBySessionShort(s);
-                const meta = sessionMeta.get(s)!;
-                const label = formatSessionLabel(s, info, meta);
-                const sel = this.filter.session === s ? " selected" : "";
-                return `<option value="${escapeAttr(s)}"${sel}>${escapeHtml(label)}</option>`;
-              })
-              .join("")}
-          </select>
+          <span data-role="session-select"></span>
         </label>
         <label class="operator-filter-label">
           Operator
@@ -358,17 +357,24 @@ export class OperatorPanel {
         });
       });
 
+    const sessionSelect = new CustomSelect({
+      className: "operator-session-select",
+      ariaLabel: "Filter by tab",
+      value: this.filter.session,
+      options: sessionOptions,
+    });
     this.filtersEl
-      .querySelector<HTMLSelectElement>(".operator-session-select")!
-      .addEventListener("change", (e) => {
-        this.filter.session = (e.target as HTMLSelectElement).value;
-        savePrefs(this.filter);
-        this.renderList();
-        this.renderMindSection();
-      });
+      .querySelector<HTMLElement>('[data-role="session-select"]')!
+      .replaceWith(sessionSelect.element);
+    sessionSelect.element.addEventListener("change", () => {
+      this.filter.session = sessionSelect.value;
+      savePrefs(this.filter);
+      this.renderList();
+      this.renderMindSection();
+    });
 
     // Custom operator combobox — supports avatar PNGs in both the
-    // closed-state button and the popover list (native <option> can't).
+    // closed-state button and the popover list (native options can't).
     // Re-mounted on every renderFilters; the prior instance is destroyed
     // first so any open popover doesn't get orphaned on document.body.
     this.operatorCombo?.destroy();
@@ -812,7 +818,7 @@ interface ComboOption {
 
 /// Lightweight combobox that supports avatar imagery (pack PNGs) in both
 /// the closed-state button and the dropdown list. Drop-in replacement for
-/// a native <select> when options carry visual identity beyond plain text.
+/// a native dropdown when options carry visual identity beyond plain text.
 ///
 /// Lifetime: caller mounts into a host element and is responsible for
 /// calling destroy() when the host is being torn down — the popover is
@@ -846,7 +852,7 @@ class AvatarCombobox {
     });
     this.button.addEventListener("keydown", (e) => {
       // ArrowDown opens the popover and lands on the current value —
-      // matches native <select> behavior so keyboard users don't lose
+      // matches native dropdown behavior so keyboard users don't lose
       // muscle memory.
       if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();

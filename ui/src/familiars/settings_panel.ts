@@ -3,6 +3,7 @@
 // feature is opt-in without a premium gate.
 
 import { Familiars, type Style, type FamiliarSummary } from "./api";
+import { CustomSelect } from "../ui/select";
 
 export interface FamiliarsSettingsHooks {
   enabled: boolean;
@@ -69,22 +70,21 @@ function renderList(el: HTMLElement, items: FamiliarSummary[]): void {
   for (const f of items) {
     const row = document.createElement("div");
     row.className = "settings-familiar-row";
+    const styleSelect = new CustomSelect({
+      className: "f-style-select",
+      ariaLabel: `${f.name} Familiar style`,
+      value: f.style,
+      options: styles.map((s) => ({ value: s, label: s })),
+    });
     row.innerHTML = `
       <input type="text" class="f-name" value="${escapeAttr(f.name)}" />
-      <select class="f-style">
-        ${styles
-          .map(
-            (s) =>
-              `<option value="${s}" ${s === f.style ? "selected" : ""}>${s}</option>`,
-          )
-          .join("")}
-      </select>
+      <span data-role="style-select"></span>
       <input type="number" class="f-cap" min="0" step="0.5" value="${f.daily_cap_usd}" />
       <button type="button" class="f-save">Save</button>`;
+    row.querySelector<HTMLElement>('[data-role="style-select"]')!.replaceWith(styleSelect.element);
     row.querySelector(".f-save")!.addEventListener("click", () => {
       const name = (row.querySelector(".f-name") as HTMLInputElement).value;
-      const style = (row.querySelector(".f-style") as HTMLSelectElement)
-        .value as Style;
+      const style = styleSelect.value as Style;
       const cap = parseFloat(
         (row.querySelector(".f-cap") as HTMLInputElement).value,
       );

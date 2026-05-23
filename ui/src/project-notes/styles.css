@@ -29,7 +29,7 @@
    * those aliases here instead of relying on dark fallbacks. */
   /* Solid rail surface: project notes shares the Files/Activity slot, so
    * avoid translucency that would let underlying chrome bleed through. */
-  --surface: var(--bg-overlay, #15171c);
+  --surface: var(--sidebar-bg, #191c22);
   --text: var(--text-primary, #e6e8eb);
   --fg: var(--text-primary, #e6e8eb);
   --fg-muted: var(--muted, #8a8aa8);
@@ -40,10 +40,7 @@
   --pn-subtle-4: rgb(var(--ink-rgb, 255 255 255) / 0.05);
   --pn-subtle-5: rgb(var(--ink-rgb, 255 255 255) / 0.06);
   --pn-code-bg: rgb(0 0 0 / 0.3);
-  background:
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--surface, #15171c) 96%, var(--pn-accent, var(--accent, #6aa9ff)) 4%) 0%,
-      var(--surface, #15171c) 60%);
+  background: var(--surface, #191c22);
   color: var(--text, #e6e8eb);
   border-left: 1px solid var(--border, #2a2d35);
   display: flex;

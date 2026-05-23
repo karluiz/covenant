@@ -1,5 +1,6 @@
 import type { Settings } from "../api";
 import { listModelsAnthropic, listModelsOpenAiCompat } from "../api";
+import { CustomSelect, type SelectOption } from "../ui/select";
 
 type Role = "summary" | "chat" | "operator" | "triage";
 
@@ -42,16 +43,23 @@ function renderRoleRow(
   title.textContent = ROLE_LABEL[role];
   wrap.appendChild(title);
 
-  const providerSel = document.createElement("select");
-  for (const [id, entry] of Object.entries(settings.providers ?? {})) {
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = entry.label;
-    if (id === route.provider_id) opt.selected = true;
-    providerSel.appendChild(opt);
-  }
+  const providerSel = new CustomSelect({
+    className: "model-route-select",
+    ariaLabel: `${ROLE_LABEL[role]} provider`,
+    value: route.provider_id,
+    options: Object.entries(settings.providers ?? {}).map(([id, entry]) => ({
+      value: id,
+      label: entry.label,
+    })),
+  });
 
-  const modelSel = document.createElement("select");
+  const modelSel = new CustomSelect({
+    className: "model-route-select",
+    ariaLabel: `${ROLE_LABEL[role]} model`,
+    value: route.model,
+    placeholder: "Pick a model…",
+    options: [],
+  });
   const status = document.createElement("span");
   status.className = "route-status";
   const warn = document.createElement("p");
@@ -66,8 +74,8 @@ function renderRoleRow(
   const refreshModels = async () => {
     const providerId = providerSel.value;
     const entry = settings.providers?.[providerId];
-    modelSel.innerHTML = "";
     if (!entry) {
+      modelSel.setOptions([], "");
       setStatus("err", "provider not configured");
       updateWarning();
       return;
@@ -81,31 +89,24 @@ function renderRoleRow(
         models = await listModelsOpenAiCompat(entry.base_url ?? "");
       }
     } catch (e) {
-      const opt = document.createElement("option");
-      opt.value = route.model;
-      opt.textContent = `${route.model || "(none)"} (unreachable)`;
-      modelSel.appendChild(opt);
+      modelSel.setOptions([
+        { value: route.model, label: `${route.model || "(none)"} (unreachable)` },
+      ], route.model);
       const msg = String(e).replace(/^Error:\s*/, "");
       setStatus("err", `✗ unreachable: ${msg.slice(0, 80)}`);
       updateWarning();
       return;
     }
-    for (const m of models) {
-      const opt = document.createElement("option");
-      opt.value = m.id;
-      opt.textContent = m.id;
-      if (m.id === route.model) opt.selected = true;
-      modelSel.appendChild(opt);
-    }
+    const modelOptions: SelectOption[] = models.map((m) => ({
+      value: m.id,
+      label: m.id,
+    }));
     const modelPresent =
-      route.model && [...modelSel.options].some((o) => o.value === route.model);
+      route.model && modelOptions.some((o) => o.value === route.model);
     if (route.model && !modelPresent) {
-      const opt = document.createElement("option");
-      opt.value = route.model;
-      opt.textContent = `${route.model} (not found)`;
-      modelSel.appendChild(opt);
-      modelSel.value = route.model;
+      modelOptions.push({ value: route.model, label: `${route.model} (not found)` });
     }
+    modelSel.setOptions(modelOptions, route.model);
     if (!route.model) {
       setStatus("warn", `⚠ ${models.length} models — pick one`);
     } else if (!modelPresent && entry.kind !== "anthropic") {
@@ -130,14 +131,14 @@ function renderRoleRow(
     }
   };
 
-  providerSel.onchange = () => {
+  providerSel.element.addEventListener("change", () => {
     const next: Settings = structuredClone(settings);
     next.model_routes = next.model_routes ?? {};
     next.model_routes[role] = { provider_id: providerSel.value, model: route.model };
     onChange(next);
     void refreshModels();
-  };
-  modelSel.onchange = () => {
+  });
+  modelSel.element.addEventListener("change", () => {
     const next: Settings = structuredClone(settings);
     next.model_routes = next.model_routes ?? {};
     next.model_routes[role] = {
@@ -146,10 +147,10 @@ function renderRoleRow(
     };
     onChange(next);
     void refreshModels();
-  };
+  });
 
-  wrap.appendChild(labeled("Provider", providerSel));
-  wrap.appendChild(labeled("Model", modelSel));
+  wrap.appendChild(labeled("Provider", providerSel.element));
+  wrap.appendChild(labeled("Model", modelSel.element));
   wrap.appendChild(status);
   wrap.appendChild(warn);
 

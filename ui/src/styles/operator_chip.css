@@ -181,10 +181,8 @@ body.theme-light .op-modal-step {
 .op-modal-field input[type="number"],
 .op-modal-field input[type="email"],
 .op-modal-field textarea,
-.op-modal-field select,
 .op-modal-input,
-.op-modal-textarea,
-.op-modal-select {
+.op-modal-textarea {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;
@@ -195,6 +193,18 @@ body.theme-light .op-modal-step {
   border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
   border-radius: 6px;
   resize: vertical;
+}
+.op-modal-field .op-modal-select {
+  width: 100%;
+}
+.op-modal-field .op-modal-select .ui-select__button {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  color: inherit;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 6px;
 }
 .op-modal-field input:focus,
 .op-modal-field textarea:focus {
@@ -571,16 +581,9 @@ body.theme-light .op-tg-btn {
   align-items: center;
   justify-content: space-between;
 }
-.op-modal-input.op-modal-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
-                    linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: calc(100% - 18px) center, calc(100% - 13px) center;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 32px;
-  opacity: 0.95;
+.op-modal-select .ui-select__caret {
+  color: currentColor;
+  opacity: 0.72;
 }
 
 /* ── Threshold slider ──────────────────────────────────────────────────── */

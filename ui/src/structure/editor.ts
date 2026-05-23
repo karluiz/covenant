@@ -77,6 +77,7 @@ import {
   svgToPng,
 } from "./png-export";
 import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
+import { CustomSelect } from "../ui/select";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -180,7 +181,7 @@ export class StructureEditor {
   /// when `previewKind === "svg"`; hidden for markdown/code so the
   /// header stays uncluttered.
   private readonly pngBtn: HTMLButtonElement;
-  private readonly pngScaleSelect: HTMLSelectElement;
+  private readonly pngScaleSelect: CustomSelect;
   private pngScale: PngScale = 2;
 
   /// In-preview find bar. Source mode uses CM6's built-in panel; this
@@ -222,25 +223,25 @@ export class StructureEditor {
     // Scale dropdown — sits left of the PNG button. Persisted choice
     // applies across restarts; default 2× covers the retina case.
     this.pngScale = loadSvgScale();
-    this.pngScaleSelect = document.createElement("select");
-    this.pngScaleSelect.className = "structure-editor-png-scale";
-    this.pngScaleSelect.title = "PNG export scale";
-    this.pngScaleSelect.hidden = true;
-    for (const s of [1, 2, 3] as const) {
-      const opt = document.createElement("option");
-      opt.value = String(s);
-      opt.textContent = `${s}x`;
-      if (s === this.pngScale) opt.selected = true;
-      this.pngScaleSelect.appendChild(opt);
-    }
-    this.pngScaleSelect.addEventListener("change", () => {
+    this.pngScaleSelect = new CustomSelect({
+      className: "structure-editor-png-scale",
+      ariaLabel: "PNG export scale",
+      title: "PNG export scale",
+      value: String(this.pngScale),
+      options: ([1, 2, 3] as const).map((s) => ({
+        value: String(s),
+        label: `${s}x`,
+      })),
+    });
+    this.pngScaleSelect.element.hidden = true;
+    this.pngScaleSelect.element.addEventListener("change", () => {
       const v = Number(this.pngScaleSelect.value);
       if (v === 1 || v === 2 || v === 3) {
         this.pngScale = v;
         saveSvgScale(v);
       }
     });
-    this.headerEl.appendChild(this.pngScaleSelect);
+    this.headerEl.appendChild(this.pngScaleSelect.element);
 
     // PNG export button — single-click overwrite of <basename>.png.
     this.pngBtn = document.createElement("button");
@@ -911,7 +912,7 @@ export class StructureEditor {
     // source/preview view mode.
     const isSvg = this.previewKind === "svg";
     this.pngBtn.hidden = !isSvg;
-    this.pngScaleSelect.hidden = !isSvg;
+    this.pngScaleSelect.element.hidden = !isSvg;
 
     this.applySpecBtn.hidden =
       !this.callbacks.onApplySpec || !isSpecPath(this.currentPath);
@@ -1036,7 +1037,7 @@ export class StructureEditor {
     }
     this.previewBtn.hidden = true;
     this.pngBtn.hidden = true;
-    this.pngScaleSelect.hidden = true;
+    this.pngScaleSelect.element.hidden = true;
     if (this.findOpen) this.closeFind();
     this.callbacks.onClose?.();
   }
@@ -1055,7 +1056,7 @@ export class StructureEditor {
     this.previewKind = null;
     this.previewBtn.hidden = true;
     this.pngBtn.hidden = true;
-    this.pngScaleSelect.hidden = true;
+    this.pngScaleSelect.element.hidden = true;
     this.placeholderEl.hidden = false;
     this.placeholderEl.textContent = message;
     this.originalContent = null;

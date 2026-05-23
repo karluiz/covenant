@@ -90,6 +90,10 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
     --bg: rgb(11 13 16 / var(--surface-alpha));
     --bg-panel: rgb(17 20 26 / var(--surface-alpha));
     --bg-tabbar: rgb(14 17 22 / var(--surface-alpha));
+    /* Shared opaque rail/sidebar surface. Sampled from the titlebar
+       reference (#191c22-ish) so Blocks / Files / Activity / Notes /
+       Teammate and left-nav rails all read as the same material. */
+    --sidebar-bg: #1a1c21;
     /* Always-opaque surface for floating UI (popovers, modals, toasts,
      drag ghosts). Vibrancy bleeding through them would shred legibility
      when the terminal text sits behind. Use this for anything that
@@ -139,6 +143,7 @@ body.theme-light {
     --bg: rgb(250 251 252 / var(--surface-alpha));
     --bg-panel: rgb(255 255 255 / var(--surface-alpha));
     --bg-tabbar: rgb(238 240 243 / var(--surface-alpha));
+    --sidebar-bg: #eef0f3;
     --bg-overlay: #ffffff;
     --border: #d9dde2;
     --muted: #6b7280;
@@ -267,7 +272,7 @@ body.bg-translucent {
 #tabbar-host {
     display: flex;
     align-items: flex-end;
-    background: var(--bg-tabbar);
+    background: var(--sidebar-bg);
     border-bottom: 1px solid var(--border);
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
     padding: 0 8px;
@@ -1427,8 +1432,7 @@ body.tabbar-left .group-chip-has-members {
         color 0.12s ease-out;
 }
 
-.tab-btn:hover .tab-close,
-.tab-btn.active .tab-close {
+.tab-btn:hover .tab-close {
     opacity: 0.6;
 }
 
@@ -1617,7 +1621,7 @@ body:not(.tabbar-left) #new-group {
 
 .tab-blocks {
     height: 100%;
-    background: var(--bg-panel);
+    background: var(--sidebar-bg);
     display: flex;
     flex-direction: column;
     font-size: 11px;
@@ -2639,17 +2643,165 @@ body.theme-light .block-item-history .block-exit.fail {
 }
 
 .operator-session-select {
+    width: min(160px, 100%);
+}
+.operator-session-select .ui-select__button {
     background: var(--bg);
     color: #fff;
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 2px 6px;
+    min-height: 22px;
     font-size: 11px;
-    max-width: 160px;
+}
+
+/* ── Custom select ────────────────────────────────────────────────────
+   Vanilla TS button + listbox control. Used instead of native dropdowns
+   so settings/operators render consistently across WebKit platforms. */
+.ui-select {
+    display: inline-block;
+    min-width: 0;
+    max-width: 100%;
+    vertical-align: middle;
+}
+.ui-select[hidden] {
+    display: none !important;
+}
+.ui-select__button {
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    box-sizing: border-box;
+    background: color-mix(in srgb, var(--bg-panel, #09090b) 92%, #fff 3%);
+    color: var(--text-primary, var(--fg, #fafafa));
+    border: 1px solid color-mix(in srgb, var(--text-primary, #fafafa) 14%, transparent);
+    border-radius: 8px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1;
+    cursor: pointer;
+    text-align: left;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    transition:
+        border-color 0.15s ease,
+        background-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+.ui-select__button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bg-panel, #09090b) 86%, #fff 6%);
+    border-color: color-mix(in srgb, var(--text-primary, #fafafa) 22%, transparent);
+}
+.ui-select__button:focus-visible,
+.ui-select__button[aria-expanded="true"] {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent, #7aa2f7) 76%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #7aa2f7) 22%, transparent);
+}
+.ui-select__button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+.ui-select__button.is-placeholder .ui-select__label {
+    color: var(--muted, #8a93a0);
+}
+.ui-select__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ui-select__caret {
+    flex: 0 0 auto;
+    display: inline-flex;
+    color: color-mix(in srgb, var(--text-primary, #fafafa) 54%, transparent);
+    line-height: 1;
+    margin-left: 4px;
+    opacity: 0.9;
+}
+.ui-select__caret svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.ui-select__popover {
+    position: fixed;
+    z-index: 4000;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px;
+    overflow-y: auto;
+    background: var(--bg-overlay, #09090b);
+    color: var(--text-primary, var(--fg, #fafafa));
+    border: 1px solid color-mix(in srgb, var(--text-primary, #fafafa) 12%, transparent);
+    border-radius: 8px;
+    box-shadow:
+        0 10px 15px -3px rgba(0, 0, 0, 0.32),
+        0 4px 6px -4px rgba(0, 0, 0, 0.32);
+}
+.ui-select__option {
+    appearance: none;
+    -webkit-appearance: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 8px 6px 6px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.25;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ui-select__option:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.ui-select__option.is-highlighted:not(:disabled) {
+    background: color-mix(in srgb, var(--text-primary, #fafafa) 9%, transparent);
+}
+.ui-select__option.is-selected {
+    color: var(--text-primary, var(--fg, #fafafa));
+}
+.ui-select__option.is-selected.is-highlighted {
+    background: color-mix(in srgb, var(--text-primary, #fafafa) 12%, transparent);
+}
+.ui-select__option-check {
+    width: 16px;
+    flex: 0 0 16px;
+    color: var(--accent, #7aa2f7);
+    font-size: 12px;
+    line-height: 1;
+    text-align: center;
+}
+.ui-select__option-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ── Avatar combobox ──────────────────────────────────────────────────
-   Custom dropdown used in place of <select> when options carry an
+   Custom dropdown used in place of native controls when options carry an
    avatar (PNG or emoji). Closed state: a button matching the visual
    weight of .operator-session-select. Open state: a floating popover
    anchored on document.body so it can escape any overflow:hidden
@@ -3140,7 +3292,7 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     flex-direction: column;
     gap: 2px;
     overflow-y: auto;
-    background: color-mix(in srgb, var(--bg-tabbar) 70%, transparent);
+    background: var(--sidebar-bg);
 }
 
 .settings-nav a {
@@ -3422,7 +3574,6 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     border: 1px solid var(--border);
     border-radius: 8px;
 }
-.add-provider-form select,
 .add-provider-form input {
     background: var(--bg-panel);
     border: 1px solid var(--border);
@@ -3434,6 +3585,10 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
 }
 .add-provider-form .add-provider-preset {
     min-width: 240px;
+}
+.add-provider-form .add-provider-preset .ui-select__button {
+    font-family: inherit;
+    font-size: 13px;
 }
 .add-provider-form .add-provider-id {
     width: 140px;
@@ -3471,15 +3626,12 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     min-width: 64px;
     margin: 0;
 }
-.model-route-row select {
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 5px 8px;
-    color: #fff;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px;
-    min-width: 200px;
+.model-route-row .model-route-select {
+    width: min(280px, 100%);
+}
+.model-route-row .model-route-select .ui-select__button {
+    font-family: inherit;
+    font-size: 13px;
 }
 .field-warning {
     margin: 4px 0 0 0;
@@ -3552,6 +3704,14 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
 .settings-form input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(122, 162, 247, 0.2);
+}
+
+.settings-field .settings-select {
+    width: min(260px, 100%);
+}
+.settings-field .settings-select .ui-select__button {
+    font-family: inherit;
+    font-size: 13px;
 }
 
 .settings-input-row {
@@ -4753,7 +4913,7 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     flex-direction: column;
     gap: 10px;
     overflow-y: auto;
-    background: color-mix(in srgb, var(--bg-tabbar) 70%, transparent);
+    background: var(--sidebar-bg);
 }
 .docs-sidebar-head {
     padding: 4px 6px 2px;
@@ -6235,7 +6395,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     gap: 8px;
     padding: 6px 10px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-panel);
+    background: var(--sidebar-bg);
     flex-shrink: 0;
 }
 .sidebar-nav-title {
@@ -6280,6 +6440,7 @@ button.status-segment.status-aom.status-aom-warn:hover {
     flex-direction: column;
     height: 100%;
     overflow: hidden;
+    background: var(--sidebar-bg);
 }
 
 /* Author `display: flex` overrides the UA `[hidden] { display: none }`
@@ -6805,24 +6966,26 @@ button.status-segment.status-aom.status-aom-warn:hover {
     cursor: progress;
 }
 
-/* Scale dropdown — sits left of the PNG button. Native select to
-   avoid pulling in a custom dropdown widget. */
+/* Scale dropdown — sits left of the PNG button. */
 .structure-editor-png-scale {
+    margin-left: 4px;
+}
+.structure-editor-png-scale .ui-select__button {
     background: transparent;
     border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 35%, var(--border));
     border-radius: 3px;
     color: color-mix(in srgb, var(--accent, #b794f4) 70%, #fff);
     padding: 0 4px;
     height: 18px;
+    min-height: 18px;
     font-size: 9.5px;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     font-family:
         -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     cursor: pointer;
-    margin-left: 4px;
 }
-.structure-editor-png-scale:hover {
+.structure-editor-png-scale .ui-select__button:hover {
     background: color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
 }
 
@@ -8131,7 +8294,7 @@ body.tabbar-left .group-chip-has-members {
    + full outline from the intended mockup. Light mode keeps its softer
    overrides further down. */
 body.tabbar-left:not(.theme-light) #tabbar-host {
-    background: color-mix(in srgb, #10141b 88%, var(--bg-tabbar));
+    background: var(--sidebar-bg);
 }
 
 body.tabbar-left:not(.theme-light) .group-chip {
@@ -8201,6 +8364,25 @@ body.tabbar-left:not(.theme-light) .tab-grouped.active {
 body.tabbar-left:not(.theme-light) .tab-grouped.active .tab-close {
     color: rgba(255, 255, 255, 0.64);
     opacity: 0.72;
+}
+
+body.tabbar-left .tab-btn .tab-close {
+    position: absolute;
+    right: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    z-index: 3;
+    opacity: 0;
+}
+body.tabbar-left .tab-btn:hover .tab-close,
+body.tabbar-left .tab-btn.active .tab-close {
+    opacity: 0.82;
+}
+
+body.tabbar-left .tab-btn .tab-label {
+    padding-right: 18px;
 }
 
 /* + New tab + New group buttons as a side-by-side row at the bottom
@@ -8525,8 +8707,10 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
     position: absolute;
     left: calc(100% + 8px);
     top: -4px;
-    background: var(--bg-elev, #2a2b30);
-    border: 1px solid var(--border, #34353a);
+    background: rgba(20, 24, 30, 0.85);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-left: 2px solid var(--rail-color);
     border-radius: 6px;
     padding: 6px 10px;
@@ -8559,8 +8743,10 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
     left: calc(100% + 8px);
     top: 50%;
     transform: translate(-4px, -50%);
-    background: var(--bg-elev, #2a2b30);
-    border: 1px solid var(--border, #34353a);
+    background: rgba(20, 24, 30, 0.85);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-left: 2px solid var(--rail-color);
     border-radius: 5px;
     padding: 3px 8px;
@@ -9272,12 +9458,20 @@ body.theme-light .wiz-modal { box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
 .operators-pane__field { display: flex; flex-direction: column; gap: 4px; }
 .operators-pane__field label { font-size: 12px; color: var(--muted); }
 .operators-pane__field input[type="text"],
-.operators-pane__field textarea,
-.operators-pane__field select {
+.operators-pane__field textarea {
   background: var(--bg-overlay);
   color: inherit;
   border: 1px solid var(--border);
   border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+.operators-pane__field .operators-pane__select {
+  width: 100%;
+}
+.operators-pane__field .operators-pane__select .ui-select__button {
+  background: var(--bg-overlay);
+  color: inherit;
   padding: 6px 8px;
   font: inherit;
 }
@@ -10904,6 +11098,14 @@ body[data-aom-phase="triaging"]
   display: grid; grid-template-columns: 1fr 140px 100px 80px;
   gap: 8px; align-items: center;
 }
+.settings-familiar-row .f-style-select {
+  width: 100%;
+}
+.settings-familiar-row .f-style-select .ui-select__button {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 12px;
+}
 .settings-note { color: var(--muted); font-style: italic; }
 
 /* Familiars audit log */
@@ -11060,9 +11262,13 @@ body[data-aom-phase="triaging"]
   min-height: calc(1.4em * 2);
 }
 .cv-reply__controls { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-.cv-reply__scope {
+.cv-reply__scope-select {
+  width: 96px;
+}
+.cv-reply__scope-select .ui-select__button {
   background: var(--bg-panel); border: 1px solid var(--border);
   color: var(--muted); font-size: 11px; padding: 3px 6px; border-radius: 6px;
+  min-height: 24px;
 }
 .cv-reply__send {
   background: var(--accent); color: white; border: 0;
@@ -11725,7 +11931,7 @@ button.status-segment.status-tg:focus-visible {
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
-  background: #0d1014;
+  background: var(--sidebar-bg);
 }
 .cap-nav-group-title {
   margin: 14px 8px 4px;
@@ -11882,8 +12088,7 @@ button.status-segment.status-tg:focus-visible {
   color: var(--muted);
 }
 .cap-form-row-wide { flex: 1; }
-.cap-new-form input[type="text"],
-.cap-new-form select {
+.cap-new-form input[type="text"] {
   background: var(--bg-overlay);
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -11892,6 +12097,16 @@ button.status-segment.status-tg:focus-visible {
   font-family: inherit;
   font-size: 13px;
   min-width: 200px;
+}
+.cap-new-form .cap-kind-select {
+  min-width: 200px;
+}
+.cap-new-form .cap-kind-select .ui-select__button {
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
 }
 .cap-form-actions { display: flex; gap: 8px; }
 
@@ -12419,7 +12634,7 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
 .familiar-panel {
     display: flex;
     flex-direction: column;
-    background: var(--bg-elevated, #16181d);
+    background: var(--sidebar-bg);
     border-left: 1px solid var(--border, #2a2a2f);
     color: #e5e7eb;
     font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -12724,7 +12939,7 @@ body.theme-light .boot-splash-meta-dot {
    regions are draggable; buttons explicitly opt out. */
 #app-titlebar {
     height: 38px;
-    background: var(--bg-tabbar);
+    background: var(--sidebar-bg);
     border-bottom: 1px solid var(--border);
     display: grid;
     grid-template-columns: auto 1fr auto;
@@ -12864,9 +13079,11 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
     max-width: 340px;
     min-width: 0;
     padding: 10px 12px;
-    background: #0e0e10;
+    background: rgba(20, 24, 30, 0.85);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
     color: var(--text, #d5d9de);
-    border: 1px solid #2a2a2e;
+    border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 8px;
     box-shadow:
         0 1px 0 rgba(var(--ink-rgb), 0.04) inset,
@@ -13220,6 +13437,8 @@ body.theme-light {
 body.theme-light input,
 body.theme-light textarea,
 body.theme-light select,
+body.theme-light .ui-select__button,
+body.theme-light .ui-select__popover,
 body.theme-light .provider-card input,
 body.theme-light .settings-input-row input,
 body.theme-light .settings-field input,
@@ -13498,7 +13717,7 @@ body.theme-light .familiar-panel__body,
 body.theme-light .project-notes-panel,
 body.theme-light .project-notes,
 body.theme-light .project-notes__body {
-    background: var(--bg-panel);
+    background: var(--sidebar-bg);
     color: var(--text-primary);
 }
 body.theme-light .familiar-panel__tab { color: var(--muted); }
@@ -13799,7 +14018,7 @@ body.theme-light .workspace-chip:hover .new-tab-kbd {
   z-index: 1;
   font: 11px ui-monospace, "JetBrains Mono", Menlo, monospace;
   color: var(--text, #d5d9de);
-  background: var(--bg-panel, #11141a);
+  background: var(--sidebar-bg);
   border-left: 1px solid var(--border, #232831);
   box-sizing: border-box;
   overflow: hidden;
@@ -13856,7 +14075,7 @@ body.sidebar-view-activity .tab-pane:has(.editor-host:not([hidden])) > .editor-h
   display: flex;
   flex-direction: column;
   z-index: 1;
-  background: var(--bg-panel, #11141a);
+  background: var(--sidebar-bg);
   border-left: 1px solid var(--border, #232831);
   box-sizing: border-box;
   overflow: hidden;
@@ -14214,7 +14433,7 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-panel);
+  background: var(--sidebar-bg);
   border-left: 1px solid var(--border);
   position: relative; /* anchor for the switcher popover */
 }
@@ -14615,3 +14834,83 @@ body.theme-light .teammate-panel-switcher {
 .task-card--confirmed .task-card__btn--confirm { background: rgba(80, 200, 120, 0.20); color: #88e3a8; }
 .task-card--cancelled  { opacity: 0.55; }
 .task-card__footer { margin-top: 8px; font-size: 11px; color: var(--text-dim, #888); }
+
+/* ── Minimal right-panel chrome ─────────────────────────────────────────
+   One flat material for the right-side panels (activity, teammate,
+   familiar, settings nav, docs, capabilities, structure, project-notes).
+   The LEFT tabbar (#tabbar-host) is deliberately excluded — it has its
+   own group/connector/avatar treatment from v0.8.14 that this flatness
+   would otherwise stomp on. */
+#activity-sidebar,
+#teammate-panel,
+.teammate-panel,
+.familiar-panel,
+.settings-nav,
+.docs-sidebar,
+.capabilities-nav,
+.structure-host,
+.pn-panel {
+  background: var(--sidebar-bg) !important;
+  box-shadow: none !important;
+}
+
+#activity-sidebar,
+#teammate-panel,
+.familiar-panel,
+.settings-nav,
+.docs-sidebar,
+.capabilities-nav,
+.pn-panel {
+  border-color: transparent !important;
+}
+
+.blocks-header,
+.sidebar-nav,
+.structure-header,
+.teammate-panel-header,
+.teammate-panel-composer,
+.familiar-panel__header,
+.familiar-panel__tabs,
+.pn-header,
+.pn-tabs {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.titlebar-icon-btn:hover:not(:disabled),
+.titlebar-view-btn.titlebar-view-active,
+.sidebar-nav-active,
+.settings-nav a:hover,
+.docs-nav-item:hover,
+.capabilities-nav button:hover,
+.familiar-panel__tab:hover:not(:disabled),
+.familiar-panel__tab--active {
+  background: rgba(var(--ink-rgb), 0.055) !important;
+}
+
+.teammate-panel-composer {
+  padding: 0 !important;
+}
+.teammate-panel-input {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  border: 0 !important;
+  border-radius: 0;
+  background: #090b0f !important;
+  box-shadow: none !important;
+  padding: 0 22px;
+}
+.teammate-panel-input::placeholder {
+  color: #a9a9a9;
+  opacity: 0.78;
+}
+.teammate-panel-input:focus {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.pn-panel {
+  box-shadow: none !important;
+}
