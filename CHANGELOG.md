@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.13 — Spec Creator chooser polish + project-notes slide-in
+
+### Added
+
+- **Spec Creator branded chooser header**: The spec-chat chooser overlay now renders a centered "Spec Creator" brand (sparkles icon in `--accent` + a lowercased lead line) instead of the bare "What do you want to do?" title. The wizard panel title also shifts from "New spec" → "Spec Creator" so the two surfaces share a name (`ui/src/spec-chat/index.ts`, `ui/src/spec-chat/panel.ts`, `ui/src/styles.css`). A reference mockup lives at `docs/mockups/spec-chooser-titles.html`.
+- **Project-notes panel slide-in animation**: The right-rail project-notes panel reuses the same 160ms `right-rail-panel-in` animation introduced for Activity/Teammate in v0.8.12, with `prefers-reduced-motion` honored (`ui/src/project-notes/styles.css`).
+- **Operatorsv2 portrait set tracked**: 162 PNG portraits (18 operators × 9 expressions: duda/enojo/expectacion/feliz/incomodidad/neutral/sorpresa/triste/ver) under `ui/operatorsv2/` are now version-controlled. Not yet referenced by any operator/familiar code — wiring lands in a later change.
+
+### Changed
+
+- **Spec-chat overlay dismiss UX**: Both the chooser overlay and the wizard panel now dismiss on `Escape` and on backdrop click. Key handlers are registered on open and removed on close so nothing leaks. Vitest coverage added for Esc dismiss and backdrop click in `ui/src/spec-chat/index.test.ts`.
+
+### Fixed
+
+- **Reopening spec-chat after the panel-X close**: When the user closed the wizard via its own X button (bypassing `controller.close()`), the controller's `panelMounted` flag stayed `true` and `host.hidden` stayed `false`, so reopening did nothing visible. The panel now exposes an `onClose` callback; the controller hooks it to reset state and hide the host. Test in `ui/src/spec-chat/index.test.ts` verifies a fresh panel mounts on the next open (`ui/src/spec-chat/panel.ts`, `ui/src/spec-chat/index.ts`).
+
 ## v0.8.12 — Azure Foundry provider + workspace-switch orb polish
 
 ### Added
