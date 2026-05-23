@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.18 — Light splash polish + settings-over-notes + ungroup reflow
+
+### Changed
+
+- **Boot splash, light mode**: dropped the card frame (border, gradient background, layered shadows) so the light splash matches dark — just the orb sitting on the page gradient. Removed from both the `@media (prefers-color-scheme: light)` first-paint block and the persisted `body.theme-light` rules in `ui/src/styles.css`.
+- **Project Notes — command editor buttons**: restyled Save/Cancel in `ui/src/project-notes/styles.css`. Save is now white-on-accent with a brightness hover; Cancel is an outlined ghost button matching the app's `wiz-modal` action pattern. Padding/radius bumped to 6×14 / 6 px to feel less cramped.
+
+### Fixed
+
+- **Settings hidden under Project Notes**: the floating `.pn-panel` (position:fixed, z-index 30) used to sit on top of full-page routes. Added a rule in `ui/src/styles.css` that hides the panel whenever Settings, Docs, Drafts, Mission, Operator, or Capabilities is open.
+- **Tabbar — stale layout after ungroup**: ungrouping a group (or removing a tab from a group) sometimes left the resulting tabs styled with the previous group's row layout until a window resize forced a reflow. `ui/src/tabs/manager.ts` now flushes layout (`offsetHeight` read + synthetic `resize` event) after `ungroup` and `removeTabFromGroup`.
+- **Pi overlay shortcut removed**: ⌘⌥P used to toggle a transient Pi RPC overlay that no longer exists. The handler in `ui/src/main.ts` and the entry in `ui/src/shortcuts/registry.ts` are gone; only ⌘⌥⇧P (create a permanent Pi tab) remains.
+
 ## v0.8.17 — Git popover redesign + providers overhaul + Sansation UI font
 
 ### Added
