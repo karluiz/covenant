@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.22 — Azure Foundry model picker fix + Hermes executor
+
+### Fixed
+
+- **Azure Foundry model list 404**: Settings model picker now dispatches `azure_foundry` providers to `listModelsAzureFoundry` instead of falling through to the OpenAI-compat probe (which hit `{base}/models` and 404'd against Azure hostnames). `ui/src/settings/model_routes.ts` branches on `entry.kind === "azure_foundry"` and forwards endpoint, api-key, `azure_mode`, and `azure_api_version` (defaulting to `2024-10-21` for Azure OpenAI, `2024-05-01-preview` for AI Inference).
+- **Azure OpenAI probe lists deployments**: `crates/app/src/providers_cmd.rs` switched the `AzureMode::AzureOpenAi` probe URL from `/openai/models` (base models — not callable) to `/openai/deployments?api-version=...` so the dropdown surfaces the deployment names actually used in `/openai/deployments/{name}/chat/completions`.
+
+### Added
+
+- **Hermes (Nous Research) executor**: registered as a known + inline agent in `crates/session/src/idle.rs`, with brand glyph (winged-staff path in `ui/src/icons/brands.ts`), display label in `ui/src/inline-notch.ts`, and amber/gold brand color in `ui/src/status/bar.ts`.
+
 ## v0.8.21 — CustomSelect click fix + xterm viewport scroll drift fix
 
 ### Changed
