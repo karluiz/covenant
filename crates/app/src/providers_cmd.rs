@@ -105,6 +105,82 @@ pub fn list_models_anthropic() -> Vec<ModelInfo> {
     anthropic_models()
 }
 
+/// Result of a paid live probe against Anthropic's Messages API.
+/// Counts come from the response's `usage` block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicProbeResult {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub model: String,
+}
+
+/// One-token live call against the Messages API to verify the key works.
+/// Uses Haiku at `max_tokens=1` so the cost is ~0.000002 USD per probe.
+pub async fn probe_anthropic_key(api_key: &str) -> Result<AnthropicProbeResult, String> {
+    let trimmed = api_key.trim();
+    if trimmed.is_empty() {
+        return Err("API key is empty".to_string());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let body = serde_json::json!({
+        "model": "claude-haiku-4-5",
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "."}],
+    });
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", trimmed)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        /// Try to pull the human-readable message out of Anthropic's
+        /// error shape: `{"type":"error","error":{"type":"...","message":"..."}}`
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(msg) = json
+                .pointer("/error/message")
+                .and_then(|v| v.as_str())
+            {
+                return Err(format!("{} — {}", status, msg));
+            }
+        }
+        return Err(format!("{}: {}", status, text));
+    }
+    let json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse: {}", e))?;
+    let input_tokens = json
+        .pointer("/usage/input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    let output_tokens = json
+        .pointer("/usage/output_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    let model = json
+        .pointer("/model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("claude-haiku-4-5")
+        .to_string();
+    Ok(AnthropicProbeResult {
+        input_tokens,
+        output_tokens,
+        model,
+    })
+}
+
+#[tauri::command]
+pub async fn test_anthropic_key(api_key: String) -> Result<AnthropicProbeResult, String> {
+    probe_anthropic_key(&api_key).await
+}
+
 #[tauri::command]
 pub async fn list_models_openai_compat(base_url: String) -> Result<Vec<ModelInfo>, String> {
     probe_openai_compat_models(&base_url).await

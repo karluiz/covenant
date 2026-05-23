@@ -1442,6 +1442,19 @@ export async function listModelsAzureFoundry(args: {
   });
 }
 
+/// One-token live probe against Anthropic's Messages API. Returns token
+/// counts from the response's `usage` block. Costs ~$0.000002 per call
+/// (Haiku, 1 input + 1 output token at max_tokens=1).
+export interface AnthropicProbeResult {
+  input_tokens: number;
+  output_tokens: number;
+  model: string;
+}
+
+export async function testAnthropicKey(apiKey: string): Promise<AnthropicProbeResult> {
+  return invoke<AnthropicProbeResult>("test_anthropic_key", { apiKey });
+}
+
 // ---------------------------------------------------------------------------
 // Pi RPC executor — see crates/agent/src/pi_rpc/* and crates/app/src/pi_commands.rs
 //

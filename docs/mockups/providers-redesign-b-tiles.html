@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Providers settings — Direction B · Tile grid + drawer</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --bg-app: #050608;
+    --bg-panel: #11141a;
+    --bg-elev: #16191f;
+    --bg-input: #0c0f14;
+    --sidebar-bg: #1a1c21;
+    --border: #25292f;
+    --border-soft: rgba(255, 255, 255, 0.07);
+    --text-primary: #e6e8eb;
+    --muted: #8a8aa8;
+    --dim: #5a6068;
+    --accent: #7aa2f7;
+    --accent-glow: rgba(122, 162, 247, 0.18);
+    --ok: #4ade80;
+    --warn: #f4b860;
+    --err: #f87171;
+    --ink-rgb: 230 232 235;
+    font-family:
+      ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI",
+      Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-app);
+    color: var(--text-primary);
+    padding: 28px;
+    font-size: 13px;
+  }
+  h1.page {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 4px;
+  }
+  p.page-sub { margin: 0 0 24px; font-size: 12px; color: var(--muted); }
+
+  .frame {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+    min-height: 580px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 18px;
+  }
+  .toolbar-title { font-size: 14px; font-weight: 600; }
+  .toolbar-sub { color: var(--muted); font-size: 12px; }
+  .toolbar-spacer { flex: 1; }
+  .toolbar .filter {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-input); border: 1px solid var(--border-soft);
+    border-radius: 999px; padding: 5px 12px;
+    font-size: 12px; color: var(--muted);
+  }
+  .toolbar .filter input {
+    background: transparent; border: 0; outline: none;
+    color: var(--text-primary); font-size: 12px; width: 160px;
+  }
+
+  /* Tile grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .tile {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 16px;
+    position: relative;
+    cursor: pointer;
+    transition: border-color 0.12s ease-out, transform 0.12s ease-out;
+    display: flex; flex-direction: column; gap: 14px;
+    min-height: 158px;
+  }
+  .tile:hover { border-color: rgba(255,255,255,0.18); }
+  .tile.is-default {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+
+  .tile-head { display: flex; align-items: flex-start; gap: 12px; }
+  .tile-glyph {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700; color: #fff;
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    flex: 0 0 38px;
+  }
+  .g-anthropic { background: #c47b59; }
+  .g-azure     { background: #2f6fed; }
+  .g-lmstudio  { background: #8b5cf6; }
+  .g-ollama    { background: #5a6068; }
+  .g-openai    { background: #10a37f; }
+
+  .tile-name {
+    font-size: 14px; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+  .tile-kind {
+    font-size: 11px; color: var(--muted);
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+  }
+  .default-badge {
+    position: absolute; top: 14px; right: 14px;
+    font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-glow);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-weight: 700;
+  }
+
+  .tile-endpoint {
+    font-size: 11px; color: var(--muted);
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tile-foot {
+    margin-top: auto;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-ok   { color: var(--ok);   background: rgba(74, 222, 128, 0.08); }
+  .status-ok .dot   { background: var(--ok); box-shadow: 0 0 0 3px rgba(74,222,128,0.15); }
+  .status-warn { color: var(--warn); background: rgba(244, 184, 96, 0.08); }
+  .status-warn .dot { background: var(--warn); }
+  .status-err  { color: var(--err);  background: rgba(248, 113, 113, 0.08); }
+  .status-err .dot  { background: var(--err); }
+
+  .tile-test {
+    font-size: 11px; color: var(--dim);
+    font-family: ui-monospace, monospace;
+  }
+
+  /* Add tile */
+  .tile-add {
+    background: transparent;
+    border: 1px dashed var(--border-soft);
+    border-radius: 12px;
+    color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    min-height: 158px;
+  }
+  .tile-add:hover { color: var(--text-primary); border-color: rgba(255,255,255,0.20); background: rgba(255,255,255,0.02); }
+  .tile-add .plus {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--bg-elev); border: 1px solid var(--border-soft);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 300;
+  }
+
+  /* Drawer */
+  .drawer {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 480px; max-width: 100%;
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border-soft);
+    box-shadow: -20px 0 40px rgba(0,0,0,0.4);
+    display: flex; flex-direction: column;
+    padding: 22px 24px;
+    transform: translateX(0);
+    transition: transform 0.18s ease-out;
+  }
+  .drawer.is-closed { transform: translateX(100%); }
+  .drawer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .drawer-close {
+    margin-left: auto; background: transparent; border: 0;
+    color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1;
+    width: 28px; height: 28px;
+  }
+  .drawer-close:hover { color: var(--text-primary); }
+  .drawer-title { font-size: 15px; font-weight: 600; }
+  .drawer-sub { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+  .field label { font-size: 11px; letter-spacing: 0.05em; color: var(--muted); text-transform: uppercase; }
+  .input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text-primary);
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 12px;
+    outline: none;
+  }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .select { position: relative; }
+  .select .input { padding-right: 28px; cursor: pointer; font-family: inherit; }
+  .select::after {
+    content: ""; position: absolute; right: 12px; top: 50%;
+    border: 4px solid transparent; border-top-color: var(--muted);
+    transform: translateY(-2px); pointer-events: none;
+  }
+  .field-secret { position: relative; display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+  .icon-btn {
+    background: var(--bg-input); border: 1px solid var(--border-soft);
+    border-radius: 6px; width: 32px; height: 32px; color: var(--muted);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { color: var(--text-primary); background: rgba(var(--ink-rgb), 0.05); }
+
+  .test-row { display: flex; align-items: center; gap: 12px; padding: 6px 0 14px; }
+  .btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 7px 14px;
+    color: var(--text-primary);
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+  }
+  .btn:hover { background: rgba(var(--ink-rgb), 0.05); }
+  .btn-primary { background: var(--accent); border-color: transparent; color: #0c0e12; font-weight: 600; }
+  .btn-primary:hover { background: #93b6f9; }
+  .btn-danger { color: var(--err); border-color: rgba(248, 113, 113, 0.35); }
+  .btn-danger:hover { background: rgba(248, 113, 113, 0.08); }
+  .test-stat { color: var(--ok); font-size: 12px; }
+  .test-stat::before { content: "✓ "; }
+  .test-meta { color: var(--dim); font-size: 11px; font-family: ui-monospace, monospace; }
+
+  .drawer-foot {
+    margin-top: auto;
+    display: flex; justify-content: space-between;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .drawer-foot-right { display: flex; gap: 8px; }
+
+  .notes {
+    margin-top: 24px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 18px 20px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .notes h2 {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-primary); margin: 0 0 10px;
+  }
+  .notes ul { margin: 0; padding-left: 18px; }
+  .notes li + li { margin-top: 6px; }
+  .notes b { color: var(--text-primary); font-weight: 500; }
+</style>
+</head>
+<body>
+  <h1 class="page">Direction B · Tile grid + edit drawer</h1>
+  <p class="page-sub">Each provider is a tile; click "Edit" to slide in a focused form on the right. Most settings stay one-click away.</p>
+
+  <div class="frame">
+    <div class="toolbar">
+      <div>
+        <div class="toolbar-title">Providers</div>
+        <div class="toolbar-sub">5 configured · 3 healthy · 1 untested · 1 failing</div>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <div class="filter">
+        <span>🔍</span>
+        <input placeholder="Filter providers…" />
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Anthropic -->
+      <div class="tile">
+        <div class="tile-head">
+          <span class="tile-glyph g-anthropic">A</span>
+          <div>
+            <div class="tile-name">Anthropic</div>
+            <div class="tile-kind">anthropic</div>
+          </div>
+        </div>
+        <div class="tile-endpoint">sk-ant-***k7y9</div>
+        <div class="tile-foot">
+          <span class="status-pill status-ok"><span class="dot"></span>Connected</span>
+          <span class="tile-test">tested 4m ago</span>
+        </div>
+      </div>
+
+      <!-- Azure (selected / has drawer) -->
+      <div class="tile is-default">
+        <span class="default-badge">Default</span>
+        <div class="tile-head">
+          <span class="tile-glyph g-azure">◆</span>
+          <div>
+            <div class="tile-name">Azure Foundry</div>
+            <div class="tile-kind">azure_foundry · openai mode</div>
+          </div>
+        </div>
+        <div class="tile-endpoint">covfoundrytest9dbe64.openai.azure.com</div>
+        <div class="tile-foot">
+          <span class="status-pill status-ok"><span class="dot"></span>Connected</span>
+          <span class="tile-test">159 models</span>
+        </div>
+      </div>
+
+      <!-- LM Studio -->
+      <div class="tile">
+        <div class="tile-head">
+          <span class="tile-glyph g-lmstudio">LM</span>
+          <div>
+            <div class="tile-name">lmstudio</div>
+            <div class="tile-kind">openai_compat</div>
+          </div>
+        </div>
+        <div class="tile-endpoint">http://localhost:1234/v1</div>
+        <div class="tile-foot">
+          <span class="status-pill status-warn"><span class="dot"></span>Not tested</span>
+          <span class="tile-test">—</span>
+        </div>
+      </div>
+
+      <!-- Ollama -->
+      <div class="tile">
+        <div class="tile-head">
+          <span class="tile-glyph g-ollama">OL</span>
+          <div>
+            <div class="tile-name">ollama</div>
+            <div class="tile-kind">openai_compat</div>
+          </div>
+        </div>
+        <div class="tile-endpoint">http://localhost:11434/v1</div>
+        <div class="tile-foot">
+          <span class="status-pill status-ok"><span class="dot"></span>Connected</span>
+          <span class="tile-test">7 models</span>
+        </div>
+      </div>
+
+      <!-- OpenAI failing -->
+      <div class="tile">
+        <div class="tile-head">
+          <span class="tile-glyph g-openai">◎</span>
+          <div>
+            <div class="tile-name">openai-prod</div>
+            <div class="tile-kind">openai · sk-proj-***</div>
+          </div>
+        </div>
+        <div class="tile-endpoint">api.openai.com/v1</div>
+        <div class="tile-foot">
+          <span class="status-pill status-err"><span class="dot"></span>401 Unauthorized</span>
+          <span class="tile-test">rotate key</span>
+        </div>
+      </div>
+
+      <!-- Add tile -->
+      <div class="tile tile-add">
+        <span class="plus">+</span>
+        <div>Add provider</div>
+        <div style="font-size:11px; color: var(--dim);">Anthropic · OpenAI · Azure · local</div>
+      </div>
+    </div>
+
+    <!-- Drawer (shown open for Azure) -->
+    <aside class="drawer">
+      <div class="drawer-head">
+        <span class="tile-glyph g-azure" style="width:32px;height:32px;font-size:13px;border-radius:8px;">◆</span>
+        <div>
+          <div class="drawer-title">Azure Foundry</div>
+          <div class="drawer-sub">azure · azure_foundry</div>
+        </div>
+        <button class="drawer-close" title="Close">✕</button>
+      </div>
+
+      <div class="field">
+        <label>Mode</label>
+        <div class="select"><input class="input" value="Azure OpenAI (deployments)" readonly /></div>
+      </div>
+      <div class="field">
+        <label>Endpoint</label>
+        <input class="input" value="https://covfoundrytest9dbe64.openai.azure.com/" />
+      </div>
+      <div class="field">
+        <label>API key</label>
+        <div class="field-secret">
+          <input class="input" type="password" value="AShVbjsmpBeNhHCJsTtcdurJt23KO0UddQG5loFDmadCIvAbNM3xJQQJ" />
+          <button class="icon-btn" title="Reveal">👁</button>
+          <button class="icon-btn" title="Copy">⧉</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>API version</label>
+        <input class="input" value="2024-10-21" />
+      </div>
+      <div class="field">
+        <label>Deployment</label>
+        <input class="input" value="gpt-4.1-mini" />
+      </div>
+
+      <div class="test-row">
+        <button class="btn">Test connection</button>
+        <span class="test-stat">159 models · 0.42s</span>
+      </div>
+
+      <div class="drawer-foot">
+        <button class="btn btn-danger">Delete</button>
+        <div class="drawer-foot-right">
+          <button class="btn">Cancel</button>
+          <button class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="notes">
+    <h2>Why this works</h2>
+    <ul>
+      <li><b>Scannable overview.</b> Every provider gets a tile with logo, name, endpoint, and a status pill — you spot the failing one (red <code>401</code>) without opening anything.</li>
+      <li><b>"Default" treated as first-class.</b> The default provider gets an accent border + badge. No more hunting for which one is actually in use.</li>
+      <li><b>Edit happens in a focused drawer.</b> Form work isn't competing with the list. Drawer animates in, closes with ✕ or Esc — feels like Linear / Vercel project settings.</li>
+      <li><b>Status is meaningful.</b> "Connected", "Not tested", "401 Unauthorized · rotate key" — the panel is also a health dashboard, not just an editor.</li>
+      <li><b>Filter built in.</b> When you grow to 15+ providers (one per model family, prod/staging, etc.) the filter saves you. Today's stack has no answer for that scale.</li>
+      <li><b>Tradeoff:</b> requires drawer infrastructure (overlay, escape handling, focus trap). More code than Direction A. Tile grid also needs ≥ 720 px to keep 3 columns — narrower windows drop to 2 or 1.</li>
+    </ul>
+  </div>
+</body>
+</html>

@@ -19,7 +19,7 @@
   position: fixed;
   top: 76px; /* app titlebar (38) + horizontal tabbar (38) */
   right: 0;
-  bottom: 26px; /* status bar height; overridden below when hidden */
+  bottom: 27px; /* status bar height (26px) + 1px top border */
   width: min(var(--right-sidebar-w, 240px), calc(100vw - 32px));
   max-width: 100vw;
   min-width: 0;
@@ -63,8 +63,10 @@ body.theme-light .pn-panel {
 body.tabbar-left .pn-panel {
   top: 38px;
 }
-body:has(#status-bar[hidden]) .pn-panel {
-  bottom: 0;
+/* Fullscreen mode still has to clear the status bar — `inset` sets
+   bottom:0, so override it here. */
+.pn-panel.pn-fullscreen {
+  bottom: 27px;
 }
 
 .pn-panel.pn-fullscreen {

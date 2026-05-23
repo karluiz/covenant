@@ -773,8 +773,14 @@ export class StatusBar {
     const dirty = summary.dirty_count > 0
       ? `<span class="status-git-pop-dirty">${summary.dirty_count} changed</span>`
       : `<span class="status-git-pop-clean">clean</span>`;
-    const branches = summary.branches.length > 0
-      ? summary.branches.map((b) => {
+    const sortedBranches = summary.branches
+      .filter((b) => b.current || !b.worktree_path)
+      .sort((a, b) => {
+        if (a.current !== b.current) return a.current ? -1 : 1;
+        return 0;
+      });
+    const branches = sortedBranches.length > 0
+      ? sortedBranches.map((b) => {
         const inOtherWorktree = !!b.worktree_path && !b.current;
         const disabled = b.current || inOtherWorktree;
         const meta = [b.upstream, b.last_commit].filter(Boolean).join(" · ");
@@ -788,7 +794,6 @@ export class StatusBar {
             <span class="status-git-pop-row-main">
               <span class="status-git-pop-row-name">${escapeHtml(b.name)}</span>
               ${meta ? `<span class="status-git-pop-row-meta">${escapeHtml(meta)}</span>` : ""}
-              ${inOtherWorktree && b.worktree_path ? `<span class="status-git-pop-row-meta">checked out at ${escapeHtml(compactPath(b.worktree_path))}</span>` : ""}
             </span>
             ${badge}
           </button>`;
@@ -819,20 +824,53 @@ export class StatusBar {
         ${dirty}
       </div>
       <div class="status-git-pop-root">${escapeHtml(compactPath(summary.repo_root))}</div>
-      <section class="status-git-pop-section">
+      <div class="status-git-pop-search">
+        <input type="search" class="status-git-pop-search-input" placeholder="Filter branches & worktrees…" autocomplete="off" spellcheck="false" />
+      </div>
+      <section class="status-git-pop-section" data-section="branches">
         <h3>Branches</h3>
         <div class="status-git-pop-list">${branches}</div>
+        <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching branches.</div>
       </section>
-      <section class="status-git-pop-section">
+      <section class="status-git-pop-section" data-section="worktrees">
         <h3>Worktrees</h3>
         <div class="status-git-pop-list">${worktrees}</div>
+        <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching worktrees.</div>
       </section>
     `;
+
+    const search = pop.querySelector<HTMLInputElement>(".status-git-pop-search-input");
+    if (search) {
+      const applyFilter = (): void => {
+        const q = search.value.trim().toLowerCase();
+        pop.querySelectorAll<HTMLElement>("[data-section]").forEach((section) => {
+          const rows = section.querySelectorAll<HTMLElement>(".status-git-pop-row");
+          let visible = 0;
+          rows.forEach((row) => {
+            const text = (row.textContent || "").toLowerCase();
+            const match = !q || text.includes(q);
+            row.hidden = !match;
+            if (match) visible++;
+          });
+          const empty = section.querySelector<HTMLElement>(".status-git-pop-no-match");
+          if (empty) empty.hidden = visible > 0 || rows.length === 0;
+        });
+      };
+      search.addEventListener("input", applyFilter);
+      search.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && search.value) {
+          e.stopPropagation();
+          search.value = "";
+          applyFilter();
+        }
+      });
+      setTimeout(() => search.focus(), 0);
+    }
 
     pop.querySelectorAll<HTMLButtonElement>(".status-git-pop-branch").forEach((btn) => {
       btn.addEventListener("click", () => {
         const branch = btn.dataset.branch;
-        if (!branch) return;
+        if (!branch || btn.disabled) return;
         void this.switchBranchFromPopover(cwd, branch, pop);
       });
     });

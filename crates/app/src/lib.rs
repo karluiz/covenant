@@ -3364,6 +3364,7 @@ pub fn run() {
             providers_cmd::list_models_anthropic,
             providers_cmd::list_models_openai_compat,
             providers_cmd::list_models_azure_foundry,
+            providers_cmd::test_anthropic_key,
             pi_commands::spawn_pi_session,
             pi_commands::close_pi_session,
             pi_commands::pi_send_prompt,

@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Providers settings — Direction C · Dense table</title>
+<style>
+  :root {
+    --bg: #0c0e12;
+    --bg-app: #050608;
+    --bg-panel: #11141a;
+    --bg-elev: #16191f;
+    --bg-input: #0c0f14;
+    --sidebar-bg: #1a1c21;
+    --border: #25292f;
+    --border-soft: rgba(255, 255, 255, 0.07);
+    --row-hover: rgba(255, 255, 255, 0.025);
+    --text-primary: #e6e8eb;
+    --muted: #8a8aa8;
+    --dim: #5a6068;
+    --accent: #7aa2f7;
+    --accent-glow: rgba(122, 162, 247, 0.18);
+    --ok: #4ade80;
+    --warn: #f4b860;
+    --err: #f87171;
+    --ink-rgb: 230 232 235;
+    font-family:
+      ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI",
+      Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-app);
+    color: var(--text-primary);
+    padding: 28px;
+    font-size: 13px;
+  }
+  h1.page {
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 4px;
+  }
+  p.page-sub { margin: 0 0 24px; font-size: 12px; color: var(--muted); }
+
+  .frame {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    min-height: 580px;
+  }
+
+  .frame-head {
+    padding: 18px 22px;
+    display: flex; align-items: center; gap: 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .frame-title { font-size: 14px; font-weight: 600; }
+  .frame-sub { font-size: 12px; color: var(--muted); }
+  .frame-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: var(--text-primary);
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+  }
+  .btn:hover { background: rgba(var(--ink-rgb), 0.05); }
+  .btn-primary { background: var(--accent); border-color: transparent; color: #0c0e12; font-weight: 600; }
+  .btn-primary:hover { background: #93b6f9; }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  .btn-ghost:hover { color: var(--text-primary); background: rgba(var(--ink-rgb), 0.05); }
+  .btn-danger { color: var(--err); border-color: rgba(248, 113, 113, 0.35); }
+  .btn-danger:hover { background: rgba(248, 113, 113, 0.08); }
+
+  /* Table */
+  table.providers {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.providers thead th {
+    text-align: left;
+    font-size: 10px; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-panel);
+  }
+  table.providers tbody tr {
+    border-bottom: 1px solid var(--border-soft);
+    transition: background 0.1s ease-out;
+  }
+  table.providers tbody tr:hover { background: var(--row-hover); }
+  table.providers tbody tr.is-expanded { background: var(--row-hover); }
+  table.providers td {
+    padding: 12px 16px;
+    vertical-align: middle;
+  }
+
+  .col-glyph { width: 36px; }
+  .glyph {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+  }
+  .g-anthropic { background: #c47b59; }
+  .g-azure     { background: #2f6fed; }
+  .g-lmstudio  { background: #8b5cf6; }
+  .g-ollama    { background: #5a6068; }
+  .g-openai    { background: #10a37f; }
+
+  .col-name { min-width: 160px; }
+  .nm { color: var(--text-primary); font-weight: 500; }
+  .nm .badge {
+    display: inline-block; margin-left: 6px;
+    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-glow);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-weight: 700;
+    vertical-align: 1px;
+  }
+  .kind { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; margin-top: 2px; }
+
+  .col-endpoint { color: var(--muted); font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12px; }
+  .col-endpoint b { color: var(--text-primary); font-weight: 500; }
+
+  .col-status .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .col-status .pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .ok   { color: var(--ok); background: rgba(74,222,128,0.08); }
+  .ok .dot   { background: var(--ok); box-shadow: 0 0 0 3px rgba(74,222,128,0.15); }
+  .warn { color: var(--warn); background: rgba(244,184,96,0.08); }
+  .warn .dot { background: var(--warn); }
+  .err  { color: var(--err); background: rgba(248,113,113,0.08); }
+  .err .dot  { background: var(--err); }
+
+  .col-last  { font-size: 11px; color: var(--dim); font-family: ui-monospace, monospace; }
+  .col-uses  { font-size: 11px; color: var(--muted); }
+  .col-uses span { display: inline-block; padding: 2px 7px; background: rgba(var(--ink-rgb), 0.05); border-radius: 4px; margin-right: 4px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+  .col-actions { text-align: right; white-space: nowrap; }
+  .row-btn {
+    background: transparent; border: 0; cursor: pointer;
+    color: var(--dim); padding: 4px 6px;
+    border-radius: 4px;
+  }
+  .row-btn:hover { color: var(--text-primary); background: rgba(var(--ink-rgb), 0.06); }
+
+  /* Expanded inline editor */
+  tr.expand-row td {
+    padding: 0;
+    background: #0d1015;
+  }
+  .expand-inner {
+    padding: 16px 22px 18px;
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 22px 28px;
+  }
+  .expand-section h3 {
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim); margin: 0 0 10px;
+  }
+  .field-grid {
+    display: grid; grid-template-columns: 120px 1fr; gap: 8px 12px; align-items: center;
+  }
+  .field-grid label { color: var(--muted); font-size: 12px; }
+  .input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: var(--text-primary);
+    font-family: ui-monospace, "JetBrains Mono", monospace;
+    font-size: 12px;
+    outline: none;
+  }
+  .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .field-secret { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; }
+  .icon-btn {
+    background: var(--bg-input); border: 1px solid var(--border-soft);
+    border-radius: 6px; width: 30px; height: 30px; color: var(--muted);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .icon-btn:hover { color: var(--text-primary); background: rgba(var(--ink-rgb), 0.05); }
+
+  .right-col .stat-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .stat-card .label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--dim); margin-bottom: 6px;
+  }
+  .stat-card .value { color: var(--text-primary); font-size: 13px; font-weight: 500; }
+  .stat-card .value.ok { color: var(--ok); }
+  .stat-card .meta { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: ui-monospace, monospace; }
+
+  .uses-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .uses-list .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(var(--ink-rgb), 0.045);
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .uses-list .chip input { accent-color: var(--accent); margin: 0; }
+
+  .expand-foot {
+    grid-column: 1 / -1;
+    display: flex; justify-content: space-between; gap: 8px;
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .expand-foot .right { display: flex; gap: 8px; }
+  .test-stat { color: var(--ok); font-size: 12px; }
+  .test-stat::before { content: "✓ "; }
+
+  .frame-foot {
+    padding: 12px 22px;
+    color: var(--dim); font-size: 11px;
+    border-top: 1px solid var(--border-soft);
+    display: flex; gap: 18px;
+  }
+  .frame-foot kbd {
+    background: var(--bg-elev); border: 1px solid var(--border-soft);
+    border-radius: 4px; padding: 1px 5px;
+    font-family: ui-monospace, monospace; font-size: 10px;
+    color: var(--text-primary);
+  }
+
+  .notes {
+    margin-top: 24px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 18px 20px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .notes h2 {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-primary); margin: 0 0 10px;
+  }
+  .notes ul { margin: 0; padding-left: 18px; }
+  .notes li + li { margin-top: 6px; }
+  .notes b { color: var(--text-primary); font-weight: 500; }
+</style>
+</head>
+<body>
+  <h1 class="page">Direction C · Dense table</h1>
+  <p class="page-sub">One row per provider, sortable columns, expand a row to edit in place. Power-user pattern — like Vercel env vars or Stripe API keys.</p>
+
+  <div class="frame">
+    <header class="frame-head">
+      <div>
+        <div class="frame-title">Providers</div>
+        <div class="frame-sub">5 configured · last sync 4 min ago</div>
+      </div>
+      <div class="right">
+        <button class="btn-ghost btn">Test all</button>
+        <button class="btn btn-primary">+ Add provider</button>
+      </div>
+    </header>
+
+    <table class="providers">
+      <thead>
+        <tr>
+          <th class="col-glyph"></th>
+          <th class="col-name">Provider</th>
+          <th class="col-endpoint">Endpoint / key</th>
+          <th class="col-status">Status</th>
+          <th class="col-uses">Used for</th>
+          <th class="col-last">Last test</th>
+          <th class="col-actions"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="col-glyph"><span class="glyph g-anthropic">A</span></td>
+          <td>
+            <div class="nm">Anthropic</div>
+            <div class="kind">anthropic</div>
+          </td>
+          <td class="col-endpoint">sk-ant-***k7y9</td>
+          <td class="col-status"><span class="pill ok"><span class="dot"></span>Connected</span></td>
+          <td class="col-uses"><span>Reasoning</span><span>Tools</span></td>
+          <td class="col-last">4m ago · 0.31s</td>
+          <td class="col-actions">
+            <button class="row-btn" title="Test">↻</button>
+            <button class="row-btn" title="Edit">✎</button>
+            <button class="row-btn" title="More">⋯</button>
+          </td>
+        </tr>
+
+        <!-- Azure — expanded -->
+        <tr class="is-expanded">
+          <td class="col-glyph"><span class="glyph g-azure">◆</span></td>
+          <td>
+            <div class="nm">Azure Foundry <span class="badge">Default</span></div>
+            <div class="kind">azure_foundry · openai mode</div>
+          </td>
+          <td class="col-endpoint"><b>covfoundrytest9dbe64</b>.openai.azure.com</td>
+          <td class="col-status"><span class="pill ok"><span class="dot"></span>Connected</span></td>
+          <td class="col-uses"><span>Triage</span><span>Operators</span></td>
+          <td class="col-last">just now · 0.42s · 159 mdls</td>
+          <td class="col-actions">
+            <button class="row-btn" title="Test">↻</button>
+            <button class="row-btn" title="Collapse">▴</button>
+            <button class="row-btn" title="More">⋯</button>
+          </td>
+        </tr>
+        <tr class="expand-row">
+          <td colspan="7">
+            <div class="expand-inner">
+              <div class="expand-section left-col">
+                <h3>Endpoint</h3>
+                <div class="field-grid">
+                  <label>Mode</label>
+                  <input class="input" value="Azure OpenAI (deployments)" readonly />
+                  <label>Endpoint</label>
+                  <input class="input" value="https://covfoundrytest9dbe64.openai.azure.com/" />
+                  <label>API key</label>
+                  <div class="field-secret">
+                    <input class="input" type="password" value="AShVbjsmpBeNhHCJsTtcdurJt23KO0UddQG5loFDmadCIvAbNM3xJQQJ" />
+                    <button class="icon-btn" title="Reveal">👁</button>
+                    <button class="icon-btn" title="Copy">⧉</button>
+                  </div>
+                  <label>API version</label>
+                  <input class="input" value="2024-10-21" />
+                  <label>Deployment</label>
+                  <input class="input" value="gpt-4.1-mini" />
+                </div>
+              </div>
+              <div class="expand-section right-col">
+                <h3>Health</h3>
+                <div class="stat-card">
+                  <div class="label">Last test</div>
+                  <div class="value ok">200 OK · 0.42s</div>
+                  <div class="meta">/openai/models?api-version=2024-10-21</div>
+                </div>
+                <div class="stat-card">
+                  <div class="label">Catalog</div>
+                  <div class="value">159 models reachable</div>
+                  <div class="meta">incl. gpt-4.1, gpt-5, gpt-4o, o4-mini</div>
+                </div>
+
+                <h3 style="margin-top: 4px;">Used for</h3>
+                <div class="uses-list">
+                  <label class="chip"><input type="checkbox" checked /> Triage</label>
+                  <label class="chip"><input type="checkbox" /> Reasoning</label>
+                  <label class="chip"><input type="checkbox" /> Tool use</label>
+                  <label class="chip"><input type="checkbox" checked /> Operators</label>
+                </div>
+              </div>
+              <div class="expand-foot">
+                <button class="btn btn-danger">Delete</button>
+                <div class="right">
+                  <button class="btn">Test connection</button>
+                  <button class="btn btn-primary">Save</button>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+
+        <tr>
+          <td class="col-glyph"><span class="glyph g-lmstudio">LM</span></td>
+          <td>
+            <div class="nm">lmstudio</div>
+            <div class="kind">openai_compat</div>
+          </td>
+          <td class="col-endpoint">localhost:1234/v1</td>
+          <td class="col-status"><span class="pill warn"><span class="dot"></span>Not tested</span></td>
+          <td class="col-uses">—</td>
+          <td class="col-last">—</td>
+          <td class="col-actions">
+            <button class="row-btn" title="Test">↻</button>
+            <button class="row-btn" title="Edit">✎</button>
+            <button class="row-btn" title="More">⋯</button>
+          </td>
+        </tr>
+        <tr>
+          <td class="col-glyph"><span class="glyph g-ollama">OL</span></td>
+          <td>
+            <div class="nm">ollama</div>
+            <div class="kind">openai_compat</div>
+          </td>
+          <td class="col-endpoint">localhost:11434/v1</td>
+          <td class="col-status"><span class="pill ok"><span class="dot"></span>Connected</span></td>
+          <td class="col-uses"><span>Local</span></td>
+          <td class="col-last">6m ago · 7 mdls</td>
+          <td class="col-actions">
+            <button class="row-btn" title="Test">↻</button>
+            <button class="row-btn" title="Edit">✎</button>
+            <button class="row-btn" title="More">⋯</button>
+          </td>
+        </tr>
+        <tr>
+          <td class="col-glyph"><span class="glyph g-openai">◎</span></td>
+          <td>
+            <div class="nm">openai-prod</div>
+            <div class="kind">openai · sk-proj-***</div>
+          </td>
+          <td class="col-endpoint">api.openai.com/v1</td>
+          <td class="col-status"><span class="pill err"><span class="dot"></span>401 Unauthorized</span></td>
+          <td class="col-uses">—</td>
+          <td class="col-last">2m ago</td>
+          <td class="col-actions">
+            <button class="row-btn" title="Test">↻</button>
+            <button class="row-btn" title="Edit">✎</button>
+            <button class="row-btn" title="More">⋯</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <footer class="frame-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> expand</span>
+      <span><kbd>T</kbd> test</span>
+      <span><kbd>⌫</kbd> delete</span>
+      <span style="margin-left: auto;">Sorted by status · ascending</span>
+    </footer>
+  </div>
+
+  <div class="notes">
+    <h2>Why this works</h2>
+    <ul>
+      <li><b>Information-dense.</b> Each row shows name, endpoint, status, what it's used for, and last test result. The current design hides most of this behind cards.</li>
+      <li><b>Sortable / filterable.</b> Click a column header to sort by status (failing first), kind, last-test. Mental model: this is your provider <i>fleet</i>, not a list of forms.</li>
+      <li><b>Inline expand to edit.</b> No modal, no drawer — the row opens in place. Two-column layout inside: form on the left, <i>health diagnostics</i> on the right (last test response, catalog size, etc.). Diagnostics are first-class, not buried.</li>
+      <li><b>Keyboard-first.</b> Arrow keys + ↵ expand + T to test + ⌫ delete. Power users never reach for the mouse.</li>
+      <li><b>"Used for" column.</b> The crosswalk between providers and what they actually serve (Triage / Reasoning / Tools / Operators / Local) is visible at the list level — fixes the disconnect with the current Models routing tab.</li>
+      <li><b>Tradeoff:</b> least friendly to first-time users — a table reads as "advanced settings". Best after 3+ providers are configured; with one, it's overkill compared to Direction A or B.</li>
+    </ul>
+  </div>
+</body>
+</html>
