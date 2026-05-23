@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.20 — Telegram approve-propagation design + plan docs
+
+### Changed
+
+- **Docs preserved**: cherry-picked `docs/superpowers/specs/2026-05-13-telegram-approve-propagation-design.md` (173 lines) and `docs/superpowers/plans/2026-05-14-telegram-approve-propagation.md` (738 lines) onto main from the now-retired `feat/telegram-approve-propagation` branch. These describe the design + implementation plan for the named-confirmation pathway that already shipped in code via `1a5fdde` (`feat(telegram): named confirmation via OperatorRegistry plumbed into Notifier`) and `80ecbd7` (`feat(telegram): typed inbound dispatch + named confirmation`). Keeping them in tree as historical record for that subsystem.
+
 ## v0.8.19 — Hermes executor support
 
 ### Added
