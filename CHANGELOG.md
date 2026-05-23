@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.16 — CustomSelect rollout + right-panel polish + tooltip stability
+
+### Added
+
+- **CustomSelect component**: new accessible dropdown (`ui/src/ui/select.ts`) replacing native `<select>` across settings/providers, settings/operators, settings/model_routes, settings/spawns, capabilities, convergence/tile, familiars settings, operator panel, structure editor, and the provider preset chooser. Buttons render with the current chrome tokens; the option list pops in a positioned floating panel so the look is consistent in dark and light themes.
+- **Minimal right-panel chrome**: introduces `--sidebar-bg` as a single flat material for `#activity-sidebar`, `#teammate-panel`, `.familiar-panel`, `.settings-nav`, `.docs-sidebar`, `.capabilities-nav`, `.structure-host`, and `.pn-panel`. Inner headers, composers, and tab strips render with transparent backgrounds and no borders so each rail reads as one continuous surface. Hover tint for titlebar icons, sidebar nav items, and familiar tabs is unified at `rgba(var(--ink-rgb), 0.055)`. The LEFT tabbar (`#tabbar-host`) is intentionally excluded so the group/connector/avatar treatment from v0.8.14 is preserved.
+- **Teammate composer polish**: input gets a flat `#090b0f` background, 46 px min-height, no border or shadow, lowercase placeholder, and `autocomplete=off / autocapitalize=off / autocorrect=off / spellcheck=false` so the operator name isn't auto-mangled by the OS (`ui/src/teammate/panel.ts`).
+- **Project-notes slide-in**: project-notes panel now reuses the 160 ms `right-rail-panel-in` animation introduced for Activity/Teammate in v0.8.13, with `prefers-reduced-motion` honored (`ui/src/project-notes/styles.css`).
+
+### Fixed
+
+- **Tooltip no longer dies on micro cursor moves**: dropped the cursor-rect watchdog that hid the tooltip whenever the pointer was even a couple of pixels outside the target rect. Normal `mouseleave` still handles the "cursor actually left" case, and the DOM-detach branch still hides orphaned tooltips when a streaming UI re-renders the hovered row. Removed the unused window-level `pointermove` listener (`ui/src/tooltip/tooltip.ts`).
+- **Active/hover X on left-mode tabs**: restored `body.tabbar-left .tab-btn .tab-close { opacity: 0 }` baseline with `:hover` / `.active` → `0.82` (`ui/src/styles.css`). The X shows on the currently selected tab and on any tab you hover, but stays hidden otherwise — the avatar and group connector line are no longer competing with always-visible close glyphs.
+
 ## v0.8.15 — Copilot CLI phase detection + activity notch polish
 
 ### Added
