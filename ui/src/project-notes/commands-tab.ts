@@ -99,6 +99,9 @@ export class CommandsTab {
   }
 
   private openEditor(existing: Command | null): void {
+    // Only one editor at a time.
+    this.container.querySelector(".pn-cmd-editor")?.remove();
+
     const dialog = document.createElement("div");
     dialog.className = "pn-cmd-editor";
     dialog.innerHTML = `
@@ -115,7 +118,24 @@ export class CommandsTab {
       titleInput.value = existing.title;
       cmdInput.value = existing.command;
     }
-    dialog.querySelector(".pn-cmd-cancel")!.addEventListener("click", () => dialog.remove());
+
+    // When creating a new command, hide the empty-state placeholder and
+    // surface the editor inline at the top, right under the "+ New command"
+    // button — so the form appears where the user is already looking.
+    const isCreating = !existing;
+    const empty = this.list.querySelector<HTMLElement>(".pn-empty");
+    if (isCreating && empty) empty.style.display = "none";
+
+    const restoreEmpty = () => {
+      if (isCreating && empty && this.commands.length === 0) {
+        empty.style.display = "";
+      }
+    };
+
+    dialog.querySelector(".pn-cmd-cancel")!.addEventListener("click", () => {
+      dialog.remove();
+      restoreEmpty();
+    });
     dialog.querySelector(".pn-cmd-save")!.addEventListener("click", async () => {
       const title = titleInput.value.trim();
       const command = cmdInput.value.trim();
@@ -129,7 +149,12 @@ export class CommandsTab {
       await this.refresh();
       this.hooks.onChange?.();
     });
-    this.container.appendChild(dialog);
+
+    if (isCreating) {
+      this.list.insertAdjacentElement("beforebegin", dialog);
+    } else {
+      this.container.appendChild(dialog);
+    }
     titleInput.focus();
   }
 }

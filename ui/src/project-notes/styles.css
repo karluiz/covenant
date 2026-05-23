@@ -537,22 +537,32 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   outline: none;
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
 }
-.pn-cmd-editor-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.pn-cmd-editor-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .pn-cmd-editor-actions button {
-  background: transparent;
-  color: var(--text, #e6e8eb);
-  border: 1px solid var(--border, #2a2d35);
-  border-radius: 4px;
-  padding: 4px 12px;
+  padding: 6px 14px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 11px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  transition: background 120ms ease, border-color 120ms ease, filter 120ms ease;
+}
+.pn-cmd-editor .pn-cmd-cancel {
+  background: transparent;
+  color: var(--text-primary, #e6e8eb);
+  border: 1px solid var(--border, #2a2d35);
+}
+.pn-cmd-editor .pn-cmd-cancel:hover {
+  background: rgb(var(--ink-rgb, 230 232 235) / 0.06);
+  border-color: rgb(var(--ink-rgb, 230 232 235) / 0.2);
 }
 .pn-cmd-editor .pn-cmd-save {
   background: var(--pn-accent, var(--accent, #6aa9ff));
-  color: #0a0a14;
-  border-color: transparent;
-  font-weight: 500;
+  color: #ffffff;
+  border: 1px solid transparent;
+  font-weight: 600;
 }
+.pn-cmd-editor .pn-cmd-save:hover { filter: brightness(1.08); }
 
 .pn-drafts-tab {
   display: flex;

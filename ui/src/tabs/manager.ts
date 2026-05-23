@@ -3730,6 +3730,7 @@ export class TabManager {
     // the user can drag tabs back into. Explicit removal happens via the
     // chip's context-menu "Delete group" / "Ungroup" actions.
     this.renderTabbar();
+    this.flushTabbarLayout();
     this.scheduleSave();
   }
 
@@ -3739,7 +3740,22 @@ export class TabManager {
     }
     this.groups.delete(groupId);
     this.renderTabbar();
+    this.flushTabbarLayout();
     this.scheduleSave();
+  }
+
+  /// Force a reflow on the tabbar scroll container after a structural
+  /// change (ungroup / remove-from-group). Without this, ungrouped tabs
+  /// can render with stale layout — they keep their previous height/
+  /// indent until the next window resize event. Reading offsetHeight is
+  /// a synchronous reflow; the resize dispatch then re-arms any listeners
+  /// (e.g. ResizeObservers on terminal panes) that depend on the tabbar
+  /// width changing when the scrollbar appears/disappears.
+  private flushTabbarLayout(): void {
+    void this.tabbarHost.offsetHeight;
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
   }
 
   /// Create a brand-new empty group and immediately enter rename mode.

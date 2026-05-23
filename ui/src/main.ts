@@ -1498,15 +1498,10 @@ async function boot(): Promise<void> {
       void capabilities.toggle(manager.activeCwd());
       return;
     }
-    // ⌘⌥P — toggle the Pi overlay panel (transient session).
     // ⌘⌥⇧P — create a permanent Pi tab in the tabbar.
-    if (e.metaKey && e.altKey && (e.key === "P" || e.key === "p" || e.key === "π")) {
+    if (e.metaKey && e.altKey && e.shiftKey && (e.key === "P" || e.key === "p" || e.key === "π")) {
       e.preventDefault();
-      if (e.shiftKey) {
-        void manager.createPiTab({ cwd: manager.activeCwd() ?? null });
-      } else {
-        void piPanel.toggle({ cwd: manager.activeCwd() ?? null });
-      }
+      void manager.createPiTab({ cwd: manager.activeCwd() ?? null });
       return;
     }
     // ⌘⇧A — pure AOM toggle: off ↔ on.

@@ -41,7 +41,6 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "⇧", "I"], label: "Capabilities", description: "Browse Skills / Commands / Hooks / MCPs across Claude, Copilot, opencode, Shared." },
   { category: "Panels", keys: ["⌘", "⇧", "P"], label: "Workspace picker", description: "Toggle the workspace switcher popover: pick, rename, duplicate, recolor, delete." },
   { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Open version history / release notes." },
-  { category: "Operator & AI", keys: ["⌘", "⌥", "P"], label: "Pi overlay", description: "Toggle the transient Pi RPC overlay for the active cwd." },
   { category: "Tabs", keys: ["⌘", "⌥", "⇧", "P"], label: "New Pi tab", description: "Create a permanent Pi RPC tab in the tabbar." },
   { category: "Tabs", keys: ["⌘", "⌥", "N"], label: "New workspace", description: "Create a new workspace and switch to it. The outgoing workspace's PTYs are killed and respawned from manifest on next switch." },
 
