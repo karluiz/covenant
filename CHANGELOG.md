@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.21 — CustomSelect click fix + xterm viewport scroll drift fix
+
+### Changed
+
+- **AOM spec-badge restyle**: badge icon switched from the 📎 emoji to `Icons.target`, with tooltip + aria-label refreshed to "New mission spec detected" / "N new specs ready to set as missions" (`ui/src/aom/spec-badge.ts`, `ui/src/aom/spec-prompt.ts`).
+- **Spec detector path normalization**: `crates/app/src/spec_detector.rs` grew a `canonical_or_self` helper and pulls in `std::process::Command` (~221 added lines) so detection survives symlinked workspaces and shells out to git when needed.
+
+### Fixed
+
+- **CustomSelect dropdown clicks were silently failing**: `ui/src/ui/select.ts` now skips `renderPopover()` on `mouseenter` when the highlighted index hasn't changed. Without this, an infinite async re-render loop kept calling `replaceChildren()` between `pointerdown` and `pointerup`, swapping the button out from under the click and dropping the event.
+- **xterm viewport scroll froze after tab switching**: when bytes were written while a pane was `display: none`, xterm's internal scroll-area height went stale; if `fit.fit()` resolved to the same cols/rows the resize was a no-op and the viewport stayed frozen. `ui/src/tabs/manager.ts` now forces a `rows-1 → rows` cycle on tab activation, runs a second `ResizeObserver` pass, and adds a debounced `onWheelStuck` detector (any wheel event where `scrollTop` doesn't move triggers a re-fit). Replaces the old `onWheelAtBottom` handler which only caught scroll-down-at-bottom.
+
 ## v0.8.20 — Telegram approve-propagation design + plan docs
 
 ### Changed
