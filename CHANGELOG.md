@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.19 — Hermes executor support
+
+### Added
+
+- **Hermes (Nous Research) recognized as an executor**: launching `hermes` (or `/usr/local/bin/hermes`, `env … hermes`, `hermes setup`, …) in any tab now lights the status-bar chip as `🤖 hermes`. Detection regex lives next to the other executor patterns in `ui/src/executor.ts`. The wider integration plan is captured in `docs/specs/3.21-hermes-executor.md`.
+- **"Hermes" spawn preset**: ships as a default in `crates/app/src/spawns_store.rs` (command `hermes`, no args, no model field — Hermes manages its own model via `hermes model` / `hermes setup`). Existing installs are backfilled via a narrow `BACKFILL_IDS` migration on next app launch — only the Hermes row is added, anything the user has previously removed stays removed, and a malformed `spawns.json` still falls back to an empty list instead of being silently overwritten.
+- **Hermes Thinking-phase detection**: `crates/blocks/src/executor_phase.rs` now flips the per-session `ExecutorPhase` to `Thinking` on either `Initializing agent...` or the boxed assistant-panel top line `╭─ ⚕ Hermes …╮`. The U+2695 STAFF OF AESCULAPIUS glyph immediately followed by the literal word `Hermes` is the discriminator; the welcome banner (`╭─ Hermes Agent v…╮`, no ⚕) and the per-turn status footer (`⚕ <model> │ … │ ⏲ 5s`, no `Hermes`) are explicitly tested as non-matches so the operator engine doesn't see phantom turns.
+
 ## v0.8.18 — Light splash polish + settings-over-notes + ungroup reflow
 
 ### Changed
