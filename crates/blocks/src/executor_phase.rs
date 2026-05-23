@@ -25,6 +25,7 @@ static RE_THINKING: OnceLock<Regex> = OnceLock::new();
 static RE_PI_THINKING_STATUS: OnceLock<Regex> = OnceLock::new();
 static RE_COPILOT_TOOL: OnceLock<Regex> = OnceLock::new();
 static RE_COPILOT_THINKING: OnceLock<Regex> = OnceLock::new();
+static RE_HERMES_THINKING: OnceLock<Regex> = OnceLock::new();
 static RE_WAITING: OnceLock<Regex> = OnceLock::new();
 
 /// Cap on target string length so a missing newline (Claude Code v2.1
@@ -117,6 +118,23 @@ fn re_copilot_tool() -> &'static Regex {
 fn re_copilot_thinking() -> &'static Regex {
     RE_COPILOT_THINKING.get_or_init(|| {
         Regex::new(r"\b[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}\besc\s+cancel\b").unwrap()
+    })
+}
+/// Hermes (Nous Research) in-flight markers. Two anchors:
+///
+///   1. `Initializing agent...` — printed once per turn before the
+///      first token streams in.
+///   2. `╭─ ⚕ Hermes …╮` — top edge of the boxed assistant response.
+///      The U+2695 STAFF OF AESCULAPIUS glyph immediately followed by
+///      the literal word `Hermes` is the strongest fingerprint we have.
+///
+/// Both should *only* fire on Hermes output: the welcome banner's top
+/// row is `╭─ Hermes Agent v0.14.0 …╮` (no ⚕), and the status footer
+/// is `⚕ <model-name> │ …` (no `Hermes` after the glyph). Neither
+/// false-positive case matches — covered by negative tests below.
+fn re_hermes_thinking() -> &'static Regex {
+    RE_HERMES_THINKING.get_or_init(|| {
+        Regex::new(r"(?:Initializing\s+agent\.{3}|╭─\s*⚕\s+Hermes\b)").unwrap()
     })
 }
 
@@ -242,6 +260,7 @@ impl ExecutorPhaseDetector {
         if re_thinking().is_match(&raw)
             || re_pi_thinking_status().is_match(&raw)
             || re_copilot_thinking().is_match(&raw)
+            || re_hermes_thinking().is_match(&raw)
         {
             return ExecutorPhase::Thinking;
         }
@@ -413,5 +432,59 @@ mod tests {
         let changed = d.feed(b"\x1b]133;D;0\x07");
         assert!(changed);
         assert!(matches!(d.phase(), ExecutorPhase::Done { .. }));
+    }
+
+    // ─── Hermes (Nous Research) ────────────────────────────────────
+    //
+    // Real-output fixtures captured from `hermes` v0.14.0. The brand
+    // glyph is U+2695 STAFF OF AESCULAPIUS (⚕). The assistant-panel
+    // top line (`╭─ ⚕ Hermes ──╮`) and the explicit `Initializing
+    // agent...` line are the two strong anchors for "Hermes is
+    // currently producing a turn".
+
+    #[test]
+    fn detects_thinking_from_hermes_initializing_line() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed(b"Initializing agent...\n");
+        assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn detects_thinking_from_hermes_assistant_panel_top() {
+        // Top edge of the boxed assistant response. The fixture is
+        // truncated for legibility; the real Hermes output stretches
+        // the dashes to fill the terminal width.
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("╭─ ⚕ Hermes ──────────────────╮\n".as_bytes());
+        assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn hermes_welcome_banner_does_not_trigger_thinking() {
+        // The first-launch welcome panel uses the same box-draw glyphs
+        // but its title row is `Hermes Agent v0.14.0` (no ⚕ at the
+        // top). It must NOT be treated as an in-flight turn.
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed(
+            "╭──────────── Hermes Agent v0.14.0 (2026.5.16) · upstream 874c2b1f ────────────╮\n"
+                .as_bytes(),
+        );
+        assert!(!changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Idle);
+    }
+
+    #[test]
+    fn hermes_status_footer_does_not_trigger_thinking() {
+        // The footer status line shares the ⚕ glyph but is followed by
+        // a model name (`claude-opus-4.6`) — not the literal `Hermes`.
+        // It must not be misclassified as the assistant-panel start.
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed(
+            " ⚕ claude-opus-4.6 │ 18.5K/1M │ [░░░░░░░░░░] 2% │ 1m │ ⏲ 5s \n".as_bytes(),
+        );
+        assert!(!changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Idle);
     }
 }
