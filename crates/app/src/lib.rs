@@ -181,6 +181,9 @@ pub(crate) struct AppState {
     /// what the user's actual Claude session is doing, not just Covenant's
     /// internal summariser / fix-proposer calls.
     pub(crate) exec_vitals: exec_vitals::ExecVitals,
+    /// Per-session fuzzy file search cache. Populated on first `search_session_files`
+    /// call for each session, refreshed on cwd change or TTL expiry.
+    pub(crate) file_search_cache: crate::file_search::FileSearchCache,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -2551,6 +2554,32 @@ async fn telegram_status(
     Ok(state.telegram_notifier.status().await)
 }
 
+#[tauri::command]
+async fn search_session_files(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<crate::file_search::FileMatch>, String> {
+    let sid = parse_id(&session_id)?;
+    let cwd = {
+        let sessions = state.sessions.lock().await;
+        let managed = sessions
+            .get(&sid)
+            .ok_or_else(|| format!("unknown session {session_id}"))?;
+        let world = managed.world.lock().await;
+        world.cwd.clone()
+    };
+    let limit = limit.unwrap_or(8).min(50);
+    Ok(crate::file_search::search(
+        &state.file_search_cache,
+        sid,
+        &cwd,
+        &query,
+        limit,
+    ))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Install a panic hook that appends panic location + message + backtrace to
 /// `~/.karlTerminal/crash.log` before the default handler runs. With
@@ -3173,6 +3202,7 @@ pub fn run() {
                 notch_hub: notch::NotchHub::new(),
                 vitals,
                 exec_vitals,
+                file_search_cache: crate::file_search::FileSearchCache::new(),
             });
 
             // Fullscreen-aware notch: when the main Covenant window
@@ -3238,6 +3268,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            search_session_files,
             score_commands::score_summary,
             score_commands::score_heatmap,
             spawn_session,
