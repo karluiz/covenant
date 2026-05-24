@@ -13,6 +13,8 @@ import { renderAvatarHtml } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
 import { expandMentions, MentionPopup, type FindFilesFn, type ReadFileFn } from "./mentions";
 import { renderTaskCard } from "./task-card";
+import { ActivityView } from "./activity-view";
+import { AomActivityFeed } from "../aom/activity-feed";
 
 const CHEVRON_DOWN_SVG =
   '<svg class="teammate-panel-header-chevron" viewBox="0 0 16 16" aria-hidden="true">' +
@@ -157,7 +159,7 @@ export class TeammatePanel {
   private dismissSwitcher: ((e: Event) => void) | null = null;
   private unlisten: (() => void) | null = null;
   private unlistenToolCall: (() => void) | null = null;
-  private viewMode: "chat" | "tasks" = "chat";
+  private viewMode: "chat" | "tasks" | "activity" = "chat";
   private tasksCache: Task[] = [];
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
   private resetBtnEl: HTMLButtonElement | null = null;
@@ -169,6 +171,8 @@ export class TeammatePanel {
   /// mention-picked in the current composer draft. Cleared on send.
   private mentionedFiles = new Map<string, string>();
   private mentionPopup: MentionPopup | null = null;
+  private activityView: ActivityView | null = null;
+  private activityEl: HTMLElement | null = null;
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -192,6 +196,7 @@ export class TeammatePanel {
       this.renderTabsBar(),
       this.renderThread(),
       this.renderTasksView(),
+      this.renderActivityView(),
       this.renderComposer(),
     );
     this.applyViewMode();
@@ -215,6 +220,10 @@ export class TeammatePanel {
     this.unlisten = null;
     this.unlistenToolCall?.();
     this.unlistenToolCall = null;
+    this.activityView?.stop();
+    this.activityView = null;
+    this.activityEl = null;
+    AomActivityFeed.suppress = false;
     this.mentionPopup?.destroy();
     this.mentionPopup = null;
     this.mentionedFiles.clear();
@@ -269,6 +278,7 @@ export class TeammatePanel {
     bar.append(
       this.renderTabButton("chat",  "Chat"),
       this.renderTabButton("tasks", "Tasks"),
+      this.renderTabButton("activity", "Activity"),
       this.renderResetButton(),
     );
     this.tabsBarEl = bar;
@@ -338,7 +348,7 @@ export class TeammatePanel {
     }
   }
 
-  private renderTabButton(mode: "chat" | "tasks", label: string): HTMLButtonElement {
+  private renderTabButton(mode: "chat" | "tasks" | "activity", label: string): HTMLButtonElement {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "teammate-panel-tab";
@@ -346,10 +356,10 @@ export class TeammatePanel {
     const labelSpan = document.createElement("span");
     labelSpan.textContent = label;
     b.append(labelSpan);
-    if (mode === "tasks") {
+    if (mode === "tasks" || mode === "activity") {
       const count = document.createElement("span");
       count.className = "teammate-panel-tab-count";
-      count.dataset.role = "count";
+      count.dataset.role = mode === "tasks" ? "count" : "activity-count";
       b.append(count);
     }
     b.addEventListener("click", () => {
@@ -367,12 +377,16 @@ export class TeammatePanel {
       tab.classList.toggle("is-active", tab.dataset.tab === this.viewMode);
     }
     const chat = this.viewMode === "chat";
+    const activity = this.viewMode === "activity";
     // Use a class instead of the `hidden` attribute — the existing
     // `.teammate-panel-thread` rule sets `display: flex`, which beats
     // the attribute's default `display: none`. Class is `!important` in CSS.
     this.threadEl?.classList.toggle("is-hidden", !chat);
     this.composerEl?.classList.toggle("is-hidden", !chat);
-    this.tasksEl?.classList.toggle("is-hidden", chat);
+    this.tasksEl?.classList.toggle("is-hidden", this.viewMode !== "tasks");
+    this.activityEl?.classList.toggle("is-hidden", !activity);
+    // Tell the activity view whether it's visible so it can manage the badge.
+    this.activityView?.setVisible(activity);
   }
 
   private renderThread(): HTMLElement {
@@ -387,6 +401,32 @@ export class TeammatePanel {
     t.className = "teammate-panel-tasks is-hidden";
     this.tasksEl = t;
     return t;
+  }
+
+  private renderActivityView(): HTMLElement {
+    this.activityView = new ActivityView();
+    this.activityEl = this.activityView.getElement();
+    this.activityEl.classList.add("is-hidden");
+    const opId = this.operator?.id ?? "";
+    void this.activityView.start(opId, (count) => {
+      this.updateActivityBadge(count);
+    });
+    // Suppress floating toasts — decisions now flow into the sidebar.
+    AomActivityFeed.suppress = true;
+    return this.activityEl;
+  }
+
+  private updateActivityBadge(count: number): void {
+    if (!this.tabsBarEl) return;
+    const badge = this.tabsBarEl.querySelector<HTMLElement>('[data-role="activity-count"]');
+    if (!badge) return;
+    if (count > 0) {
+      badge.textContent = String(count);
+      badge.classList.remove("is-empty");
+    } else {
+      badge.textContent = "";
+      badge.classList.add("is-empty");
+    }
   }
 
   private renderComposer(): HTMLElement {

@@ -385,32 +385,55 @@ body.bg-translucent {
    the pill border. Replaces the inner zap glyph (spec 2026-05-05).
    Uses a pseudo-element with a mask trick so only the border-shaped
    ring is painted, leaving the tab background and content untouched. */
+@property --tab-aom-a {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+}
 .tab-btn.tab-aom-active::after {
     content: "";
     position: absolute;
     inset: -1px;
     border-radius: var(--tab-radius);
     padding: 1.5px;
-    background: linear-gradient(
-        120deg,
-        #7c8cff 0%,
-        #8b5cf6 30%,
-        #22d3ee 55%,
-        #7c8cff 100%
+    background: conic-gradient(
+        from var(--tab-aom-a),
+        transparent 0deg,
+        transparent 250deg,
+        #22d3ee 295deg,
+        #7c8cff 320deg,
+        #ffffff 340deg,
+        #7c8cff 355deg,
+        transparent 360deg
     );
-    background-size: 300% 300%;
-    animation: tab-aom-flow 4s linear infinite;
     -webkit-mask:
         linear-gradient(#000 0 0) content-box,
         linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
+    animation: tab-aom-spin 3.2s linear infinite;
     pointer-events: none;
     z-index: 0;
 }
-@keyframes tab-aom-flow {
-    0%   { background-position:   0% 50%; }
-    100% { background-position: 300% 50%; }
+@keyframes tab-aom-spin { to { --tab-aom-a: 360deg; } }
+/* Fallback for engines without @property — animate a linear gradient
+   sweep instead, so the ring still pulses with motion. */
+@supports not (background: conic-gradient(from 0deg, red, red)) {
+    .tab-btn.tab-aom-active::after {
+        background: linear-gradient(
+            120deg,
+            #7c8cff 0%,
+            #8b5cf6 30%,
+            #22d3ee 55%,
+            #7c8cff 100%
+        );
+        background-size: 300% 300%;
+        animation: tab-aom-flow 4s linear infinite;
+    }
+    @keyframes tab-aom-flow {
+        0%   { background-position:   0% 50%; }
+        100% { background-position: 300% 50%; }
+    }
 }
 @media (prefers-reduced-motion: reduce) {
     .tab-btn.tab-aom-active::after { animation: none; }
@@ -10255,6 +10278,15 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
   display: inline-flex;
   line-height: 0;
 }
+/* When AOM is driving this tab, sit the avatar on a solid dark disc so
+   the lighthouse beam ring around the pill doesn't bleed into the
+   avatar's transparent edges. The disc lives on the avatar element
+   itself (18px circle) so it can't leak into the label area. */
+.tab-btn.tab-aom-active .tab-op-avatar-wrap .op-avatar {
+  background: #0b0d14;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
 .tab-op-level {
   position: absolute;
   right: -4px;
@@ -15800,7 +15832,125 @@ body.theme-light .teammate-panel-switcher {
 }
 .teammate-panel-thread.is-hidden,
 .teammate-panel-tasks.is-hidden,
+.teammate-panel-activity.is-hidden,
 .teammate-panel-composer.is-hidden { display: none !important; }
+
+/* --- Activity view (AOM decisions feed in the sidebar) --- */
+.teammate-panel-activity {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+}
+
+.tp-activity-summary {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft, rgba(255,255,255,0.08));
+  font-size: 11px; color: var(--text-dim, #8b8d94);
+}
+.tp-activity-summary-stats { display: flex; align-items: center; gap: 6px; }
+.tp-activity-summary-cost {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.tp-act-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 2px; vertical-align: middle;
+}
+.tp-act-dot--ok    { background: var(--ok, #3ddc84); }
+.tp-act-dot--warn  { background: var(--fail, #ffc046); }
+.tp-act-dot--muted { background: var(--muted, #6e717a); }
+.tp-act-sep { color: var(--text-dim, #5e6068); margin: 0 2px; }
+
+.tp-activity-list {
+  flex: 1; overflow-y: auto; padding: 6px 8px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.tp-activity-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim, #5e6068); font-size: 13px;
+}
+
+/* Cards — mirror the .aom-feed-card grid layout for visual consistency. */
+.tp-activity-card {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 3px 8px;
+  padding: 6px 8px 7px;
+  background: var(--bg-overlay, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.06));
+  border-left-width: 3px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-primary, #e6e8ea);
+  transition: background 0.12s;
+}
+.tp-activity-card:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.tp-activity-card--entering {
+  animation: tp-activity-in 0.18s ease-out;
+}
+@keyframes tp-activity-in {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.tp-activity-icon {
+  grid-column: 1; grid-row: 1;
+  display: inline-flex; align-items: center;
+  color: var(--muted, #6e717a);
+}
+.tp-activity-meta {
+  grid-column: 2; grid-row: 1;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; letter-spacing: 0.04em;
+  color: var(--muted, #6e717a);
+}
+.tp-activity-tab {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text-primary, #e6e8ea);
+}
+.tp-activity-title {
+  text-transform: uppercase; font-weight: 600; letter-spacing: 0.06em;
+}
+.tp-activity-cost {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.tp-activity-time {
+  grid-column: 3; grid-row: 1;
+  font-size: 10px; color: var(--text-dim, #5e6068);
+  white-space: nowrap;
+}
+.tp-activity-body {
+  grid-column: 2 / 4; grid-row: 2;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.4; color: #e6e8ea;
+  word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Per-action variants — left border color. */
+.tp-activity-ok    { border-left-color: var(--ok, #3ddc84); }
+.tp-activity-ok .tp-activity-icon,
+.tp-activity-ok .tp-activity-title { color: var(--ok, #3ddc84); }
+.tp-activity-warn  { border-left-color: var(--fail, #ffc046); }
+.tp-activity-warn .tp-activity-icon,
+.tp-activity-warn .tp-activity-title { color: var(--fail, #ffc046); }
+.tp-activity-startup { border-left-color: var(--accent, #6f7bff); }
+.tp-activity-startup .tp-activity-icon,
+.tp-activity-startup .tp-activity-title { color: var(--accent, #6f7bff); }
+.tp-activity-muted { border-left-color: var(--muted, #6e717a); }
+
+/* Scrollbar inside activity list */
+.tp-activity-list::-webkit-scrollbar { width: 4px; }
+.tp-activity-list::-webkit-scrollbar-track { background: transparent; }
+.tp-activity-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.1); border-radius: 2px;
+}
 .task-list { display: flex; flex-direction: column; gap: 8px; }
 .task-item {
   display: grid;

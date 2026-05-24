@@ -60,6 +60,11 @@ export class AomActivityFeed {
   /// repeat WAITs with identical rationale inside `WAIT_DEDUP_MS`.
   private lastWait = new Map<string, { rationaleKey: string; t: number }>();
 
+  /// When true, suppress toast cards entirely. Set by the teammate
+  /// panel's Activity tab so decisions flow into the sidebar instead
+  /// of floating over the workspace.
+  static suppress = false;
+
   constructor(private readonly mountHost: HTMLElement) {
     this.container = document.createElement("div");
     this.container.className = "aom-feed";
@@ -163,6 +168,10 @@ export class AomActivityFeed {
     tabSlug: string;
     cost: string;
   }): void {
+    // When the Activity tab in the teammate panel is handling decisions,
+    // suppress the floating toast so notifications aren't duplicated.
+    if (AomActivityFeed.suppress) return;
+
     const card = document.createElement("div");
     card.className = `aom-feed-card aom-feed-${opts.cls}`;
     card.innerHTML = `
