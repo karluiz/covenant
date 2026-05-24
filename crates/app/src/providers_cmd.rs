@@ -61,9 +61,11 @@ pub async fn probe_azure_foundry_models(
     let url = match mode {
         // Azure OpenAI: list user-created *deployments* (the names used in
         // `/openai/deployments/{name}/chat/completions`), not base models.
-        // The control-plane shape `{data:[{id, ...}]}` is the same.
+        // Azure removed this data-plane listing in api-versions ≥ 2023-05-15
+        // (404), so pin to the only version that still serves it. The
+        // configured `api_version` is for chat completions and is unrelated.
         AzureMode::AzureOpenAi => {
-            format!("{}/openai/deployments?api-version={}", base, api_version)
+            format!("{}/openai/deployments?api-version=2023-03-15-preview", base)
         }
         AzureMode::AiInference => format!("{}/models?api-version={}", base, api_version),
     };

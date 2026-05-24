@@ -11,6 +11,7 @@
 pub mod anthropic_http;
 pub mod commands;
 pub mod llm;
+pub mod openai_http;
 pub mod runtime;
 pub mod tools;
 pub mod types;

@@ -184,12 +184,19 @@ where
 {
     let resolved = resolve_route(settings, SettingsRole::Operator)
         .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
-    if resolved.provider.kind() != ProviderKind::Anthropic {
-        // Non-Anthropic providers don't yet have a tool-use path here.
-        // Fall back to the text-only dispatch so Mibli still answers.
-        return dispatch_reply(operator, thread, settings, world_context)
-            .await
-            .map(DispatchOutcome::Text);
+    match resolved.provider.kind() {
+        ProviderKind::Anthropic => {}
+        ProviderKind::OpenAiCompat | ProviderKind::AzureFoundry => {
+            return dispatch_reply_with_tools_openai(
+                operator,
+                thread,
+                settings,
+                world_context,
+                tool_env,
+                on_progress,
+            )
+            .await;
+        }
     }
 
     // Pull the api_key + base_url directly from settings — the trait
@@ -307,6 +314,228 @@ where
     Err(TeammateLlmError::Provider(
         "tool-use loop hit max iterations (8)".into(),
     ))
+}
+
+/// OpenAI-format equivalent of `dispatch_reply_with_tools`. Speaks Chat
+/// Completions with `tool_calls`/`tool` role; used for OpenAI-compat and
+/// Azure Foundry (both AzureOpenAi and AiInference modes). The model
+/// loops on `finish_reason == "tool_calls"` until it emits plain text.
+async fn dispatch_reply_with_tools_openai<F>(
+    operator: &Operator,
+    thread: &[TaskMessage],
+    settings: &Settings,
+    world_context: Option<&str>,
+    tool_env: ToolEnv,
+    mut on_progress: F,
+) -> Result<DispatchOutcome, TeammateLlmError>
+where
+    F: FnMut(ToolProgress) + Send,
+{
+    use crate::teammate::openai_http::{
+        self, AuthStyle, OpenAiHttpError, OpenAiMessage,
+    };
+    use karl_agent::provider::azure_foundry::{default_api_version, AzureMode};
+
+    let route = settings
+        .model_routes
+        .get(&SettingsRole::Operator)
+        .ok_or_else(|| TeammateLlmError::NoRoute("operator route missing".into()))?;
+    let provider_cfg = settings
+        .providers
+        .get(&route.provider_id)
+        .ok_or_else(|| TeammateLlmError::NoRoute(format!("unknown provider {}", route.provider_id)))?;
+    let api_key = provider_cfg
+        .api_key
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let base_url = provider_cfg
+        .base_url
+        .as_deref()
+        .unwrap_or("")
+        .trim_end_matches('/')
+        .to_string();
+
+    // Resolve URL + auth + whether to send `model` in the body. For
+    // Azure OpenAi mode the deployment is in the URL and `model` is
+    // rejected; for AiInference mode and OpenAI-compat we send it.
+    let (url, auth, send_model) = match provider_cfg.kind {
+        ProviderKind::OpenAiCompat => (
+            format!("{}/chat/completions", base_url),
+            AuthStyle::Bearer,
+            true,
+        ),
+        ProviderKind::AzureFoundry => {
+            let mode = provider_cfg
+                .azure_mode
+                .ok_or_else(|| TeammateLlmError::NoRoute("azure mode missing".into()))?;
+            let api_version = provider_cfg
+                .azure_api_version
+                .clone()
+                .unwrap_or_else(|| default_api_version(mode).to_string());
+            match mode {
+                AzureMode::AzureOpenAi => {
+                    let dep = provider_cfg
+                        .azure_deployment
+                        .as_deref()
+                        .ok_or_else(|| {
+                            TeammateLlmError::NoRoute("azure deployment missing".into())
+                        })?;
+                    (
+                        format!(
+                            "{}/openai/deployments/{}/chat/completions?api-version={}",
+                            base_url, dep, api_version
+                        ),
+                        AuthStyle::AzureKey,
+                        false,
+                    )
+                }
+                AzureMode::AiInference => (
+                    format!("{}/models/chat/completions?api-version={}", base_url, api_version),
+                    AuthStyle::AzureKey,
+                    true,
+                ),
+            }
+        }
+        ProviderKind::Anthropic => unreachable!("anthropic handled by caller"),
+    };
+
+    let system_prompt = build_system_prompt(operator);
+    let initial_user = build_user_message(thread, operator, world_context);
+    let tools_oa: Vec<serde_json::Value> = [
+        tools::read_file_tool_def(),
+        tools::propose_task_tool_def(),
+    ]
+    .iter()
+    .map(openai_http::convert_tool_def)
+    .collect();
+
+    let mut messages: Vec<OpenAiMessage> = vec![
+        OpenAiMessage::system(system_prompt),
+        OpenAiMessage::user(initial_user),
+    ];
+
+    for _ in 0..MAX_TOOL_ITERATIONS {
+        let model_arg = if send_model { Some(operator.model.as_str()) } else { None };
+        let resp = openai_http::post(
+            auth,
+            &api_key,
+            &url,
+            model_arg,
+            &messages,
+            &tools_oa,
+            REPLY_MAX_TOKENS,
+        )
+        .await
+        .map_err(|e: OpenAiHttpError| match e {
+            OpenAiHttpError::MissingKey => TeammateLlmError::NoRoute("missing API key".into()),
+            other => TeammateLlmError::Provider(other.to_string()),
+        })?;
+
+        let choice = resp
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| TeammateLlmError::Provider("no choices in response".into()))?;
+        let finish = choice.finish_reason.as_deref().unwrap_or("");
+        let tool_calls = choice.message.tool_calls.clone().unwrap_or_default();
+
+        if finish == "tool_calls" || !tool_calls.is_empty() {
+            // Fast-path: propose_task as structured output.
+            if let Some(propose) = extract_propose_from_openai_tool_calls(&tool_calls) {
+                return Ok(DispatchOutcome::Propose(propose));
+            }
+
+            // Echo assistant turn (with tool_calls verbatim) before tool results.
+            messages.push(OpenAiMessage::assistant_with_tool_calls(
+                choice.message.content.clone(),
+                tool_calls.clone(),
+            ));
+
+            let calls = openai_http::collect_tool_calls(&tool_calls);
+            for (id, name, input) in calls {
+                let (out_text, ok, err) = match name.as_str() {
+                    "read_file" => match tools::read_file(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "propose_task" => (
+                        "propose_task already considered; respond with text now.".into(),
+                        false,
+                        Some("propose_task in non-leading position".into()),
+                    ),
+                    _ => (
+                        format!("unknown tool: {}", name),
+                        false,
+                        Some(format!("unknown tool: {}", name)),
+                    ),
+                };
+                on_progress(ToolProgress::ToolCall {
+                    tool: name.clone(),
+                    args: input,
+                    ok,
+                    error: err,
+                });
+                messages.push(OpenAiMessage::tool_result(id, out_text));
+            }
+            continue;
+        }
+
+        // No tool calls — final text turn.
+        let text = choice.message.content.unwrap_or_default().trim().to_string();
+        if text.is_empty() {
+            return Err(TeammateLlmError::EmptyReply);
+        }
+        return Ok(DispatchOutcome::Text(text));
+    }
+
+    Err(TeammateLlmError::Provider(
+        "tool-use loop hit max iterations (8)".into(),
+    ))
+}
+
+/// OpenAI-shape equivalent of `extract_propose_from_content`. Scans the
+/// assistant's `tool_calls` array for a `propose_task` function call and
+/// builds the `Propose` message from its arguments.
+fn extract_propose_from_openai_tool_calls(
+    tool_calls: &[serde_json::Value],
+) -> Option<crate::teammate::MessageContent> {
+    for tc in tool_calls {
+        let function = tc.get("function")?;
+        let name = function.get("name").and_then(|v| v.as_str())?;
+        if name != "propose_task" {
+            continue;
+        }
+        let args_raw = function.get("arguments").and_then(|v| v.as_str())?;
+        let input: serde_json::Value = serde_json::from_str(args_raw).ok()?;
+        let archetype_s = input.get("archetype")?.as_str()?;
+        let archetype = match archetype_s {
+            "do" => crate::teammate::TaskArchetype::Do,
+            "review" => crate::teammate::TaskArchetype::Review,
+            "watch" => crate::teammate::TaskArchetype::Watch,
+            _ => return None,
+        };
+        let title = input.get("title")?.as_str()?.to_string();
+        let deliverable = input.get("deliverable")?.as_str()?.to_string();
+        let rationale = input.get("rationale")?.as_str()?.to_string();
+        let scope = input
+            .get("scope")
+            .and_then(|s| serde_json::from_value::<crate::teammate::TaskScope>(s.clone()).ok())
+            .unwrap_or_default();
+        return Some(crate::teammate::MessageContent::Propose(
+            crate::teammate::types::ProposeTask {
+                draft: crate::teammate::types::TaskDraft {
+                    archetype,
+                    title,
+                    deliverable,
+                    scope,
+                },
+                rationale,
+            },
+        ));
+    }
+    None
 }
 
 /// If the assistant turn contains a `propose_task` tool_use block,

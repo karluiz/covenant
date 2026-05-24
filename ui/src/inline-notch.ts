@@ -26,6 +26,7 @@ type ActiveSessionPayload = {
 };
 
 type Row = {
+  id: string;
   ts: number;
   firstTs: number;
   session: string;
@@ -33,6 +34,14 @@ type Row = {
   kind: "run" | "ok" | "warn" | "err" | "info";
   message: string;
   count: number;
+};
+
+type StreamScrollAnchor = {
+  atLiveTop: boolean;
+  rowId: string | null;
+  viewportOffset: number;
+  scrollTop: number;
+  scrollHeight: number;
 };
 
 const TAB_COLORS = ["#7c5cff", "#5ad1ff", "#7cffb2", "#ffcb5a", "#ffb13a", "#ff7cb2"];
@@ -140,9 +149,67 @@ export function mountInlineNotch(host: HTMLElement): void {
   const clearBtn = host.querySelector<HTMLButtonElement>(".clear")!;
 
   const rows: Row[] = [];
+  let nextRowId = 1;
   const phases = new Map<string, { tab: string; agent: string | null; phase: ExecutorPhase }>();
   let activeSession: string | null = null;
   let activeMeta: { tab: string; agent: string | null } | null = null;
+
+  function captureStreamScrollAnchor(): StreamScrollAnchor {
+    const atLiveTop = streamEl.scrollTop <= 2;
+    if (atLiveTop) {
+      return {
+        atLiveTop,
+        rowId: null,
+        viewportOffset: 0,
+        scrollTop: streamEl.scrollTop,
+        scrollHeight: streamEl.scrollHeight,
+      };
+    }
+
+    const streamRect = streamEl.getBoundingClientRect();
+    for (const row of streamEl.querySelectorAll<HTMLElement>(".row[data-row-id]")) {
+      const rowRect = row.getBoundingClientRect();
+      if (rowRect.bottom > streamRect.top && rowRect.top < streamRect.bottom) {
+        return {
+          atLiveTop,
+          rowId: row.dataset.rowId ?? null,
+          viewportOffset: rowRect.top - streamRect.top,
+          scrollTop: streamEl.scrollTop,
+          scrollHeight: streamEl.scrollHeight,
+        };
+      }
+    }
+
+    return {
+      atLiveTop,
+      rowId: null,
+      viewportOffset: 0,
+      scrollTop: streamEl.scrollTop,
+      scrollHeight: streamEl.scrollHeight,
+    };
+  }
+
+  function restoreStreamScrollAnchor(anchor: StreamScrollAnchor): void {
+    if (anchor.atLiveTop) {
+      streamEl.scrollTop = 0;
+      return;
+    }
+
+    if (anchor.rowId) {
+      const row = streamEl.querySelector<HTMLElement>(`.row[data-row-id="${anchor.rowId}"]`);
+      if (row) {
+        const streamRect = streamEl.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        streamEl.scrollTop += rowRect.top - streamRect.top - anchor.viewportOffset;
+        return;
+      }
+    }
+
+    // Fallback for the rare case where the user's anchor row aged out of
+    // MAX_ROWS during this render. Keep their relative distance stable
+    // rather than snapping back to the newest events.
+    streamEl.scrollTop = anchor.scrollTop + (streamEl.scrollHeight - anchor.scrollHeight);
+  }
 
   function render(): void {
     // Header reflects the active session's executor, falling back to
@@ -163,13 +230,15 @@ export function mountInlineNotch(host: HTMLElement): void {
       headSub.textContent = "idle";
       headAv.style.background = "";
     }
+    const scrollAnchor = captureStreamScrollAnchor();
+
     // Stream: reverse-chrono, most recent first.
     streamEl.innerHTML = rows
       .slice()
       .reverse()
       .map(
         (r) => `
-          <div class="row ${r.kind}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}">
+          <div class="row ${r.kind}" data-row-id="${escapeHtml(r.id)}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}">
             <span class="ts">${fmtTime(r.ts)}</span>
             <span class="row-copy">
               <span class="msg">${escapeHtml(r.message)}</span>
@@ -189,9 +258,10 @@ export function mountInlineNotch(host: HTMLElement): void {
         meta: row.dataset.tipTag ?? "",
       });
     });
+    restoreStreamScrollAnchor(scrollAnchor);
   }
 
-  function pushRow(input: Omit<Row, "firstTs" | "count">): void {
+  function pushRow(input: Omit<Row, "id" | "firstTs" | "count">): void {
     const prev = rows[rows.length - 1];
     // Heartbeats and redraws can generate many identical rows ("thinking",
     // "running commands", …). Coalesce adjacent repeats into one richer row
@@ -208,7 +278,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       prev.count += 1;
       return;
     }
-    rows.push({ ...input, firstTs: input.ts, count: 1 });
+    rows.push({ ...input, id: String(nextRowId++), firstTs: input.ts, count: 1 });
     if (rows.length > MAX_ROWS) rows.splice(0, rows.length - MAX_ROWS);
   }
 

@@ -39,6 +39,20 @@ function fireNotchState(payload: unknown): void {
   handler({ payload });
 }
 
+function rect(top: number, height: number): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    width: 200,
+    height,
+    top,
+    right: 200,
+    bottom: top + height,
+    left: 0,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
 describe("mountInlineNotch", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -46,6 +60,7 @@ describe("mountInlineNotch", () => {
     mocks.handlers.clear();
     mocks.listen.mockClear();
     mocks.invoke.mockClear();
+    vi.restoreAllMocks();
   });
 
   it("shows the active Pi tab as idle before any phase event arrives", () => {
@@ -81,5 +96,56 @@ describe("mountInlineNotch", () => {
     expect(host.querySelector(".inline-notch-sub")?.textContent).toContain("thinking");
     expect(host.querySelector(".inline-notch-stream")?.textContent).toContain("thinking");
     expect(host.querySelector(".inline-notch-stream")?.textContent).toContain("pi 1");
+  });
+
+  it("keeps the activity stream anchored while new rows arrive", () => {
+    const host = mount();
+    const stream = host.querySelector<HTMLElement>(".inline-notch-stream")!;
+
+    for (let i = 0; i < 5; i++) {
+      fireNotchState({
+        kind: "executor_state_changed",
+        session: "01J00000000000000000000000",
+        agent: "pi",
+        tab_label: "pi 1",
+        phase: { kind: "running", cmd: `cmd-${i}` },
+      });
+    }
+
+    const innerHtmlDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!;
+    Object.defineProperty(stream, "innerHTML", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return innerHtmlDescriptor.get!.call(this);
+      },
+      set(this: HTMLElement, value: string) {
+        innerHtmlDescriptor.set!.call(this, value);
+        // Browsers can snap scrollTop back to 0 when we replace children;
+        // simulate that so the test covers the manual restoration path.
+        this.scrollTop = 0;
+      },
+    });
+
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const el = this as HTMLElement;
+      if (el.classList?.contains("inline-notch-stream")) return rect(0, 100);
+      if (el.classList?.contains("row")) {
+        const parent = el.parentElement;
+        const index = parent ? Array.from(parent.children).indexOf(el) : 0;
+        return rect(index * 20 - stream.scrollTop, 20);
+      }
+      return rect(0, 0);
+    });
+
+    stream.scrollTop = 20;
+    fireNotchState({
+      kind: "executor_state_changed",
+      session: "01J00000000000000000000000",
+      agent: "pi",
+      tab_label: "pi 1",
+      phase: { kind: "running", cmd: "cmd-new" },
+    });
+
+    expect(stream.scrollTop).toBe(40);
   });
 });

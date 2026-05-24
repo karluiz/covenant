@@ -10,9 +10,9 @@ use std::os::fd::RawFd;
 ///
 /// When the kernel-reported name is a generic runtime (`node`, `python`,
 /// `python3`, `ruby`), we peek at the process's argv to recover the
-/// logical CLI name (e.g. `copilot`, `claude`, `opencode`, `aider`).
-/// Without this, Node-based agent CLIs get reported as `node` and slip
-/// past the busy-dot allowlist exclusion.
+/// logical CLI name (e.g. `copilot`, `claude`, `opencode`, `aider`,
+/// `hermes`). Without this, runtime-hosted agent CLIs get reported as
+/// `node`/`python` and slip past the busy-dot allowlist exclusion.
 #[cfg(target_os = "macos")]
 pub fn foreground_process_name(master_fd: RawFd) -> Option<String> {
     let pgid = unsafe { libc::tcgetpgrp(master_fd) };
@@ -58,6 +58,7 @@ const LOGICAL_CLIS: &[&str] = &[
     "codex",
     "cursor-agent",
     "gemini",
+    "hermes",
     "ollama",
     "pi",
 ];
@@ -210,6 +211,14 @@ mod tests {
         assert_eq!(
             logical_name_from_arg("/usr/local/bin/copilot.js"),
             Some("copilot")
+        );
+    }
+
+    #[test]
+    fn logical_match_recognises_hermes_venv_entrypoint() {
+        assert_eq!(
+            logical_name_from_arg("/Users/me/.hermes/hermes-agent/venv/bin/hermes"),
+            Some("hermes")
         );
     }
 
