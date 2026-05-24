@@ -1551,6 +1551,24 @@ export class TabManager {
     return tab?.cwd ?? null;
   }
 
+  /// Snapshot of every open shell tab — feeds the multi-source mention
+  /// picker's "Sessions" tab. Pi tabs are skipped (no PTY blocks).
+  /// `shell` and `block_count` aren't tracked in TabManager yet, so we
+  /// emit safe placeholders the picker can render around.
+  listOpenSessions(): import("../teammate/mention-sources").OpenSessionInfo[] {
+    return this.tabs
+      .filter((t) => t.kind === "shell")
+      .map((t, idx) => ({
+        session_id: t.sessionId.toString(),
+        short_id:   t.sessionId.toString().slice(-6),
+        cwd:        t.cwd ?? "",
+        tab_index:  idx + 1,
+        shell:      "zsh",
+        last_command: null,
+        block_count:  0,
+      }));
+  }
+
   /// Kind of the active tab. Pi tabs do not have the terminal-owned
   /// Blocks/Files rail; callers use this to avoid selecting a per-shell
   /// sidebar that cannot render for the current pane.

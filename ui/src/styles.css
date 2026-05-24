@@ -15503,42 +15503,139 @@ body.theme-light .teammate-bubble-operator {
   padding: 10px 14px 12px;
   position: relative;
 }
-.teammate-mention-popup {
+/* === Mention picker (teammate composer) =============================== */
+.tmt-mp {
   position: absolute;
   left: 14px;
   right: 14px;
   bottom: calc(100% - 6px);
   z-index: 12;
-  max-height: 220px;
-  overflow-y: auto;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-overlay, var(--bg-panel));
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   padding: 4px;
   font-size: 12px;
 }
-.teammate-mention-row {
-  padding: 5px 8px;
+.tmt-mp-header {
+  display: flex; gap: 2px;
+  padding: 4px 4px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.tmt-mp-tab {
+  flex: 1;
+  text-align: center;
+  padding: 5px 6px;
   border-radius: 6px;
-  color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.teammate-mention-row b {
-  color: var(--accent);
+  color: var(--fg-muted, #7c8597);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
 }
-.teammate-mention-row.is-selected,
-.teammate-mention-row:hover {
+.tmt-mp-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.tmt-mp-list { overflow-y: auto; max-height: 200px; }
+.tmt-mp-group {
+  padding: 6px 8px 3px;
+  color: var(--fg-muted, #5d6577);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+.tmt-mp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tmt-mp-row.is-selected,
+.tmt-mp-row:hover {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.teammate-mention-empty {
-  padding: 8px;
-  color: var(--fg-muted, #888);
+.tmt-mp-row__ico {
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-muted, #9aa3b6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.tmt-mp-row--sessions  .tmt-mp-row__ico { background: rgba(120, 180, 255, 0.15); color: #9ec6ff; }
+.tmt-mp-row--commands  .tmt-mp-row__ico { background: rgba(180, 140, 255, 0.15); color: #c8b1ff; }
+.tmt-mp-row--teammates .tmt-mp-row__ico { background: rgba(120, 220, 170, 0.15); color: #9ee7c2; }
+.tmt-mp-row__main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tmt-mp-row__name { color: var(--fg); font-weight: 500; }
+.tmt-mp-row__name b { color: var(--accent); font-weight: 700; }
+.tmt-mp-row__meta {
+  color: var(--fg-muted, #6b7385);
+  font-size: 10.5px;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tmt-mp-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--fg-muted, #6b7385);
   font-style: italic;
+}
+.tmt-mp-foot {
+  border-top: 1px solid var(--border);
+  padding: 5px 8px;
+  display: flex;
+  gap: 14px;
+  color: var(--fg-muted, #6b7385);
+  font-size: 10.5px;
+}
+.tmt-mp-foot kbd {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--fg);
+}
+
+/* === Inline mention chips (composer input) ============================ */
+.tmt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 140, 80, 0.14);
+  border: 1px solid rgba(255, 140, 80, 0.4);
+  color: #ffb38a;
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  user-select: none;
+  vertical-align: baseline;
+}
+.tmt-chip__ico { opacity: 0.75; }
+.tmt-chip--sessions  { background: rgba(120, 180, 255, 0.14); border-color: rgba(120, 180, 255, 0.4); color: #9ec6ff; }
+.tmt-chip--commands  { background: rgba(180, 140, 255, 0.14); border-color: rgba(180, 140, 255, 0.4); color: #c8b1ff; }
+.tmt-chip--teammates { background: rgba(120, 220, 170, 0.14); border-color: rgba(120, 220, 170, 0.4); color: #9ee7c2; }
+
+/* Placeholder for the contenteditable composer */
+.teammate-panel-input[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--fg-muted, #7c8597);
+  pointer-events: none;
 }
 .teammate-panel-input {
   width: 100%;
@@ -15550,6 +15647,9 @@ body.theme-light .teammate-bubble-operator {
   color: var(--fg);
   font-size: 12px;
   outline: none;
+  cursor: text;
+  min-height: 30px;
+  line-height: 16px;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .teammate-panel-input:focus {

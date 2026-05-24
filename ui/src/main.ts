@@ -31,7 +31,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, setOperatorEnabled, setOperatorLive, setWindowTheme, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -551,6 +551,15 @@ async function boot(): Promise<void> {
       return sid ? sid.toString() : null;
     },
     getActiveSessionCwd: () => manager.activeCwd(),
+    mentionSources: {
+      findFiles:          structureFindFiles,
+      listOperators:      operatorList,
+      listOpenSessions:   () => manager.listOpenSessions(),
+      findRecentCommands,
+    },
+    readFile:           structureReadFile,
+    readBlockExcerpt,
+    readSessionExcerpt,
     spawnTabForTask: async (task) => {
       const tab = await manager.createTab({
         customName: `${task.title.slice(0, 32)}`,

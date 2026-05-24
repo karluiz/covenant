@@ -1,21 +1,33 @@
 /// File-mention helpers for the teammate chat composer.
 ///
-/// - `MentionPopup`: floating picker anchored to a text input. Opens on
-///   `@`, fuzzy-searches files in the active session cwd, and inserts
-///   `@<relpath> ` tokens on selection.
+/// - `MentionPopup`: floating multi-source picker anchored to a
+///   `ComposerInput`. Opens on `@`, lists files / sessions / commands /
+///   teammates, and inserts an atomic chip on selection.
 /// - `expandMentions`: pure async transform that takes the raw composer
-///   text + the tracked `token → absPath` map and produces the final
-///   text sent to the operator, with file contents inlined.
+///   text + the tracked `token → payload` registry and produces the
+///   final text sent to the operator, with file contents / command
+///   excerpts / session excerpts inlined.
 
-import type { FileHit, ReadResult } from "../api";
+import type { ReadResult } from "../api";
+import type { MentionHit, MentionSourcesDeps, Tab, Source } from "./mention-sources";
+import { findMentions } from "./mention-sources";
+import type { ComposerInput, ChipSpec } from "./composer-input";
 
-export type FindFilesFn = (cwd: string, query: string, limit: number) => Promise<FileHit[]>;
+export type FindFilesFn = (cwd: string, query: string, limit: number) => Promise<import("../api").FileHit[]>;
 export type ReadFileFn  = (path: string, maxBytes?: number) => Promise<ReadResult>;
 
-const MENTION_LIMIT      = 20;
 const FIND_DEBOUNCE_MS   = 120;
+const POPUP_LIMIT        = 20;
 const MAX_FILE_BYTES     = 256 * 1024;
 const MAX_TOTAL_BYTES    = 512 * 1024;
+
+const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
+  { id: "all",       label: "All" },
+  { id: "files",     label: "Files" },
+  { id: "sessions",  label: "Sessions" },
+  { id: "commands",  label: "Commands" },
+  { id: "teammates", label: "Teammates" },
+];
 
 /// Returns the active `@token` (without the `@`) directly to the left of
 /// `caret` in `value`, or null if the caret isn't inside one. A mention
@@ -57,77 +69,147 @@ function langHint(path: string): string {
   return LANG_BY_EXT[path.slice(dot + 1).toLowerCase()] ?? "";
 }
 
-/// Find every `@token` in `text` whose token is a key in `mentions`,
-/// in first-occurrence order, deduped.
+// ---------------------------------------------------------------------------
+// Expansion
+// ---------------------------------------------------------------------------
+
+export type MentionPayload = MentionHit["payload"];
+export type MentionRegistry = Map<string, MentionPayload>;
+
+export interface BlockExcerpt {
+  command: string;
+  exit_code: number | null;
+  cwd: string;
+  plain_output: string;
+}
+export interface SessionExcerpt {
+  cwd: string;
+  shell: string;
+  tab_index: number;
+  recent: Array<{ command: string; exit_code: number | null; tail: string }>;
+}
+export interface ExpansionExtras {
+  readBlock?:   (block_id: string) => Promise<BlockExcerpt>;
+  readSession?: (session_id: string) => Promise<SessionExcerpt>;
+}
+
+export interface ExpandedMessage {
+  text: string;
+  /// Tokens of chips actually inlined (files: rel; others: token).
+  attached: string[];
+  skipped: { path: string; reason: string }[];
+}
+
+/// Back-compat helper retained for tests that exercise file-only flow:
+/// find every `@token` whose token is a key in `mentions`, in first-seen
+/// order, deduped. Accepts the legacy `Map<token, absPath>` shape.
 export function collectMentionedPaths(text: string, mentions: Map<string, string>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  // Match @ preceded by start-of-string or whitespace, then non-whitespace.
   const re = /(^|\s)@(\S+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    const token = m[2];
-    const abs = mentions.get(token);
-    if (!abs) continue;
-    if (seen.has(abs)) continue;
+    const abs = mentions.get(m[2]);
+    if (!abs || seen.has(abs)) continue;
     seen.add(abs);
     out.push(abs);
   }
   return out;
 }
 
-export interface ExpandedMessage {
-  text: string;
-  attached: string[];           // relpaths actually inlined
-  skipped: { path: string; reason: string }[];
-}
-
-/// Read each mentioned file and append a fenced block per file to
-/// `rawText`. Respects per-file (256 KB) and total (512 KB) caps.
+/// Walk every `@token` in `rawText` whose token is in `registry`, dedupe
+/// by token, and dispatch per chip kind. Files are read+fenced (per-file
+/// 256 KB + total 512 KB caps). Commands and sessions are fetched via
+/// `extras.readBlock`/`extras.readSession`. Teammates emit a one-liner.
 export async function expandMentions(
   rawText: string,
-  mentions: Map<string, string>,
-  readFile: ReadFileFn,
+  registry: MentionRegistry,
+  readFile?: ReadFileFn,
+  extras: ExpansionExtras = {},
 ): Promise<ExpandedMessage> {
-  const paths = collectMentionedPaths(rawText, mentions);
-  if (paths.length === 0) return { text: rawText, attached: [], skipped: [] };
-
-  // Reverse-lookup token (relpath) for nicer headings.
-  const tokenByAbs = new Map<string, string>();
-  for (const [tok, abs] of mentions) {
-    if (!tokenByAbs.has(abs)) tokenByAbs.set(abs, tok);
-  }
+  const tokens = collectMentionedTokens(rawText, registry);
+  if (tokens.length === 0) return { text: rawText, attached: [], skipped: [] };
 
   const sections: string[] = [];
   const attached: string[] = [];
   const skipped: ExpandedMessage["skipped"] = [];
-  let total = 0;
+  let totalBytes = 0;
 
-  for (const abs of paths) {
-    const rel = tokenByAbs.get(abs) ?? abs;
-    let r: ReadResult;
-    try {
-      r = await readFile(abs, MAX_FILE_BYTES);
-    } catch (e) {
-      skipped.push({ path: rel, reason: `read error: ${(e as Error).message ?? String(e)}` });
+  for (const token of tokens) {
+    const payload = registry.get(token);
+    if (!payload) continue;
+
+    if (payload.kind === "files") {
+      if (!readFile) { skipped.push({ path: token, reason: "skipped (no file reader)" }); continue; }
+      let r: ReadResult;
+      try {
+        r = await readFile(payload.abs, MAX_FILE_BYTES);
+      } catch (e) {
+        skipped.push({ path: payload.rel, reason: `read error: ${(e as Error).message ?? String(e)}` });
+        continue;
+      }
+      if (r.kind === "too_large") {
+        skipped.push({ path: payload.rel, reason: `skipped (>${MAX_FILE_BYTES} bytes)` });
+        continue;
+      }
+      if (!readResultUsable(r)) {
+        skipped.push({ path: payload.rel, reason: "skipped (binary)" });
+        continue;
+      }
+      const body = r.content ?? "";
+      if (totalBytes + body.length > MAX_TOTAL_BYTES) {
+        skipped.push({ path: payload.rel, reason: "skipped (mention bundle over 512KB)" });
+        continue;
+      }
+      totalBytes += body.length;
+      attached.push(payload.rel);
+      sections.push("### " + payload.rel + "\n```" + langHint(payload.rel) + "\n" + body + "\n```");
       continue;
     }
-    if (r.kind === "too_large") {
-      skipped.push({ path: rel, reason: `skipped (>${MAX_FILE_BYTES} bytes)` });
+
+    if (payload.kind === "commands") {
+      if (!extras.readBlock) { skipped.push({ path: token, reason: "skipped (no block reader)" }); continue; }
+      try {
+        const b = await extras.readBlock(payload.block_id);
+        const out = clipForBudget(b.plain_output, totalBytes);
+        totalBytes += out.length;
+        attached.push(token);
+        const exit = b.exit_code === null ? "?" : String(b.exit_code);
+        sections.push(
+          "### command: " + b.command + "\n```text\n" +
+          `$ ${b.command}\n(exit ${exit}, cwd ${b.cwd})\n\n` + out + "\n```",
+        );
+      } catch (e) {
+        skipped.push({ path: token, reason: `read error: ${(e as Error).message ?? String(e)}` });
+      }
       continue;
     }
-    if (!readResultUsable(r)) {
-      skipped.push({ path: rel, reason: "skipped (binary)" });
+
+    if (payload.kind === "sessions") {
+      if (!extras.readSession) { skipped.push({ path: token, reason: "skipped (no session reader)" }); continue; }
+      try {
+        const s = await extras.readSession(payload.session_id);
+        const lines: string[] = [];
+        lines.push(`tab ${s.tab_index} · ${s.shell} · cwd ${s.cwd}`);
+        for (const b of s.recent) {
+          const exit = b.exit_code === null ? "?" : String(b.exit_code);
+          lines.push(`\n$ ${b.command}    (exit ${exit})\n${b.tail}`);
+        }
+        const body = clipForBudget(lines.join("\n"), totalBytes);
+        totalBytes += body.length;
+        attached.push(token);
+        sections.push("### session: " + s.cwd + "\n```text\n" + body + "\n```");
+      } catch (e) {
+        skipped.push({ path: token, reason: `read error: ${(e as Error).message ?? String(e)}` });
+      }
       continue;
     }
-    const body = r.content ?? "";
-    if (total + body.length > MAX_TOTAL_BYTES) {
-      skipped.push({ path: rel, reason: "skipped (mention bundle over 512KB)" });
+
+    if (payload.kind === "teammates") {
+      attached.push(token);
+      sections.push(`teammate @${payload.name} (id=${payload.operator_id})`);
       continue;
     }
-    total += body.length;
-    attached.push(rel);
-    sections.push("### " + rel + "\n```" + langHint(rel) + "\n" + body + "\n```");
   }
 
   for (const s of skipped) sections.push("### " + s.path + "\n_" + s.reason + "_");
@@ -138,86 +220,91 @@ export async function expandMentions(
   return { text: out, attached, skipped };
 }
 
+function collectMentionedTokens(text: string, registry: MentionRegistry): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const re = /(^|\s)@(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const tok = m[2];
+    if (!registry.has(tok) || seen.has(tok)) continue;
+    seen.add(tok);
+    out.push(tok);
+  }
+  return out;
+}
+
+function clipForBudget(body: string, used: number): string {
+  const remaining = MAX_TOTAL_BYTES - used;
+  if (remaining <= 0) return "";
+  if (body.length <= remaining) return body;
+  return body.slice(0, remaining) + "\n…(truncated)";
+}
+
 // ---------------------------------------------------------------------------
 // Popup
 // ---------------------------------------------------------------------------
 
-export interface MentionPopupDeps {
-  input:              HTMLInputElement;
-  anchor:             HTMLElement;             // composer container (positioning context)
-  getCwd:             () => string | null;
-  findFiles:          FindFilesFn;
-  /// Called when the user picks a hit. The popup has already replaced
-  /// the `@query` token in the input with `@<relpath> ` and moved the
-  /// caret past the trailing space.
-  onPick:             (token: string, absPath: string) => void;
-}
-
 interface PopupState {
-  start: number;          // index of '@' in input.value
+  start: number;
   query: string;
-  hits:  FileHit[];
+  activeTab: Tab;
+  hits: MentionHit[];
   selected: number;
   loading: boolean;
-  cwd: string;
+  cwd: string | null;
+}
+
+export interface MentionPopupDeps {
+  input:   ComposerInput;
+  anchor:  HTMLElement;
+  getCwd:  () => string | null;
+  sources: MentionSourcesDeps;
+  onPick:  (chip: ChipSpec, hit: MentionHit) => void;
 }
 
 export class MentionPopup {
-  private deps: MentionPopupDeps;
-  private el: HTMLElement | null = null;
+  private el: HTMLDivElement | null = null;
   private state: PopupState | null = null;
-  private debounceTimer: number | null = null;
+  private debounce: number | null = null;
   private reqId = 0;
 
-  constructor(deps: MentionPopupDeps) {
-    this.deps = deps;
-    this.deps.input.addEventListener("input",   () => this.onInputChange());
-    this.deps.input.addEventListener("keydown", (e) => this.onKeyDown(e));
-    this.deps.input.addEventListener("blur",    () => {
-      // Delay close so a mousedown on a hit can still register.
-      setTimeout(() => this.close(), 120);
-    });
+  constructor(private deps: MentionPopupDeps) {
+    deps.input.onInput(() => this.onInputChange());
+    deps.input.onKeydown((e) => this.onKeyDown(e));
+    // Note: no blur handler — mousedown handlers on rows call preventDefault.
   }
 
-  /// Visible for tests.
   isOpen(): boolean { return this.state !== null; }
-  currentEl(): HTMLElement | null { return this.el; }
-
-  destroy(): void {
-    this.close();
-  }
+  currentEl(): HTMLDivElement | null { return this.el; }
+  destroy(): void { this.close(); }
 
   private onInputChange(): void {
-    const input = this.deps.input;
-    const m = activeMentionAt(input.value, input.selectionStart ?? input.value.length);
+    const m = this.deps.input.getActiveMention();
     if (!m) { this.close(); return; }
-
     const cwd = this.deps.getCwd();
-    if (!cwd) {
-      this.openOrUpdate({ start: m.start, query: m.query, hits: [], selected: 0, loading: false, cwd: "" });
-      return;
-    }
-
-    this.openOrUpdate({ start: m.start, query: m.query, hits: this.state?.hits ?? [], selected: 0, loading: true, cwd });
+    this.openOrUpdate({
+      start: m.start, query: m.query,
+      activeTab: this.state?.activeTab ?? "all",
+      hits: this.state?.hits ?? [],
+      selected: 0, loading: true, cwd,
+    });
     this.scheduleFetch();
   }
 
   private scheduleFetch(): void {
-    if (this.debounceTimer !== null) window.clearTimeout(this.debounceTimer);
-    this.debounceTimer = window.setTimeout(() => { void this.runFetch(); }, FIND_DEBOUNCE_MS);
+    if (this.debounce !== null) window.clearTimeout(this.debounce);
+    this.debounce = window.setTimeout(() => { void this.runFetch(); }, FIND_DEBOUNCE_MS);
   }
 
   private async runFetch(): Promise<void> {
     if (!this.state) return;
-    const myId = ++this.reqId;
-    const { cwd, query } = this.state;
-    let hits: FileHit[] = [];
-    try {
-      hits = await this.deps.findFiles(cwd, query, MENTION_LIMIT);
-    } catch (e) {
-      console.error("mention findFiles failed", e);
-    }
-    if (myId !== this.reqId || !this.state) return;
+    const my = ++this.reqId;
+    const { query, cwd, activeTab } = this.state;
+    const hits = await findMentions({
+      query, cwd, activeTab, limit: POPUP_LIMIT, deps: this.deps.sources,
+    });
+    if (my !== this.reqId || !this.state) return;
     this.state.hits = hits;
     this.state.loading = false;
     this.state.selected = 0;
@@ -226,39 +313,60 @@ export class MentionPopup {
 
   private onKeyDown(e: KeyboardEvent): void {
     if (!this.state) return;
-    if (e.key === "Escape") {
-      e.preventDefault(); this.close(); return;
-    }
-    if (e.key === "ArrowDown") {
+    const { hits } = this.state;
+    if (e.key === "Escape") { e.preventDefault(); this.close(); return; }
+    if (e.key === "ArrowDown" && hits.length) {
       e.preventDefault();
-      if (this.state.hits.length === 0) return;
-      this.state.selected = (this.state.selected + 1) % this.state.hits.length;
-      this.render();
-      return;
+      this.state.selected = (this.state.selected + 1) % hits.length;
+      this.render(); return;
     }
-    if (e.key === "ArrowUp") {
+    if (e.key === "ArrowUp" && hits.length) {
       e.preventDefault();
-      if (this.state.hits.length === 0) return;
-      this.state.selected = (this.state.selected - 1 + this.state.hits.length) % this.state.hits.length;
-      this.render();
-      return;
+      this.state.selected = (this.state.selected - 1 + hits.length) % hits.length;
+      this.render(); return;
     }
-    if (e.key === "Enter" || e.key === "Tab") {
-      if (this.state.hits.length === 0) {
-        if (e.key === "Enter") return;     // let the form submit
-        e.preventDefault(); this.close(); return;
-      }
+    if ((e.key === "Enter" || e.key === "Tab") && hits.length && !e.shiftKey) {
       e.preventDefault();
-      this.pick(this.state.hits[this.state.selected]);
-      return;
+      this.pick(hits[this.state.selected]); return;
     }
+    if (e.key === "Tab" && e.shiftKey) {
+      e.preventDefault();
+      this.setTab(prevTab(this.state.activeTab)); return;
+    }
+  }
+
+  private setTab(t: Tab): void {
+    if (!this.state) return;
+    this.state.activeTab = t;
+    this.state.loading = true;
+    this.state.hits = [];
+    this.state.selected = 0;
+    this.render();
+    this.scheduleFetch();
+  }
+
+  private pick(hit: MentionHit): void {
+    if (!this.state) return;
+    const m = this.deps.input.getActiveMention();
+    if (m) {
+      const chip: ChipSpec = { kind: hit.kind, token: hit.token, label: hit.primary };
+      this.deps.input.replaceQueryWithChip(m, chip, m.query);
+      this.deps.onPick(chip, hit);
+    }
+    this.close();
+  }
+
+  private close(): void {
+    if (this.debounce !== null) { window.clearTimeout(this.debounce); this.debounce = null; }
+    this.state = null;
+    if (this.el) { this.el.remove(); this.el = null; }
   }
 
   private openOrUpdate(next: PopupState): void {
     this.state = next;
     if (!this.el) {
       this.el = document.createElement("div");
-      this.el.className = "teammate-mention-popup";
+      this.el.className = "tmt-mp";
       this.el.setAttribute("role", "listbox");
       this.deps.anchor.appendChild(this.el);
     }
@@ -267,71 +375,76 @@ export class MentionPopup {
 
   private render(): void {
     if (!this.el || !this.state) return;
-    const { hits, selected, loading, cwd } = this.state;
-    this.el.innerHTML = "";
-
-    if (!cwd) {
-      const empty = document.createElement("div");
-      empty.className = "teammate-mention-empty";
-      empty.textContent = "No active session — file mentions unavailable.";
-      this.el.append(empty);
-      return;
-    }
+    const { hits, selected, loading, cwd, activeTab, query } = this.state;
+    const header = TABS.map((t) =>
+      `<div class="tmt-mp-tab${t.id === activeTab ? " is-active" : ""}" data-tab="${t.id}">${t.label}</div>`,
+    ).join("");
+    let body = "";
     if (loading && hits.length === 0) {
-      const l = document.createElement("div");
-      l.className = "teammate-mention-empty";
-      l.textContent = "Searching…";
-      this.el.append(l);
-      return;
+      body = `<div class="tmt-mp-empty">Searching…</div>`;
+    } else if (hits.length === 0) {
+      const msg = !cwd && (activeTab === "files" || activeTab === "all")
+        ? "No matches. (No active session — file mentions unavailable.)"
+        : `No matches${query ? ` for “${escapeHtml(query)}”` : ""}.`;
+      body = `<div class="tmt-mp-empty">${msg}</div>`;
+    } else {
+      body = renderRows(hits, selected, activeTab);
     }
-    if (hits.length === 0) {
-      const e = document.createElement("div");
-      e.className = "teammate-mention-empty";
-      e.textContent = "No matching files.";
-      this.el.append(e);
-      return;
-    }
-
-    hits.forEach((hit, i) => {
-      const row = document.createElement("div");
-      row.className = "teammate-mention-row" + (i === selected ? " is-selected" : "");
-      row.setAttribute("role", "option");
-      row.dataset.path = hit.rel_path;
-      row.innerHTML = highlight(hit.rel_path, hit.match_indices);
-      row.addEventListener("mousedown", (ev) => {
-        ev.preventDefault();
-        this.pick(hit);
+    this.el.innerHTML = `
+      <div class="tmt-mp-header">${header}</div>
+      <div class="tmt-mp-list">${body}</div>
+      <div class="tmt-mp-foot">
+        <span><kbd>↑↓</kbd> nav</span>
+        <span><kbd>⇥</kbd>/<kbd>↵</kbd> insert</span>
+        <span><kbd>esc</kbd> close</span>
+      </div>
+    `;
+    this.el.querySelectorAll<HTMLElement>(".tmt-mp-tab").forEach((t) => {
+      t.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.setTab(t.dataset.tab as Tab);
       });
-      this.el!.append(row);
+    });
+    this.el.querySelectorAll<HTMLElement>(".tmt-mp-row").forEach((row, idx) => {
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        if (this.state) { this.state.selected = idx; this.pick(this.state.hits[idx]); }
+      });
     });
   }
+}
 
-  private pick(hit: FileHit): void {
-    if (!this.state) return;
-    const input = this.deps.input;
-    const before = input.value.slice(0, this.state.start);
-    const caret  = input.selectionStart ?? input.value.length;
-    const after  = input.value.slice(caret);
-    const token  = "@" + hit.rel_path + " ";
-    input.value = before + token + after;
-    const newCaret = before.length + token.length;
-    input.setSelectionRange(newCaret, newCaret);
-    this.deps.onPick(hit.rel_path, hit.path);
-    this.close();
-    input.focus();
-  }
+function prevTab(t: Tab): Tab {
+  const i = TABS.findIndex((x) => x.id === t);
+  return TABS[(i - 1 + TABS.length) % TABS.length].id;
+}
 
-  close(): void {
-    if (this.debounceTimer !== null) {
-      window.clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
+function renderRows(hits: MentionHit[], selected: number, tab: Tab): string {
+  const parts: string[] = [];
+  let lastGroup: Source | null = null;
+  hits.forEach((h, i) => {
+    if (tab === "all" && h.kind !== lastGroup) {
+      parts.push(`<div class="tmt-mp-group">${labelFor(h.kind)}</div>`);
+      lastGroup = h.kind;
     }
-    this.state = null;
-    if (this.el) {
-      this.el.remove();
-      this.el = null;
-    }
-  }
+    parts.push(
+      `<div class="tmt-mp-row tmt-mp-row--${h.kind}${i === selected ? " is-selected" : ""}" data-idx="${i}">
+        <div class="tmt-mp-row__ico">${iconFor(h.kind)}</div>
+        <div class="tmt-mp-row__main">
+          <div class="tmt-mp-row__name">${highlight(h.primary, h.matchIndices)}</div>
+          <div class="tmt-mp-row__meta">${escapeHtml(h.secondary)}</div>
+        </div>
+      </div>`,
+    );
+  });
+  return parts.join("");
+}
+
+function labelFor(k: Source): string {
+  return ({ files: "Files", sessions: "Sessions", commands: "Recent commands", teammates: "Teammates" } as const)[k];
+}
+function iconFor(k: Source): string {
+  return ({ files: "⌗", sessions: "▮", commands: "$", teammates: "@" } as const)[k];
 }
 
 function highlight(text: string, indices: number[]): string {

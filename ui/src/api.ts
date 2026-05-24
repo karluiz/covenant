@@ -1143,6 +1143,55 @@ export async function structureFindFiles(
   return invoke<FileHit[]>("structure_find_files", { cwd, query, limit });
 }
 
+/// One per-block hit for the `@` mention picker. `match_indices` are
+/// CHAR offsets within `command` where the fuzzy subsequence landed.
+export interface CommandHit {
+  block_id: string;
+  session_id: string;
+  command: string;
+  exit_code: number | null;
+  cwd: string;
+  finished_at_unix_ms: number;
+  match_indices: number[];
+}
+
+/// Per-block fuzzy command search. Empty query returns the most
+/// recent finished blocks; otherwise results are ranked by fuzzy
+/// score then recency.
+export async function findRecentCommands(
+  query: string,
+  limit: number,
+): Promise<CommandHit[]> {
+  return invoke<CommandHit[]>("find_recent_commands", { query, limit });
+}
+
+/// Full output + metadata for a single block — used to inline a
+/// `@cmd:<block_id>` mention chip into the prompt sent to the operator.
+export interface BlockExcerpt {
+  command: string;
+  exit_code: number | null;
+  cwd: string;
+  plain_output: string;
+}
+
+/// Cwd + the N most-recent finished blocks for a session — used to
+/// inline a `@session:<short>` mention chip. `shell`/`tab_index` come
+/// back blank from the backend; UI fills them from the live TabManager.
+export interface SessionExcerpt {
+  cwd: string;
+  shell: string;
+  tab_index: number;
+  recent: Array<{ command: string; exit_code: number | null; tail: string }>;
+}
+
+export async function readBlockExcerpt(block_id: string): Promise<BlockExcerpt> {
+  return invoke<BlockExcerpt>("read_block_excerpt", { blockId: block_id });
+}
+
+export async function readSessionExcerpt(session_id: string, n = 5): Promise<SessionExcerpt> {
+  return invoke<SessionExcerpt>("read_session_excerpt", { sessionId: session_id, n });
+}
+
 // 3.8 Convergence Mode -----------------------------------------------------
 
 export type TileStatus =
