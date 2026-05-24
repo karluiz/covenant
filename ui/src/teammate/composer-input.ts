@@ -34,7 +34,7 @@ export class ComposerInput {
   constructor(host: HTMLElement, opts: ComposerInputOpts = {}) {
     this.el = document.createElement("div");
     this.el.className = "teammate-panel-input";
-    this.el.setAttribute("contenteditable", "plaintext-only");
+    this.el.setAttribute("contenteditable", "true");
     this.el.setAttribute("role", "textbox");
     this.el.setAttribute("aria-multiline", "false");
     if (opts.placeholder) this.el.dataset.placeholder = opts.placeholder;
@@ -66,7 +66,8 @@ export class ComposerInput {
         out += n.textContent ?? "";
       }
     });
-    return out;
+    // Strip zero-width spaces inserted as caret-anchors around chips.
+    return out.replace(/​/g, "");
   }
 
   clear(): void { this.el.innerHTML = ""; }
@@ -125,21 +126,25 @@ export class ComposerInput {
       r.setEnd(range.node, range.end);
       r.deleteContents();
       const chip = this.buildChip(spec);
-      const trailing = document.createTextNode(" ");
+      // Trailing zero-width space + regular space. WebKit collapses
+      // adjacent whitespace text nodes around contenteditable=false
+      // siblings and the caret can't land in a "collapsed" node — the
+      // ​ keeps the node materially non-empty.
+      const trailing = document.createTextNode("​ ");
       r.insertNode(trailing);
       r.insertNode(chip);
-      // Re-focus the contenteditable; clicking a popup row stole focus.
       this.el.focus();
-      const sel = window.getSelection();
-      if (sel) {
+      // Defer caret placement one tick: WebKit may re-normalize text
+      // nodes immediately after insertNode and discard our selection.
+      requestAnimationFrame(() => {
+        const sel = window.getSelection();
+        if (!sel || !trailing.parentNode) return;
         const after = document.createRange();
-        // Caret INSIDE the trailing text node at its end — element-level
-        // caret positions break typing/backspace in contenteditable.
         after.setStart(trailing, trailing.length);
         after.collapse(true);
         sel.removeAllRanges();
         sel.addRange(after);
-      }
+      });
     } else {
       range.deleteContents();
       const chip = this.buildChip(spec);
