@@ -2438,41 +2438,72 @@ export class TabManager {
     // observer fires for (data written while hidden, font reflow mid-
     // stream, hidden-tab writes wrapped against stale metrics).
     //
-    // Triggers: ANY wheel event where the viewport's scrollTop doesn't
-    // move (xterm ignores it because its internal scroll-area height is
-    // stale). We detect this by sampling scrollTop before and after a
-    // microtask — if the browser didn't scroll the viewport despite a
-    // nonzero deltaY, the geometry is wrong. Debounced: only one refit
-    // per 500ms to avoid hammering fit() on every wheel tick.
+    // Important: do NOT resize on every "scrollTop didn't change" wheel
+    // event. At the top/bottom of a large scrollback that is a normal
+    // boundary condition; resizing there makes the terminal look like it
+    // is re-rendering and can trap the user away from the bottom. Only
+    // intervene when the viewport has room to move in the wheel direction.
     let wheelRefitTimer: ReturnType<typeof setTimeout> | null = null;
     const onWheelStuck = (ev: WheelEvent): void => {
       if (ev.deltaY === 0) return;
-      if (wheelRefitTimer !== null) return;
       const vp = termHost.querySelector<HTMLElement>(".xterm-viewport");
       if (!vp) return;
+
       const before = vp.scrollTop;
-      // Check after the browser has processed the scroll.
+      const maxBefore = Math.max(0, vp.scrollHeight - vp.clientHeight);
+      const wantsDown = ev.deltaY > 0;
+      const atBoundary = wantsDown ? before >= maxBefore - 2 : before <= 2;
+      if (atBoundary) return;
+
+      // Check after xterm/browser wheel handling has had a chance to
+      // update the viewport.
       requestAnimationFrame(() => {
         const after = vp.scrollTop;
         if (before !== after) return; // scroll worked — viewport is fine
-        // Viewport didn't scroll despite a wheel event → stale geometry.
-        // Force a resize cycle to rebuild the internal scroll area.
-        wheelRefitTimer = setTimeout(() => { wheelRefitTimer = null; }, 500);
-        const { cols, rows } = term;
+
+        const maxAfter = Math.max(0, vp.scrollHeight - vp.clientHeight);
+        const nowAtBoundary = wantsDown ? after >= maxAfter - 2 : after <= 2;
+        if (nowAtBoundary) return;
+
+        // First try the public xterm scroll API. This fixes missed wheel
+        // deltas without the disruptive rows-1/rows resize cycle.
+        const pxPerLine = term.rows > 0 ? vp.clientHeight / term.rows : 16;
+        const lines = Math.max(1, Math.ceil(Math.abs(ev.deltaY) / Math.max(1, pxPerLine)));
         try {
-          fit.fit();
+          term.scrollLines(wantsDown ? lines : -lines);
         } catch {
           /* ignore */
         }
-        // If fit() didn't change dimensions, nudge to force re-sync.
-        if (term.cols === cols && term.rows === rows && rows > 1) {
+
+        // If the terminal is still immovable, debounce a geometry rebuild.
+        requestAnimationFrame(() => {
+          if (vp.scrollTop !== before) return;
+          if (wheelRefitTimer !== null) return;
+          wheelRefitTimer = setTimeout(() => { wheelRefitTimer = null; }, 750);
+
+          const { cols, rows } = term;
+          const keepTop = vp.scrollTop;
           try {
-            term.resize(cols, rows - 1);
-            term.resize(cols, rows);
+            fit.fit();
           } catch {
             /* ignore */
           }
-        }
+          // If fit() didn't change dimensions, nudge to force re-sync,
+          // then restore the user's scroll position as closely as the new
+          // scroll area allows.
+          if (term.cols === cols && term.rows === rows && rows > 1) {
+            try {
+              term.resize(cols, rows - 1);
+              term.resize(cols, rows);
+              vp.scrollTop = Math.min(
+                keepTop,
+                Math.max(0, vp.scrollHeight - vp.clientHeight),
+              );
+            } catch {
+              /* ignore */
+            }
+          }
+        });
       });
     };
     termHost.addEventListener("wheel", onWheelStuck, { passive: true });
