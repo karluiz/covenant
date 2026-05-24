@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.26 — File tree and Pi tab blank-state fixes
+
+### Fixed
+
+- **Files rail visibility**: shell tabs now seed their cwd from the launch, group, or workspace context before the first OSC cwd event arrives, and `StructureTree` renders an explicit waiting state while the terminal reports its directory. This prevents the Files view from looking like an empty sidebar in `ui/src/tabs/manager.ts` and `ui/src/structure/tree.ts`.
+- **Pi and teammate blank-state polish**: Pi RPC tabs now keep `PiChatView` on its flex layout instead of being overridden by generic tab-pane grid CSS, and Blocks/Files titlebar actions show a toast when the active tab has no terminal rail. The release also refreshes teammate header working state after operator reset via `ui/src/main.ts`, `ui/src/styles.css`, and `ui/src/teammate/panel.ts`.
+
 ## v0.8.25 — Autonomous teammate task dispatch + Tasks tab
 
 ### Added
