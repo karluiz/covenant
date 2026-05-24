@@ -95,7 +95,8 @@ export function attachMentions(
     }
   }
 
-  function onKeyDown(e: KeyboardEvent): void {
+  function onKeyDown(ev: Event): void {
+    const e = ev as KeyboardEvent;
     if (!popup.isOpen()) return;
     if (e.key === "ArrowDown")     { popup.moveActive(+1); e.preventDefault(); }
     else if (e.key === "ArrowUp")  { popup.moveActive(-1); e.preventDefault(); }

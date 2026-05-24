@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { attachMentions } from "./mention-controller";
+
+type SearchFn = (q: string, n: number) => Promise<{ path: string }[]>;
 
 function typeInto(el: HTMLInputElement, text: string): void {
   el.value = text;
@@ -9,13 +11,13 @@ function typeInto(el: HTMLInputElement, text: string): void {
 
 describe("attachMentions", () => {
   let input: HTMLInputElement;
-  let search: ReturnType<typeof vi.fn>;
+  let search: Mock<SearchFn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     input = document.createElement("input");
     document.body.append(input);
-    search = vi.fn(async (_q: string, _n: number) => [
+    search = vi.fn<SearchFn>(async (_q, _n) => [
       { path: "src/api.ts" },
       { path: "src/main.ts" },
     ]);
