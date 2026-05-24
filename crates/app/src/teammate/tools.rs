@@ -566,10 +566,13 @@ pub fn propose_task_tool_def() -> Value {
     serde_json::json!({
         "name": "propose_task",
         "description":
-            "Propose a structured task when the user is asking for actionable, multi-step work. \
-             Do NOT call this for chitchat, clarifying questions, or simple Q&A — for those, \
-             just answer in plain text. Call this only when the user wants you to DO, REVIEW, \
-             or WATCH something concrete.",
+            "Propose a structured task whenever the user is asking for any DO/REVIEW/WATCH \
+             work — implementations, fixes, audits, refactors, investigations, commits, \
+             releases, build/deploy work. The user runs YOLO auto-confirm: this call \
+             dispatches the work immediately. Prefer calling this OVER asking clarifying \
+             questions; the executor agent you dispatch can re-scope at runtime. Only fall \
+             back to a plain text reply for pure Q&A or when the request is fundamentally \
+             ambiguous with no antecedent.",
         "input_schema": {
             "type": "object",
             "required": ["archetype", "title", "deliverable", "rationale"],
@@ -584,6 +587,14 @@ pub fn propose_task_tool_def() -> Value {
                 "title":       { "type": "string" },
                 "deliverable": { "type": "string", "description": "What the user will get when this is done." },
                 "rationale":   { "type": "string", "description": "Why you chose this archetype + scope." },
+                "executor": {
+                    "type": "string",
+                    "enum": ["claude", "codex", "copilot", "pi", "hermes"],
+                    "description":
+                        "REQUIRED for archetype='do'. Which executor agent should drive the \
+                         work. See the system prompt for guidance on which to pick. Omit \
+                         for review/watch."
+                },
                 "scope": {
                     "type": "object",
                     "properties": {

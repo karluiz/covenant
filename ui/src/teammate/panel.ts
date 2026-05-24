@@ -1,9 +1,11 @@
 import type { Operator, Task, TaskArchetype, TeammateMessage, TeammateToolCall, UpdateKind } from "../api";
+import type { OperatorDecisionRow } from "../api";
 import {
   injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp,
   operatorList, teammateAttachSessionToTask, teammateCancelTaskProposal,
   teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal,
-  teammateListMessages, teammateListTasks, teammateSendText,
+  teammateListDecisionsForSession, teammateListMessages, teammateListTasks,
+  teammateSendText,
 } from "../api";
 import { Icons } from "../icons";
 import { renderAvatarHtml } from "../operator/avatars";
@@ -43,6 +45,11 @@ export interface TeammatePanelDeps {
   onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
   onToolCall?:   (handler: (call: TeammateToolCall) => void) => Promise<() => void>;
   getActiveSessionId?: () => string | null;
+  /// Returns the executor (claude/codex/copilot/…) running in the active
+  /// tab, or null when the foreground is a plain shell. When null, the
+  /// active-tab confirm path wraps the prompt with the operator-picked
+  /// executor instead of typing it raw into a shell.
+  getActiveExecutor?: () => string | null;
   confirmTask?:        (operatorId: string, messageId: string) => Promise<Task>;
   cancelTaskProposal?: (messageId: string) => Promise<void>;
   editTaskProposal?:   (messageId: string, draft: import("../api").TaskDraft) => Promise<void>;
@@ -54,6 +61,10 @@ export interface TeammatePanelDeps {
   focusTabBySessionId?: (sessionId: string) => boolean;
   /// Wipe all messages + tasks for this operator (test/reset affordance).
   clearForOperator?:    (operatorId: string) => Promise<void>;
+  /// Pin the operator to the target tab, enable it, flip live (single-tab
+  /// AOM), and refresh tab state so the operator ring + status bar update
+  /// in the UI. Routed through TabsManager.setTabOperator under the hood.
+  bindOperatorToTab?:   (sessionId: string, operatorId: string) => Promise<void>;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
@@ -77,12 +88,12 @@ interface SystemLineStyle {
 
 function taskUpdateSummary(kind: UpdateKind): SystemLineStyle {
   switch (kind) {
-    case "started":   return { text: "Tarea iniciada en un tab nuevo.", tone: "ok" };
-    case "progress":  return { text: "Actualización en curso.",         tone: "muted" };
-    case "blocked":   return { text: "Tarea bloqueada.",                tone: "warn" };
-    case "resumed":   return { text: "Tarea retomada.",                 tone: "ok" };
-    case "completed": return { text: "Tarea completada.",               tone: "ok" };
-    case "cancelled": return { text: "Tarea cancelada.",                tone: "muted" };
+    case "started":   return { text: "Task started in a new tab.", tone: "ok" };
+    case "progress":  return { text: "Update in progress.",        tone: "muted" };
+    case "blocked":   return { text: "Task blocked.",              tone: "warn" };
+    case "resumed":   return { text: "Task resumed.",              tone: "ok" };
+    case "completed": return { text: "Task completed.",            tone: "ok" };
+    case "cancelled": return { text: "Task cancelled.",            tone: "muted" };
   }
 }
 
@@ -93,31 +104,30 @@ function friendlyError(action: "confirm" | "cancel" | "edit", raw: string): { ti
   const r = raw.toLowerCase();
   if (r.includes("operator already on task")) {
     return {
-      title: "Mibli ya está trabajando en otra tarea.",
-      body:  "Terminá o liberá la tarea actual antes de iniciar esta.",
+      title: "Operator is already working on another task.",
+      body:  "Finish or release the current task before starting this one.",
     };
   }
   if (r.includes("proposal already confirmed")) {
     return {
-      title: "Esta propuesta ya fue confirmada.",
-      body:  "Mirá la pestaña Tasks para ver el estado.",
+      title: "This proposal was already confirmed.",
+      body:  "Check the Tasks tab for its status.",
     };
   }
   if (r.includes("proposal already dismissed") || r.includes("already cancelled")) {
     return {
-      title: "Esta propuesta ya estaba cancelada.",
-      body:  "Pedile a Mibli que cree una nueva si la necesitás.",
+      title: "This proposal was already cancelled.",
+      body:  "Ask the operator to create a new one if you need it.",
     };
   }
   if (r.includes("not found")) {
     return {
-      title: "No encontré esa propuesta.",
-      body:  "Puede haber sido borrada. Recargá la conversación.",
+      title: "Proposal not found.",
+      body:  "It may have been deleted. Reload the conversation.",
     };
   }
-  const verb = action === "confirm" ? "confirmar" : action === "cancel" ? "cancelar" : "editar";
   return {
-    title: `No pude ${verb} la tarea.`,
+    title: `Couldn't ${action} the task.`,
     body:  raw,
   };
 }
@@ -143,6 +153,8 @@ export class TeammatePanel {
   private resetBtnEl: HTMLButtonElement | null = null;
   private resetArmed = false;
   private resetArmTimer: number | null = null;
+  private expandedTaskIds = new Set<string>();
+  private decisionsByTask = new Map<string, OperatorDecisionRow[]>();
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -219,7 +231,7 @@ export class TeammatePanel {
           <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
           <span class="teammate-panel-level">Lv ${level}</span>
         </span>
-        <span class="teammate-panel-subtitle">${escapeHtml(op?.model ?? "")}</span>
+        <span class="teammate-panel-subtitle" data-role="subtitle">${escapeHtml(op?.model ?? "")}</span>
       </span>
       ${CHEVRON_DOWN_SVG}
     `;
@@ -246,7 +258,7 @@ export class TeammatePanel {
     b.className = "teammate-panel-reset";
     b.setAttribute("aria-label", "Reset chats & tasks");
     b.innerHTML = Icons.trash({ size: 14 });
-    attachTooltip(b, "Borrar chats y tareas de este operador");
+    attachTooltip(b, "Reset chats & tasks for this operator");
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.handleResetClick();
@@ -264,7 +276,7 @@ export class TeammatePanel {
       b.innerHTML = "";
       const label = document.createElement("span");
       label.className = "teammate-panel-reset__label";
-      label.textContent = "Confirmar";
+      label.textContent = "Confirm";
       b.append(label);
       if (this.resetArmTimer) window.clearTimeout(this.resetArmTimer);
       this.resetArmTimer = window.setTimeout(() => this.setResetArmed(false), 4000);
@@ -282,7 +294,7 @@ export class TeammatePanel {
     if (!this.operator) return;
     const { clearForOperator } = this.deps;
     if (!clearForOperator) {
-      this.appendErrorCard("Acción no disponible", "clearForOperator no está conectado.");
+      this.appendErrorCard("Action unavailable", "clearForOperator is not wired up.");
       return;
     }
     if (!this.resetArmed) {
@@ -298,7 +310,7 @@ export class TeammatePanel {
       this.updateTasksCount();
     } catch (e) {
       console.error("clearForOperator failed", e);
-      this.appendErrorCard("No pude resetear el operador.", String(e));
+      this.appendErrorCard("Couldn't reset the operator.", String(e));
     }
   }
 
@@ -358,7 +370,7 @@ export class TeammatePanel {
     c.className = "teammate-panel-composer";
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = `hablar con ${this.operator?.name ?? ""}…`;
+    input.placeholder = `Message ${this.operator?.name ?? ""}…`;
     input.autocomplete = "off";
     input.autocapitalize = "off";
     input.setAttribute("autocorrect", "off");
@@ -384,6 +396,35 @@ export class TeammatePanel {
     }
     this.paintTasks();
     this.updateTasksCount();
+    this.updateHeaderWorkingState();
+  }
+
+  /// Active = the operator currently has something open. Drives the
+  /// header's "is-working" state (animated ring + subtitle showing the
+  /// task title instead of the model name).
+  private firstWorkingTask(): Task | null {
+    return this.tasksCache.find((t) => t.status === "active" || t.status === "blocked") ?? null;
+  }
+
+  private updateHeaderWorkingState(): void {
+    if (!this.headerEl) return;
+    const task = this.firstWorkingTask();
+    const sub = this.headerEl.querySelector<HTMLElement>('[data-role="subtitle"]');
+    if (!sub) return;
+    if (task) {
+      this.headerEl.classList.add("is-working");
+      sub.classList.add("teammate-panel-subtitle--working");
+      sub.innerHTML = `
+        <span class="teammate-panel-subtitle__dot" aria-hidden="true"></span>
+        <span class="teammate-panel-subtitle__task">${escapeHtml(task.title)}</span>
+      `;
+      sub.title = task.title;
+    } else {
+      this.headerEl.classList.remove("is-working");
+      sub.classList.remove("teammate-panel-subtitle--working");
+      sub.textContent = this.operator?.model ?? "";
+      sub.removeAttribute("title");
+    }
   }
 
   private updateTasksCount(): void {
@@ -404,7 +445,7 @@ export class TeammatePanel {
     if (this.tasksCache.length === 0) {
       const empty = document.createElement("div");
       empty.className = "teammate-panel-empty";
-      empty.textContent = "Sin tareas todavía. Pedile una a tu operador.";
+      empty.textContent = "No tasks yet. Ask your operator for one.";
       this.tasksEl.append(empty);
       return;
     }
@@ -413,7 +454,7 @@ export class TeammatePanel {
     if (filtered.length === 0) {
       const empty = document.createElement("div");
       empty.className = "teammate-panel-empty";
-      empty.textContent = "Sin tareas en este filtro.";
+      empty.textContent = "No tasks match this filter.";
       this.tasksEl.append(empty);
       return;
     }
@@ -476,33 +517,33 @@ export class TeammatePanel {
     const item = document.createElement("div");
     item.className = `task-item task-item--${task.status}`;
     item.dataset.taskId = task.id;
+    const isOpen = this.expandedTaskIds.has(task.id);
+    if (isOpen) item.classList.add("is-open");
+
+    item.append(this.renderTaskHead(task));
+    if (isOpen) item.append(this.renderTaskBody(task));
+
+    return item;
+  }
+
+  private renderTaskHead(task: Task): HTMLElement {
+    const head = document.createElement("div");
+    head.className = "task-item__head";
 
     const dot = document.createElement("span");
     dot.className = "task-item__status";
-    item.append(dot);
+    head.append(dot);
 
     const title = document.createElement("div");
     title.className = "task-item__title";
     title.textContent = task.title;
-    item.append(title);
+    head.append(title);
 
-    const cta = document.createElement("button");
-    cta.type = "button";
-    cta.className = "task-item__cta";
-    if (task.status === "active" || task.status === "blocked") {
-      cta.textContent = "Open tab";
-      cta.disabled = !task.spawned_session || !this.deps.focusTabBySessionId;
-      cta.addEventListener("click", () => {
-        if (task.spawned_session) this.deps.focusTabBySessionId?.(task.spawned_session);
-      });
-    } else if (task.status === "draft") {
-      cta.textContent = "Review";
-      cta.disabled = true;
-    } else {
-      cta.textContent = "View";
-      cta.disabled = true;
-    }
-    item.append(cta);
+    const chev = document.createElement("span");
+    chev.className = "task-item__chev";
+    chev.textContent = "›";
+    chev.setAttribute("aria-hidden", "true");
+    head.append(chev);
 
     const meta = document.createElement("div");
     meta.className = "task-item__meta";
@@ -516,19 +557,208 @@ export class TeammatePanel {
       meta.append(dotSep());
       meta.append(textSpan(`tab ${task.spawned_session.slice(0, 6)}`));
     }
-    item.append(meta);
+    head.append(meta);
 
-    return item;
+    head.addEventListener("click", () => this.toggleTaskExpansion(task));
+    return head;
   }
 
+  private toggleTaskExpansion(task: Task): void {
+    if (this.expandedTaskIds.has(task.id)) {
+      this.expandedTaskIds.delete(task.id);
+    } else {
+      this.expandedTaskIds.add(task.id);
+      // Kick off a decisions fetch (cached after the first hit).
+      if (task.spawned_session && !this.decisionsByTask.has(task.id)) {
+        void teammateListDecisionsForSession(task.spawned_session, 20)
+          .then((rows) => {
+            this.decisionsByTask.set(task.id, rows);
+            if (this.expandedTaskIds.has(task.id)) this.paintTasks();
+          })
+          .catch((e) => console.error("listDecisionsForSession failed", e));
+      }
+    }
+    this.paintTasks();
+  }
+
+  private renderTaskBody(task: Task): HTMLElement {
+    const body = document.createElement("div");
+    body.className = "task-item__body";
+
+    // --- Executor strip (looks up the executor from the propose msg) ---
+    const exec = this.executorForTask(task);
+    if (exec) body.append(this.renderExecStrip(exec));
+
+    // --- 3-up stats: decisions / cost / status-age ---
+    body.append(this.renderTaskStats(task));
+
+    // --- Compact lifecycle timeline ---
+    body.append(this.renderTaskTimeline(task));
+
+    // --- Decisions feed (last 8) ---
+    body.append(this.renderTaskDecisions(task));
+
+    // --- Action row: Open tab + Stop ---
+    body.append(this.renderTaskActions(task));
+
+    return body;
+  }
+
+  private executorForTask(task: Task): string | null {
+    return this.executorByTaskId.get(task.id) ?? null;
+  }
+
+  private renderExecStrip(executor: string): HTMLElement {
+    const strip = document.createElement("div");
+    strip.className = "exec-strip";
+    const logo = document.createElement("span");
+    logo.className = "exec-strip__logo";
+    logo.textContent = executorGlyph(executor);
+    const name = document.createElement("span");
+    name.className = "exec-strip__name";
+    name.textContent = executor;
+    strip.append(logo, name);
+    return strip;
+  }
+
+  private renderTaskStats(task: Task): HTMLElement {
+    const stats = document.createElement("div");
+    stats.className = "task-stats";
+    const decisions = this.decisionsByTask.get(task.id);
+    const decisionsCount = decisions?.length ?? null;
+    const cost = (task.cost_usd_cents / 100).toFixed(2);
+    const age = formatAge(task.updated_at_unix_ms);
+    stats.append(
+      statTile("Decisions", decisionsCount === null ? "…" : String(decisionsCount),
+        decisionsCount === null ? "loading" : decisionsBreakdown(decisions ?? [])),
+      statTile("Cost", `$${cost}`, "USD spent"),
+      statTile("Age", age, statusLabel(task.status)),
+    );
+    return stats;
+  }
+
+  private renderTaskTimeline(task: Task): HTMLElement {
+    const t = document.createElement("div");
+    t.className = "task-timeline";
+    const steps: Array<"done" | "current" | "future"> = (() => {
+      switch (task.status) {
+        case "draft":     return ["current", "future", "future", "future"];
+        case "active":    return ["done", "done", "current", "future"];
+        case "blocked":   return ["done", "done", "current", "future"];
+        case "done":      return ["done", "done", "done", "current"];
+        case "cancelled": return ["done", "done", "future", "future"];
+      }
+    })();
+    const labels = ["Proposed", "Started", "Active", "Done"];
+    const currentIdx = steps.findIndex((s) => s === "current");
+    const currentLabel = currentIdx >= 0 ? labels[currentIdx] : "";
+    steps.forEach((state, i) => {
+      const dot = document.createElement("span");
+      dot.className = `task-timeline__dot task-timeline__dot--${state}`;
+      t.append(dot);
+      if (i < steps.length - 1) {
+        const bar = document.createElement("span");
+        const done = state === "done";
+        bar.className = `task-timeline__bar${done ? " task-timeline__bar--done" : ""}`;
+        t.append(bar);
+        if (state === "current") {
+          const label = document.createElement("span");
+          label.className = "task-timeline__label";
+          label.textContent = `${currentLabel} · ${formatAge(task.updated_at_unix_ms)} ago`;
+          t.append(label);
+        }
+      }
+    });
+    return t;
+  }
+
+  private renderTaskDecisions(task: Task): HTMLElement {
+    const section = document.createElement("div");
+    section.className = "task-section";
+    const title = document.createElement("div");
+    title.className = "task-section__title";
+    title.textContent = "Decisions";
+    const decisions = this.decisionsByTask.get(task.id) ?? [];
+    if (decisions.length) {
+      const count = document.createElement("span");
+      count.className = "task-section__count";
+      count.textContent = String(decisions.length);
+      title.append(count);
+    }
+    section.append(title);
+
+    if (!task.spawned_session) {
+      section.append(emptyLine("No attached session yet."));
+      return section;
+    }
+    if (!this.decisionsByTask.has(task.id)) {
+      section.append(emptyLine("Loading…"));
+      return section;
+    }
+    if (decisions.length === 0) {
+      section.append(emptyLine("No decisions recorded yet."));
+      return section;
+    }
+
+    const list = document.createElement("div");
+    list.className = "decisions";
+    for (const d of decisions.slice(0, 8)) list.append(renderDecision(d));
+    section.append(list);
+    return section;
+  }
+
+  private renderTaskActions(task: Task): HTMLElement {
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "btn btn--primary";
+    open.textContent = "Open tab";
+    open.disabled = !task.spawned_session || !this.deps.focusTabBySessionId;
+    open.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (task.spawned_session) this.deps.focusTabBySessionId?.(task.spawned_session);
+    });
+    actions.append(open);
+
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "btn btn--danger";
+    stop.textContent = "Stop";
+    stop.disabled = task.status === "done" || task.status === "cancelled";
+    stop.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // For now: just remove the operator binding; backend task-stop
+      // command can land later. This at least kills single-tab AOM.
+      if (task.spawned_session && this.deps.bindOperatorToTab) {
+        // No public "unbind" dep yet — best-effort: do nothing visible.
+        // Wire a proper stop command in a follow-up.
+      }
+    });
+    actions.append(stop);
+    return actions;
+  }
+
+  /// Cache mapping task_id → executor name (lifted from the propose msg).
+  /// Populated in paintMessages and refreshed by refreshTasks.
+  private executorByTaskId = new Map<string, string>();
+
   private paintMessages(msgs: TeammateMessage[]): void {
+    // Lift task_id → executor from propose messages so renderTaskBody
+    // can show the executor strip without joining tables.
+    for (const m of msgs) {
+      if (m.content.kind === "propose" && m.task_id && m.content.data.draft.executor) {
+        this.executorByTaskId.set(m.task_id, m.content.data.draft.executor);
+      }
+    }
     if (!this.threadEl) return;
     this.threadEl.innerHTML = "";
     if (msgs.length === 0) {
       const empty = document.createElement("div");
       empty.className = "teammate-panel-empty";
-      const name = this.operator?.name ?? "tu operador";
-      empty.textContent = `Sin conversación aún. Empezá hablándole a ${name}.`;
+      const name = this.operator?.name ?? "your operator";
+      empty.textContent = `No messages yet. Start by talking to ${name}.`;
       this.threadEl.append(empty);
       return;
     }
@@ -615,8 +845,8 @@ export class TeammatePanel {
   private tabLabelForMessage(msg: TeammateMessage): string {
     const task = msg.task_id ? this.tasksCache.find((t) => t.id === msg.task_id) : null;
     const raw = task?.title;
-    if (!raw) return "tab abierto";
-    const trimmed = raw.length > 24 ? `${raw.slice(0, 22)}…` : raw;
+    if (!raw) return "open tab";
+    const trimmed = raw.length > 28 ? `${raw.slice(0, 26)}…` : raw;
     return `tab "${trimmed}"`;
   }
 
@@ -658,26 +888,66 @@ export class TeammatePanel {
 
   private async handleConfirm(messageId: string, msg: TeammateMessage): Promise<void> {
     if (!this.operator) return;
-    const { confirmTask, spawnTabForTask, attachSessionToTask } = this.deps;
+    const { confirmTask, spawnTabForTask, attachSessionToTask, getActiveSessionId } = this.deps;
     if (!confirmTask) {
-      this.appendErrorCard("Acción no disponible", "confirmTask no está conectado.");
+      this.appendErrorCard("Action unavailable", "confirmTask is not wired up.");
       return;
     }
     try {
       const task = await confirmTask(this.operator.id, messageId);
-      if (task.archetype === "do" && spawnTabForTask && attachSessionToTask) {
-        const { sessionId } = await spawnTabForTask(task);
-        await attachSessionToTask(this.operator.id, task.id, sessionId);
-        // Inject the task as a shell comment at the prompt — no newline,
-        // so the user reviews/edits and presses Enter when ready. Leading
-        // `#` makes it harmless even if Enter is hit accidentally.
-        const prompt = buildTaskPrompt(task.title, task.deliverable);
-        // Small delay so the shell has produced its prompt before we type.
-        window.setTimeout(() => {
-          void injectCommand(sessionId, prompt).catch((e) => {
-            console.error("injectCommand for task failed", e);
+      if (task.archetype === "do" && attachSessionToTask) {
+        // Default: attach to whatever tab is currently active and inject
+        // the task into its PTY. If a coding agent (Claude Code, Copilot
+        // CLI, codex …) is running there, the prompt becomes a new turn in
+        // its open conversation. If it's a plain shell, the prompt sits at
+        // the cursor as plain text. User opts back into spawning a fresh
+        // tab via localStorage["covenant.teammate.confirm-target"]="spawn".
+        const target = (localStorage.getItem("covenant.teammate.confirm-target") ?? "active").trim();
+        const operatorPickedExecutor =
+          msg.content.kind === "propose" ? msg.content.data.draft.executor ?? null : null;
+        let targetSessionId: string | null = null;
+        let injectDelayMs = 150;
+        let line = "";
+        if (target === "spawn" && spawnTabForTask) {
+          const spawned = await spawnTabForTask(task);
+          targetSessionId = spawned.sessionId;
+          injectDelayMs = 1500;
+          line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
+        } else {
+          targetSessionId = getActiveSessionId?.() ?? null;
+          if (!targetSessionId) {
+            this.appendErrorCard(
+              "No active tab.",
+              "Open or focus a tab before confirming the task.",
+            );
+          } else {
+            // If the active tab is already running a known executor (TUI),
+            // type raw text + \n — it becomes a new message in the agent's
+            // open conversation. If not, treat it like a spawn: shell-quote
+            // and prefix with the operator-picked executor so the shell
+            // actually launches it instead of barfing on a malformed line.
+            const fg = this.deps.getActiveExecutor?.() ?? null;
+            line = fg
+              ? buildActiveTabInjection(task.title, task.deliverable)
+              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
+          }
+        }
+        if (targetSessionId) {
+          await attachSessionToTask(this.operator.id, task.id, targetSessionId);
+          const sid = targetSessionId;
+          const opId = this.operator.id;
+          // Bind operator + flip single-tab AOM through the tabs-manager
+          // helper so the UI (operator ring, status bar) actually repaints.
+          // Non-fatal if it fails — the task is already dispatched.
+          void this.deps.bindOperatorToTab?.(sid, opId).catch((e) => {
+            console.error("bindOperatorToTab failed", e);
           });
-        }, 250);
+          window.setTimeout(() => {
+            void injectCommand(sid, line).catch((e) => {
+              console.error("injectCommand for task failed", e);
+            });
+          }, injectDelayMs);
+        }
       }
       const refreshed = await this.deps.listMessages(this.operator.id, 200);
       this.paintMessages(refreshed);
@@ -694,7 +964,7 @@ export class TeammatePanel {
     const { cancelTaskProposal } = this.deps;
     if (!this.operator) return;
     if (!cancelTaskProposal) {
-      this.appendErrorCard("Acción no disponible", "cancelTaskProposal no está conectado.");
+      this.appendErrorCard("Action unavailable", "cancelTaskProposal is not wired up.");
       return;
     }
     try {
@@ -712,7 +982,7 @@ export class TeammatePanel {
   private openEditDialog(messageId: string, msg: TeammateMessage): void {
     if (msg.content.kind !== "propose") return;
     const current = msg.content.data.draft;
-    const nextTitle = window.prompt("Editar título de la tarea:", current.title);
+    const nextTitle = window.prompt("Edit task title:", current.title);
     if (nextTitle === null || nextTitle === current.title) return;
     const { editTaskProposal } = this.deps;
     if (!editTaskProposal || !this.operator) return;
@@ -753,6 +1023,20 @@ export class TeammatePanel {
     this.setTyping(false);
     this.appendBubble(msg);
     if (msg.content.kind === "task_update") void this.refreshTasks();
+    // YOLO mode (default ON): auto-confirm fresh propose messages with
+    // archetype="do" the moment they arrive — no click required. Opt out
+    // with localStorage.setItem("covenant.teammate.yolo", "off").
+    if (
+      msg.content.kind === "propose" &&
+      msg.content.data.draft.archetype === "do" &&
+      msg.confirmed_at_unix_ms === null &&
+      msg.dismissed_at_unix_ms === null
+    ) {
+      const yolo = (localStorage.getItem("covenant.teammate.yolo") ?? "on").trim();
+      if (yolo !== "off" && yolo !== "none") {
+        void this.handleConfirm(msg.id, msg);
+      }
+    }
   }
 
   private onIncomingToolCall(call: TeammateToolCall): void {
@@ -862,17 +1146,147 @@ function dotSep(): HTMLElement {
 
 function statusLabel(s: Task["status"]): string {
   switch (s) {
-    case "active":    return "activa";
-    case "blocked":   return "bloqueada";
-    case "draft":     return "propuesta";
-    case "done":      return "completada";
-    case "cancelled": return "cancelada";
+    case "active":    return "active";
+    case "blocked":   return "blocked";
+    case "draft":     return "proposed";
+    case "done":      return "done";
+    case "cancelled": return "cancelled";
   }
 }
 
-function buildTaskPrompt(title: string, deliverable: string): string {
-  const parts = [title.trim(), deliverable.trim()].filter(Boolean);
-  return `# ${parts.join(" — ")} `;
+/// Build the line we type into the spawned tab when a task is confirmed
+/// with the "spawn new tab" target (the non-default path — the default is
+/// to attach to the active tab where an executor is already running).
+///
+/// Behavior is driven by `localStorage["covenant.teammate.executor"]`:
+///   - empty / unset → defaults to "claude"
+///   - "none" / "off" → no autorun; pastes the task as a shell comment for
+///     the user to review and Enter manually
+///   - any other value → runs `<value> '<prompt>'\n`
+///
+/// Valid executor names match Covenant's own executor registry — the
+/// agent CLIs the app tracks via fg_proc:
+///   claude, codex, copilot, pi, hermes
+/// (note: it's `copilot`, NOT `gh copilot` — the GitHub Copilot CLI is
+/// installed as the `copilot` binary). To change without rebuilding:
+///   localStorage.setItem("covenant.teammate.executor", "codex")
+function buildTaskInjection(
+  title: string,
+  deliverable: string,
+  operatorPicked: string | null,
+): string {
+  const prompt = [title.trim(), deliverable.trim()].filter(Boolean).join(" — ");
+  // Precedence: operator's choice (from the propose draft) → localStorage
+  // override → default "claude". "none"/"off" disables autorun.
+  const fallback = (localStorage.getItem("covenant.teammate.executor") ?? "claude").trim();
+  const exec = (operatorPicked ?? fallback).trim();
+  if (!exec || exec === "none" || exec === "off") {
+    return `# ${prompt} `;
+  }
+  return `${exec} ${shellQuote(prompt)}\n`;
+}
+
+/// Inject text for "attach to active tab" confirms. We assume the user is
+/// already inside an agent CLI (Claude Code, Copilot CLI, codex, …) — so
+/// no executor prefix, no shell quoting. Trailing `\n` submits the message.
+function buildActiveTabInjection(title: string, deliverable: string): string {
+  const prompt = [title.trim(), deliverable.trim()].filter(Boolean).join(" — ");
+  return `${prompt}\n`;
+}
+
+function shellQuote(s: string): string {
+  // POSIX single-quoting: wrap in '…', and replace embedded ' with '\''.
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+function statTile(label: string, value: string, sub: string): HTMLElement {
+  const tile = document.createElement("div");
+  tile.className = "task-stat";
+  const l = document.createElement("div");
+  l.className = "task-stat__label";
+  l.textContent = label;
+  const v = document.createElement("div");
+  v.className = "task-stat__value";
+  v.textContent = value;
+  const s = document.createElement("div");
+  s.className = "task-stat__sub";
+  s.textContent = sub;
+  tile.append(l, v, s);
+  return tile;
+}
+
+function emptyLine(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "task-section__empty";
+  el.textContent = text;
+  return el;
+}
+
+function decisionsBreakdown(rows: OperatorDecisionRow[]): string {
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    const k = r.action.toLowerCase();
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  const order = ["reply", "inject", "read", "block", "escalate", "wait"];
+  const parts: string[] = [];
+  for (const k of order) {
+    if (counts[k]) parts.push(`${counts[k]}${k.charAt(0)}`);
+  }
+  return parts.join(" · ") || "—";
+}
+
+function executorGlyph(name: string): string {
+  switch (name.toLowerCase()) {
+    case "claude":  return "🟧";
+    case "codex":   return "🟩";
+    case "copilot": return "🟦";
+    case "pi":      return "🟠";
+    case "hermes":  return "🟢";
+    default:        return "▣";
+  }
+}
+
+function renderDecision(d: OperatorDecisionRow): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "decision";
+
+  const r1 = document.createElement("div");
+  r1.className = "decision__row1";
+  const time = document.createElement("span");
+  time.className = "decision__time";
+  time.textContent = formatAge(d.timestamp_unix_ms);
+  const kind = document.createElement("span");
+  const k = d.action.toLowerCase();
+  kind.className = `decision__kind decision__kind--${k}`;
+  kind.textContent = shortAction(d.action);
+  const cost = document.createElement("span");
+  cost.className = "decision__cost";
+  cost.textContent = `$${d.cost_usd.toFixed(3)}`;
+  r1.append(time, kind, cost);
+  row.append(r1);
+
+  const detail = document.createElement("div");
+  detail.className = "decision__detail";
+  const text = decisionDetailText(d);
+  detail.textContent = text;
+  detail.title = text;
+  row.append(detail);
+
+  return row;
+}
+
+function shortAction(action: string): string {
+  const a = action.toUpperCase();
+  if (a === "ESCALATE") return "ESCAL";
+  return a;
+}
+
+function decisionDetailText(d: OperatorDecisionRow): string {
+  if (d.reply_text && d.reply_text.trim()) return d.reply_text.trim();
+  if (d.in_flight_command && d.in_flight_command.trim()) return d.in_flight_command.trim();
+  if (d.rationale && d.rationale.trim()) return d.rationale.trim();
+  return d.output_excerpt.slice(0, 80);
 }
 
 function formatAge(unixMs: number): string {

@@ -55,7 +55,7 @@ describe("renderTaskCard", () => {
     expect(el.classList.contains("task-pill--confirmed")).toBe(true);
     expect(el.querySelector('[data-action="confirm"]')).toBeNull();
     expect(el.textContent).toContain("Revisar migración de auth");
-    expect(el.textContent).toContain("tab abierto");
+    expect(el.textContent).toContain("open tab");
   });
 
   it("invokes onOpenTab from the confirmed pill link", () => {
@@ -72,6 +72,6 @@ describe("renderTaskCard", () => {
       onConfirm: vi.fn(), onCancel: vi.fn(), onEdit: vi.fn(),
     });
     expect(el.classList.contains("task-pill--cancelled")).toBe(true);
-    expect(el.textContent).toContain("cancelada");
+    expect(el.textContent).toContain("cancelled");
   });
 });

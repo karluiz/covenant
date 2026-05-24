@@ -4159,8 +4159,13 @@ export class TabManager {
     if (tab.operatorEnabled) {
       const aomOn = this.aomBanner?.isOn() ?? false;
       const excluded = tab.aomExcluded;
-      if (aomOn && !excluded) pill.classList.add("tab-aom-active");
-      if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
+      // Single-tab AOM: a tab where the operator is live counts as
+      // "AOM driving here" even when the global banner is off — that's
+      // how teammate-confirmed tasks light up without forcing the global
+      // toggle on every other tab.
+      const drivingHere = (aomOn && !excluded) || tab.operatorLive;
+      if (drivingHere) pill.classList.add("tab-aom-active");
+      else if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
     }
 
     // Operator chip renders to the LEFT of the title so the avatar is the

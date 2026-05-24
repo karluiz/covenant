@@ -3326,6 +3326,7 @@ pub fn run() {
             teammate::commands::teammate_edit_task_proposal,
             teammate::commands::teammate_attach_session_to_task,
             teammate::commands::teammate_clear_for_operator,
+            teammate::commands::teammate_list_decisions_for_session,
             spec_detector::start_spec_detector,
             spec_detector::mark_spec_seen,
             familiar_commands::familiar_list,

@@ -368,6 +368,20 @@ pub async fn teammate_edit_task_proposal(
     edit_task_proposal_inner(storage.inner(), message_id, draft).await
 }
 
+/// List recent operator decisions for the session a task is attached to.
+/// Powers the teammate task-details view's "Decisions" feed.
+#[tauri::command]
+pub async fn teammate_list_decisions_for_session(
+    storage: State<'_, Arc<Storage>>,
+    session_id: String,
+    limit: u32,
+) -> Result<Vec<crate::storage::OperatorDecisionRow>, String> {
+    storage
+        .list_operator_decisions_for_session(session_id, limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Wipe every message and task for `operator_id`, and reset the in-memory
 /// runtime state back to Idle. Used by the panel's reset button for testing.
 #[tauri::command]
@@ -454,6 +468,7 @@ mod task_lifecycle_tests {
                     title: "Revisar migración".into(),
                     deliverable: "resumen".into(),
                     scope: TaskScope::default(),
+                    executor: None,
                 },
                 rationale: "audit".into(),
             }),

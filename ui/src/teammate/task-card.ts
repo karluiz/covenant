@@ -68,9 +68,9 @@ function renderActionableCard(
 
   const actions = document.createElement("div");
   actions.className = "task-card__actions";
-  const confirmBtn = button("confirm", "Confirmar", () => handlers.onConfirm(msg.id));
-  const editBtn    = iconButton("edit",   Icons.pencil({ size: 14 }), "Editar",   () => handlers.onEdit(msg.id));
-  const cancelBtn  = iconButton("cancel", Icons.x({ size: 14 }),      "Cancelar", () => handlers.onCancel(msg.id));
+  const confirmBtn = button("confirm", "Confirm", () => handlers.onConfirm(msg.id));
+  const editBtn    = iconButton("edit",   Icons.pencil({ size: 14 }), "Edit",   () => handlers.onEdit(msg.id));
+  const cancelBtn  = iconButton("cancel", Icons.x({ size: 14 }),      "Cancel", () => handlers.onCancel(msg.id));
   actions.append(confirmBtn, editBtn, cancelBtn);
 
   card.append(header, rows, actions);
@@ -104,7 +104,7 @@ function renderConfirmedPill(
   link.type = "button";
   link.className = "task-pill__link";
   link.dataset.action = "open-tab";
-  link.textContent = handlers.confirmedTabLabel ?? "tab abierto";
+  link.textContent = handlers.confirmedTabLabel ?? "open tab";
   if (handlers.onOpenTab && msg.task_id) {
     link.addEventListener("click", () => handlers.onOpenTab?.(msg.task_id ?? ""));
   } else {
@@ -140,7 +140,7 @@ function renderCancelledPill(
 
   const tag = document.createElement("span");
   tag.className = "task-pill__tag";
-  tag.textContent = "cancelada";
+  tag.textContent = "cancelled";
   pill.append(tag);
 
   return pill;
@@ -199,9 +199,9 @@ function iconButton(
 
 function archetypeHint(a: TaskArchetype): string {
   switch (a) {
-    case "do":     return "spawnea tab nuevo";
-    case "review": return "inspecciona PR/archivo";
-    case "watch":  return "suscribe a trigger";
+    case "do":     return "spawns a new tab";
+    case "review": return "inspects a PR / file";
+    case "watch":  return "subscribes to a trigger";
   }
 }
 

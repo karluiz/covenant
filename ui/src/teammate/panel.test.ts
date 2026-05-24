@@ -32,7 +32,7 @@ describe("TeammatePanel", () => {
       listOperators: vi.fn().mockResolvedValue([]),
     });
     await panel.openFor(makeOp());
-    expect(host.textContent ?? "").toMatch(/Sin conversación aún/);
+    expect(host.textContent ?? "").toMatch(/No messages yet/);
   });
 
   it("renders avatar + name + model subtitle in the header", async () => {
@@ -294,6 +294,7 @@ describe("TeammatePanel propose rendering", () => {
       editTaskProposal:   vi.fn(),
       attachSessionToTask: attachSession,
       spawnTabForTask: createTab,
+      getActiveSessionId: () => "S-ACTIVE",
     });
     await panel.openFor(operator);
 
@@ -303,7 +304,8 @@ describe("TeammatePanel propose rendering", () => {
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
     expect(confirmTask).toHaveBeenCalledWith("op1", "msg-propose");
-    expect(createTab).toHaveBeenCalled();
-    expect(attachSession).toHaveBeenCalledWith("op1", "task-1", "S-NEW");
+    // Default is "active": attach to the active tab, do NOT spawn a new one.
+    expect(createTab).not.toHaveBeenCalled();
+    expect(attachSession).toHaveBeenCalledWith("op1", "task-1", "S-ACTIVE");
   });
 });

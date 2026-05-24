@@ -15257,6 +15257,54 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   white-space: nowrap;
   font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
 }
+
+/* Header "is-working" state — operator has an active/blocked task.
+   Adds an animated conic-gradient ring around the avatar wrap (outside
+   the XP ring) and turns the subtitle into a green-dot + task-title line. */
+/* Two concentric rings: the existing XP ring sits tight against the
+   avatar, and this AOM ring sits clearly outside it with a visible gap. */
+.teammate-panel-header.is-working .teammate-panel-avatar-wrap::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  padding: 2.5px;
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--operator-color, #b48cff) 90%, #6f7bff),
+    #6f7bff,
+    #22d3ee,
+    color-mix(in srgb, var(--operator-color, #b48cff) 90%, #6f7bff)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: teammate-header-ring-spin 4s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes teammate-header-ring-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .teammate-panel-header.is-working .teammate-panel-avatar-wrap::after { animation: none; }
+}
+
+.teammate-panel-subtitle--working {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text, #e6e7ea);
+  font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  font-size: 11px;
+}
+.teammate-panel-subtitle__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #50c878;
+  box-shadow: 0 0 0 3px rgba(80,200,120,0.18);
+  flex: 0 0 auto;
+}
+.teammate-panel-subtitle__task {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
 .teammate-panel-header-chevron {
   flex: 0 0 14px;
   width: 14px;
@@ -15550,11 +15598,19 @@ body.theme-light .teammate-panel-switcher {
 .task-pill--confirmed { border-left: 2px solid rgba(80, 200, 120, 0.55); }
 .task-pill--cancelled { border-left: 2px solid rgba(255,255,255,0.18); opacity: 0.55; }
 .task-pill__badge { flex: 0 0 auto; }
-.task-pill__title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-pill__meta  { color: var(--text-dim, #888); }
+.task-pill__title {
+  font-weight: 600;
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-pill__meta  { color: var(--text-dim, #888); flex: 0 0 auto; }
 .task-pill__link  {
   background: transparent; border: none; padding: 0;
   color: var(--operator-color, #6f7bff); font: inherit; cursor: pointer;
+  /* Link shrinks first so the task title stays readable. */
+  flex: 0 1 auto; min-width: 0; max-width: 45%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: left;
 }
 .task-pill__link:hover { text-decoration: underline; }
 .task-pill__link[disabled] { color: var(--text-dim, #888); cursor: default; text-decoration: none; }
@@ -15690,6 +15746,173 @@ body.theme-light .teammate-panel-switcher {
   border-color: color-mix(in srgb, var(--operator-color, #6f7bff) 45%, transparent);
 }
 .task-item__cta[disabled] { opacity: 0.45; cursor: default; }
+
+/* --- Task item expanded details --- */
+/* Reset the wrapper from the pre-expansion grid layout — head + body
+   are now stacked block children, the inner grid lives on `.task-item__head`. */
+.task-item {
+  display: block;
+  grid-template-columns: initial;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  transition: background 0.12s ease;
+}
+.task-item.is-open { background: rgba(255,255,255,0.04); }
+.task-item__head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+/* Explicit placement so auto-flow can't ever push meta into col 1. */
+.task-item__head > .task-item__status { grid-column: 1; grid-row: 1 / span 2; align-self: start; margin-top: 5px; }
+.task-item__head > .task-item__title  { grid-column: 2; grid-row: 1;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; min-width: 0;
+}
+.task-item__head > .task-item__meta   { grid-column: 2; grid-row: 2; min-width: 0; }
+.task-item__head > .task-item__chev {
+  grid-column: 3; grid-row: 1 / span 2; align-self: center;
+  color: var(--text-dim, #5e6068); width: 16px; text-align: center;
+  transition: transform 0.15s ease;
+}
+.task-item.is-open .task-item__head > .task-item__chev { transform: rotate(90deg); }
+
+.task-item__body {
+  border-top: 1px solid var(--border-soft, rgba(255,255,255,0.08));
+  padding: 10px 12px 12px;
+}
+
+.exec-strip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border-soft, rgba(255,255,255,0.08));
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.exec-strip__logo {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; flex: 0 0 auto;
+  background: rgba(255,255,255,0.06);
+}
+.exec-strip__name { font-weight: 600; }
+
+.task-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  margin-bottom: 10px;
+}
+.task-stat {
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border-soft, rgba(255,255,255,0.08));
+  border-radius: 7px; padding: 6px 8px; min-width: 0;
+}
+.task-stat__label {
+  font-size: 9.5px; color: var(--text-dim, #8b8d94);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.task-stat__value {
+  font-size: 13px; font-weight: 600; margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.task-stat__sub {
+  font-size: 9.5px; color: var(--text-dim, #5e6068); margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.task-timeline {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border-soft, rgba(255,255,255,0.08));
+  border-radius: 7px;
+  font-size: 11px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.task-timeline__dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-dim, #5e6068); flex: 0 0 auto;
+}
+.task-timeline__dot--done    { background: #50c878; }
+.task-timeline__dot--current {
+  background: var(--operator-color, #b48cff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--operator-color, #b48cff) 18%, transparent);
+}
+.task-timeline__dot--future  { background: transparent; border: 1px dashed var(--text-dim, #5e6068); }
+.task-timeline__bar { flex: 0 0 auto; height: 1px; width: 10px; background: rgba(255,255,255,0.08); }
+.task-timeline__bar--done { background: rgba(80,200,120,0.5); }
+.task-timeline__label {
+  color: inherit; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.task-section { margin-top: 10px; }
+.task-section__title {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim, #8b8d94);
+  margin-bottom: 6px; display: flex; gap: 6px; align-items: center;
+}
+.task-section__count {
+  background: rgba(255,255,255,0.06); color: var(--text-dim, #8b8d94);
+  padding: 1px 6px; border-radius: 8px; font-size: 9.5px;
+}
+.task-section__empty {
+  color: var(--text-dim, #8b8d94); font-size: 11.5px;
+  padding: 4px 8px; font-style: italic;
+}
+
+.decisions { display: flex; flex-direction: column; gap: 6px; }
+.decision { padding: 6px 8px; border-radius: 6px; }
+.decision:hover { background: rgba(255,255,255,0.03); }
+.decision__row1 {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10.5px; color: var(--text-dim, #5e6068);
+  font-variant-numeric: tabular-nums;
+}
+.decision__kind {
+  font-size: 9.5px; padding: 1px 6px; border-radius: 5px;
+  font-weight: 700; letter-spacing: 0.04em; line-height: 1.3;
+}
+.decision__kind--reply    { background: rgba(80,200,120,0.14);  color: #88e3a8; }
+.decision__kind--inject   { background: rgba(34,211,238,0.16);  color: #22d3ee; }
+.decision__kind--read     { background: rgba(255,255,255,0.06); color: var(--text-dim, #8b8d94); }
+.decision__kind--block    { background: rgba(239,107,126,0.14); color: #ef6b7e; }
+.decision__kind--escal    { background: rgba(240,180,80,0.16);  color: #f0c870; }
+.decision__kind--wait     { background: rgba(255,255,255,0.06); color: var(--text-dim, #8b8d94); }
+.decision__cost { margin-left: auto; }
+.decision__detail {
+  font-size: 11.5px; margin-top: 3px; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.task-actions {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  margin-top: 10px;
+}
+.task-actions .btn {
+  font-size: 11px; padding: 6px 10px; border-radius: 6px;
+  background: transparent; color: inherit;
+  border: 1px solid var(--border-soft, rgba(255,255,255,0.10));
+  cursor: pointer; text-align: center;
+}
+.task-actions .btn:hover { background: rgba(255,255,255,0.04); }
+.task-actions .btn[disabled] { opacity: 0.45; cursor: default; }
+.task-actions .btn--primary {
+  color: var(--operator-color, #b48cff);
+  border-color: color-mix(in srgb, var(--operator-color, #b48cff) 45%, transparent);
+}
+.task-actions .btn--danger {
+  color: #ef6b7e;
+  border-color: color-mix(in srgb, #ef6b7e 35%, transparent);
+}
 
 /* --- Friendly error card (replaces raw system rows for failures) --- */
 .teammate-error-card {

@@ -1235,6 +1235,54 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// List the most recent operator decisions for a single session. Used
+    /// by the teammate panel's task-details view (decisions feed). Newest
+    /// first, limited.
+    pub async fn list_operator_decisions_for_session(
+        &self,
+        session_id: String,
+        limit: u32,
+    ) -> Result<Vec<OperatorDecisionRow>, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<OperatorDecisionRow>, StorageError> {
+            let c = conn.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
+                            output_excerpt, action, reply_text, rationale, executed,
+                            mission_path, executor_name, operator_id, operator_name,
+                            cost_usd, applied_memory_id
+                     FROM operator_decisions
+                     WHERE session_id = ?1
+                     ORDER BY id DESC
+                     LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![session_id, limit as i64], |r| {
+                Ok(OperatorDecisionRow {
+                    id: r.get(0)?,
+                    session_id_short: shorten(r.get::<_, String>(1)?.as_str()),
+                    timestamp_unix_ms: r.get::<_, i64>(2)? as u64,
+                    in_flight_command: r.get(3)?,
+                    output_excerpt: r.get(4)?,
+                    action: r.get(5)?,
+                    reply_text: r.get(6)?,
+                    rationale: r.get(7)?,
+                    executed: r.get::<_, i64>(8)? != 0,
+                    mission_path: r.get(9)?,
+                    executor_name: r.get(10)?,
+                    operator_id: r.get(11)?,
+                    operator_name: r.get(12)?,
+                    cost_usd: r.get::<_, f64>(13)?,
+                    applied_memory_id: r.get::<_, Option<i64>>(14)?,
+                })
+            })?;
+            let mut out = Vec::new();
+            for row in rows { out.push(row?); }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// Insert a new operator row. Returns DuplicateName if `name`
     /// (case-insensitive) is already taken.
     pub async fn operator_insert(
@@ -3287,6 +3335,7 @@ mod task_card_storage_tests {
                     title: "Revisar migración".into(),
                     deliverable: "resumen + riesgos".into(),
                     scope: TaskScope::default(),
+                    executor: None,
                 },
                 rationale: "user asked for an audit".into(),
             }),

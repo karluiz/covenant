@@ -324,6 +324,10 @@ export interface TaskDraft {
   title:       string;
   deliverable: string;
   scope:       TaskScope;
+  /// Which executor agent should drive this task once confirmed.
+  /// Required for archetype="do"; ignored for review/watch.
+  /// One of: "claude" | "codex" | "copilot" | "pi" | "hermes".
+  executor?:   string;
 }
 
 export interface ProposeTask {
@@ -428,6 +432,35 @@ export async function teammateListTasks(operatorId: string): Promise<Task[]> {
 
 export async function teammateClearForOperator(operatorId: string): Promise<void> {
   return invoke<void>("teammate_clear_for_operator", { operatorId });
+}
+
+/// A single operator decision row, as returned by the teammate task-details
+/// view's decisions feed. Mirrors `crate::storage::OperatorDecisionRow`.
+export interface OperatorDecisionRow {
+  id: number;
+  session_id_short: string;
+  timestamp_unix_ms: number;
+  in_flight_command: string | null;
+  output_excerpt: string;
+  action: string;
+  reply_text: string | null;
+  rationale: string | null;
+  executed: boolean;
+  mission_path: string | null;
+  executor_name: string | null;
+  operator_id: string | null;
+  operator_name: string | null;
+  cost_usd: number;
+  applied_memory_id: number | null;
+}
+
+export async function teammateListDecisionsForSession(
+  sessionId: string,
+  limit = 20,
+): Promise<OperatorDecisionRow[]> {
+  return invoke<OperatorDecisionRow[]>("teammate_list_decisions_for_session", {
+    sessionId, limit,
+  });
 }
 
 export async function onTeammateTask(

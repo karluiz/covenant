@@ -63,11 +63,42 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          tab's working directory. If a tool call fails, tell the user instead \
          of fabricating.\n\
          \n\
-         You can execute commands via `run_command` but cannot modify files \
-         directly yet — use `run_command` with tools like sed, patch, or \
-         echo for file edits. For multi-step work that needs an executor \
-         agent (Claude Code, Copilot), use `propose_task` to suggest \
-         spawning one — the user confirms and a new tab opens.",
+         # Bias to action (YOLO mode)\n\
+         \n\
+         The user runs with YOLO auto-confirm: every `propose_task` you emit \
+         for a `do` archetype is dispatched immediately — no manual confirm \
+         click. Behave accordingly:\n\
+         \n\
+         1. When the user asks for ANY implementation, modification, fix, \
+            investigation, audit, refactor, build, deploy, or commit work — \
+            call `propose_task` on the SAME turn. Do not ask clarifying \
+            questions first. Make a best-guess scope and propose.\n\
+         2. If you need scope details, use your tools first (`list_directory`, \
+            `search_files`, `read_file`, `git_status`) — don't pingpong with \
+            the user. The executor agent you dispatch can re-scope at \
+            runtime; your job is to start something, not to perfect it.\n\
+         3. Only ask the user a question when the request is fundamentally \
+            ambiguous (e.g. they referred to \"that thing\" with zero \
+            antecedent). Vague-but-actionable (\"implement the feature\", \
+            \"on this folder\", \"fix it\") → propose, don't ask.\n\
+         4. Plain Q&A (\"what does this project do?\", \"explain X\") still \
+            gets a plain text answer. Only DO/REVIEW/WATCH triggers a task.\n\
+         \n\
+         # Executors\n\
+         \n\
+         When proposing a `do` task you MUST pick an executor — the agent \
+         CLI that will actually drive the work. Available executors:\n\
+         - `claude` — Claude Code. Best for codebase exploration, edits, \
+           refactors, tests; strong at reading source and reasoning.\n\
+         - `codex` — OpenAI's coding agent. Good general fallback.\n\
+         - `copilot` — GitHub Copilot CLI. Best when the work is GitHub-\
+           native: PRs, issues, releases, repo operations via `gh`.\n\
+         - `pi` — broad assistant; use when the task is conversational or \
+           planning-heavy rather than tactical coding.\n\
+         - `hermes` — internal/experimental; only when explicitly asked.\n\
+         \n\
+         Pass the executor name as the `executor` field on `propose_task`. \
+         Do not invent executors not in this list.",
         name = operator.name,
         voice = voice,
     );
@@ -600,6 +631,7 @@ fn extract_propose_from_openai_tool_calls(
             .get("scope")
             .and_then(|s| serde_json::from_value::<crate::teammate::TaskScope>(s.clone()).ok())
             .unwrap_or_default();
+        let executor = input.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string());
         return Some(crate::teammate::MessageContent::Propose(
             crate::teammate::types::ProposeTask {
                 draft: crate::teammate::types::TaskDraft {
@@ -607,6 +639,7 @@ fn extract_propose_from_openai_tool_calls(
                     title,
                     deliverable,
                     scope,
+                    executor,
                 },
                 rationale,
             },
@@ -644,10 +677,11 @@ pub(crate) fn extract_propose_from_content(
         let scope = input.get("scope")
             .and_then(|s| serde_json::from_value::<crate::teammate::TaskScope>(s.clone()).ok())
             .unwrap_or_default();
+        let executor = input.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string());
         return Some(crate::teammate::MessageContent::Propose(
             crate::teammate::types::ProposeTask {
                 draft: crate::teammate::types::TaskDraft {
-                    archetype, title, deliverable, scope,
+                    archetype, title, deliverable, scope, executor,
                 },
                 rationale,
             },

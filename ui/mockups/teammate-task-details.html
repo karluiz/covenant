@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Teammate · Task details preview</title>
+<style>
+  :root {
+    --bg: #06070a;
+    --rail: #14151a;
+    --rail-2: #181a20;
+    --rail-3: #1c1e25;
+    --border: rgba(255,255,255,0.07);
+    --border-soft: rgba(255,255,255,0.10);
+    --text: #e6e7ea;
+    --dim: #8b8d94;
+    --dim-2: #5e6068;
+    --accent: #b48cff;
+    --accent-2: #6f7bff;
+    --green: #50c878;
+    --amber: #f0c870;
+    --rose: #ef6b7e;
+    --cyan: #22d3ee;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  .wrap { padding: 28px; max-width: 760px; margin: 0 auto; }
+  h2 { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin: 0 0 6px; font-weight: 600; }
+  .caption { color: var(--dim); font-size: 11.5px; margin: 0 0 14px; }
+
+  .frame {
+    background: var(--rail);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  .filter-row { display: flex; gap: 6px; margin-bottom: 14px; }
+  .chip {
+    font-size: 11px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border-soft); color: var(--dim);
+    cursor: pointer; user-select: none;
+  }
+  .chip.is-on { background: rgba(180,140,255,0.14); border-color: rgba(180,140,255,0.45); color: var(--text); }
+
+  .tasks-list { display: flex; flex-direction: column; gap: 8px; }
+
+  /* ============ TASK ITEM (collapsed + expanded share the same wrapper) ============ */
+  .task-item {
+    background: var(--rail-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: background 0.15s ease;
+  }
+  .task-item:hover { background: var(--rail-3); }
+  .task-item.is-open { background: var(--rail-3); }
+
+  /* Header — always visible. Click toggles expansion. */
+  .task-item__head {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 6px 12px;
+    align-items: center;
+    padding: 10px 12px;
+    cursor: pointer;
+  }
+  .task-item__status {
+    width: 8px; height: 8px; border-radius: 50%;
+    grid-row: 1 / span 2; align-self: start; margin-top: 6px;
+  }
+  .task-item--active   .task-item__status { background: var(--green); box-shadow: 0 0 0 3px rgba(80,200,120,0.18); }
+  .task-item--blocked  .task-item__status { background: var(--rose); }
+  .task-item--draft    .task-item__status { background: var(--amber); }
+  .task-item--done     .task-item__status { background: var(--dim-2); }
+
+  .task-item__title { font-weight: 600; font-size: 13px; line-height: 1.3; }
+  .task-item__meta {
+    grid-column: 2; color: var(--dim); font-size: 11.5px;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .task-item__dot-sep { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.5; }
+
+  .badge {
+    font-size: 10px; padding: 3px 8px; border-radius: 8px; font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .badge--do     { background: rgba(180,140,255,0.18); color: var(--accent); }
+  .badge--review { background: rgba(80,200,120,0.18);  color: #88e3a8; }
+  .badge--watch  { background: rgba(240,180,80,0.18);  color: var(--amber); }
+
+  .task-item__cta {
+    grid-row: 1 / span 2; grid-column: 3;
+    color: var(--accent); font-size: 11px;
+    padding: 4px 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 6px; background: transparent; cursor: pointer;
+  }
+
+  .task-item__chev {
+    grid-row: 1 / span 2; grid-column: 4;
+    color: var(--dim-2);
+    width: 18px; text-align: center; transition: transform 0.15s ease;
+  }
+  .task-item.is-open .task-item__chev { transform: rotate(90deg); }
+
+  /* ============ DETAILS — only when .is-open ============ */
+  .task-item__body {
+    display: none;
+    border-top: 1px solid var(--border-soft);
+    padding: 12px 14px 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
+  }
+  .task-item.is-open .task-item__body { display: block; }
+
+  /* Top row of small "stat" tiles */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .stat__label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat__value { font-size: 14px; font-weight: 600; margin-top: 2px; }
+  .stat__sub   { font-size: 10.5px; color: var(--dim-2); margin-top: 1px; }
+
+  /* Executor pill — visually distinct, like the bottom-right brand chip */
+  .stat--executor { display: flex; align-items: center; gap: 8px; }
+  .stat--executor .exec-logo {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: linear-gradient(135deg, #ff9866 0%, #d4733c 100%);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px;
+  }
+  .stat--executor .exec-text { display: flex; flex-direction: column; }
+  .stat--executor .stat__value { font-size: 13px; line-height: 1; }
+  .stat--executor .stat__sub   { font-size: 10px; }
+
+  /* Section heading inside the body */
+  .section {
+    margin-top: 14px;
+  }
+  .section__title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin-bottom: 6px;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .section__count {
+    background: rgba(255,255,255,0.06);
+    color: var(--dim);
+    padding: 1px 6px; border-radius: 8px; font-size: 10px;
+  }
+
+  /* Decisions list */
+  .decisions { display: flex; flex-direction: column; gap: 4px; }
+  .decision {
+    display: grid; grid-template-columns: 56px auto 1fr auto; gap: 0 10px;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .decision:hover { background: rgba(255,255,255,0.03); }
+  .decision__time { color: var(--dim-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .decision__kind {
+    font-size: 10px; padding: 2px 6px; border-radius: 6px;
+    font-weight: 600; letter-spacing: 0.04em;
+  }
+  .decision__kind--reply   { background: rgba(80,200,120,0.14);  color: #88e3a8; }
+  .decision__kind--inject  { background: rgba(34,211,238,0.16);  color: var(--cyan); }
+  .decision__kind--read    { background: rgba(255,255,255,0.06); color: var(--dim); }
+  .decision__kind--block   { background: rgba(239,107,126,0.14); color: var(--rose); }
+  .decision__kind--escalate{ background: rgba(240,180,80,0.16);  color: var(--amber); }
+  .decision__detail {
+    color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .decision__detail code {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 11.5px;
+    padding: 0 4px; border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+  }
+  .decision__cost { color: var(--dim); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+
+  /* Timeline (small horizontal lifecycle row) */
+  .timeline {
+    display: flex; gap: 0; align-items: stretch;
+    background: rgba(255,255,255,0.02);
+    border-radius: 6px; padding: 8px;
+    font-size: 11px;
+  }
+  .timeline__step {
+    flex: 1; display: flex; gap: 6px; align-items: center; min-width: 0;
+  }
+  .timeline__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim-2); flex: 0 0 auto; }
+  .timeline__step.is-done .timeline__dot { background: var(--green); }
+  .timeline__step.is-current .timeline__dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(180,140,255,0.18); }
+  .timeline__step.is-future .timeline__dot { background: transparent; border: 1px dashed var(--dim-2); }
+  .timeline__label { color: var(--dim); white-space: nowrap; }
+  .timeline__step.is-done .timeline__label,
+  .timeline__step.is-current .timeline__label { color: var(--text); }
+  .timeline__sep {
+    flex: 0 0 auto; align-self: center;
+    height: 1px; width: 14px;
+    background: var(--border-soft);
+    margin: 0 4px;
+  }
+
+  /* Action row at the bottom of the expanded body */
+  .actions {
+    display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;
+  }
+  .btn {
+    font-size: 11.5px; padding: 6px 12px; border-radius: 6px;
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border-soft); cursor: pointer;
+  }
+  .btn:hover { background: rgba(255,255,255,0.04); }
+  .btn--primary {
+    color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .btn--danger { color: var(--rose); border-color: color-mix(in srgb, var(--rose) 35%, transparent); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h2>Tasks tab · expandable details</h2>
+  <p class="caption">Click the task row to expand. Each task shows executor, decisions made by the operator, tokens burned, and a tiny lifecycle timeline. Sibling rows stay collapsed.</p>
+
+  <div class="frame">
+
+    <div class="filter-row">
+      <span class="chip is-on">All</span>
+      <span class="chip">Active</span>
+      <span class="chip">Proposed</span>
+      <span class="chip">Done</span>
+    </div>
+
+    <div class="tasks-list">
+
+      <!-- ============ EXPANDED ROW ============ -->
+      <div class="task-item task-item--active is-open">
+        <div class="task-item__head">
+          <span class="task-item__status"></span>
+          <div class="task-item__title">Implement file-mention feature in orchestrator chat</div>
+          <button class="task-item__cta">Open tab</button>
+          <span class="task-item__chev">›</span>
+          <div class="task-item__meta">
+            <span class="badge badge--do">Do</span>
+            <span>active · 26m</span>
+            <span class="task-item__dot-sep"></span>
+            <span>tab 01KSD7</span>
+          </div>
+        </div>
+
+        <div class="task-item__body">
+
+          <!-- Stat tiles -->
+          <div class="stats">
+            <div class="stat stat--executor">
+              <span class="exec-logo">🐙</span>
+              <span class="exec-text">
+                <span class="stat__value">claude</span>
+                <span class="stat__sub">Opus 4.7 · 1M ctx</span>
+              </span>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Decisions</div>
+              <div class="stat__value">14</div>
+              <div class="stat__sub">9 reply · 3 inject · 2 read</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Tokens</div>
+              <div class="stat__value">48.1k</div>
+              <div class="stat__sub">↓ 12.4k in · ↑ 35.7k out</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Cost</div>
+              <div class="stat__value">$0.27</div>
+              <div class="stat__sub">cache 79% hit</div>
+            </div>
+          </div>
+
+          <!-- Lifecycle timeline -->
+          <div class="timeline">
+            <div class="timeline__step is-done">
+              <span class="timeline__dot"></span>
+              <span class="timeline__label">Proposed · 26m ago</span>
+            </div>
+            <span class="timeline__sep"></span>
+            <div class="timeline__step is-done">
+              <span class="timeline__dot"></span>
+              <span class="timeline__label">Started · 25m ago</span>
+            </div>
+            <span class="timeline__sep"></span>
+            <div class="timeline__step is-current">
+              <span class="timeline__dot"></span>
+              <span class="timeline__label">Active · last edit 14s ago</span>
+            </div>
+            <span class="timeline__sep"></span>
+            <div class="timeline__step is-future">
+              <span class="timeline__dot"></span>
+              <span class="timeline__label">Done</span>
+            </div>
+          </div>
+
+          <!-- Recent decisions -->
+          <div class="section">
+            <div class="section__title">
+              Operator decisions
+              <span class="section__count">14</span>
+            </div>
+            <div class="decisions">
+
+              <div class="decision">
+                <span class="decision__time">14s</span>
+                <span class="decision__kind decision__kind--inject">INJECT</span>
+                <span class="decision__detail"><code>npm test -- mentions.test.ts</code></span>
+                <span class="decision__cost">2.1k · $0.018</span>
+              </div>
+              <div class="decision">
+                <span class="decision__time">1m</span>
+                <span class="decision__kind decision__kind--reply">REPLY</span>
+                <span class="decision__detail">Wrote MentionPicker.tsx (167 lines)</span>
+                <span class="decision__cost">5.4k · $0.041</span>
+              </div>
+              <div class="decision">
+                <span class="decision__time">2m</span>
+                <span class="decision__kind decision__kind--read">READ</span>
+                <span class="decision__detail"><code>ui/src/teammate/panel.ts</code></span>
+                <span class="decision__cost">3.2k · $0.008</span>
+              </div>
+              <div class="decision">
+                <span class="decision__time">3m</span>
+                <span class="decision__kind decision__kind--escalate">ESCALATE</span>
+                <span class="decision__detail">"Should @-trigger fire inside code blocks?" → reply needed</span>
+                <span class="decision__cost">1.8k · $0.014</span>
+              </div>
+              <div class="decision">
+                <span class="decision__time">3m</span>
+                <span class="decision__kind decision__kind--reply">REPLY</span>
+                <span class="decision__detail">Drafted mention parser, picked debounce 120ms</span>
+                <span class="decision__cost">6.1k · $0.045</span>
+              </div>
+              <div class="decision">
+                <span class="decision__time">4m</span>
+                <span class="decision__kind decision__kind--block">BLOCK</span>
+                <span class="decision__detail"><code>rm -rf node_modules</code> · blocklist hit</span>
+                <span class="decision__cost">0 · —</span>
+              </div>
+              <div class="decision">
+                <span class="decision__time">5m</span>
+                <span class="decision__kind decision__kind--read">READ</span>
+                <span class="decision__detail"><code>crates/app/src/teammate/llm.rs</code></span>
+                <span class="decision__cost">8.3k · $0.012</span>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn--primary">Open tab</button>
+            <button class="btn">Show full log</button>
+            <button class="btn">Pause operator</button>
+            <button class="btn btn--danger">Stop task</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============ COLLAPSED ROW for comparison ============ -->
+      <div class="task-item task-item--active">
+        <div class="task-item__head">
+          <span class="task-item__status"></span>
+          <div class="task-item__title">Audit zsh integration regressions</div>
+          <button class="task-item__cta">Open tab</button>
+          <span class="task-item__chev">›</span>
+          <div class="task-item__meta">
+            <span class="badge badge--review">Review</span>
+            <span>active · 4m</span>
+            <span class="task-item__dot-sep"></span>
+            <span>tab 01KS9X</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="task-item task-item--done">
+        <div class="task-item__head">
+          <span class="task-item__status"></span>
+          <div class="task-item__title">Commit pending changes on main</div>
+          <button class="task-item__cta">View</button>
+          <span class="task-item__chev">›</span>
+          <div class="task-item__meta">
+            <span class="badge badge--do">Do</span>
+            <span>done · 1h</span>
+            <span class="task-item__dot-sep"></span>
+            <span>commit 9c0c320</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll(".task-item__head").forEach((head) => {
+    head.addEventListener("click", (e) => {
+      if ((e.target).closest("button")) return; // CTA buttons don't toggle
+      head.parentElement.classList.toggle("is-open");
+    });
+  });
+</script>
+</body>
+</html>

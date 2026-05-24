@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Teammate header · while working preview</title>
+<style>
+  :root {
+    --bg: #06070a;
+    --rail: #14151a;
+    --rail-2: #181a20;
+    --border: rgba(255,255,255,0.07);
+    --border-soft: rgba(255,255,255,0.10);
+    --text: #e6e7ea;
+    --dim: #8b8d94;
+    --dim-2: #5e6068;
+    --accent: #b48cff;
+    --accent-2: #6f7bff;
+    --green: #50c878;
+    --amber: #f0c870;
+    --rose: #ef6b7e;
+    --cyan: #22d3ee;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0a0b0f; color: var(--text);
+    font: 13px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  body { padding: 28px 16px 80px; }
+  h2 { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim); margin: 24px auto 6px; max-width: 360px; font-weight: 600; }
+  .caption { color: var(--dim); font-size: 11px; max-width: 360px;
+    margin: 0 auto 10px; }
+
+  /* The header is the top of the teammate rail. ~360px wide. */
+  .rail {
+    width: 360px; margin: 0 auto;
+    background: var(--rail);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  /* ============ Header block (shared) ============ */
+  .h {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 14px;
+    background: transparent;
+  }
+  .h__avatar-wrap {
+    position: relative;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+  }
+  .h__avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: linear-gradient(135deg, #c9a4ff, #6f7bff);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .h__titlebox { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .h__title-row { display: flex; gap: 8px; align-items: center; }
+  .h__name { font-weight: 600; }
+  .h__lv {
+    font-size: 10px; padding: 1px 6px; border-radius: 6px;
+    background: rgba(180,140,255,0.18); color: var(--accent);
+    font-weight: 600;
+  }
+  .h__sub { color: var(--dim); font-size: 11px; }
+  .h__chev { color: var(--dim-2); padding: 4px; cursor: pointer; }
+
+  /* ============ Variant A: live ring around avatar + status pill ============ */
+  /* This is the current header today, but with an animated gradient ring
+     around the avatar (operator-color), and a small "now working" status
+     line under the model name instead of just `gpt-4o`. */
+  .h--a .h__avatar-wrap::before {
+    content: "";
+    position: absolute; inset: -3px;
+    border-radius: 50%;
+    padding: 2px;
+    background: conic-gradient(
+      from 0deg,
+      var(--accent), var(--accent-2), var(--cyan), var(--accent)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    animation: spin 4s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .h--a .h__sub {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .h--a .h__sub-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    flex: 0 0 auto;
+    box-shadow: 0 0 0 3px rgba(80,200,120,0.18);
+  }
+  .h--a .h__sub-task {
+    color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ============ Variant B: thin progress bar at the bottom of the header ============ */
+  /* Adds an indeterminate gradient strip at the bottom edge of the
+     header — like Linear or Vercel show during long operations. Keeps
+     the avatar untouched. Add a tiny task chip under the name. */
+  .h--b { position: relative; }
+  .h--b::after {
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--accent-2) 30%,
+      var(--accent) 50%,
+      var(--cyan) 70%,
+      transparent 100%);
+    background-size: 220% 100%;
+    animation: slide 1.8s linear infinite;
+  }
+  @keyframes slide {
+    from { background-position: 110% 0; }
+    to   { background-position: -110% 0; }
+  }
+  .task-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 4px;
+    padding: 2px 8px; border-radius: 999px;
+    background: rgba(180,140,255,0.10);
+    border: 1px solid rgba(180,140,255,0.30);
+    font-size: 10.5px; color: var(--text);
+    max-width: 100%;
+  }
+  .task-chip__dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 3px rgba(80,200,120,0.18);
+    flex: 0 0 auto;
+  }
+  .task-chip__title {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .task-chip__count {
+    background: rgba(255,255,255,0.08); color: var(--dim);
+    padding: 1px 6px; border-radius: 7px; font-size: 9.5px;
+    margin-left: 2px;
+  }
+
+  /* ============ Variant C: full status banner under the header ============ */
+  /* Header stays the same; a thin "now working" banner slides in below.
+     Shows what + on which tab + tokens-per-min, with an animated pulse.
+     Most informative; takes the most vertical space. */
+  .h--c { padding-bottom: 12px; }
+  .working-banner {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px 10px;
+    align-items: center;
+    padding: 8px 14px 10px;
+    border-top: 1px solid var(--border-soft);
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 8%, transparent),
+      transparent);
+  }
+  .working-banner__pulse {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(80,200,120,0.40);
+    animation: pulse 1.6s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(80,200,120,0.40); }
+    100% { box-shadow: 0 0 0 8px rgba(80,200,120,0); }
+  }
+  .working-banner__title {
+    font-size: 11.5px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .working-banner__meta {
+    grid-column: 2;
+    color: var(--dim); font-size: 10.5px;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .working-banner__meta .dot { width: 3px; height: 3px; border-radius: 50%;
+    background: currentColor; opacity: 0.5; align-self: center; }
+  .working-banner__stop {
+    grid-row: 1 / span 2; grid-column: 3;
+    color: var(--dim); font-size: 10.5px;
+    border: 1px solid var(--border-soft);
+    background: transparent; padding: 3px 8px; border-radius: 6px;
+    cursor: pointer;
+  }
+  .working-banner__stop:hover { color: var(--rose);
+    border-color: color-mix(in srgb, var(--rose) 35%, transparent); }
+</style>
+</head>
+<body>
+
+<h2>A · Animated ring on avatar + status line</h2>
+<p class="caption">Smallest change. Avatar gets a slow rainbow ring tinted with the operator's color; the model-name sub-line gets a green dot + the current task title. Header height unchanged.</p>
+<div class="rail">
+  <div class="h h--a">
+    <div class="h__avatar-wrap">
+      <div class="h__avatar">🌸</div>
+    </div>
+    <div class="h__titlebox">
+      <div class="h__title-row">
+        <span class="h__name">Mibli</span>
+        <span class="h__lv">LV 33</span>
+      </div>
+      <div class="h__sub">
+        <span class="h__sub-dot"></span>
+        <span class="h__sub-task">Implement file-mention…</span>
+      </div>
+    </div>
+    <div class="h__chev">▾</div>
+  </div>
+</div>
+
+<h2>B · Task chip + progress bar</h2>
+<p class="caption">Header keeps the model name; a pill chip with the active task title appears under it, and a thin indeterminate progress strip lives at the bottom edge. Adds ~16px of height.</p>
+<div class="rail">
+  <div class="h h--b">
+    <div class="h__avatar-wrap">
+      <div class="h__avatar">🌸</div>
+    </div>
+    <div class="h__titlebox">
+      <div class="h__title-row">
+        <span class="h__name">Mibli</span>
+        <span class="h__lv">LV 33</span>
+      </div>
+      <div class="h__sub">gpt-4o</div>
+      <span class="task-chip">
+        <span class="task-chip__dot"></span>
+        <span class="task-chip__title">Implement file-mention feature</span>
+        <span class="task-chip__count">14</span>
+      </span>
+    </div>
+    <div class="h__chev">▾</div>
+  </div>
+</div>
+
+<h2>C · Status banner under the header</h2>
+<p class="caption">Header is unchanged; a banner slides in just below it with the task title, the bound tab, tokens/min, and a Stop button. Most info, ~32px of extra height.</p>
+<div class="rail">
+  <div class="h h--c">
+    <div class="h__avatar-wrap">
+      <div class="h__avatar">🌸</div>
+    </div>
+    <div class="h__titlebox">
+      <div class="h__title-row">
+        <span class="h__name">Mibli</span>
+        <span class="h__lv">LV 33</span>
+      </div>
+      <div class="h__sub">gpt-4o</div>
+    </div>
+    <div class="h__chev">▾</div>
+  </div>
+  <div class="working-banner">
+    <span class="working-banner__pulse"></span>
+    <div class="working-banner__title">Implement file-mention feature</div>
+    <button class="working-banner__stop">Stop</button>
+    <div class="working-banner__meta">
+      <span>tab “enhances”</span>
+      <span class="dot"></span>
+      <span>claude · 48k tok/min</span>
+      <span class="dot"></span>
+      <span>$0.27</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

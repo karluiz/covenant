@@ -31,7 +31,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, setWindowTheme, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, setOperatorEnabled, setOperatorLive, setWindowTheme, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -554,6 +554,16 @@ async function boot(): Promise<void> {
     listTasks: teammateListTasks,
     clearForOperator: teammateClearForOperator,
     focusTabBySessionId: (sessionId) => manager.activateBySessionId(sessionId as SessionId),
+    getActiveExecutor: () => manager.activeExecutor(),
+    bindOperatorToTab: async (sessionId, operatorId) => {
+      const tab = manager.tabForSession(sessionId as SessionId);
+      if (!tab) return;
+      await manager.setTabOperator(tab.id, operatorId);
+      await setOperatorEnabled(tab.sessionId, true);
+      await setOperatorLive(tab.sessionId, true);
+      // Re-read backend state into the tab + repaint ring/status bar.
+      await manager.refreshAllOperatorState();
+    },
   });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
 
