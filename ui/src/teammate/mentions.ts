@@ -170,29 +170,34 @@ export async function expandMentions(
 
     if (payload.kind === "specs") {
       if (!readFile) { skipped.push({ path: token, reason: "skipped (no file reader)" }); continue; }
+      const specLabel = `spec ${payload.id}`;
       let r: ReadResult;
       try {
         r = await readFile(payload.abs, MAX_FILE_BYTES);
       } catch (e) {
-        skipped.push({ path: payload.rel, reason: `read error: ${(e as Error).message ?? String(e)}` });
+        skipped.push({ path: specLabel, reason: `read error: ${(e as Error).message ?? String(e)}` });
         continue;
       }
       if (r.kind === "too_large") {
-        skipped.push({ path: payload.rel, reason: `skipped (>${MAX_FILE_BYTES} bytes)` });
+        skipped.push({ path: specLabel, reason: `skipped (>${MAX_FILE_BYTES} bytes)` });
         continue;
       }
       if (!readResultUsable(r)) {
-        skipped.push({ path: payload.rel, reason: "skipped (binary)" });
+        skipped.push({ path: specLabel, reason: "skipped (binary)" });
         continue;
       }
       const body = r.content ?? "";
       if (totalBytes + body.length > MAX_TOTAL_BYTES) {
-        skipped.push({ path: payload.rel, reason: "skipped (mention bundle over 512KB)" });
+        skipped.push({ path: specLabel, reason: "skipped (mention bundle over 512KB)" });
         continue;
       }
       totalBytes += body.length;
       attached.push(token);
-      sections.push("### " + payload.specKind + ": " + payload.name + "\n```" + langHint(payload.rel) + "\n" + body + "\n```");
+      sections.push(
+        "### spec " + payload.id + ": " + payload.title +
+        (payload.goal ? "\n\n> " + payload.goal : "") +
+        "\n```md\n" + body + "\n```",
+      );
       continue;
     }
 

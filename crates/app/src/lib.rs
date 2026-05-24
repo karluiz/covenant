@@ -2429,86 +2429,6 @@ async fn structure_find_files(
         .map_err(|e| format!("find_files join: {e}"))?
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SpecHit {
-    pub kind: String,
-    pub name: String,
-    pub rel_path: String,
-    pub abs_path: String,
-    pub match_indices: Vec<u32>,
-}
-
-#[tauri::command]
-async fn find_specs(
-    cwd: String,
-    query: String,
-    limit: usize,
-) -> Result<Vec<SpecHit>, String> {
-    tokio::task::spawn_blocking(move || -> Result<Vec<SpecHit>, String> {
-        let root = PathBuf::from(&cwd);
-        let needle: Vec<char> = query.to_lowercase().chars().collect();
-        let mut entries: Vec<(Option<(i32, Vec<usize>)>, SpecHit)> = Vec::new();
-
-        for (sub, kind) in [
-            ("docs/superpowers/specs", "spec"),
-            ("docs/superpowers/plans", "plan"),
-        ] {
-            let dir = root.join(sub);
-            let read = match std::fs::read_dir(&dir) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            for entry in read.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) != Some("md") {
-                    continue;
-                }
-                let name = match path.file_stem().and_then(|s| s.to_str()) {
-                    Some(s) => s.to_string(),
-                    None => continue,
-                };
-                let rel_path = format!("{sub}/{}", path.file_name().and_then(|s| s.to_str()).unwrap_or(""));
-                let scored = if needle.is_empty() {
-                    None
-                } else {
-                    match structure::fuzzy_score(&name, &needle) {
-                        Some(v) => Some(v),
-                        None => continue,
-                    }
-                };
-                let indices: Vec<u32> = scored
-                    .as_ref()
-                    .map(|(_, ix)| ix.iter().map(|c| *c as u32).collect())
-                    .unwrap_or_default();
-                entries.push((
-                    scored,
-                    SpecHit {
-                        kind: kind.to_string(),
-                        name,
-                        rel_path,
-                        abs_path: path.display().to_string(),
-                        match_indices: indices,
-                    },
-                ));
-            }
-        }
-
-        if needle.is_empty() {
-            entries.sort_by(|a, b| b.1.name.cmp(&a.1.name));
-        } else {
-            entries.sort_by(|a, b| {
-                let sa = a.0.as_ref().map(|(s, _)| *s).unwrap_or(i32::MIN);
-                let sb = b.0.as_ref().map(|(s, _)| *s).unwrap_or(i32::MIN);
-                sb.cmp(&sa).then_with(|| a.1.name.cmp(&b.1.name))
-            });
-        }
-        entries.truncate(limit);
-        Ok(entries.into_iter().map(|(_, h)| h).collect())
-    })
-    .await
-    .map_err(|e| format!("find_specs join: {e}"))?
-}
-
 #[tauri::command]
 async fn find_recent_commands(
     state: State<'_, AppState>,
@@ -3420,7 +3340,6 @@ pub fn run() {
             structure_search,
             structure_find_files,
             find_recent_commands,
-            find_specs,
             read_block_excerpt,
             read_session_excerpt,
             drafts::list_drafts,

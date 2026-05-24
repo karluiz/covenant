@@ -31,7 +31,7 @@ export interface MentionHit {
     | { kind: "sessions";  session_id: string; cwd: string; shell: string; tab_index: number; block_count: number; last_command: string | null }
     | { kind: "commands";  block_id: string; session_id: string }
     | { kind: "teammates"; operator_id: string; name: string }
-    | { kind: "specs";     abs: string; rel: string; name: string; specKind: "spec" | "plan" };
+    | { kind: "specs";     abs: string; id: string; title: string; goal: string };
 }
 
 export interface MentionSourcesDeps {
@@ -117,11 +117,11 @@ function asFileHits(hits: FileHit[]): MentionHit[] {
 function asSpecHits(hits: SpecHit[]): MentionHit[] {
   return hits.map((h) => ({
     kind: "specs",
-    token: `spec:${h.name}`,
-    primary: h.name,
-    secondary: h.rel_path,
-    matchIndices: h.match_indices,
-    payload: { kind: "specs", abs: h.abs_path, rel: h.rel_path, name: h.name, specKind: h.kind },
+    token: `spec:${h.id}`,
+    primary: `${h.id}  ${h.title}`,
+    secondary: h.goal || "(no description)",
+    matchIndices: h.match_indices.map((i) => i + h.id.length + 2), // offset for "ID  " prefix
+    payload: { kind: "specs", abs: h.abs_path, id: h.id, title: h.title, goal: h.goal },
   }));
 }
 

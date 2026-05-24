@@ -57,14 +57,15 @@ describe("findMentions", () => {
   it("findSpecs results surface as specs-kind mention hits", async () => {
     const d = deps({
       findSpecs: vi.fn().mockResolvedValue([
-        { kind: "spec", name: "2026-05-24-foo", rel_path: "docs/superpowers/specs/2026-05-24-foo.md",
-          abs_path: "/a/docs/superpowers/specs/2026-05-24-foo.md", match_indices: [] },
+        { id: "3.23", title: "Achievements and Reputation", goal: "Operators earn XP.",
+          abs_path: "/a/docs/superpowers/specs/2026-05-24-foo.md",
+          updated_at: "2026-05-24T00:00:00Z", match_indices: [] },
       ]),
     });
     const hits = await findMentions({ query: "", cwd: "/a", activeTab: "specs", limit: 12, deps: d });
     expect(hits.length).toBe(1);
     expect(hits[0].kind).toBe("specs");
-    expect(hits[0].token).toBe("spec:2026-05-24-foo");
+    expect(hits[0].token).toBe("spec:3.23");
     expect(hits[0].payload.kind).toBe("specs");
   });
 

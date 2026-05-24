@@ -1165,17 +1165,48 @@ export async function findRecentCommands(
   return invoke<CommandHit[]>("find_recent_commands", { query, limit });
 }
 
-/// One spec/plan markdown hit for the `@spec:` mention picker.
+/// One spec hit for the `@spec:` mention picker. Sourced from the
+/// project's published-specs index (same data the Set Mission picker
+/// shows), filtered in-process for fuzzy match.
 export interface SpecHit {
-  kind: "spec" | "plan";
-  name: string;
-  rel_path: string;
+  id: string;          // version-like, e.g. "3.23"
+  title: string;
+  goal: string;        // one-line description
   abs_path: string;
-  match_indices: number[];
+  updated_at: string;
+  match_indices: number[]; // CHAR offsets in title
 }
 
-export async function findSpecs(cwd: string, query: string, limit: number): Promise<SpecHit[]> {
-  return invoke<SpecHit[]>("find_specs", { cwd, query, limit });
+export async function findSpecs(repoRoot: string, query: string, limit: number): Promise<SpecHit[]> {
+  const { draftsApi } = await import("./drafts/api");
+  const all = await draftsApi.listPublishedSpecs(repoRoot);
+  const q = query.toLowerCase();
+  const scored: Array<{ score: number; indices: number[]; spec: typeof all[number] }> = [];
+  for (const s of all) {
+    if (q === "") {
+      scored.push({ score: 0, indices: [], spec: s });
+      continue;
+    }
+    const haystack = (s.id + " " + s.title + " " + s.goal).toLowerCase();
+    const titleLower = s.title.toLowerCase();
+    if (!haystack.includes(q)) continue;
+    const indices: number[] = [];
+    let qi = 0;
+    for (let i = 0; i < titleLower.length && qi < q.length; i++) {
+      if (titleLower[i] === q[qi]) { indices.push(i); qi++; }
+    }
+    const score = titleLower.startsWith(q) ? 100 : titleLower.includes(q) ? 50 : 10;
+    scored.push({ score, indices, spec: s });
+  }
+  scored.sort((a, b) => b.score - a.score || b.spec.id.localeCompare(a.spec.id));
+  return scored.slice(0, limit).map(({ indices, spec }) => ({
+    id: spec.id,
+    title: spec.title,
+    goal: spec.goal,
+    abs_path: spec.path,
+    updated_at: spec.updated_at,
+    match_indices: indices,
+  }));
 }
 
 /// Full output + metadata for a single block — used to inline a

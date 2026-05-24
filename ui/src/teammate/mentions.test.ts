@@ -143,18 +143,19 @@ describe("expandMentions", () => {
     expect(res.text).toMatch(/FAIL/);
   });
 
-  it("inlines a spec chip as a fenced markdown section", async () => {
+  it("inlines a spec chip as a fenced markdown section with id+title header", async () => {
     const reg: MentionRegistry = new Map([
-      ["spec:my-feature", {
-        kind: "specs", abs: "/abs/docs/superpowers/specs/my-feature.md",
-        rel: "docs/superpowers/specs/my-feature.md", name: "my-feature", specKind: "spec",
+      ["spec:3.23", {
+        kind: "specs", abs: "/abs/docs/superpowers/specs/3.23.md",
+        id: "3.23", title: "Achievements", goal: "Operators earn XP.",
       }],
     ]);
-    const reader = vi.fn().mockResolvedValue(readOk("/abs/docs/superpowers/specs/my-feature.md", "# Heading\n\nbody"));
-    const out = await expandMentions("review @spec:my-feature", reg, reader);
-    expect(reader).toHaveBeenCalledWith("/abs/docs/superpowers/specs/my-feature.md", 256 * 1024);
-    expect(out.attached).toEqual(["spec:my-feature"]);
-    expect(out.text).toContain("### spec: my-feature");
+    const reader = vi.fn().mockResolvedValue(readOk("/abs/docs/superpowers/specs/3.23.md", "# Heading\n\nbody"));
+    const out = await expandMentions("review @spec:3.23", reg, reader);
+    expect(reader).toHaveBeenCalledWith("/abs/docs/superpowers/specs/3.23.md", 256 * 1024);
+    expect(out.attached).toEqual(["spec:3.23"]);
+    expect(out.text).toContain("### spec 3.23: Achievements");
+    expect(out.text).toContain("> Operators earn XP.");
     expect(out.text).toContain("```md");
     expect(out.text).toContain("# Heading");
   });
