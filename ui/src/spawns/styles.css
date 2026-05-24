@@ -34,6 +34,29 @@
   margin-left: 2px;
 }
 
+/* Inline play button — quick-runs the bound executor without opening
+   the popover. Tinted with the executor's brand accent on hover. */
+.spawns-chip__run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #8a93a0;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, transform 0.12s;
+}
+.spawns-chip__run:hover {
+  color: var(--spawn-accent, #6dd29a);
+  background: color-mix(in srgb, var(--spawn-accent, #6dd29a) 18%, transparent);
+  transform: scale(1.08);
+}
+.spawns-chip__run:active {
+  transform: scale(0.94);
+}
+
 .spawns-popover {
   position: fixed;
   width: 240px;

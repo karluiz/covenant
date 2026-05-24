@@ -41,6 +41,7 @@ export class RecallManager {
   private readonly root: HTMLElement;
   private readonly listEl: HTMLUListElement;
   private readonly headerEl: HTMLElement;
+  private readonly searchInput: HTMLInputElement;
   private buffer = "";
   private lastQuery = "";
   private debounce: number | null = null;
@@ -60,6 +61,46 @@ export class RecallManager {
 
     this.headerEl = document.createElement("header");
     this.headerEl.className = "recall-header";
+    this.headerEl.innerHTML = `
+      <span class="recall-header-icon">${Icons.history({ size: 12 })}</span>
+      <input
+        type="text"
+        class="recall-header-search"
+        placeholder="search history…"
+        spellcheck="false"
+        autocomplete="off"
+      />
+    `;
+    this.searchInput = this.headerEl.querySelector<HTMLInputElement>(".recall-header-search")!;
+    // Typing in the search input drives the same query path the shell
+    // shadow buffer uses. When this input owns focus we treat it as
+    // authoritative — input.value replaces this.buffer entirely.
+    this.searchInput.addEventListener("input", () => {
+      this.buffer = this.searchInput.value;
+      if (this.buffer.trim().length === 0) {
+        this.lastQuery = "";
+        this.listEl.innerHTML = "";
+        return;
+      }
+      this.scheduleQuery();
+    });
+    this.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        this.searchInput.value = "";
+        this.buffer = "";
+        this.lastQuery = "";
+        this.listEl.innerHTML = "";
+        e.preventDefault();
+      } else if (e.key === "Enter") {
+        // Inject the first match (if any) like clicking the top item.
+        const first = this.listEl.querySelector<HTMLElement>(".recall-item");
+        const cmd = first?.dataset.cmd ?? "";
+        if (cmd) {
+          e.preventDefault();
+          void this.injectMatch(cmd);
+        }
+      }
+    });
     this.root.appendChild(this.headerEl);
 
     this.listEl = document.createElement("ul");
@@ -67,7 +108,13 @@ export class RecallManager {
     this.root.appendChild(this.listEl);
 
     this.host.appendChild(this.root);
-    this.renderHeader("");
+  }
+
+  /// Move focus into the search input. Used by the titlebar Recall
+  /// button so a click → type flow works without extra clicks.
+  focusSearch(): void {
+    this.searchInput.focus();
+    this.searchInput.select();
   }
 
   show(): void {
@@ -183,8 +230,12 @@ export class RecallManager {
     if (this.buffer.length === 0 && !this.visible) return;
     this.buffer = "";
     this.lastQuery = "";
+    // Don't clobber a query the user is actively typing in the sidebar
+    // search input (different code path from shell shadow buffer).
+    if (document.activeElement !== this.searchInput) {
+      this.searchInput.value = "";
+    }
     this.callbacks.onShouldShow(false);
-    this.renderHeader("");
     this.listEl.innerHTML = "";
   }
 
@@ -229,28 +280,16 @@ export class RecallManager {
       this.callbacks.onShouldShow(false);
       return;
     }
+    // Reflect the shell shadow buffer in the search input so the user
+    // sees what's being searched — but don't steal what they're typing.
+    if (document.activeElement !== this.searchInput) {
+      this.searchInput.value = q;
+    }
     this.callbacks.onShouldShow(matches.length > 0);
     this.render(matches, q);
   }
 
-  private renderHeader(query: string): void {
-    if (query.length === 0) {
-      this.headerEl.innerHTML = `
-        <span class="recall-header-icon">${Icons.terminal({ size: 12 })}</span>
-        <span class="recall-header-label">recall</span>
-      `;
-    } else {
-      this.headerEl.innerHTML = `
-        <span class="recall-header-icon">${Icons.terminal({ size: 12 })}</span>
-        <span class="recall-header-label">recall</span>
-        <span class="recall-header-query">${escapeHtml(query)}</span>
-      `;
-    }
-  }
-
   private render(matches: RecallMatch[], query: string): void {
-    this.renderHeader(query);
-
     if (matches.length === 0) {
       this.listEl.innerHTML = `<li class="recall-empty">no past commands match</li>`;
       return;

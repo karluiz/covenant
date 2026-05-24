@@ -186,6 +186,17 @@ export const Icons = {
       o,
     ),
 
+  /** Play — thin outlined right-pointing triangle, rounded corners. */
+  play: (o?: IconOptions): string =>
+    svg(`<polygon points="7 5 19 12 7 19 7 5"/>`, o),
+
+  /** History — clock with counter-clockwise arrow. Used for Recall. */
+  history: (o?: IconOptions): string =>
+    svg(
+      `<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>`,
+      o,
+    ),
+
   /** Terminal — generic. */
   terminal: (o?: IconOptions): string =>
     svg(

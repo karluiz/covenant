@@ -1642,6 +1642,10 @@ body:not(.tabbar-left) #new-group {
     font-size: 11px;
     overflow: hidden;
     border-left: 1px solid var(--border);
+    /* Anchor for .recall-host's absolute overlay below. Without this,
+       Recall would lay out as a flex sibling and could visually stack
+       on top of Blocks/Files if any caller forgot to hide them. */
+    position: relative;
 }
 
 .blocks-header {
@@ -4898,15 +4902,29 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 /* The blocks-content wrapper lets BlockManager re-render in place
    without wiping a sibling RecallManager subtree. Both fill the
    .tab-blocks column. */
-.blocks-content,
-.recall-host {
+.blocks-content {
     display: flex;
     flex-direction: column;
     height: 100%;
     min-height: 0;
 }
 
-.blocks-content[hidden],
+.blocks-content[hidden] {
+    display: none;
+}
+
+/* Recall sits as a flex sibling after the sidebar-nav strip; the JS
+   mutex in switchSidebar/onShouldShow guarantees Blocks/Files are
+   hidden whenever Recall is up, so Recall owns the full column below
+   the nav by virtue of being the only non-hidden flex child. */
+.recall-host {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: var(--sidebar-bg);
+}
+
 .recall-host[hidden] {
     display: none;
 }
@@ -4923,6 +4941,26 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     color: var(--muted);
     min-height: 28px;
     box-sizing: border-box;
+}
+
+.recall-header-search {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--fg);
+    font-family: var(--mono-font, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 12px;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 2px 0;
+}
+
+.recall-header-search::placeholder {
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: 0;
 }
 
 .recall-header-icon {
@@ -7019,6 +7057,10 @@ button.status-segment.status-aom.status-aom-warn:hover {
     border-bottom: 1px solid var(--border);
     background: var(--sidebar-bg);
     flex-shrink: 0;
+    /* Read by .recall-host's absolute overlay so the two stay aligned
+       if the nav strip ever grows. 24px btn + 6px*2 padding + 1px border. */
+    height: 37px;
+    box-sizing: border-box;
 }
 .sidebar-nav-title {
     font-size: 10px;

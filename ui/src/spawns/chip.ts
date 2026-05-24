@@ -1,4 +1,6 @@
 import type { SpawnSpec } from "./types";
+import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 
 const escHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -32,7 +34,10 @@ function brandColor(spec: SpawnSpec | undefined): string {
 export interface SpawnsChipDeps {
   list: () => Promise<SpawnSpec[]>;
   getBoundId: () => string | null;
+  /** Pick a different executor (writes its command line into the PTY). */
   onSelect: (id: string) => void;
+  /** Quick-run the currently bound executor without opening the popover. */
+  onRun: (id: string) => void;
   onAdd: () => void;
 }
 
@@ -67,14 +72,24 @@ export class SpawnsChip {
       <span class="spawns-chip__dot" style="background:${color};box-shadow:0 0 6px ${color}99;"></span>
       <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
       ${bound?.model ? `<span class="spawns-chip__model">${escHtml(bound.model)}</span>` : ""}
-      <span class="spawns-chip__caret">&#9660;</span>
+      <span class="spawns-chip__caret"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+      <span class="spawns-chip__run" role="button" aria-label="Run ${escHtml(bound?.label ?? "executor")}">${Icons.play({ size: 10 })}</span>
     `;
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
+      // Play button: quick-run the bound executor without opening
+      // the popover. Anywhere else on the chip → open the picker.
+      const runEl = (e.target as HTMLElement).closest(".spawns-chip__run");
+      if (runEl && bound?.id) {
+        this.deps.onRun(bound.id);
+        return;
+      }
       void this.toggle();
     });
     this.button = btn;
     this.host.appendChild(btn);
+    const runEl = btn.querySelector<HTMLElement>(".spawns-chip__run");
+    if (runEl) attachTooltip(runEl, `Run ${bound?.label ?? "executor"}`);
   }
 
   private async toggle(): Promise<void> {

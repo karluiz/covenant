@@ -253,7 +253,7 @@ interface Tab {
   piView?: PiChatView;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
-  sidebarView: "blocks" | "structure";
+  sidebarView: "blocks" | "structure" | "recall";
   /// Last cwd seen via OSC 7 / cwd_changed; passed to Recall so the
   /// backend can apply its cwd bonus.
   cwd: string | null;
@@ -1981,6 +1981,7 @@ export class TabManager {
             t?.structure?.hide();
             recall!.show();
           } else {
+            if (view === "recall") return; // user pinned recall — keep it
             recall!.hide();
             if (view === "blocks") blocks!.show();
             else t?.structure?.show();
@@ -2027,8 +2028,16 @@ export class TabManager {
     navStructure.innerHTML = Icons.folder({ size: 14 });
     attachTooltip(navStructure, "Files");
 
+    const navRecall = document.createElement("button");
+    navRecall.type = "button";
+    navRecall.className = "sidebar-nav-btn";
+    navRecall.setAttribute("aria-label", "Recall");
+    navRecall.innerHTML = Icons.history({ size: 14 });
+    attachTooltip(navRecall, "Recall");
+
     navSwitch.appendChild(navBlocks);
     navSwitch.appendChild(navStructure);
+    navSwitch.appendChild(navRecall);
     navEl.appendChild(navTitle);
     navEl.appendChild(navSwitch);
     blocksHost.insertBefore(navEl, blocksHost.firstChild);
@@ -2258,32 +2267,42 @@ export class TabManager {
       },
     );
 
-    const switchSidebar = (view: "blocks" | "structure") => {
+    const switchSidebar = (view: "blocks" | "structure" | "recall") => {
       const t = tabRef.current;
       if (t) t.sidebarView = view;
+      navBlocks.classList.toggle("sidebar-nav-active", view === "blocks");
+      navStructure.classList.toggle("sidebar-nav-active", view === "structure");
+      navRecall.classList.toggle("sidebar-nav-active", view === "recall");
+      // Every switch hides all three first so Recall (which can also
+      // auto-show contextually while typing) never visually stacks on
+      // top of Blocks/Files when the user flips views.
+      blocks!.hide();
+      structure.hide();
+      recall!.hide();
       if (view === "blocks") {
-        navBlocks.classList.add("sidebar-nav-active");
-        navStructure.classList.remove("sidebar-nav-active");
         navTitle.textContent = "Blocks";
-        structure.hide();
         blocks!.show();
-      } else {
-        navStructure.classList.add("sidebar-nav-active");
-        navBlocks.classList.remove("sidebar-nav-active");
+      } else if (view === "structure") {
         navTitle.textContent = "Files";
-        blocks!.hide();
         structure.show();
         if (t?.cwd) void structure.setCwd(t.cwd);
+      } else {
+        navTitle.textContent = "Recall";
+        recall!.show();
+        // Pinned-Recall: focus the search input so the user can type
+        // immediately after clicking the button.
+        recall!.focusSearch();
       }
     };
 
     navBlocks.addEventListener("click", () => switchSidebar("blocks"));
     navStructure.addEventListener("click", () => switchSidebar("structure"));
+    navRecall.addEventListener("click", () => switchSidebar("recall"));
 
     // Global view switch from the title bar. Every tab listens, but
     // only the active tab is visible — UI looks correct either way.
     window.addEventListener("sidebar-view:set", (e) => {
-      const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
+      const v = (e as CustomEvent<{ view: "blocks" | "structure" | "recall" }>).detail.view;
       switchSidebar(v);
     });
 

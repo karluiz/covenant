@@ -450,7 +450,8 @@ async function boot(): Promise<void> {
   const viewBlocksBtn = document.getElementById("titlebar-view-blocks");
   const viewFilesBtn = document.getElementById("titlebar-view-files");
   const viewActivityBtn = document.getElementById("titlebar-view-activity");
-  type SidebarTitlebarView = "blocks" | "structure" | "activity";
+  const viewRecallBtn = document.getElementById("titlebar-view-recall");
+  type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
   const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
   let activeSidebarTitlebarView: SidebarTitlebarView =
@@ -460,15 +461,18 @@ async function boot(): Promise<void> {
     viewBlocksBtn?.classList.toggle("titlebar-view-active", view === "blocks");
     viewFilesBtn?.classList.toggle("titlebar-view-active", view === "structure");
     viewActivityBtn?.classList.toggle("titlebar-view-active", view === "activity");
+    viewRecallBtn?.classList.toggle("titlebar-view-active", view === "recall");
     document.body.classList.toggle("sidebar-view-activity", view === "activity");
   };
   if (viewBlocksBtn && viewFilesBtn && viewActivityBtn) {
     viewBlocksBtn.innerHTML = Icons.terminal({ size: 14 });
     viewFilesBtn.innerHTML = Icons.folder({ size: 14 });
     viewActivityBtn.innerHTML = Icons.zap({ size: 14 });
+    if (viewRecallBtn) viewRecallBtn.innerHTML = Icons.history({ size: 14 });
     attachTooltip(viewBlocksBtn, "Blocks");
     attachTooltip(viewFilesBtn, "Files");
     attachTooltip(viewActivityBtn, "Activity");
+    if (viewRecallBtn) attachTooltip(viewRecallBtn, "Recall");
     // Activity is a global view (not per-tab) so we only forward
     // blocks/structure to the tab-level listener. When activity is
     // selected we just flip the body class; the global aside renders
@@ -515,6 +519,7 @@ async function boot(): Promise<void> {
     viewBlocksBtn.addEventListener("click", () => pickView("blocks"));
     viewFilesBtn.addEventListener("click", () => pickView("structure"));
     viewActivityBtn.addEventListener("click", () => pickView("activity"));
+    viewRecallBtn?.addEventListener("click", () => pickView("recall"));
     window.addEventListener("sidebar-view:active", (e) => {
       const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
       // Teammate panel owns the right rail. Do not light two titlebar view
@@ -739,23 +744,25 @@ async function boot(): Promise<void> {
   // Spawns chip — titlebar chip + popover wired to backend.
   const spawnsMount = document.getElementById("spawns-chip-mount");
   if (spawnsMount) {
+    const runSpawn = (id: string): void => {
+      void (async () => {
+        const sid = manager.activeSessionId();
+        if (!sid) return;
+        const specs = await listSpawns();
+        const spec = specs.find((s) => s.id === id);
+        if (!spec || !spec.command) return;
+        const cmdline = [spec.command, ...spec.args].join(" ") + "\n";
+        const bytes = new TextEncoder().encode(cmdline);
+        await writeToSession(sid, bytes);
+        manager.setActiveSpawnId(spec.id);
+        void chip.refresh();
+      })();
+    };
     const chip = new SpawnsChip(spawnsMount, {
       list: listSpawns,
       getBoundId: () => manager.activeSpawnId(),
-      onSelect: (id) => {
-        void (async () => {
-          const sid = manager.activeSessionId();
-          if (!sid) return;
-          const specs = await listSpawns();
-          const spec = specs.find((s) => s.id === id);
-          if (!spec || !spec.command) return;
-          const cmdline = [spec.command, ...spec.args].join(" ") + "\n";
-          const bytes = new TextEncoder().encode(cmdline);
-          await writeToSession(sid, bytes);
-          manager.setActiveSpawnId(spec.id);
-          void chip.refresh();
-        })();
-      },
+      onSelect: runSpawn,
+      onRun: runSpawn,
       onAdd: () => { void settingsRef.panel?.open("spawns"); },
     });
     manager.onActiveSpawnChange = (_spawnId) => {
