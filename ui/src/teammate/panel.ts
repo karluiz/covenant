@@ -95,6 +95,10 @@ export interface TeammatePanelDeps {
   /// automatically when the user confirmed a task whose originating
   /// message contained an `@spec:` mention.
   setMissionForSpawnedTab?: (sessionId: string, specPath: string) => Promise<void>;
+  /// Open a spec markdown file in the editor drawer when the user clicks a
+  /// spec chip in a chat bubble. Path is the absolute path returned by
+  /// `findSpecs`.
+  openSpec?: (path: string) => void;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
@@ -192,6 +196,10 @@ export class TeammatePanel {
   /// Used to auto-set mission on tabs spawned from a confirmed task.
   /// Cleared after consumed or after the panel is reset.
   private lastSentSpecPath: string | null = null;
+  /// Local taskId → sessionId map for "open tab" buttons. Populated
+  /// when we spawn a tab during confirm, so the button works without
+  /// waiting for the backend cache to publish `task.spawned_session`.
+  private taskSpawnedSessions = new Map<string, string>();
   private tasksCache: Task[] = [];
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
   private resetBtnEl: HTMLButtonElement | null = null;
@@ -259,6 +267,8 @@ export class TeammatePanel {
     this.mentionPopup?.destroy();
     this.mentionPopup = null;
     this.mentionRegistry.clear();
+    this.taskSpawnedSessions.clear();
+    this.lastSentSpecPath = null;
     this.composerInput = null;
     this.operator = null;
     this.host.style.removeProperty("--operator-color");
@@ -441,8 +451,29 @@ export class TeammatePanel {
   private renderThread(): HTMLElement {
     const t = document.createElement("div");
     t.className = "teammate-panel-thread";
+    t.addEventListener("click", (e) => {
+      const chip = (e.target as HTMLElement | null)?.closest<HTMLElement>(
+        ".teammate-mention-chip[data-spec-id]",
+      );
+      if (!chip) return;
+      e.preventDefault();
+      const id = chip.dataset.specId;
+      if (id) void this.openSpecById(id);
+    });
     this.threadEl = t;
     return t;
+  }
+
+  private async openSpecById(id: string): Promise<void> {
+    if (!this.deps.openSpec) return;
+    const cwd = this.deps.getActiveSessionCwd?.() ?? "";
+    try {
+      const hits = await this.deps.mentionSources.findSpecs(cwd, id, 20);
+      const match = hits.find((h) => h.id === id) ?? hits[0];
+      if (match) this.deps.openSpec(match.abs_path);
+    } catch (e) {
+      console.error("openSpec failed", e);
+    }
   }
 
   private renderTasksView(): HTMLElement {
@@ -973,8 +1004,11 @@ export class TeammatePanel {
   }
 
   private focusTabForTaskId(taskId: string): void {
-    const task = this.tasksCache.find((t) => t.id === taskId);
-    const sid = task?.spawned_session;
+    // Prefer the locally-stashed session (set the moment we spawn the
+    // tab in handleConfirm) — the backend task cache may not yet have
+    // published `spawned_session`.
+    const sid = this.taskSpawnedSessions.get(taskId)
+      ?? this.tasksCache.find((t) => t.id === taskId)?.spawned_session;
     if (sid) this.deps.focusTabBySessionId?.(sid);
   }
 
@@ -1033,6 +1067,7 @@ export class TeammatePanel {
         if (target === "spawn" && spawnTabForTask) {
           const spawned = await spawnTabForTask(task);
           targetSessionId = spawned.sessionId;
+          this.taskSpawnedSessions.set(task.id, spawned.sessionId);
           injectDelayMs = 1500;
           line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
           // Auto-set mission if the originating chat had a @spec chip.
@@ -1258,8 +1293,33 @@ function escapeHtml(s: string): string {
 }
 
 function renderInlineContent(text: string): string {
-  const escaped = escapeHtml(text);
-  return escaped.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // The send pipeline appends a "--- Mentioned ---" block with the full
+  // resolved content of every @mention so the LLM gets it as context.
+  // For chat display we strip that bundle and render the visible portion
+  // only — mention tokens like `@spec:3.23` become clickable chips.
+  const SEP = "\n\n--- Mentioned ---\n";
+  const idx = text.indexOf(SEP);
+  const visible = idx >= 0 ? text.slice(0, idx) : text;
+  const bundle  = idx >= 0 ? text.slice(idx + SEP.length) : "";
+  const specTitles = extractSpecTitles(bundle);
+
+  let html = escapeHtml(visible).replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/@spec:([\w./-]+)/g, (_m, id: string) => {
+    const title = specTitles.get(id);
+    const label = title ? `${id} · ${title}` : id;
+    return `<button type="button" class="teammate-mention-chip" data-mention-kind="spec" data-spec-id="${escapeHtml(id)}">§ ${escapeHtml(label)}</button>`;
+  });
+  return html;
+}
+
+function extractSpecTitles(bundle: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const re = /^### spec (\S+): (.+)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(bundle)) !== null) {
+    out.set(m[1], m[2].trim());
+  }
+  return out;
 }
 
 function textSpan(text: string): HTMLElement {
