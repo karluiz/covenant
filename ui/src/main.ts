@@ -487,6 +487,12 @@ async function boot(): Promise<void> {
     const pickView = (view: SidebarTitlebarView): void => {
       const wasProjectNotesOpen = document.body.classList.contains("project-notes-open");
       const wasCollapsed = document.body.classList.contains("blocks-globally-collapsed");
+      if (view !== "activity" && manager.activeKind() === "pi") {
+        pushInfoToast({
+          message: "Blocks and Files are available on terminal tabs. Switch to a shell tab first.",
+        });
+        return;
+      }
       window.dispatchEvent(new CustomEvent("project-notes:close"));
       window.dispatchEvent(new CustomEvent("teammate:close"));
 

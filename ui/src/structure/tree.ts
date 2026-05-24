@@ -121,6 +121,7 @@ export class StructureTree {
   show(): void {
     if (this.visible) return;
     this.visible = true;
+    if (!this.cwd) this.renderWaiting();
     this.root.hidden = false;
   }
 
@@ -148,6 +149,19 @@ export class StructureTree {
   /// Manual refresh: forget loaded children at all depths and re-list.
   async refresh(): Promise<void> {
     if (this.cwd) await this.refreshRoot();
+  }
+
+  private renderWaiting(): void {
+    this.headerEl.innerHTML = "";
+    const label = document.createElement("span");
+    label.className = "structure-cwd";
+    label.title = "Waiting for the terminal to report its current directory";
+    label.textContent = "Waiting for shell cwd…";
+    this.headerEl.appendChild(label);
+
+    this.listEl.innerHTML = "";
+    this.emptyEl.textContent = "Waiting for the terminal to report its current directory.";
+    this.emptyEl.hidden = false;
   }
 
   private renderHeader(cwd: string): void {
@@ -211,6 +225,8 @@ export class StructureTree {
     const cwd = this.cwd;
     this.listEl.innerHTML = "";
     this.nodes = [];
+    this.emptyEl.textContent = "Empty directory";
+    this.emptyEl.hidden = true;
     let entries: DirEntry[];
     try {
       entries = await structureListDir(cwd, this.showIgnored);
@@ -637,6 +653,7 @@ export class StructureTree {
   }
 
   private showError(msg: string): void {
+    this.emptyEl.hidden = true;
     this.listEl.innerHTML = "";
     const err = document.createElement("div");
     err.className = "structure-error";

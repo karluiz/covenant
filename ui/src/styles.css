@@ -1550,6 +1550,20 @@ body:not(.tabbar-left) #new-group {
     display: none;
 }
 
+/* Pi tabs mount PiChatView directly on the pane element. Because pi.css is
+   imported before the generic pane grid rules above, the grid display would
+   otherwise win and auto-place the chat header/body/input into grid cells,
+   leaving the Pi tab looking blank. Force Pi panes back to the chat flex
+   layout while preserving [hidden]. */
+.tab-pane.tab-pane-pi.pi-chat-view {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+}
+.tab-pane.tab-pane-pi.pi-chat-view[hidden] {
+    display: none;
+}
+
 .tab-terminal {
     height: 100%;
     padding: 8px;

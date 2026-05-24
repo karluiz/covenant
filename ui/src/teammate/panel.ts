@@ -308,6 +308,7 @@ export class TeammatePanel {
       this.paintMessages([]);
       this.paintTasks();
       this.updateTasksCount();
+      this.updateHeaderWorkingState();
     } catch (e) {
       console.error("clearForOperator failed", e);
       this.appendErrorCard("Couldn't reset the operator.", String(e));

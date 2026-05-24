@@ -1551,6 +1551,14 @@ export class TabManager {
     return tab?.cwd ?? null;
   }
 
+  /// Kind of the active tab. Pi tabs do not have the terminal-owned
+  /// Blocks/Files rail; callers use this to avoid selecting a per-shell
+  /// sidebar that cannot render for the current pane.
+  activeKind(): "shell" | "pi" | null {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    return tab?.kind ?? null;
+  }
+
   /// Name of the agent executor currently running in the active tab
   /// (claude/copilot/codex/opencode/…), or null when the shell is idle
   /// or running a non-agent command. ⌘P/Recall is suppressed while
@@ -1809,6 +1817,12 @@ export class TabManager {
       }
     });
 
+    const initialCwd =
+      opts?.cwd ??
+      (opts?.groupId ? this.groups.get(opts.groupId)?.rootDir ?? null : null) ??
+      this.activeWorkspaceRootDir?.() ??
+      null;
+
     let blocks: BlockManager | null = null;
     let recall: RecallManager | null = null;
     // Closure-captured so onSessionEvent (set BEFORE spawn returns)
@@ -1935,11 +1949,7 @@ export class TabManager {
         // Fallback: when no explicit cwd, inherit the group's rootDir
         // (if any) so all tabs in a configured group share a default.
         {
-          initialCwd:
-            opts?.cwd ??
-            (opts?.groupId ? this.groups.get(opts.groupId)?.rootDir ?? null : null) ??
-            this.activeWorkspaceRootDir?.() ??
-            null,
+          initialCwd,
           replayKey,
         },
       );
@@ -2514,7 +2524,7 @@ export class TabManager {
       editor,
       openEditor,
       sidebarView: "blocks",
-      cwd: null,
+      cwd: initialCwd,
       operator_id: null,
       spawn_id: null,
       executor: null,
