@@ -186,22 +186,34 @@ export async function expandMentions(
     }
 
     if (payload.kind === "sessions") {
-      if (!extras.readSession) { skipped.push({ path: token, reason: "skipped (no session reader)" }); continue; }
-      try {
-        const s = await extras.readSession(payload.session_id);
-        const lines: string[] = [];
-        lines.push(`tab ${s.tab_index} · ${s.shell} · cwd ${s.cwd}`);
-        for (const b of s.recent) {
-          const exit = b.exit_code === null ? "?" : String(b.exit_code);
-          lines.push(`\n$ ${b.command}    (exit ${exit})\n${b.tail}`);
+      // Use the snapshot data captured at mention time for the header
+      // (the backend's sessions table doesn't carry these columns).
+      // Then enrich with recent blocks if the backend can supply them.
+      const cwd = payload.cwd || "(unknown)";
+      const lines: string[] = [];
+      lines.push(`tab ${payload.tab_index} · ${payload.shell} · cwd ${cwd}`);
+      if (payload.last_command) lines.push(`last: ${payload.last_command}`);
+      lines.push("");
+      let recentCount = 0;
+      if (extras.readSession) {
+        try {
+          const s = await extras.readSession(payload.session_id);
+          for (const b of s.recent) {
+            const exit = b.exit_code === null ? "?" : String(b.exit_code);
+            lines.push(`$ ${b.command}    (exit ${exit})`);
+            if (b.tail.trim()) lines.push(b.tail.trimEnd());
+            lines.push("");
+            recentCount++;
+          }
+        } catch (e) {
+          lines.push(`(could not read recent blocks: ${(e as Error).message ?? String(e)})`);
         }
-        const body = clipForBudget(lines.join("\n"), totalBytes);
-        totalBytes += body.length;
-        attached.push(token);
-        sections.push("### session: " + s.cwd + "\n```text\n" + body + "\n```");
-      } catch (e) {
-        skipped.push({ path: token, reason: `read error: ${(e as Error).message ?? String(e)}` });
       }
+      if (recentCount === 0) lines.push(`(${payload.block_count} blocks, none readable)`);
+      const body = clipForBudget(lines.join("\n").trimEnd(), totalBytes);
+      totalBytes += body.length;
+      attached.push(token);
+      sections.push("### session: tab " + payload.tab_index + "\n```text\n" + body + "\n```");
       continue;
     }
 
@@ -216,7 +228,7 @@ export async function expandMentions(
 
   if (sections.length === 0) return { text: rawText, attached, skipped };
 
-  const out = rawText + "\n\n--- Mentioned files ---\n" + sections.join("\n\n");
+  const out = rawText + "\n\n--- Mentioned ---\n" + sections.join("\n\n");
   return { text: out, attached, skipped };
 }
 

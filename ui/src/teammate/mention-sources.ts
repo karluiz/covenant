@@ -28,7 +28,7 @@ export interface MentionHit {
   matchIndices: number[];
   payload:
     | { kind: "files";     abs: string; rel: string }
-    | { kind: "sessions";  session_id: string }
+    | { kind: "sessions";  session_id: string; cwd: string; shell: string; tab_index: number; block_count: number; last_command: string | null }
     | { kind: "commands";  block_id: string; session_id: string }
     | { kind: "teammates"; operator_id: string; name: string };
 }
@@ -132,7 +132,15 @@ function filterSessions(sessions: OpenSessionInfo[], query: string): MentionHit[
       primary: `tab ${s.tab_index} · ${s.shell}`,
       secondary: `${shortCwd(s.cwd)} · ${s.block_count} blocks${s.last_command ? ` · last: ${s.last_command}` : ""}`,
       matchIndices: [],
-      payload: { kind: "sessions", session_id: s.session_id },
+      payload: {
+        kind: "sessions",
+        session_id: s.session_id,
+        cwd: s.cwd,
+        shell: s.shell,
+        tab_index: s.tab_index,
+        block_count: s.block_count,
+        last_command: s.last_command,
+      },
     }));
 }
 

@@ -90,7 +90,7 @@ describe("expandMentions", () => {
     const out = await expandMentions("look at @src/a.ts please", reg, reader);
     expect(reader).toHaveBeenCalledWith("/abs/a.ts", 256 * 1024);
     expect(out.attached).toEqual(["src/a.ts"]);
-    expect(out.text).toContain("--- Mentioned files ---");
+    expect(out.text).toContain("--- Mentioned ---");
     expect(out.text).toContain("### src/a.ts");
     expect(out.text).toContain("```ts");
     expect(out.text).toContain("export const x = 1;");
@@ -127,7 +127,7 @@ describe("expandMentions", () => {
 
   it("expands a session chip with recent blocks", async () => {
     const reg: MentionRegistry = new Map([
-      ["session:01H", { kind: "sessions", session_id: "S1" }],
+      ["session:01H", { kind: "sessions", session_id: "S1", cwd: "/r", shell: "zsh", tab_index: 2, block_count: 2, last_command: "cargo test" }],
     ]);
     const res = await expandMentions("diff @session:01H", reg, undefined, {
       readSession: async () => ({

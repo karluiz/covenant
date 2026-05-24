@@ -268,11 +268,18 @@ export class TeammatePanel {
       });
       payload = expanded.text;
     }
-    const msg = await this.deps.sendText(this.operator.id, payload, activeId);
-    this.appendBubble(msg);
+    // Clear the composer immediately so the user can keep typing —
+    // even if sendText errors below. Stale chips lock the input.
     this.composerInput?.clear();
+    this.composerInput?.focus();
     this.mentionRegistry.clear();
-    this.setTyping(true);
+    try {
+      const msg = await this.deps.sendText(this.operator.id, payload, activeId);
+      this.appendBubble(msg);
+      this.setTyping(true);
+    } catch (e) {
+      console.error("teammate sendText failed", e);
+    }
   }
 
   private renderHeader(): HTMLElement {
@@ -384,7 +391,7 @@ export class TeammatePanel {
     b.append(labelSpan);
     if (mode === "tasks" || mode === "activity") {
       const count = document.createElement("span");
-      count.className = "teammate-panel-tab-count";
+      count.className = "teammate-panel-tab-count is-empty";
       count.dataset.role = mode === "tasks" ? "count" : "activity-count";
       b.append(count);
     }
