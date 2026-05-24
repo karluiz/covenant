@@ -68,11 +68,23 @@ export interface TeammatePanelDeps {
   /// AOM), and refresh tab state so the operator ring + status bar update
   /// in the UI. Routed through TabsManager.setTabOperator under the hood.
   bindOperatorToTab?:   (sessionId: string, operatorId: string) => Promise<void>;
-  /// Returns the tabs currently bound to this operator. Drives the
-  /// "active on …" subtitle in the panel header.
-  listBoundTabs?:       (operatorId: string) => Array<{ tabId: string; tabName: string }>;
+  /// Returns the tabs currently bound to this operator (as driver OR
+  /// observer). Drives the binding subtitle and Detach popover.
+  listBoundTabs?: (
+    operatorId: string,
+  ) => Array<{ tabId: string; tabName: string; role: "driver" | "observer" }>;
+  /// Returns tabs the operator is NOT bound to. Drives the
+  /// "Observe this tab" picker in the popover.
+  listObservableTabs?: (
+    operatorId: string,
+  ) => Array<{ tabId: string; tabName: string }>;
   /// Detach the operator from a given tab. Triggered from the binding popover.
-  unbindOperatorFromTab?: (tabId: string) => Promise<void>;
+  /// For drivers this calls setTabOperator(null); for observers it removes
+  /// the operator from the tab's observer_ids. operatorId is required for
+  /// the observer case (driver case ignores it but accepts it uniformly).
+  unbindOperatorFromTab?: (tabId: string, operatorId: string, role: "driver" | "observer") => Promise<void>;
+  /// Add the operator as a read-only observer of a tab.
+  addObserverToTab?: (tabId: string, operatorId: string) => Promise<void>;
   /// Subscribe to "any tab's operator binding changed". The returned
   /// unsubscribe is called on panel.close().
   onTabBindingsChanged?: (handler: () => void) => () => void;
@@ -508,7 +520,7 @@ export class TeammatePanel {
     const sub = this.headerEl.querySelector<HTMLElement>('[data-role="subtitle"]');
     if (!sub) return;
     const list: BoundTab[] = (this.deps.listBoundTabs?.(this.operator.id) ?? [])
-      .map((t) => ({ tabId: t.tabId, tabName: t.tabName, role: "driver" as const }));
+      .map((t) => ({ tabId: t.tabId, tabName: t.tabName, role: t.role }));
     const status = describeBindings(list);
 
     sub.classList.add("teammate-panel-subtitle--bindings");
@@ -554,13 +566,17 @@ export class TeammatePanel {
         row.className = "teammate-bindings-popover__row";
         const name = document.createElement("span");
         name.className = "teammate-bindings-popover__name";
-        name.textContent = t.tabName;
+        // Role tag makes the dual mode obvious in the popover (the
+        // subtitle already says "driving X · observing Y" but the
+        // popover lists rows mixed together).
+        name.textContent = `${t.tabName} · ${t.role}`;
         const detach = document.createElement("button");
         detach.type = "button";
         detach.className = "teammate-bindings-popover__detach";
         detach.textContent = "Detach";
         detach.addEventListener("click", async () => {
-          await this.deps.unbindOperatorFromTab?.(t.tabId);
+          if (!this.operator) return;
+          await this.deps.unbindOperatorFromTab?.(t.tabId, this.operator.id, t.role);
           // Close the popover; the onTabBindingsChanged hook will
           // repaint the subtitle with the new state.
           this.closeBindingsPopover();
@@ -569,6 +585,38 @@ export class TeammatePanel {
         pop.append(row);
       }
     }
+
+    // "Observe this tab" section. Lists every tab the operator isn't
+    // already bound to; clicking adds an observer subscription without
+    // touching the primary writer.
+    const observable = this.operator
+      ? (this.deps.listObservableTabs?.(this.operator.id) ?? [])
+      : [];
+    if (observable.length > 0 && this.deps.addObserverToTab) {
+      const sep = document.createElement("div");
+      sep.className = "teammate-bindings-popover__section";
+      sep.textContent = "Observe this tab";
+      pop.append(sep);
+      for (const t of observable) {
+        const row = document.createElement("div");
+        row.className = "teammate-bindings-popover__row";
+        const name = document.createElement("span");
+        name.className = "teammate-bindings-popover__name";
+        name.textContent = t.tabName;
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "teammate-bindings-popover__detach";
+        add.textContent = "Observe";
+        add.addEventListener("click", async () => {
+          if (!this.operator) return;
+          await this.deps.addObserverToTab?.(t.tabId, this.operator.id);
+          this.closeBindingsPopover();
+        });
+        row.append(name, add);
+        pop.append(row);
+      }
+    }
+
     this.headerEl?.append(pop);
     this.bindingsPopoverEl = pop;
 

@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { describeBindings, type BoundTab } from "./binding-status";
 
-const tab = (id: string, name: string, role: "driver" | "observer" = "driver"): BoundTab => ({
+const tab = (
+  id: string,
+  name: string,
+  role: "driver" | "observer" = "driver",
+): BoundTab => ({
   tabId: id,
   tabName: name,
   role,
 });
 
-describe("describeBindings (Phase 1: single-op model, role always 'driver')", () => {
+describe("describeBindings — idle and single-role shapes", () => {
   it("returns idle when no tabs are bound", () => {
     const result = describeBindings([]);
     expect(result.kind).toBe("idle");
@@ -15,30 +19,53 @@ describe("describeBindings (Phase 1: single-op model, role always 'driver')", ()
     expect(result.tabs).toEqual([]);
   });
 
-  it("returns 'active on <tab>' for a single binding", () => {
+  it("returns 'driving X' for a single driver binding", () => {
     const result = describeBindings([tab("t1", "enhances")]);
     expect(result.kind).toBe("active");
-    expect(result.label).toBe("active on enhances");
+    expect(result.label).toBe("driving enhances");
   });
 
-  it("joins multiple tab names with commas and uses pluralized count", () => {
+  it("joins multiple driver tabs with commas", () => {
     const result = describeBindings([
       tab("t1", "enhances"),
       tab("t2", "hermes"),
     ]);
     expect(result.kind).toBe("active");
-    expect(result.label).toBe("active on 2 tabs · enhances, hermes");
+    expect(result.label).toBe("driving enhances, hermes");
   });
 
-  it("truncates long tab lists at 3 names + overflow count", () => {
+  it("truncates long driver lists at 3 names + overflow count", () => {
     const result = describeBindings([
-      tab("a", "alpha"), tab("b", "bravo"),
-      tab("c", "charlie"), tab("d", "delta"), tab("e", "echo"),
+      tab("a", "alpha"),
+      tab("b", "bravo"),
+      tab("c", "charlie"),
+      tab("d", "delta"),
+      tab("e", "echo"),
     ]);
-    expect(result.label).toBe("active on 5 tabs · alpha, bravo, charlie +2");
+    expect(result.label).toBe("driving alpha, bravo, charlie +2");
   });
 });
 
-describe("describeBindings (Phase 2: driver + observers)", () => {
-  it.todo("returns 'driving X' when there's one driver and no observers");
+describe("describeBindings — driver + observer voices", () => {
+  it("returns 'observing X' when there's one observer and no driver", () => {
+    expect(describeBindings([tab("t1", "enhances", "observer")]).label)
+      .toBe("observing enhances");
+  });
+
+  it("joins driver and observer halves with the middle-dot separator", () => {
+    const label = describeBindings([
+      tab("t1", "enhances", "driver"),
+      tab("t2", "hermes", "observer"),
+      tab("t3", "scout", "observer"),
+    ]).label;
+    expect(label).toBe("driving enhances · observing hermes, scout");
+  });
+
+  it("marks the mixed case with kind 'driving-observing'", () => {
+    const result = describeBindings([
+      tab("t1", "enhances", "driver"),
+      tab("t2", "hermes", "observer"),
+    ]);
+    expect(result.kind).toBe("driving-observing");
+  });
 });

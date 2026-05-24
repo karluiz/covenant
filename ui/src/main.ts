@@ -572,8 +572,18 @@ async function boot(): Promise<void> {
       await manager.refreshAllOperatorState();
     },
     listBoundTabs: (operatorId) => manager.listTabsForOperator(operatorId),
-    unbindOperatorFromTab: async (tabId) => {
-      await manager.setTabOperator(tabId, null);
+    listObservableTabs: (operatorId) => manager.listTabsAvailableForObserving(operatorId),
+    unbindOperatorFromTab: async (tabId, operatorId, role) => {
+      // Driver detach clears operator_id (backend session unbind included);
+      // observer detach is a frontend-only list mutation.
+      if (role === "observer") {
+        await manager.removeObserver(tabId, operatorId);
+      } else {
+        await manager.setTabOperator(tabId, null);
+      }
+    },
+    addObserverToTab: async (tabId, operatorId) => {
+      await manager.addObserver(tabId, operatorId);
     },
     onTabBindingsChanged: (handler) => manager.subscribeTabOperatorChange(handler),
   });

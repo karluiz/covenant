@@ -1,17 +1,14 @@
-/// Derives the teammate panel's "active on …" subtitle line from the
-/// set of tabs the operator is currently bound to. Pure function — no
-/// DOM, no manager access — so it's trivially unit-testable.
+/// Derives the teammate panel's binding subtitle line from the set of
+/// tabs the operator is currently bound to. Pure function — no DOM,
+/// no manager access — so it's trivially unit-testable.
 ///
-/// Phase 1 ships with `role` always `"driver"` (single operator per
-/// tab today). Phase 2 will introduce real observer rows, at which
-/// point `describeBindings` will switch to the "driving X · observing
-/// Y, Z" voice. Keeping the role field on the input now lets callers
-/// (panel + manager) thread the right shape through without churn.
+/// Phase 2 splits the voice into "driving X" (where the operator is the
+/// primary writer) and "observing Y, Z" (where the operator is a
+/// read-only subscriber). Mixed: "driving X · observing Y, Z".
 
 export interface BoundTab {
   tabId: string;
   tabName: string;
-  /// Phase 1: always 'driver' (single-op-per-tab model). Phase 2 introduces 'observer'.
   role: "driver" | "observer";
 }
 
@@ -37,16 +34,15 @@ export function describeBindings(boundTabs: BoundTab[]): BindingStatus {
   if (boundTabs.length === 0) {
     return { kind: "idle", label: "idle", tabs: [] };
   }
-  if (boundTabs.length === 1) {
-    return {
-      kind: "active",
-      label: `active on ${boundTabs[0].tabName}`,
-      tabs: boundTabs,
-    };
-  }
-  return {
-    kind: "active",
-    label: `active on ${boundTabs.length} tabs · ${formatNames(boundTabs)}`,
-    tabs: boundTabs,
-  };
+  const driving = boundTabs.filter((t) => t.role === "driver");
+  const observing = boundTabs.filter((t) => t.role === "observer");
+
+  const parts: string[] = [];
+  if (driving.length > 0) parts.push(`driving ${formatNames(driving)}`);
+  if (observing.length > 0) parts.push(`observing ${formatNames(observing)}`);
+
+  const kind: BindingStatus["kind"] =
+    driving.length > 0 && observing.length > 0 ? "driving-observing" : "active";
+
+  return { kind, label: parts.join(" · "), tabs: boundTabs };
 }

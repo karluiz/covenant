@@ -10140,6 +10140,39 @@ body.theme-light .wiz-modal { box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
   color: var(--accent-fg, #fff);
 }
 
+/* ── Operator avatar stack (driver + observers) ───────────────────────
+   When a tab has a primary writer plus one or more observers, render
+   them as a small stack of avatars. The driver sits on top at full
+   size; observers cascade behind, smaller and faded, overlapping by
+   ~50%. Beyond 3 visible avatars we collapse the rest to a "+N"
+   indicator so the tab title never gets pushed off-screen. */
+.tab-op-stack {
+  display: inline-flex;
+  align-items: center;
+}
+.tab-op-stack > .tab-op-chip + .tab-op-chip {
+  margin-left: -8px;
+}
+.tab-op-chip--observer {
+  transform: scale(0.78);
+  opacity: 0.7;
+  filter: saturate(0.7);
+}
+.tab-op-stack__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  margin-left: 2px;
+  background: var(--bg-3, rgba(255, 255, 255, 0.08));
+  color: var(--text-2, #aaa);
+  font-size: 9px;
+  font-weight: 600;
+}
+
 /* ── Task 3: Tab strip operator chip ───────────────────────────────── */
 .tab-op-chip {
   display: inline-flex;
@@ -15396,6 +15429,19 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   padding: 8px;
   color: var(--muted);
   font-size: 12px;
+}
+/* Section header inside the bindings popover (e.g. "Observe this tab").
+   Separates the bound-tabs rows above from the observable-tabs picker
+   below with a faint divider + uppercase caption. */
+.teammate-bindings-popover__section {
+  padding: 8px 8px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-1, rgba(255, 255, 255, 0.06));
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .teammate-panel-header-chevron {
   flex: 0 0 14px;

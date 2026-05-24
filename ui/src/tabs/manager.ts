@@ -260,6 +260,11 @@ interface Tab {
   /// Operator pinned to this tab. Null = backend default (first operator
   /// in the registry). Persisted in the tab manifest; replayed on restore.
   operator_id: string | null;
+  /// Operators subscribed to this tab as read-only observers. The primary
+  /// writer is `operator_id`; observers see everything but cannot type.
+  /// Persisted in the tab manifest. Always disjoint from `operator_id`
+  /// (setTabOperator strips the new writer from this list).
+  observer_ids: string[];
   /// Spawn bound to this tab. When set, the SpawnsChip reflects this
   /// binding and deploy was initiated from this tab. Persisted in the
   /// tab manifest; replayed on restore.
@@ -319,6 +324,9 @@ interface SerializedTab {
   mission_path: string | null;
   /// Operator pinned to this tab at save time. Null = default operator.
   operator_id: string | null;
+  /// Observers persisted for this tab. Optional for backward compat —
+  /// old manifests without it default to [] on restore.
+  observer_ids?: string[];
   /// Spawn bound to this tab at save time. Optional for backward compat.
   spawn_id?: string | null;
   /// AOM exclusion persisted for this tab. Optional for backward compat
@@ -388,6 +396,42 @@ export function shouldForwardRename(args: {
     !!args.newCustomName && args.newCustomName.trim().length > 0;
   const isPi = args.kind === "pi" || args.executor === "pi";
   return wasUnnamed && isNamedNow && isPi;
+}
+
+/// Pure helper: returns the next observer_ids array after attempting to
+/// add `operatorId`. Returns the SAME reference (===) when the add is a
+/// no-op (already the driver, or already an observer) so callers can
+/// cheaply detect "nothing changed" without a deep compare.
+export function computeAddObserver(
+  driverId: string | null,
+  observers: readonly string[],
+  operatorId: string,
+): string[] {
+  if (driverId === operatorId) return observers as string[]; // can't observe what you drive
+  if (observers.includes(operatorId)) return observers as string[]; // idempotent
+  return [...observers, operatorId];
+}
+
+/// Pure helper: returns the next observer_ids array after removing
+/// `operatorId`. Same-reference contract as computeAddObserver.
+export function computeRemoveObserver(
+  observers: readonly string[],
+  operatorId: string,
+): string[] {
+  if (!observers.includes(operatorId)) return observers as string[];
+  return observers.filter((id) => id !== operatorId);
+}
+
+/// Pure helper: returns the next observer_ids array after promoting
+/// `newDriverId` to driver. Strips the new driver from the observers
+/// list so the two sets stay disjoint. When `newDriverId` is null
+/// (demotion), observers are returned unchanged (as a fresh copy).
+export function stripObserverOnPromote(
+  observers: readonly string[],
+  newDriverId: string | null,
+): string[] {
+  if (!newDriverId) return [...observers];
+  return observers.filter((id) => id !== newDriverId);
 }
 
 /// localStorage key for the short-id → display-name cache. Purpose:
@@ -2574,6 +2618,7 @@ export class TabManager {
       sidebarView: "blocks",
       cwd: initialCwd,
       operator_id: null,
+      observer_ids: [],
       spawn_id: null,
       executor: null,
       disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose],
@@ -2744,6 +2789,7 @@ export class TabManager {
       sidebarView: "blocks",
       cwd: opts?.cwd ?? null,
       operator_id: null,
+      observer_ids: [],
       spawn_id: null,
       executor: "pi",
       disposers: [],
@@ -2792,6 +2838,11 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     tab.operator_id = operatorId;
+    // Promoting an existing observer to driver removes the duplicate entry —
+    // observers and the primary writer must be disjoint.
+    if (operatorId) {
+      tab.observer_ids = stripObserverOnPromote(tab.observer_ids, operatorId);
+    }
     if (tab.sessionId) {
       await sessionSetOperator(tab.sessionId, operatorId);
     }
@@ -2825,18 +2876,66 @@ export class TabManager {
     this.emitTabOperatorChange();
   }
 
-  /// All tabs currently bound (as driver) to the given operator. Stable
-  /// order = tab order. Used by the teammate panel to render its binding
-  /// status line and the detach popover.
-  public listTabsForOperator(operatorId: string): Array<{ tabId: string; tabName: string }> {
+  /// All tabs the given operator is bound to — either as primary writer
+  /// ("driver") or as a read-only "observer". Stable order = tab order.
+  /// Used by the teammate panel to render its binding status line and
+  /// the detach popover.
+  public listTabsForOperator(
+    operatorId: string,
+  ): Array<{ tabId: string; tabName: string; role: "driver" | "observer" }> {
+    const rows: Array<{ tabId: string; tabName: string; role: "driver" | "observer" }> = [];
+    for (const t of this.tabs) {
+      const tabName = (t.customName && t.customName.trim().length > 0)
+        ? t.customName
+        : t.defaultTitle;
+      if (t.operator_id === operatorId) {
+        rows.push({ tabId: t.id, tabName, role: "driver" });
+      } else if (t.observer_ids.includes(operatorId)) {
+        rows.push({ tabId: t.id, tabName, role: "observer" });
+      }
+    }
+    return rows;
+  }
+
+  /// Tabs that the given operator is NOT bound to (neither driver nor
+  /// observer). Used by the teammate panel's "Observe this tab" picker.
+  public listTabsAvailableForObserving(
+    operatorId: string,
+  ): Array<{ tabId: string; tabName: string }> {
     return this.tabs
-      .filter((t) => t.operator_id === operatorId)
+      .filter((t) => t.operator_id !== operatorId && !t.observer_ids.includes(operatorId))
       .map((t) => ({
         tabId: t.id,
         tabName: (t.customName && t.customName.trim().length > 0)
           ? t.customName
           : t.defaultTitle,
       }));
+  }
+
+  /// Add an operator as a read-only observer of a tab. Idempotent. Refuses
+  /// silently if the operator is already the primary writer (drivers shadow
+  /// observers — call setTabOperator(null) first if you want to demote).
+  public async addObserver(tabId: string, operatorId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const next = computeAddObserver(tab.operator_id, tab.observer_ids, operatorId);
+    if (next === tab.observer_ids) return; // no-op
+    tab.observer_ids = next;
+    this.scheduleSave();
+    this.renderTabbar();
+    this.emitTabOperatorChange();
+  }
+
+  /// Remove an operator from a tab's observer list. No-op if not present.
+  public async removeObserver(tabId: string, operatorId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const next = computeRemoveObserver(tab.observer_ids, operatorId);
+    if (next === tab.observer_ids) return; // no-op
+    tab.observer_ids = next;
+    this.scheduleSave();
+    this.renderTabbar();
+    this.emitTabOperatorChange();
   }
 
   /// Look up a tab by its backend session id. Used by the OperatorPicker
@@ -3238,6 +3337,7 @@ export class TabManager {
         group_id: t.groupId,
         mission_path: t.mission?.path ?? null,
         operator_id: t.operator_id,
+        observer_ids: t.observer_ids,
         spawn_id: t.spawn_id,
         aom_excluded: t.aomExcluded,
         replay_key: t.replayKey,
@@ -3342,6 +3442,9 @@ export class TabManager {
           );
         }
         tab.operator_id = t.operator_id ?? null;
+        // Old manifests pre-observers default to []. Observers are a
+        // frontend-only subscription, so no backend call is needed.
+        tab.observer_ids = Array.isArray(t.observer_ids) ? [...t.observer_ids] : [];
         if (tab.operator_id) {
           tasks.push(
             sessionSetOperator(tab.sessionId, tab.operator_id).catch((e) => {
@@ -4248,30 +4351,68 @@ export class TabManager {
     // `renderOperatorChip(op, 'sm')` once we have a chip variant that
     // omits the name label — the tab pill cannot afford a second name
     // beside the title, and chip currently always includes name.
-    if (tab.operator_id) {
-      const op = this.operatorCache.get(tab.operator_id) ?? null;
-      if (op) {
-        const opChip = document.createElement("span");
-        opChip.className = "tab-op-chip tab-op-chip-leading";
+    // Stack of operator avatars on the LEFT of the tab title. The
+    // primary writer (driver) renders first at full size with its XP
+    // ring + level badge; observers stack behind it, smaller and faded,
+    // overlapping ~50%. Beyond MAX_VISIBLE we collapse to a "+N" pill so
+    // the tab name never gets pushed out.
+    const stackedIds: string[] = [
+      ...(tab.operator_id ? [tab.operator_id] : []),
+      ...tab.observer_ids,
+    ];
+    if (stackedIds.length > 0) {
+      const MAX_VISIBLE = 3;
+      const visible = stackedIds.slice(0, MAX_VISIBLE);
+      const overflow = stackedIds.length - visible.length;
+      const stack = document.createElement("span");
+      stack.className = "tab-op-stack tab-op-chip-leading";
+
+      for (const id of visible) {
+        const op = this.operatorCache.get(id) ?? null;
+        if (!op) continue;
+        const isDriver = tab.operator_id === id;
+        const chip = document.createElement("span");
+        chip.className =
+          "tab-op-chip " + (isDriver ? "tab-op-chip--driver" : "tab-op-chip--observer");
         const xp = op.xp ?? 0;
         const level = operatorLevelFromXp(xp);
-        // Progress within current level (0..1). 100 XP per level — see
-        // operatorLevelFromXp in api.ts. The ring fills clockwise from
-        // 12 o'clock and resets to 0 at each level-up.
         const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
-        opChip.title = `${op.name} — Lv ${level} · ${xp} XP`;
-        opChip.innerHTML =
-          `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}" ` +
-                `style="--xp-progress:${xpProgress.toFixed(3)};">` +
-            `<svg class="tab-op-xp-ring" viewBox="0 0 24 24" aria-hidden="true">` +
-              `<circle class="track" cx="12" cy="12" r="11"/>` +
-              `<circle class="fill"  cx="12" cy="12" r="11"/>` +
-            `</svg>` +
-            `${renderAvatarHtml(op.emoji, 18)}` +
-            `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
-          `</span>`;
-        pill.appendChild(opChip);
+        // Driver gets XP ring + level badge; observers are visually quieter
+        // so they don't compete with the writer in a stacked pill.
+        if (isDriver) {
+          chip.innerHTML =
+            `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}" ` +
+                  `style="--xp-progress:${xpProgress.toFixed(3)};">` +
+              `<svg class="tab-op-xp-ring" viewBox="0 0 24 24" aria-hidden="true">` +
+                `<circle class="track" cx="12" cy="12" r="11"/>` +
+                `<circle class="fill"  cx="12" cy="12" r="11"/>` +
+              `</svg>` +
+              `${renderAvatarHtml(op.emoji, 18)}` +
+              `<span class="tab-op-level" data-operator-id="${op.id}">${level}</span>` +
+            `</span>`;
+        } else {
+          chip.innerHTML =
+            `<span class="tab-op-avatar-wrap" data-operator-id="${op.id}">` +
+              `${renderAvatarHtml(op.emoji, 18)}` +
+            `</span>`;
+        }
+        attachTooltip(
+          chip,
+          isDriver
+            ? `${op.name} — driving · Lv ${level} · ${xp} XP`
+            : `${op.name} — observing`,
+        );
+        stack.appendChild(chip);
       }
+
+      if (overflow > 0) {
+        const more = document.createElement("span");
+        more.className = "tab-op-stack__more";
+        more.textContent = `+${overflow}`;
+        stack.appendChild(more);
+      }
+
+      pill.appendChild(stack);
     }
 
     if (this.isRenamingTab(tab.id)) {
