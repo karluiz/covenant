@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.24 — Teammate workspace tools + Hermes phase detection
+
+### Added
+
+- **Teammate workspace tools**: the teammate tool-use loop now exposes `list_directory`, `search_files`, `git_status`, `git_diff`, and `run_command` alongside the existing `read_file` and `propose_task`, for both the Anthropic and OpenAI dispatch paths. `crates/app/src/teammate/tools.rs` implements sandboxed execution with a hard blocklist for destructive commands; `crates/app/src/teammate/llm.rs` wires the new tools, refreshes the system prompt to describe them, and bumps `MAX_TOOL_ITERATIONS` from 8 to 12.
+- **Hermes tool-call phase detection**: `crates/blocks/src/executor_phase.rs` recognises Hermes' kaomoji thinking lines (`(¬_¬) mulling…`), `preparing <tool>…` prefixes, and the completed `<verb>  <target>  <duration>` form, mapping each tool to `Reading` / `Writing` / `Running` phases so the Activity feed reflects what Hermes is doing. New tests cover mulling, preparing for `read_file`/`write_file`/`search_files`/`terminal`/`vision_analyze`, and completed `read`/`find` lines.
+- **TERM_PROGRAM=Covenant**: `crates/pty/src/lib.rs` exports `TERM_PROGRAM=Covenant` in every spawned PTY environment so embedded CLIs (prompt_toolkit, Hermes, etc.) can detect they're running inside Covenant's terminal.
+
+### Fixed
+
+- **CustomSelect clipped options**: `ui/src/ui/select.ts` now estimates the popover's natural height from option count and flips to drop-up whenever the full list would be clipped below the button and there's more space above, instead of only flipping when fewer than 160px remain below. Prevents long executor / operator selects from silently scrolling.
+
 ## v0.8.23 — OpenAI teammate tool-use and activity polish
 
 ### Added
