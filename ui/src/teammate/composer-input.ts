@@ -81,10 +81,19 @@ export class ComposerInput {
     if (!sel || sel.rangeCount === 0) return null;
     const range = sel.getRangeAt(0);
     if (!range.collapsed) return null;
-    const node = range.startContainer;
-    if (node.nodeType !== Node.TEXT_NODE) return null;
+    let node: Node | null = range.startContainer;
+    let caret = range.startOffset;
+    // WebKit/Chromium often anchor the caret on the contenteditable
+    // element itself (not a text node) right after typing into a
+    // previously-empty div. Descend to the relevant text-node child.
+    if (node.nodeType !== Node.TEXT_NODE) {
+      if (!(node instanceof HTMLElement) || !this.el.contains(node)) return null;
+      const child = node.childNodes[caret - 1] ?? node.childNodes[caret] ?? node.lastChild;
+      if (!child || child.nodeType !== Node.TEXT_NODE) return null;
+      node = child;
+      caret = (child.textContent ?? "").length;
+    }
     const text = node.textContent ?? "";
-    const caret = range.startOffset;
     let i = caret - 1;
     while (i >= 0) {
       const ch = text[i];
