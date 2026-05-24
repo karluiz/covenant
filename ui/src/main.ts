@@ -571,6 +571,11 @@ async function boot(): Promise<void> {
       // Re-read backend state into the tab + repaint ring/status bar.
       await manager.refreshAllOperatorState();
     },
+    listBoundTabs: (operatorId) => manager.listTabsForOperator(operatorId),
+    unbindOperatorFromTab: async (tabId) => {
+      await manager.setTabOperator(tabId, null);
+    },
+    onTabBindingsChanged: (handler) => manager.subscribeTabOperatorChange(handler),
   });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
 

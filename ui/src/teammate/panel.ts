@@ -11,6 +11,7 @@ import {
 import { Icons } from "../icons";
 import { renderAvatarHtml } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
+import { describeBindings, type BoundTab } from "./binding-status";
 import { expandMentions, MentionPopup, type FindFilesFn, type ReadFileFn } from "./mentions";
 import { renderTaskCard } from "./task-card";
 
@@ -67,6 +68,14 @@ export interface TeammatePanelDeps {
   /// AOM), and refresh tab state so the operator ring + status bar update
   /// in the UI. Routed through TabsManager.setTabOperator under the hood.
   bindOperatorToTab?:   (sessionId: string, operatorId: string) => Promise<void>;
+  /// Returns the tabs currently bound to this operator. Drives the
+  /// "active on …" subtitle in the panel header.
+  listBoundTabs?:       (operatorId: string) => Array<{ tabId: string; tabName: string }>;
+  /// Detach the operator from a given tab. Triggered from the binding popover.
+  unbindOperatorFromTab?: (tabId: string) => Promise<void>;
+  /// Subscribe to "any tab's operator binding changed". The returned
+  /// unsubscribe is called on panel.close().
+  onTabBindingsChanged?: (handler: () => void) => () => void;
   /// Cwd of the foreground tab. Used by the `@file` mention popup to
   /// scope fuzzy file search. Null disables the popup with a notice.
   getActiveSessionCwd?: () => string | null;
@@ -157,6 +166,9 @@ export class TeammatePanel {
   private dismissSwitcher: ((e: Event) => void) | null = null;
   private unlisten: (() => void) | null = null;
   private unlistenToolCall: (() => void) | null = null;
+  private unlistenBindings: (() => void) | null = null;
+  private bindingsPopoverEl: HTMLElement | null = null;
+  private bindingsPopoverOutsideClick: ((ev: MouseEvent) => void) | null = null;
   private viewMode: "chat" | "tasks" = "chat";
   private tasksCache: Task[] = [];
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
@@ -207,6 +219,13 @@ export class TeammatePanel {
     if (!this.unlistenToolCall && this.deps.onToolCall) {
       this.unlistenToolCall = await this.deps.onToolCall((c) => this.onIncomingToolCall(c));
     }
+    if (!this.unlistenBindings && this.deps.onTabBindingsChanged) {
+      this.unlistenBindings = this.deps.onTabBindingsChanged(() => this.refreshBindingStatus());
+    }
+    // Paint the initial subtitle (idle / active on …) once the header
+    // exists and tasks have been fetched. updateHeaderWorkingState will
+    // delegate to refreshBindingStatus when no task is running.
+    this.updateHeaderWorkingState();
   }
 
   close(): void {
@@ -215,6 +234,9 @@ export class TeammatePanel {
     this.unlisten = null;
     this.unlistenToolCall?.();
     this.unlistenToolCall = null;
+    this.unlistenBindings?.();
+    this.unlistenBindings = null;
+    this.closeBindingsPopover();
     this.mentionPopup?.destroy();
     this.mentionPopup = null;
     this.mentionedFiles.clear();
@@ -465,9 +487,100 @@ export class TeammatePanel {
     } else {
       this.headerEl.classList.remove("is-working");
       sub.classList.remove("teammate-panel-subtitle--working");
-      sub.textContent = this.operator?.model ?? "";
       sub.removeAttribute("title");
+      // When bindings deps are wired, render the "active on …" / idle
+      // subtitle. Otherwise fall back to the historical model-name label.
+      if (this.deps.listBoundTabs) {
+        this.refreshBindingStatus();
+      } else {
+        sub.classList.remove("teammate-panel-subtitle--bindings");
+        sub.textContent = this.operator?.model ?? "";
+      }
     }
+  }
+
+  /// Repaints the header subtitle with the binding status line. Called
+  /// on open, on `onTabBindingsChanged`, and from `updateHeaderWorkingState`
+  /// when no task is currently working (working state takes precedence).
+  private refreshBindingStatus(): void {
+    if (!this.headerEl || !this.operator) return;
+    if (this.firstWorkingTask()) return; // "working" state wins; don't clobber it.
+    const sub = this.headerEl.querySelector<HTMLElement>('[data-role="subtitle"]');
+    if (!sub) return;
+    const list: BoundTab[] = (this.deps.listBoundTabs?.(this.operator.id) ?? [])
+      .map((t) => ({ tabId: t.tabId, tabName: t.tabName, role: "driver" as const }));
+    const status = describeBindings(list);
+
+    sub.classList.add("teammate-panel-subtitle--bindings");
+    sub.innerHTML = ""; // clear any prior model-name fallback / working state.
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "teammate-panel-bindings-btn";
+    btn.textContent = status.label;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.toggleBindingsPopover(status.tabs);
+    });
+    sub.append(btn);
+  }
+
+  private closeBindingsPopover(): void {
+    if (this.bindingsPopoverEl) {
+      this.bindingsPopoverEl.remove();
+      this.bindingsPopoverEl = null;
+    }
+    if (this.bindingsPopoverOutsideClick) {
+      document.removeEventListener("mousedown", this.bindingsPopoverOutsideClick, true);
+      this.bindingsPopoverOutsideClick = null;
+    }
+  }
+
+  private toggleBindingsPopover(tabs: BoundTab[]): void {
+    if (this.bindingsPopoverEl) {
+      this.closeBindingsPopover();
+      return;
+    }
+    const pop = document.createElement("div");
+    pop.className = "teammate-bindings-popover";
+    if (tabs.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "teammate-bindings-popover__empty";
+      empty.textContent = "Not bound to any tab.";
+      pop.append(empty);
+    } else {
+      for (const t of tabs) {
+        const row = document.createElement("div");
+        row.className = "teammate-bindings-popover__row";
+        const name = document.createElement("span");
+        name.className = "teammate-bindings-popover__name";
+        name.textContent = t.tabName;
+        const detach = document.createElement("button");
+        detach.type = "button";
+        detach.className = "teammate-bindings-popover__detach";
+        detach.textContent = "Detach";
+        detach.addEventListener("click", async () => {
+          await this.deps.unbindOperatorFromTab?.(t.tabId);
+          // Close the popover; the onTabBindingsChanged hook will
+          // repaint the subtitle with the new state.
+          this.closeBindingsPopover();
+        });
+        row.append(name, detach);
+        pop.append(row);
+      }
+    }
+    this.headerEl?.append(pop);
+    this.bindingsPopoverEl = pop;
+
+    // Close on outside click. Hoisted onto `this` so every close path
+    // (toggle re-entry, Detach, panel.close()) can detach it.
+    const onDocClick = (ev: MouseEvent) => {
+      if (!pop.contains(ev.target as Node)) {
+        this.closeBindingsPopover();
+      }
+    };
+    this.bindingsPopoverOutsideClick = onDocClick;
+    document.addEventListener("mousedown", onDocClick, true);
   }
 
   private updateTasksCount(): void {

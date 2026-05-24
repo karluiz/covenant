@@ -15319,6 +15319,84 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
 .teammate-panel-subtitle__task {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
+
+/* Binding status — "idle" / "active on enhances" subtitle line.
+   Rendered as a button so the user can click it to open the
+   detach popover. Keep the visual close to the model-name fallback
+   it replaces — just a muted inline text affordance. */
+.teammate-panel-subtitle--bindings {
+  /* Subtitle's parent already constrains width; allow the button to
+     ellipsize alongside the existing overflow rules. */
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.teammate-panel-subtitle--bindings .teammate-panel-bindings-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.teammate-panel-subtitle--bindings .teammate-panel-bindings-btn:hover {
+  color: var(--fg, var(--text-primary));
+}
+.teammate-panel-header {
+  /* Anchor for .teammate-bindings-popover absolute positioning. */
+  position: relative;
+}
+.teammate-bindings-popover {
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  margin-top: 4px;
+  z-index: 10;
+  background: var(--bg-overlay, #11141a);
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  border-radius: 6px;
+  padding: 6px;
+  min-width: 200px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+}
+.teammate-bindings-popover__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  gap: 12px;
+}
+.teammate-bindings-popover__name {
+  color: var(--text-primary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teammate-bindings-popover__detach {
+  background: none;
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.teammate-bindings-popover__detach:hover {
+  color: var(--text-primary);
+  border-color: var(--muted);
+}
+.teammate-bindings-popover__empty {
+  padding: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .teammate-panel-header-chevron {
   flex: 0 0 14px;
   width: 14px;

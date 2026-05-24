@@ -647,6 +647,23 @@ export class TabManager {
   /// terminal", which is impossible while a fullscreen panel covers it.
   public onTabActivated: (() => void) | null = null;
 
+  /// Fires whenever any tab's operator_id changes (bind, rebind, or unbind).
+  /// Subscribers should recompute derived state across the full tab list,
+  /// not just the active tab. Use this in the teammate panel to keep the
+  /// "active on …" subtitle in sync with bindings made from elsewhere.
+  private tabOperatorChangeListeners = new Set<() => void>();
+
+  public subscribeTabOperatorChange(handler: () => void): () => void {
+    this.tabOperatorChangeListeners.add(handler);
+    return () => {
+      this.tabOperatorChangeListeners.delete(handler);
+    };
+  }
+
+  private emitTabOperatorChange(): void {
+    for (const h of this.tabOperatorChangeListeners) h();
+  }
+
   /// Update optional callbacks without reconstructing the manager.
   setOptions(opts: { onOpenProjectNotes?: (groupId: string, groupLabel: string, groupColor: string | null) => void }): void {
     if (opts.onOpenProjectNotes !== undefined) {
@@ -2804,6 +2821,22 @@ export class TabManager {
         if (aomOn) await aomStop().catch(() => undefined);
       }
     }
+    // Notify derived-state subscribers (e.g. teammate panel subtitle).
+    this.emitTabOperatorChange();
+  }
+
+  /// All tabs currently bound (as driver) to the given operator. Stable
+  /// order = tab order. Used by the teammate panel to render its binding
+  /// status line and the detach popover.
+  public listTabsForOperator(operatorId: string): Array<{ tabId: string; tabName: string }> {
+    return this.tabs
+      .filter((t) => t.operator_id === operatorId)
+      .map((t) => ({
+        tabId: t.id,
+        tabName: (t.customName && t.customName.trim().length > 0)
+          ? t.customName
+          : t.defaultTitle,
+      }));
   }
 
   /// Look up a tab by its backend session id. Used by the OperatorPicker
