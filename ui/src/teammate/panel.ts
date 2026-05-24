@@ -91,6 +91,10 @@ export interface TeammatePanelDeps {
   readBlockExcerpt:   (block_id: string) => Promise<BlockExcerpt>;
   /// Reads a session's cwd + last few blocks for `@session:<short>` expansion.
   readSessionExcerpt: (session_id: string) => Promise<SessionExcerpt>;
+  /// Set the mission spec path for a freshly-spawned tab. Called
+  /// automatically when the user confirmed a task whose originating
+  /// message contained an `@spec:` mention.
+  setMissionForSpawnedTab?: (sessionId: string, specPath: string) => Promise<void>;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
@@ -184,6 +188,10 @@ export class TeammatePanel {
   private unlisten: (() => void) | null = null;
   private unlistenToolCall: (() => void) | null = null;
   private viewMode: "chat" | "tasks" | "activity" = "chat";
+  /// Absolute path of the most-recently-mentioned spec in this session.
+  /// Used to auto-set mission on tabs spawned from a confirmed task.
+  /// Cleared after consumed or after the panel is reset.
+  private lastSentSpecPath: string | null = null;
   private tasksCache: Task[] = [];
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
   private resetBtnEl: HTMLButtonElement | null = null;
@@ -264,6 +272,12 @@ export class TeammatePanel {
     const activeId = this.deps.getActiveSessionId?.() ?? null;
     let payload = text.trim();
     if (this.mentionRegistry.size > 0) {
+      // Remember the first spec mention so a task spawned from this
+      // message auto-sets its mission. Most-recent wins if multiple
+      // sends happen before a confirm.
+      for (const p of this.mentionRegistry.values()) {
+        if (p.kind === "specs") { this.lastSentSpecPath = p.abs; break; }
+      }
       const expanded = await expandMentions(payload, this.mentionRegistry, this.deps.readFile, {
         readBlock:   this.deps.readBlockExcerpt,
         readSession: this.deps.readSessionExcerpt,
@@ -1021,6 +1035,14 @@ export class TeammatePanel {
           targetSessionId = spawned.sessionId;
           injectDelayMs = 1500;
           line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
+          // Auto-set mission if the originating chat had a @spec chip.
+          if (this.lastSentSpecPath && this.deps.setMissionForSpawnedTab) {
+            const path = this.lastSentSpecPath;
+            this.lastSentSpecPath = null;
+            this.deps.setMissionForSpawnedTab(spawned.sessionId, path).catch((e) =>
+              console.error("auto-set mission failed", e),
+            );
+          }
         } else {
           targetSessionId = getActiveSessionId?.() ?? null;
           if (!targetSessionId) {

@@ -569,6 +569,11 @@ async function boot(): Promise<void> {
       if (!tab) throw new Error("createTab returned null");
       return { sessionId: tab.sessionId.toString() };
     },
+    setMissionForSpawnedTab: async (sessionId, specPath) => {
+      const tab = manager.tabForSession(sessionId as SessionId);
+      if (!tab) return;
+      await manager.setMissionPathForTab(tab.id, specPath);
+    },
     confirmTask: teammateConfirmTask,
     cancelTaskProposal: teammateCancelTaskProposal,
     editTaskProposal: teammateEditTaskProposal,
