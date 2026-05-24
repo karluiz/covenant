@@ -22,6 +22,7 @@ mod embedder;
 mod exec_vitals;
 mod executor_idle;
 mod familiar_commands;
+mod file_search;
 mod fix_proposer;
 mod git_tools;
 mod history_import;
