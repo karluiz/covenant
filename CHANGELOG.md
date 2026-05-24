@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.27 — Teammate @file mentions + scrollback wheel fix
+
+### Added
+
+- **`@file` mentions in teammate chat**: typing `@` in the teammate composer opens a fuzzy file picker scoped to the active tab's cwd (`structureFindFiles`, debounced 120 ms, 20 hits). Arrow keys navigate, Enter/Tab insert as `@<relpath> `, Esc dismisses, and Enter is swallowed while the popup is open so the form doesn't submit. On send, every recognized mention token is inlined as a fenced ` ``` ### relpath ` block via the new pure `expandMentions` helper, with per-file (256 KB) and total (512 KB) caps and skip notices for binary/oversized files. New `ui/src/teammate/mentions.ts` + `mentions.test.ts` (12 tests, end-to-end coverage including the popup and `TeammatePanel.send` integration); wired through `ui/src/teammate/panel.ts`, `ui/src/main.ts` (`getActiveSessionCwd`), and styled in `ui/src/styles.css`.
+
+### Fixed
+
+- **Scrollback wheel-stuck refit no longer flickers at boundaries**: the wheel recovery in `ui/src/tabs/manager.ts` used to call `fit()` + `resize(rows-1, rows)` whenever the viewport's `scrollTop` didn't change after a wheel event, which fires naturally at the top/bottom of a large scrollback and made the terminal look like it was re-rendering on every tick. The handler now skips when the viewport is already at a boundary in the wheel direction, first tries `term.scrollLines()` to consume the missed delta, and only falls back to the geometry-rebuild path when the viewport is still immovable — restoring the user's `scrollTop` afterwards so they don't get teleported.
+
 ## v0.8.26 — File tree and Pi tab blank-state fixes
 
 ### Fixed
