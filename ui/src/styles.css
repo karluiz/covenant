@@ -15506,11 +15506,12 @@ body.theme-light .teammate-bubble-operator {
 /* === Mention picker (teammate composer) =============================== */
 .tmt-mp {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: calc(100% - 6px);
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 4px);
   z-index: 12;
-  max-height: 280px;
+  max-height: 320px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   background: var(--bg-overlay, var(--bg-panel));
@@ -15519,25 +15520,31 @@ body.theme-light .teammate-bubble-operator {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   padding: 4px;
   font-size: 12px;
+  overflow: hidden;
 }
 .tmt-mp-header {
-  display: flex; gap: 2px;
-  padding: 4px 4px 6px;
+  display: flex;
+  gap: 2px;
+  padding: 3px 3px 5px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
 .tmt-mp-tab {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   text-align: center;
-  padding: 5px 6px;
-  border-radius: 6px;
+  padding: 4px 2px;
+  border-radius: 5px;
   color: var(--fg-muted, #7c8597);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
 .tmt-mp-tab.is-active {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -16325,20 +16332,36 @@ body.theme-light .teammate-panel-switcher {
 
 .teammate-panel-composer {
   padding: 0 !important;
+  position: relative;
 }
 .teammate-panel-input {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
   min-height: 46px;
   border: 0 !important;
   border-radius: 0;
   background: #090b0f !important;
   box-shadow: none !important;
-  padding: 0 22px;
+  padding: 12px 22px;
+  box-sizing: border-box;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .teammate-panel-input::placeholder {
   color: #a9a9a9;
   opacity: 0.78;
+}
+/* Placeholder for the contenteditable composer (input::placeholder
+   does not apply to contenteditable elements) */
+.teammate-panel-input[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #a9a9a9;
+  opacity: 0.78;
+  pointer-events: none;
 }
 .teammate-panel-input:focus {
   border-color: transparent !important;
