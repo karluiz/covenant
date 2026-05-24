@@ -41,9 +41,17 @@ export class ComposerInput {
     this.el.addEventListener("input", () => { this.inputCbs.forEach((cb) => cb()); });
     this.el.addEventListener("keydown", (e) => {
       this.keydownCbs.forEach((cb) => cb(e));
-      if (e.key === "Enter" && !e.shiftKey && !e.defaultPrevented) {
+      if (e.defaultPrevented) return;
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         this.submitCbs.forEach((cb) => cb());
+        return;
+      }
+      if (e.key === "Backspace") {
+        if (this.tryDeleteChipBeforeCaret()) {
+          e.preventDefault();
+          this.inputCbs.forEach((cb) => cb());
+        }
       }
     });
     host.appendChild(this.el);
@@ -153,6 +161,85 @@ export class ComposerInput {
       this.el.appendChild(document.createTextNode(" "));
     }
     this.inputCbs.forEach((cb) => cb());
+  }
+
+  /// If the caret sits at the start of an empty/whitespace-only text
+  /// node that follows a chip (including the ZWSP+space caret anchor
+  /// we insert after a pick), delete the chip + that anchor as a unit.
+  /// Returns true if anything was deleted.
+  private tryDeleteChipBeforeCaret(): boolean {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) return false;
+    let node: Node | null = range.startContainer;
+    let offset = range.startOffset;
+    // If caret is at element level, descend.
+    if (node.nodeType !== Node.TEXT_NODE) {
+      const child = (node as HTMLElement).childNodes[offset - 1] ?? null;
+      if (child && child.nodeType === Node.TEXT_NODE) {
+        node = child;
+        offset = (child.textContent ?? "").length;
+      }
+    }
+    if (!node) return false;
+    // Find the preceding chip. Walk left through whitespace-only text.
+    let cursor: Node | null = node;
+    // From inside a text node: caret must be at offset 0 OR the text
+    // to the left is all whitespace/ZWSP.
+    if (cursor.nodeType === Node.TEXT_NODE) {
+      const before = (cursor.textContent ?? "").slice(0, offset);
+      if (!/^[\s​]*$/.test(before)) return false;
+    }
+    // Walk to the previous sibling chain; the first non-empty thing
+    // we hit must be a chip element.
+    let prev: Node | null = cursor.previousSibling;
+    while (prev && prev.nodeType === Node.TEXT_NODE && /^[\s​]*$/.test(prev.textContent ?? "")) {
+      prev = prev.previousSibling;
+    }
+    if (!(prev instanceof HTMLElement) || !prev.classList.contains("tmt-chip")) return false;
+    // Delete the chip and all whitespace/ZWSP text nodes between it and
+    // the current text node (inclusive of those, exclusive of cursor's
+    // remaining content). Then collapse caret where the chip was.
+    const toRemove: Node[] = [];
+    let walk: Node | null = prev.nextSibling;
+    while (walk && walk !== cursor) {
+      toRemove.push(walk);
+      walk = walk.nextSibling;
+    }
+    // If cursor text node is fully whitespace, remove it too and place
+    // caret after the chip's old position.
+    let cursorRemoved = false;
+    if (cursor.nodeType === Node.TEXT_NODE && /^[\s​]*$/.test(cursor.textContent ?? "")) {
+      toRemove.push(cursor);
+      cursorRemoved = true;
+    }
+    const parent = prev.parentNode!;
+    const anchorAfter = prev.nextSibling; // may be null
+    prev.remove();
+    toRemove.forEach((n) => n.parentNode && n.remove());
+    // Caret placement.
+    const newSel = window.getSelection();
+    if (newSel) {
+      const r = document.createRange();
+      if (cursorRemoved || !cursor.parentNode) {
+        // Place at the position the chip used to occupy.
+        if (anchorAfter && anchorAfter.parentNode === parent) {
+          r.setStartBefore(anchorAfter);
+        } else {
+          r.selectNodeContents(parent);
+          r.collapse(false);
+        }
+      } else {
+        // Cursor text node still exists; place caret at its current offset.
+        r.setStart(cursor, Math.min(offset, (cursor.textContent ?? "").length));
+      }
+      r.collapse(true);
+      newSel.removeAllRanges();
+      newSel.addRange(r);
+    }
+    this.el.focus();
+    return true;
   }
 
   removeAllChips(): void {
