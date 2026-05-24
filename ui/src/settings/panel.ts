@@ -574,17 +574,30 @@ export class SettingsPanel {
         <section class="settings-section" id="sec-spawns"></section>
         <section class="settings-section" id="sec-updates">
           <h3 class="settings-section-title">Updates</h3>
-          <p class="settings-hint" style="margin: 0 0 6px;">
-            Checks GitHub Releases for a newer Covenant build. The app
-            also checks silently on launch.
-          </p>
-          <label class="settings-field">
-            <span class="settings-checkbox-row" style="cursor: default;">
-              <span>Check for updates</span>
-              <button type="button" class="settings-toggle" id="settings-check-updates">Check now</button>
-            </span>
-            <small class="settings-hint" id="settings-update-status">Checks GitHub for the latest version.</small>
-          </label>
+          <div class="updates-card" id="updates-card" data-state="idle">
+            <div class="updates-card__header">
+              <span class="updates-card__dot" id="updates-card-dot" aria-hidden="true"></span>
+              <div class="updates-card__status">
+                <span class="updates-card__title" id="updates-card-title">Check for updates</span>
+                <span class="updates-card__sub" id="updates-card-sub">Checks GitHub Releases for a newer Covenant build. The app also checks silently on launch.</span>
+              </div>
+              <button type="button" class="updates-card__action" id="settings-check-updates">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+                <span>Check now</span>
+              </button>
+            </div>
+            <div class="updates-card__body">
+              <div class="updates-card__ver">
+                <div class="label">Installed</div>
+                <div class="ver" id="updates-card-installed">—</div>
+              </div>
+              <div class="updates-card__ver">
+                <div class="label">Latest on GitHub</div>
+                <div class="ver" id="updates-card-latest">—</div>
+                <div class="meta" id="updates-card-latest-meta">Not checked yet</div>
+              </div>
+            </div>
+          </div>
         </section>
         <section class="settings-section" id="sec-notifications">
           <h3 class="settings-section-title">Notifications</h3>
@@ -980,32 +993,122 @@ export class SettingsPanel {
       .querySelector<HTMLButtonElement>(".settings-cancel")!
       .addEventListener("click", () => this.close());
 
-    // Updates section — manual "Check now" trigger. Mirrors the silent
-    // boot-time check in main.ts but surfaces all three result kinds
-    // (available / uptodate / error) inline so the user gets feedback.
+    // Updates section — manual "Check now" trigger. Populates the
+    // status card with all three result kinds (available / uptodate /
+    // error). Last-checked timestamp persists in localStorage so it
+    // survives panel re-mounts and tells the user when the last
+    // successful probe actually happened.
+    const card = form.querySelector<HTMLElement>("#updates-card");
+    const dot = form.querySelector<HTMLElement>("#updates-card-dot");
+    const titleEl = form.querySelector<HTMLElement>("#updates-card-title");
+    const subEl = form.querySelector<HTMLElement>("#updates-card-sub");
+    const installedEl = form.querySelector<HTMLElement>("#updates-card-installed");
+    const latestEl = form.querySelector<HTMLElement>("#updates-card-latest");
+    const latestMeta = form.querySelector<HTMLElement>("#updates-card-latest-meta");
     const checkBtn = form.querySelector<HTMLButtonElement>("#settings-check-updates");
-    const statusEl = form.querySelector<HTMLElement>("#settings-update-status");
-    if (checkBtn && statusEl) {
+    const btnLabel = checkBtn?.querySelector<HTMLElement>("span");
+
+    if (card && dot && titleEl && subEl && installedEl && latestEl && latestMeta && checkBtn && btnLabel) {
+      const LS_KEY = "covenant:updates:last-check";
+      type Persisted = { at: number; latest: string | null; ok: boolean };
+      const readPersisted = (): Persisted | null => {
+        try {
+          const raw = localStorage.getItem(LS_KEY);
+          return raw ? (JSON.parse(raw) as Persisted) : null;
+        } catch {
+          return null;
+        }
+      };
+      const writePersisted = (p: Persisted): void => {
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify(p));
+        } catch {
+          /* quota / private mode — fine, this is best-effort */
+        }
+      };
+      const formatAgo = (ts: number): string => {
+        const secs = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (secs < 60) return `${secs}s ago`;
+        const mins = Math.floor(secs / 60);
+        if (mins < 60) return `${mins} min ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs} h ago`;
+        const days = Math.floor(hrs / 24);
+        return `${days} d ago`;
+      };
+
+      const hydrate = async (): Promise<void> => {
+        const { getVersion } = await import("@tauri-apps/api/app");
+        installedEl.textContent = `v${await getVersion()}`;
+        const p = readPersisted();
+        if (!p) return;
+        if (p.latest) {
+          latestEl.textContent = `v${p.latest}`;
+          latestMeta.textContent = `Checked ${formatAgo(p.at)}`;
+        }
+        if (p.ok) {
+          subEl.textContent = `Last checked ${formatAgo(p.at)} · also checks silently on launch`;
+        }
+      };
+      void hydrate();
+
+      const setState = (
+        state: "idle" | "checking" | "uptodate" | "available" | "error",
+        opts: { title?: string; sub?: string; latest?: string | null; latestMeta?: string } = {},
+      ): void => {
+        card.dataset.state = state;
+        if (opts.title !== undefined) titleEl.textContent = opts.title;
+        if (opts.sub !== undefined) subEl.textContent = opts.sub;
+        if (opts.latest !== undefined) latestEl.textContent = opts.latest ?? "—";
+        if (opts.latestMeta !== undefined) latestMeta.textContent = opts.latestMeta;
+      };
+
       checkBtn.addEventListener("click", async () => {
         checkBtn.disabled = true;
-        statusEl.textContent = "Checking…";
+        btnLabel.textContent = "Checking…";
+        setState("checking", { title: "Checking GitHub Releases…", sub: "Fetching latest release metadata" });
+
         const { getVersion } = await import("@tauri-apps/api/app");
         const { runUpdateCheck } = await import("../updater/check");
         const { showUpdateBanner } = await import("../updater/banner");
         const currentVersion = await getVersion();
         const result = await runUpdateCheck({ currentVersion, silent: false });
+        const now = Date.now();
+
         switch (result.kind) {
           case "available":
-            statusEl.textContent = `Update available: v${result.version}`;
+            setState("available", {
+              title: `Update available — v${result.version}`,
+              sub: "Download and install from the update banner",
+              latest: `v${result.version}`,
+              latestMeta: `New build available · checked just now`,
+            });
+            writePersisted({ at: now, latest: result.version, ok: true });
             showUpdateBanner(result.update);
             break;
           case "uptodate":
-            statusEl.textContent = `You're on the latest version (v${result.currentVersion}).`;
+            setState("uptodate", {
+              title: "Covenant is up to date",
+              sub: `Last checked just now · also checks silently on launch`,
+              latest: `v${result.currentVersion}`,
+              latestMeta: `No newer release available`,
+            });
+            writePersisted({ at: now, latest: result.currentVersion, ok: true });
             break;
-          case "error":
-            statusEl.textContent = `Check failed: ${result.message}`;
+          case "error": {
+            const prev = readPersisted();
+            const since = prev?.ok ? ` · last success ${formatAgo(prev.at)}` : "";
+            setState("error", {
+              title: "Couldn't reach GitHub Releases",
+              sub: `${result.message}${since}`,
+              latest: "—",
+              latestMeta: "Unknown — fetch failed",
+            });
+            writePersisted({ at: now, latest: prev?.latest ?? null, ok: false });
             break;
+          }
         }
+        btnLabel.textContent = result.kind === "error" ? "Retry" : "Check now";
         checkBtn.disabled = false;
       });
     }

@@ -4258,6 +4258,131 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     font-size: 10px;
 }
 
+/* Updates section status card. */
+.updates-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.updates-card__header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 16px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent);
+    border-bottom: 1px solid var(--border);
+}
+.updates-card__dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #6b7785;
+    box-shadow: 0 0 8px rgba(107, 119, 133, 0.35);
+    position: relative;
+    flex-shrink: 0;
+}
+.updates-card[data-state="uptodate"] .updates-card__dot {
+    background: #6dd29a;
+    box-shadow: 0 0 10px rgba(109, 210, 154, 0.55);
+}
+.updates-card[data-state="available"] .updates-card__dot {
+    background: #f0b265;
+    box-shadow: 0 0 10px rgba(240, 178, 101, 0.55);
+}
+.updates-card[data-state="error"] .updates-card__dot {
+    background: #f47174;
+    box-shadow: 0 0 10px rgba(244, 113, 116, 0.55);
+}
+.updates-card[data-state="checking"] .updates-card__dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border: 1.5px solid var(--accent);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: updates-card-spin 0.9s linear infinite;
+}
+@keyframes updates-card-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+.updates-card__status {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.updates-card__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg, #fff);
+}
+.updates-card__sub {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.4;
+}
+.updates-card__action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 7px;
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 80ms ease;
+    flex-shrink: 0;
+}
+.updates-card__action:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.updates-card__action:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+.updates-card__action svg {
+    width: 12px;
+    height: 12px;
+}
+.updates-card__body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+}
+.updates-card__ver {
+    padding: 12px 16px;
+    border-right: 1px solid var(--border);
+}
+.updates-card__ver:last-child {
+    border-right: 0;
+}
+.updates-card__ver .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+.updates-card__ver .ver {
+    font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--fg, #fff);
+    letter-spacing: -0.01em;
+}
+.updates-card__ver .meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
 .settings-slider {
     width: 100%;
     accent-color: var(--accent, #4a9eff);
