@@ -2,7 +2,8 @@ import type { Operator, Task, TaskArchetype, TeammateMessage, TeammateToolCall, 
 import type { OperatorDecisionRow } from "../api";
 import {
   injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp,
-  operatorList, teammateAttachSessionToTask, teammateCancelTaskProposal,
+  operatorList, structureFindFiles, structureReadFile,
+  teammateAttachSessionToTask, teammateCancelTaskProposal,
   teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal,
   teammateListDecisionsForSession, teammateListMessages, teammateListTasks,
   teammateSendText,
@@ -10,6 +11,7 @@ import {
 import { Icons } from "../icons";
 import { renderAvatarHtml } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
+import { expandMentions, MentionPopup, type FindFilesFn, type ReadFileFn } from "./mentions";
 import { renderTaskCard } from "./task-card";
 
 const CHEVRON_DOWN_SVG =
@@ -65,6 +67,12 @@ export interface TeammatePanelDeps {
   /// AOM), and refresh tab state so the operator ring + status bar update
   /// in the UI. Routed through TabsManager.setTabOperator under the hood.
   bindOperatorToTab?:   (sessionId: string, operatorId: string) => Promise<void>;
+  /// Cwd of the foreground tab. Used by the `@file` mention popup to
+  /// scope fuzzy file search. Null disables the popup with a notice.
+  getActiveSessionCwd?: () => string | null;
+  /// Injection points for the mention popup (defaults wired below).
+  findFiles?:           FindFilesFn;
+  readFile?:            ReadFileFn;
 }
 
 const DEFAULT_DEPS: TeammatePanelDeps = {
@@ -79,6 +87,8 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   attachSessionToTask: teammateAttachSessionToTask,
   listTasks:           teammateListTasks,
   clearForOperator:    teammateClearForOperator,
+  findFiles:           structureFindFiles,
+  readFile:            structureReadFile,
 };
 
 interface SystemLineStyle {
@@ -155,6 +165,10 @@ export class TeammatePanel {
   private resetArmTimer: number | null = null;
   private expandedTaskIds = new Set<string>();
   private decisionsByTask = new Map<string, OperatorDecisionRow[]>();
+  /// Maps `@<relpath>` token → absolute path of files the user has
+  /// mention-picked in the current composer draft. Cleared on send.
+  private mentionedFiles = new Map<string, string>();
+  private mentionPopup: MentionPopup | null = null;
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -201,6 +215,9 @@ export class TeammatePanel {
     this.unlisten = null;
     this.unlistenToolCall?.();
     this.unlistenToolCall = null;
+    this.mentionPopup?.destroy();
+    this.mentionPopup = null;
+    this.mentionedFiles.clear();
     this.operator = null;
     this.host.style.removeProperty("--operator-color");
     this.host.innerHTML = "";
@@ -211,9 +228,15 @@ export class TeammatePanel {
     if (!this.operator) return;
     if (!text.trim()) return;
     const activeId = this.deps.getActiveSessionId?.() ?? null;
-    const msg = await this.deps.sendText(this.operator.id, text.trim(), activeId);
+    let payload = text.trim();
+    if (this.mentionedFiles.size > 0 && this.deps.readFile) {
+      const expanded = await expandMentions(payload, this.mentionedFiles, this.deps.readFile);
+      payload = expanded.text;
+    }
+    const msg = await this.deps.sendText(this.operator.id, payload, activeId);
     this.appendBubble(msg);
     if (this.inputEl) this.inputEl.value = "";
+    this.mentionedFiles.clear();
     this.setTyping(true);
   }
 
@@ -371,7 +394,7 @@ export class TeammatePanel {
     c.className = "teammate-panel-composer";
     const input = document.createElement("input");
     input.type = "text";
-    input.placeholder = `Message ${this.operator?.name ?? ""}…`;
+    input.placeholder = `Message ${this.operator?.name ?? ""}…  (type @ to mention a file)`;
     input.autocomplete = "off";
     input.autocapitalize = "off";
     input.setAttribute("autocorrect", "off");
@@ -384,6 +407,25 @@ export class TeammatePanel {
       void this.send(input.value);
     });
     this.composerEl = c;
+
+    // Reset draft-scoped mention map when the user clears the input.
+    input.addEventListener("input", () => {
+      if (input.value.length === 0) this.mentionedFiles.clear();
+    });
+
+    this.mentionPopup?.destroy();
+    const findFiles = this.deps.findFiles;
+    if (findFiles) {
+      this.mentionPopup = new MentionPopup({
+        input,
+        anchor: c,
+        getCwd: () => this.deps.getActiveSessionCwd?.() ?? null,
+        findFiles,
+        onPick: (token, absPath) => {
+          this.mentionedFiles.set(token, absPath);
+        },
+      });
+    }
     return c;
   }
 

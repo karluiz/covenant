@@ -15427,6 +15427,44 @@ body.theme-light .teammate-bubble-operator {
   /* Extra horizontal + bottom padding so the input's 3px focus halo
      never clips against the panel's overflow:hidden border. */
   padding: 10px 14px 12px;
+  position: relative;
+}
+.teammate-mention-popup {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: calc(100% - 6px);
+  z-index: 12;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-overlay, var(--bg-panel));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 4px;
+  font-size: 12px;
+}
+.teammate-mention-row {
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.teammate-mention-row b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.teammate-mention-row.is-selected,
+.teammate-mention-row:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.teammate-mention-empty {
+  padding: 8px;
+  color: var(--fg-muted, #888);
+  font-style: italic;
 }
 .teammate-panel-input {
   width: 100%;

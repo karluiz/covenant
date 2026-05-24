@@ -545,6 +545,7 @@ async function boot(): Promise<void> {
       const sid = manager.activeSessionId();
       return sid ? sid.toString() : null;
     },
+    getActiveSessionCwd: () => manager.activeCwd(),
     spawnTabForTask: async (task) => {
       const tab = await manager.createTab({
         customName: `${task.title.slice(0, 32)}`,
