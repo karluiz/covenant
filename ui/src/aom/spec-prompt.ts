@@ -81,7 +81,21 @@ function onCandidate(cand: SpecCandidate) {
   }
 
   const activeId = host.getActiveTabId();
-  const target = eligible.find((t) => t.id === activeId) ?? eligible[0];
+  // Prefer the eligible tab whose cwd is the deepest prefix of the spec
+  // path — that's the tab the spec was actually created in. Fall back to
+  // the active tab, then the first eligible.
+  const norm = (p: string) => p.replace(/\/+$/, "");
+  const path = norm(cand.path);
+  const byCwdDepth = eligible
+    .filter((t) => {
+      const c = norm(t.cwd);
+      return path === c || path.startsWith(c + "/");
+    })
+    .sort((a, b) => norm(b.cwd).length - norm(a.cwd).length);
+  const target =
+    byCwdDepth[0] ??
+    eligible.find((t) => t.id === activeId) ??
+    eligible[0];
 
   // Scope the pending candidate to the originating tab so the 📎 badge
   // and toast only surface there — not on every sibling tab under the
