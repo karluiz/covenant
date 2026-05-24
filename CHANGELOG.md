@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.25 — Autonomous teammate task dispatch + Tasks tab
+
+### Added
+
+- **Autonomous task pipeline (YOLO mode)**: confirmed `propose_task` messages with `archetype="do"` now dispatch immediately on arrival — no Confirm click required. `ui/src/teammate/panel.ts` runs `handleConfirm` from `onIncomingMessage`, attaches the task to the currently active tab, pins the operator with `sessionSetOperator` + `setOperatorEnabled` + `setOperatorLive` (single-tab AOM), and injects the prompt — raw text + newline when an executor CLI is already running in the target tab, shell-quoted `<exec> '<prompt>'` fallback otherwise. Opt out via `localStorage.covenant.teammate.yolo=off` or `confirm-target=spawn`.
+- **Executor routing**: operators now pick which agent CLI should drive a `do` task. `TaskDraft.executor` flows from `propose_task` through storage to confirm time; `crates/app/src/teammate/tools.rs` exposes the `executor` enum (`claude` / `codex` / `copilot` / `pi` / `hermes`) on the tool schema; `crates/app/src/teammate/llm.rs` describes each in the system prompt and biases the operator hard toward action over clarifying questions.
+- **Tasks tab + details panel**: new Tasks view inside the teammate panel with filter chips (All / Active / Proposed / Done) and per-task expand-on-click. Expanded rows show an executor strip, a 3-up stats grid (decisions count + breakdown, total cost, age), a compact lifecycle timeline (proposed → started → active → done), and the last decisions feed driven by the new `teammate_list_decisions_for_session` query (`crates/app/src/storage.rs`, `crates/app/src/teammate/commands.rs`).
+- **Header working state**: when the operator has any active/blocked task, the panel header grows a second concentric ring around the avatar (rainbow conic gradient, outside the existing XP ring) and the model-name subtitle swaps to `● <task title>`. Reverts automatically when no task is active. `ui/src/teammate/panel.ts` + `ui/src/styles.css`.
+- **Single-tab AOM indicator**: `ui/src/tabs/manager.ts` now lights the animated `tab-aom-active` gradient ring on any tab whose operator is `live`, not just when global AOM is on. Confirmed teammate tasks become visually distinct without forcing the global toggle.
+- **Reset operator affordance**: trash icon in the teammate panel tabs-bar with inline two-step confirm wipes all messages + tasks for the current operator and resets its runtime state back to Idle. New `teammate_clear_for_operator` storage + Tauri command (`crates/app/src/storage.rs`, `crates/app/src/teammate/commands.rs`, `crates/app/src/teammate/runtime.rs`).
+
+### Changed
+
+- **Updates settings card**: `ui/src/settings/panel.ts` replaces the bare "Check for updates" row with a card showing installed vs latest versions, last-check metadata, and a dedicated action button with a refresh icon. `ui/src/styles.css` adds matching styles.
+- **Confirmed proposals collapse to a pill**: `ui/src/teammate/task-card.ts` renders confirmed `propose` messages as a single-line pill (badge · title · `tab "<title…>"` link) instead of keeping the full deliverable/scope card forever; cancelled proposals render as a dimmed pill with a `cancelled` tag. Edit / Cancel became icon buttons (pencil / x) so all three actions fit the rail width.
+- **Friendly backend errors**: `handleConfirm` / `handleCancel` translate known backend strings (`operator already on task`, `proposal already confirmed`, `not found`, …) into English error cards instead of rendering raw `"failed:"` system rows; unknowns fall back to `"Couldn't <verb> the task."` with the original message attached.
+- **UI copy normalized to English**: all chat chrome (buttons, tooltips, system rows, status labels, error cards, placeholders) is English-first. See `feedback_english_first_copy` memory.
+
+### Fixed
+
+- **Task-item layout regression**: `ui/src/styles.css` resets `.task-item` from grid to block and pins every child of `.task-item__head` to an explicit `grid-column` / `grid-row`. The meta row (badge · status · age · tab id) now lays out on a single line instead of wrapping word-by-word.
+
 ## v0.8.24 — Teammate workspace tools + Hermes phase detection
 
 ### Added
