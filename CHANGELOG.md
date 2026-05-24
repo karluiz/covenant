@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.23 — OpenAI teammate tool-use and activity polish
+
+### Added
+
+- **OpenAI-compatible teammate tool-use**: teammate dispatch now keeps tool-capable conversations on OpenAI Chat Completions providers and Azure Foundry instead of falling back to text-only replies. `crates/app/src/teammate/llm.rs` adds the OpenAI `tool_calls` loop for `read_file` and `propose_task`, while `crates/app/src/teammate/openai_http.rs` handles OpenAI/Azure request shaping, auth headers, tool-schema conversion, and tool-call argument parsing.
+
+### Fixed
+
+- **Azure OpenAI deployment probing**: `crates/app/src/providers_cmd.rs` now pins the deployment-list probe to `2023-03-15-preview`, the data-plane API version that still serves `/openai/deployments`, instead of reusing chat-completion API versions that 404 on deployment listing.
+- **Hermes Activity feed detection**: `crates/pty/src/fg_proc.rs` maps Hermes' Python virtualenv entrypoint back to logical CLI name `hermes`, so macOS foreground-process detection lets the notch/activity pipeline ingest Hermes output and spawn Activity rows.
+- **Activity stream scroll anchoring**: `ui/src/inline-notch.ts` assigns stable row IDs and restores the first visible row after each render, preventing frequent notch updates from snapping the Activity sidebar back to the newest rows while the user scrolls older events. `ui/src/inline-notch.test.ts` covers the regression by simulating browser scroll reset during `innerHTML` replacement.
+
 ## v0.8.22 — Azure Foundry model picker fix + Hermes executor
 
 ### Fixed
