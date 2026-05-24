@@ -2429,6 +2429,19 @@ async fn structure_find_files(
         .map_err(|e| format!("find_files join: {e}"))?
 }
 
+#[tauri::command]
+async fn find_recent_commands(
+    state: State<'_, AppState>,
+    query: String,
+    limit: usize,
+) -> Result<Vec<storage::CommandHit>, String> {
+    state
+        .storage
+        .recent_commands(query, limit.clamp(1, 200))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ── 3.18 Spec Author — DTOs & Tauri commands ─────────────────────────────────
 
 #[derive(serde::Serialize)]
@@ -3301,6 +3314,7 @@ pub fn run() {
             structure_trash_path,
             structure_search,
             structure_find_files,
+            find_recent_commands,
             drafts::list_drafts,
             drafts::read_draft,
             drafts::save_draft,

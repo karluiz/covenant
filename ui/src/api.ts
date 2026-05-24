@@ -1143,6 +1143,28 @@ export async function structureFindFiles(
   return invoke<FileHit[]>("structure_find_files", { cwd, query, limit });
 }
 
+/// One per-block hit for the `@` mention picker. `match_indices` are
+/// CHAR offsets within `command` where the fuzzy subsequence landed.
+export interface CommandHit {
+  block_id: string;
+  session_id: string;
+  command: string;
+  exit_code: number | null;
+  cwd: string;
+  finished_at_unix_ms: number;
+  match_indices: number[];
+}
+
+/// Per-block fuzzy command search. Empty query returns the most
+/// recent finished blocks; otherwise results are ranked by fuzzy
+/// score then recency.
+export async function findRecentCommands(
+  query: string,
+  limit: number,
+): Promise<CommandHit[]> {
+  return invoke<CommandHit[]>("find_recent_commands", { query, limit });
+}
+
 // 3.8 Convergence Mode -----------------------------------------------------
 
 export type TileStatus =

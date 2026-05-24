@@ -492,7 +492,7 @@ pub fn find_files(root: &Path, query: &str, limit: u32) -> Result<Vec<FileHit>, 
 ///   +20 per char that is contiguous with the previous match
 ///   +30 if the first match is at the basename start
 ///   −1  per char of haystack length (shorter paths win on ties)
-fn fuzzy_score(haystack: &str, needle: &[char]) -> Option<(i32, Vec<usize>)> {
+pub(crate) fn fuzzy_score(haystack: &str, needle: &[char]) -> Option<(i32, Vec<usize>)> {
     if needle.is_empty() {
         return None;
     }

@@ -279,6 +279,23 @@ pub struct RecallMatch {
     pub score: f64,
 }
 
+/// Per-block hit for the @mention picker. Unlike `RecallMatch`, rows
+/// are NOT aggregated by command string — the picker needs the
+/// individual block (with its cwd, exit_code, finished_at) so it can
+/// be quoted into a prompt with full provenance.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CommandHit {
+    pub block_id: String,
+    pub session_id: String,
+    pub command: String,
+    pub exit_code: Option<i32>,
+    pub cwd: String,
+    pub finished_at_unix_ms: u64,
+    /// CHAR offsets in `command` where the fuzzy subsequence landed.
+    /// Empty when the query is empty.
+    pub match_indices: Vec<u32>,
+}
+
 /// Aggregated digest of one AOM session — what the user reads when
 /// they wake up. Combines the AOM session metadata with everything
 /// the Operator did during its time window (decisions grouped by
@@ -796,6 +813,84 @@ impl Storage {
             });
             matches.truncate(limit as usize);
             Ok(matches)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Per-block fuzzy command search for the `@` mention picker.
+    ///
+    /// Returns up to `limit` recent finished blocks whose `command`
+    /// matches `query` as a case-insensitive subsequence. Ranked by
+    /// fuzzy score desc, then `finished_at_unix_ms` desc. Empty query
+    /// returns the newest finished blocks (score 0, no match_indices).
+    pub async fn recent_commands(
+        &self,
+        query: String,
+        limit: usize,
+    ) -> Result<Vec<CommandHit>, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<CommandHit>, StorageError> {
+            let c = conn.blocking_lock();
+
+            // Generous pool so fuzzy ranking can re-order before the
+            // final `limit` truncation; SQL only does recency-window.
+            const POOL: i64 = 1000;
+
+            let mut stmt = c.prepare(
+                "SELECT id, session_id, command, exit_code, cwd, finished_at_unix_ms
+                 FROM blocks
+                 WHERE command != ''
+                 ORDER BY finished_at_unix_ms DESC
+                 LIMIT ?1",
+            )?;
+
+            let rows = stmt.query_map(params![POOL], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<i64>>(3)?.map(|v| v as i32),
+                    r.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    r.get::<_, i64>(5)? as u64,
+                ))
+            })?;
+
+            let q_trim = query.trim();
+            let needle: Vec<char> = q_trim.to_lowercase().chars().collect();
+            let empty_query = needle.is_empty();
+
+            let mut scored: Vec<(i32, CommandHit)> = Vec::new();
+            for row in rows {
+                let (block_id, session_id, command, exit_code, cwd, finished_at_unix_ms) = row?;
+                let (score, indices) = if empty_query {
+                    (0, Vec::new())
+                } else {
+                    match crate::structure::fuzzy_score(&command, &needle) {
+                        Some(v) => v,
+                        None => continue,
+                    }
+                };
+                scored.push((
+                    score,
+                    CommandHit {
+                        block_id,
+                        session_id,
+                        command,
+                        exit_code,
+                        cwd,
+                        finished_at_unix_ms,
+                        match_indices: indices.into_iter().map(|c| c as u32).collect(),
+                    },
+                ));
+            }
+
+            scored.sort_by(|a, b| {
+                b.0.cmp(&a.0)
+                    .then_with(|| b.1.finished_at_unix_ms.cmp(&a.1.finished_at_unix_ms))
+            });
+            scored.truncate(limit);
+            Ok(scored.into_iter().map(|(_, h)| h).collect())
         })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
@@ -2364,6 +2459,51 @@ mod tests {
 
         let (sessions, blocks) = s.counts().await.unwrap();
         assert_eq!((sessions, blocks), (1, 1));
+    }
+
+    async fn insert_finished_block(s: &Storage, session: SessionId, cmd: &str, finished: u64) {
+        s.save_block(
+            BlockId::new(),
+            session,
+            cmd.to_string(),
+            Some("/tmp".to_string()),
+            Some(0),
+            10,
+            finished,
+            String::new(),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn recent_commands_ranks_fuzzy_then_recency() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1).await.unwrap();
+        insert_finished_block(&s, session, "cargo build", 100).await;
+        insert_finished_block(&s, session, "cargo test", 200).await;
+        insert_finished_block(&s, session, "git status", 150).await;
+        insert_finished_block(&s, session, "cargo bench", 50).await;
+
+        let hits = s.recent_commands("cargo".to_string(), 10).await.unwrap();
+        let cmds: Vec<&str> = hits.iter().map(|h| h.command.as_str()).collect();
+        assert!(cmds.contains(&"cargo test"));
+        assert!(!cmds.contains(&"git status"));
+        let pos = |c: &str| cmds.iter().position(|x| *x == c).unwrap();
+        assert!(pos("cargo test") < pos("cargo build"));
+        assert!(pos("cargo build") < pos("cargo bench"));
+    }
+
+    #[tokio::test]
+    async fn recent_commands_empty_query_returns_newest_first() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1).await.unwrap();
+        insert_finished_block(&s, session, "a", 1).await;
+        insert_finished_block(&s, session, "b", 2).await;
+        let hits = s.recent_commands("".to_string(), 10).await.unwrap();
+        assert_eq!(hits[0].command, "b");
     }
 
     #[tokio::test]
