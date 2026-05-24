@@ -296,6 +296,37 @@ pub struct CommandHit {
     pub match_indices: Vec<u32>,
 }
 
+/// Excerpt for a single mentioned block — fed back into the composer
+/// when expanding a `@cmd:<block_id>` chip. `plain_output` is the full
+/// stored output (frontend caps total bundle size).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BlockExcerptDto {
+    pub command: String,
+    pub exit_code: Option<i32>,
+    pub cwd: String,
+    pub plain_output: String,
+}
+
+/// Tail of one recent block within a session excerpt — last ~4 KB of
+/// the block's output, with `command` + `exit_code` for context.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecentBlockDto {
+    pub command: String,
+    pub exit_code: Option<i32>,
+    pub tail: String,
+}
+
+/// Excerpt for a mentioned session. `shell` and `tab_index` are not
+/// tracked in the sessions table — the frontend fills them from the
+/// in-memory TabManager and overwrites these defaults.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionExcerptDto {
+    pub cwd: String,
+    pub shell: String,
+    pub tab_index: u32,
+    pub recent: Vec<RecentBlockDto>,
+}
+
 /// Aggregated digest of one AOM session — what the user reads when
 /// they wake up. Combines the AOM session metadata with everything
 /// the Operator did during its time window (decisions grouped by
@@ -423,6 +454,20 @@ fn voice_from_str(s: &str) -> crate::operator_registry::VoiceTone {
         "Formal" => crate::operator_registry::VoiceTone::Formal,
         _ => crate::operator_registry::VoiceTone::Terse,
     }
+}
+
+/// Return the last ~4 KB of `s`, snapped to a UTF-8 char boundary so
+/// truncation never produces invalid UTF-8. Empty input returns empty.
+fn tail_4kb(s: &str) -> String {
+    const MAX: usize = 4096;
+    if s.len() <= MAX {
+        return s.to_string();
+    }
+    let mut start = s.len() - MAX;
+    while start < s.len() && !s.is_char_boundary(start) {
+        start += 1;
+    }
+    s[start..].to_string()
 }
 
 fn shorten(id: &str) -> String {
@@ -891,6 +936,109 @@ impl Storage {
             });
             scored.truncate(limit);
             Ok(scored.into_iter().map(|(_, h)| h).collect())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Fetch a single block's command + exit + cwd + full stored output
+    /// for `@cmd:<block_id>` chip expansion. Errors `Other("not found")`
+    /// when the block id isn't in the table.
+    pub async fn read_block_excerpt(
+        &self,
+        block_id: String,
+    ) -> Result<BlockExcerptDto, StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<BlockExcerptDto, StorageError> {
+            let c = conn.blocking_lock();
+            let result: rusqlite::Result<(String, Option<i64>, Option<String>, Option<String>)> =
+                c.query_row(
+                    "SELECT command, exit_code, cwd, output_text FROM blocks WHERE id = ?1",
+                    params![block_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                );
+            match result {
+                Ok((command, exit_code, cwd, output_text)) => Ok(BlockExcerptDto {
+                    command,
+                    exit_code: exit_code.map(|v| v as i32),
+                    cwd: cwd.unwrap_or_default(),
+                    plain_output: output_text.unwrap_or_default(),
+                }),
+                Err(rusqlite::Error::QueryReturnedNoRows) => {
+                    Err(StorageError::Other(format!("block {block_id} not found")))
+                }
+                Err(e) => Err(StorageError::Sqlite(e)),
+            }
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Fetch the last-known cwd + the `n` most-recent finished blocks
+    /// for `session_id`, each truncated to a ~4 KB tail. Used for
+    /// `@session:<short>` chip expansion. `shell` + `tab_index` are
+    /// left as defaults — caller (UI) fills them from TabManager.
+    pub async fn read_session_excerpt(
+        &self,
+        session_id: String,
+        n: usize,
+    ) -> Result<SessionExcerptDto, StorageError> {
+        let conn = self.inner.clone();
+        let n = n.clamp(1, 50);
+        tokio::task::spawn_blocking(move || -> Result<SessionExcerptDto, StorageError> {
+            let c = conn.blocking_lock();
+
+            // Confirm the session exists.
+            let session_exists: i64 = c
+                .query_row(
+                    "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+                    params![session_id],
+                    |r| r.get(0),
+                )
+                .map_err(StorageError::Sqlite)?;
+            if session_exists == 0 {
+                return Err(StorageError::Other(format!("session {session_id} not found")));
+            }
+
+            // Latest cwd: take the most-recent block's cwd (sessions has none).
+            let latest_cwd: Option<String> = c
+                .query_row(
+                    "SELECT cwd FROM blocks
+                     WHERE session_id = ?1 AND cwd IS NOT NULL
+                     ORDER BY finished_at_unix_ms DESC LIMIT 1",
+                    params![session_id],
+                    |r| r.get(0),
+                )
+                .ok();
+
+            let mut stmt = c.prepare(
+                "SELECT command, exit_code, output_text
+                 FROM blocks
+                 WHERE session_id = ?1
+                 ORDER BY finished_at_unix_ms DESC
+                 LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![session_id, n as i64], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<i64>>(1)?.map(|v| v as i32),
+                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            })?;
+            let mut recent = Vec::new();
+            for row in rows {
+                let (command, exit_code, output_text) = row?;
+                recent.push(RecentBlockDto { command, exit_code, tail: tail_4kb(&output_text) });
+            }
+            // Surface oldest-first so the reader sees chronological order.
+            recent.reverse();
+
+            Ok(SessionExcerptDto {
+                cwd: latest_cwd.unwrap_or_default(),
+                shell: String::new(),
+                tab_index: 0,
+                recent,
+            })
         })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?

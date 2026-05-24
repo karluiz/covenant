@@ -2442,6 +2442,31 @@ async fn find_recent_commands(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn read_block_excerpt(
+    state: State<'_, AppState>,
+    block_id: String,
+) -> Result<storage::BlockExcerptDto, String> {
+    state
+        .storage
+        .read_block_excerpt(block_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn read_session_excerpt(
+    state: State<'_, AppState>,
+    session_id: String,
+    n: usize,
+) -> Result<storage::SessionExcerptDto, String> {
+    state
+        .storage
+        .read_session_excerpt(session_id, n)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ── 3.18 Spec Author — DTOs & Tauri commands ─────────────────────────────────
 
 #[derive(serde::Serialize)]
@@ -3315,6 +3340,8 @@ pub fn run() {
             structure_search,
             structure_find_files,
             find_recent_commands,
+            read_block_excerpt,
+            read_session_excerpt,
             drafts::list_drafts,
             drafts::read_draft,
             drafts::save_draft,
