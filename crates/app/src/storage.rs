@@ -2172,6 +2172,25 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Wipe every message and task belonging to an operator. Artifacts cascade
+     /// via the FK on teammate_artifacts.task_id. Used by the panel's "reset
+     /// chats & tasks" affordance for testing.
+    pub async fn teammate_clear_for_operator(
+        &self,
+        op: crate::operator_registry::OperatorId,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            let op_s = op.0.to_string();
+            c.execute("DELETE FROM teammate_messages WHERE operator_id = ?1", params![op_s])?;
+            c.execute("DELETE FROM teammate_tasks    WHERE operator_id = ?1", params![op_s])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn teammate_update_task_spawned_session(
         &self,
         id: crate::teammate::TaskId,

@@ -73,6 +73,14 @@ impl TeammateRuntime {
         Ok(())
     }
 
+    /// Force the operator back to Idle regardless of its current state.
+    /// Used by the panel's reset action — we don't care what it was doing,
+    /// the rows are gone from storage so the runtime entry must match.
+    pub fn reset(&self, op: OperatorId) {
+        let mut guard = self.inner.lock();
+        guard.insert(op, OperatorState::Idle);
+    }
+
     /// OnTask(task, _) → Idle. Mismatched task id is an error.
     pub fn finish_task(&self, op: OperatorId, task: TaskId) -> Result<(), TransitionError> {
         let mut guard = self.inner.lock();

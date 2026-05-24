@@ -368,6 +368,20 @@ pub async fn teammate_edit_task_proposal(
     edit_task_proposal_inner(storage.inner(), message_id, draft).await
 }
 
+/// Wipe every message and task for `operator_id`, and reset the in-memory
+/// runtime state back to Idle. Used by the panel's reset button for testing.
+#[tauri::command]
+pub async fn teammate_clear_for_operator(
+    storage: State<'_, Arc<Storage>>,
+    runtime: State<'_, Arc<TeammateRuntime>>,
+    operator_id: OperatorId,
+) -> Result<(), String> {
+    storage.teammate_clear_for_operator(operator_id).await
+        .map_err(|e| e.to_string())?;
+    runtime.reset(operator_id);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn teammate_attach_session_to_task(
     app: tauri::AppHandle,

@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Teammate · Tasks UX preview</title>
+<style>
+  :root {
+    --bg: #0d0e12;
+    --rail: #14151a;
+    --rail-2: #181a20;
+    --border: rgba(255,255,255,0.07);
+    --border-soft: rgba(255,255,255,0.10);
+    --text: #e6e7ea;
+    --dim: #8b8d94;
+    --dim-2: #5e6068;
+    --accent: #6f7bff;
+    --accent-2: #3b82f6;
+    --green: #50c878;
+    --amber: #f0c870;
+    --rose: #ef6b7e;
+    --purple: #b48cff;
+    --bubble-op: #b9c5ff;
+    --bubble-tm: #2a1f3a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #06070a; color: var(--text); font: 13px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 28px; max-width: 1440px; margin: 0 auto; }
+  h2 { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+  .frame {
+    background: var(--rail);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    height: 760px;
+    display: flex; flex-direction: column;
+  }
+  .frame__head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .frame__head .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #c9a4ff, #6f7bff); }
+  .frame__head .name { font-weight: 600; }
+  .frame__head .lv { font-size: 10px; padding: 2px 6px; border-radius: 6px; background: rgba(180,140,255,0.18); color: var(--purple); }
+  .frame__head .model { color: var(--dim); font-size: 11px; margin-left: -2px; }
+  .frame__tabs {
+    display: flex; gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 8px;
+  }
+  .frame__tab {
+    padding: 9px 14px; font-size: 12px; color: var(--dim);
+    border-bottom: 2px solid transparent;
+    cursor: pointer; user-select: none;
+  }
+  .frame__tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+  .frame__tab .count { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; font-size: 10px; background: rgba(255,255,255,0.06); color: var(--dim); }
+  .frame__body { flex: 1; overflow: auto; padding: 14px; }
+  .frame__compose { border-top: 1px solid var(--border); padding: 10px 14px; color: var(--dim-2); }
+
+  /* --- chat bubbles --- */
+  .row { display: flex; margin: 8px 0; }
+  .row--op { justify-content: flex-end; }
+  .bubble { max-width: 78%; padding: 10px 14px; border-radius: 16px; }
+  .bubble--op { background: var(--bubble-op); color: #0d0f1a; border-bottom-right-radius: 6px; }
+  .bubble--tm { background: var(--bubble-tm); color: var(--text); border-bottom-left-radius: 6px; }
+
+  .sys-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 10px 4px;
+    font-size: 11.5px; color: var(--dim);
+  }
+  .sys-row__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim-2); flex: 0 0 auto; }
+  .sys-row--ok    .sys-row__dot { background: var(--green); }
+  .sys-row--warn  .sys-row__dot { background: var(--amber); }
+  .sys-row--err   .sys-row__dot { background: var(--rose); }
+  .sys-row__txt { line-height: 1.35; }
+  .sys-row__hint { color: var(--dim-2); margin-left: 4px; }
+
+  /* --- task card (proposed, current) --- */
+  .task-card {
+    background: var(--rail-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 14px;
+    margin: 10px 0;
+  }
+  .task-card__header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .badge { font-size: 10px; padding: 3px 8px; border-radius: 8px; font-weight: 600; letter-spacing: 0.04em; }
+  .badge--do     { background: rgba(180,140,255,0.18); color: var(--purple); }
+  .badge--review { background: rgba(80,200,120,0.18);  color: #88e3a8; }
+  .badge--watch  { background: rgba(240,180,80,0.18);  color: var(--amber); }
+  .task-card__title { font-weight: 600; font-size: 14px; }
+  .task-card__rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 0 0 12px; }
+  .task-card__rows dt { color: var(--dim); }
+  .task-card__rows dd { margin: 0; }
+  .task-card__actions { display: flex; gap: 8px; align-items: center; }
+  .btn {
+    border: 1px solid var(--border-soft);
+    background: transparent; color: var(--text);
+    padding: 6px 12px; border-radius: 6px; font-size: 12px;
+    cursor: pointer;
+  }
+  .btn--primary { background: var(--accent-2); color: white; border-color: transparent; flex: 1; }
+  .btn--icon { width: 28px; height: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+  .btn--icon svg { width: 14px; height: 14px; }
+  .btn[disabled] { opacity: 0.45; cursor: default; }
+
+  /* --- collapsed confirmed card (proposal) --- */
+  .task-pill {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--rail-2);
+    border: 1px solid var(--border-soft);
+    border-left: 2px solid var(--green);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin: 8px 0;
+    font-size: 12.5px;
+  }
+  .task-pill__title { font-weight: 600; flex: 1; }
+  .task-pill__meta { color: var(--dim); font-size: 11.5px; }
+  .task-pill__link { color: var(--accent); cursor: pointer; }
+  .task-pill__chevron { color: var(--dim-2); }
+
+  /* --- Tasks tab --- */
+  .tasks-list { display: flex; flex-direction: column; gap: 8px; }
+  .task-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px 12px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--rail-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+  }
+  .task-item__status {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .task-item--active   .task-item__status { background: var(--green); box-shadow: 0 0 0 3px rgba(80,200,120,0.18); }
+  .task-item--proposed .task-item__status { background: var(--amber); }
+  .task-item--done     .task-item__status { background: var(--dim-2); }
+  .task-item__title { font-weight: 600; }
+  .task-item__meta  { grid-column: 2; color: var(--dim); font-size: 11.5px; display: flex; gap: 10px; align-items: center; }
+  .task-item__meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--dim-2); }
+  .task-item__cta {
+    grid-row: 1 / span 2;
+    grid-column: 3;
+    color: var(--dim);
+    font-size: 11px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .task-item--active .task-item__cta { color: var(--accent); border-color: rgba(111,123,255,0.45); }
+
+  .filter-row { display: flex; gap: 6px; margin-bottom: 12px; }
+  .chip {
+    font-size: 11px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border-soft); color: var(--dim);
+    cursor: pointer;
+  }
+  .chip.is-on { background: rgba(111,123,255,0.14); border-color: rgba(111,123,255,0.35); color: var(--text); }
+
+  .caption { color: var(--dim); font-size: 11px; margin-top: -4px; margin-bottom: 16px; }
+
+  /* --- error toast preview --- */
+  .err-card {
+    border-left: 2px solid var(--rose);
+    background: rgba(239,107,126,0.06);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    font-size: 12px;
+  }
+  .err-card__title { font-weight: 600; color: #ffb0bd; margin-bottom: 2px; }
+  .err-card__body  { color: var(--dim); }
+  .err-card__action { margin-top: 6px; color: var(--accent); cursor: pointer; font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- ============ LEFT: Chat with friendly errors + collapsed confirmed ============ -->
+  <section>
+    <h2>Chat · friendly errors + collapsed confirmed tasks</h2>
+    <p class="caption">Same flow as today, but: confirmed proposals collapse into a one-line pill, and backend errors render as a translated card instead of a raw "falló:" string.</p>
+
+    <div class="frame">
+      <div class="frame__head">
+        <div class="avatar"></div>
+        <div>
+          <div><span class="name">Mibli</span> <span class="lv">LV 33</span></div>
+          <div class="model">gpt-4o</div>
+        </div>
+      </div>
+      <div class="frame__tabs">
+        <div class="frame__tab is-active">Chat</div>
+        <div class="frame__tab">Tasks <span class="count">3</span></div>
+      </div>
+      <div class="frame__body">
+
+        <div class="row row--op"><div class="bubble bubble--op">can you create a task so we have that capability?</div></div>
+
+        <!-- Confirmed proposal → collapsed pill -->
+        <div class="task-pill">
+          <span class="badge badge--do">Do</span>
+          <span class="task-pill__title">Integrate GitHub Release Investigation</span>
+          <span class="task-pill__meta">→</span>
+          <span class="task-pill__link">tab “Integrate GitHub…”</span>
+          <span class="task-pill__chevron">›</span>
+        </div>
+
+        <!-- System: success -->
+        <div class="sys-row sys-row--ok">
+          <span class="sys-row__dot"></span>
+          <span class="sys-row__txt">Tarea iniciada en un tab nuevo.</span>
+        </div>
+
+        <div class="row row--op"><div class="bubble bubble--op">add one for push log tracking too</div></div>
+
+        <!-- Proposed (actionable) task card with new layout -->
+        <div class="task-card">
+          <div class="task-card__header">
+            <span class="badge badge--do">Do</span>
+            <span class="task-card__title">Add GitHub release / push log tracking</span>
+          </div>
+          <dl class="task-card__rows">
+            <dt>Archetype</dt><dd>Do · spawnea tab nuevo</dd>
+            <dt>Deliverable</dt><dd>Capability to check GitHub for releases or push logs.</dd>
+          </dl>
+          <div class="task-card__actions">
+            <button class="btn btn--primary">Confirmar</button>
+            <button class="btn btn--icon" aria-label="Editar" title="Editar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+            </button>
+            <button class="btn btn--icon" aria-label="Cancelar" title="Cancelar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Friendly error replacing raw "confirmTask falló: operator already on task" -->
+        <div class="err-card">
+          <div class="err-card__title">Mibli ya está trabajando en otra tarea.</div>
+          <div class="err-card__body">Termina o libera la tarea actual antes de iniciar esta.</div>
+          <div class="err-card__action">Ver tarea actual →</div>
+        </div>
+
+      </div>
+      <div class="frame__compose">hablar con Mibli…</div>
+    </div>
+  </section>
+
+  <!-- ============ RIGHT: Tasks tab ============ -->
+  <section>
+    <h2>Tasks tab · the missing surface</h2>
+    <p class="caption">A flat list of every task the operator owns. Status dot = state. Click an active task → focus its tab. This is what's missing today.</p>
+
+    <div class="frame">
+      <div class="frame__head">
+        <div class="avatar"></div>
+        <div>
+          <div><span class="name">Mibli</span> <span class="lv">LV 33</span></div>
+          <div class="model">gpt-4o</div>
+        </div>
+      </div>
+      <div class="frame__tabs">
+        <div class="frame__tab">Chat</div>
+        <div class="frame__tab is-active">Tasks <span class="count">3</span></div>
+      </div>
+      <div class="frame__body">
+
+        <div class="filter-row">
+          <span class="chip is-on">All</span>
+          <span class="chip">Active</span>
+          <span class="chip">Proposed</span>
+          <span class="chip">Done</span>
+        </div>
+
+        <div class="tasks-list">
+
+          <div class="task-item task-item--active">
+            <span class="task-item__status"></span>
+            <div class="task-item__title">Integrate GitHub Release Investigation</div>
+            <div class="task-item__cta">Open tab</div>
+            <div class="task-item__meta">
+              <span class="badge badge--do">Do</span>
+              <span>active · 3m</span>
+              <span class="dot"></span>
+              <span>tab “Integrate GitHub…”</span>
+            </div>
+          </div>
+
+          <div class="task-item task-item--proposed">
+            <span class="task-item__status"></span>
+            <div class="task-item__title">Add GitHub release / push log tracking</div>
+            <div class="task-item__cta">Review</div>
+            <div class="task-item__meta">
+              <span class="badge badge--do">Do</span>
+              <span>proposed · just now</span>
+            </div>
+          </div>
+
+          <div class="task-item task-item--done">
+            <span class="task-item__status"></span>
+            <div class="task-item__title">Commit pending changes on main</div>
+            <div class="task-item__cta">View</div>
+            <div class="task-item__meta">
+              <span class="badge badge--do">Do</span>
+              <span>done · 8m</span>
+              <span class="dot"></span>
+              <span>commit 9c0c320</span>
+            </div>
+          </div>
+
+          <div class="task-item task-item--done">
+            <span class="task-item__status"></span>
+            <div class="task-item__title">Review auth middleware migration</div>
+            <div class="task-item__cta">View</div>
+            <div class="task-item__meta">
+              <span class="badge badge--review">Review</span>
+              <span>done · yesterday</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <div class="frame__compose">hablar con Mibli…</div>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>

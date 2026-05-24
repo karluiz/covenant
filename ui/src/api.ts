@@ -426,6 +426,10 @@ export async function teammateListTasks(operatorId: string): Promise<Task[]> {
   return invoke<Task[]>("teammate_list_tasks", { operatorId });
 }
 
+export async function teammateClearForOperator(operatorId: string): Promise<void> {
+  return invoke<void>("teammate_clear_for_operator", { operatorId });
+}
+
 export async function onTeammateTask(
   handler: (task: Task) => void,
 ): Promise<() => void> {

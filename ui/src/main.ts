@@ -31,7 +31,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, setWindowTheme, tabManifestLoad, teammateListMessages, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, setWindowTheme, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -542,10 +542,18 @@ async function boot(): Promise<void> {
     spawnTabForTask: async (task) => {
       const tab = await manager.createTab({
         customName: `${task.title.slice(0, 32)}`,
+        cwd: manager.activeCwd(),
       });
       if (!tab) throw new Error("createTab returned null");
       return { sessionId: tab.sessionId.toString() };
     },
+    confirmTask: teammateConfirmTask,
+    cancelTaskProposal: teammateCancelTaskProposal,
+    editTaskProposal: teammateEditTaskProposal,
+    attachSessionToTask: teammateAttachSessionToTask,
+    listTasks: teammateListTasks,
+    clearForOperator: teammateClearForOperator,
+    focusTabBySessionId: (sessionId) => manager.activateBySessionId(sessionId as SessionId),
   });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
 
