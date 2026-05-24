@@ -1,10 +1,11 @@
 import type { Operator, Task, TaskArchetype, TeammateMessage, TeammateToolCall, UpdateKind } from "../api";
 import {
   injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp,
-  operatorList, teammateAttachSessionToTask, teammateCancelTaskProposal,
+  operatorList, searchSessionFiles, teammateAttachSessionToTask, teammateCancelTaskProposal,
   teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal,
   teammateListMessages, teammateListTasks, teammateSendText,
 } from "../api";
+import { attachMentions } from "../mentions/mention-controller";
 import { Icons } from "../icons";
 import { renderAvatarHtml } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -143,6 +144,7 @@ export class TeammatePanel {
   private resetBtnEl: HTMLButtonElement | null = null;
   private resetArmed = false;
   private resetArmTimer: number | null = null;
+  private mentionHandle: { detach: () => void } | null = null;
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -189,6 +191,8 @@ export class TeammatePanel {
     this.unlisten = null;
     this.unlistenToolCall?.();
     this.unlistenToolCall = null;
+    this.mentionHandle?.detach();
+    this.mentionHandle = null;
     this.operator = null;
     this.host.style.removeProperty("--operator-color");
     this.host.innerHTML = "";
@@ -366,6 +370,20 @@ export class TeammatePanel {
     input.className = "teammate-panel-input";
     this.inputEl = input;
     c.append(input);
+    this.mentionHandle?.detach();
+    this.mentionHandle = attachMentions(input, {
+      searchFiles: async (query, limit) => {
+        const sid = this.deps.getActiveSessionId?.() ?? null;
+        if (!sid) return [];
+        try {
+          const matches = await searchSessionFiles(sid, query, limit);
+          return matches.map((m) => ({ path: m.path }));
+        } catch (e) {
+          console.error("searchSessionFiles failed", e);
+          return [];
+        }
+      },
+    });
     c.addEventListener("submit", (e) => {
       e.preventDefault();
       void this.send(input.value);
