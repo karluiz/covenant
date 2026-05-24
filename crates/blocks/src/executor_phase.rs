@@ -26,6 +26,9 @@ static RE_PI_THINKING_STATUS: OnceLock<Regex> = OnceLock::new();
 static RE_COPILOT_TOOL: OnceLock<Regex> = OnceLock::new();
 static RE_COPILOT_THINKING: OnceLock<Regex> = OnceLock::new();
 static RE_HERMES_THINKING: OnceLock<Regex> = OnceLock::new();
+static RE_HERMES_MULLING: OnceLock<Regex> = OnceLock::new();
+static RE_HERMES_PREPARING: OnceLock<Regex> = OnceLock::new();
+static RE_HERMES_TOOL_DONE: OnceLock<Regex> = OnceLock::new();
 static RE_WAITING: OnceLock<Regex> = OnceLock::new();
 
 /// Cap on target string length so a missing newline (Claude Code v2.1
@@ -137,6 +140,32 @@ fn re_hermes_thinking() -> &'static Regex {
         Regex::new(r"(?:Initializing\s+agent\.{3}|╭─\s*⚕\s+Hermes\b)").unwrap()
     })
 }
+/// Hermes kaomoji thinking indicator: `(¬_¬) mulling...`
+/// The TUI renders a kaomoji face followed by a gerund + `...` or `…`
+/// while the model is producing tokens. Matches both ASCII and Unicode
+/// ellipsis variants.
+fn re_hermes_mulling() -> &'static Regex {
+    RE_HERMES_MULLING.get_or_init(|| {
+        Regex::new(r"\([¬ᴗ^°·_o\-]{1,5}\)\s+[a-z]+ing(?:\.{3}|…)").unwrap()
+    })
+}
+/// Hermes tool-call "preparing" line: `🔍preparing search_files…`
+/// Emitted when a tool call starts. The emoji varies by tool category
+/// (🔍 search, 📖 read, 🔮 vision, 📝 write, etc.). Captures the
+/// tool name so we can route to the right ExecutorPhase.
+fn re_hermes_preparing() -> &'static Regex {
+    RE_HERMES_PREPARING.get_or_init(|| {
+        Regex::new(r"preparing\s+([a-z_]+)(?:\.{3}|…)").unwrap()
+    })
+}
+/// Hermes completed tool line: `📖read      /path/to/file  0.1s`
+/// After a tool finishes, Hermes prints `<emoji><verb>  <target>  <duration>`.
+/// Captures the verb and the target so we can classify the phase.
+fn re_hermes_tool_done() -> &'static Regex {
+    RE_HERMES_TOOL_DONE.get_or_init(|| {
+        Regex::new(r"(?:read|write|find|vision|run|patch|terminal|execute|search)\s{2,}(\S[^\n]{0,80}?)\s+\d+\.\d+s").unwrap()
+    })
+}
 
 static RE_DONE: OnceLock<Regex> = OnceLock::new();
 /// Claude Code's "turn finished" recap: a past-tense verb + `for Ns`.
@@ -159,6 +188,26 @@ fn strip_ansi(s: &str) -> String {
 
 pub struct ExecutorPhaseDetector {
     phase: ExecutorPhase,
+}
+
+/// Map a Hermes tool name to the appropriate ExecutorPhase. Used by both
+/// the "preparing" and "completed" matchers.
+fn hermes_tool_to_phase(tool: &str, display: &str) -> ExecutorPhase {
+    match tool {
+        "read_file" | "search_files" | "skill_view" | "skills_list" | "session_search"
+        | "browser_snapshot" | "browser_get_images" => ExecutorPhase::Reading {
+            file: display.to_string(),
+        },
+        "write_file" | "patch" | "skill_manage" => ExecutorPhase::Writing {
+            file: display.to_string(),
+        },
+        "terminal" | "execute_code" | "process" => ExecutorPhase::Running {
+            cmd: display.to_string(),
+        },
+        _ => ExecutorPhase::Running {
+            cmd: display.to_string(),
+        },
+    }
 }
 
 impl ExecutorPhaseDetector {
@@ -239,6 +288,25 @@ impl ExecutorPhaseDetector {
             if re_pi_thinking_status().is_match(trimmed) {
                 return ExecutorPhase::Thinking;
             }
+            // Hermes (Nous Research) tool-call patterns.
+            if re_hermes_mulling().is_match(trimmed) {
+                return ExecutorPhase::Thinking;
+            }
+            if let Some(caps) = re_hermes_preparing().captures(trimmed) {
+                let tool = caps.get(1).unwrap().as_str();
+                return hermes_tool_to_phase(tool, tool);
+            }
+            if let Some(caps) = re_hermes_tool_done().captures(trimmed) {
+                let target = clamp_target(caps.get(0).unwrap().as_str());
+                // Determine phase from the verb prefix in the match.
+                if trimmed.contains("read") {
+                    return ExecutorPhase::Reading { file: clamp_target(caps.get(1).unwrap().as_str()) };
+                }
+                if trimmed.contains("write") || trimmed.contains("patch") {
+                    return ExecutorPhase::Writing { file: clamp_target(caps.get(1).unwrap().as_str()) };
+                }
+                return ExecutorPhase::Running { cmd: target };
+            }
             if let Some(cmd) = trimmed.strip_prefix("$ ") {
                 let cmd = cmd.trim();
                 if !cmd.is_empty() {
@@ -261,6 +329,7 @@ impl ExecutorPhaseDetector {
             || re_pi_thinking_status().is_match(&raw)
             || re_copilot_thinking().is_match(&raw)
             || re_hermes_thinking().is_match(&raw)
+            || re_hermes_mulling().is_match(&raw)
         {
             return ExecutorPhase::Thinking;
         }
@@ -486,5 +555,98 @@ mod tests {
         );
         assert!(!changed);
         assert_eq!(d.phase(), &ExecutorPhase::Idle);
+    }
+
+    // ─── Hermes tool-call patterns ──────────────────────────────────
+
+    #[test]
+    fn hermes_mulling_kaomoji_triggers_thinking() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("(¬_¬) mulling...\n".as_bytes());
+        assert!(changed);
+        assert_eq!(d.phase(), &ExecutorPhase::Thinking);
+    }
+
+    #[test]
+    fn hermes_preparing_search_files_triggers_reading() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("🔍preparing search_files…\n".as_bytes());
+        assert!(changed);
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Reading {
+                file: "search_files".into()
+            }
+        );
+    }
+
+    #[test]
+    fn hermes_preparing_read_file_triggers_reading() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("📖preparing read_file…\n".as_bytes());
+        assert!(changed);
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Reading {
+                file: "read_file".into()
+            }
+        );
+    }
+
+    #[test]
+    fn hermes_preparing_write_file_triggers_writing() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("📝preparing write_file…\n".as_bytes());
+        assert!(changed);
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Writing {
+                file: "write_file".into()
+            }
+        );
+    }
+
+    #[test]
+    fn hermes_preparing_terminal_triggers_running() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("🖥preparing terminal...\n".as_bytes());
+        assert!(changed);
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Running {
+                cmd: "terminal".into()
+            }
+        );
+    }
+
+    #[test]
+    fn hermes_completed_read_triggers_reading() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed(
+            "📖read      /Users/user/Sources/project/src/main.rs  0.1s\n".as_bytes(),
+        );
+        assert!(changed);
+        assert!(matches!(d.phase(), ExecutorPhase::Reading { .. }));
+    }
+
+    #[test]
+    fn hermes_completed_find_triggers_running() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("🔍find      operator  0.2s\n".as_bytes());
+        assert!(changed);
+        assert!(matches!(d.phase(), ExecutorPhase::Running { .. }));
+    }
+
+    #[test]
+    fn hermes_preparing_vision_analyze_triggers_running() {
+        let mut d = ExecutorPhaseDetector::new();
+        let changed = d.feed("🔮preparing vision_analyze…\n".as_bytes());
+        assert!(changed);
+        assert_eq!(
+            d.phase(),
+            &ExecutorPhase::Running {
+                cmd: "vision_analyze".into()
+            }
+        );
     }
 }

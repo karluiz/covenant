@@ -323,7 +323,11 @@ export class CustomSelect {
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
     const desiredMax = 280;
-    const dropUp = spaceBelow < 160 && spaceAbove > spaceBelow;
+    const naturalHeight = Math.min(
+      desiredMax,
+      this.options.length * 34 + 8,
+    );
+    const dropUp = spaceBelow < naturalHeight && spaceAbove > spaceBelow;
     const available = Math.max(96, dropUp ? spaceAbove : spaceBelow);
     this.popover.style.maxHeight = `${Math.min(desiredMax, available)}px`;
 

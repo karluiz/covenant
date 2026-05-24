@@ -34,16 +34,40 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          command. Use this when the user asks about their terminal. If a \
          tab is not in the context, do not claim to see it.\n\
          \n\
-         You have a `read_file` tool. Use it when the user asks about a file by \
-         path, or when you need source/config contents to answer accurately. \
-         Don't guess at file contents — call the tool and quote what you read. \
-         Paths are relative to the active tab's working directory. If the file \
-         is outside the workspace or too large the call will fail; tell the \
-         user instead of fabricating.\n\
+         You have the following tools — use them proactively to understand \
+         the user's workspace:\n\
          \n\
-         You cannot execute commands or modify files yet — those ship in a \
-         later phase. If the user asks you to run something, acknowledge and \
-         walk them through it instead.",
+         - `read_file` — read a single file by path. Use when the user asks \
+           about a specific file or you need source/config contents.\n\
+         - `list_directory` — list files and folders in a directory. Use this \
+           to explore the project structure, see what's in a folder, or answer \
+           \"what files are here?\" Start with the workspace root (omit path \
+           or pass \".\") then drill into subdirectories.\n\
+         - `search_files` — search for text inside files across the workspace. \
+           Case-insensitive. Use when the user asks where something is defined, \
+           or to find functions, config keys, error messages, imports, etc.\n\
+         - `git_status` — show the current branch, staged/unstaged changes, \
+           and untracked files. Use when the user asks about uncommitted work.\n\
+         - `git_diff` — show what lines changed (unstaged by default, or staged \
+           with staged=true). Use for code review or to understand recent edits.\n\
+         - `run_command` — execute a shell command in the workspace and get its \
+           output. Use this for builds, tests, linters, git commits, package \
+           installs, or any CLI task. Dangerous commands (rm -rf, sudo, \
+           force-push to main) are blocked for safety — tell the user to run \
+           those manually. Default timeout: 30s.\n\
+         - `propose_task` — propose structured work (do/review/watch). Only \
+           call this for actionable multi-step requests, not Q&A.\n\
+         \n\
+         IMPORTANT: Don't guess at file contents or project structure — call \
+         the tools and quote what you read. Paths are relative to the active \
+         tab's working directory. If a tool call fails, tell the user instead \
+         of fabricating.\n\
+         \n\
+         You can execute commands via `run_command` but cannot modify files \
+         directly yet — use `run_command` with tools like sed, patch, or \
+         echo for file edits. For multi-step work that needs an executor \
+         agent (Claude Code, Copilot), use `propose_task` to suggest \
+         spawning one — the user confirms and a new tab opens.",
         name = operator.name,
         voice = voice,
     );
@@ -156,7 +180,7 @@ use crate::teammate::anthropic_http::{
 use crate::teammate::tools::{self, ToolEnv, ToolError};
 use karl_agent::provider::ProviderKind;
 
-const MAX_TOOL_ITERATIONS: usize = 8;
+const MAX_TOOL_ITERATIONS: usize = 12;
 
 /// Progress event emitted during the tool-use loop. Callers (the
 /// teammate send command) map these to Tauri events for the rail UI.
@@ -224,7 +248,15 @@ where
 
     let system_prompt = build_system_prompt(operator);
     let initial_user = build_user_message(thread, operator, world_context);
-    let tools = vec![tools::read_file_tool_def(), tools::propose_task_tool_def()];
+    let tools = vec![
+        tools::read_file_tool_def(),
+        tools::list_directory_tool_def(),
+        tools::search_files_tool_def(),
+        tools::git_status_tool_def(),
+        tools::git_diff_tool_def(),
+        tools::run_command_tool_def(),
+        tools::propose_task_tool_def(),
+    ];
 
     let mut messages: Vec<AnthropicMessage> = vec![AnthropicMessage::user_text(initial_user)];
 
@@ -265,6 +297,26 @@ where
             for (id, name, input) in calls {
                 let (out_text, ok, err) = match name.as_str() {
                     "read_file" => match tools::read_file(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "list_directory" => match tools::list_directory(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "search_files" => match tools::search_files(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "git_status" => match tools::git_status(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "git_diff" => match tools::git_diff(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "run_command" => match tools::run_command(&tool_env, &input) {
                         Ok(text) => (text, true, None),
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
@@ -312,7 +364,7 @@ where
     }
 
     Err(TeammateLlmError::Provider(
-        "tool-use loop hit max iterations (8)".into(),
+        "tool-use loop hit max iterations (12)".into(),
     ))
 }
 
@@ -405,6 +457,11 @@ where
     let initial_user = build_user_message(thread, operator, world_context);
     let tools_oa: Vec<serde_json::Value> = [
         tools::read_file_tool_def(),
+        tools::list_directory_tool_def(),
+        tools::search_files_tool_def(),
+        tools::git_status_tool_def(),
+        tools::git_diff_tool_def(),
+        tools::run_command_tool_def(),
         tools::propose_task_tool_def(),
     ]
     .iter()
@@ -460,6 +517,26 @@ where
                         Ok(text) => (text, true, None),
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
+                    "list_directory" => match tools::list_directory(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "search_files" => match tools::search_files(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "git_status" => match tools::git_status(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "git_diff" => match tools::git_diff(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "run_command" => match tools::run_command(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
                     "propose_task" => (
                         "propose_task already considered; respond with text now.".into(),
                         false,
@@ -491,7 +568,7 @@ where
     }
 
     Err(TeammateLlmError::Provider(
-        "tool-use loop hit max iterations (8)".into(),
+        "tool-use loop hit max iterations (12)".into(),
     ))
 }
 

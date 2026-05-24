@@ -98,6 +98,9 @@ impl SpawnOptions {
             ("TERM".to_string(), "xterm-256color".to_string()),
             ("LANG".to_string(), "en_US.UTF-8".to_string()),
             ("COLORTERM".to_string(), "truecolor".to_string()),
+            // Identify ourselves so CLIs (prompt_toolkit, Hermes, etc.)
+            // can detect they're inside Covenant's embedded terminal.
+            ("TERM_PROGRAM".to_string(), "Covenant".to_string()),
         ];
         Ok(Self {
             program,
@@ -120,6 +123,7 @@ impl SpawnOptions {
                 ("TERM".to_string(), "xterm-256color".to_string()),
                 ("LANG".to_string(), "en_US.UTF-8".to_string()),
                 ("COLORTERM".to_string(), "truecolor".to_string()),
+                ("TERM_PROGRAM".to_string(), "Covenant".to_string()),
             ],
             cwd: None,
         }
