@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import type { Operator } from "../api";
 import { TeammatePanel } from "./panel";
 
+const stubMentionDeps = {
+  mentionSources: {
+    findFiles:          async () => [],
+    listOperators:      async () => [],
+    listOpenSessions:   () => [],
+    findRecentCommands: async () => [],
+  },
+  readFile:           async () => ({ kind: "text" as const, content: "", size_bytes: 0 }),
+  readBlockExcerpt:   async () => ({ command: "", exit_code: null, cwd: "", plain_output: "" }),
+  readSessionExcerpt: async () => ({ cwd: "", shell: "", tab_index: 0, recent: [] }),
+};
+
 function makeOp(overrides: Partial<Operator> = {}): Operator {
   return {
     id: "op-mibli",
@@ -27,6 +39,7 @@ describe("TeammatePanel", () => {
   it("renders the placeholder when there are no messages", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue([]),
@@ -38,6 +51,7 @@ describe("TeammatePanel", () => {
   it("renders avatar + name + model subtitle in the header", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue([]),
@@ -51,6 +65,7 @@ describe("TeammatePanel", () => {
   it("renders an XP ring around the avatar + level pill next to the name", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue([]),
@@ -70,6 +85,7 @@ describe("TeammatePanel", () => {
   it("renders the chevron as the last child of the header", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue([]),
@@ -85,6 +101,7 @@ describe("TeammatePanel", () => {
     const host = document.createElement("div");
     let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn().mockResolvedValue({
         id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
@@ -113,6 +130,7 @@ describe("TeammatePanel", () => {
     const host = document.createElement("div");
     let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue([]),
@@ -142,6 +160,7 @@ describe("TeammatePanel", () => {
       dismissed_at_unix_ms: null,
     });
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      send,
       listOperators: vi.fn().mockResolvedValue([]),
@@ -156,6 +175,7 @@ describe("TeammatePanel", () => {
     let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn().mockResolvedValue({
         id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
@@ -182,6 +202,7 @@ describe("TeammatePanel", () => {
     const host = document.createElement("div");
     const ops = [makeOp(), makeOp({ id: "op-k", name: "Karluiz", is_default: false })];
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue(ops),
@@ -201,6 +222,7 @@ describe("TeammatePanel", () => {
       confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      send,
       listOperators: vi.fn().mockResolvedValue([]),
@@ -215,6 +237,7 @@ describe("TeammatePanel", () => {
     let captured: ((call: import("../api").TeammateToolCall) => void) | null = null;
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn(),
       listOperators: vi.fn().mockResolvedValue([]),
@@ -284,6 +307,7 @@ describe("TeammatePanel propose rendering", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
       listMessages: async () => [proposeMsg],
       sendText:     async () => proposeMsg,
       listOperators: async () => [operator],
