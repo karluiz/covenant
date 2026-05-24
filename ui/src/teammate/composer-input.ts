@@ -116,13 +116,17 @@ export class ComposerInput {
       r.setEnd(range.node, range.end);
       r.deleteContents();
       const chip = this.buildChip(spec);
-      const space = document.createTextNode(" ");
-      r.insertNode(space);
+      const trailing = document.createTextNode(" ");
+      r.insertNode(trailing);
       r.insertNode(chip);
+      // Re-focus the contenteditable; clicking a popup row stole focus.
+      this.el.focus();
       const sel = window.getSelection();
-      if (sel && space.parentNode) {
+      if (sel) {
         const after = document.createRange();
-        after.setStartAfter(space);
+        // Caret INSIDE the trailing text node at its end — element-level
+        // caret positions break typing/backspace in contenteditable.
+        after.setStart(trailing, trailing.length);
         after.collapse(true);
         sel.removeAllRanges();
         sel.addRange(after);
