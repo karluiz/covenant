@@ -2,9 +2,9 @@
 /// orchestrator interleaves results so partial failures still produce
 /// a useful popup.
 
-import type { FileHit, CommandHit, Operator } from "../api";
+import type { FileHit, CommandHit, Operator, SpecHit } from "../api";
 
-export type Source = "files" | "sessions" | "commands" | "teammates";
+export type Source = "files" | "sessions" | "commands" | "teammates" | "specs";
 export type Tab = "all" | Source;
 
 export interface OpenSessionInfo {
@@ -30,7 +30,8 @@ export interface MentionHit {
     | { kind: "files";     abs: string; rel: string }
     | { kind: "sessions";  session_id: string; cwd: string; shell: string; tab_index: number; block_count: number; last_command: string | null }
     | { kind: "commands";  block_id: string; session_id: string }
-    | { kind: "teammates"; operator_id: string; name: string };
+    | { kind: "teammates"; operator_id: string; name: string }
+    | { kind: "specs";     abs: string; rel: string; name: string; specKind: "spec" | "plan" };
 }
 
 export interface MentionSourcesDeps {
@@ -38,6 +39,7 @@ export interface MentionSourcesDeps {
   listOperators:       () => Promise<Operator[]>;
   listOpenSessions:    () => OpenSessionInfo[];
   findRecentCommands:  (query: string, limit: number) => Promise<CommandHit[]>;
+  findSpecs:           (cwd: string, query: string, limit: number) => Promise<SpecHit[]>;
 }
 
 export interface FindMentionsArgs {
@@ -59,6 +61,11 @@ export async function findMentions(args: FindMentionsArgs): Promise<MentionHit[]
       ? deps.findFiles(cwd, query, limit).then(asFileHits).catch(logZero("findFiles"))
       : Promise.resolve([]);
 
+  const specsP: Promise<MentionHit[]> =
+    want("specs") && cwd
+      ? deps.findSpecs(cwd, query, limit).then(asSpecHits).catch(logZero("findSpecs"))
+      : Promise.resolve([]);
+
   const sessionsP: Promise<MentionHit[]> =
     want("sessions")
       ? Promise.resolve(filterSessions(safeCall(deps.listOpenSessions, "listOpenSessions"), query))
@@ -74,13 +81,14 @@ export async function findMentions(args: FindMentionsArgs): Promise<MentionHit[]
       ? deps.listOperators().then((ops) => filterTeammates(ops, query)).catch(logZero("listOperators"))
       : Promise.resolve([]);
 
-  const [files, sessions, commands, teammates] = await Promise.all([filesP, sessionsP, commandsP, teammatesP]);
+  const [files, specs, sessions, commands, teammates] = await Promise.all([filesP, specsP, sessionsP, commandsP, teammatesP]);
 
   if (activeTab !== "all") {
-    return ({ files, sessions, commands, teammates } as Record<Source, MentionHit[]>)[activeTab].slice(0, limit);
+    return ({ files, specs, sessions, commands, teammates } as Record<Source, MentionHit[]>)[activeTab].slice(0, limit);
   }
   return [
     ...files.slice(0, PER_SOURCE_ON_ALL),
+    ...specs.slice(0, PER_SOURCE_ON_ALL),
     ...sessions.slice(0, PER_SOURCE_ON_ALL),
     ...commands.slice(0, PER_SOURCE_ON_ALL),
     ...teammates.slice(0, PER_SOURCE_ON_ALL),
@@ -103,6 +111,17 @@ function asFileHits(hits: FileHit[]): MentionHit[] {
     secondary: h.rel_path,
     matchIndices: h.match_indices,
     payload: { kind: "files", abs: h.path, rel: h.rel_path },
+  }));
+}
+
+function asSpecHits(hits: SpecHit[]): MentionHit[] {
+  return hits.map((h) => ({
+    kind: "specs",
+    token: `spec:${h.name}`,
+    primary: h.name,
+    secondary: h.rel_path,
+    matchIndices: h.match_indices,
+    payload: { kind: "specs", abs: h.abs_path, rel: h.rel_path, name: h.name, specKind: h.kind },
   }));
 }
 

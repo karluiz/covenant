@@ -20,6 +20,7 @@ export interface ComposerInputOpts {
 
 const ICONS: Record<Source, string> = {
   files: "⌗",
+  specs: "§",
   sessions: "▮",
   commands: "$",
   teammates: "@",

@@ -27,6 +27,7 @@ function harness(over: Partial<MentionSourcesDeps> = {}, cwd: string | null = "/
     listOperators:      async () => [],
     listOpenSessions:   () => [],
     findRecentCommands: async () => [],
+    findSpecs:          async () => [],
     ...over,
   };
   const onPick = vi.fn();
@@ -142,6 +143,22 @@ describe("expandMentions", () => {
     expect(res.text).toMatch(/FAIL/);
   });
 
+  it("inlines a spec chip as a fenced markdown section", async () => {
+    const reg: MentionRegistry = new Map([
+      ["spec:my-feature", {
+        kind: "specs", abs: "/abs/docs/superpowers/specs/my-feature.md",
+        rel: "docs/superpowers/specs/my-feature.md", name: "my-feature", specKind: "spec",
+      }],
+    ]);
+    const reader = vi.fn().mockResolvedValue(readOk("/abs/docs/superpowers/specs/my-feature.md", "# Heading\n\nbody"));
+    const out = await expandMentions("review @spec:my-feature", reg, reader);
+    expect(reader).toHaveBeenCalledWith("/abs/docs/superpowers/specs/my-feature.md", 256 * 1024);
+    expect(out.attached).toEqual(["spec:my-feature"]);
+    expect(out.text).toContain("### spec: my-feature");
+    expect(out.text).toContain("```md");
+    expect(out.text).toContain("# Heading");
+  });
+
   it("teammate chip becomes a one-line reference", async () => {
     const reg: MentionRegistry = new Map([
       ["teammate:claude", { kind: "teammates", operator_id: "op1", name: "claude" }],
@@ -162,13 +179,13 @@ describe("MentionPopup v2", () => {
     expect(popup.currentEl()?.querySelector(".tmt-mp-foot")).toBeTruthy();
   });
 
-  it("renders 5 tabs and shows footer key hints", async () => {
+  it("renders 6 tabs and shows footer key hints", async () => {
     const { popup, input } = harness({ listOperators: async () => [fakeOp()] });
     input.element().textContent = "@";
     placeCaretAtEnd(input.element());
     input.element().dispatchEvent(new InputEvent("input"));
     await flush();
-    expect(popup.currentEl()!.querySelectorAll(".tmt-mp-tab").length).toBe(5);
+    expect(popup.currentEl()!.querySelectorAll(".tmt-mp-tab").length).toBe(6);
     expect(popup.currentEl()!.textContent).toMatch(/nav/);
   });
 

@@ -6,6 +6,7 @@ const deps = (over: Partial<MentionSourcesDeps> = {}): MentionSourcesDeps => ({
   listOperators:      vi.fn().mockResolvedValue([]),
   listOpenSessions:   vi.fn().mockReturnValue([]),
   findRecentCommands: vi.fn().mockResolvedValue([]),
+  findSpecs:          vi.fn().mockResolvedValue([]),
   ...over,
 });
 
@@ -51,6 +52,20 @@ describe("findMentions", () => {
     });
     const hits = await findMentions({ query: "", cwd: "/a", activeTab: "all", limit: 12, deps: d });
     expect(hits.some(h => h.kind === "teammates")).toBe(true);
+  });
+
+  it("findSpecs results surface as specs-kind mention hits", async () => {
+    const d = deps({
+      findSpecs: vi.fn().mockResolvedValue([
+        { kind: "spec", name: "2026-05-24-foo", rel_path: "docs/superpowers/specs/2026-05-24-foo.md",
+          abs_path: "/a/docs/superpowers/specs/2026-05-24-foo.md", match_indices: [] },
+      ]),
+    });
+    const hits = await findMentions({ query: "", cwd: "/a", activeTab: "specs", limit: 12, deps: d });
+    expect(hits.length).toBe(1);
+    expect(hits[0].kind).toBe("specs");
+    expect(hits[0].token).toBe("spec:2026-05-24-foo");
+    expect(hits[0].payload.kind).toBe("specs");
   });
 
   it("null cwd skips files but other sources still run", async () => {

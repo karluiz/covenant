@@ -1165,6 +1165,19 @@ export async function findRecentCommands(
   return invoke<CommandHit[]>("find_recent_commands", { query, limit });
 }
 
+/// One spec/plan markdown hit for the `@spec:` mention picker.
+export interface SpecHit {
+  kind: "spec" | "plan";
+  name: string;
+  rel_path: string;
+  abs_path: string;
+  match_indices: number[];
+}
+
+export async function findSpecs(cwd: string, query: string, limit: number): Promise<SpecHit[]> {
+  return invoke<SpecHit[]>("find_specs", { cwd, query, limit });
+}
+
 /// Full output + metadata for a single block — used to inline a
 /// `@cmd:<block_id>` mention chip into the prompt sent to the operator.
 export interface BlockExcerpt {

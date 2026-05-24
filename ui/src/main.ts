@@ -31,7 +31,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
-import { findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
+import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
@@ -556,6 +556,7 @@ async function boot(): Promise<void> {
       listOperators:      operatorList,
       listOpenSessions:   () => manager.listOpenSessions(),
       findRecentCommands,
+      findSpecs,
     },
     readFile:           structureReadFile,
     readBlockExcerpt,

@@ -2,6 +2,7 @@ import type { Operator, Task, TaskArchetype, TeammateMessage, TeammateToolCall, 
 import type { OperatorDecisionRow } from "../api";
 import {
   findRecentCommands,
+  findSpecs,
   injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp,
   operatorList, readBlockExcerpt, readSessionExcerpt,
   structureFindFiles, structureReadFile,
@@ -109,6 +110,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
     listOperators:      operatorList,
     listOpenSessions:   () => [],
     findRecentCommands,
+    findSpecs,
   },
   readFile:           structureReadFile,
   readBlockExcerpt,

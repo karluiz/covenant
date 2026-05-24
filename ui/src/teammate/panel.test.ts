@@ -9,6 +9,7 @@ const stubMentionDeps = {
     listOperators:      async () => [],
     listOpenSessions:   () => [],
     findRecentCommands: async () => [],
+    findSpecs:          async () => [],
   },
   readFile:           async () => ({ kind: "text" as const, content: "", size_bytes: 0 }),
   readBlockExcerpt:   async () => ({ command: "", exit_code: null, cwd: "", plain_output: "" }),

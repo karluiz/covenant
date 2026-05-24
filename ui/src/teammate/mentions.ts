@@ -24,6 +24,7 @@ const MAX_TOTAL_BYTES    = 512 * 1024;
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "all",       label: "All" },
   { id: "files",     label: "Files" },
+  { id: "specs",     label: "Specs" },
   { id: "sessions",  label: "Sessions" },
   { id: "commands",  label: "Commands" },
   { id: "teammates", label: "Teammates" },
@@ -164,6 +165,34 @@ export async function expandMentions(
       totalBytes += body.length;
       attached.push(payload.rel);
       sections.push("### " + payload.rel + "\n```" + langHint(payload.rel) + "\n" + body + "\n```");
+      continue;
+    }
+
+    if (payload.kind === "specs") {
+      if (!readFile) { skipped.push({ path: token, reason: "skipped (no file reader)" }); continue; }
+      let r: ReadResult;
+      try {
+        r = await readFile(payload.abs, MAX_FILE_BYTES);
+      } catch (e) {
+        skipped.push({ path: payload.rel, reason: `read error: ${(e as Error).message ?? String(e)}` });
+        continue;
+      }
+      if (r.kind === "too_large") {
+        skipped.push({ path: payload.rel, reason: `skipped (>${MAX_FILE_BYTES} bytes)` });
+        continue;
+      }
+      if (!readResultUsable(r)) {
+        skipped.push({ path: payload.rel, reason: "skipped (binary)" });
+        continue;
+      }
+      const body = r.content ?? "";
+      if (totalBytes + body.length > MAX_TOTAL_BYTES) {
+        skipped.push({ path: payload.rel, reason: "skipped (mention bundle over 512KB)" });
+        continue;
+      }
+      totalBytes += body.length;
+      attached.push(token);
+      sections.push("### " + payload.specKind + ": " + payload.name + "\n```" + langHint(payload.rel) + "\n" + body + "\n```");
       continue;
     }
 
@@ -453,10 +482,10 @@ function renderRows(hits: MentionHit[], selected: number, tab: Tab): string {
 }
 
 function labelFor(k: Source): string {
-  return ({ files: "Files", sessions: "Sessions", commands: "Recent commands", teammates: "Teammates" } as const)[k];
+  return ({ files: "Files", specs: "Specs", sessions: "Sessions", commands: "Recent commands", teammates: "Teammates" } as const)[k];
 }
 function iconFor(k: Source): string {
-  return ({ files: "⌗", sessions: "▮", commands: "$", teammates: "@" } as const)[k];
+  return ({ files: "⌗", specs: "§", sessions: "▮", commands: "$", teammates: "@" } as const)[k];
 }
 
 function highlight(text: string, indices: number[]): string {
