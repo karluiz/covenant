@@ -67,7 +67,10 @@ export interface TeammatePanelDeps {
   cancelTaskProposal?: (messageId: string) => Promise<void>;
   editTaskProposal?:   (messageId: string, draft: import("../api").TaskDraft) => Promise<void>;
   attachSessionToTask?: (operatorId: string, taskId: string, sessionId: string) => Promise<void>;
-  spawnTabForTask?: (task: Task) => Promise<{ sessionId: string }>;
+  spawnTabForTask?: (
+    task: Task,
+    overrides?: { cwd?: string | null; groupId?: string | null; color?: string | null },
+  ) => Promise<{ sessionId: string; cwd: string | null; groupId: string | null; color: string | null }>;
   /// Fetch all tasks for the operator (proposed/active/done). Powers the Tasks tab.
   listTasks?:       (operatorId: string) => Promise<Task[]>;
   /// Activate the tab whose backing SessionId matches. Returns true if found.
@@ -141,6 +144,34 @@ interface SystemLineStyle {
   tone: "ok" | "warn" | "err" | "muted";
 }
 
+interface TaskSpawnInfo {
+  sessionId: string;
+  cwd: string | null;
+  groupId: string | null;
+  color: string | null;
+}
+
+const TASK_SPAWN_LS_KEY = "covenant.teammate.task-spawn-meta";
+
+function loadTaskSpawnedSessions(): Map<string, TaskSpawnInfo> {
+  try {
+    const raw = localStorage.getItem(TASK_SPAWN_LS_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Array<[string, TaskSpawnInfo]>;
+    return new Map(parsed);
+  } catch {
+    return new Map();
+  }
+}
+
+function persistTaskSpawnedSessions(m: Map<string, TaskSpawnInfo>): void {
+  try {
+    localStorage.setItem(TASK_SPAWN_LS_KEY, JSON.stringify(Array.from(m.entries())));
+  } catch {
+    // localStorage quota / private mode — non-fatal.
+  }
+}
+
 function taskUpdateSummary(kind: UpdateKind): SystemLineStyle {
   switch (kind) {
     case "started":   return { text: "Task started in a new tab.", tone: "ok" };
@@ -207,10 +238,11 @@ export class TeammatePanel {
   /// Used to auto-set mission on tabs spawned from a confirmed task.
   /// Cleared after consumed or after the panel is reset.
   private lastSentSpecPath: string | null = null;
-  /// Local taskId → sessionId map for "open tab" buttons. Populated
-  /// when we spawn a tab during confirm, so the button works without
-  /// waiting for the backend cache to publish `task.spawned_session`.
-  private taskSpawnedSessions = new Map<string, string>();
+  /// Local taskId → spawn metadata for "open tab" / Continue buttons.
+  /// Populated when we spawn a tab during confirm — and mirrored to
+  /// localStorage so Continue after an app restart can recreate a tab
+  /// with the same cwd + group, instead of a dangling root-shell tab.
+  private taskSpawnedSessions = loadTaskSpawnedSessions();
   private tasksCache: Task[] = [];
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
   private resetBtnEl: HTMLButtonElement | null = null;
@@ -875,7 +907,7 @@ export class TeammatePanel {
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
-    const recordedSid = task.spawned_session ?? this.taskSpawnedSessions.get(task.id) ?? null;
+    const recordedSid = task.spawned_session ?? this.taskSpawnedSessions.get(task.id)?.sessionId ?? null;
     const sessionLive = !!recordedSid && (this.deps.isSessionAlive?.(recordedSid) ?? true);
     const closed = task.status === "done" || task.status === "cancelled";
 
@@ -1062,7 +1094,7 @@ export class TeammatePanel {
     // Prefer the locally-stashed session (set the moment we spawn the
     // tab in handleConfirm) — the backend task cache may not yet have
     // published `spawned_session`.
-    const sid = this.taskSpawnedSessions.get(taskId)
+    const sid = this.taskSpawnedSessions.get(taskId)?.sessionId
       ?? this.tasksCache.find((t) => t.id === taskId)?.spawned_session;
     const alive = !!sid && (this.deps.isSessionAlive?.(sid) ?? true);
     if (alive && sid) {
@@ -1078,11 +1110,25 @@ export class TeammatePanel {
   /// reattach, bind the operator, and inject the original task prompt
   /// so the new tab actually starts the work — same flow as the
   /// initial confirm path. Used by both Continue button and pill click.
+  /// Preserves cwd + group from the original spawn (read from
+  /// taskSpawnedSessions, which is localStorage-backed) so Continue
+  /// after restart lands in the right project and visual group.
   private async respawnAndInject(task: Task): Promise<void> {
     if (!this.operator || !this.deps.spawnTabForTask) return;
     const opId = this.operator.id;
-    const spawned = await this.deps.spawnTabForTask(task);
-    this.taskSpawnedSessions.set(task.id, spawned.sessionId);
+    const saved = this.taskSpawnedSessions.get(task.id);
+    const spawned = await this.deps.spawnTabForTask(task, {
+      cwd: saved?.cwd ?? null,
+      groupId: saved?.groupId ?? null,
+      color: saved?.color ?? null,
+    });
+    this.taskSpawnedSessions.set(task.id, {
+      sessionId: spawned.sessionId,
+      cwd: spawned.cwd ?? saved?.cwd ?? null,
+      groupId: spawned.groupId ?? saved?.groupId ?? null,
+      color: spawned.color ?? saved?.color ?? null,
+    });
+    persistTaskSpawnedSessions(this.taskSpawnedSessions);
     if (this.deps.attachSessionToTask) {
       await this.deps.attachSessionToTask(opId, task.id, spawned.sessionId).catch((e) =>
         console.error("attachSessionToTask on respawn failed", e),
@@ -1160,7 +1206,13 @@ export class TeammatePanel {
         if (target === "spawn" && spawnTabForTask) {
           const spawned = await spawnTabForTask(task);
           targetSessionId = spawned.sessionId;
-          this.taskSpawnedSessions.set(task.id, spawned.sessionId);
+          this.taskSpawnedSessions.set(task.id, {
+            sessionId: spawned.sessionId,
+            cwd: spawned.cwd,
+            groupId: spawned.groupId,
+            color: spawned.color,
+          });
+          persistTaskSpawnedSessions(this.taskSpawnedSessions);
           injectDelayMs = 1500;
           line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
           // Auto-set mission if the originating chat had a @spec chip.

@@ -561,13 +561,29 @@ async function boot(): Promise<void> {
     readFile:           structureReadFile,
     readBlockExcerpt,
     readSessionExcerpt,
-    spawnTabForTask: async (task) => {
+    spawnTabForTask: async (task, overrides) => {
+      // Inherit cwd + group from the active tab's workspace so the
+      // spawned tab visually belongs to the same stripe and lands in
+      // the project's root dir — not a generic home/root shell.
+      // Overrides win (used by Continue to recover original metadata
+      // post-restart, when the active tab may be unrelated).
+      const group = manager.activeGroup();
+      const cwd = overrides?.cwd ?? group?.rootDir ?? manager.activeCwd();
+      const groupId = overrides?.groupId ?? group?.id ?? null;
+      const color = overrides?.color ?? group?.color ?? null;
       const tab = await manager.createTab({
         customName: `${task.title.slice(0, 32)}`,
-        cwd: manager.activeCwd(),
+        cwd,
+        groupId,
+        color,
       });
       if (!tab) throw new Error("createTab returned null");
-      return { sessionId: tab.sessionId.toString() };
+      return {
+        sessionId: tab.sessionId.toString(),
+        cwd: tab.cwd ?? cwd,
+        groupId: tab.groupId ?? groupId,
+        color: tab.color ?? color,
+      };
     },
     setMissionForSpawnedTab: async (sessionId, specPath) => {
       const tab = manager.tabForSession(sessionId as SessionId);
@@ -578,7 +594,13 @@ async function boot(): Promise<void> {
     unbindOperatorFromTab: async (sessionId) => {
       const tab = manager.tabForSession(sessionId as SessionId);
       if (!tab) return;
+      // Flip AOM off at the tab level FIRST — setTabOperator(null)
+      // doesn't touch operatorEnabled, so leaving it true keeps the
+      // tab visible in the AOM count even though it has no operator.
+      await setOperatorLive(tab.sessionId, false).catch(() => undefined);
+      await setOperatorEnabled(tab.sessionId, false).catch(() => undefined);
       await manager.setTabOperator(tab.id, null);
+      await manager.refreshAllOperatorState().catch(() => undefined);
     },
     confirmTask: teammateConfirmTask,
     cancelTaskProposal: teammateCancelTaskProposal,
