@@ -37,14 +37,12 @@ const ARCHETYPE_LABEL: Record<TaskArchetype, string> = {
 
 function renderHeaderAvatarWithRing(
   operator: Operator | null,
-  level?: number,
   sentiment?: Sentiment | null,
 ): string {
   const xp = operator?.xp ?? 0;
   const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
   const emotion: Emotion = (sentiment as Emotion | undefined) ?? "neutral";
   const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32, "", emotion);
-  const lvl = level != null ? level : operatorLevelFromXp(xp);
   // Sentiment badge: only shown when the LLM tagged this turn. Spanish
   // token doubles as the modifier class for color theming + the
   // tooltip's `title` so the user sees the original.
@@ -52,6 +50,12 @@ function renderHeaderAvatarWithRing(
     ? `<span class="teammate-panel-sentiment teammate-panel-sentiment--${sentiment}" ` +
             `title="${sentiment}">${EMOTION_LABEL[sentiment as Emotion] ?? sentiment}</span>`
     : "";
+  // Level pill moved out of the avatar wrap — it lives next to the name
+  // in .teammate-panel-title-row now. The wrap holds only the XP ring
+  // (traces the avatar's outside circumference), the avatar itself, and
+  // the sentiment badge (sits above the head where there's headroom).
+  // Net effect: the v2 character art is no longer occluded by a level
+  // pill on its chin.
   return (
     `<span class="teammate-panel-avatar-wrap" data-operator-id="${operator?.id ?? ""}" ` +
           `style="--xp-progress:${xpProgress.toFixed(3)};">` +
@@ -60,7 +64,6 @@ function renderHeaderAvatarWithRing(
         `<circle class="fill"  cx="16" cy="16" r="15"/>` +
       `</svg>` +
       `<span class="teammate-panel-avatar">${avatar}</span>` +
-      `<span class="teammate-panel-level">${lvl}</span>` +
       badge +
     `</span>`
   );
@@ -399,11 +402,24 @@ export class TeammatePanel {
     const op = this.operator;
     const level = operatorLevelFromXp(op?.xp ?? 0);
     const sentiment = op ? this.currentMoodByOperator.get(op.id) ?? null : null;
+    // Scope --operator-color to the header so the level pill (inline
+    // next to the name) and the XP ring fill both pick up the operator's
+    // chosen color without a separate JS path per element. Falls through
+    // to --accent for any element that uses var(--operator-color, ...).
+    if (op?.color) h.style.setProperty("--operator-color", op.color);
+    // Level pill sits inline next to the operator name (was previously
+    // overlaid on the avatar's chin and occluded the v2 character art).
+    // Pre-formatted "Lv N" — short enough to read at 11px without
+    // crowding the name. Hidden when op is null (no operator selected).
+    const levelPill = op
+      ? `<span class="teammate-panel-level">Lv ${level}</span>`
+      : "";
     h.innerHTML = `
-      ${renderHeaderAvatarWithRing(op, level, sentiment)}
+      ${renderHeaderAvatarWithRing(op, sentiment)}
       <span class="teammate-panel-titlebox">
         <span class="teammate-panel-title-row">
           <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
+          ${levelPill}
         </span>
         <span class="teammate-panel-subtitle" data-role="subtitle">${escapeHtml(op?.model ?? "")}</span>
       </span>
@@ -418,18 +434,23 @@ export class TeammatePanel {
   /// new sentiment lands so the avatar pose + badge update without
   /// disturbing the rest of the header (model label, chevron, switcher
   /// open state). No-op when the header hasn't been rendered yet.
+  ///
+  /// The level pill is NOT touched here — it lives next to the name
+  /// (.teammate-panel-title-row .teammate-panel-level) and only
+  /// changes when XP crosses a level boundary, which happens on a full
+  /// render path (operator switch, XP award refresh), not on every
+  /// inbound message.
   private refreshHeaderAvatar(): void {
     const header = this.headerEl;
     if (!header) return;
     const wrap = header.querySelector(".teammate-panel-avatar-wrap");
     if (!wrap) return;
     const op = this.operator;
-    const level = operatorLevelFromXp(op?.xp ?? 0);
     const sentiment = op ? this.currentMoodByOperator.get(op.id) ?? null : null;
     // Replace the whole wrap rather than mutate children — keeps the
     // XP-progress CSS var, the SVG ring, and the badge in lockstep.
     const tmp = document.createElement("div");
-    tmp.innerHTML = renderHeaderAvatarWithRing(op, level, sentiment);
+    tmp.innerHTML = renderHeaderAvatarWithRing(op, sentiment);
     const fresh = tmp.firstElementChild;
     if (fresh) wrap.replaceWith(fresh);
   }

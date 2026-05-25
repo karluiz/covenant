@@ -73,7 +73,7 @@ describe("TeammatePanel", () => {
     expect(host.querySelector(".teammate-panel-subtitle")?.textContent).toBe("claude-sonnet-4-6");
   });
 
-  it("renders an XP ring around the avatar + level pill on the avatar wrap", async () => {
+  it("renders an XP ring around the avatar + level pill next to the name", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
       ...stubMentionDeps,
@@ -87,13 +87,13 @@ describe("TeammatePanel", () => {
     // Progress within current level: (142 % 100) / 100 = 0.42.
     expect(wrap!.style.getPropertyValue("--xp-progress")).toBe("0.420");
     expect(host.querySelector(".teammate-panel-xp-ring")).not.toBeNull();
-    // Level = floor(xp / 100) + 1 = 2. The pill lives anchored to the
-    // avatar wrap (bottom-center) so it sits opposite the sentiment
-    // badge (top-center). Both pills are inside the same wrap so they
-    // can share the avatar's --operator-color and re-render in lockstep
-    // when refreshHeaderAvatar() swaps the wrap on mood changes.
-    const level = wrap!.querySelector(".teammate-panel-level");
-    expect(level?.textContent).toBe("2");
+    // Level = floor(xp / 100) + 1 = 2. The pill lives inline next to the
+    // operator name (was on the avatar, but that occluded the v2
+    // character art — now sits in .teammate-panel-title-row). The wrap
+    // holds only the ring + avatar + sentiment badge.
+    const level = host.querySelector(".teammate-panel-title-row .teammate-panel-level");
+    expect(level?.textContent).toBe("Lv 2");
+    expect(wrap!.querySelector(".teammate-panel-level")).toBeNull();
   });
 
   it("renders the chevron as the last child of the header", async () => {

@@ -15380,21 +15380,24 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Level pill — inline next to the operator name in the header title
+ * row (previously absolute-positioned on the avatar wrap, which
+ * occluded the v2 character art). Small monospace pill in the
+ * operator's color so it reads as "this operator's level" without
+ * needing a separate label. */
 .teammate-panel-level {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  font-size: 8px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 9px;
   font-weight: 700;
   line-height: 1;
-  letter-spacing: 0.04em;
-  padding: 2px 5px;
-  border-radius: 999px;
-  color: #fff;
-  background: var(--operator-color, var(--accent, #6f7bff));
-  border: 1.5px solid var(--bg, #0e1015);
+  letter-spacing: 0.05em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: var(--operator-color, var(--accent, #b794f4));
+  background: color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 28%, transparent);
   font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
   white-space: nowrap;
 }
@@ -15410,11 +15413,11 @@ body.theme-light .teammate-panel-xp-ring .fill {
 body.theme-light .teammate-panel-avatar .op-avatar {
   background: rgba(0,0,0,0.05);
 }
-body.theme-light .teammate-panel-level {
-  color: #fff;
-  background: var(--operator-color, var(--accent, #6f7bff));
-  border-color: var(--bg, #fff);
-}
+/* The .teammate-panel-level base style uses color-mix over the operator
+ * color with transparent — works on both themes without an override.
+ * The old `body.theme-light` rule was scoped to the absolute-positioned
+ * pill (solid fill, dark border ring against the bg color) and isn't
+ * needed for the inline name-row pill. */
 
 /* Sentiment badge: small text pill anchored to the top of the avatar
  * wrap, opposite corner from the level badge at the bottom. Conveys the
