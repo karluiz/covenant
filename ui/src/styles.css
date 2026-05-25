@@ -10346,7 +10346,12 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
   text-align: center;
   letter-spacing: 0;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  /* Force the badge to render above the avatar image AND any
+     active-tab glow ::before, which otherwise stack on top in the
+     sidebar's tabbar-left mode. */
+  z-index: 3;
 }
+.tab-op-avatar-wrap { isolation: isolate; }
 .op-level {
   font-size: 9px;
   font-weight: 700;
@@ -15372,19 +15377,41 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   white-space: nowrap;
 }
 .teammate-panel-level {
-  flex: 0 0 auto;
-  font-size: 9px;
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 8px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 999px;
-  color: var(--fg);
-  background: color-mix(in srgb, var(--operator-color, var(--accent)) 18%, transparent);
-  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent)) 45%, transparent);
+  color: #fff;
+  background: var(--operator-color, var(--accent, #6f7bff));
+  border: 1.5px solid var(--bg, #0e1015);
   font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
-  text-transform: uppercase;
+  white-space: nowrap;
 }
+
+/* Light-mode: avatar ring + level badge */
+body.theme-light .teammate-panel-xp-ring .track {
+  stroke: rgba(0,0,0,0.08);
+}
+body.theme-light .teammate-panel-xp-ring .fill {
+  opacity: 0.85;
+  filter: none;
+}
+body.theme-light .teammate-panel-avatar .op-avatar {
+  background: rgba(0,0,0,0.05);
+}
+body.theme-light .teammate-panel-level {
+  color: #fff;
+  background: var(--operator-color, var(--accent, #6f7bff));
+  border-color: var(--bg, #fff);
+}
+
 .teammate-panel-subtitle {
   font-size: 10px;
   color: var(--muted);
