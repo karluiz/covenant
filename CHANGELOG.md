@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.31 — Calmer idle tab indicator
+
+### Changed
+
+- **Idle tab indicator**: replaced the 1.5px amber comet that swept across the bottom edge of idle tabs with a small fading "…" rendered inline next to the tab label. The old animation drew the eye every 2.2s across every idle tab simultaneously; the ellipsis reads semantically as "waiting" with a much gentler 2.4s opacity fade and no moving geometry. `ui/src/styles.css` (`.tab-idle-badge`). DOM mounting in `ui/src/tabs/manager.ts` is unchanged — the badge is still inserted before the close button.
+
 ## v0.8.30 — Fix release build (composer-input TS error)
 
 ### Fixed
