@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.29 — Operator sentiment v2 — alive avatars + LLM mood tags
+
+### Added
+
+- **Sentiment v2 foundation**: new `pack2:<character>` avatar format backed by `ui/operatorsv2/` with 18 characters × 9 emotional poses (neutral, feliz, triste, enojo, sorpresa, duda, expectacion, incomodidad, ver). `renderAvatarHtml` gains an optional emotion arg; v1 `pack:<id>` avatars keep working untouched. Rust side adds a `Sentiment` enum (lowercase Spanish tokens mirroring the PNG filenames) and an optional `sentiment` field on `TaskMessage`, plus an idempotent migration adding a nullable `sentiment` column to `teammate_messages`. `ui/src/operator/avatars.ts`, `crates/app/src/teammate/types.rs`, `crates/app/src/storage.rs`.
+- **End-to-end LLM mood tagging**: every operator system prompt gets a `SENTIMENT_DIRECTIVE` explaining the 9 tokens with Spanish + English glosses. `extract_sentiment()` parses replies tolerantly (case-insensitive, trailing punctuation, vergüenza/verguenza aliasing, English fallbacks); unparseable tags leave text untouched. `DispatchOutcome::Text` now carries `Option<Sentiment>` for Anthropic, OpenAI, and oneshot paths. Teammate panel tracks `currentMoodByOperator`, backfills from history on reconnect, and drives both the v2 PNG pose and a small English mood badge on the header avatar. Untagged messages preserve the last real mood. `crates/app/src/teammate/llm.rs`, `crates/app/src/teammate/commands.rs`, `ui/src/api.ts`, `ui/src/teammate/panel.ts`, `ui/src/styles.css`.
+- **Settings grids ship v2 pack with hover cycle**: both the New Operator wizard and the Edit Operator modal now render the 18 v2 characters; hovering a tile cycles its available poses at 250ms so you can preview the operator's emotional range before committing. `mouseleave` snaps back to neutral with no leaked intervals. `DEFAULT_DRAFT.emoji` bumped to `pack2:bella` so new operators participate in sentiment from turn one. `ui/src/settings/operators.ts`, `ui/src/settings/operator_chip.ts`.
+
+### Changed
+
+- **Operator list cards bleed `--operator-color`**: list rows now tint the card with the per-operator accent (Mibli purple, Karluiz blue) instead of staying neutral. New Operator modal palette aligned with the release-log card for visual consistency. Avatar tiles drop their native `title` tooltips in favor of `aria-label` (per project convention). `ui/src/settings/operators.ts`.
+- **Teammate panel header layout**: level pill moved out of the avatar wrap and now sits next to the operator name, leaving the avatar ring uncluttered for the sentiment badge anchored opposite. `ui/src/teammate/panel.ts`, `ui/src/teammate/panel.test.ts`.
+
 ## v0.8.28 — Workspaces V2, multi-source @mentions, task Stop/Continue
 
 ### Added
