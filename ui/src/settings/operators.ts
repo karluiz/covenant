@@ -330,7 +330,7 @@ export class LegacyOperatorsPane {
                             class="operators-pane__avatar-cell${selected ? " is-selected" : ""}"
                             data-avatar-id="${a.character}"
                             data-poses='${escapeHtml(JSON.stringify(poses))}'
-                            title="${escapeHtml(a.label)}">
+                            aria-label="${escapeHtml(a.label)}">
                       <img src="${a.url}" alt="${escapeHtml(a.label)}"
                            width="56" height="56"
                            class="op-avatar op-avatar-pixel" draggable="false" />
@@ -962,7 +962,11 @@ function renderIdentity(h: ModalHandle): HTMLElement {
     b.className =
       "op-avatar-tile" +
       (h.state.draft.emoji === `pack2:${entry.character}` ? " is-selected" : "");
-    b.title = entry.label;
+    // Use aria-label instead of title so the character name is exposed
+    // to screen readers without triggering the native browser tooltip
+    // (the hover cycle is the visual preview now — a tooltip on top of
+    // it competes for attention).
+    b.setAttribute("aria-label", entry.label);
     const img = document.createElement("img");
     img.src = entry.url; // neutral pose by default
     img.alt = entry.label;
