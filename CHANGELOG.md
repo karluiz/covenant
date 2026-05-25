@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.30 — Fix release build (composer-input TS error)
+
+### Fixed
+
+- **Release build TypeScript error**: `npm run build` failed in CI with `TS2339: Property 'remove' does not exist on type 'Node'` at `ui/src/teammate/composer-input.ts:221`, breaking both v0.8.28 and v0.8.29 macOS + Windows release workflows so no installers were produced. Cast the node to `ChildNode` (which is what actually carries `.remove()`) before calling it. No behavior change — same nodes were already filtered by `n.parentNode` guard.
+
 ## v0.8.29 — Operator sentiment v2 — alive avatars + LLM mood tags
 
 ### Added

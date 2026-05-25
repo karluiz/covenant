@@ -218,7 +218,7 @@ export class ComposerInput {
     const parent = prev.parentNode!;
     const anchorAfter = prev.nextSibling; // may be null
     prev.remove();
-    toRemove.forEach((n) => n.parentNode && n.remove());
+    toRemove.forEach((n) => n.parentNode && (n as ChildNode).remove());
     // Caret placement.
     const newSel = window.getSelection();
     if (newSel) {
