@@ -360,6 +360,16 @@ pub async fn teammate_cancel_task_proposal(
 }
 
 #[tauri::command]
+pub async fn teammate_cancel_active_task(
+    storage: State<'_, Arc<Storage>>,
+    task_id: crate::teammate::TaskId,
+) -> Result<(), String> {
+    storage.teammate_update_task_status(task_id, TaskStatus::Cancelled, now_unix_ms())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn teammate_edit_task_proposal(
     storage: State<'_, Arc<Storage>>,
     message_id: MessageId,

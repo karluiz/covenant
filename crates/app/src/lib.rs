@@ -3364,6 +3364,7 @@ pub fn run() {
             teammate::commands::teammate_list_tasks,
             teammate::commands::teammate_confirm_task,
             teammate::commands::teammate_cancel_task_proposal,
+            teammate::commands::teammate_cancel_active_task,
             teammate::commands::teammate_edit_task_proposal,
             teammate::commands::teammate_attach_session_to_task,
             teammate::commands::teammate_clear_for_operator,

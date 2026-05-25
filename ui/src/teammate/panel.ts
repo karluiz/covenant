@@ -6,7 +6,7 @@ import {
   injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp,
   operatorList, readBlockExcerpt, readSessionExcerpt,
   structureFindFiles, structureReadFile,
-  teammateAttachSessionToTask, teammateCancelTaskProposal,
+  teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal,
   teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal,
   teammateListDecisionsForSession, teammateListMessages, teammateListTasks,
   teammateSendText,
@@ -95,6 +95,13 @@ export interface TeammatePanelDeps {
   /// automatically when the user confirmed a task whose originating
   /// message contained an `@spec:` mention.
   setMissionForSpawnedTab?: (sessionId: string, specPath: string) => Promise<void>;
+  /// True if the given sessionId still has a live tab. Used to flip
+  /// the task-detail "Open tab" button into a "Continue (new tab)"
+  /// action when the original spawn died (e.g., dev-reload).
+  isSessionAlive?: (sessionId: string) => boolean;
+  /// Backend cancel for already-active tasks (proposals use
+  /// cancelTaskProposal). Wired to the task-detail "Stop" button.
+  cancelActiveTask?: (taskId: string) => Promise<void>;
   /// Open a spec markdown file in the editor drawer when the user clicks a
   /// spec chip in a chat bubble. Path is the absolute path returned by
   /// `findSpecs`.
@@ -113,6 +120,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   attachSessionToTask: teammateAttachSessionToTask,
   listTasks:           teammateListTasks,
   clearForOperator:    teammateClearForOperator,
+  cancelActiveTask:    teammateCancelActiveTask,
   mentionSources: {
     findFiles:          structureFindFiles,
     listOperators:      operatorList,
@@ -864,29 +872,58 @@ export class TeammatePanel {
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
+    const recordedSid = task.spawned_session ?? this.taskSpawnedSessions.get(task.id) ?? null;
+    const sessionLive = !!recordedSid && (this.deps.isSessionAlive?.(recordedSid) ?? true);
+    const closed = task.status === "done" || task.status === "cancelled";
+
     const open = document.createElement("button");
     open.type = "button";
     open.className = "btn btn--primary";
-    open.textContent = "Open tab";
-    open.disabled = !task.spawned_session || !this.deps.focusTabBySessionId;
-    open.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (task.spawned_session) this.deps.focusTabBySessionId?.(task.spawned_session);
-    });
+    if (sessionLive && recordedSid) {
+      open.textContent = "Open tab";
+      open.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.deps.focusTabBySessionId?.(recordedSid);
+      });
+    } else if (!closed && this.deps.spawnTabForTask) {
+      // Spawn died (likely a dev reload) — offer to respawn into a
+      // fresh tab so the task is recoverable instead of orphaned.
+      open.textContent = "Continue in new tab";
+      open.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          const spawned = await this.deps.spawnTabForTask!(task);
+          this.taskSpawnedSessions.set(task.id, spawned.sessionId);
+          if (this.deps.attachSessionToTask && this.operator) {
+            await this.deps.attachSessionToTask(this.operator.id, task.id, spawned.sessionId);
+          }
+          this.deps.focusTabBySessionId?.(spawned.sessionId);
+          void this.refreshTasks();
+        } catch (err) {
+          console.error("respawn tab failed", err);
+        }
+      });
+    } else {
+      open.textContent = "Open tab";
+      open.disabled = true;
+    }
     actions.append(open);
 
     const stop = document.createElement("button");
     stop.type = "button";
     stop.className = "btn btn--danger";
     stop.textContent = "Stop";
-    stop.disabled = task.status === "done" || task.status === "cancelled";
-    stop.addEventListener("click", (e) => {
+    stop.disabled = closed || !this.deps.cancelActiveTask;
+    stop.addEventListener("click", async (e) => {
       e.stopPropagation();
-      // For now: just remove the operator binding; backend task-stop
-      // command can land later. This at least kills single-tab AOM.
-      if (task.spawned_session && this.deps.bindOperatorToTab) {
-        // No public "unbind" dep yet — best-effort: do nothing visible.
-        // Wire a proper stop command in a follow-up.
+      if (!this.deps.cancelActiveTask) return;
+      stop.disabled = true;
+      try {
+        await this.deps.cancelActiveTask(task.id);
+        void this.refreshTasks();
+      } catch (err) {
+        console.error("cancelActiveTask failed", err);
+        stop.disabled = false;
       }
     });
     actions.append(stop);

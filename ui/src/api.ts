@@ -409,6 +409,12 @@ export async function teammateCancelTaskProposal(
   return invoke<void>("teammate_cancel_task_proposal", { messageId });
 }
 
+/// Mark an already-active/blocked task as cancelled. Used by the
+/// teammate panel's task-detail "Stop" button.
+export async function teammateCancelActiveTask(taskId: string): Promise<void> {
+  return invoke<void>("teammate_cancel_active_task", { taskId });
+}
+
 export async function teammateEditTaskProposal(
   messageId: string,
   draft: TaskDraft,

@@ -574,6 +574,7 @@ async function boot(): Promise<void> {
       if (!tab) return;
       await manager.setMissionPathForTab(tab.id, specPath);
     },
+    isSessionAlive: (sessionId) => !!manager.tabForSession(sessionId as SessionId),
     confirmTask: teammateConfirmTask,
     cancelTaskProposal: teammateCancelTaskProposal,
     editTaskProposal: teammateEditTaskProposal,
@@ -591,6 +592,7 @@ async function boot(): Promise<void> {
       // Re-read backend state into the tab + repaint ring/status bar.
       await manager.refreshAllOperatorState();
     },
+    openSpec: (path) => manager.openFileAtLine(path),
   });
   const teammateBtn = document.getElementById("titlebar-view-teammate");
 

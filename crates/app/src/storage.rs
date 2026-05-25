@@ -2500,6 +2500,32 @@ impl Storage {
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
+
+    pub async fn teammate_update_task_status(
+        &self,
+        id: crate::teammate::TaskId,
+        status: crate::teammate::TaskStatus,
+        now_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        let status_str = match status {
+            crate::teammate::TaskStatus::Draft     => "draft",
+            crate::teammate::TaskStatus::Active    => "active",
+            crate::teammate::TaskStatus::Blocked   => "blocked",
+            crate::teammate::TaskStatus::Done      => "done",
+            crate::teammate::TaskStatus::Cancelled => "cancelled",
+        };
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_tasks SET status = ?1, updated_at_unix_ms = ?2 WHERE id = ?3",
+                params![status_str, now_unix_ms as i64, id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
 }
 
 /// Recall ranker. Tuned so the obvious-good answer wins:
