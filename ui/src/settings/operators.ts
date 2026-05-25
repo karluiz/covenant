@@ -11,7 +11,7 @@ import {
 } from "../api";
 import { PRESETS, type PresetKey } from "./operator_presets";
 import { renderOperatorChip } from "./operator_chip";
-import { AVATAR_PACK, parseAvatar, renderAvatarHtml } from "../operator/avatars";
+import { AVATAR_PACK_V2, parseAvatar, renderAvatarHtml } from "../operator/avatars";
 import { workspacesManager } from "../main";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
@@ -20,7 +20,11 @@ import { CustomSelect } from "../ui/select";
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
-  emoji: "🤖",
+  // Default to a v2 pack character so new operators participate in the
+  // sentiment system from turn one (avatar pose + mood badge driven by
+  // the LLM's SENTIMENT: tag). Any v2 character works; `bella` is a
+  // neutral starter — the user can change it in the avatar grid.
+  emoji: "pack2:bella",
   color: "#6B7280",
   tags: [],
   persona: "",
@@ -313,12 +317,19 @@ export class LegacyOperatorsPane {
 
       <div class="operators-pane__field">
         <label>Avatar</label>
-        <div class="operators-pane__avatar-grid">
-          ${AVATAR_PACK.map((a) => {
-            const selected = this.editing.emoji === `pack:${a.id}`;
+        <div class="operators-pane__avatar-grid" data-avatar-pack="v2">
+          ${AVATAR_PACK_V2.map((a) => {
+            const selected = this.editing.emoji === `pack2:${a.character}`;
+            // data-poses is a JSON-encoded array of all URLs for this
+            // character (in arbitrary emotion order). The click handler
+            // wires up hover cycling from it — keeps the markup
+            // declarative so render() can be re-run without leaking
+            // listeners.
+            const poses = Object.values(a.urlsByEmotion).filter(Boolean) as string[];
             return `<button type="button"
                             class="operators-pane__avatar-cell${selected ? " is-selected" : ""}"
-                            data-avatar-id="${a.id}"
+                            data-avatar-id="${a.character}"
+                            data-poses='${escapeHtml(JSON.stringify(poses))}'
                             title="${escapeHtml(a.label)}">
                       <img src="${a.url}" alt="${escapeHtml(a.label)}"
                            width="56" height="56"
@@ -427,11 +438,38 @@ export class LegacyOperatorsPane {
       modelHost.replaceWith(modelSelect.element);
     }
 
-    // Wire avatar grid clicks — each button sets emoji to "pack:<id>"
+    // Wire avatar grid clicks + hover cycling. Each button stores its
+    // pose URLs in `data-poses` (JSON array). On hover we cycle through
+    // them at 250ms intervals to preview the character's emotional
+    // range; on leave we snap back to the neutral pose (= the <img>'s
+    // current src as rendered initially). Click writes
+    // `pack2:<character>` to the draft.
     root.querySelectorAll<HTMLButtonElement>('.operators-pane__avatar-cell').forEach((btn) => {
+      const img = btn.querySelector("img");
+      const neutralSrc = img?.getAttribute("src") ?? "";
+      let poses: string[] = [];
+      try {
+        poses = JSON.parse(btn.dataset.poses ?? "[]");
+      } catch { /* malformed — leave empty, no cycle */ }
+      let cycleTimer: number | null = null;
+      btn.addEventListener("mouseenter", () => {
+        if (!img || poses.length < 2) return;
+        let i = 0;
+        cycleTimer = window.setInterval(() => {
+          i = (i + 1) % poses.length;
+          img.src = poses[i]!;
+        }, 250);
+      });
+      btn.addEventListener("mouseleave", () => {
+        if (cycleTimer != null) {
+          clearInterval(cycleTimer);
+          cycleTimer = null;
+        }
+        if (img && neutralSrc) img.src = neutralSrc;
+      });
       btn.addEventListener("click", () => {
-        const id = btn.dataset.avatarId!;
-        this.editing.emoji = `pack:${id}`;
+        const character = btn.dataset.avatarId!;
+        this.editing.emoji = `pack2:${character}`;
         this.dirty = true;
         root.querySelectorAll('.operators-pane__avatar-cell').forEach(c => c.classList.remove('is-selected'));
         btn.classList.add('is-selected');
@@ -911,24 +949,48 @@ function renderIdentity(h: ModalHandle): HTMLElement {
   name.addEventListener("input", () => h.setName(name.value));
   wrap.append(labeled("Name", name));
 
-  // Avatar grid
+  // Avatar grid — v2 pack. Each tile is one character; on hover the
+  // image cycles through the 9 emotional poses to advertise that this
+  // operator has feelings. Click locks in the character (stored as
+  // `pack2:<character>`); the actual pose at runtime is driven by the
+  // SENTIMENT: tag the LLM emits, not by what was last hovered.
   const grid = document.createElement("div");
   grid.className = "op-avatar-grid";
-  AVATAR_PACK.forEach((entry) => {
+  AVATAR_PACK_V2.forEach((entry) => {
     const b = document.createElement("button");
     b.type = "button";
     b.className =
       "op-avatar-tile" +
-      (h.state.draft.emoji === `pack:${entry.id}` ? " is-selected" : "");
+      (h.state.draft.emoji === `pack2:${entry.character}` ? " is-selected" : "");
     b.title = entry.label;
     const img = document.createElement("img");
-    img.src = entry.url;
+    img.src = entry.url; // neutral pose by default
     img.alt = entry.label;
     img.width = 44;
     img.height = 44;
     img.draggable = false;
     b.append(img);
-    b.addEventListener("click", () => h.setEmoji(`pack:${entry.id}`));
+    // Hover cycle: walk through whatever emotions this character has,
+    // 250ms per frame. Use the entry's own urlsByEmotion map so we
+    // gracefully skip any poses missing from disk.
+    let cycleTimer: number | null = null;
+    const poses = Object.values(entry.urlsByEmotion).filter(Boolean) as string[];
+    b.addEventListener("mouseenter", () => {
+      if (poses.length < 2) return;
+      let i = 0;
+      cycleTimer = window.setInterval(() => {
+        i = (i + 1) % poses.length;
+        img.src = poses[i]!;
+      }, 250);
+    });
+    b.addEventListener("mouseleave", () => {
+      if (cycleTimer != null) {
+        clearInterval(cycleTimer);
+        cycleTimer = null;
+      }
+      img.src = entry.url; // snap back to neutral
+    });
+    b.addEventListener("click", () => h.setEmoji(`pack2:${entry.character}`));
     grid.append(b);
   });
   wrap.append(labeled("Avatar", grid));
@@ -1072,7 +1134,13 @@ function renderBehavior(h: ModalHandle): HTMLElement {
 function renderAdvanced(h: ModalHandle): HTMLElement {
   const det = document.createElement("details");
   det.className = "op-modal-advanced";
-  if (h.state.draft.hard_constraints.trim() || !h.state.draft.emoji.startsWith("pack:")) {
+  // Auto-expand Advanced when the user has either (a) typed hard
+  // constraints or (b) overridden the avatar with a custom emoji
+  // (anything not handled by a pack: or pack2: prefix).
+  const isPackAvatar =
+    h.state.draft.emoji.startsWith("pack:") ||
+    h.state.draft.emoji.startsWith("pack2:");
+  if (h.state.draft.hard_constraints.trim() || !isPackAvatar) {
     det.open = true;
   }
   const sum = document.createElement("summary");
@@ -1085,7 +1153,9 @@ function renderAdvanced(h: ModalHandle): HTMLElement {
   emoji.className = "op-modal-input";
   emoji.maxLength = 24;
   emoji.placeholder = "Override avatar with text or emoji";
-  emoji.value = h.state.draft.emoji.startsWith("pack:") ? "" : h.state.draft.emoji;
+  // Show the literal emoji string only when the user is NOT on a pack
+  // avatar; pack avatars are owned by the grid above, not this input.
+  emoji.value = isPackAvatar ? "" : h.state.draft.emoji;
   emoji.addEventListener("input", () => {
     // Empty = revert to whichever pack avatar was already selected (no-op
     // here; we just keep the existing pack: value). Non-empty = literal
