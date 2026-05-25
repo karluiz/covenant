@@ -1012,6 +1012,10 @@ function renderIdentity(h: ModalHandle): HTMLElement {
     b.type = "button";
     b.className = "op-color-swatch" + (h.state.draft.color === c ? " is-selected" : "");
     b.style.background = c;
+    // Set `color` too so the .is-selected ring (CSS uses currentColor)
+    // takes the swatch's hue. Without this, currentColor inherits from
+    // the modal's foreground and every selected ring is the same color.
+    b.style.color = c;
     b.dataset.color = c;
     b.addEventListener("click", () => h.setColor(c));
     colors.append(b);
