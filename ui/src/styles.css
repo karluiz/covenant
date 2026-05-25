@@ -16440,3 +16440,34 @@ body.theme-light .teammate-panel-switcher {
 .pn-panel {
   box-shadow: none !important;
 }
+
+/* Mention popup (file-mention picker) */
+.mention-popup {
+  position: fixed;
+  z-index: 9999;
+  min-width: 280px;
+  max-width: 480px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text, #ddd);
+}
+.mention-popup.is-hidden { display: none; }
+.mention-popup-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mention-popup-row:hover,
+.mention-popup-row.is-active { background: var(--surface-hover, #2a2a2a); }

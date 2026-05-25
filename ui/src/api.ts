@@ -1963,3 +1963,16 @@ export async function onTeammateToolCall(
   );
   return unlisten;
 }
+
+export interface FileMatch {
+  path: string;
+  score: number;
+}
+
+export async function searchSessionFiles(
+  sessionId: SessionId,
+  query: string,
+  limit = 8,
+): Promise<FileMatch[]> {
+  return invoke<FileMatch[]>("search_session_files", { sessionId, query, limit });
+}
