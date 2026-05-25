@@ -1046,7 +1046,28 @@ export class TeammatePanel {
     // published `spawned_session`.
     const sid = this.taskSpawnedSessions.get(taskId)
       ?? this.tasksCache.find((t) => t.id === taskId)?.spawned_session;
-    if (sid) this.deps.focusTabBySessionId?.(sid);
+    const alive = !!sid && (this.deps.isSessionAlive?.(sid) ?? true);
+    if (alive && sid) {
+      this.deps.focusTabBySessionId?.(sid);
+      return;
+    }
+    // Dead session (typical after an app restart): respawn the tab and
+    // re-attach the task so the pill action becomes meaningful again.
+    const task = this.tasksCache.find((t) => t.id === taskId);
+    if (!task || !this.deps.spawnTabForTask || !this.operator) return;
+    void (async () => {
+      try {
+        const spawned = await this.deps.spawnTabForTask!(task);
+        this.taskSpawnedSessions.set(task.id, spawned.sessionId);
+        if (this.deps.attachSessionToTask) {
+          await this.deps.attachSessionToTask(this.operator!.id, task.id, spawned.sessionId);
+        }
+        this.deps.focusTabBySessionId?.(spawned.sessionId);
+        void this.refreshTasks();
+      } catch (e) {
+        console.error("respawn from pill failed", e);
+      }
+    })();
   }
 
   private paintSystemLine(msg: TeammateMessage, style: SystemLineStyle): void {
