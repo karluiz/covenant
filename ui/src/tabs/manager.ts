@@ -1794,11 +1794,16 @@ export class TabManager {
       },
     });
     term.open(termHost);
-    // WebGL addon disabled temporarily — its glyph atlas doesn't pick
-    // up font changes from term.options.fontFamily reliably. DOM/canvas
-    // renderer respects the font option natively. M-OP perf hit is
-    // negligible at terminal byte rates.
-    const webgl: WebglAddon | null = null;
+    // GPU renderer: WebGL when ligatures are off, Canvas when they're
+    // on (character joiners need the canvas renderer). The DOM renderer
+    // replaces all row DOM nodes on every scroll tick — at trackpad
+    // rates (60-120 Hz) this causes visible flicker. WebGL/Canvas
+    // handle scrolling entirely on the GPU.
+    //
+    // Font-change caveat: WebGL's glyph atlas doesn't pick up
+    // fontFamily changes from term.options — callers must dispose and
+    // recreate the addon (rebuildWebglAtlases already does this).
+    let webgl: WebglAddon | null = null;
     // Opt-in ligatures pipeline. Character joiners require the canvas
     // (or webgl) renderer; the DOM renderer ignores them. The ligature
     // ranges come from font-ligatures parsing the user's actual TTF —
@@ -1816,6 +1821,18 @@ export class TabManager {
         // eslint-disable-next-line no-console
         console.warn("canvas addon failed; ligatures disabled", err);
         canvas = null;
+      }
+    }
+    // When ligatures are off (no canvas addon), use WebGL for scroll
+    // performance. Fall through to DOM renderer if WebGL init fails.
+    if (!canvas) {
+      try {
+        webgl = new WebglAddon();
+        term.loadAddon(webgl);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("webgl addon failed; falling back to DOM renderer", err);
+        webgl = null;
       }
     }
     const wantLigatures = !!(termCfg?.ligatures && canvas);
@@ -2481,9 +2498,12 @@ export class TabManager {
     // is re-rendering and can trap the user away from the bottom. Only
     // intervene when the viewport has room to move in the wheel direction.
     let wheelRefitTimer: ReturnType<typeof setTimeout> | null = null;
+    // Cache the viewport element — querySelector on every 60-120 Hz
+    // wheel tick is wasteful. The element is stable after term.open().
+    const cachedVp = termHost.querySelector<HTMLElement>(".xterm-viewport");
     const onWheelStuck = (ev: WheelEvent): void => {
       if (ev.deltaY === 0) return;
-      const vp = termHost.querySelector<HTMLElement>(".xterm-viewport");
+      const vp = cachedVp;
       if (!vp) return;
 
       const before = vp.scrollTop;

@@ -1607,6 +1607,7 @@ body:not(.tabbar-left) #new-group {
     scrollbar-width: none;
     scrollbar-color: transparent transparent;
     transition: scrollbar-color 0.2s ease;
+    overscroll-behavior: contain;
 }
 
 /* xterm's scrollable viewport is a sibling behind `.xterm-screen`, so
