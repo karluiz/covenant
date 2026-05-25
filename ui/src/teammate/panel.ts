@@ -501,7 +501,12 @@ export class TeammatePanel {
       if (!chip) return;
       e.preventDefault();
       const id = chip.dataset.specId;
-      if (id) void this.openSpecById(id);
+      const path = chip.dataset.specPath;
+      if (path && this.deps.openSpec) {
+        this.deps.openSpec(path);
+      } else if (id) {
+        void this.openSpecById(id);
+      }
     });
     this.threadEl = t;
     return t;
@@ -1446,23 +1451,28 @@ function renderInlineContent(text: string): string {
   const idx = text.indexOf(SEP);
   const visible = idx >= 0 ? text.slice(0, idx) : text;
   const bundle  = idx >= 0 ? text.slice(idx + SEP.length) : "";
-  const specTitles = extractSpecTitles(bundle);
+  const specMeta = extractSpecMeta(bundle);
 
   let html = escapeHtml(visible).replace(/`([^`\n]+)`/g, '<code>$1</code>');
   html = html.replace(/@spec:([\w./-]+)/g, (_m, id: string) => {
-    const title = specTitles.get(id);
-    const label = title ? `${id} · ${title}` : id;
-    return `<button type="button" class="teammate-mention-chip" data-mention-kind="spec" data-spec-id="${escapeHtml(id)}">§ ${escapeHtml(label)}</button>`;
+    const meta = specMeta.get(id);
+    const label = meta?.title ? `${id} · ${meta.title}` : id;
+    const pathAttr = meta?.path ? ` data-spec-path="${escapeHtml(meta.path)}"` : "";
+    return `<button type="button" class="teammate-mention-chip" data-mention-kind="spec" data-spec-id="${escapeHtml(id)}"${pathAttr}>§ ${escapeHtml(label)}</button>`;
   });
   return html;
 }
 
-function extractSpecTitles(bundle: string): Map<string, string> {
-  const out = new Map<string, string>();
-  const re = /^### spec (\S+): (.+)$/gm;
+function extractSpecMeta(bundle: string): Map<string, { title: string; path?: string }> {
+  const out = new Map<string, { title: string; path?: string }>();
+  // Heading "### spec <id>: <title>" optionally followed by
+  // "<!-- spec-path: <abs> -->" on the next line (so the chip can
+  // open the file even after a restart, when no active session cwd
+  // is available for findSpecs to scope by).
+  const re = /^### spec (\S+): (.+?)(?:\n<!-- spec-path: (.+?) -->)?$/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(bundle)) !== null) {
-    out.set(m[1], m[2].trim());
+    out.set(m[1], { title: m[2].trim(), path: m[3] });
   }
   return out;
 }

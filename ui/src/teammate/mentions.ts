@@ -195,6 +195,7 @@ export async function expandMentions(
       attached.push(token);
       sections.push(
         "### spec " + payload.id + ": " + payload.title +
+        "\n<!-- spec-path: " + payload.abs + " -->" +
         (payload.goal ? "\n\n> " + payload.goal : "") +
         "\n```md\n" + body + "\n```",
       );
