@@ -895,13 +895,7 @@ export class TeammatePanel {
       open.addEventListener("click", async (e) => {
         e.stopPropagation();
         try {
-          const spawned = await this.deps.spawnTabForTask!(task);
-          this.taskSpawnedSessions.set(task.id, spawned.sessionId);
-          if (this.deps.attachSessionToTask && this.operator) {
-            await this.deps.attachSessionToTask(this.operator.id, task.id, spawned.sessionId);
-          }
-          this.deps.focusTabBySessionId?.(spawned.sessionId);
-          void this.refreshTasks();
+          await this.respawnAndInject(task);
         } catch (err) {
           console.error("respawn tab failed", err);
         }
@@ -1075,23 +1069,40 @@ export class TeammatePanel {
       this.deps.focusTabBySessionId?.(sid);
       return;
     }
-    // Dead session (typical after an app restart): respawn the tab and
-    // re-attach the task so the pill action becomes meaningful again.
     const task = this.tasksCache.find((t) => t.id === taskId);
-    if (!task || !this.deps.spawnTabForTask || !this.operator) return;
-    void (async () => {
-      try {
-        const spawned = await this.deps.spawnTabForTask!(task);
-        this.taskSpawnedSessions.set(task.id, spawned.sessionId);
-        if (this.deps.attachSessionToTask) {
-          await this.deps.attachSessionToTask(this.operator!.id, task.id, spawned.sessionId);
-        }
-        this.deps.focusTabBySessionId?.(spawned.sessionId);
-        void this.refreshTasks();
-      } catch (e) {
-        console.error("respawn from pill failed", e);
-      }
-    })();
+    if (!task) return;
+    void this.respawnAndInject(task).catch((e) => console.error("respawn from pill failed", e));
+  }
+
+  /// Spawn a fresh tab for a task that had a dead/missing session,
+  /// reattach, bind the operator, and inject the original task prompt
+  /// so the new tab actually starts the work — same flow as the
+  /// initial confirm path. Used by both Continue button and pill click.
+  private async respawnAndInject(task: Task): Promise<void> {
+    if (!this.operator || !this.deps.spawnTabForTask) return;
+    const opId = this.operator.id;
+    const spawned = await this.deps.spawnTabForTask(task);
+    this.taskSpawnedSessions.set(task.id, spawned.sessionId);
+    if (this.deps.attachSessionToTask) {
+      await this.deps.attachSessionToTask(opId, task.id, spawned.sessionId).catch((e) =>
+        console.error("attachSessionToTask on respawn failed", e),
+      );
+    }
+    void this.deps.bindOperatorToTab?.(spawned.sessionId, opId).catch((e) =>
+      console.error("bindOperatorToTab on respawn failed", e),
+    );
+    this.deps.focusTabBySessionId?.(spawned.sessionId);
+    // The executor used when the task was originally confirmed isn't
+    // currently persisted on the task row; fall back to whatever the
+    // operator's default executor is by passing null (buildTaskInjection
+    // emits a plain prompt the operator will pick up on its next turn).
+    const line = buildTaskInjection(task.title, task.deliverable, null);
+    window.setTimeout(() => {
+      void injectCommand(spawned.sessionId, line).catch((e) =>
+        console.error("injectCommand on respawn failed", e),
+      );
+    }, 1500);
+    void this.refreshTasks();
   }
 
   private paintSystemLine(msg: TeammateMessage, style: SystemLineStyle): void {
