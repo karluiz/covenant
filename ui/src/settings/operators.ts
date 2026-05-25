@@ -1287,6 +1287,11 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
   for (const op of ops) {
     const card = document.createElement("div");
     card.className = "op-card";
+    // Bleed the operator's color into the card itself (background tint,
+    // border, hover state) — without this, --operator-color only reaches
+    // the chip inside and the card around it looks generic gray. Same
+    // pattern as the modal hero card.
+    card.style.setProperty("--operator-color", op.color);
     card.append(renderOperatorChip(op, "lg"));
     const summary = document.createElement("div");
     summary.className = "op-card-summary";

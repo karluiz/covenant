@@ -61,37 +61,54 @@ body.theme-dark .op-card .op-chip {
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  /* Operator-color tinted hairline + soft accent-aware fill. Mirrors
+   * the .op-hero language from the modal so the list cards feel like
+   * shrunk-down hero cards. --operator-color is set inline per-card
+   * by renderOperatorList(); falls back to --accent if absent. */
+  border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 28%, transparent);
   border-radius: 10px;
-  background: var(--op-card-fill);
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 10%, transparent),
+    color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 3%, transparent) 65%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 14%, transparent);
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 .op-card:hover {
-  border-color: color-mix(in srgb, currentColor 24%, transparent);
-  background: color-mix(in srgb, currentColor 6%, transparent);
+  /* Lift + brighten the accent tint on hover. Same -1px lift trick the
+   * release-card action buttons use. */
+  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 44%, transparent);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 18%, transparent),
+    color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 6%, transparent) 65%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 22%, transparent),
+    0 6px 18px color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 18%, transparent);
+  transform: translateY(-1px);
 }
-body:not(.theme-light) .op-card,
-body.theme-dark .op-card {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.018)),
-    color-mix(in srgb, var(--bg-panel, #11141a) 92%, #ffffff 8%);
-  border-color: rgba(255,255,255,0.14);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-}
-body:not(.theme-light) .op-card:hover,
-body.theme-dark .op-card:hover {
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
-    color-mix(in srgb, var(--bg-panel, #11141a) 88%, #ffffff 12%);
-  border-color: rgba(255,255,255,0.22);
-}
+/* Light theme keeps the same accent story but on a paper-white base
+ * (otherwise the linear-gradient eats into the white surface and the
+ * card looks washed out). */
 body.theme-light .op-card {
-  background: var(--op-card-fill);
-  border-color: var(--border);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  background:
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 10%, #fff),
+      color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 3%, #fff) 70%
+    );
+  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 32%, var(--border, rgba(0,0,0,0.08)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 16%, transparent),
+    0 1px 2px rgba(15, 23, 42, 0.04);
 }
 body.theme-light .op-card:hover {
-  border-color: color-mix(in srgb, var(--fg) 18%, var(--border));
+  border-color: color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 48%, var(--border, rgba(0,0,0,0.08)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 22%, transparent),
+    0 6px 14px color-mix(in srgb, var(--operator-color, var(--accent, #6f7bff)) 12%, transparent);
 }
 .op-card-summary {
   font-size: 12px;
