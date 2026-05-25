@@ -19,6 +19,6 @@ pub mod world_snapshot;
 
 pub use runtime::TeammateRuntime;
 pub use types::{
-    ArtifactId, MessageContent, MessageId, OperatorState, Role, Task, TaskArchetype,
+    ArtifactId, MessageContent, MessageId, OperatorState, Role, Sentiment, Task, TaskArchetype,
     TaskArtifact, TaskMessage, TaskScope, TaskStatus, TaskId, WatchPredicate,
 };

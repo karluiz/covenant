@@ -50,6 +50,7 @@ pub async fn teammate_send_text_message(
         created_at_unix_ms: now_ms(),
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
+        sentiment: None,
     };
     storage
         .teammate_insert_message(&user_msg)
@@ -169,6 +170,7 @@ pub async fn teammate_send_text_message(
             created_at_unix_ms: now_ms(),
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
+            sentiment: None,
         };
         if let Err(e) = storage_bg.teammate_insert_message(&reply_msg).await {
             tracing::warn!(error = %e, "teammate: failed to persist reply");
@@ -201,6 +203,7 @@ async fn emit_system_error(
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
+        sentiment: None,
     };
     let _ = storage.teammate_insert_message(&msg).await;
     let _ = app.emit("teammate-message", &msg);
@@ -285,6 +288,7 @@ pub(crate) async fn confirm_task_inner(
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
+        sentiment: None,
     };
     storage.teammate_insert_message(&started).await.map_err(|e| e.to_string())?;
     Ok(task)
@@ -485,6 +489,7 @@ mod task_lifecycle_tests {
             created_at_unix_ms: 1_700_000_000_000,
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
+            sentiment: None,
         };
         storage.teammate_insert_message(&msg).await.unwrap();
         (storage, op_id, msg_id)

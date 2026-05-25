@@ -84,6 +84,59 @@ pub struct Task {
 #[serde(rename_all = "lowercase")]
 pub enum Role { User, Operator, System }
 
+/// Operator emotional state attached to a message at generation time.
+///
+/// Mirrors the 9 poses in `ui/operatorsv2/` (filename token, Spanish form).
+/// Drives the v2 avatar pose + the sentiment badge in the teammate panel.
+/// Optional on the message: legacy rows + non-operator turns leave it None.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Sentiment {
+    Neutral,
+    Feliz,
+    Triste,
+    Enojo,
+    Sorpresa,
+    Duda,
+    Expectacion,
+    Incomodidad,
+    Ver,
+}
+
+impl Sentiment {
+    /// Parse the lowercase Spanish token used in storage + the LLM
+    /// `SENTIMENT:` directive. Returns None on unknown input so the
+    /// caller can fall back to a neutral pose.
+    pub fn from_token(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "neutral"      => Some(Self::Neutral),
+            "feliz"        => Some(Self::Feliz),
+            "triste"       => Some(Self::Triste),
+            "enojo"        => Some(Self::Enojo),
+            "sorpresa"     => Some(Self::Sorpresa),
+            "duda"         => Some(Self::Duda),
+            "expectacion"  => Some(Self::Expectacion),
+            "incomodidad"  => Some(Self::Incomodidad),
+            "ver"          => Some(Self::Ver),
+            _ => None,
+        }
+    }
+
+    pub fn as_token(self) -> &'static str {
+        match self {
+            Self::Neutral     => "neutral",
+            Self::Feliz       => "feliz",
+            Self::Triste      => "triste",
+            Self::Enojo       => "enojo",
+            Self::Sorpresa    => "sorpresa",
+            Self::Duda        => "duda",
+            Self::Expectacion => "expectacion",
+            Self::Incomodidad => "incomodidad",
+            Self::Ver         => "ver",
+        }
+    }
+}
+
 /// What a message carries. The discriminator is `kind`; the payload is
 /// JSON-serialized in SQLite (`teammate_messages.content_json`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +191,12 @@ pub struct TaskMessage {
     pub confirmed_at_unix_ms: Option<u64>,
     #[serde(default)]
     pub dismissed_at_unix_ms: Option<u64>,
+    /// Operator emotional state at the moment this message was generated.
+    /// None for: user-authored turns, system turns, legacy rows before
+    /// the sentiment column existed, and operator turns where the LLM
+    /// emitted no parseable `SENTIMENT:` directive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentiment: Option<Sentiment>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -558,6 +558,14 @@ impl Storage {
             "ALTER TABLE teammate_messages ADD COLUMN dismissed_at_unix_ms INTEGER",
             [],
         );
+        // 5.x Operator sentiment: lowercase Spanish token (matches the
+        // `Sentiment` enum + `ui/operatorsv2/<char>_<token>.png` filenames).
+        // NULL for legacy rows, user turns, and operator turns where the
+        // LLM emitted no parseable `SENTIMENT:` directive.
+        let _ = conn.execute(
+            "ALTER TABLE teammate_messages ADD COLUMN sentiment TEXT",
+            [],
+        );
         tracing::info!(path = %path.display(), "storage opened");
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
@@ -2146,8 +2154,8 @@ impl Storage {
             };
             c.execute(
                 "INSERT INTO teammate_messages \
-                 (id, operator_id, task_id, role, content_kind, content_json, created_at_unix_ms) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (id, operator_id, task_id, role, content_kind, content_json, created_at_unix_ms, sentiment) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     msg.id.0.to_string(),
                     msg.operator_id.0.to_string(),
@@ -2156,6 +2164,7 @@ impl Storage {
                     content_kind,
                     content_json,
                     msg.created_at_unix_ms as i64,
+                    msg.sentiment.map(|s| s.as_token()),
                 ],
             )?;
             Ok(())
@@ -2175,7 +2184,7 @@ impl Storage {
             let c = inner.blocking_lock();
             let mut stmt = c.prepare(
                 "SELECT id, operator_id, task_id, role, content_kind, content_json, \
-                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms \
+                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms, sentiment \
                  FROM teammate_messages WHERE operator_id = ?1 \
                  ORDER BY created_at_unix_ms ASC LIMIT ?2",
             )?;
@@ -2192,12 +2201,13 @@ impl Storage {
                         r.get::<_, i64>(6)?,
                         r.get::<_, Option<i64>>(7)?,
                         r.get::<_, Option<i64>>(8)?,
+                        r.get::<_, Option<String>>(9)?,
                     ))
                 },
             )?;
             let mut out = Vec::new();
             for row in rows {
-                let (id, op_id, task_id, role, _kind, content_json, ts, confirmed, dismissed) = row?;
+                let (id, op_id, task_id, role, _kind, content_json, ts, confirmed, dismissed, sentiment_s) = row?;
                 let id = ulid::Ulid::from_string(&id)
                     .map_err(|e| StorageError::Other(e.to_string()))?;
                 let op_id = ulid::Ulid::from_string(&op_id)
@@ -2213,6 +2223,9 @@ impl Storage {
                 let content: crate::teammate::MessageContent =
                     serde_json::from_str(&content_json)
                         .map_err(|e| StorageError::Other(e.to_string()))?;
+                let sentiment = sentiment_s
+                    .as_deref()
+                    .and_then(crate::teammate::Sentiment::from_token);
                 out.push(crate::teammate::TaskMessage {
                     id: crate::teammate::MessageId(id),
                     operator_id: crate::operator_registry::OperatorId(op_id),
@@ -2222,6 +2235,7 @@ impl Storage {
                     created_at_unix_ms: ts as u64,
                     confirmed_at_unix_ms: confirmed.map(|v| v as u64),
                     dismissed_at_unix_ms: dismissed.map(|v| v as u64),
+                    sentiment,
                 });
             }
             Ok(out)
@@ -2290,7 +2304,7 @@ impl Storage {
             let c = inner.blocking_lock();
             let mut stmt = c.prepare(
                 "SELECT id, operator_id, task_id, role, content_kind, content_json, \
-                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms \
+                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms, sentiment \
                  FROM teammate_messages WHERE id = ?1",
             )?;
             let row = stmt.query_row([id.0.to_string()], |row| {
@@ -2303,9 +2317,10 @@ impl Storage {
                 let created: i64 = row.get(6)?;
                 let confirmed: Option<i64> = row.get(7)?;
                 let dismissed: Option<i64> = row.get(8)?;
-                Ok((id_s, op_s, task_s, role_s, content_s, created, confirmed, dismissed))
+                let sentiment_s: Option<String> = row.get(9)?;
+                Ok((id_s, op_s, task_s, role_s, content_s, created, confirmed, dismissed, sentiment_s))
             }).optional()?;
-            let Some((id_s, op_s, task_s, role_s, content_s, created, confirmed, dismissed)) = row else {
+            let Some((id_s, op_s, task_s, role_s, content_s, created, confirmed, dismissed, sentiment_s)) = row else {
                 return Ok(None);
             };
             let id = ulid::Ulid::from_string(&id_s).map_err(|e| StorageError::Other(e.to_string()))?;
@@ -2316,6 +2331,9 @@ impl Storage {
                 .map_err(|e| StorageError::Other(e.to_string()))?;
             let content: crate::teammate::MessageContent = serde_json::from_str(&content_s)
                 .map_err(|e| StorageError::Other(e.to_string()))?;
+            let sentiment = sentiment_s
+                .as_deref()
+                .and_then(crate::teammate::Sentiment::from_token);
             Ok(Some(crate::teammate::TaskMessage {
                 id: crate::teammate::MessageId(id),
                 operator_id: crate::operator_registry::OperatorId(op),
@@ -2325,6 +2343,7 @@ impl Storage {
                 created_at_unix_ms: created as u64,
                 confirmed_at_unix_ms: confirmed.map(|v| v as u64),
                 dismissed_at_unix_ms: dismissed.map(|v| v as u64),
+                sentiment,
             }))
         })
         .await
@@ -3656,6 +3675,7 @@ mod task_card_storage_tests {
             created_at_unix_ms: 1_700_000_000_000,
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
+            sentiment: None,
         }
     }
 
