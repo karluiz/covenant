@@ -15416,6 +15416,53 @@ body.theme-light .teammate-panel-level {
   border-color: var(--bg, #fff);
 }
 
+/* Sentiment badge: small text pill anchored to the top of the avatar
+ * wrap, opposite corner from the level badge at the bottom. Conveys the
+ * operator's current mood as a word ("happy", "sad", "ashamed", …) and
+ * tints itself per emotion. The v2 avatar's PNG pose carries the
+ * visual; this label disambiguates ambiguous expressions.
+ *
+ * Hidden when no `--<emotion>` modifier class is applied — the panel
+ * code skips rendering it entirely when sentiment is null, so the rules
+ * below all assume a modifier is present. */
+.teammate-panel-sentiment {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #fff;
+  /* Each modifier overrides the background; this is just a safe
+   * fallback for the rare case the modifier class is missing. */
+  background: #555;
+  border: 1.5px solid var(--bg, #0e1015);
+  font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  white-space: nowrap;
+  text-transform: lowercase;
+  pointer-events: none;
+}
+/* Emotion color palette. Tokens (Spanish) match the filename suffix in
+ * ui/operatorsv2/. Colors chosen for legibility on both themes — dark
+ * backgrounds with white text. */
+.teammate-panel-sentiment--neutral     { background: #6b7280; }
+.teammate-panel-sentiment--feliz       { background: #16a34a; }
+.teammate-panel-sentiment--triste      { background: #3b82f6; }
+.teammate-panel-sentiment--enojo       { background: #dc2626; }
+.teammate-panel-sentiment--sorpresa    { background: #eab308; color: #1a1a1a; }
+.teammate-panel-sentiment--duda        { background: #8b5cf6; }
+.teammate-panel-sentiment--expectacion { background: #f97316; }
+.teammate-panel-sentiment--incomodidad { background: #6d6875; }
+.teammate-panel-sentiment--ver         { background: #ec4899; }
+body.theme-light .teammate-panel-sentiment {
+  border-color: var(--bg, #fff);
+}
+
 .teammate-panel-subtitle {
   font-size: 10px;
   color: var(--muted);

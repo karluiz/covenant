@@ -6,7 +6,7 @@
 //! text. No streaming, no rolling summary compaction yet.
 
 use crate::operator_registry::Operator;
-use crate::teammate::types::{MessageContent, Role, TaskMessage};
+use crate::teammate::types::{MessageContent, Role, Sentiment, TaskMessage};
 
 /// How many recent messages to include as conversation context.
 /// Older messages drop off — Phase 3 may replace this with a rolling
@@ -16,6 +16,90 @@ pub const CONTEXT_WINDOW: usize = 20;
 /// Max tokens the operator can return per reply. Conservative; the
 /// AOM budget cap is the real cost guardrail.
 pub const REPLY_MAX_TOKENS: u32 = 1024;
+
+/// Block of text appended to every operator system prompt: ask the model
+/// to tag each reply with one of the 9 sentiment tokens. The token vocab
+/// matches `Sentiment::from_token` (Spanish, lowercase) so the avatar
+/// pack files in `ui/operatorsv2/<character>_<token>.png` resolve
+/// directly. Glosses are included so the model picks `ver` for shame
+/// rather than reading it as the Spanish infinitive "to see".
+const SENTIMENT_DIRECTIVE: &str = "\n\n# Sentiment tag\n\
+    \n\
+    On the LAST line of every reply, on its own line, emit:\n\
+    \n\
+    SENTIMENT: <token>\n\
+    \n\
+    where <token> is exactly one of (Spanish form / meaning):\n\
+    - neutral       (neutral / calm)\n\
+    - feliz         (happy / pleased)\n\
+    - triste        (sad / down)\n\
+    - enojo         (angry / annoyed)\n\
+    - sorpresa      (surprised / startled)\n\
+    - duda          (unsure / doubtful)\n\
+    - expectacion   (eager / excited anticipation)\n\
+    - incomodidad   (uneasy / uncomfortable)\n\
+    - ver           (vergüenza — ashamed / embarrassed)\n\
+    \n\
+    Pick the token that best reflects how YOU (the operator character) \
+    feel at the end of this turn — not how the user feels. Default to \
+    `neutral` if nothing fits. The tag line is stripped from your reply \
+    before it reaches the user; it drives your avatar's expression.";
+
+/// Try to extract a `SENTIMENT: <token>` line from the tail of an LLM
+/// reply. Returns `(stripped_text, sentiment_or_none)`. Tolerant: scans
+/// the LAST non-empty line, accepts surrounding whitespace, optional
+/// trailing punctuation, and the alias `verguenza`/`vergüenza` for `ver`.
+///
+/// If no parseable tag is present, the full text is returned unchanged
+/// with `None` so the UI falls back to a neutral pose.
+pub fn extract_sentiment(text: &str) -> (String, Option<Sentiment>) {
+    // Find the last non-empty line.
+    let trimmed = text.trim_end();
+    let (head, tail) = match trimmed.rfind('\n') {
+        Some(idx) => (&trimmed[..idx], &trimmed[idx + 1..]),
+        None => ("", trimmed),
+    };
+    let candidate = tail.trim();
+    // Strip an optional leading bullet/quote the model might add.
+    let candidate = candidate
+        .trim_start_matches(|c: char| matches!(c, '*' | '-' | '>' | '['))
+        .trim();
+    // Match `SENTIMENT: <token>` case-insensitively, with optional
+    // trailing punctuation (`.` or `]`).
+    let lower = candidate.to_ascii_lowercase();
+    let prefix = "sentiment:";
+    let Some(rest) = lower.strip_prefix(prefix) else {
+        return (text.to_string(), None);
+    };
+    let token = rest
+        .trim()
+        .trim_end_matches(|c: char| matches!(c, '.' | ']' | ')' | ',' | ';'))
+        .trim();
+    let sentiment = match token {
+        // Aliases for the opaque `ver` token — the model often spells out
+        // the full Spanish word when shame is the right answer.
+        "verguenza" | "vergüenza" | "vergeunza" => Some(Sentiment::Ver),
+        // Also accept the English label as a last-ditch fallback in case
+        // the model emits the gloss instead of the token.
+        "ashamed" | "embarrassed" => Some(Sentiment::Ver),
+        "happy"       => Some(Sentiment::Feliz),
+        "sad"         => Some(Sentiment::Triste),
+        "angry"       => Some(Sentiment::Enojo),
+        "surprised"   => Some(Sentiment::Sorpresa),
+        "unsure" | "doubtful" => Some(Sentiment::Duda),
+        "eager"       => Some(Sentiment::Expectacion),
+        "uneasy" | "uncomfortable" => Some(Sentiment::Incomodidad),
+        other => Sentiment::from_token(other),
+    };
+    if sentiment.is_none() {
+        // Unparseable — leave the line in the reply so the user sees the
+        // malformed tag and the model gets corrected by the next round.
+        return (text.to_string(), None);
+    }
+    // Strip the tag line + any blank lines immediately above it.
+    let stripped = head.trim_end_matches(|c: char| c == '\n' || c == ' ' || c == '\t');
+    (stripped.to_string(), sentiment)
+}
 
 /// Build the system prompt for `operator`. The string is stable across
 /// calls so Anthropic's prompt cache can hit on it.
@@ -103,9 +187,9 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         voice = voice,
     );
     if persona.is_empty() {
-        header
+        format!("{header}{SENTIMENT_DIRECTIVE}")
     } else {
-        format!("{header}\n\n# Persona\n\n{persona}")
+        format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}")
     }
 }
 
@@ -156,7 +240,10 @@ use crate::settings::{Role as SettingsRole, Settings};
 /// be persisted as `MessageContent::Propose`.
 #[derive(Debug, Clone)]
 pub enum DispatchOutcome {
-    Text(String),
+    /// Plain text reply. `sentiment` is the parsed `SENTIMENT:` tag from
+    /// the tail of the model output (None when the model omitted or
+    /// garbled the directive — UI falls back to a neutral pose).
+    Text { text: String, sentiment: Option<Sentiment> },
     Propose(crate::teammate::MessageContent),
 }
 
@@ -387,11 +474,15 @@ where
 
         // Any other stop_reason ("end_turn", "stop_sequence", etc.):
         // the assistant emitted final text. Return it.
-        let text = anthropic_http::extract_text(&resp.content).trim().to_string();
+        let raw = anthropic_http::extract_text(&resp.content).trim().to_string();
+        if raw.is_empty() {
+            return Err(TeammateLlmError::EmptyReply);
+        }
+        let (text, sentiment) = extract_sentiment(&raw);
         if text.is_empty() {
             return Err(TeammateLlmError::EmptyReply);
         }
-        return Ok(DispatchOutcome::Text(text));
+        return Ok(DispatchOutcome::Text { text, sentiment });
     }
 
     Err(TeammateLlmError::Provider(
@@ -591,11 +682,15 @@ where
         }
 
         // No tool calls — final text turn.
-        let text = choice.message.content.unwrap_or_default().trim().to_string();
+        let raw = choice.message.content.unwrap_or_default().trim().to_string();
+        if raw.is_empty() {
+            return Err(TeammateLlmError::EmptyReply);
+        }
+        let (text, sentiment) = extract_sentiment(&raw);
         if text.is_empty() {
             return Err(TeammateLlmError::EmptyReply);
         }
-        return Ok(DispatchOutcome::Text(text));
+        return Ok(DispatchOutcome::Text { text, sentiment });
     }
 
     Err(TeammateLlmError::Provider(
@@ -746,6 +841,7 @@ mod tests {
             created_at_unix_ms: 0,
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
+            sentiment: None,
         }
     }
 
@@ -756,6 +852,68 @@ mod tests {
         assert!(p.contains("Mibli"));
         assert!(p.contains("Always answer in Spanish."));
         assert!(p.contains("terse"));
+    }
+
+    #[test]
+    fn system_prompt_includes_sentiment_directive() {
+        let op = sample_op("Mibli", "");
+        let p = build_system_prompt(&op);
+        // The directive header + key tokens must appear so the model
+        // sees the SENTIMENT: contract even when persona is empty.
+        assert!(p.contains("# Sentiment tag"), "missing directive header");
+        assert!(p.contains("SENTIMENT:"));
+        assert!(p.contains("feliz"));
+        assert!(p.contains("vergüenza"));
+    }
+
+    #[test]
+    fn extract_sentiment_strips_tag_line_and_returns_token() {
+        let raw = "Hello world.\n\nSENTIMENT: feliz";
+        let (text, s) = extract_sentiment(raw);
+        assert_eq!(text, "Hello world.");
+        assert_eq!(s, Some(Sentiment::Feliz));
+    }
+
+    #[test]
+    fn extract_sentiment_handles_trailing_whitespace_and_case() {
+        let raw = "ok\n  sentiment:  ENOJO  ";
+        let (text, s) = extract_sentiment(raw);
+        assert_eq!(text, "ok");
+        assert_eq!(s, Some(Sentiment::Enojo));
+    }
+
+    #[test]
+    fn extract_sentiment_accepts_verguenza_alias() {
+        let raw = "lo siento.\nSENTIMENT: vergüenza";
+        let (_text, s) = extract_sentiment(raw);
+        assert_eq!(s, Some(Sentiment::Ver));
+        let raw2 = "oops.\nSENTIMENT: verguenza";
+        let (_t2, s2) = extract_sentiment(raw2);
+        assert_eq!(s2, Some(Sentiment::Ver));
+    }
+
+    #[test]
+    fn extract_sentiment_accepts_english_gloss_fallback() {
+        let (_t, s) = extract_sentiment("blah\nSENTIMENT: happy");
+        assert_eq!(s, Some(Sentiment::Feliz));
+        let (_t2, s2) = extract_sentiment("blah\nSENTIMENT: ashamed");
+        assert_eq!(s2, Some(Sentiment::Ver));
+    }
+
+    #[test]
+    fn extract_sentiment_unknown_token_leaves_text_intact() {
+        let raw = "the body\nSENTIMENT: gibberish";
+        let (text, s) = extract_sentiment(raw);
+        assert_eq!(text, raw, "unparseable tag must not be stripped");
+        assert_eq!(s, None);
+    }
+
+    #[test]
+    fn extract_sentiment_no_tag_returns_full_text() {
+        let raw = "just a reply with no tag";
+        let (text, s) = extract_sentiment(raw);
+        assert_eq!(text, raw);
+        assert_eq!(s, None);
     }
 
     #[test]

@@ -149,7 +149,10 @@ pub async fn teammate_send_text_message(
             match crate::teammate::llm::dispatch_reply(
                 &operator, &thread, &settings, world_context_opt,
             ).await {
-                Ok(t) => DispatchOutcome::Text(t),
+                Ok(raw) => {
+                    let (text, sentiment) = crate::teammate::llm::extract_sentiment(&raw);
+                    DispatchOutcome::Text { text, sentiment }
+                }
                 Err(e) => {
                     tracing::warn!(error = %e, "teammate: dispatch failed");
                     emit_system_error(&app_bg, &storage_bg, operator_id, &format!("{e}")).await;
@@ -157,9 +160,9 @@ pub async fn teammate_send_text_message(
                 }
             }
         };
-        let reply_content = match outcome {
-            DispatchOutcome::Text(t)    => MessageContent::Text(t),
-            DispatchOutcome::Propose(c) => c,
+        let (reply_content, reply_sentiment) = match outcome {
+            DispatchOutcome::Text { text, sentiment } => (MessageContent::Text(text), sentiment),
+            DispatchOutcome::Propose(c) => (c, None),
         };
         let reply_msg = TaskMessage {
             id: MessageId::new(),
@@ -170,7 +173,7 @@ pub async fn teammate_send_text_message(
             created_at_unix_ms: now_ms(),
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
-            sentiment: None,
+            sentiment: reply_sentiment,
         };
         if let Err(e) = storage_bg.teammate_insert_message(&reply_msg).await {
             tracing::warn!(error = %e, "teammate: failed to persist reply");

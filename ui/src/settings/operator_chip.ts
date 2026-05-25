@@ -1,5 +1,5 @@
 import type { Operator } from '../api';
-import { parseAvatar } from '../operator/avatars';
+import { pack2Url, parseAvatar } from '../operator/avatars';
 
 export type ChipSize = 'sm' | 'md' | 'lg';
 
@@ -20,6 +20,20 @@ export function renderOperatorChip(
     const img = document.createElement('img');
     img.className = 'op-chip-avatar op-chip-avatar-pixel';
     img.src = parsed.url;
+    img.width = px;
+    img.height = px;
+    img.alt = '';
+    img.draggable = false;
+    avatar = img;
+  } else if (parsed.kind === 'pack2') {
+    // v2 avatar pack: chip surfaces are mood-agnostic (the chip can
+    // appear anywhere — operator list, mention popup, AOM hover — and
+    // there's no per-bubble sentiment to consult here). Always render
+    // the neutral pose; sentiment-driven posing lives in the teammate
+    // panel header where we know the current mood.
+    const img = document.createElement('img');
+    img.className = 'op-chip-avatar op-chip-avatar-pixel';
+    img.src = pack2Url(parsed, 'neutral');
     img.width = px;
     img.height = px;
     img.alt = '';

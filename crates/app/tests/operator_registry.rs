@@ -166,6 +166,7 @@ async fn teammate_messages_roundtrip() {
         created_at_unix_ms: now_ms(),
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
+        sentiment: None,
     };
     storage.teammate_insert_message(&msg).await.unwrap();
 

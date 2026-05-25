@@ -77,7 +77,7 @@ export const EMOTION_LABEL: Record<Emotion, string> = {
   duda: "unsure",
   expectacion: "eager",
   incomodidad: "uneasy",
-  ver: "watching",
+  ver: "ashamed",
 };
 
 const v2Modules = import.meta.glob<string>(

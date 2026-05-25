@@ -363,6 +363,21 @@ export type TeammateContent =
   | { kind: "propose";     data: ProposeTask }
   | { kind: "report";      data: TaskReport };
 
+/// Operator emotional state attached to a message. Mirrors the Rust
+/// `Sentiment` enum and the filename token of `ui/operatorsv2/<char>_<token>.png`.
+/// Spanish lowercase form is intentional — it's the storage key, the
+/// avatar lookup key, and the LLM directive token all at once.
+export type Sentiment =
+  | "neutral"
+  | "feliz"
+  | "triste"
+  | "enojo"
+  | "sorpresa"
+  | "duda"
+  | "expectacion"
+  | "incomodidad"
+  | "ver";
+
 export interface TeammateMessage {
   id: string;
   operator_id: string;
@@ -372,6 +387,11 @@ export interface TeammateMessage {
   created_at_unix_ms: number;
   confirmed_at_unix_ms: number | null;
   dismissed_at_unix_ms: number | null;
+  /// Present only on operator-authored text turns where the LLM emitted a
+  /// parseable `SENTIMENT:` directive. Null/undefined for user turns,
+  /// task-card content, legacy rows, and malformed directives — the UI
+  /// falls back to a neutral avatar pose in those cases.
+  sentiment?: Sentiment | null;
 }
 
 export async function teammateListMessages(

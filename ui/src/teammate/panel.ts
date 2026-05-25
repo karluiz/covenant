@@ -1,4 +1,4 @@
-import type { Operator, Task, TaskArchetype, TeammateMessage, TeammateToolCall, UpdateKind } from "../api";
+import type { Operator, Sentiment, Task, TaskArchetype, TeammateMessage, TeammateToolCall, UpdateKind } from "../api";
 import type { OperatorDecisionRow } from "../api";
 import {
   findRecentCommands,
@@ -13,7 +13,7 @@ import {
   type BlockExcerpt, type SessionExcerpt,
 } from "../api";
 import { Icons } from "../icons";
-import { renderAvatarHtml } from "../operator/avatars";
+import { EMOTION_LABEL, renderAvatarHtml, type Emotion } from "../operator/avatars";
 import { attachTooltip } from "../tooltip/tooltip";
 import { ComposerInput } from "./composer-input";
 import type { MentionSourcesDeps } from "./mention-sources";
@@ -35,11 +35,23 @@ const ARCHETYPE_LABEL: Record<TaskArchetype, string> = {
   do: "Do", review: "Review", watch: "Watch",
 };
 
-function renderHeaderAvatarWithRing(operator: Operator | null, level?: number): string {
+function renderHeaderAvatarWithRing(
+  operator: Operator | null,
+  level?: number,
+  sentiment?: Sentiment | null,
+): string {
   const xp = operator?.xp ?? 0;
   const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
-  const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32);
+  const emotion: Emotion = (sentiment as Emotion | undefined) ?? "neutral";
+  const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32, "", emotion);
   const lvl = level != null ? level : operatorLevelFromXp(xp);
+  // Sentiment badge: only shown when the LLM tagged this turn. Spanish
+  // token doubles as the modifier class for color theming + the
+  // tooltip's `title` so the user sees the original.
+  const badge = sentiment
+    ? `<span class="teammate-panel-sentiment teammate-panel-sentiment--${sentiment}" ` +
+            `title="${sentiment}">${EMOTION_LABEL[sentiment as Emotion] ?? sentiment}</span>`
+    : "";
   return (
     `<span class="teammate-panel-avatar-wrap" data-operator-id="${operator?.id ?? ""}" ` +
           `style="--xp-progress:${xpProgress.toFixed(3)};">` +
@@ -49,6 +61,7 @@ function renderHeaderAvatarWithRing(operator: Operator | null, level?: number): 
       `</svg>` +
       `<span class="teammate-panel-avatar">${avatar}</span>` +
       `<span class="teammate-panel-level">${lvl}</span>` +
+      badge +
     `</span>`
   );
 }
@@ -229,6 +242,13 @@ export class TeammatePanel {
   private deps: TeammatePanelDeps;
   private operator: Operator | null = null;
   private roster: Operator[] = [];
+  /// Latest sentiment seen per operator (keyed by OperatorId). Updated
+  /// whenever a tagged operator message arrives so the avatar feels
+  /// "alive" — the pose + badge follow the most recent mood across
+  /// operator switches. Untagged messages don't overwrite (preserves
+  /// the last real mood instead of snapping back to neutral on a
+  /// model that occasionally forgets the directive).
+  private currentMoodByOperator: Map<string, Sentiment> = new Map();
   private threadEl: HTMLElement | null = null;
   private tasksEl: HTMLElement | null = null;
   private composerEl: HTMLElement | null = null;
@@ -294,6 +314,20 @@ export class TeammatePanel {
       this.deps.listOperators().then((ops) => { this.roster = ops; }).catch(() => { /* ignore */ }),
       this.refreshTasks(),
     ]);
+    // Backfill the operator's mood from history: scan messages newest-
+    // first and adopt the first non-null sentiment we find. Keeps the
+    // header avatar pose stable across reloads instead of flickering
+    // through neutral on first paint.
+    if (this.operator) {
+      const opId = this.operator.id;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const s = messages[i]?.sentiment;
+        if (s) {
+          this.currentMoodByOperator.set(opId, s);
+          break;
+        }
+      }
+    }
     this.paintMessages(messages);
     if (!this.unlisten && this.deps.onMessage) {
       this.unlisten = await this.deps.onMessage((m) => this.onIncomingMessage(m));
@@ -364,8 +398,9 @@ export class TeammatePanel {
     h.setAttribute("aria-label", "Switch teammate");
     const op = this.operator;
     const level = operatorLevelFromXp(op?.xp ?? 0);
+    const sentiment = op ? this.currentMoodByOperator.get(op.id) ?? null : null;
     h.innerHTML = `
-      ${renderHeaderAvatarWithRing(op, level)}
+      ${renderHeaderAvatarWithRing(op, level, sentiment)}
       <span class="teammate-panel-titlebox">
         <span class="teammate-panel-title-row">
           <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
@@ -377,6 +412,26 @@ export class TeammatePanel {
     h.addEventListener("click", () => this.toggleSwitcher());
     this.headerEl = h;
     return h;
+  }
+
+  /// Swap just the avatar wrap inside the header in-place. Called when a
+  /// new sentiment lands so the avatar pose + badge update without
+  /// disturbing the rest of the header (model label, chevron, switcher
+  /// open state). No-op when the header hasn't been rendered yet.
+  private refreshHeaderAvatar(): void {
+    const header = this.headerEl;
+    if (!header) return;
+    const wrap = header.querySelector(".teammate-panel-avatar-wrap");
+    if (!wrap) return;
+    const op = this.operator;
+    const level = operatorLevelFromXp(op?.xp ?? 0);
+    const sentiment = op ? this.currentMoodByOperator.get(op.id) ?? null : null;
+    // Replace the whole wrap rather than mutate children — keeps the
+    // XP-progress CSS var, the SVG ring, and the badge in lockstep.
+    const tmp = document.createElement("div");
+    tmp.innerHTML = renderHeaderAvatarWithRing(op, level, sentiment);
+    const fresh = tmp.firstElementChild;
+    if (fresh) wrap.replaceWith(fresh);
   }
 
   private renderTabsBar(): HTMLElement {
@@ -1359,6 +1414,14 @@ export class TeammatePanel {
   private onIncomingMessage(msg: TeammateMessage): void {
     if (!this.operator || msg.operator_id !== this.operator.id) return;
     this.setTyping(false);
+    // Update the per-operator mood map before painting so any DOM that
+    // re-reads it (header avatar wrap, future per-bubble badges) picks
+    // up the new pose. Only operator-authored text turns carry sentiment
+    // — see api.ts `Sentiment` doc-comment for the matrix.
+    if (msg.sentiment) {
+      this.currentMoodByOperator.set(this.operator.id, msg.sentiment);
+      this.refreshHeaderAvatar();
+    }
     this.appendBubble(msg);
     if (msg.content.kind === "task_update") void this.refreshTasks();
     // YOLO mode (default ON): auto-confirm fresh propose messages with
