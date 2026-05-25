@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.28 — Workspaces V2, multi-source @mentions, task Stop/Continue
+
+### Added
+
+- **Workspaces V2**: tab manifest now ships in a V2 envelope with per-workspace `root_dir`, group ownership, and a `beforeunload` flush so layout survives crashes. Existing V1 manifests migrate transparently on first load. `crates/app/src/storage.rs`, `ui/src/tabs/manager.ts`, `ui/src/workspaces/*`, plus regression coverage in `ui/src/workspaces/manager.test.ts` for migration, switching, and delete edge cases.
+- **Workspace switcher**: title-bar chip + popover with `Cmd+Shift+P` to open and `Cmd+Opt+N` to create. Right-clicking a group reveals "Move to workspace…". New shell tabs fall back to the workspace `root_dir` when no group/project cwd is set. `ui/src/workspaces/switcher.ts`, `ui/src/tabs/group-context-menu.ts`, `ui/src/main.ts`.
+- **Multi-source @mention picker**: composer is now a `ComposerInput` with atomic, deletable mention chips and a `MentionPopup` with tabbed sources (files, sessions, recent commands, teammates, specs). Backed by a client-side fuzzy scorer, a per-session file walker cache (`search_session_files`), per-block `find_recent_commands`, and a published-specs index. `crates/file-search/`, `crates/app/src/storage.rs`, `ui/src/mentions/*`, `ui/src/teammate/composer-input.ts`, `ui/src/teammate/mention-sources.ts`.
+- **Spec mentions auto-prime the mission**: `@spec`-ing a markdown plan when confirming a task sets the spec as the spawned tab's mission, and chips carry a `spec-path` data attribute so the file re-opens cleanly after a restart. `ui/src/teammate/panel.ts`.
+- **Observer bindings**: a single operator can now drive one tab and *watch* several others at once. Chat header surfaces every bound tab with a per-tab detach popover. `crates/app/src/teammate/runtime.rs`, `ui/src/teammate/panel.ts`.
+- **Task pill UX**: confirmed-task pill on the chat row links to the task-detail panel, exposes Stop and Continue, and the inline "open tab" action also respawns the executor when the previous tab is gone. `ui/src/teammate/task-card.ts`, `ui/src/teammate/panel.ts`.
+- **Activity tab**: dedicated sidebar inside the teammate panel that streams startup, reply, escalate, and wait actions as compact cards (icon · title · time · cost, body below). Toast versions are suppressible to avoid duplication. `ui/src/teammate/activity-view.ts`.
+- **Empty-state chips**: first-open teammate panel ships four canned prompts ("What's happening in my tabs?", "Review my code", …) so new users have a way in. `ui/src/teammate/panel.ts`.
+- **Recall sidebar + quick-run**: standalone Recall view in the sidebar and a play button on the spawns chip for one-click re-runs. `ui/src/recall/*`.
+- **Updater banner redesign**: install row collapses into a single banner with a release-notes modal driven from `CHANGELOG.md`. `ui/src/updater/*`.
+
+### Fixed
+
+- **Trackpad scroll flicker**: terminal viewport no longer re-fits or geometry-rebuilds on every wheel tick at scrollback boundaries. The handler now bails out at viewport edges and only falls back to refit when `scrollLines` can't consume the delta. `ui/src/tabs/manager.ts`.
+- **Stop actually stops**: cancelling an active task now unbinds the operator, disables AOM on the spawned tab, *and* closes the tab itself instead of just flipping the task row to cancelled. `ui/src/teammate/panel.ts`, `ui/src/main.ts`.
+- **Continue respawn**: re-opening a dead task respawns the tab in the correct group + project cwd and re-injects the original task prompt into the new executor. `ui/src/teammate/panel.ts`, `ui/src/tabs/manager.ts`.
+- **Mention chip editing**: single backspace deletes a chip whole; caret stays usable after inserting a chip in WebKit; `@` in an empty composer reliably opens the picker; composer survives `send` without losing focus. `ui/src/teammate/composer-input.ts`.
+- **AOM spec routing**: spec toasts route to the tab whose cwd contains the spec, not the active tab. `crates/app/src/aom/mod.rs`.
+- **Level badge alignment**: tab-bar level pill now sits in front of the avatar with the digit visually centered. `ui/src/tabs/manager.ts`, `ui/src/styles.css`.
+- **Light-mode polish**: mention chips, mission preview headings, and selection backgrounds are readable in light theme. `ui/src/styles.css`.
+
+### Changed
+
+- **Activity cards**: compact layout — icon + title + time + cost on one row, body wraps below at full width. Escalations get a dedicated alert-triangle icon. `ui/src/teammate/activity-view.ts`, `ui/src/icons/index.ts`.
+
 ## v0.8.27 — Teammate @file mentions + scrollback wheel fix
 
 ### Added
