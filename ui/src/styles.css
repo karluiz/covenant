@@ -14271,6 +14271,14 @@ body.theme-light textarea::placeholder {
     color: color-mix(in srgb, var(--text-primary) 35%, transparent);
 }
 
+/* Inputs that live flush inside a chrome row (no card affordance of
+   their own) must stay transparent — the blanket rule above paints
+   them a stark #fff that looks like an unintended inset rectangle. */
+body.theme-light .recall-header-search {
+    background: transparent;
+    border: 0;
+}
+
 /* ── Mission picker: it used hardcoded dark surfaces, so light mode
        rendered dark-on-dark after --fg flipped to ink. ───────── */
 body.theme-light #mission-page {
@@ -15856,6 +15864,15 @@ body.theme-light .teammate-bubble-operator {
 .tmt-chip--sessions  { background: rgba(120, 180, 255, 0.14); border-color: rgba(120, 180, 255, 0.4); color: #9ec6ff; }
 .tmt-chip--commands  { background: rgba(180, 140, 255, 0.14); border-color: rgba(180, 140, 255, 0.4); color: #c8b1ff; }
 .tmt-chip--teammates { background: rgba(120, 220, 170, 0.14); border-color: rgba(120, 220, 170, 0.4); color: #9ee7c2; }
+
+/* Light mode: the same tint-on-white reads as illegible pale text on
+   pale background. Darken the foreground + deepen the border so each
+   chip stays a recognizable color but the label is readable. */
+body.theme-light .tmt-chip            { color: #b8540a; border-color: rgba(255, 140, 80, 0.55); background: rgba(255, 140, 80, 0.10); }
+body.theme-light .tmt-chip--specs     { color: #8a5a00; border-color: rgba(200, 150, 30, 0.55); background: rgba(255, 200, 80, 0.12); }
+body.theme-light .tmt-chip--sessions  { color: #1f4e8a; border-color: rgba(80, 130, 200, 0.55); background: rgba(120, 180, 255, 0.12); }
+body.theme-light .tmt-chip--commands  { color: #5b3aa0; border-color: rgba(130, 100, 200, 0.55); background: rgba(180, 140, 255, 0.12); }
+body.theme-light .tmt-chip--teammates { color: #1f6a48; border-color: rgba(60, 160, 110, 0.55); background: rgba(120, 220, 170, 0.16); }
 
 /* Placeholder for the contenteditable composer */
 .teammate-panel-input[contenteditable][data-placeholder]:empty::before {
