@@ -253,7 +253,7 @@ export class ActivityView {
   private pushStartupCard(e: StartupActionEvent): void {
     const card = this.buildCard({
       cls: "startup",
-      icon: Icons.bot({ size: 13 }),
+      icon: Icons.headphones({ size: 12 }),
       title: "startup",
       body: e.action,
       tabSlug: shortSession(e.session_id),
@@ -285,28 +285,28 @@ export class ActivityView {
       case "reply":
         return {
           cls: executed ? "ok" : "muted",
-          icon: Icons.bot({ size: 13 }),
+          icon: Icons.messageCircle({ size: 12 }),
           title: executed ? "typed" : "dry-run",
           body: formatReply(replyText, rationale),
         };
       case "escalate":
         return {
           cls: "warn",
-          icon: Icons.lightbulb({ size: 13 }),
+          icon: Icons.alertTriangle({ size: 12 }),
           title: "escalated",
           body: escalation ?? rationale ?? "(no detail)",
         };
       case "wait":
         return {
           cls: "muted",
-          icon: Icons.terminal({ size: 13 }),
+          icon: Icons.terminal({ size: 12 }),
           title: "wait",
           body: rationale ?? "(no detail)",
         };
       default:
         return {
           cls: "muted",
-          icon: Icons.bot({ size: 13 }),
+          icon: Icons.headphones({ size: 12 }),
           title: action,
           body: rationale ?? "",
         };
@@ -325,15 +325,16 @@ export class ActivityView {
     const card = document.createElement("div");
     card.className = `tp-activity-card tp-activity-${opts.cls}`;
     card.dataset.ts = String(opts.ts);
+    // Compact layout: icon + TITLE · time · $cost
+    //                  body row below (full width)
     card.innerHTML = `
-      <span class="tp-activity-icon">${opts.icon}</span>
       <span class="tp-activity-meta">
-        <span class="tp-activity-tab">…${escapeHtml(opts.tabSlug)}</span>
+        <span class="tp-activity-icon">${opts.icon}</span>
         <span class="tp-activity-title">${escapeHtml(opts.title)}</span>
+        <span class="tp-activity-time" data-role="time">${escapeHtml(relativeTime(opts.ts))}</span>
         ${opts.cost ? `<span class="tp-activity-cost">${escapeHtml(opts.cost)}</span>` : ""}
       </span>
       <span class="tp-activity-body"></span>
-      <span class="tp-activity-time" data-role="time">${escapeHtml(relativeTime(opts.ts))}</span>
     `;
     card.querySelector<HTMLElement>(".tp-activity-body")!.textContent = opts.body;
     return card;

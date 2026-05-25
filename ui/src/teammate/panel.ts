@@ -35,10 +35,11 @@ const ARCHETYPE_LABEL: Record<TaskArchetype, string> = {
   do: "Do", review: "Review", watch: "Watch",
 };
 
-function renderHeaderAvatarWithRing(operator: Operator | null): string {
+function renderHeaderAvatarWithRing(operator: Operator | null, level?: number): string {
   const xp = operator?.xp ?? 0;
   const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
   const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32);
+  const lvl = level != null ? level : operatorLevelFromXp(xp);
   return (
     `<span class="teammate-panel-avatar-wrap" data-operator-id="${operator?.id ?? ""}" ` +
           `style="--xp-progress:${xpProgress.toFixed(3)};">` +
@@ -47,6 +48,7 @@ function renderHeaderAvatarWithRing(operator: Operator | null): string {
         `<circle class="fill"  cx="16" cy="16" r="15"/>` +
       `</svg>` +
       `<span class="teammate-panel-avatar">${avatar}</span>` +
+      `<span class="teammate-panel-level">${lvl}</span>` +
     `</span>`
   );
 }
@@ -108,6 +110,10 @@ export interface TeammatePanelDeps {
   /// Remove the operator binding from a tab — used by Stop so the
   /// teammate is free to take a new task elsewhere.
   unbindOperatorFromTab?: (sessionId: string) => Promise<void>;
+  /// Close the tab whose backing SessionId matches. Used by Stop so
+  /// "stop" really stops everything — kills the running executor and
+  /// frees the slot, not just flips the task row to cancelled.
+  closeTabBySessionId?: (sessionId: string) => void;
   /// Open a spec markdown file in the editor drawer when the user clicks a
   /// spec chip in a chat bubble. Path is the absolute path returned by
   /// `findSpecs`.
@@ -359,11 +365,10 @@ export class TeammatePanel {
     const op = this.operator;
     const level = operatorLevelFromXp(op?.xp ?? 0);
     h.innerHTML = `
-      ${renderHeaderAvatarWithRing(op)}
+      ${renderHeaderAvatarWithRing(op, level)}
       <span class="teammate-panel-titlebox">
         <span class="teammate-panel-title-row">
           <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
-          <span class="teammate-panel-level">Lv ${level}</span>
         </span>
         <span class="teammate-panel-subtitle" data-role="subtitle">${escapeHtml(op?.model ?? "")}</span>
       </span>
@@ -961,6 +966,9 @@ export class TeammatePanel {
             console.error("unbindOperatorFromTab failed", err),
           );
         }
+        // Then close the spawned tab itself so Stop actually stops the
+        // running executor process, not just marks the task cancelled.
+        if (recordedSid) this.deps.closeTabBySessionId?.(recordedSid);
         void this.refreshTasks();
       } catch (err) {
         console.error("cancelActiveTask failed", err);
@@ -989,7 +997,22 @@ export class TeammatePanel {
       const empty = document.createElement("div");
       empty.className = "teammate-panel-empty";
       const name = this.operator?.name ?? "your operator";
-      empty.textContent = `No messages yet. Start by talking to ${name}.`;
+      empty.innerHTML = `
+        <div class="teammate-empty-icon">${Icons.headphones({ size: 28, strokeWidth: 1.3 })}</div>
+        <div class="teammate-empty-title">Chat with ${escapeHtml(name)}</div>
+        <div class="teammate-empty-hint">Ask about your project, get code reviewed, or delegate tasks.</div>
+        <div class="teammate-empty-chips">
+          <button type="button" class="teammate-empty-chip" data-prompt="What's happening in my open tabs?">What's happening in my tabs?</button>
+          <button type="button" class="teammate-empty-chip" data-prompt="Review the code I'm working on and suggest improvements">Review my code</button>
+          <button type="button" class="teammate-empty-chip" data-prompt="Read the current file and explain what it does">Explain this file</button>
+          <button type="button" class="teammate-empty-chip" data-prompt="What should I work on next?">What should I do next?</button>
+        </div>
+      `;
+      empty.addEventListener("click", (e) => {
+        const chip = (e.target as HTMLElement).closest<HTMLButtonElement>(".teammate-empty-chip");
+        if (!chip?.dataset.prompt) return;
+        void this.send(chip.dataset.prompt);
+      });
       this.threadEl.append(empty);
       return;
     }
