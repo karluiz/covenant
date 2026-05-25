@@ -15855,6 +15855,9 @@ body.theme-light .teammate-panel-switcher {
 }
 .task-pill--confirmed { border-left: 2px solid rgba(80, 200, 120, 0.55); }
 .task-pill--cancelled { border-left: 2px solid rgba(255,255,255,0.18); opacity: 0.55; }
+.task-pill--clickable { cursor: pointer; transition: background 120ms; }
+.task-pill--clickable:hover { background: rgba(255,255,255,0.045); }
+.task-pill--clickable:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .task-pill__badge { flex: 0 0 auto; }
 .task-pill__title {
   font-weight: 600;

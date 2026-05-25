@@ -102,6 +102,9 @@ export interface TeammatePanelDeps {
   /// Backend cancel for already-active tasks (proposals use
   /// cancelTaskProposal). Wired to the task-detail "Stop" button.
   cancelActiveTask?: (taskId: string) => Promise<void>;
+  /// Remove the operator binding from a tab — used by Stop so the
+  /// teammate is free to take a new task elsewhere.
+  unbindOperatorFromTab?: (sessionId: string) => Promise<void>;
   /// Open a spec markdown file in the editor drawer when the user clicks a
   /// spec chip in a chat bubble. Path is the absolute path returned by
   /// `findSpecs`.
@@ -920,6 +923,13 @@ export class TeammatePanel {
       stop.disabled = true;
       try {
         await this.deps.cancelActiveTask(task.id);
+        // Free the operator from the spawned tab so the user (and any
+        // other task) can bind it elsewhere immediately.
+        if (recordedSid && this.deps.unbindOperatorFromTab) {
+          await this.deps.unbindOperatorFromTab(recordedSid).catch((err) =>
+            console.error("unbindOperatorFromTab failed", err),
+          );
+        }
         void this.refreshTasks();
       } catch (err) {
         console.error("cancelActiveTask failed", err);
@@ -1023,6 +1033,7 @@ export class TeammatePanel {
       onCancel:  (id) => { void this.handleCancel(id); },
       onEdit:    (id) => { this.openEditDialog(id, msg); },
       onOpenTab: (taskId) => { this.focusTabForTaskId(taskId); },
+      onShowTask: (taskId) => { this.showTaskDetail(taskId); },
       confirmedTabLabel: this.tabLabelForMessage(msg),
     });
     const wrap = document.createElement("div");
@@ -1038,6 +1049,19 @@ export class TeammatePanel {
     if (!raw) return "open tab";
     const trimmed = raw.length > 28 ? `${raw.slice(0, 26)}…` : raw;
     return `tab "${trimmed}"`;
+  }
+
+  /// Switch to the Tasks view, expand the matching task, and scroll
+  /// it into view. Called from the chat-bubble pill so clicking it
+  /// takes you to the task instead of silently doing nothing.
+  private showTaskDetail(taskId: string): void {
+    this.viewMode = "tasks";
+    this.applyViewMode();
+    this.expandedTaskIds.add(taskId);
+    void this.refreshTasks().then(() => {
+      const el = this.tasksEl?.querySelector<HTMLElement>(`[data-task-id="${taskId}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   private focusTabForTaskId(taskId: string): void {

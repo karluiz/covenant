@@ -9,6 +9,10 @@ export interface TaskCardHandlers {
   /// Optional: jump focus to the tab that this confirmed proposal spawned.
   /// When omitted, the pill renders without a clickable link.
   onOpenTab?: (taskId: string) => void;
+  /// Optional: open the task detail view (Tasks tab, expanded). Fired
+  /// when the user clicks the pill body or chevron — distinct from the
+  /// "open tab" affordance which focuses the spawned PTY tab.
+  onShowTask?: (taskId: string) => void;
   /// Optional label rendered on the confirmed pill ("tab "Integrate GitHub…"").
   /// When omitted, falls back to a generic "tab abierto".
   confirmedTabLabel?: string;
@@ -87,6 +91,20 @@ function renderConfirmedPill(
   pill.className = "task-pill task-pill--confirmed";
   pill.dataset.messageId = msg.id;
   pill.dataset.confirmed = "true";
+  if (handlers.onShowTask && msg.task_id) {
+    pill.classList.add("task-pill--clickable");
+    pill.setAttribute("role", "button");
+    pill.tabIndex = 0;
+    const openDetail = () => handlers.onShowTask?.(msg.task_id ?? "");
+    pill.addEventListener("click", (e) => {
+      // The "open tab" button has its own handler — don't double-fire.
+      if ((e.target as HTMLElement).closest(".task-pill__link")) return;
+      openDetail();
+    });
+    pill.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(); }
+    });
+  }
 
   pill.append(badge(archetype, "task-pill__badge"));
 
@@ -106,7 +124,10 @@ function renderConfirmedPill(
   link.dataset.action = "open-tab";
   link.textContent = handlers.confirmedTabLabel ?? "open tab";
   if (handlers.onOpenTab && msg.task_id) {
-    link.addEventListener("click", () => handlers.onOpenTab?.(msg.task_id ?? ""));
+    link.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handlers.onOpenTab?.(msg.task_id ?? "");
+    });
   } else {
     link.disabled = true;
   }

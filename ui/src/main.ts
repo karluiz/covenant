@@ -575,6 +575,11 @@ async function boot(): Promise<void> {
       await manager.setMissionPathForTab(tab.id, specPath);
     },
     isSessionAlive: (sessionId) => !!manager.tabForSession(sessionId as SessionId),
+    unbindOperatorFromTab: async (sessionId) => {
+      const tab = manager.tabForSession(sessionId as SessionId);
+      if (!tab) return;
+      await manager.setTabOperator(tab.id, null);
+    },
     confirmTask: teammateConfirmTask,
     cancelTaskProposal: teammateCancelTaskProposal,
     editTaskProposal: teammateEditTaskProposal,
