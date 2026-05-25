@@ -12673,39 +12673,23 @@ button.status-segment.status-tg:focus-visible {
 /* "Agent idle waiting" indicator: thin pulsing stripe on the tab's left
    edge instead of a noisy dot. Much calmer when many tabs are in this
    state at once. */
-/* Idle indicator: a 1.5px amber comet sweeps the bottom edge of the tab
-   pill. We use `background-position` (not `transform: translateX`) so the
-   moving highlight never extends past the badge's own box — the tab pill
-   doesn't clip overflow (the avatar pokes out on the left in tabbar-left),
-   so a transform-based slide would draw the gradient on neighboring tabs.
-   The badge inherits the pill's bottom-corner radius so the highlight
-   curves out cleanly. */
+/* Idle indicator: an inline amber ellipsis next to the tab label,
+   slowly fading. Reads semantically as "waiting…" without adding any
+   geometry to the pill or moving the eye like the old bottom-edge
+   sweep did. */
 .tab-idle-badge {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1.5px;
-  border-radius: 0 0 var(--tab-radius, 6px) var(--tab-radius, 6px);
-  background:
-    linear-gradient(
-      90deg,
-      transparent 0%,
-      transparent 38%,
-      rgba(245, 165, 36, 0.95) 50%,
-      transparent 62%,
-      transparent 100%
-    );
-  background-size: 220% 100%;
-  background-repeat: no-repeat;
-  background-position: -110% 0;
-  animation: idle-hairline 2.2s linear infinite;
-  filter: drop-shadow(0 0 4px rgba(245, 165, 36, 0.55));
+  margin-left: 6px;
+  color: rgba(245, 165, 36, 0.85);
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 1px;
   pointer-events: none;
+  animation: idle-dots-fade 2.4s ease-in-out infinite;
 }
-@keyframes idle-hairline {
-  from { background-position: -110% 0; }
-  to   { background-position: 210% 0;  }
+.tab-idle-badge::before { content: "…"; }
+@keyframes idle-dots-fade {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.9;  }
 }
 
 /* Palpitating dot: a non-shell process is running in this tab's PTY
