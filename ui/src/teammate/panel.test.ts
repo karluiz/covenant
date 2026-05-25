@@ -37,7 +37,7 @@ function makeOp(overrides: Partial<Operator> = {}): Operator {
 }
 
 describe("TeammatePanel", () => {
-  it("renders the placeholder when there are no messages", async () => {
+  it("renders the empty-state card when there are no messages", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
       ...stubMentionDeps,
@@ -46,7 +46,17 @@ describe("TeammatePanel", () => {
       listOperators: vi.fn().mockResolvedValue([]),
     });
     await panel.openFor(makeOp());
-    expect(host.textContent ?? "").toMatch(/No messages yet/);
+    // The placeholder is an interactive card titled "Chat with <name>"
+    // with prompt-suggestion chips, not a plain text placeholder. The
+    // user prefers this richer empty state (see commit history /
+    // user preferences). Assert the card markup, not legacy copy.
+    const empty = host.querySelector(".teammate-panel-empty");
+    expect(empty).not.toBeNull();
+    expect(empty?.querySelector(".teammate-empty-title")?.textContent)
+      .toMatch(/Chat with Mibli/);
+    // At least one suggestion chip should be present and clickable.
+    const chips = empty?.querySelectorAll(".teammate-empty-chip") ?? [];
+    expect(chips.length).toBeGreaterThan(0);
   });
 
   it("renders avatar + name + model subtitle in the header", async () => {
@@ -63,7 +73,7 @@ describe("TeammatePanel", () => {
     expect(host.querySelector(".teammate-panel-subtitle")?.textContent).toBe("claude-sonnet-4-6");
   });
 
-  it("renders an XP ring around the avatar + level pill next to the name", async () => {
+  it("renders an XP ring around the avatar + level pill on the avatar wrap", async () => {
     const host = document.createElement("div");
     const panel = new TeammatePanel(host, {
       ...stubMentionDeps,
@@ -77,10 +87,13 @@ describe("TeammatePanel", () => {
     // Progress within current level: (142 % 100) / 100 = 0.42.
     expect(wrap!.style.getPropertyValue("--xp-progress")).toBe("0.420");
     expect(host.querySelector(".teammate-panel-xp-ring")).not.toBeNull();
-    // Level = floor(xp / 100) + 1 = 2. Pill lives next to the name, not on the avatar.
-    const level = host.querySelector(".teammate-panel-title-row .teammate-panel-level");
-    expect(level?.textContent).toBe("Lv 2");
-    expect(wrap!.querySelector(".teammate-panel-level")).toBeNull();
+    // Level = floor(xp / 100) + 1 = 2. The pill lives anchored to the
+    // avatar wrap (bottom-center) so it sits opposite the sentiment
+    // badge (top-center). Both pills are inside the same wrap so they
+    // can share the avatar's --operator-color and re-render in lockstep
+    // when refreshHeaderAvatar() swaps the wrap on mood changes.
+    const level = wrap!.querySelector(".teammate-panel-level");
+    expect(level?.textContent).toBe("2");
   });
 
   it("renders the chevron as the last child of the header", async () => {
