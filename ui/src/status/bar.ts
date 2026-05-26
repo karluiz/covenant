@@ -663,10 +663,31 @@ export class StatusBar {
       versionSegment(__APP_VERSION__, () => this.onVersionChipClick?.()),
     );
 
-    this.host.appendChild(left);
-    this.host.appendChild(framing);
-    this.host.appendChild(center);
-    this.host.appendChild(right);
+    // Two-row layout (Proposal B). Top row keeps stable identity +
+    // runtime telemetry; bottom row carries the ephemeral framing
+    // (operator/mission/AOM) plus the trailing executor/telegram/score
+    // cluster — so a long mission filename never crowds the cost/perf
+    // numbers off-screen.
+    const topRow = document.createElement("div");
+    topRow.className = "sb-row sb-row--top";
+    const botRow = document.createElement("div");
+    botRow.className = "sb-row sb-row--bot";
+
+    const topSpacer = document.createElement("div");
+    topSpacer.className = "sb-spacer";
+    const botSpacer = document.createElement("div");
+    botSpacer.className = "sb-spacer";
+
+    topRow.appendChild(left);
+    topRow.appendChild(topSpacer);
+    topRow.appendChild(center);
+
+    botRow.appendChild(framing);
+    botRow.appendChild(botSpacer);
+    botRow.appendChild(right);
+
+    this.host.appendChild(topRow);
+    this.host.appendChild(botRow);
   }
 
   private gitSegment(repoName: string, branch: string): HTMLElement {
