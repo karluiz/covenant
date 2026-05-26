@@ -1,7 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { Operator } from "../api";
-import { sanitizeMentionTokens, TeammatePanel } from "./panel";
+import { buildTaskInjection, sanitizeMentionTokens, TeammatePanel } from "./panel";
+
+describe("buildTaskInjection spec prefix", () => {
+  it("prepends a relative spec path when cwd matches", () => {
+    expect(buildTaskInjection(
+      "Develop achievements", "spec impl", "claude", new Map(),
+      "/home/me/repo/docs/specs/3.23.md", "/home/me/repo",
+    )).toBe("claude 'Read docs/specs/3.23.md first, then: Develop achievements — spec impl'\n");
+  });
+  it("falls back to abs path when cwd doesn't match", () => {
+    expect(buildTaskInjection(
+      "x", "y", "claude", new Map(), "/abs/path/spec.md", "/other/cwd",
+    )).toBe("claude 'Read /abs/path/spec.md first, then: x — y'\n");
+  });
+  it("omits the prefix when no spec was mentioned", () => {
+    expect(buildTaskInjection("x", "y", "claude", new Map(), null, null))
+      .toBe("claude 'x — y'\n");
+  });
+});
 
 describe("sanitizeMentionTokens", () => {
   it("rewrites known tokens to their resolved display", () => {
