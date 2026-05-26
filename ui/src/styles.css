@@ -16112,6 +16112,11 @@ body.theme-light .teammate-panel-switcher {
   margin: 4px 0;
   max-width: 360px;
 }
+body.theme-light .task-card {
+  border-color: rgba(15, 23, 42, 0.14);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
 .task-card__header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .task-card__badge {
   font-size: 11px; padding: 2px 8px; border-radius: 999px;
