@@ -380,9 +380,14 @@ export class TeammatePanel {
       this.lastSentMentionMap = new Map();
       for (const [token, p] of this.mentionRegistry) {
         if (p.kind === "specs") {
+          // Spec chips win for the "read this first" prefix.
           if (!this.lastSentSpecPath) this.lastSentSpecPath = p.abs;
           this.lastSentMentionMap.set(`@${token}`, p.abs);
         } else if (p.kind === "files") {
+          // File chips also become read-first targets when no spec was
+          // picked — users often drop a spec file via the files source
+          // rather than the specs source (e.g. fuzzy-found .md).
+          if (!this.lastSentSpecPath) this.lastSentSpecPath = p.abs;
           this.lastSentMentionMap.set(`@${token}`, p.rel);
         } else if (p.kind === "teammates") {
           this.lastSentMentionMap.set(`@${token}`, p.name);
