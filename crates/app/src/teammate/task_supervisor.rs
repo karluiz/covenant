@@ -213,10 +213,14 @@ impl TaskSupervisor {
         self: Arc<Self>,
         bus_rx: broadcast::Receiver<karl_session::SessionEvent>,
     ) {
+        // Called from Tauri's `setup` callback, which runs before tokio's
+        // runtime is bound to the current thread; `tokio::spawn` panics
+        // with "no reactor running" there. `tauri::async_runtime::spawn`
+        // resolves to the right executor regardless of context.
         let me = self.clone();
-        tokio::spawn(async move { me.run_bus(bus_rx).await; });
+        tauri::async_runtime::spawn(async move { me.run_bus(bus_rx).await; });
         let me = self.clone();
-        tokio::spawn(async move { me.run_tick().await; });
+        tauri::async_runtime::spawn(async move { me.run_tick().await; });
     }
 
     async fn run_bus(self: Arc<Self>, mut rx: broadcast::Receiver<karl_session::SessionEvent>) {
