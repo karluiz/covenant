@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## Unreleased
+
+### Added
+
+- **Autonomous operator sentiment**: the operator avatar now reacts to spawned-task activity, not just to chat replies. A new `task_supervisor` background task subscribes to the session bus and synthesizes `TaskUpdate` rows with `sentiment` set when the executor's PTY emits failed `BlockFinished` events: first failure → `duda` (status flips to Blocked), three consecutive same-command failures → `enojo`, success after Blocked → `feliz` (Resumed). A 30s tick layers time-based escalation: ≥5 min Blocked → `incomodidad`, ≥15 min or retry_count ≥3 → `triste`. Confirmed tasks now ship with `expectacion`; cancelled tasks emit a `triste` system note. Debounced via a per-(operator,task) `SentimentResolver` so the avatar never flickers. `crates/app/src/teammate/{sentiment_resolver,task_supervisor}.rs`, `crates/app/src/teammate/commands.rs`, `crates/app/src/lib.rs`.
+
 ## v0.8.32 — Light-mode banner contrast + trackpad scroll flicker fix
 
 ### Fixed

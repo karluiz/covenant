@@ -140,6 +140,11 @@ pub(crate) struct AppState {
     /// other surfaces (e.g. the resolution path) can publish too.
     #[allow(dead_code)]
     escalation_bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
+    /// Aggregator channel feeding the `TaskSupervisor` bus loop. Each
+    /// session's per-session bus is fanned-in here by `spawn_session`
+    /// so the supervisor sees every `BlockFinished` across all tabs.
+    #[allow(dead_code)]
+    supervisor_bus_tx: tokio::sync::broadcast::Sender<karl_session::SessionEvent>,
     /// 3.13 operator learning — local embedding model, lazy-loaded on
     /// first use (model download ~30 MB). Wrapped in `OnceCell` so app
     /// startup stays cheap; resolved on a blocking task by `get_embedder`.
@@ -577,6 +582,25 @@ async fn spawn_session(
         .cross_session
         .attach(id, world.clone(), session.subscribe())
         .await;
+
+    // TaskSupervisor fan-in: forward every event from this session's
+    // bus into the global aggregator so the supervisor (one tokio task)
+    // can observe BlockFinished across all sessions.
+    {
+        let mut rx = session.subscribe();
+        let agg = state.supervisor_bus_tx.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        let _ = agg.send(ev);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                }
+            }
+        });
+    }
 
     let op_state = Arc::new(std::sync::Mutex::new(OperatorState::new()));
 
@@ -2822,9 +2846,29 @@ pub fn run() {
 
             let registry_arc = Arc::new(registry);
             app.manage(registry_arc.clone());
-            app.manage(Arc::new(storage.clone()));
-            app.manage(Arc::new(teammate::TeammateRuntime::new()));
+            let storage_arc = Arc::new(storage.clone());
+            app.manage(storage_arc.clone());
+            let teammate_runtime = Arc::new(teammate::TeammateRuntime::new());
+            app.manage(teammate_runtime.clone());
             app.manage(project_notes::Store::new(storage.conn()));
+
+            // Task supervisor: aggregates per-session SessionEvent buses
+            // and translates BlockFinished into operator sentiment +
+            // task-status transitions. `supervisor_bus_tx` is stored on
+            // AppState so `spawn_session` can forward each new session's
+            // bus into the aggregator.
+            let (supervisor_bus_tx, supervisor_bus_rx) =
+                tokio::sync::broadcast::channel::<karl_session::SessionEvent>(256);
+            let supervisor = Arc::new(
+                crate::teammate::task_supervisor::TaskSupervisor::new(
+                    storage_arc.clone(),
+                    teammate_runtime.clone(),
+                    Arc::new(app.handle().clone())
+                        as Arc<dyn crate::teammate::task_supervisor::MessageEmitter>,
+                ),
+            );
+            supervisor.clone().spawn(supervisor_bus_rx);
+            app.manage(supervisor);
 
             // Familiars: per-session AI companion with persistent
             // SQLite-backed memory. Storage root is under the user's
@@ -3231,6 +3275,7 @@ pub fn run() {
                 email_notifier,
                 telegram_notifier,
                 escalation_bus_tx,
+                supervisor_bus_tx: supervisor_bus_tx.clone(),
                 embedder: embedder_cell,
                 spec_detectors: Mutex::new(HashMap::new()),
                 connectivity: connectivity_handle,

@@ -13,6 +13,8 @@ pub mod commands;
 pub mod llm;
 pub mod openai_http;
 pub mod runtime;
+pub mod sentiment_resolver;
+pub mod task_supervisor;
 pub mod tools;
 pub mod types;
 pub mod world_snapshot;

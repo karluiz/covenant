@@ -291,7 +291,7 @@ pub(crate) async fn confirm_task_inner(
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
-        sentiment: None,
+        sentiment: Some(crate::teammate::types::Sentiment::Expectacion),
     };
     storage.teammate_insert_message(&started).await.map_err(|e| e.to_string())?;
     Ok(task)
@@ -368,12 +368,39 @@ pub async fn teammate_cancel_task_proposal(
 
 #[tauri::command]
 pub async fn teammate_cancel_active_task(
+    app: tauri::AppHandle,
     storage: State<'_, Arc<Storage>>,
+    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
-    storage.teammate_update_task_status(task_id, TaskStatus::Cancelled, now_unix_ms())
+    use tauri::Emitter;
+    let now = now_unix_ms();
+    storage
+        .teammate_update_task_status(task_id, TaskStatus::Cancelled, now)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let task = storage
+        .teammate_get_task(task_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "task not found".to_string())?;
+    if let Some(s) = task.spawned_session {
+        supervisor.forget_task(s);
+    }
+    let msg = TaskMessage {
+        id: MessageId::new(),
+        operator_id: task.operator_id,
+        task_id: Some(task_id),
+        role: Role::System,
+        content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Cancelled },
+        created_at_unix_ms: now,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
+        sentiment: Some(crate::teammate::types::Sentiment::Triste),
+    };
+    storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    let _ = app.emit("teammate-message", &msg);
+    Ok(())
 }
 
 #[tauri::command]
@@ -418,6 +445,7 @@ pub async fn teammate_attach_session_to_task(
     app: tauri::AppHandle,
     storage: State<'_, Arc<Storage>>,
     runtime: State<'_, Arc<TeammateRuntime>>,
+    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     operator_id: OperatorId,
     task_id: TaskId,
     session_id: String,
@@ -430,6 +458,7 @@ pub async fn teammate_attach_session_to_task(
         .map_err(|e| e.to_string())?;
     let _ = runtime.finish_task(operator_id, task_id);
     runtime.start_task(operator_id, task_id, Some(session)).map_err(|e| e.to_string())?;
+    supervisor.register_task(session, task_id, operator_id);
     let _ = app.emit("teammate-task", serde_json::json!({
         "task_id": task_id,
         "spawned_session": session.to_string(),
