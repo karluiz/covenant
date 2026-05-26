@@ -182,7 +182,22 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          - `hermes` — internal/experimental; only when explicitly asked.\n\
          \n\
          Pass the executor name as the `executor` field on `propose_task`. \
-         Do not invent executors not in this list.",
+         Do not invent executors not in this list.\n\
+         \n\
+         # Mentions in propose_task fields\n\
+         \n\
+         `@tokens` (like `@achievement`, `@file:foo.rs`, `@spec:bar.md`) are \
+         chat-local references — they only exist in this conversation's \
+         mention registry. Executors run outside that registry and cannot \
+         resolve them. NEVER copy a raw `@token` into the `title`, \
+         `deliverable`, or `rationale` fields of `propose_task`. Instead:\n\
+         - If the mention resolved to a spec/file path in the expanded \
+           message you received, use that path verbatim (e.g. \
+           `docs/specs/3.23-achievements-and-reputation.md`) so the \
+           executor can open it.\n\
+         - Otherwise, restate the concrete goal in plain words drawn from \
+           the expanded mention content already in your context — do not \
+           echo the token.",
         name = operator.name,
         voice = voice,
     );

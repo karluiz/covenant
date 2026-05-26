@@ -267,6 +267,11 @@ export class TeammatePanel {
   /// Used to auto-set mission on tabs spawned from a confirmed task.
   /// Cleared after consumed or after the panel is reset.
   private lastSentSpecPath: string | null = null;
+  /// `@token` → executor-safe replacement (rel path for files/specs,
+  /// human label for the rest). Snapshotted from `mentionRegistry` on
+  /// send so we can rewrite tokens the LLM echoes back inside a
+  /// propose_task draft — executors have no mention registry.
+  private lastSentMentionMap: Map<string, string> = new Map();
   /// Local taskId → spawn metadata for "open tab" / Continue buttons.
   /// Populated when we spawn a tab during confirm — and mirrored to
   /// localStorage so Continue after an app restart can recreate a tab
@@ -355,6 +360,7 @@ export class TeammatePanel {
     this.mentionRegistry.clear();
     this.taskSpawnedSessions.clear();
     this.lastSentSpecPath = null;
+    this.lastSentMentionMap.clear();
     this.composerInput = null;
     this.operator = null;
     this.host.style.removeProperty("--operator-color");
@@ -371,8 +377,18 @@ export class TeammatePanel {
       // Remember the first spec mention so a task spawned from this
       // message auto-sets its mission. Most-recent wins if multiple
       // sends happen before a confirm.
-      for (const p of this.mentionRegistry.values()) {
-        if (p.kind === "specs") { this.lastSentSpecPath = p.abs; break; }
+      this.lastSentMentionMap = new Map();
+      for (const [token, p] of this.mentionRegistry) {
+        if (p.kind === "specs") {
+          if (!this.lastSentSpecPath) this.lastSentSpecPath = p.abs;
+          this.lastSentMentionMap.set(`@${token}`, p.abs);
+        } else if (p.kind === "files") {
+          this.lastSentMentionMap.set(`@${token}`, p.rel);
+        } else if (p.kind === "teammates") {
+          this.lastSentMentionMap.set(`@${token}`, p.name);
+        } else {
+          this.lastSentMentionMap.set(`@${token}`, token);
+        }
       }
       const expanded = await expandMentions(payload, this.mentionRegistry, this.deps.readFile, {
         readBlock:   this.deps.readBlockExcerpt,
@@ -1324,7 +1340,7 @@ export class TeammatePanel {
           });
           persistTaskSpawnedSessions(this.taskSpawnedSessions);
           injectDelayMs = 1500;
-          line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
+          line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap);
           // Auto-set mission if the originating chat had a @spec chip.
           if (this.lastSentSpecPath && this.deps.setMissionForSpawnedTab) {
             const path = this.lastSentSpecPath;
@@ -1348,8 +1364,8 @@ export class TeammatePanel {
             // actually launches it instead of barfing on a malformed line.
             const fg = this.deps.getActiveExecutor?.() ?? null;
             line = fg
-              ? buildActiveTabInjection(task.title, task.deliverable)
-              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor);
+              ? buildActiveTabInjection(task.title, task.deliverable, this.lastSentMentionMap)
+              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap);
           }
         }
         if (targetSessionId) {
@@ -1651,12 +1667,28 @@ function statusLabel(s: Task["status"]): string {
 /// (note: it's `copilot`, NOT `gh copilot` — the GitHub Copilot CLI is
 /// installed as the `copilot` binary). To change without rebuilding:
 ///   localStorage.setItem("covenant.teammate.executor", "codex")
+/// Rewrite any `@token` in `text` using `map` (token-with-`@` → resolved
+/// display). Unknown tokens are stripped of their leading `@` so the
+/// executor at least sees a plain word instead of a chat-only chip
+/// reference it can't resolve.
+export function sanitizeMentionTokens(text: string, map: Map<string, string>): string {
+  return text.replace(/@[\w.:/\\-]+/g, (m) => {
+    const hit = map.get(m);
+    if (hit) return hit;
+    console.warn("teammate: unresolved @token in task draft", m);
+    return m.slice(1);
+  });
+}
+
 function buildTaskInjection(
   title: string,
   deliverable: string,
   operatorPicked: string | null,
+  mentionMap: Map<string, string> = new Map(),
 ): string {
-  const prompt = [title.trim(), deliverable.trim()].filter(Boolean).join(" — ");
+  const cleanTitle = sanitizeMentionTokens(title, mentionMap);
+  const cleanDeliverable = sanitizeMentionTokens(deliverable, mentionMap);
+  const prompt = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
   // Precedence: operator's choice (from the propose draft) → localStorage
   // override → default "claude". "none"/"off" disables autorun.
   const fallback = (localStorage.getItem("covenant.teammate.executor") ?? "claude").trim();
@@ -1670,8 +1702,14 @@ function buildTaskInjection(
 /// Inject text for "attach to active tab" confirms. We assume the user is
 /// already inside an agent CLI (Claude Code, Copilot CLI, codex, …) — so
 /// no executor prefix, no shell quoting. Trailing `\n` submits the message.
-function buildActiveTabInjection(title: string, deliverable: string): string {
-  const prompt = [title.trim(), deliverable.trim()].filter(Boolean).join(" — ");
+function buildActiveTabInjection(
+  title: string,
+  deliverable: string,
+  mentionMap: Map<string, string> = new Map(),
+): string {
+  const cleanTitle = sanitizeMentionTokens(title, mentionMap);
+  const cleanDeliverable = sanitizeMentionTokens(deliverable, mentionMap);
+  const prompt = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
   return `${prompt}\n`;
 }
 

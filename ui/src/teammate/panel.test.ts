@@ -1,7 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { Operator } from "../api";
-import { TeammatePanel } from "./panel";
+import { sanitizeMentionTokens, TeammatePanel } from "./panel";
+
+describe("sanitizeMentionTokens", () => {
+  it("rewrites known tokens to their resolved display", () => {
+    const map = new Map([["@achievement", "docs/specs/3.23-achievements-and-reputation.md"]]);
+    expect(sanitizeMentionTokens("work on @achievement now", map))
+      .toBe("work on docs/specs/3.23-achievements-and-reputation.md now");
+  });
+  it("strips the @ from unknown tokens so executors don't see chat syntax", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(sanitizeMentionTokens("fix @ghost please", new Map())).toBe("fix ghost please");
+    warn.mockRestore();
+  });
+  it("leaves bare @ alone", () => {
+    expect(sanitizeMentionTokens("email me @ later", new Map())).toBe("email me @ later");
+  });
+});
 
 const stubMentionDeps = {
   mentionSources: {
