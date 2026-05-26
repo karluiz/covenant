@@ -16457,6 +16457,19 @@ body.theme-light .teammate-panel-switcher {
   transition: background 0.12s ease;
 }
 .task-item.is-open { background: rgba(255,255,255,0.04); }
+body.theme-light .task-item {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 10px;
+  background: #ffffff;
+  margin-bottom: 8px;
+}
+body.theme-light .task-item:hover {
+  border-color: rgba(15, 23, 42, 0.18);
+}
+body.theme-light .task-item.is-open {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.22);
+}
 .task-item__head {
   display: grid;
   grid-template-columns: auto 1fr auto;
