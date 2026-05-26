@@ -13240,6 +13240,26 @@ body.has-update-banner #app-titlebar-brand { display: none; }
 }
 .update-banner__dismiss:hover { color: #ffffff; }
 
+/* Light-mode overrides — the dark-mode palette (#dbe6ff text on translucent
+   blue) collapses to near-invisibility on a light titlebar. Re-anchor to
+   readable blues. */
+body.theme-light .update-banner {
+  background: rgba(60, 110, 230, 0.10);
+  border-color: rgba(60, 110, 230, 0.28);
+  color: #1d2b4d;
+}
+body.theme-light .update-banner__label { color: #5a6a8a; }
+body.theme-light .update-banner__version { color: #0f1a36; }
+body.theme-light .update-banner__version:hover { color: #2a4ad0; }
+body.theme-light .update-banner__whatsnew { color: #2a4ad0; }
+body.theme-light .update-banner__install {
+  background: #2a4ad0;
+  color: #ffffff;
+}
+body.theme-light .update-banner__install:hover { background: #1d3ab8; color: #ffffff; }
+body.theme-light .update-banner__dismiss { color: #5a6a8a; }
+body.theme-light .update-banner__dismiss:hover { color: #0f1a36; }
+
 /* Release notes modal */
 .update-modal-overlay {
   position: fixed; inset: 0; z-index: 10000;

@@ -2557,6 +2557,15 @@ export class TabManager {
       const atBoundary = wantsDown ? before >= maxBefore - 2 : before <= 2;
       if (atBoundary) return;
 
+      // Trackpads emit high-frequency sub-line deltas (1–10px at ~120Hz).
+      // xterm accumulates those internally and scrolls once a full line is
+      // reached. If we treat "viewport didn't move yet" as stuck and inject
+      // term.scrollLines(±1) on top, the next xterm flush double-scrolls →
+      // visible vibration. Only intervene for deltas big enough that a real
+      // line *should* have moved.
+      const pxPerLineNow = term.rows > 0 ? vp.clientHeight / term.rows : 16;
+      if (Math.abs(ev.deltaY) < pxPerLineNow) return;
+
       // Check after xterm/browser wheel handling has had a chance to
       // update the viewport.
       requestAnimationFrame(() => {
@@ -2567,17 +2576,12 @@ export class TabManager {
         const nowAtBoundary = wantsDown ? after >= maxAfter - 2 : after <= 2;
         if (nowAtBoundary) return;
 
-        // First try the public xterm scroll API. This fixes missed wheel
-        // deltas without the disruptive rows-1/rows resize cycle.
-        const pxPerLine = term.rows > 0 ? vp.clientHeight / term.rows : 16;
-        const lines = Math.max(1, Math.ceil(Math.abs(ev.deltaY) / Math.max(1, pxPerLine)));
-        try {
-          term.scrollLines(wantsDown ? lines : -lines);
-        } catch {
-          /* ignore */
-        }
-
-        // If the terminal is still immovable, debounce a geometry rebuild.
+        // Debounce a geometry rebuild. We used to also inject
+        // term.scrollLines() here to "rescue" missed deltas, but on slow
+        // trackpad scrolling xterm's internal sub-line accumulator hadn't
+        // flushed yet — the injection raced with xterm's own flush a frame
+        // later and produced a double-step flicker. The rebuild fallback
+        // alone is enough for the genuinely-stuck cases this exists for.
         requestAnimationFrame(() => {
           if (vp.scrollTop !== before) return;
           if (wheelRefitTimer !== null) return;
