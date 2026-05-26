@@ -577,10 +577,16 @@ export class TeammatePanel {
     t.className = "teammate-panel-thread";
     t.addEventListener("click", (e) => {
       const chip = (e.target as HTMLElement | null)?.closest<HTMLElement>(
-        ".teammate-mention-chip[data-spec-id]",
+        ".teammate-mention-chip",
       );
       if (!chip) return;
       e.preventDefault();
+      const kind = chip.dataset.mentionKind;
+      if (kind === "file") {
+        const path = chip.dataset.filePath;
+        if (path && this.deps.openSpec) this.deps.openSpec(path);
+        return;
+      }
       const id = chip.dataset.specId;
       const path = chip.dataset.specPath;
       if (path && this.deps.openSpec) {
@@ -1567,7 +1573,30 @@ function renderInlineContent(text: string): string {
     const pathAttr = meta?.path ? ` data-spec-path="${escapeHtml(meta.path)}"` : "";
     return `<button type="button" class="teammate-mention-chip" data-mention-kind="spec" data-spec-id="${escapeHtml(id)}"${pathAttr}>§ ${escapeHtml(label)}</button>`;
   });
+  const fileSet = extractFileMentions(bundle);
+  if (fileSet.size > 0) {
+    // Longest-first so a nested path doesn't get shadowed by an ancestor.
+    const paths = Array.from(fileSet).sort((a, b) => b.length - a.length);
+    const escaped = paths.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const re = new RegExp(`@(${escaped.join('|')})`, 'g');
+    html = html.replace(re, (_m, p: string) => {
+      return `<button type="button" class="teammate-mention-chip" data-mention-kind="file" data-file-path="${escapeHtml(p)}">⌗ ${escapeHtml(p)}</button>`;
+    });
+  }
   return html;
+}
+
+/// Pull file-mention paths out of the bundle. File sections are headed
+/// `### <rel-path>` with no leading keyword (specs use `spec `, commands
+/// use `command:`, sessions use `session:` — skip those).
+function extractFileMentions(bundle: string): Set<string> {
+  const out = new Set<string>();
+  const re = /^### (?!spec |command:|session:)(\S.*)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(bundle)) !== null) {
+    out.add(m[1].trim());
+  }
+  return out;
 }
 
 function extractSpecMeta(bundle: string): Map<string, { title: string; path?: string }> {
