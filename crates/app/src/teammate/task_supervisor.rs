@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 
 use karl_session::SessionId;
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast;
 use tracing::warn;
 
@@ -157,15 +156,34 @@ impl Inner {
     }
 }
 
+/// Sink for synth `TaskMessage`s the supervisor produces. Production
+/// uses `tauri::AppHandle` (emits to the webview); tests use an
+/// in-memory capturing impl so the supervisor can be exercised
+/// without a real Tauri runtime.
+pub trait MessageEmitter: Send + Sync {
+    fn emit_message(&self, msg: &TaskMessage);
+}
+
+impl MessageEmitter for tauri::AppHandle {
+    fn emit_message(&self, msg: &TaskMessage) {
+        use tauri::Emitter;
+        let _ = self.emit("teammate-message", msg);
+    }
+}
+
 pub struct TaskSupervisor {
     inner: Arc<Mutex<Inner>>,
     storage: Arc<Storage>,
     runtime: Arc<TeammateRuntime>,
-    app: AppHandle,
+    app: Arc<dyn MessageEmitter>,
 }
 
 impl TaskSupervisor {
-    pub fn new(storage: Arc<Storage>, runtime: Arc<TeammateRuntime>, app: AppHandle) -> Self {
+    pub fn new(
+        storage: Arc<Storage>,
+        runtime: Arc<TeammateRuntime>,
+        app: Arc<dyn MessageEmitter>,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner::new(Duration::from_secs(60)))),
             storage, runtime, app,
@@ -277,7 +295,7 @@ impl TaskSupervisor {
                 error = %e, "insert synth TaskUpdate failed");
             return;
         }
-        let _ = self.app.emit("teammate-message", &msg);
+        self.app.emit_message(&msg);
     }
 }
 

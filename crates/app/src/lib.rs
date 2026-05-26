@@ -2863,7 +2863,8 @@ pub fn run() {
                 crate::teammate::task_supervisor::TaskSupervisor::new(
                     storage_arc.clone(),
                     teammate_runtime.clone(),
-                    app.handle().clone(),
+                    Arc::new(app.handle().clone())
+                        as Arc<dyn crate::teammate::task_supervisor::MessageEmitter>,
                 ),
             );
             supervisor.clone().spawn(supervisor_bus_rx);
