@@ -2,7 +2,6 @@
 //! and task-status transitions. Pure state-machine lives in
 //! `Inner::observe_block_finished`; the bus loop in `run` wraps it.
 
-#![allow(unused_imports)]
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -186,6 +185,99 @@ impl TaskSupervisor {
 
     pub fn forget_task(&self, session: SessionId) {
         self.inner.lock().unregister(session);
+    }
+}
+
+impl TaskSupervisor {
+    /// Subscribe to the bus and run forever. Spawned at app boot.
+    /// Owns two tokio tasks: the event drain + the 30s tick.
+    pub fn spawn(
+        self: Arc<Self>,
+        bus_rx: broadcast::Receiver<karl_session::SessionEvent>,
+    ) {
+        let me = self.clone();
+        tokio::spawn(async move { me.run_bus(bus_rx).await; });
+        let me = self.clone();
+        tokio::spawn(async move { me.run_tick().await; });
+    }
+
+    async fn run_bus(self: Arc<Self>, mut rx: broadcast::Receiver<karl_session::SessionEvent>) {
+        loop {
+            match rx.recv().await {
+                Ok(karl_session::SessionEvent::BlockFinished {
+                    session, command, exit_code, ..
+                }) => {
+                    let decision = {
+                        let mut g = self.inner.lock();
+                        g.observe_block_finished(session, &command, exit_code, Instant::now())
+                    };
+                    if let Some((ctx, d)) = decision {
+                        self.apply_decision(ctx, d).await;
+                    }
+                }
+                Ok(karl_session::SessionEvent::Closed { session }) => {
+                    self.inner.lock().unregister(session);
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(n)) => {
+                    warn!(target: "teammate::supervisor", "bus lagged {n} events");
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    }
+
+    async fn run_tick(self: Arc<Self>) {
+        let mut iv = tokio::time::interval(Duration::from_secs(30));
+        // first tick fires immediately — skip it so we don't spam on boot
+        iv.tick().await;
+        loop {
+            iv.tick().await;
+            let pending = {
+                let mut g = self.inner.lock();
+                g.tick(Instant::now())
+            };
+            for (ctx, d) in pending {
+                self.apply_decision(ctx, d).await;
+            }
+        }
+    }
+
+    async fn apply_decision(&self, ctx: TaskCtx, d: Decision) {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64).unwrap_or(0);
+        let (kind, sentiment) = match d {
+            Decision::Transition { new_status, kind, sentiment } => {
+                if let Err(e) = self.storage
+                    .teammate_update_task_status(ctx.task_id, new_status, now_ms).await
+                {
+                    warn!(target: "teammate::supervisor",
+                        task_id = ?ctx.task_id, ?new_status, error = %e, "status update failed");
+                    return;
+                }
+                (kind, sentiment)
+            }
+            Decision::Sentiment { kind, sentiment } => (kind, sentiment),
+            Decision::Nothing => return,
+        };
+        let msg = TaskMessage {
+            id: MessageId::new(),
+            operator_id: ctx.operator_id,
+            task_id: Some(ctx.task_id),
+            role: Role::System,
+            content: MessageContent::TaskUpdate { task: ctx.task_id, kind },
+            created_at_unix_ms: now_ms,
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
+            sentiment: Some(sentiment),
+        };
+        if let Err(e) = self.storage.teammate_insert_message(&msg).await {
+            warn!(target: "teammate::supervisor",
+                error = %e, "insert synth TaskUpdate failed");
+            return;
+        }
+        let _ = self.app.emit("teammate-message", &msg);
     }
 }
 
