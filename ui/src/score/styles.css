@@ -542,3 +542,42 @@ body.theme-light .cov-empty { color: var(--muted); }
 .cov-model-table { width:100%; border-collapse:collapse; }
 .cov-model-table th, .cov-model-table td { padding:6px 8px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.06); font-variant-numeric: tabular-nums; }
 .cov-dim { opacity:0.5; }
+
+/* ── Achievements ─────────────────────────────────────────────────────────── */
+.cov-ach-card { display:flex; flex-direction:column; gap:12px; }
+.cov-ach-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.cov-ach-header h4 { margin:0; }
+.cov-ach-counts { display:flex; gap:6px; flex-wrap:wrap; }
+.cov-ach-pill { padding:3px 9px; border-radius:999px; background:rgba(255,255,255,0.06); font-size:12px; }
+.cov-ach-pill strong { color:#fff; }
+.cov-ach-rep { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:6px 16px; padding:4px 0; }
+.cov-rep-row { display:flex; align-items:center; gap:8px; font-size:12px; }
+.cov-rep-label { width:90px; opacity:0.75; }
+.cov-rep-bar { flex:1; height:6px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; }
+.cov-rep-fill { height:100%; background:linear-gradient(90deg, #7aa2f7, #bb9af7); }
+.cov-rep-value { width:40px; text-align:right; font-variant-numeric: tabular-nums; opacity:0.75; }
+.cov-ach-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.cov-ach-col h5 { margin:0 0 6px 0; font-size:12px; letter-spacing:0.08em; opacity:0.7; text-transform:uppercase; font-weight:500; }
+.cov-ach-section { margin:8px 0 6px 0; font-size:12px; letter-spacing:0.08em; opacity:0.7; text-transform:uppercase; font-weight:500; }
+.cov-ach-prog { padding:6px 0; }
+.cov-ach-prog-head { display:flex; justify-content:space-between; gap:8px; font-size:13px; }
+.cov-ach-title { font-weight:500; }
+.cov-ach-target { opacity:0.6; font-variant-numeric: tabular-nums; }
+.cov-ach-sub { opacity:0.6; font-size:12px; margin-top:2px; }
+.cov-ach-meta { opacity:0.45; font-size:11px; margin-top:2px; text-transform:uppercase; letter-spacing:0.06em; }
+.cov-ach-award, .cov-ach-cat { display:flex; align-items:center; gap:10px; padding:6px 0; }
+.cov-ach-badge {
+  flex:0 0 auto; width:32px; height:32px; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(255,255,255,0.06); font-weight:600; font-size:13px;
+  border:1px solid rgba(255,255,255,0.10);
+}
+.cov-ach-award-body { flex:1; min-width:0; }
+.cov-ach-catalog { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:10px 14px; }
+.cov-ach-locked { opacity:0.55; }
+.cov-ach-locked .cov-ach-badge { background:transparent; }
+.cov-rarity-common .cov-ach-badge { border-color:rgba(255,255,255,0.15); }
+.cov-rarity-uncommon .cov-ach-badge { border-color:#73d3a1; color:#73d3a1; }
+.cov-rarity-rare .cov-ach-badge { border-color:#7aa2f7; color:#7aa2f7; }
+.cov-rarity-epic .cov-ach-badge { border-color:#bb9af7; color:#bb9af7; }
+.cov-rarity-legendary .cov-ach-badge { border-color:#f7c873; color:#f7c873; }

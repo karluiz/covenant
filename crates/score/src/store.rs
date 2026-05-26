@@ -1,3 +1,7 @@
+use crate::achievements::{
+    self, AchievementAward, AchievementCategory, AchievementFact, AchievementProgress,
+    CategoryRollup, AchievementSummary,
+};
 use crate::types::{day_from_ms_local, Context, DailyCell, EventKind, Summary};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
@@ -114,6 +118,75 @@ impl ScoreStore {
                  );
 
                  PRAGMA user_version = 3;",
+            )?;
+        }
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 4 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS achievement_facts (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts_ms         INTEGER NOT NULL,
+                    day           TEXT NOT NULL,
+                    kind          TEXT NOT NULL,
+                    subject_type  TEXT NOT NULL,
+                    subject_id    TEXT,
+                    repo          TEXT,
+                    branch        TEXT,
+                    group_name    TEXT,
+                    session_id    TEXT,
+                    task_id       TEXT,
+                    verification  TEXT,
+                    dedupe_key    TEXT UNIQUE,
+                    metadata_json TEXT NOT NULL DEFAULT '{}'
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_ach_facts_kind
+                    ON achievement_facts(kind, ts_ms);
+                 CREATE INDEX IF NOT EXISTS idx_ach_facts_subject
+                    ON achievement_facts(subject_type, subject_id, ts_ms);
+                 CREATE INDEX IF NOT EXISTS idx_ach_facts_repo
+                    ON achievement_facts(repo, ts_ms);
+
+                 CREATE TABLE IF NOT EXISTS achievement_progress (
+                    achievement_id TEXT NOT NULL,
+                    subject_type   TEXT NOT NULL,
+                    subject_id     TEXT,
+                    subject_key    TEXT NOT NULL DEFAULT '',
+                    scope_type     TEXT NOT NULL,
+                    scope_id       TEXT,
+                    scope_key      TEXT NOT NULL DEFAULT '',
+                    tier           INTEGER NOT NULL DEFAULT 0,
+                    progress       INTEGER NOT NULL DEFAULT 0,
+                    target         INTEGER NOT NULL DEFAULT 0,
+                    updated_at_ms  INTEGER NOT NULL,
+                    PRIMARY KEY (achievement_id, subject_type, subject_key, scope_type, scope_key)
+                 );
+
+                 CREATE TABLE IF NOT EXISTS achievement_awards (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    achievement_id TEXT NOT NULL,
+                    tier           INTEGER NOT NULL,
+                    title          TEXT NOT NULL,
+                    subject_type   TEXT NOT NULL,
+                    subject_id     TEXT,
+                    subject_key    TEXT NOT NULL DEFAULT '',
+                    scope_type     TEXT NOT NULL,
+                    scope_id       TEXT,
+                    scope_key      TEXT NOT NULL DEFAULT '',
+                    repo           TEXT,
+                    branch         TEXT,
+                    earned_at_ms   INTEGER NOT NULL,
+                    seen_at_ms     INTEGER,
+                    details_json   TEXT NOT NULL DEFAULT '{}',
+                    UNIQUE (achievement_id, tier, subject_type, subject_key, scope_type, scope_key)
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_ach_awards_earned
+                    ON achievement_awards(earned_at_ms);
+                 CREATE INDEX IF NOT EXISTS idx_ach_awards_unseen
+                    ON achievement_awards(seen_at_ms);
+
+                 PRAGMA user_version = 4;",
             )?;
         }
         Ok(Self {
@@ -681,6 +754,502 @@ impl ScoreStore {
             total: total as u32,
             recent: rows.collect::<rusqlite::Result<Vec<_>>>()?,
         })
+    }
+
+    // ─── Achievements ─────────────────────────────────────────────────────
+
+    /// Record a fact and update achievement progress/awards in a single txn.
+    /// Returns the awards newly inserted (may be empty).
+    pub fn record_achievement_fact(
+        &self,
+        timestamp_ms: i64,
+        fact: &AchievementFact,
+    ) -> Result<Vec<AchievementAward>> {
+        let day = day_from_ms_local(timestamp_ms);
+        let mut c = self.conn.lock().unwrap();
+        let tx = c.transaction()?;
+
+        // 1. Insert fact (idempotent via dedupe_key UNIQUE).
+        let inserted = tx.execute(
+            "INSERT OR IGNORE INTO achievement_facts
+              (ts_ms, day, kind, subject_type, subject_id, repo, branch,
+               group_name, session_id, task_id, verification, dedupe_key, metadata_json)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,'{}')",
+            params![
+                timestamp_ms,
+                day,
+                fact.kind,
+                fact.subject_type.as_str(),
+                fact.subject_id,
+                fact.repo,
+                fact.branch,
+                fact.group_name,
+                fact.session_id,
+                fact.task_id,
+                fact.verification.map(|v| v.as_str()),
+                fact.dedupe_key,
+            ],
+        )?;
+        if inserted == 0 {
+            // Duplicate: do not touch progress.
+            tx.commit()?;
+            return Ok(Vec::new());
+        }
+
+        // 2. Evaluate every definition triggered by this fact kind.
+        let mut new_awards = Vec::new();
+        for def in achievements::definitions_for_kind(&fact.kind) {
+            let subject_id = fact.subject_id.clone();
+            let subject_key = subject_id.clone().unwrap_or_default();
+
+            let (scope_id, scope_key) = match def.scope {
+                achievements::ScopeKind::Global => (None, String::new()),
+                achievements::ScopeKind::Repo => match fact.repo.clone() {
+                    Some(r) => (Some(r.clone()), r),
+                    None => continue,
+                },
+                achievements::ScopeKind::Operator
+                | achievements::ScopeKind::Orchestrator => match subject_id.clone() {
+                    Some(id) => (Some(id.clone()), id),
+                    None => continue,
+                },
+            };
+
+            // Load current progress row.
+            let current: Option<(u32, u32)> = tx
+                .query_row(
+                    "SELECT tier, progress FROM achievement_progress
+                     WHERE achievement_id = ?1 AND subject_type = ?2 AND subject_key = ?3
+                       AND scope_type = ?4 AND scope_key = ?5",
+                    params![
+                        def.id,
+                        def.subject.as_str(),
+                        subject_key,
+                        def.scope.as_str(),
+                        scope_key
+                    ],
+                    |r| Ok((r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u32)),
+                )
+                .optional()?;
+
+            let (old_tier, old_progress) = current.unwrap_or((0, 0));
+            let new_progress = old_progress + 1;
+            let new_tier = achievements::tier_at(new_progress, def.tiers);
+            let target = achievements::next_tier(new_progress, def.tiers)
+                .map(|(_, t)| t)
+                .unwrap_or_else(|| {
+                    def.tiers.last().map(|t| t.target).unwrap_or(0)
+                });
+
+            tx.execute(
+                "INSERT INTO achievement_progress
+                   (achievement_id, subject_type, subject_id, subject_key,
+                    scope_type, scope_id, scope_key, tier, progress, target, updated_at_ms)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                 ON CONFLICT(achievement_id, subject_type, subject_key, scope_type, scope_key)
+                 DO UPDATE SET
+                   tier = excluded.tier,
+                   progress = excluded.progress,
+                   target = excluded.target,
+                   updated_at_ms = excluded.updated_at_ms",
+                params![
+                    def.id,
+                    def.subject.as_str(),
+                    subject_id,
+                    subject_key,
+                    def.scope.as_str(),
+                    scope_id,
+                    scope_key,
+                    new_tier as i64,
+                    new_progress as i64,
+                    target as i64,
+                    timestamp_ms,
+                ],
+            )?;
+
+            // Insert award rows for every tier strictly above old_tier.
+            for tier in (old_tier + 1)..=new_tier {
+                let inserted = tx.execute(
+                    "INSERT OR IGNORE INTO achievement_awards
+                       (achievement_id, tier, title, subject_type, subject_id, subject_key,
+                        scope_type, scope_id, scope_key, repo, branch, earned_at_ms)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                    params![
+                        def.id,
+                        tier as i64,
+                        def.title,
+                        def.subject.as_str(),
+                        subject_id,
+                        subject_key,
+                        def.scope.as_str(),
+                        scope_id,
+                        scope_key,
+                        fact.repo,
+                        fact.branch,
+                        timestamp_ms,
+                    ],
+                )?;
+                if inserted > 0 {
+                    let id: i64 = tx.query_row(
+                        "SELECT last_insert_rowid()",
+                        [],
+                        |r| r.get(0),
+                    )?;
+                    new_awards.push(AchievementAward {
+                        id,
+                        achievement_id: def.id.to_string(),
+                        tier,
+                        title: def.title.to_string(),
+                        subject_type: def.subject.as_str().to_string(),
+                        subject_id: subject_id.clone(),
+                        scope_type: def.scope.as_str().to_string(),
+                        scope_id: scope_id.clone(),
+                        repo: fact.repo.clone(),
+                        branch: fact.branch.clone(),
+                        earned_at_ms: timestamp_ms,
+                        seen_at_ms: None,
+                    });
+                }
+            }
+        }
+
+        tx.commit()?;
+        Ok(new_awards)
+    }
+
+    pub fn achievement_progress_all(&self) -> Result<Vec<AchievementProgress>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT achievement_id, subject_type, subject_id, scope_type, scope_id,
+                    tier, progress, target, updated_at_ms
+             FROM achievement_progress",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let aid: String = r.get(0)?;
+            let tier: i64 = r.get(5)?;
+            let progress: i64 = r.get(6)?;
+            let next = achievements::find_definition(&aid)
+                .and_then(|d| achievements::next_tier(progress as u32, d.tiers))
+                .map(|(t, _)| t);
+            Ok(AchievementProgress {
+                achievement_id: aid,
+                subject_type: r.get(1)?,
+                subject_id: r.get(2)?,
+                scope_type: r.get(3)?,
+                scope_id: r.get(4)?,
+                tier: tier as u32,
+                progress: progress as u32,
+                target: r.get::<_, i64>(7)? as u32,
+                next_tier: next,
+                earned_at_ms: Some(r.get::<_, i64>(8)?),
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn achievement_awards_recent(&self, limit: u32) -> Result<Vec<AchievementAward>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT id, achievement_id, tier, title, subject_type, subject_id,
+                    scope_type, scope_id, repo, branch, earned_at_ms, seen_at_ms
+             FROM achievement_awards
+             ORDER BY earned_at_ms DESC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok(AchievementAward {
+                id: r.get(0)?,
+                achievement_id: r.get(1)?,
+                tier: r.get::<_, i64>(2)? as u32,
+                title: r.get(3)?,
+                subject_type: r.get(4)?,
+                subject_id: r.get(5)?,
+                scope_type: r.get(6)?,
+                scope_id: r.get(7)?,
+                repo: r.get(8)?,
+                branch: r.get(9)?,
+                earned_at_ms: r.get(10)?,
+                seen_at_ms: r.get(11)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn achievement_mark_seen(&self, award_id: i64, ts_ms: i64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "UPDATE achievement_awards SET seen_at_ms = ?1
+             WHERE id = ?2 AND seen_at_ms IS NULL",
+            params![ts_ms, award_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn achievement_summary(&self) -> Result<AchievementSummary> {
+        let awards = self.achievement_awards_recent(8)?;
+        let total_awards: u32 = {
+            let c = self.conn.lock().unwrap();
+            let n: i64 = c.query_row(
+                "SELECT COUNT(*) FROM achievement_awards",
+                [],
+                |r| r.get(0),
+            )?;
+            n as u32
+        };
+
+        // Rollup by category from all earned awards.
+        let mut points: std::collections::HashMap<AchievementCategory, u32> =
+            std::collections::HashMap::new();
+        {
+            let c = self.conn.lock().unwrap();
+            let mut stmt = c.prepare(
+                "SELECT achievement_id, tier FROM achievement_awards",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u8))
+            })?;
+            for row in rows {
+                let (id, tier) = row?;
+                if let Some(def) = achievements::find_definition(&id) {
+                    let base = achievements::tier_points(tier);
+                    if def.reputation.is_empty() {
+                        *points.entry(def.category).or_insert(0) += base;
+                    } else {
+                        for w in def.reputation {
+                            let p = base * w.weight as u32 / 100;
+                            *points.entry(w.dimension).or_insert(0) += p;
+                        }
+                    }
+                }
+            }
+        }
+        let mut by_category: Vec<CategoryRollup> = points
+            .into_iter()
+            .map(|(category, points)| CategoryRollup { category, points })
+            .collect();
+        by_category.sort_by(|a, b| b.points.cmp(&a.points));
+
+        let mut in_progress = self.achievement_progress_all()?;
+        // Sort: near-complete first; drop maxed-out.
+        in_progress.retain(|p| p.next_tier.is_some());
+        in_progress.sort_by(|a, b| {
+            let pa = (a.progress as f32) / (a.target.max(1) as f32);
+            let pb = (b.progress as f32) / (b.target.max(1) as f32);
+            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        in_progress.truncate(6);
+
+        Ok(AchievementSummary {
+            total_awards,
+            by_category,
+            recent_awards: awards,
+            in_progress,
+        })
+    }
+
+    /// Recompute progress/awards from facts. Awards earned_at_ms is preserved when
+    /// a row already exists. Useful for development/repair.
+    pub fn achievement_recompute(&self) -> Result<u32> {
+        let mut c = self.conn.lock().unwrap();
+        let tx = c.transaction()?;
+        tx.execute("DELETE FROM achievement_progress", [])?;
+        // Pull all facts in order.
+        let facts: Vec<(
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        )> = {
+            let mut stmt = tx.prepare(
+                "SELECT ts_ms, kind, subject_type, subject_id, repo
+                 FROM achievement_facts ORDER BY id ASC",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut count = 0u32;
+        for (ts_ms, kind, _stype, sid, repo) in facts {
+            for def in achievements::definitions_for_kind(&kind) {
+                let subject_key = sid.clone().unwrap_or_default();
+                let (scope_id, scope_key) = match def.scope {
+                    achievements::ScopeKind::Global => (None, String::new()),
+                    achievements::ScopeKind::Repo => match repo.clone() {
+                        Some(r) => (Some(r.clone()), r),
+                        None => continue,
+                    },
+                    achievements::ScopeKind::Operator
+                    | achievements::ScopeKind::Orchestrator => match sid.clone() {
+                        Some(id) => (Some(id.clone()), id),
+                        None => continue,
+                    },
+                };
+                let cur: (u32, u32) = tx
+                    .query_row(
+                        "SELECT tier, progress FROM achievement_progress
+                         WHERE achievement_id = ?1 AND subject_type = ?2 AND subject_key = ?3
+                           AND scope_type = ?4 AND scope_key = ?5",
+                        params![
+                            def.id,
+                            def.subject.as_str(),
+                            subject_key,
+                            def.scope.as_str(),
+                            scope_key
+                        ],
+                        |r| Ok((r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u32)),
+                    )
+                    .optional()?
+                    .unwrap_or((0, 0));
+                let new_progress = cur.1 + 1;
+                let new_tier = achievements::tier_at(new_progress, def.tiers);
+                let target = achievements::next_tier(new_progress, def.tiers)
+                    .map(|(_, t)| t)
+                    .unwrap_or_else(|| def.tiers.last().map(|t| t.target).unwrap_or(0));
+                tx.execute(
+                    "INSERT INTO achievement_progress
+                       (achievement_id, subject_type, subject_id, subject_key,
+                        scope_type, scope_id, scope_key, tier, progress, target, updated_at_ms)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                     ON CONFLICT(achievement_id, subject_type, subject_key, scope_type, scope_key)
+                     DO UPDATE SET tier=excluded.tier, progress=excluded.progress,
+                                   target=excluded.target, updated_at_ms=excluded.updated_at_ms",
+                    params![
+                        def.id,
+                        def.subject.as_str(),
+                        sid,
+                        subject_key,
+                        def.scope.as_str(),
+                        scope_id,
+                        scope_key,
+                        new_tier as i64,
+                        new_progress as i64,
+                        target as i64,
+                        ts_ms,
+                    ],
+                )?;
+                // Backfill awards (preserve earliest earned_at_ms via OR IGNORE).
+                for tier in (cur.0 + 1)..=new_tier {
+                    let inserted = tx.execute(
+                        "INSERT OR IGNORE INTO achievement_awards
+                           (achievement_id, tier, title, subject_type, subject_id, subject_key,
+                            scope_type, scope_id, scope_key, repo, branch, earned_at_ms)
+                         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULL,?11)",
+                        params![
+                            def.id,
+                            tier as i64,
+                            def.title,
+                            def.subject.as_str(),
+                            sid,
+                            subject_key,
+                            def.scope.as_str(),
+                            scope_id,
+                            scope_key,
+                            repo,
+                            ts_ms,
+                        ],
+                    )?;
+                    count += inserted as u32;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod ach_tests {
+    use super::*;
+    use crate::achievements::{AchievementFact, SubjectKind, VerificationLevel};
+
+    fn tmp_store() -> (ScoreStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ScoreStore::open(dir.path()).unwrap();
+        (store, dir)
+    }
+
+    #[test]
+    fn fact_increments_progress_and_emits_award() {
+        let (s, _d) = tmp_store();
+        let fact = AchievementFact::new("task_verified", SubjectKind::Operator)
+            .with_subject("athena")
+            .with_verification(VerificationLevel::CommandPassed)
+            .with_dedupe("task_verified:1:athena");
+
+        let awards = s.record_achievement_fact(1_000, &fact).unwrap();
+        assert_eq!(awards.len(), 1, "tier I awarded on first verified task");
+        assert_eq!(awards[0].achievement_id, "finisher");
+        assert_eq!(awards[0].tier, 1);
+
+        // Dedupe blocks a second insert and yields no new awards.
+        let again = s.record_achievement_fact(1_001, &fact).unwrap();
+        assert!(again.is_empty());
+
+        let progress = s.achievement_progress_all().unwrap();
+        let p = progress.iter().find(|p| p.achievement_id == "finisher").unwrap();
+        assert_eq!(p.progress, 1);
+        assert_eq!(p.tier, 1);
+        assert_eq!(p.next_tier, Some(2));
+    }
+
+    #[test]
+    fn crossing_multiple_tiers_emits_each_award_once() {
+        let (s, _d) = tmp_store();
+        // good_delegate uses HARD_TIERS: 1,3,10,25,100 → 3 facts should award tiers I + II.
+        for i in 0..3 {
+            let fact = AchievementFact::new("orchestrator_task_delegated", SubjectKind::Orchestrator)
+                .with_subject("teammate")
+                .with_dedupe(format!("orchestrator_task_delegated:t{i}"));
+            s.record_achievement_fact(2_000 + i, &fact).unwrap();
+        }
+        let awards = s.achievement_awards_recent(10).unwrap();
+        let counts: Vec<u32> = awards
+            .iter()
+            .filter(|a| a.achievement_id == "good_delegate")
+            .map(|a| a.tier)
+            .collect();
+        assert!(counts.contains(&1));
+        assert!(counts.contains(&2));
+        assert_eq!(counts.len(), 2, "exactly one award per tier");
+    }
+
+    #[test]
+    fn repo_scoped_fact_skipped_without_repo() {
+        let (s, _d) = tmp_store();
+        // spec_keeper is repo-scoped; without repo the fact must not award.
+        let fact = AchievementFact::new("spec_kept", SubjectKind::Operator)
+            .with_subject("athena")
+            .with_dedupe("spec_kept:1");
+        let awards = s.record_achievement_fact(3_000, &fact).unwrap();
+        assert!(awards.is_empty());
+    }
+
+    #[test]
+    fn recompute_rebuilds_progress() {
+        let (s, _d) = tmp_store();
+        for i in 0..5 {
+            let fact = AchievementFact::new("task_verified", SubjectKind::Operator)
+                .with_subject("athena")
+                .with_dedupe(format!("task_verified:{i}"));
+            s.record_achievement_fact(4_000 + i, &fact).unwrap();
+        }
+        let recomputed = s.achievement_recompute().unwrap();
+        // Awards already existed; recompute uses OR IGNORE so count is 0 here.
+        let _ = recomputed;
+        let progress = s.achievement_progress_all().unwrap();
+        let p = progress.iter().find(|p| p.achievement_id == "finisher").unwrap();
+        assert_eq!(p.progress, 5);
     }
 }
 

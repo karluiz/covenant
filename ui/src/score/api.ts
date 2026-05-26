@@ -162,3 +162,106 @@ export async function scoreBreakdownSpecs(filter: ScoreFilter): Promise<SpecBrea
 export async function scoreBreakdownModels(filter: ScoreFilter, source: ModelSource): Promise<ModelCell[]> {
   return invoke<ModelCell[]>("score_breakdown_models", { filter, source });
 }
+
+// ─── Achievements ───────────────────────────────────────────────────────────
+
+export type AchievementCategory =
+  | "craft" | "safety" | "reliability" | "orchestration" | "memory" | "focus";
+
+export type AchievementRarity =
+  | "common" | "uncommon" | "rare" | "epic" | "legendary";
+
+export type AchievementSubjectKind =
+  | "operator" | "orchestrator" | "project" | "user" | "system";
+
+export type AchievementScopeKind =
+  | "global" | "repo" | "operator" | "orchestrator";
+
+export interface AchievementTier {
+  tier: number;
+  label: string;
+  target: number;
+}
+
+export interface ReputationWeight {
+  dimension: AchievementCategory;
+  weight: number;
+}
+
+export interface AchievementDefinition {
+  id: string;
+  title: string;
+  summary: string;
+  category: AchievementCategory;
+  rarity: AchievementRarity;
+  subject: AchievementSubjectKind;
+  scope: AchievementScopeKind;
+  hidden: boolean;
+  tiers: AchievementTier[];
+  reputation: ReputationWeight[];
+  trigger_kinds: string[];
+}
+
+export interface AchievementProgress {
+  achievement_id: string;
+  subject_type: string;
+  subject_id: string | null;
+  scope_type: string;
+  scope_id: string | null;
+  tier: number;
+  progress: number;
+  target: number;
+  next_tier: number | null;
+  earned_at_ms?: number;
+}
+
+export interface AchievementAward {
+  id: number;
+  achievement_id: string;
+  tier: number;
+  title: string;
+  subject_type: string;
+  subject_id: string | null;
+  scope_type: string;
+  scope_id: string | null;
+  repo: string | null;
+  branch: string | null;
+  earned_at_ms: number;
+  seen_at_ms: number | null;
+}
+
+export interface CategoryRollup {
+  category: AchievementCategory;
+  points: number;
+}
+
+export interface AchievementSummary {
+  total_awards: number;
+  by_category: CategoryRollup[];
+  recent_awards: AchievementAward[];
+  in_progress: AchievementProgress[];
+}
+
+export async function scoreAchievementCatalog(): Promise<AchievementDefinition[]> {
+  return invoke<AchievementDefinition[]>("score_achievement_catalog");
+}
+
+export async function scoreAchievementSummary(): Promise<AchievementSummary> {
+  return invoke<AchievementSummary>("score_achievement_summary");
+}
+
+export async function scoreAchievementProgress(): Promise<AchievementProgress[]> {
+  return invoke<AchievementProgress[]>("score_achievement_progress");
+}
+
+export async function scoreAchievementAwards(limit = 50): Promise<AchievementAward[]> {
+  return invoke<AchievementAward[]>("score_achievement_awards", { limit });
+}
+
+export async function scoreAchievementMarkSeen(awardId: number): Promise<void> {
+  return invoke<void>("score_achievement_mark_seen", { awardId });
+}
+
+export async function scoreAchievementRecompute(): Promise<number> {
+  return invoke<number>("score_achievement_recompute");
+}

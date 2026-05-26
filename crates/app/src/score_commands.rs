@@ -1,3 +1,6 @@
+use karl_score::achievements::{
+    AchievementAward, AchievementDefinition, AchievementProgress, AchievementSummary, CATALOG,
+};
 use karl_score::{
     AgentCell, BranchCell, DailyCell, GroupCell, ModelCell, ModelSource, RepoCell, ScoreFilter,
     ScoreStore, SessionRow, SpecBreakdown, Summary,
@@ -101,6 +104,56 @@ pub fn score_breakdown_specs(
     filter: ScoreFilter,
 ) -> Result<SpecBreakdown, String> {
     state.0.breakdown_specs(&filter).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_achievement_catalog() -> Vec<&'static AchievementDefinition> {
+    CATALOG.iter().collect()
+}
+
+#[tauri::command]
+pub fn score_achievement_summary(
+    state: State<'_, ScoreState>,
+) -> Result<AchievementSummary, String> {
+    state.0.achievement_summary().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_achievement_progress(
+    state: State<'_, ScoreState>,
+) -> Result<Vec<AchievementProgress>, String> {
+    state
+        .0
+        .achievement_progress_all()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_achievement_awards(
+    state: State<'_, ScoreState>,
+    limit: Option<u32>,
+) -> Result<Vec<AchievementAward>, String> {
+    state
+        .0
+        .achievement_awards_recent(limit.unwrap_or(50))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_achievement_mark_seen(
+    state: State<'_, ScoreState>,
+    award_id: i64,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().timestamp_millis();
+    state
+        .0
+        .achievement_mark_seen(award_id, now)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn score_achievement_recompute(state: State<'_, ScoreState>) -> Result<u32, String> {
+    state.0.achievement_recompute().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

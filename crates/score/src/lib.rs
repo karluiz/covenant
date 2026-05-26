@@ -1,3 +1,4 @@
+pub mod achievements;
 pub mod agent_label;
 pub mod auth;
 pub mod commit_scanner;
@@ -125,6 +126,25 @@ pub fn record_llm_call(
             }
         }
     }
+}
+
+/// Record an achievement fact. Updates progress and inserts new awards atomically.
+/// Returns the awards that were newly earned (may be empty).
+pub fn record_achievement_fact(
+    fact: achievements::AchievementFact,
+) -> Vec<achievements::AchievementAward> {
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            match store.record_achievement_fact(now, &fact) {
+                Ok(awards) => return awards,
+                Err(e) => {
+                    tracing::warn!(target: "score", error = %e, "record_achievement_fact failed");
+                }
+            }
+        }
+    }
+    Vec::new()
 }
 
 pub fn record_spec(path: &str, ctx: &Context) {
