@@ -288,8 +288,10 @@ export class WorkspaceManager {
     const target = this.workspaces.find((w) => w.id === id);
     if (!target) return;
 
-    // Snapshot current state into the outgoing workspace before tearing
-    // its PTYs down.
+    // Snapshot current state into the outgoing workspace so a cold restart
+    // restores the at-switch shape. Runtime state for the outgoing tabs
+    // continues to live on their Tab objects while they're hibernated.
+    const outgoingId = this.activeId;
     const out = this.getActive();
     const body = this.tabManager.serializeManifest();
     out.active_index = body.active_index;
@@ -298,17 +300,29 @@ export class WorkspaceManager {
 
     this.suspendPersist = true;
     try {
+      // Detach the outgoing workspace's tabs without killing PTYs.
+      this.tabManager.hibernate(outgoingId);
       this.activeId = id;
       target.last_used_at = nowMs();
-      if (target.tabs.length === 0) {
-        // Replace clears existing; then spawn one fresh tab so the
-        // incoming workspace isn't empty.
-        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target), { targetName: target.name });
-        if (this.tabManager.activeSessionId() === null) {
-          await this.tabManager.createTab();
-        }
+
+      // If we already hibernated this workspace earlier in the session,
+      // restore the live Tab objects — PTYs survived the switch.
+      if (this.tabManager.unhibernate(id)) {
+        // restored — done.
       } else {
-        await this.tabManager.replaceFromManifest(workspaceAsV1Body(target), { targetName: target.name });
+        // First time visiting this workspace this session: spawn from
+        // manifest. Show the loader since this can take a beat.
+        const label = document.getElementById("workspace-switch-name");
+        if (label) label.textContent = target.name;
+        document.body.classList.add("workspace-switching");
+        try {
+          await this.tabManager.restoreFromManifest(workspaceAsV1Body(target));
+          if (this.tabManager.activeSessionId() === null) {
+            await this.tabManager.createTab();
+          }
+        } finally {
+          document.body.classList.remove("workspace-switching");
+        }
       }
     } finally {
       this.suspendPersist = false;
@@ -391,6 +405,10 @@ export class WorkspaceManager {
     }
     const realIdx = this.workspaces.findIndex((w) => w.id === id);
     if (realIdx >= 0) this.workspaces.splice(realIdx, 1);
+    // If this workspace had been visited this session, its tabs are
+    // hibernated in memory — close their PTYs now that the workspace
+    // is gone for good.
+    this.tabManager.disposeHibernated(id);
     await this.saveAll();
     this.emitChange();
   }
