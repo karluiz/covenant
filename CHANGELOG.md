@@ -6,11 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
-## Unreleased
+## v0.8.33 — Autonomous operator sentiment + light-mode install polish
 
 ### Added
 
 - **Autonomous operator sentiment**: the operator avatar now reacts to spawned-task activity, not just to chat replies. A new `task_supervisor` background task subscribes to the session bus and synthesizes `TaskUpdate` rows with `sentiment` set when the executor's PTY emits failed `BlockFinished` events: first failure → `duda` (status flips to Blocked), three consecutive same-command failures → `enojo`, success after Blocked → `feliz` (Resumed). A 30s tick layers time-based escalation: ≥5 min Blocked → `incomodidad`, ≥15 min or retry_count ≥3 → `triste`. Confirmed tasks now ship with `expectacion`; cancelled tasks emit a `triste` system note. Debounced via a per-(operator,task) `SentimentResolver` so the avatar never flickers. `crates/app/src/teammate/{sentiment_resolver,task_supervisor}.rs`, `crates/app/src/teammate/commands.rs`, `crates/app/src/lib.rs`.
+
+### Changed
+
+- **Task card layout stability**: reserved a two-line min-height on `.task-item__head > .task-item__title` and pinned `.task-item__meta` to a single line in `ui/src/styles.css` so cards with short titles no longer shrink and the "tab XXXXX" chip stops wrapping onto a second row.
+
+### Fixed
+
+- **Update banner install button readable in light mode**: the install pill used a translucent `rgba(122, 162, 255, 0.18)` background that collapsed into the light titlebar, making the "Install" label nearly invisible. Switched the base rule in `ui/src/styles.css` to a solid `var(--accent)` fill with white text so the button stays high-contrast in both themes; hover now uses `filter: brightness(1.1)` instead of swapping the background.
 
 ## v0.8.32 — Light-mode banner contrast + trackpad scroll flicker fix
 
