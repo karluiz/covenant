@@ -2482,6 +2482,69 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    pub async fn teammate_get_task(
+        &self,
+        id: crate::teammate::TaskId,
+    ) -> Result<Option<crate::teammate::Task>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Option<crate::teammate::Task>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, operator_id, archetype, title, body, deliverable, status, \
+                        scope_json, spawned_session, created_at_unix_ms, updated_at_unix_ms, \
+                        completed_at_unix_ms, cost_usd_cents \
+                 FROM teammate_tasks WHERE id = ?1",
+            )?;
+            let mut rows = stmt.query(params![id.0.to_string()])?;
+            let Some(row) = rows.next()? else { return Ok(None); };
+            let id_s: String = row.get(0)?;
+            let op_s: String = row.get(1)?;
+            let archetype_s: String = row.get(2)?;
+            let title: String = row.get(3)?;
+            let body: String = row.get(4)?;
+            let deliverable: String = row.get(5)?;
+            let status_s: String = row.get(6)?;
+            let scope_json: String = row.get(7)?;
+            let spawned: Option<String> = row.get(8)?;
+            let created: i64 = row.get(9)?;
+            let updated: i64 = row.get(10)?;
+            let completed: Option<i64> = row.get(11)?;
+            let cost: i64 = row.get(12)?;
+            let id_u = ulid::Ulid::from_string(&id_s).map_err(|e| StorageError::Other(e.to_string()))?;
+            let op_u = ulid::Ulid::from_string(&op_s).map_err(|e| StorageError::Other(e.to_string()))?;
+            let archetype = match archetype_s.as_str() {
+                "watch"  => crate::teammate::TaskArchetype::Watch,
+                "do"     => crate::teammate::TaskArchetype::Do,
+                "review" => crate::teammate::TaskArchetype::Review,
+                other => return Err(StorageError::Other(format!("bad archetype {other}"))),
+            };
+            let status = match status_s.as_str() {
+                "draft"     => crate::teammate::TaskStatus::Draft,
+                "active"    => crate::teammate::TaskStatus::Active,
+                "blocked"   => crate::teammate::TaskStatus::Blocked,
+                "done"      => crate::teammate::TaskStatus::Done,
+                "cancelled" => crate::teammate::TaskStatus::Cancelled,
+                other => return Err(StorageError::Other(format!("bad status {other}"))),
+            };
+            let scope: crate::teammate::TaskScope = serde_json::from_str(&scope_json)
+                .map_err(|e| StorageError::Other(e.to_string()))?;
+            let spawned_session = spawned.as_deref().map(|s| s.parse::<karl_session::SessionId>())
+                .transpose().map_err(|e| StorageError::Other(e.to_string()))?;
+            Ok(Some(crate::teammate::Task {
+                id: crate::teammate::TaskId(id_u),
+                operator_id: crate::operator_registry::OperatorId(op_u),
+                archetype, title, body, deliverable, status, scope,
+                spawned_session,
+                created_at_unix_ms: created as u64,
+                updated_at_unix_ms: updated as u64,
+                completed_at_unix_ms: completed.map(|v| v as u64),
+                cost_usd_cents: cost as u32,
+            }))
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     /// Wipe every message and task belonging to an operator. Artifacts cascade
      /// via the FK on teammate_artifacts.task_id. Used by the panel's "reset
      /// chats & tasks" affordance for testing.
