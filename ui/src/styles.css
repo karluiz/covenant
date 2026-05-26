@@ -5814,10 +5814,10 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
    via --bg-panel; never opaque. */
 #status-bar {
     position: relative;
-    display: grid;
-    grid-template-columns: auto auto 1fr auto;
-    align-items: center;
-    height: 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    height: 50px;
     padding: 0 4px;
     background: linear-gradient(
         180deg,
@@ -5888,8 +5888,30 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .sb-center {
     padding: 0 10px;
     justify-content: center;
-    border-left: 1px solid rgba(var(--ink-rgb), 0.06);
-    border-right: 1px solid rgba(var(--ink-rgb), 0.06);
+}
+
+/* Two-row layout. Top = identity + telemetry; bot = ephemerals + chrome.
+   The bot row is shorter and dimmer so the eye anchors on the top. */
+.sb-row {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    min-width: 0;
+    width: 100%;
+}
+.sb-row--top { height: 28px; }
+.sb-row--bot {
+    height: 22px;
+    opacity: 0.88;
+    border-top: 1px solid rgba(var(--ink-rgb), 0.05);
+}
+.sb-spacer { flex: 1 1 auto; min-width: 0; }
+/* Inside the rows the previous zone dividers stop making sense — the
+   row boundary already separates concerns visually. */
+.sb-row .sb-framing,
+.sb-row .sb-center {
+    border-left: none;
+    border-right: none;
 }
 
 /* Uniform padding/rounding for every direct child of a zone, so chips
