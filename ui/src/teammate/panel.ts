@@ -1340,12 +1340,15 @@ export class TeammatePanel {
           });
           persistTaskSpawnedSessions(this.taskSpawnedSessions);
           injectDelayMs = 1500;
-          line = buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap);
+          const specPath = this.lastSentSpecPath;
+          line = buildTaskInjection(
+            task.title, task.deliverable, operatorPickedExecutor,
+            this.lastSentMentionMap, specPath, spawned.cwd,
+          );
           // Auto-set mission if the originating chat had a @spec chip.
-          if (this.lastSentSpecPath && this.deps.setMissionForSpawnedTab) {
-            const path = this.lastSentSpecPath;
+          if (specPath && this.deps.setMissionForSpawnedTab) {
             this.lastSentSpecPath = null;
-            this.deps.setMissionForSpawnedTab(spawned.sessionId, path).catch((e) =>
+            this.deps.setMissionForSpawnedTab(spawned.sessionId, specPath).catch((e) =>
               console.error("auto-set mission failed", e),
             );
           }
@@ -1363,9 +1366,11 @@ export class TeammatePanel {
             // and prefix with the operator-picked executor so the shell
             // actually launches it instead of barfing on a malformed line.
             const fg = this.deps.getActiveExecutor?.() ?? null;
+            const specPath = this.lastSentSpecPath;
             line = fg
-              ? buildActiveTabInjection(task.title, task.deliverable, this.lastSentMentionMap)
-              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap);
+              ? buildActiveTabInjection(task.title, task.deliverable, this.lastSentMentionMap, specPath, null)
+              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap, specPath, null);
+            if (specPath) this.lastSentSpecPath = null;
           }
         }
         if (targetSessionId) {
@@ -1680,15 +1685,18 @@ export function sanitizeMentionTokens(text: string, map: Map<string, string>): s
   });
 }
 
-function buildTaskInjection(
+export function buildTaskInjection(
   title: string,
   deliverable: string,
   operatorPicked: string | null,
   mentionMap: Map<string, string> = new Map(),
+  specPath: string | null = null,
+  cwd: string | null = null,
 ): string {
   const cleanTitle = sanitizeMentionTokens(title, mentionMap);
   const cleanDeliverable = sanitizeMentionTokens(deliverable, mentionMap);
-  const prompt = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
+  const base = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
+  const prompt = withSpecPrefix(base, specPath, cwd);
   // Precedence: operator's choice (from the propose draft) → localStorage
   // override → default "claude". "none"/"off" disables autorun.
   const fallback = (localStorage.getItem("covenant.teammate.executor") ?? "claude").trim();
@@ -1699,6 +1707,22 @@ function buildTaskInjection(
   return `${exec} ${shellQuote(prompt)}\n`;
 }
 
+/// If the originating chat mentioned a @spec chip, tell the executor to
+/// read that spec first. Without this, executors like Claude Code waste
+/// turns rediscovering the spec by grep — they have no view of the tab
+/// mission Covenant sets out-of-band.
+function withSpecPrefix(prompt: string, specPath: string | null, cwd: string | null): string {
+  if (!specPath) return prompt;
+  const display = relativeIfUnder(specPath, cwd);
+  return `Read ${display} first, then: ${prompt}`;
+}
+
+function relativeIfUnder(abs: string, cwd: string | null): string {
+  if (!cwd) return abs;
+  const root = cwd.endsWith("/") ? cwd : `${cwd}/`;
+  return abs.startsWith(root) ? abs.slice(root.length) : abs;
+}
+
 /// Inject text for "attach to active tab" confirms. We assume the user is
 /// already inside an agent CLI (Claude Code, Copilot CLI, codex, …) — so
 /// no executor prefix, no shell quoting. Trailing `\n` submits the message.
@@ -1706,10 +1730,13 @@ function buildActiveTabInjection(
   title: string,
   deliverable: string,
   mentionMap: Map<string, string> = new Map(),
+  specPath: string | null = null,
+  cwd: string | null = null,
 ): string {
   const cleanTitle = sanitizeMentionTokens(title, mentionMap);
   const cleanDeliverable = sanitizeMentionTokens(deliverable, mentionMap);
-  const prompt = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
+  const base = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
+  const prompt = withSpecPrefix(base, specPath, cwd);
   return `${prompt}\n`;
 }
 
