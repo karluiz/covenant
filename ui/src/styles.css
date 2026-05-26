@@ -13223,10 +13223,10 @@ body.has-update-banner #app-titlebar-brand { display: none; }
   font: inherit; font-weight: 600; font-size: 11px;
   height: 18px; padding: 0 10px; border-radius: 999px;
   border: 0; cursor: pointer;
-  background: rgba(122, 162, 255, 0.18); color: #dbe6ff;
-  transition: background 0.15s ease;
+  background: var(--accent); color: #ffffff;
+  transition: background 0.15s ease, filter 0.15s ease;
 }
-.update-banner__install:hover { background: rgba(122, 162, 255, 0.32); color: #ffffff; }
+.update-banner__install:hover { filter: brightness(1.1); color: #ffffff; }
 
 .update-banner--installing .update-banner__install,
 .update-banner--installing .update-banner__version,
@@ -13256,7 +13256,7 @@ body.theme-light .update-banner__install {
   background: #2a4ad0;
   color: #ffffff;
 }
-body.theme-light .update-banner__install:hover { background: #1d3ab8; color: #ffffff; }
+body.theme-light .update-banner__install:hover { background: #1d3ab8; color: #ffffff; filter: none; }
 body.theme-light .update-banner__dismiss { color: #5a6a8a; }
 body.theme-light .update-banner__dismiss:hover { color: #0f1a36; }
 
@@ -16471,8 +16471,25 @@ body.theme-light .teammate-panel-switcher {
 .task-item__head > .task-item__title  { grid-column: 2; grid-row: 1;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; min-width: 0;
+  /* Reserve 2 lines so single-line titles don't shrink the card. */
+  min-height: calc(2 * 1.3em);
+  line-height: 1.3;
 }
-.task-item__head > .task-item__meta   { grid-column: 2; grid-row: 2; min-width: 0; }
+.task-item__head > .task-item__meta   {
+  grid-column: 2; grid-row: 2; min-width: 0;
+  /* Keep meta to a single line — wrapping the "tab XXXXX" chip onto a
+     second row makes cards uneven. Overflow is hidden; the trailing
+     text ellipsizes if the row gets tight. */
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.task-item__head > .task-item__meta > * { flex-shrink: 0; }
+.task-item__head > .task-item__meta > span:not(.task-card__badge):not(.task-item__dot-sep) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .task-item__head > .task-item__chev {
   grid-column: 3; grid-row: 1 / span 2; align-self: center;
   color: var(--text-dim, #5e6068); width: 16px; text-align: center;
