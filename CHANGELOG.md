@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.35 — Inline PDF + DOCX preview
+
+### Added
+
+- **Inline PDF preview**: selecting a `.pdf` in the file tree now renders the document inline using PDF.js — full multi-page scroll, devicePixelRatio-aware canvases, lazy-imported worker so the ~1MB bundle stays off the cold-start path. Replaces WKWebView's built-in static single-page renderer, which only painted the first page on a black void. `ui/src/structure/preview.ts`, `ui/src/structure/editor.ts`, `ui/src/styles.css`.
+
+- **Inline DOCX preview**: `.docx` files now render to a typography surface using mammoth.js (docx → HTML in-browser), styled as a centered white paper card with prose typography for headings, tables, links, and lists. Lazy-imported, 25 MB ceiling, read-only (docx round-trips are lossy). `ui/src/structure/preview.ts`, `ui/src/structure/editor.ts`, `ui/src/styles.css`.
+
+### Changed
+
+- **Editor toast routing**: `StructureEditor`'s `toast()` callback in `ui/src/tabs/manager.ts` now flows through `pushInfoToast` instead of the prior console-only stub, so editor messages surface in the notification system like the rest of the app.
+
+- **Light-mode project-notes panel**: explicit `border-left` and `box-shadow: none` on `.pn-panel` under `body.theme-light` in `ui/src/project-notes/styles.css` — the panel had no visible edge against the light surface.
+
 ## v0.8.33 — Autonomous operator sentiment + light-mode install polish
 
 ### Added
