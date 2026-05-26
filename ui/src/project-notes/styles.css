@@ -59,6 +59,9 @@
 }
 body.theme-light .pn-panel {
   --pn-code-bg: rgb(0 0 0 / 0.04);
+  border-left: 1px solid rgba(15, 23, 42, 0.14) !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  box-shadow: none !important;
 }
 body.tabbar-left .pn-panel {
   top: 38px;

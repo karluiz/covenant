@@ -14,7 +14,14 @@
 import { renderMarkdown } from "../release/markdown";
 import { structureReadFile } from "../api";
 
-export type PreviewKind = "markdown" | "svg" | "png" | "html" | "xlsx";
+export type PreviewKind =
+  | "markdown"
+  | "svg"
+  | "png"
+  | "html"
+  | "xlsx"
+  | "docx"
+  | "pdf";
 
 /// Optional context passed alongside content. Most previews ignore it;
 /// HtmlPreview uses `path` to detect superpowers brainstorm fragments
@@ -51,6 +58,8 @@ export function previewKindForPath(path: string): PreviewKind | null {
   if (ext === "xlsx" || ext === "xls" || ext === "xlsm" || ext === "ods") {
     return "xlsx";
   }
+  if (ext === "docx") return "docx";
+  if (ext === "pdf") return "pdf";
   return null;
 }
 
@@ -520,6 +529,163 @@ export class XlsxPreview implements Preview {
       more.textContent = `… ${rows.length - limit} filas más no mostradas`;
       this.gridEl.appendChild(more);
     }
+  }
+}
+
+// ─── DOCX ──────────────────────────────────────────────
+
+// Word documents are zipped XML; even modestly-sized files (with
+// embedded images) can balloon. 25 MB matches the xlsx ceiling and is
+// far above anything a human writes by hand.
+const DOCX_MAX_BYTES = 25 * 1024 * 1024;
+
+/// Read-only docx renderer. Uses `mammoth` (dynamic-imported to keep
+/// it out of the main bundle) to convert OOXML → HTML. Editing is not
+/// supported — docx round-trips are lossy and out of scope.
+export class DocxPreview implements Preview {
+  private host: HTMLElement | null = null;
+  private disposed = false;
+
+  private readyResolve: (() => void) | null = null;
+  public ready: Promise<void> = Promise.resolve();
+
+  mount(host: HTMLElement, content: string): void {
+    this.host = host;
+    this.disposed = false;
+    this.ready = new Promise((resolve) => {
+      this.readyResolve = resolve;
+    });
+    const finish = () => {
+      this.readyResolve?.();
+      this.readyResolve = null;
+    };
+
+    host.innerHTML = "";
+    const root = document.createElement("div");
+    root.className = "structure-preview-docx";
+    host.appendChild(root);
+
+    const bytes = decodeBytes(content);
+    if (!bytes) {
+      this.renderPlaceholder("No se pudieron leer los bytes del archivo.");
+      finish();
+      return;
+    }
+    if (bytes.length > DOCX_MAX_BYTES) {
+      this.renderPlaceholder(
+        `Archivo demasiado grande para previsualizar (${formatMB(bytes.length)}).`,
+      );
+      finish();
+      return;
+    }
+
+    // mammoth wants an ArrayBuffer; copy to avoid SharedArrayBuffer
+    // edge cases when bytes is a view onto a larger buffer.
+    const ab = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+
+    // mammoth ships no TS types; browser entry exposes `convertToHtml`.
+    import(/* @vite-ignore */ "mammoth/mammoth.browser.js")
+      .then(async (mod: any) => {
+        const mammoth = mod.default ?? mod;
+        if (this.disposed) {
+          finish();
+          return;
+        }
+        try {
+          const result = await mammoth.convertToHtml({ arrayBuffer: ab });
+          if (this.disposed) {
+            finish();
+            return;
+          }
+          root.innerHTML = result.value || "<em>Documento vacío.</em>";
+        } catch (err) {
+          this.renderPlaceholder(`Error parseando DOCX: ${err}`);
+        }
+        finish();
+      })
+      .catch((err) => {
+        this.renderPlaceholder(`Error cargando DOCX: ${err}`);
+        finish();
+      });
+  }
+
+  update(host: HTMLElement, content: string): void {
+    this.mount(host, content);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.host = null;
+  }
+
+  private renderPlaceholder(msg: string): void {
+    if (!this.host) return;
+    this.host.innerHTML = `<div class="structure-preview-docx-placeholder">${escapeHtml(msg)}</div>`;
+  }
+}
+
+// ─── PDF ───────────────────────────────────────────────
+
+// WKWebView (macOS) and WebView2 (Windows) both render PDFs natively
+// inside an <iframe src="blob:…">, so we sidestep PDF.js entirely. The
+// 50 MB ceiling matches what those engines comfortably handle without
+// jank; bigger files get a "edit externally" placeholder.
+const PDF_MAX_BYTES = 50 * 1024 * 1024;
+
+export class PdfPreview implements Preview {
+  private host: HTMLElement | null = null;
+  private blobUrl: string | null = null;
+
+  mount(host: HTMLElement, content: string): void {
+    this.host = host;
+    host.innerHTML = "";
+
+    const bytes = decodeBytes(content);
+    if (!bytes) {
+      this.renderPlaceholder("No se pudieron leer los bytes del archivo.");
+      return;
+    }
+    if (bytes.length > PDF_MAX_BYTES) {
+      this.renderPlaceholder(
+        `Archivo demasiado grande para previsualizar (${formatMB(bytes.length)}).`,
+      );
+      return;
+    }
+
+    // Revoke any prior URL before minting a new one. Same-instance
+    // remount is rare (we usually dispose first) but cheap to guard.
+    if (this.blobUrl) URL.revokeObjectURL(this.blobUrl);
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    this.blobUrl = URL.createObjectURL(blob);
+
+    const root = document.createElement("div");
+    root.className = "structure-preview-pdf";
+    const iframe = document.createElement("iframe");
+    iframe.className = "structure-preview-pdf-frame";
+    iframe.src = this.blobUrl;
+    iframe.title = "PDF preview";
+    root.appendChild(iframe);
+    host.appendChild(root);
+  }
+
+  update(host: HTMLElement, content: string): void {
+    this.mount(host, content);
+  }
+
+  dispose(): void {
+    if (this.blobUrl) {
+      URL.revokeObjectURL(this.blobUrl);
+      this.blobUrl = null;
+    }
+    this.host = null;
+  }
+
+  private renderPlaceholder(msg: string): void {
+    if (!this.host) return;
+    this.host.innerHTML = `<div class="structure-preview-pdf-placeholder">${escapeHtml(msg)}</div>`;
   }
 }
 

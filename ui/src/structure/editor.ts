@@ -69,6 +69,8 @@ import {
   previewKindForPath,
   SvgPreview,
   XlsxPreview,
+  DocxPreview,
+  PdfPreview,
 } from "./preview";
 import {
   loadSvgScale,
@@ -657,7 +659,7 @@ export class StructureEditor {
     // (no source-mode editing makes sense), so we read raw bytes and
     // hand them straight to the appropriate renderer.
     const kind = previewKindForPath(path);
-    if (kind === "png" || kind === "xlsx") {
+    if (kind === "png" || kind === "xlsx" || kind === "docx" || kind === "pdf") {
       await this.openBinary(path, kind);
       return;
     }
@@ -820,10 +822,16 @@ export class StructureEditor {
   /// renderer (PngPreview for images, XlsxPreview for spreadsheets).
   /// No source mode at all. Toggling source/preview is disabled for
   /// these kinds.
-  private async openBinary(path: string, kind: "png" | "xlsx"): Promise<void> {
+  private async openBinary(
+    path: string,
+    kind: "png" | "xlsx" | "docx" | "pdf",
+  ): Promise<void> {
     let result;
     try {
-      result = await structureReadBinaryFile(path);
+      // PDFs comfortably exceed the 10 MiB default — bump to 50 MiB to
+      // match `PdfPreview`'s own ceiling. Other kinds keep the default.
+      const maxBytes = kind === "pdf" ? 50 * 1024 * 1024 : undefined;
+      result = await structureReadBinaryFile(path, maxBytes);
     } catch (err) {
       this.showPlaceholder(`Failed to read file: ${err}`);
       return;
@@ -866,7 +874,13 @@ export class StructureEditor {
   /// the keyboard shortcut firing on a non-previewable file). Images
   /// have no source view so we no-op for them too.
   private toggleViewMode(): void {
-    if (this.previewKind === "png" || this.previewKind === "xlsx") return;
+    if (
+      this.previewKind === "png" ||
+      this.previewKind === "xlsx" ||
+      this.previewKind === "docx" ||
+      this.previewKind === "pdf"
+    )
+      return;
     if (!this.previewKind || !this.currentPath) return;
 
     // Snapshot the latest text before swapping. In source mode we read
@@ -897,7 +911,13 @@ export class StructureEditor {
   }
 
   private refreshPreviewButton(): void {
-    if (!this.previewKind || this.previewKind === "png" || this.previewKind === "xlsx") {
+    if (
+      !this.previewKind ||
+      this.previewKind === "png" ||
+      this.previewKind === "xlsx" ||
+      this.previewKind === "docx" ||
+      this.previewKind === "pdf"
+    ) {
       this.previewBtn.hidden = true;
     } else {
       this.previewBtn.hidden = false;
@@ -1104,6 +1124,10 @@ function makePreview(kind: PreviewKind): Preview {
       return new PngPreview();
     case "xlsx":
       return new XlsxPreview();
+    case "docx":
+      return new DocxPreview();
+    case "pdf":
+      return new PdfPreview();
   }
 }
 

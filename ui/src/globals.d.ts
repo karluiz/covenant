@@ -9,3 +9,7 @@ declare const __APP_VERSION__: string;
 /// release-log modal. Read via the constant — never fetch the file
 /// at runtime (webview file:// reads are unreliable on macOS Tauri).
 declare const __APP_CHANGELOG__: string;
+
+/// mammoth ships no TS types. We only use the browser entry's
+/// `convertToHtml({ arrayBuffer })` from the docx preview.
+declare module "mammoth/mammoth.browser.js";

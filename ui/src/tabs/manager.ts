@@ -65,6 +65,7 @@ import type { StatusBar } from "../status/bar";
 import { RecallManager } from "../recall/manager";
 import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
+import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL } from "../menu/context-menu";
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
@@ -2268,9 +2269,8 @@ export class TabManager {
 
     const editor = new StructureEditor(editorHost, {
       toast: (msg, severity) => {
-        // eslint-disable-next-line no-console
         if (severity === "error") console.error(msg);
-        // Existing toast/notification system can be wired here later.
+        pushInfoToast({ message: msg });
       },
       onClose: () => {
         editorHost.hidden = true;
