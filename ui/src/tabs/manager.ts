@@ -514,6 +514,16 @@ export class TabManager {
   /// handler that main.ts wired up.
   private inReplace = false;
 
+  /// Hibernated workspaces: their Tab objects + groups + active selection
+  /// are stashed here while another workspace is in front. PTYs stay
+  /// alive on the backend and xterm buffers keep accumulating output
+  /// because the data-event subscriptions on each Tab remain wired. The
+  /// DOM panes are detached from `this.workspace` but not destroyed.
+  private hibernated: Map<
+    string,
+    { tabs: Tab[]; groups: Map<string, TabGroup>; activeId: string | null }
+  > = new Map();
+
   setOnPersistRequest(cb: (() => void) | null): void {
     this.onPersistRequest = cb;
   }
@@ -3553,6 +3563,97 @@ export class TabManager {
       if (showLoader) document.body.classList.remove("workspace-switching");
     }
     this.scheduleSave();
+  }
+
+  /// Detach the active workspace's tabs without closing PTYs or disposing
+  /// xterm. The Tab objects + their data-event subscriptions stay alive in
+  /// memory, so backend output keeps flowing into the xterm buffer while
+  /// the user is in another workspace. `unhibernate(workspaceId)` restores
+  /// them. The DOM panes are removed from the workspace container; xterm
+  /// continues writing to its internal buffer (it doesn't need the DOM to
+  /// accept term.write()).
+  hibernate(workspaceId: string): void {
+    if (this.hibernated.has(workspaceId)) {
+      // Already hibernated (shouldn't happen — switchTo is the only
+      // caller and it always pairs hibernate with the live workspace).
+      // Be defensive: dispose the stale entry first to avoid a leak.
+      this.disposeHibernated(workspaceId);
+    }
+    const tabs = this.tabs.slice();
+    for (const tab of tabs) {
+      if (tab.pane.parentElement === this.workspace) {
+        this.workspace.removeChild(tab.pane);
+      }
+      tab.pane.hidden = true;
+    }
+    this.hibernated.set(workspaceId, {
+      tabs,
+      groups: new Map(this.groups),
+      activeId: this.activeId,
+    });
+    // Suppress onAllTabsClosed during the transient empty state.
+    this.inReplace = true;
+    try {
+      this.tabs.splice(0, this.tabs.length);
+      this.groups.clear();
+      this.activeId = null;
+      this.renderTabbar();
+    } finally {
+      this.inReplace = false;
+    }
+  }
+
+  /// Reattach a previously-hibernated workspace's tabs. Returns true if
+  /// the workspace had stashed tabs and they were restored; false if no
+  /// stash existed (caller should spawn from manifest instead).
+  unhibernate(workspaceId: string): boolean {
+    const stash = this.hibernated.get(workspaceId);
+    if (!stash) return false;
+    this.hibernated.delete(workspaceId);
+    for (const tab of stash.tabs) {
+      this.workspace.appendChild(tab.pane);
+      tab.pane.hidden = true;
+    }
+    this.tabs.splice(0, this.tabs.length, ...stash.tabs);
+    for (const [id, g] of stash.groups) this.groups.set(id, g);
+    this.renderTabbar();
+    if (stash.activeId && this.tabs.some((t) => t.id === stash.activeId)) {
+      this.activate(stash.activeId, { skipIfSame: false });
+    } else if (this.tabs[0]) {
+      this.activate(this.tabs[0].id, { skipIfSame: false });
+    }
+    return true;
+  }
+
+  /// True if `workspaceId` has hibernated tabs waiting to be restored.
+  hasHibernated(workspaceId: string): boolean {
+    return this.hibernated.has(workspaceId);
+  }
+
+  /// Permanently tear down a hibernated workspace (PTYs closed, xterm
+  /// disposed). Called when a workspace is deleted.
+  disposeHibernated(workspaceId: string): void {
+    const stash = this.hibernated.get(workspaceId);
+    if (!stash) return;
+    this.hibernated.delete(workspaceId);
+    // Temporarily swap the stashed tabs into this.tabs so finalizeCloseTab
+    // (which expects to find the tab by id) can do the full teardown.
+    const live = this.tabs.slice();
+    this.inReplace = true;
+    try {
+      this.tabs.splice(0, this.tabs.length, ...stash.tabs);
+      for (const t of stash.tabs) {
+        // Reattach pane so finalizeCloseTab's removeChild branch works.
+        if (t.pane.parentElement !== this.workspace) {
+          this.workspace.appendChild(t.pane);
+        }
+        this.finalizeCloseTab(t.id);
+      }
+      // Restore live tabs.
+      this.tabs.splice(0, this.tabs.length, ...live);
+    } finally {
+      this.inReplace = false;
+    }
   }
 
   closeTab(id: string): void {
