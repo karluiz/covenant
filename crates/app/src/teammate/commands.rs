@@ -370,6 +370,7 @@ pub async fn teammate_cancel_task_proposal(
 pub async fn teammate_cancel_active_task(
     app: tauri::AppHandle,
     storage: State<'_, Arc<Storage>>,
+    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
     use tauri::Emitter;
@@ -383,6 +384,9 @@ pub async fn teammate_cancel_active_task(
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "task not found".to_string())?;
+    if let Some(s) = task.spawned_session {
+        supervisor.forget_task(s);
+    }
     let msg = TaskMessage {
         id: MessageId::new(),
         operator_id: task.operator_id,
@@ -441,6 +445,7 @@ pub async fn teammate_attach_session_to_task(
     app: tauri::AppHandle,
     storage: State<'_, Arc<Storage>>,
     runtime: State<'_, Arc<TeammateRuntime>>,
+    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     operator_id: OperatorId,
     task_id: TaskId,
     session_id: String,
@@ -453,6 +458,7 @@ pub async fn teammate_attach_session_to_task(
         .map_err(|e| e.to_string())?;
     let _ = runtime.finish_task(operator_id, task_id);
     runtime.start_task(operator_id, task_id, Some(session)).map_err(|e| e.to_string())?;
+    supervisor.register_task(session, task_id, operator_id);
     let _ = app.emit("teammate-task", serde_json::json!({
         "task_id": task_id,
         "spawned_session": session.to_string(),
