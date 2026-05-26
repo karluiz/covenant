@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.32 — Light-mode banner contrast + trackpad scroll flicker fix
+
+### Fixed
+
+- **Update banner unreadable in light mode**: the inline update chip mounted into the titlebar used a dark-mode palette (`#dbe6ff` text on translucent blue) that collapsed to near-invisibility on the light titlebar — the Install button in particular looked disabled. Added `body.theme-light` overrides in `ui/src/styles.css` so the chip re-anchors to readable blues (`#1d2b4d` text, `#2a4ad0` solid Install button on white), with matching label/version/whatsnew/dismiss tweaks.
+- **Terminal flicker on slow trackpad scrolling**: the wheel "rescue" handler in `ui/src/tabs/manager.ts` injected `term.scrollLines(±n)` whenever it thought xterm had missed a delta. On slow trackpad scrolls macOS emits sub-line deltas at ~120Hz that xterm accumulates internally and only flushes once a full line is crossed — the injection raced with xterm's own flush a frame later and produced a visible double-step jump. Dropped the proactive injection entirely; the debounced geometry-rebuild fallback (with its 750ms cooldown) still catches the genuinely-stuck cases this handler was originally added for.
+
 ## v0.8.31 — Calmer idle tab indicator
 
 ### Changed
