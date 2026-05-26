@@ -46,6 +46,7 @@ import {
   scoreSetCurrentSession,
   setAomExcluded,
   sessionSetOperator,
+  setOperatorEnabled,
   setOperatorLive,
   setSessionMission,
   setTabTitle,
@@ -2900,6 +2901,17 @@ export class TabManager {
     }
     if (tab.sessionId) {
       await sessionSetOperator(tab.sessionId, operatorId);
+      // Removing the operator must also tear down the M-OP3 enabled/live
+      // flags. Without this, the per-session "operator engaged" bit stays
+      // on, the tab keeps its running border, and the AOM-stop guard
+      // below sees `tab.operatorEnabled === true` and refuses to stop
+      // AOM — leaving single-tab AOM running against an orphaned tab.
+      if (operatorId === null) {
+        await setOperatorLive(tab.sessionId, false).catch(() => undefined);
+        await setOperatorEnabled(tab.sessionId, false).catch(() => undefined);
+        tab.operatorLive = false;
+        tab.operatorEnabled = false;
+      }
     }
     this.scheduleSave();
     // Refresh operator cache so the chip picks up any name/color updates.
