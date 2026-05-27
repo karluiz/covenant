@@ -951,6 +951,7 @@ export interface Settings {
   /// 4.x — experimental feature flags. Currently just split_panes.
   experimental?: {
     split_panes?: boolean;
+    statusbar_two_row?: boolean;
   };
 }
 
@@ -1024,11 +1025,15 @@ export async function getSettings(): Promise<Settings> {
 
 export interface ExperimentalFlags {
   split_panes: boolean;
+  statusbar_two_row: boolean;
 }
 
 export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
   const settings = await getSettings();
-  return { split_panes: settings.experimental?.split_panes ?? false };
+  return {
+    split_panes: settings.experimental?.split_panes ?? false,
+    statusbar_two_row: settings.experimental?.statusbar_two_row ?? true,
+  };
 }
 
 export interface CommandAction {

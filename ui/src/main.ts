@@ -1139,6 +1139,7 @@ async function boot(): Promise<void> {
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
     manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);
+    manager.setStatusbarTwoRow(next.experimental?.statusbar_two_row ?? true);
     // Layout reflowed → xterm cells need re-measuring.
     manager.refitActive();
   };

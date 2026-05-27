@@ -130,6 +130,13 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
     --settings-btn-fill: transparent;
     --settings-btn-fill-hover: color-mix(in srgb, var(--fg) 6%, transparent);
     --op-card-fill: color-mix(in srgb, currentColor 3%, transparent);
+    /* Status bar height — two-row default. Override to 26px in single-row
+       mode so dependent panels (project-notes, etc.) resize automatically. */
+    --statusbar-h: 50px;
+}
+
+body.statusbar-single-row {
+    --statusbar-h: 26px;
 }
 
 /* Light theme — overrides the dark tokens defined in :root. Activated
@@ -5817,7 +5824,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    height: 50px;
+    height: var(--statusbar-h);
     padding: 0 4px;
     background: linear-gradient(
         180deg,
@@ -5891,25 +5898,27 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 }
 
 /* Two-row layout. Top = identity + telemetry; bot = ephemerals + chrome.
-   The bot row is shorter and dimmer so the eye anchors on the top. */
-.sb-row {
+   The bot row is shorter and dimmer so the eye anchors on the top.
+   Scoped to body:not(.statusbar-single-row) — belt-and-suspenders alongside
+   assembleSegments() which doesn't emit .sb-row elements in single-row mode. */
+body:not(.statusbar-single-row) .sb-row {
     display: flex;
     align-items: center;
     flex: 0 0 auto;
     min-width: 0;
     width: 100%;
 }
-.sb-row--top { height: 28px; }
-.sb-row--bot {
+body:not(.statusbar-single-row) .sb-row--top { height: 28px; }
+body:not(.statusbar-single-row) .sb-row--bot {
     height: 22px;
     opacity: 0.88;
     border-top: 1px solid rgba(var(--ink-rgb), 0.05);
 }
-.sb-spacer { flex: 1 1 auto; min-width: 0; }
+body:not(.statusbar-single-row) .sb-spacer { flex: 1 1 auto; min-width: 0; }
 /* Inside the rows the previous zone dividers stop making sense — the
    row boundary already separates concerns visually. */
-.sb-row .sb-framing,
-.sb-row .sb-center {
+body:not(.statusbar-single-row) .sb-row .sb-framing,
+body:not(.statusbar-single-row) .sb-row .sb-center {
     border-left: none;
     border-right: none;
 }

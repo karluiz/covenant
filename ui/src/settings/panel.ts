@@ -95,6 +95,7 @@ interface RouteEntry {
 
 interface ExperimentalConfig {
   split_panes?: boolean;
+  statusbar_two_row?: boolean;
 }
 
 interface Settings {
@@ -526,6 +527,16 @@ export class SettingsPanel {
               <kbd>⌘⇧]</kbd> swap.
             </small>
           </label>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="experimental_statusbar_two_row" />
+            <span class="settings-label">Two-row status bar</span>
+            <small class="settings-hint">
+              Split identity / telemetry across two rows of the status
+              bar so a long mission filename doesn't crowd the runtime
+              cluster off-screen. Uncheck for the original single-row
+              layout.
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-operators">
           <h3 class="settings-section-title">Operators</h3>
@@ -766,6 +777,9 @@ export class SettingsPanel {
     const splitPanesInput = form.querySelector<HTMLInputElement>(
       'input[name="experimental_split_panes"]',
     )!;
+    const statusbarTwoRowInput = form.querySelector<HTMLInputElement>(
+      'input[name="experimental_statusbar_two_row"]',
+    )!;
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
@@ -854,6 +868,8 @@ export class SettingsPanel {
     termLineHeight.value = String(this.current.terminal.line_height);
     termLigatures.checked = !!this.current.terminal.ligatures;
     splitPanesInput.checked = !!this.current.experimental?.split_panes;
+    statusbarTwoRowInput.checked =
+      this.current.experimental?.statusbar_two_row ?? true;
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
       r.checked = r.value === currentBg;
@@ -1276,6 +1292,7 @@ export class SettingsPanel {
         model_routes: this.current!.model_routes,
         experimental: {
           split_panes: splitPanesInput.checked,
+          statusbar_two_row: statusbarTwoRowInput.checked,
         },
       };
       try {

@@ -697,11 +697,21 @@ export class TabManager {
   async loadExperimentalFlags(): Promise<void> {
     const f = await getExperimentalFlags();
     this.splitPanesEnabled = f.split_panes;
+    this.setStatusbarTwoRow(f.statusbar_two_row);
   }
 
   setSplitPanesEnabled(v: boolean): void {
     this.splitPanesEnabled = v;
     // D12 will wire `rebindSplitShortcuts()` here; for now this is a no-op.
+  }
+
+  /// Driven by `experimental.statusbar_two_row` — toggles the status
+  /// bar between the shipped two-row layout (true) and the original
+  /// single-row layout (false). StatusBar is a singleton held at
+  /// `this.statusBar` (constructed in main.ts:867 and assigned via
+  /// `setStatusBar`), so we forward to one instance.
+  setStatusbarTwoRow(v: boolean): void {
+    this.statusBar?.setTwoRow(v);
   }
 
   /// Public read for keybindings + context menu gating.
