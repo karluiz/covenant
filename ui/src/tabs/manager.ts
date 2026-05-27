@@ -823,7 +823,9 @@ export class TabManager {
     // Mark the grid container as split so CSS rules engage.
     block.dataset.split = layout.orientation ?? "horizontal";
     delete block.dataset.layout;
-    block.style.setProperty("--pane-ratio", `${layout.ratio ?? 0.5}fr`);
+    const initR = layout.ratio ?? 0.5;
+    block.style.setProperty("--pane-ratio", `${initR}fr`);
+    block.style.setProperty("--pane-complement", `${1 - initR}fr`);
 
     // Build the splitter strip between the two pane-hosts.
     const splitter = document.createElement("div");
@@ -919,7 +921,10 @@ export class TabManager {
       splitter,
       block,
       orientation: layout.orientation ?? "horizontal",
-      onRatio: (r) => block.style.setProperty("--pane-ratio", `${r}fr`),
+      onRatio: (r) => {
+        block.style.setProperty("--pane-ratio", `${r}fr`);
+        block.style.setProperty("--pane-complement", `${1 - r}fr`);
+      },
       onCommit: (r) => {
         setPaneRatioAction(tab, r);
         this.scheduleSave();
@@ -2203,11 +2208,12 @@ export class TabManager {
     // Remove the pane-splitter sibling.
     block.querySelector(".pane-splitter")?.remove();
     // Reverse what mountSecondPaneDom did to the block dataset / style.
-    // mountSecondPaneDom: sets data-split, deletes data-layout, sets --pane-ratio.
+    // mountSecondPaneDom: sets data-split, deletes data-layout, sets --pane-ratio + --pane-complement.
     // After collapse we want the block to look like a single-pane block again.
     delete block.dataset.split;
     block.dataset.layout = "single";
     block.style.removeProperty("--pane-ratio");
+    block.style.removeProperty("--pane-complement");
   }
 
   /// Backend session id (Ulid string) for whichever tab is currently
