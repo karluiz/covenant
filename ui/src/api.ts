@@ -2025,3 +2025,43 @@ export async function searchSessionFiles(
 ): Promise<FileMatch[]> {
   return invoke<FileMatch[]>("search_session_files", { sessionId, query, limit });
 }
+
+// ── Split-pane commands (D6 backend) ──────────────────────────────────────────
+
+/// Create a second pane in `tabId` by splitting from `sourcePaneIdx`.
+/// Returns the new PTY session id for the second pane.
+export async function splitPane(
+  tabId: string,
+  orientation: "horizontal" | "vertical",
+  sourcePaneIdx: 0 | 1,
+): Promise<string> {
+  return invoke<string>("split_pane", { tabId, orientation, sourcePaneIdx });
+}
+
+/// Close one pane of a split tab; the surviving pane fills the space.
+export async function closePaneCmd(tabId: string, paneIdx: 0 | 1): Promise<void> {
+  return invoke<void>("close_pane", { tabId, paneIdx });
+}
+
+/// Move keyboard + rendering focus to a pane within a split tab.
+export async function focusPaneCmd(tabId: string, paneIdx: 0 | 1): Promise<void> {
+  return invoke<void>("focus_pane", { tabId, paneIdx });
+}
+
+/// Swap the position of the two panes (left↔right or top↔bottom).
+export async function swapPanesCmd(tabId: string): Promise<void> {
+  return invoke<void>("swap_panes", { tabId });
+}
+
+/// Change the split axis without closing either pane.
+export async function setPaneOrientationCmd(
+  tabId: string,
+  orientation: "horizontal" | "vertical",
+): Promise<void> {
+  return invoke<void>("set_pane_orientation", { tabId, orientation });
+}
+
+/// Resize the split; ratio is the fraction [0..1] given to pane 0.
+export async function setPaneRatioCmd(tabId: string, ratio: number): Promise<void> {
+  return invoke<void>("set_pane_ratio", { tabId, ratio });
+}
