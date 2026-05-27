@@ -231,7 +231,6 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
     document.body.style.cursor = "col-resize";
 
     let current = startWidth;
-    let raf = 0;
     const apply = (w: number): void => {
       current = clamp(w, min, max);
       setRootPx(cssName, current);
@@ -242,12 +241,9 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
           pane.style.gridTemplateColumns = cols.replace(/(\S+\s+\S+\s+\S+\s+)\d+(?:\.\d+)?px$/, `$1${Math.round(current)}px`);
         });
       }
-      if (raf === 0) {
-        raf = window.requestAnimationFrame(() => {
-          raf = 0;
-          manager.refitActive();
-        });
-      }
+      // Intentionally do NOT refit/resize the PTY during the drag — xterm's
+      // canvas stretches via CSS, and per-frame fit()+resizeSession() makes
+      // the shell repaint and the WebGL layer flash. We refit once on pointerup.
     };
     const onMove = (ev: PointerEvent): void => {
       const delta = side === "left" ? ev.clientX - startX : startX - ev.clientX;

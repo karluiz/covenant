@@ -15150,6 +15150,11 @@ body.sidebar-resizing .sidebar-resizer::after {
   background: color-mix(in srgb, var(--accent) 50%, transparent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 28%, transparent);
 }
+/* Promote the terminal layer during sidebar drag so the browser
+   composites the stretch instead of repainting each frame. */
+body.sidebar-resizing .xterm {
+  will-change: width;
+}
 #left-sidebar-resizer {
   left: var(--tabbar-w);
   transform: translateX(-4px);
@@ -16903,8 +16908,7 @@ body.theme-light .task-item.is-open {
 .familiar-panel,
 .settings-nav,
 .docs-sidebar,
-.capabilities-nav,
-.pn-panel {
+.capabilities-nav {
   border-color: transparent !important;
 }
 
