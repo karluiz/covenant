@@ -1355,8 +1355,10 @@ export class TabManager {
 
     window.addEventListener("beforeunload", () => {
       for (const tab of this.tabs) {
-        const sid = activePane(tab).sessionId;
-        if (sid) void closeSession(sid as SessionId).catch(() => {});
+        for (const p of tab.panes) {
+          const sid = p.sessionId;
+          if (sid) void closeSession(sid as SessionId).catch(() => {});
+        }
       }
       if (this.blockedPollTimer !== null) {
         window.clearInterval(this.blockedPollTimer);
@@ -4549,22 +4551,28 @@ export class TabManager {
     tab.specBadge?.destroy();
     tab.specBadge = null;
     for (const d of tab.disposers) d.dispose();
-    if (tab.kind === "pi") {
-      // PiSession owns its own backend lifecycle; PiChatView destroy
-      // also fires closePiSession via closeSession().
-      void tab.piView?.closeSession().catch(() => {});
-    } else {
-      if (closeSessionId) void closeSession(closeSessionId as SessionId).catch(() => {});
-      // Drop the persisted scrollback log — the tab is gone for good.
-      // Workspace-switch teardown also flows through here, which is the
-      // wrong behavior for those tabs (they reopen in another workspace).
-      // Suppress during in-flight replace.
-      if (!this.inReplace) {
-        void deleteScrollback(closePane.replayKey).catch(() => {});
+    // Close EVERY pane's PTY and drop its scrollback log. Split tabs have
+    // 2 panes; pre-split tabs have 1. Iterating here ensures the non-active
+    // pane's PTY is not orphaned (bug #3) and its scrollback is deleted (bug #10).
+    for (const p of tab.panes) {
+      if (p.kind === "pi") {
+        // PiSession owns its own backend lifecycle; PiChatView destroy
+        // also fires closePiSession via closeSession().
+        void p.piView?.closeSession().catch(() => {});
+      } else {
+        if (p.sessionId) void closeSession(p.sessionId as SessionId).catch(() => {});
+        // Drop the persisted scrollback log — the tab is gone for good.
+        // Workspace-switch teardown also flows through here, which is the
+        // wrong behavior for those tabs (they reopen in another workspace).
+        // Suppress during in-flight replace.
+        if (!this.inReplace && p.replayKey) {
+          void deleteScrollback(p.replayKey).catch(() => {});
+        }
+        p.xterm?.dispose();
       }
-      tab.finder?.dispose();
-      tab.term?.dispose();
     }
+    // tab.finder is a per-tab overlay (not per-pane in D14 v0); keep its dispose.
+    tab.finder?.dispose();
     if (tab.pane.parentElement === this.workspace) {
       this.workspace.removeChild(tab.pane);
     }
