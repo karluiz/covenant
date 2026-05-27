@@ -2748,7 +2748,6 @@ export class TabManager {
       piView: null,
     };
     tab.panes = [pane0Shell];
-    tab.layout = { kind: "single", activePaneIdx: 0 };
     assertLayoutValid(tab);
 
     tabRef.current = tab;
@@ -2994,7 +2993,6 @@ export class TabManager {
       piView: tab.piView ?? null,
     };
     tab.panes = [pane0Pi];
-    tab.layout = { kind: "single", activePaneIdx: 0 };
     assertLayoutValid(tab);
 
     this.tabs.push(tab);
