@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { Icons } from "../icons";
 import { EMOTION_LABEL, renderAvatarHtml, type Emotion } from "../operator/avatars";
+import { pushInfoToast } from "../notifications/toast";
 import { attachTooltip } from "../tooltip/tooltip";
 import { ComposerInput } from "./composer-input";
 import type { MentionSourcesDeps } from "./mention-sources";
@@ -278,10 +279,21 @@ export class TeammatePanel {
   /// with the same cwd + group, instead of a dangling root-shell tab.
   private taskSpawnedSessions = loadTaskSpawnedSessions();
   private tasksCache: Task[] = [];
+  /// Last-painted messages, snapshotted so the trash → undo-toast flow
+  /// can restore the chat if the user clicks Undo before the deferred
+  /// backend clear fires.
+  private messagesCache: TeammateMessage[] = [];
+  /// Pending soft-delete kicked off by the trash button. While set, the
+  /// UI is empty but the backend still holds the data — the timer fires
+  /// the actual `clearForOperator` call after the undo window, and any
+  /// outgoing send / panel switch / operator change commits it early.
+  private pendingClear: {
+    operatorId: string;
+    messages: TeammateMessage[];
+    tasks: Task[];
+    timer: number;
+  } | null = null;
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
-  private resetBtnEl: HTMLButtonElement | null = null;
-  private resetArmed = false;
-  private resetArmTimer: number | null = null;
   private expandedTaskIds = new Set<string>();
   private decisionsByTask = new Map<string, OperatorDecisionRow[]>();
   /// Maps `@<token>` → payload of every chip the user has picked in the
@@ -346,6 +358,10 @@ export class TeammatePanel {
   }
 
   close(): void {
+    // Commit any in-flight soft-delete before tearing down — the toast
+    // host outlives the panel and the user can't undo a panel they
+    // can't see.
+    if (this.pendingClear) { void this.commitPendingClear(); }
     this.closeSwitcher();
     this.unlisten?.();
     this.unlisten = null;
@@ -371,6 +387,9 @@ export class TeammatePanel {
   async send(text: string): Promise<void> {
     if (!this.operator) return;
     if (!text.trim()) return;
+    // Commit any in-flight soft-delete before sending — otherwise the
+    // pending timer will wipe the message the user just typed.
+    if (this.pendingClear) { await this.commitPendingClear(); }
     const activeId = this.deps.getActiveSessionId?.() ?? null;
     let payload = text.trim();
     if (this.mentionRegistry.size > 0) {
@@ -500,52 +519,73 @@ export class TeammatePanel {
       e.stopPropagation();
       void this.handleResetClick();
     });
-    this.resetBtnEl = b;
     return b;
   }
 
-  private setResetArmed(armed: boolean): void {
-    this.resetArmed = armed;
-    const b = this.resetBtnEl;
-    if (!b) return;
-    if (armed) {
-      b.classList.add("is-armed");
-      b.innerHTML = "";
-      const label = document.createElement("span");
-      label.className = "teammate-panel-reset__label";
-      label.textContent = "Confirm";
-      b.append(label);
-      if (this.resetArmTimer) window.clearTimeout(this.resetArmTimer);
-      this.resetArmTimer = window.setTimeout(() => this.setResetArmed(false), 4000);
-    } else {
-      b.classList.remove("is-armed");
-      b.innerHTML = Icons.trash({ size: 14 });
-      if (this.resetArmTimer) {
-        window.clearTimeout(this.resetArmTimer);
-        this.resetArmTimer = null;
-      }
-    }
-  }
-
+  /// Soft-delete the operator's chat + tasks: clear locally, defer the
+  /// backend wipe, and surface an undo toast. Restores from snapshot if
+  /// the user clicks the toast within the undo window; otherwise the
+  /// timer commits the clear. Any send/panel-switch commits early so a
+  /// new message can't get wiped by the pending timer.
   private async handleResetClick(): Promise<void> {
     if (!this.operator) return;
-    const { clearForOperator } = this.deps;
-    if (!clearForOperator) {
+    if (!this.deps.clearForOperator) {
       this.appendErrorCard("Action unavailable", "clearForOperator is not wired up.");
       return;
     }
-    if (!this.resetArmed) {
-      this.setResetArmed(true);
+    // Already pending → second click commits immediately (escape hatch).
+    if (this.pendingClear) {
+      await this.commitPendingClear();
       return;
     }
-    this.setResetArmed(false);
+    const opId = this.operator.id;
+    const snapshot = {
+      operatorId: opId,
+      messages: this.messagesCache.slice(),
+      tasks:    this.tasksCache.slice(),
+      timer:    window.setTimeout(() => { void this.commitPendingClear(); }, 6000),
+    };
+    this.pendingClear = snapshot;
+    this.tasksCache = [];
+    this.paintMessages([]);
+    this.paintTasks();
+    this.updateTasksCount();
+    this.updateHeaderWorkingState();
+    pushInfoToast({
+      message: "Chat & tasks cleared · Click to undo",
+      onClick: () => {
+        // The toast host auto-dismisses on click — we just need to
+        // restore the snapshot if it's still the active pending clear.
+        if (this.pendingClear && this.pendingClear.operatorId === opId) {
+          this.undoPendingClear();
+        }
+      },
+    });
+  }
+
+  private undoPendingClear(): void {
+    const p = this.pendingClear;
+    if (!p) return;
+    window.clearTimeout(p.timer);
+    this.pendingClear = null;
+    // Only restore if the user is still viewing the same operator —
+    // otherwise the panel context has moved on and a restore would
+    // splice messages into the wrong thread.
+    if (this.operator?.id !== p.operatorId) return;
+    this.tasksCache = p.tasks;
+    this.paintMessages(p.messages);
+    this.paintTasks();
+    this.updateTasksCount();
+    this.updateHeaderWorkingState();
+  }
+
+  private async commitPendingClear(): Promise<void> {
+    const p = this.pendingClear;
+    if (!p) return;
+    window.clearTimeout(p.timer);
+    this.pendingClear = null;
     try {
-      await clearForOperator(this.operator.id);
-      this.tasksCache = [];
-      this.paintMessages([]);
-      this.paintTasks();
-      this.updateTasksCount();
-      this.updateHeaderWorkingState();
+      await this.deps.clearForOperator?.(p.operatorId);
     } catch (e) {
       console.error("clearForOperator failed", e);
       this.appendErrorCard("Couldn't reset the operator.", String(e));
@@ -1094,6 +1134,7 @@ export class TeammatePanel {
         this.executorByTaskId.set(m.task_id, m.content.data.draft.executor);
       }
     }
+    this.messagesCache = msgs;
     if (!this.threadEl) return;
     this.threadEl.innerHTML = "";
     if (msgs.length === 0) {

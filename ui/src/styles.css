@@ -16324,14 +16324,6 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
   border-radius: 6px; cursor: pointer;
 }
 .teammate-panel-reset:hover { color: #ef6b7e; background: rgba(239,107,126,0.08); }
-.teammate-panel-reset.is-armed {
-  width: auto;
-  padding: 0 10px; height: 24px;
-  background: #ef6b7e; color: white;
-  font-size: 11px; font-weight: 600;
-  margin-left: 8px;
-}
-.teammate-panel-reset__label { line-height: 1; }
 
 /* --- System rows in chat (task started/blocked/completed/...) --- */
 .teammate-row--system {
