@@ -372,16 +372,6 @@ export class ActivityView {
     return av;
   }
 
-  /// Replace the operator roster after start() — the teammate panel
-  /// loads it asynchronously and we want the picker to refresh once
-  /// it lands instead of staying empty for the lifetime of the view.
-  setOperators(operators: Operator[]): void {
-    this.operators = operators;
-    this.operatorsById = new Map(operators.map((o) => [o.id, o]));
-    this.renderPicker();
-    this.paintHistorical();
-  }
-
   /** Called when the Activity tab becomes visible/hidden. */
   setVisible(v: boolean): void {
     this.visible = v;

@@ -327,13 +327,7 @@ export class TeammatePanel {
     this.applyViewMode();
     const [messages] = await Promise.all([
       this.deps.listMessages(operator.id, 200),
-      this.deps.listOperators().then((ops) => {
-        this.roster = ops;
-        // The activity view mounts synchronously above, before
-        // listOperators resolves — push the roster in once it lands so
-        // the multi-agent picker renders with real avatars + names.
-        this.activityView?.setOperators(ops);
-      }).catch(() => { /* ignore */ }),
+      this.deps.listOperators().then((ops) => { this.roster = ops; }).catch(() => { /* ignore */ }),
       this.refreshTasks(),
     ]);
     // Backfill the operator's mood from history: scan messages newest-
