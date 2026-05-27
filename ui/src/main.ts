@@ -47,6 +47,7 @@ import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
+import { activePane } from "./tabs/pane";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
 
@@ -578,9 +579,10 @@ async function boot(): Promise<void> {
         color,
       });
       if (!tab) throw new Error("createTab returned null");
+      const pane = activePane(tab);
       return {
-        sessionId: tab.sessionId.toString(),
-        cwd: tab.cwd ?? cwd,
+        sessionId: (pane.sessionId ?? "").toString(),
+        cwd: pane.cwd || cwd,
         groupId: tab.groupId ?? groupId,
         color: tab.color ?? color,
       };
@@ -592,8 +594,11 @@ async function boot(): Promise<void> {
       // Flip AOM off at the tab level FIRST — setTabOperator(null)
       // doesn't touch operatorEnabled, so leaving it true keeps the
       // tab visible in the AOM count even though it has no operator.
-      await setOperatorLive(tab.sessionId, false).catch(() => undefined);
-      await setOperatorEnabled(tab.sessionId, false).catch(() => undefined);
+      const pane = activePane(tab);
+      if (pane.sessionId) {
+        await setOperatorLive(pane.sessionId as SessionId, false).catch(() => undefined);
+        await setOperatorEnabled(pane.sessionId as SessionId, false).catch(() => undefined);
+      }
       await manager.setTabOperator(tab.id, null);
       await manager.refreshAllOperatorState().catch(() => undefined);
     },
@@ -609,8 +614,11 @@ async function boot(): Promise<void> {
       const tab = manager.tabForSession(sessionId as SessionId);
       if (!tab) return;
       await manager.setTabOperator(tab.id, operatorId);
-      await setOperatorEnabled(tab.sessionId, true);
-      await setOperatorLive(tab.sessionId, true);
+      const pane = activePane(tab);
+      if (pane.sessionId) {
+        await setOperatorEnabled(pane.sessionId as SessionId, true);
+        await setOperatorLive(pane.sessionId as SessionId, true);
+      }
       // Re-read backend state into the tab + repaint ring/status bar.
       await manager.refreshAllOperatorState();
     },

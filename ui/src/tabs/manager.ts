@@ -1655,7 +1655,7 @@ export class TabManager {
   /// in the foreground, or null when no tabs exist.
   activeSessionId(): SessionId | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    return tab?.sessionId ?? null;
+    return (tab ? activePane(tab).sessionId : null) as SessionId | null;
   }
 
   /// Returns the sessionId of the currently active tab that belongs to
@@ -1663,7 +1663,7 @@ export class TabManager {
   activeSessionInGroup(groupId: string): string | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab || tab.groupId !== groupId) return null;
-    return tab.sessionId;
+    return activePane(tab).sessionId;
   }
 
   /// Count of tabs that AOM is currently driving — operator-enabled
@@ -1671,7 +1671,7 @@ export class TabManager {
   /// reverts on stop, so this count IS the AOM-active set while AOM
   /// is on).
   aomActiveTabCount(): number {
-    return this.tabs.filter((t) => t.operatorEnabled).length;
+    return this.tabs.filter((t) => activePane(t).operatorEnabled).length;
   }
 
   /// Most recent cwd reported by the active session via OSC 7
@@ -1679,7 +1679,7 @@ export class TabManager {
   /// can apply its cwd bonus.
   activeCwd(): string | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    return tab?.cwd ?? null;
+    return tab ? activePane(tab).cwd : null;
   }
 
   /// Snapshot of every open shell tab — feeds the multi-source mention
@@ -1689,15 +1689,18 @@ export class TabManager {
   listOpenSessions(): import("../teammate/mention-sources").OpenSessionInfo[] {
     return this.tabs
       .filter((t) => t.kind === "shell")
-      .map((t, idx) => ({
-        session_id: t.sessionId.toString(),
-        short_id:   t.sessionId.toString().slice(-6),
-        cwd:        t.cwd ?? "",
-        tab_index:  idx + 1,
-        shell:      "zsh",
-        last_command: null,
-        block_count:  0,
-      }));
+      .map((t, idx) => {
+        const pane = activePane(t);
+        return {
+          session_id: (pane.sessionId ?? "").toString(),
+          short_id:   (pane.sessionId ?? "").toString().slice(-6),
+          cwd:        pane.cwd,
+          tab_index:  idx + 1,
+          shell:      "zsh",
+          last_command: null,
+          block_count:  0,
+        };
+      });
   }
 
   /// Kind of the active tab. Pi tabs do not have the terminal-owned
@@ -1715,7 +1718,7 @@ export class TabManager {
   /// history into.
   activeExecutor(): string | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    return tab?.executor ?? null;
+    return tab ? activePane(tab).executor : null;
   }
 
   /// ⌘F handler — opens the in-terminal finder for the active tab.
