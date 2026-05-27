@@ -374,14 +374,23 @@ export class StructureTree {
 
     document.body.appendChild(menu);
 
-    // Clamp to viewport so it doesn't render off-screen.
+    // Flip the menu so it opens away from the nearest viewport edge it
+    // would overflow. Native right-click pattern: if the cursor is near
+    // the right edge, the menu's right edge anchors at the cursor and
+    // the menu opens leftward. Falls back to a viewport-edge clamp if
+    // even the flipped position would push the opposite edge off-screen
+    // (very narrow windows / very large menus).
     requestAnimationFrame(() => {
       const rect = menu.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+      const vw = document.documentElement.clientWidth;
+      const vh = document.documentElement.clientHeight;
+      if (rect.right > vw - 4) {
+        const flipped = x - rect.width;
+        menu.style.left = `${Math.max(4, flipped)}px`;
       }
-      if (rect.bottom > window.innerHeight) {
-        menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+      if (rect.bottom > vh - 4) {
+        const flipped = y - rect.height;
+        menu.style.top = `${Math.max(4, flipped)}px`;
       }
     });
 
