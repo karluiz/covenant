@@ -365,7 +365,9 @@ async fn spawn_session(
     on_session_event: Channel<SessionUiEvent>,
     initial_cwd: Option<String>,
     replay_key: Option<String>,
+    pane_id: Option<String>,
 ) -> Result<String, String> {
+    tracing::debug!(?pane_id, "spawn_session: pane association");
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::from_default_shell().map_err(|e| format!("shell resolve: {e}"))?;
     // zsh-only args/env. On Windows the default shell is pwsh, where

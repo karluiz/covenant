@@ -63,7 +63,7 @@ export interface SpawnHandlers {
 
 export async function spawnSession(
   handlers: SpawnHandlers,
-  opts?: { initialCwd?: string | null; replayKey?: string | null },
+  opts?: { initialCwd?: string | null; replayKey?: string | null; paneId?: string | null },
 ): Promise<SessionId> {
   const outputChannel = new Channel<number[]>();
   outputChannel.onmessage = (data) => handlers.onOutput(new Uint8Array(data));
@@ -76,6 +76,7 @@ export async function spawnSession(
     onSessionEvent: sessionEventChannel,
     initialCwd: opts?.initialCwd ?? null,
     replayKey: opts?.replayKey ?? null,
+    paneId: opts?.paneId ?? null,
   });
 }
 

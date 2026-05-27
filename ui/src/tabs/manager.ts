@@ -1986,6 +1986,7 @@ export class TabManager {
     // Closure-captured so onSessionEvent (set BEFORE spawn returns)
     // can update the tab's cwd as `cwd_changed` events arrive.
     const tabRef: { current: Tab | null } = { current: null };
+    const paneId = `p-${crypto.randomUUID()}`;
     let sessionId: SessionId;
     // Closure flag for the optional initial-command injection. We
     // write the command on the FIRST prompt_start (i.e. once the
@@ -2118,6 +2119,7 @@ export class TabManager {
         {
           initialCwd,
           replayKey,
+          paneId,
         },
       );
     } catch (err) {
@@ -2759,7 +2761,7 @@ export class TabManager {
     };
 
     const pane0Shell: Pane = {
-      id: `p-${sessionId}`,
+      id: paneId,
       kind: "terminal",
       sessionId,
       cwd: tab.cwd ?? "",
