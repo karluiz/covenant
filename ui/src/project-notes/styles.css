@@ -19,7 +19,7 @@
   position: fixed;
   top: 76px; /* app titlebar (38) + horizontal tabbar (38) */
   right: 0;
-  bottom: 51px; /* status bar height (50px) + 1px top border */
+  bottom: calc(var(--statusbar-h) + 1px); /* status bar height + 1px top border */
   width: min(var(--right-sidebar-w, 240px), calc(100vw - 32px));
   max-width: 100vw;
   min-width: 0;
@@ -69,7 +69,7 @@ body.tabbar-left .pn-panel {
 /* Fullscreen mode still has to clear the status bar — `inset` sets
    bottom:0, so override it here. */
 .pn-panel.pn-fullscreen {
-  bottom: 51px;
+  bottom: calc(var(--statusbar-h) + 1px);
 }
 
 .pn-panel.pn-fullscreen {

@@ -52,13 +52,29 @@ pub struct RouteEntry {
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExperimentalConfig {
     /// Enable the split-panes UI (M-SP milestone). Off by default; flip
     /// to `true` in config.json to try the feature while it is being
     /// developed.
     #[serde(default)]
     pub split_panes: bool,
+
+    /// Show identity + telemetry on the top row of the status bar and
+    /// the operator / mission / AOM cluster on a shorter bottom row.
+    /// Default `true` (the layout that shipped in 8aee4f5). Flip off
+    /// to use the original single-row layout.
+    #[serde(default = "default_true")]
+    pub statusbar_two_row: bool,
+}
+
+impl Default for ExperimentalConfig {
+    fn default() -> Self {
+        Self {
+            split_panes: false,
+            statusbar_two_row: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -761,6 +777,30 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let s2: Settings = serde_json::from_str(&json).unwrap();
         assert!(s2.experimental.split_panes);
+    }
+
+    #[test]
+    fn experimental_statusbar_two_row_defaults_true() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.experimental.statusbar_two_row);
+    }
+
+    #[test]
+    fn experimental_statusbar_two_row_roundtrip() {
+        let mut s = Settings::default();
+        s.experimental.statusbar_two_row = false;
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!s2.experimental.statusbar_two_row);
+    }
+
+    #[test]
+    fn experimental_statusbar_two_row_missing_in_json_defaults_true() {
+        let json = r#"{
+            "experimental": { "split_panes": false }
+        }"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert!(s.experimental.statusbar_two_row);
     }
 
     #[test]

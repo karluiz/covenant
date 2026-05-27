@@ -91,6 +91,10 @@ export interface ActiveTabInfo {
 
 export class StatusBar {
   private enabled = true;
+  /// Layout mode. True = two-row (the shipped default). False = the
+  /// original single-row layout. Toggled by `setTwoRow(v)` driven by
+  /// the `experimental.statusbar_two_row` setting.
+  private twoRow = true;
   private currentTab: ActiveTabInfo | null = null;
   private currentCwd: string | null = null;
   private currentMission: MissionInfo | null = null;
@@ -195,6 +199,17 @@ export class StatusBar {
     } else {
       this.host.innerHTML = "";
     }
+  }
+
+  /// Switch between the two-row (default) and single-row status-bar
+  /// layouts. Driven by the `experimental.statusbar_two_row` setting,
+  /// pushed by `TabManager.setStatusbarTwoRow` on settings save and at
+  /// boot. No-op if the value is unchanged.
+  setTwoRow(v: boolean): void {
+    if (this.twoRow === v) return;
+    this.twoRow = v;
+    document.body.classList.toggle("statusbar-single-row", !v);
+    this.render(this.lastDirCtx);
   }
 
   /// Pushed by TabManager when the active tab changes (or its
@@ -663,31 +678,49 @@ export class StatusBar {
       versionSegment(__APP_VERSION__, () => this.onVersionChipClick?.()),
     );
 
-    // Two-row layout (Proposal B). Top row keeps stable identity +
-    // runtime telemetry; bottom row carries the ephemeral framing
-    // (operator/mission/AOM) plus the trailing executor/telegram/score
-    // cluster — so a long mission filename never crowds the cost/perf
-    // numbers off-screen.
-    const topRow = document.createElement("div");
-    topRow.className = "sb-row sb-row--top";
-    const botRow = document.createElement("div");
-    botRow.className = "sb-row sb-row--bot";
+    this.assembleSegments(left, framing, center, right);
+  }
 
-    const topSpacer = document.createElement("div");
-    topSpacer.className = "sb-spacer";
-    const botSpacer = document.createElement("div");
-    botSpacer.className = "sb-spacer";
-
-    topRow.appendChild(left);
-    topRow.appendChild(topSpacer);
-    topRow.appendChild(center);
-
-    botRow.appendChild(framing);
-    botRow.appendChild(botSpacer);
-    botRow.appendChild(right);
-
-    this.host.appendChild(topRow);
-    this.host.appendChild(botRow);
+  /// Append the four segment groups to `this.host` using the layout
+  /// implied by `this.twoRow`.
+  ///
+  /// Two-row (default): top row carries identity (`left`) + runtime
+  /// telemetry (`center`); bottom row carries ephemeral framing
+  /// (`framing`) + trailing chrome (`right`). Bottom is shorter and
+  /// dimmer per styles.css.
+  ///
+  /// Single-row (experimental.statusbar_two_row = false): the four
+  /// groups appear flat under `this.host` in `left, framing, center,
+  /// right` order — the original pre-8aee4f5 layout.
+  private assembleSegments(
+    left: HTMLElement,
+    framing: HTMLElement,
+    center: HTMLElement,
+    right: HTMLElement,
+  ): void {
+    if (this.twoRow) {
+      const topRow = document.createElement("div");
+      topRow.className = "sb-row sb-row--top";
+      const botRow = document.createElement("div");
+      botRow.className = "sb-row sb-row--bot";
+      const topSpacer = document.createElement("div");
+      topSpacer.className = "sb-spacer";
+      const botSpacer = document.createElement("div");
+      botSpacer.className = "sb-spacer";
+      topRow.appendChild(left);
+      topRow.appendChild(topSpacer);
+      topRow.appendChild(center);
+      botRow.appendChild(framing);
+      botRow.appendChild(botSpacer);
+      botRow.appendChild(right);
+      this.host.appendChild(topRow);
+      this.host.appendChild(botRow);
+    } else {
+      this.host.appendChild(left);
+      this.host.appendChild(framing);
+      this.host.appendChild(center);
+      this.host.appendChild(right);
+    }
   }
 
   private gitSegment(repoName: string, branch: string): HTMLElement {
