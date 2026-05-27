@@ -731,6 +731,46 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// F1 — convert an existing terminal pane to a Pi chat pane in place.
+  /// Disposes the old xterm, kills the old PTY session, spawns a fresh
+  /// Pi session, and mounts a PiChatView into the same .pane-host element.
+  /// Gated on `experimental.splitPanes`. No-ops if the pane is already "pi".
+  async convertPaneToPi(tab: Tab, paneIdx: 0 | 1): Promise<void> {
+    if (!this.splitPanesEnabled) return;
+    const p = tab.panes[paneIdx];
+    if (!p || p.kind === "pi") return;
+    if (!p.el) return;
+
+    // 1. Dispose terminal artifacts on this pane.
+    p.xterm?.dispose();
+    p.xterm = null;
+
+    // 2. Clear the pane-host's DOM children (was the termHost containing xterm).
+    while (p.el.firstChild) p.el.removeChild(p.el.firstChild);
+
+    // 3. Kill the old PTY session if one exists (don't leak backend processes).
+    if (p.sessionId) {
+      try { await closeSession(p.sessionId as SessionId); } catch { /* ignore — already closed */ }
+    }
+
+    // 4. Spawn a fresh Pi session.
+    const piSessionId = await spawnPiSession({ cwd: p.cwd || undefined });
+
+    // 5. Mount a new PiChatView into the existing pane-host element.
+    const view = new PiChatView({ sessionId: piSessionId, host: p.el });
+
+    // 6. Update pane state.
+    p.kind = "pi";
+    p.sessionId = piSessionId as string;
+    p.piView = view;
+    p.xterm = null;
+    p.executor = "pi";
+    p.aomExcluded = true; // Pi sessions never enter AOM
+
+    this.updateActivePaneClass(tab);
+    this.scheduleSave();
+  }
+
   // D12 — private DOM/PTY helpers for split-pane actions -----------------------
 
   private async spawnPtyForPane(cwd: string): Promise<string> {
