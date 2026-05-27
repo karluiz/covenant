@@ -17,6 +17,9 @@ type StatePayload = {
   phase: ExecutorPhase;
   agent?: string | null;
   tab_label?: string | null;
+  /// Tokens charged to this session between the previous notch:state
+  /// emit and this one. Attached by the bridge in `notch.rs::emit_with_tokens`.
+  tokens_delta?: number;
 };
 
 type ActiveSessionPayload = {
@@ -34,6 +37,10 @@ type Row = {
   kind: "run" | "ok" | "warn" | "err" | "info";
   message: string;
   count: number;
+  /// Cumulative tokens consumed across coalesced repeats of this row.
+  /// Sums tokens_delta values seen on each push. 0 = no model activity
+  /// (purely terminal-driven phase transition).
+  tokens: number;
 };
 
 type StreamScrollAnchor = {
@@ -76,6 +83,13 @@ function phaseLabel(p: ExecutorPhase): string {
 function fmtTime(ts: number): string {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 function fmtDuration(ms: number): string {
@@ -439,6 +453,7 @@ export function mountInlineNotch(host: HTMLElement): void {
                 <span class="tag">${escapeHtml(r.tag)}</span>
                 ${r.count > 1 ? `<span class="count">×${r.count}</span>` : ""}
                 ${r.ts > r.firstTs ? `<span class="dur">${fmtDuration(r.ts - r.firstTs)}</span>` : ""}
+                ${r.tokens > 0 ? `<span class="tok">${fmtTokens(r.tokens)} tok</span>` : ""}
               </span>
             </span>
           </div>`;
@@ -469,6 +484,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       prev.ts = input.ts;
       prev.tag = input.tag;
       prev.count += 1;
+      prev.tokens += input.tokens;
       return;
     }
     rows.push({ ...input, id: String(nextRowId++), firstTs: input.ts, count: 1 });
@@ -494,6 +510,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       tag: tab,
       kind: phaseKind(ev.payload.phase),
       message: phaseLabel(ev.payload.phase),
+      tokens: ev.payload.tokens_delta ?? 0,
     });
     renderPicker();
     render();

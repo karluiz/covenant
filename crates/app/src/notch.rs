@@ -390,6 +390,10 @@ pub fn spawn_bridge(
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let mut buffer: Vec<SessionEvent> = Vec::with_capacity(16);
+        // Per-session running token total at the time of the last emit.
+        // Used to compute a delta on the next emit so the UI can show
+        // "+N tok" alongside the row's phase + duration + count.
+        let mut last_token_total: HashMap<SessionId, u64> = HashMap::new();
         loop {
             match rx.recv().await {
                 Ok(ev @ SessionEvent::ExecutorStateChanged { .. }) => {
@@ -413,9 +417,9 @@ pub fn spawn_bridge(
                         // window handle, which the JS-side `listen()` from
                         // `@tauri-apps/api/event` does NOT do by default.
                         for b in buffer.drain(..) {
-                            let _ = app.emit("notch:state", &b);
+                            emit_with_tokens(&app, &b, &mut last_token_total).await;
                         }
-                        let _ = app.emit("notch:state", &ev);
+                        emit_with_tokens(&app, &ev, &mut last_token_total).await;
                         let _ = win;
                     } else {
                         if buffer.len() == buffer.capacity() {
@@ -430,6 +434,36 @@ pub fn spawn_bridge(
             }
         }
     })
+}
+
+/// Emit an `ExecutorStateChanged` event to the notch webview with a
+/// `tokens_delta` field attached, computed as `vitals.session_tokens()
+/// - last_token_total[session]`. Skips the field when vitals isn't
+/// managed (e.g. early-boot races) or the delta is zero.
+async fn emit_with_tokens(
+    app: &AppHandle,
+    ev: &SessionEvent,
+    last_token_total: &mut HashMap<SessionId, u64>,
+) {
+    let SessionEvent::ExecutorStateChanged { session, .. } = ev else { return };
+    let mut value = match serde_json::to_value(ev) {
+        Ok(v) => v,
+        Err(_) => { let _ = app.emit("notch:state", ev); return; }
+    };
+    if let Some(handle) = app.try_state::<crate::vitals::VitalsHandle>() {
+        let current = handle.session_tokens(*session).await;
+        let prev = last_token_total.insert(*session, current).unwrap_or(0);
+        let delta = current.saturating_sub(prev);
+        if delta > 0 {
+            // SessionEvent is internally-tagged (`#[serde(tag = "kind")]`)
+            // so the variant's fields live at the top level alongside
+            // `kind`. Inject the new field on the same object.
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("tokens_delta".into(), serde_json::json!(delta));
+            }
+        }
+    }
+    let _ = app.emit("notch:state", &value);
 }
 
 /// Show the notch window in the right place with the right macOS collection
