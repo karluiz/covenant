@@ -1867,6 +1867,13 @@ export class TabManager {
       },
     });
     term.open(termHost);
+    // Suppress the macOS WebView native context menu (Cut/Copy/Paste/
+    // Show Writing Tools/…) on right-click inside the terminal. xterm
+    // doesn't preventDefault on contextmenu itself, so the OS menu
+    // would otherwise pop over whatever right-click handling we wire
+    // up later. Scoped to the terminal host so the rest of the app
+    // (file tree, tab strip, inputs) keeps its native menus intact.
+    termHost.addEventListener("contextmenu", (e) => e.preventDefault());
     // WebGL addon disabled — its glyph atlas doesn't pick up
     // fontFamily changes from term.options reliably, and both
     // WebGL and Canvas addons produce garbled glyphs when
