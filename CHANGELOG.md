@@ -6,6 +6,54 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.36 — Split panes (experimental) + statusbar two-row + tree active reveal
+
+### Added
+
+- **Split panes (experimental, behind flag)**: a tab can now host two PTY-bearing panes side-by-side or stacked, each with its own session, mission, and operator. Ships behind `experimental.split_panes` in Settings → Terminal (default off). Shortcuts: `⌘D` split right, `⌘\` split down, `⌘[`/`⌘]` focus prev/next, `⌘⇧]` swap. `⌘W` closes the active pane in split tabs and the tab in single-pane tabs; `⌘⇧W` always closes the tab. Pane-host right-click surfaces split/swap/convert-to-pi/close. Splits persist across restart via a new `panes[]` + `layout` manifest schema, with `liftLegacyTab` providing two-way back-compat with the legacy single-pane shape. Refactor introduces `Pane` and `TabLayout` as first-class types (`ui/src/tabs/pane.ts`, `ui/src/tabs/split-actions.ts`, `ui/src/tabs/pane-splitter.ts`, `crates/app/src/pane.rs`, `crates/app/src/split_commands.rs`). 1500+ LOC across 6 phases (data shape → read renames → write renames → split UI → persistence → Pi panes + polish).
+
+- **Statusbar two-row layout**: the status bar now splits identity + vitals on the top row and ephemeral state (operator/mission/AOM) + executor/telegram chrome on a dimmer 22px bottom row, so a long mission filename can't crowd the runtime telemetry off-screen. `ui/src/status/bar.ts`, `ui/src/styles.css`.
+
+- **File-tree active-row highlight + auto-reveal**: the structure sidebar now marks the editor's currently-open file with `.is-active` (accent-tinted background + 2px left stripe) and on first open auto-expands collapsed ancestor folders and scrolls the row into view. `StructureTree.setActivePath(path|null)` is pushed from `manager.ts::openEditor` and cleared from the editor's `onClose`. `ui/src/structure/tree.ts`, `ui/src/structure/tree.test.ts`, `ui/src/styles.css`.
+
+- **Multi-agent activity picker (teammate panel)**: the activity view was hard-locked to the panel's current operator, hiding the rest of the fleet. New combined-by-default feed with a multi-select picker pinned on top — switch focus, add observers, see everyone at once. `ui/src/teammate/panel.ts`.
+
+- **Multi-agent picker on the right-rail inline notch**: same adaptation of proposal C on the right-rail activity panel — multiple running agents no longer collapse to one with no way to inspect the others.
+
+- **Per-action token deltas on notch activity rows**: each activity row now shows the token delta (↑/↓) for the specific action, not just the cumulative session total. `ui/src/inline-notch/`.
+
+- **Undo-toast for reset chats & tasks**: replaces the two-step "trash → Confirm pill" pattern with a Gmail-style 6s undo toast — clearing locally is immediate, the backend wipe is deferred, and any subsequent send / panel close commits the pending clear early so a freshly-typed message can't be lost.
+
+- **Atomic spawned-tab priming**: spawned executor tabs originating from a Mibli chat with an `@spec` chip now reliably inherit the mission badge AND `/rename` — previously rename was missed entirely and mission was a fire-and-forget race against prompt injection. `crates/app/src/teammate/commands.rs`.
+
+- **Spec path prepended to spawned-task prompt**: when a task is spawned from a chat with an `@spec` chip, the spec path is now prepended to the prompt so the executor has explicit scope from the first turn. `crates/app/src/teammate/`.
+
+### Changed
+
+- **Operator triage skipped when screen unchanged**: idle executor sessions (spinner phase, stable prompt waiting, etc.) were paying ~$0.018 per tick for triage Haiku calls to repeatedly conclude "nothing to do" — a single Mibli session racked up ~$0.81 over 30 minutes. Triage now short-circuits when the screen content hash hasn't moved since the previous WAIT. `crates/app/src/operator.rs`.
+
+### Fixed
+
+- **Long file paths in xterm are now cmd-clickable when they wrap**: the link provider walked one buffer line at a time, so a path that overflowed the column width was split between rows and neither half resolved. Now stitches `isWrapped` continuation rows into a single logical line, runs the regex against the whole path, and maps match offsets back to per-row link ranges so both halves highlight and click correctly. `ui/src/tabs/manager.ts`.
+
+- **macOS native context menu suppressed on terminal right-click**: a stray native menu appeared on top of the in-app context UI when right-clicking inside xterm. `ui/src/tabs/manager.ts`.
+
+- **Single-tab AOM stops when its operator is removed**: previously the AOM loop kept polling a tab after `setTabOperator(null)`, even though there was no operator to ask. `ui/src/tabs/manager.ts`.
+
+- **Teammate `@file` chips treated as read-first targets**: aligns @file with @spec semantics so the executor reads the referenced file before responding instead of treating it as a hint. `crates/app/src/teammate/commands.rs`.
+
+- **Teammate strips chat-only `@tokens` from `propose_task` drafts before dispatch**: chat-flavored `@chat`, `@op` tokens were leaking into the spawned task prompt and confusing the executor. `crates/app/src/teammate/`.
+
+- **Teammate backfills `task_id` on confirmed Propose row**: a propose row that was confirmed before its task_id arrived asynchronously lost the link forever. `ui/src/teammate/panel.ts`.
+
+- **Teammate roster push after async load**: the activity view rendered before the operator roster finished loading, so the picker was empty on first open until refresh. `ui/src/teammate/panel.ts`.
+
+- **Agent API errors tag the originating provider**: previously a 429 from any provider looked identical in logs. `crates/agent/src/error.rs`.
+
+- **File-tree context menu flips when it would overflow**: a context menu opened near the right edge of the structure sidebar used to render off-screen. `ui/src/structure/tree.ts`.
+
+- **Notch head avatar color matches the per-agent picker + row dots**: avatar tint was hardcoded to the default accent and clashed with the picker's per-agent color. `ui/src/inline-notch/`.
+
 ## v0.8.35 — Inline PDF + DOCX preview
 
 ### Added
