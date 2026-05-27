@@ -7248,6 +7248,27 @@ button.status-segment.status-aom.status-aom-warn:hover {
 .structure-row:hover {
     background: rgba(var(--ink-rgb), 0.035);
 }
+/* Currently-open file in the editor — accent tint + 2px left stripe.
+   Set by StructureTree.setActivePath() from manager.ts when
+   editor.open() succeeds and cleared from the editor's onClose
+   callback. See docs/superpowers/specs/2026-05-26-file-tree-active-row-design.md. */
+.structure-row.is-active {
+    background: color-mix(in srgb, var(--accent, #b794f4) 14%, transparent);
+    position: relative;
+}
+.structure-row.is-active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    background: var(--accent, #b794f4);
+    border-radius: 0 2px 2px 0;
+}
+.structure-row.is-active .structure-name {
+    color: var(--fg, #e5e7eb);
+}
 .structure-node-expanded > .structure-row {
     color: var(--text-primary);
 }
