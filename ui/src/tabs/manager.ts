@@ -82,6 +82,8 @@ import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 import { zoom } from "../zoom";
 import { attachTooltip } from "../tooltip/tooltip";
+import type { Pane, TabLayout } from "./pane";
+import { assertLayoutValid } from "./pane";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -287,6 +289,11 @@ interface Tab {
   /// Drives the palpitating "app running" dot next to the tab label.
   /// Null = idle at shell prompt.
   busyProc?: string | null;
+  /// Phase A: multi-pane data model. `panes` always has length 1 or 2.
+  /// During Phase B (read migration) the scalar fields above are kept
+  /// in sync with `panes[0]` as a safety net; Phase C removes them.
+  panes: [Pane] | [Pane, Pane];
+  layout: TabLayout;
 }
 
 interface TabGroup {
@@ -2725,7 +2732,25 @@ export class TabManager {
       executor: null,
       disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose],
       specBadge: null,
+      panes: [] as unknown as [Pane],
+      layout: { kind: "single", activePaneIdx: 0 },
     };
+
+    const pane0Shell: Pane = {
+      id: `p-${sessionId}`,
+      kind: "terminal",
+      sessionId,
+      cwd: tab.cwd ?? "",
+      mission: tab.mission,
+      operator: tab.operator_id,
+      blocks: [],
+      xterm: tab.term ?? null,
+      piView: null,
+    };
+    tab.panes = [pane0Shell];
+    tab.layout = { kind: "single", activePaneIdx: 0 };
+    assertLayoutValid(tab);
+
     tabRef.current = tab;
 
     // Floating Cmd+F finder, scoped to this tab's pane. Created after
@@ -2953,7 +2978,24 @@ export class TabManager {
       executor: "pi",
       disposers: [],
       specBadge: null,
+      panes: [] as unknown as [Pane],
+      layout: { kind: "single", activePaneIdx: 0 },
     };
+
+    const pane0Pi: Pane = {
+      id: `p-${sessionId}`,
+      kind: "pi",
+      sessionId,
+      cwd: tab.cwd ?? "",
+      mission: tab.mission,
+      operator: tab.operator_id,
+      blocks: [],
+      xterm: null,
+      piView: tab.piView ?? null,
+    };
+    tab.panes = [pane0Pi];
+    tab.layout = { kind: "single", activePaneIdx: 0 };
+    assertLayoutValid(tab);
 
     this.tabs.push(tab);
     if (tab.groupId) {
