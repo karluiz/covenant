@@ -903,9 +903,12 @@ export class TabManager {
 
     // D14 — active-pane border: wire pane-1 focus via focusin.
     // xterm's internal textarea bubbles focusin through the pane-host container.
+    // Dynamic findIndex lookup so the correct index is used after a pane swap.
     const pane1FocusIn = (): void => {
-      if (tab.layout.activePaneIdx === paneIdx) return;
-      tab.layout.activePaneIdx = paneIdx;
+      const idx = tab.panes.findIndex((p) => p.el === paneHost1);
+      if (idx < 0) return;
+      if (tab.layout.activePaneIdx === idx) return;
+      tab.layout.activePaneIdx = idx as 0 | 1;
       this.updateActivePaneClass(tab);
       this.onActiveContextChange?.(activePane(tab).cwd);
       this.emitActiveMission();
@@ -942,11 +945,28 @@ export class TabManager {
     (pane.piView as unknown as { focus?: () => void } | null)?.focus?.();
   }
 
-  private remountSplitDom(_tab: Tab): void {
-    // D12 v0 stub: CSS data-split attribute + --pane-ratio variable are the
-    // only things that need updating for orientation changes. Full remount
-    // (swap DOM children) is deferred to D14 when focus indicators + a
-    // real use-case drive it.
+  private remountSplitDom(tab: Tab): void {
+    if (tab.layout.kind !== "split") return;
+    const block = tab.terminalBlock;
+    const splitter = block.querySelector<HTMLElement>(".pane-splitter");
+    if (!splitter) return;
+    const pane0 = tab.panes[0];
+    const pane1 = tab.panes[1];
+    if (!pane0?.el || !pane1?.el) return;
+    // Physically reorder DOM children to match panes[] order:
+    // pane0.el → splitter → pane1.el
+    block.insertBefore(pane0.el, splitter);
+    block.insertBefore(splitter, pane1.el);
+    block.appendChild(pane1.el);
+    // Refit both xterms — DOM reorder doesn't trigger ResizeObserver.
+    requestAnimationFrame(() => {
+      if (pane0.xterm) {
+        try { pane0.xterm.refresh(0, (pane0.xterm.rows ?? 1) - 1); } catch { /* ignore */ }
+      }
+      if (pane1.xterm) {
+        try { pane1.xterm.refresh(0, (pane1.xterm.rows ?? 1) - 1); } catch { /* ignore */ }
+      }
+    });
   }
 
   // E2 — restore second pane from manifest ----------------------------------------
@@ -3366,10 +3386,14 @@ export class TabManager {
 
     // D14 — active-pane border: wire pane-0 focus for shell tabs via focusin.
     // xterm focuses an internal textarea; the event bubbles up through paneHost0.
+    // Dynamic findIndex lookup so the correct index is used after a pane swap.
     const pane0FocusIn = (): void => {
       const t = tabRef.current;
-      if (!t || t.layout.activePaneIdx === 0) return;
-      t.layout.activePaneIdx = 0;
+      if (!t) return;
+      const idx = t.panes.findIndex((p) => p.el === paneHost0);
+      if (idx < 0) return;
+      if (t.layout.activePaneIdx === idx) return;
+      t.layout.activePaneIdx = idx as 0 | 1;
       this.updateActivePaneClass(t);
       this.onActiveContextChange?.(activePane(t).cwd);
       this.emitActiveMission();
@@ -3637,9 +3661,12 @@ export class TabManager {
     // D14 — active-pane border: wire pane-0 focus for Pi tabs via focusin
     // (PiChatView doesn't expose an onFocus signal; the textarea fires a
     // native focusin that bubbles up from inside piPaneHost0).
+    // Dynamic findIndex lookup so the correct index is used after a pane swap.
     const piPane0FocusIn = (): void => {
-      if (tab.layout.activePaneIdx === 0) return; // already active, skip
-      tab.layout.activePaneIdx = 0;
+      const idx = tab.panes.findIndex((p) => p.el === piPaneHost0);
+      if (idx < 0) return;
+      if (tab.layout.activePaneIdx === idx) return;
+      tab.layout.activePaneIdx = idx as 0 | 1;
       this.updateActivePaneClass(tab);
       this.onActiveContextChange?.(activePane(tab).cwd);
       this.emitActiveMission();
