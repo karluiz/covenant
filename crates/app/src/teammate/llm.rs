@@ -53,25 +53,59 @@ const SENTIMENT_DIRECTIVE: &str = "\n\n# Sentiment tag\n\
 /// If no parseable tag is present, the full text is returned unchanged
 /// with `None` so the UI falls back to a neutral pose.
 pub fn extract_sentiment(text: &str) -> (String, Option<Sentiment>) {
-    // Find the last non-empty line.
-    let trimmed = text.trim_end();
-    let (head, tail) = match trimmed.rfind('\n') {
-        Some(idx) => (&trimmed[..idx], &trimmed[idx + 1..]),
-        None => ("", trimmed),
-    };
-    let candidate = tail.trim();
-    // Strip an optional leading bullet/quote the model might add.
-    let candidate = candidate
-        .trim_start_matches(|c: char| matches!(c, '*' | '-' | '>' | '['))
-        .trim();
-    // Match `SENTIMENT: <token>` case-insensitively, with optional
-    // trailing punctuation (`.` or `]`).
-    let lower = candidate.to_ascii_lowercase();
+    // Find the LAST occurrence of `SENTIMENT:` (case-insensitive) that
+    // starts a line — i.e. everything between the preceding newline (or
+    // start of text) and the match is bullet/quote/whitespace noise. This
+    // prevents stripping the substring when it appears in prose. The
+    // protocol asks for it on its own trailing line, but we also tolerate
+    // an inline tag if it's the final sentence with no content after the
+    // token.
+    let lower_all = text.to_ascii_lowercase();
     let prefix = "sentiment:";
-    let Some(rest) = lower.strip_prefix(prefix) else {
+    let is_line_lead = |idx: usize| -> bool {
+        let line_start = text[..idx].rfind('\n').map(|n| n + 1).unwrap_or(0);
+        text[line_start..idx]
+            .chars()
+            .all(|c| matches!(c, ' ' | '\t' | '*' | '-' | '>' | '['))
+    };
+    // Inline fallback: tag preceded by whitespace and nothing meaningful
+    // after the token (i.e. it's the very last thing in the reply). This
+    // keeps `Hello. SENTIMENT: neutral` working without admitting prose
+    // mentions like `your sentiment: seems off`.
+    let is_inline_eot = |i: usize| -> bool {
+        if i == 0 {
+            return false;
+        }
+        let prev = text[..i].chars().next_back();
+        if !matches!(prev, Some(' ' | '\t')) {
+            return false;
+        }
+        let rest = &text[i + prefix.len()..];
+        // Allow `<token>` optionally followed by whitespace/newlines only.
+        let after_token = match rest.find('\n') {
+            Some(n) => &rest[n..],
+            None => "",
+        };
+        after_token.trim().is_empty()
+    };
+    let mut tag_idx_opt: Option<usize> = None;
+    for (i, _) in lower_all.rmatch_indices(prefix) {
+        if is_line_lead(i) || is_inline_eot(i) {
+            tag_idx_opt = Some(i);
+            break;
+        }
+    }
+    let Some(tag_idx) = tag_idx_opt else {
         return (text.to_string(), None);
     };
-    let token = rest
+    // Everything before the tag (back to its line start) is the body
+    // candidate; everything from `tag_idx + prefix.len()` to the next
+    // newline (or end) is the token.
+    let after = &text[tag_idx + prefix.len()..];
+    let eol = after.find('\n').unwrap_or(after.len());
+    let token_slice = &after[..eol];
+    let trailing = &after[eol..];
+    let token = token_slice
         .trim()
         .trim_end_matches(|c: char| matches!(c, '.' | ']' | ')' | ',' | ';'))
         .trim();
@@ -96,9 +130,26 @@ pub fn extract_sentiment(text: &str) -> (String, Option<Sentiment>) {
         // malformed tag and the model gets corrected by the next round.
         return (text.to_string(), None);
     }
-    // Strip the tag line + any blank lines immediately above it.
-    let stripped = head.trim_end_matches(|c: char| c == '\n' || c == ' ' || c == '\t');
-    (stripped.to_string(), sentiment)
+    // Strip the tag from the body. Keep whatever followed the tag's line
+    // (rare, but preserves model output if it kept writing after the tag).
+    // For a line-lead tag, cut head at the line start so the bullet/quote
+    // prefix (`> SENTIMENT: …`) is dropped. For an inline-EOT tag, keep
+    // text up to the tag itself.
+    let head_end = if is_line_lead(tag_idx) {
+        text[..tag_idx].rfind('\n').map(|n| n + 1).unwrap_or(0)
+    } else {
+        tag_idx
+    };
+    let head = &text[..head_end];
+    let head = head.trim_end_matches(|c: char| c == '\n' || c == ' ' || c == '\t');
+    let trailing = trailing.trim_start_matches('\n');
+    let mut out = String::with_capacity(head.len() + trailing.len() + 2);
+    out.push_str(head);
+    if !head.is_empty() && !trailing.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(trailing);
+    (out, sentiment)
 }
 
 /// Build the system prompt for `operator`. The string is stable across
@@ -921,6 +972,17 @@ mod tests {
         let (text, s) = extract_sentiment(raw);
         assert_eq!(text, raw, "unparseable tag must not be stripped");
         assert_eq!(s, None);
+    }
+
+    #[test]
+    fn extract_sentiment_strips_inline_tag_without_newline() {
+        // Regression: model sometimes emits the tag on the same line as
+        // the final sentence. We must still strip it so it does not leak
+        // into the rendered message bubble.
+        let raw = "Specify the file name. SENTIMENT: neutral";
+        let (text, s) = extract_sentiment(raw);
+        assert_eq!(text, "Specify the file name.");
+        assert_eq!(s, Some(Sentiment::Neutral));
     }
 
     #[test]
