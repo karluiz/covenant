@@ -878,6 +878,135 @@ export class TabManager {
     // real use-case drive it.
   }
 
+  // E2 — restore second pane from manifest ----------------------------------------
+
+  /// Spawns a PTY for the persisted second pane, populates tab.panes[1],
+  /// mounts the DOM (reusing mountSecondPaneDom), and restores layout
+  /// fields. Called from the post-spawn setup loop in restoreFromManifest
+  /// when the persisted tab had layout.kind === "split".
+  private async restoreSecondPaneForTab(
+    tab: Tab,
+    persistedPane: SerializedPane,
+    layout: SerializedLayout,
+  ): Promise<void> {
+    // 1. Replay persisted scrollback into a temporary buffer so the second
+    //    pane's xterm sees history before the live channel attaches.
+    //    We hold a mutable reference updated after mountSecondPaneDom wires
+    //    the real xterm. The PTY output closure below captures this ref.
+    let secondPaneXterm: { write: (data: Uint8Array) => void } | null = null;
+    const replayKey = persistedPane.replay_key;
+
+    try {
+      // Replay is best-effort — missing scrollback log is not fatal.
+      const tail = await replayScrollback(replayKey);
+      // xterm isn't mounted yet; we'll replay again once it is (see step 5).
+      // Keep the bytes in a local so we can write them after mount.
+      if (tail.byteLength > 0) {
+        // Store for deferred write below.
+        (this as unknown as Record<string, unknown>)[`_replayTail_${replayKey}`] = tail;
+      }
+    } catch {
+      /* non-fatal */
+    }
+
+    // 2. Spawn PTY for the second pane. Output routes through the ref.
+    const paneId = persistedPane.id || `p-${crypto.randomUUID()}`;
+    const cwd = persistedPane.cwd ?? "";
+    let sessionId: string;
+    try {
+      sessionId = await spawnSession(
+        {
+          onOutput: (chunk) => { secondPaneXterm?.write(chunk); },
+          onSessionEvent: (_event) => { /* TODO: full event wiring (D13-equivalent for restore) */ },
+        },
+        {
+          initialCwd: cwd || null,
+          replayKey: replayKey || null,
+          paneId,
+        },
+      ) as string;
+    } catch (err) {
+      console.warn("E2: failed to spawn PTY for restored second pane", err);
+      return;
+    }
+
+    // 3. Construct the second Pane object.
+    const newPane: import("./pane").Pane = {
+      id: paneId,
+      kind: "terminal",
+      sessionId,
+      cwd,
+      mission: null,
+      operator: persistedPane.operator_id ?? null,
+      blocks: [],
+      xterm: null,
+      piView: null,
+      executor: null,
+      operatorEnabled: false,
+      operatorLive: false,
+      aomExcluded: persistedPane.aom_excluded ?? false,
+      observer_ids: Array.isArray(persistedPane.observer_ids) ? [...persistedPane.observer_ids] : [],
+      spawn_id: persistedPane.spawn_id ?? null,
+      idleAgent: null,
+      busyProc: null,
+      replayKey,
+      el: null,
+    };
+
+    // 4. Set tab.panes[1] and update layout BEFORE mountSecondPaneDom so
+    //    the DOM helper reads the correct orientation, ratio, and pane.
+    tab.panes = [tab.panes[0]!, newPane] as [import("./pane").Pane, import("./pane").Pane];
+    tab.layout = {
+      kind: "split",
+      orientation: layout.orientation ?? "horizontal",
+      activePaneIdx: layout.active === 0 ? 0 : 1,
+      ratio: layout.ratio,
+    };
+    assertLayoutValid(tab);
+
+    // 5. Plant the late-binding hook that mountSecondPaneDom expects.
+    //    spawnPtyForPane stores a closure under `_xtermRef_${sessionId}`;
+    //    mountSecondPaneDom calls it once xterm is open to wire output.
+    //    We replicate the same contract here so we can reuse mountSecondPaneDom.
+    (this as unknown as Record<string, unknown>)[`_xtermRef_${sessionId}`] = (ref: { write: (d: Uint8Array) => void } | null) => {
+      secondPaneXterm = ref;
+      // Flush any scrollback that arrived before xterm was mounted.
+      if (ref) {
+        const tail = (this as unknown as Record<string, unknown>)[`_replayTail_${replayKey}`] as Uint8Array | undefined;
+        if (tail && tail.byteLength > 0) {
+          ref.write(tail);
+        }
+        delete (this as unknown as Record<string, unknown>)[`_replayTail_${replayKey}`];
+      }
+    };
+
+    // 6. Mount DOM (splitter + pane-host + xterm). This reads tab.panes[1]
+    //    (already set above) and calls the xtermRef binder we planted.
+    this.mountSecondPaneDom(tab, 1);
+
+    // 7. Restore operator on the backend for the second pane.
+    if (newPane.operator && sessionId) {
+      sessionSetOperator(sessionId as SessionId, newPane.operator).catch((e) => {
+        console.warn("E2: session_set_operator failed for restored second pane", e);
+      });
+    }
+
+    // 8. Restore AOM exclusion on the backend for the second pane.
+    if (sessionId) {
+      setAomExcluded(sessionId as SessionId, newPane.aomExcluded)
+        .then(() => { /* persisted value applied */ })
+        .catch((err) => {
+          console.warn("E2: aom_excluded restore failed for second pane", err);
+        });
+    }
+
+    // 9. Reflect active-pane indicator after second pane is fully mounted.
+    this.updateActivePaneClass(tab);
+    this.scheduleSave();
+  }
+
+  // End E2 restore helpers -------------------------------------------------------
+
   // D14 — active-pane border follows focus -----------------------------------------
 
   /// Toggle the `.active` CSS class on each pane-host so D5's
@@ -4065,6 +4194,21 @@ export class TabManager {
           );
         }
         await Promise.all(tasks);
+
+        // E2 — restore second pane for split tabs. Must run after pane[0]
+        // setup tasks above so the tab's layout is in a clean single state
+        // before we mutate it to "split". Only fires when the persisted
+        // layout was split and the second pane data is present.
+        if (
+          t.layout?.kind === "split" &&
+          Array.isArray(t.panes) &&
+          t.panes.length === 2 &&
+          t.panes[1]
+        ) {
+          await this.restoreSecondPaneForTab(tab, t.panes[1], t.layout).catch((err) => {
+            console.warn("E2: restoreSecondPaneForTab failed; tab restored as single-pane", err);
+          });
+        }
       }),
     );
 
