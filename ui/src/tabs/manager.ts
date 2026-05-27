@@ -242,6 +242,9 @@ interface Tab {
   /// removed from Tab. Access via activePane(tab).<field> instead.
   panes: [Pane] | [Pane, Pane];
   layout: TabLayout;
+  /// Phase D: wrapper that contains 1 or 2 pane-hosts. Always present
+  /// (single-pane tabs have one pane-host).
+  terminalBlock: HTMLElement;
 }
 
 interface TabGroup {
@@ -1817,7 +1820,16 @@ export class TabManager {
 
     const termHost = document.createElement("div");
     termHost.className = "tab-terminal";
-    pane.appendChild(termHost);
+
+    const terminalBlock = document.createElement("div");
+    terminalBlock.className = "terminal-block";
+    terminalBlock.dataset.layout = "single";
+
+    const paneHost0 = document.createElement("div");
+    paneHost0.className = "pane-host";
+    paneHost0.appendChild(termHost);
+    terminalBlock.appendChild(paneHost0);
+    pane.appendChild(terminalBlock);
 
     // Splitter between terminal and editor. Hidden when the editor is
     // closed. When the editor opens, the user can drag this to resize
@@ -2713,6 +2725,7 @@ export class TabManager {
       specBadge: null,
       panes: [] as unknown as [Pane],
       layout: { kind: "single", activePaneIdx: 0 },
+      terminalBlock,
     };
 
     const pane0Shell: Pane = {
@@ -2734,6 +2747,7 @@ export class TabManager {
       idleAgent: null,
       busyProc: null,
       replayKey,
+      el: paneHost0,
     };
     tab.panes = [pane0Shell];
     assertLayoutValid(tab);
@@ -2940,7 +2954,16 @@ export class TabManager {
       return null;
     }
 
-    const view = new PiChatView({ sessionId, host: pane });
+    const piTerminalBlock = document.createElement("div");
+    piTerminalBlock.className = "terminal-block";
+    piTerminalBlock.dataset.layout = "single";
+
+    const piPaneHost0 = document.createElement("div");
+    piPaneHost0.className = "pane-host";
+    piTerminalBlock.appendChild(piPaneHost0);
+    pane.appendChild(piTerminalBlock);
+
+    const view = new PiChatView({ sessionId, host: piPaneHost0 });
 
     const tab: Tab = {
       id,
@@ -2956,6 +2979,7 @@ export class TabManager {
       specBadge: null,
       panes: [] as unknown as [Pane],
       layout: { kind: "single", activePaneIdx: 0 },
+      terminalBlock: piTerminalBlock,
     };
 
     const pane0Pi: Pane = {
@@ -2977,6 +3001,7 @@ export class TabManager {
       idleAgent: null,
       busyProc: null,
       replayKey,
+      el: piPaneHost0,
     };
     tab.panes = [pane0Pi];
     assertLayoutValid(tab);

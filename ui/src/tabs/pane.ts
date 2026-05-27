@@ -40,6 +40,9 @@ export interface Pane {
   idleAgent: IdleAgentState | null;
   busyProc: string | null;
   replayKey: string;
+  /// DOM container for this pane (the .pane-host div).
+  /// Null only briefly during construction before mounting.
+  el: HTMLElement | null;
 }
 
 export interface TabLayout {

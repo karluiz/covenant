@@ -26,6 +26,7 @@ const pane = (id: string, cwd = "/"): Pane => ({
   idleAgent: null,
   busyProc: null,
   replayKey: "",
+  el: null,
 });
 
 const singleTab = (id: string): Tab => ({
