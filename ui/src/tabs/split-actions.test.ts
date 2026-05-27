@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { splitPaneAction, closePaneAction } from "./split-actions";
+import {
+  splitPaneAction,
+  closePaneAction,
+  focusPaneAction,
+  swapPanesAction,
+  setPaneOrientationAction,
+  setPaneRatioAction,
+} from "./split-actions";
 import type { Tab, Pane } from "./pane";
 
 const makePane = (id: string, cwd = "/repo"): Pane => ({
@@ -67,6 +74,13 @@ describe("splitPaneAction", () => {
   });
 });
 
+const makeSplitTab = (id: string): Tab => {
+  const t = makeSingleTab(id);
+  (t.panes as Pane[]).push(makePane("p1"));
+  t.layout = { kind: "split", orientation: "horizontal", activePaneIdx: 0, ratio: 0.5 };
+  return t;
+};
+
 describe("closePaneAction", () => {
   it("collapses split → single, drops the right pane", async () => {
     const tab = makeSingleTab("t1");
@@ -115,5 +129,78 @@ describe("closePaneAction", () => {
     expect(result).toBe("close-tab");
     expect(ctx.killSession).not.toHaveBeenCalled();
     expect(ctx.unmountPaneFromDom).not.toHaveBeenCalled();
+  });
+});
+
+describe("focusPaneAction", () => {
+  it("updates activePaneIdx and calls the DOM focus", () => {
+    const tab = makeSplitTab("t1");
+    const ctx = { focusInDom: vi.fn() };
+    focusPaneAction(tab, 1, ctx);
+    expect(tab.layout.activePaneIdx).toBe(1);
+    expect(ctx.focusInDom).toHaveBeenCalledWith(tab, 1);
+  });
+
+  it("no-op on a single-pane tab even if idx=0", () => {
+    const tab = makeSingleTab("t1");
+    const ctx = { focusInDom: vi.fn() };
+    focusPaneAction(tab, 0, ctx);
+    expect(tab.layout.activePaneIdx).toBe(0);
+    expect(ctx.focusInDom).toHaveBeenCalledWith(tab, 0);
+  });
+});
+
+describe("swapPanesAction", () => {
+  it("swaps panes, inverts ratio, keeps the visually-active half in place", () => {
+    const tab = makeSplitTab("t1");
+    tab.layout.ratio = 0.7;
+    tab.layout.activePaneIdx = 0;
+    const ctx = { remountSplit: vi.fn() };
+    swapPanesAction(tab, ctx);
+    expect(tab.panes[0]!.id).toBe("p1");
+    expect(tab.panes[1]!.id).toBe("p0");
+    expect(tab.layout.activePaneIdx).toBe(1); // followed the original active
+    expect(tab.layout.ratio).toBeCloseTo(0.3); // 1 - 0.7
+    expect(ctx.remountSplit).toHaveBeenCalled();
+  });
+
+  it("no-op on single-pane tab", () => {
+    const tab = makeSingleTab("t1");
+    const ctx = { remountSplit: vi.fn() };
+    swapPanesAction(tab, ctx);
+    expect(tab.panes.length).toBe(1);
+    expect(ctx.remountSplit).not.toHaveBeenCalled();
+  });
+});
+
+describe("setPaneOrientationAction", () => {
+  it("flips orientation, keeps panes + ratio", () => {
+    const tab = makeSplitTab("t1");
+    tab.layout.ratio = 0.6;
+    const ctx = { remountSplit: vi.fn() };
+    setPaneOrientationAction(tab, "vertical", ctx);
+    expect(tab.layout.orientation).toBe("vertical");
+    expect(tab.layout.ratio).toBe(0.6);
+    expect(ctx.remountSplit).toHaveBeenCalled();
+  });
+
+  it("no-op on single-pane tab", () => {
+    const tab = makeSingleTab("t1");
+    const ctx = { remountSplit: vi.fn() };
+    setPaneOrientationAction(tab, "vertical", ctx);
+    expect(tab.layout.kind).toBe("single");
+    expect(ctx.remountSplit).not.toHaveBeenCalled();
+  });
+});
+
+describe("setPaneRatioAction", () => {
+  it("clamps ratio to [0.1, 0.9]", () => {
+    const tab = makeSplitTab("t1");
+    setPaneRatioAction(tab, 0.05);
+    expect(tab.layout.ratio).toBe(0.1);
+    setPaneRatioAction(tab, 0.95);
+    expect(tab.layout.ratio).toBe(0.9);
+    setPaneRatioAction(tab, 0.42);
+    expect(tab.layout.ratio).toBe(0.42);
   });
 });

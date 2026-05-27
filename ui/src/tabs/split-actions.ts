@@ -95,6 +95,46 @@ export type CloseResult = "collapsed" | "close-tab";
  * pane's PTY, unmounts its DOM, collapses the layout to single, and
  * focuses the surviving pane.
  */
+export interface FocusActionCtx {
+  /** Move keyboard focus to the named pane's DOM (e.g., xterm.focus()). */
+  focusInDom: (tab: Tab, paneIdx: 0 | 1) => void;
+}
+
+export function focusPaneAction(tab: Tab, paneIdx: 0 | 1, ctx: FocusActionCtx): void {
+  tab.layout.activePaneIdx = paneIdx;
+  ctx.focusInDom(tab, paneIdx);
+}
+
+export interface RemountCtx {
+  /** Rebuild the split DOM after a layout change (orientation, swap, etc.). */
+  remountSplit: (tab: Tab) => void;
+}
+
+export function swapPanesAction(tab: Tab, ctx: RemountCtx): void {
+  if (tab.layout.kind !== "split") return;
+  tab.panes = [tab.panes[1]!, tab.panes[0]!] as [Pane, Pane];
+  tab.layout.activePaneIdx = (1 - tab.layout.activePaneIdx) as 0 | 1;
+  if (tab.layout.ratio !== undefined) {
+    tab.layout.ratio = 1 - tab.layout.ratio;
+  }
+  ctx.remountSplit(tab);
+}
+
+export function setPaneOrientationAction(
+  tab: Tab,
+  orientation: SplitOrientation,
+  ctx: RemountCtx,
+): void {
+  if (tab.layout.kind !== "split") return;
+  tab.layout.orientation = orientation;
+  ctx.remountSplit(tab);
+}
+
+export function setPaneRatioAction(tab: Tab, ratio: number): void {
+  if (tab.layout.kind !== "split") return;
+  tab.layout.ratio = Math.max(0.1, Math.min(0.9, ratio));
+}
+
 export async function closePaneAction(
   tab: Tab,
   paneIdx: 0 | 1,
