@@ -11,7 +11,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import {
   listOperatorDecisions,
-  type Operator,
   type OperatorDecisionRow,
 } from "../api";
 // Note: OperatorDecisionRow may or may not carry cost_usd and escalation
@@ -77,23 +76,11 @@ export type ActivityBadgeCallback = (count: number) => void;
 
 export class ActivityView {
   private el: HTMLElement;
-  private pickerEl: HTMLElement;
   private listEl: HTMLElement;
   private summaryEl: HTMLElement;
   private unlistenDecision?: UnlistenFn;
   private unlistenStartup?: UnlistenFn;
-  /// Cached raw rows (newest first) — kept so we can re-paint on every
-  /// selection change without round-tripping the backend.
-  private rowsCache: OperatorDecisionRow[] = [];
-  /// All known operators (avatar/name/color lookup + picker source).
-  private operators: Operator[] = [];
-  private operatorsById = new Map<string, Operator>();
-  /// Selected operator IDs. `null` = combined (show all). Empty set =
-  /// system-only rows (no operator) — same as null in practice but kept
-  /// distinct so an explicit "deselect all" doesn't auto-revert.
-  private selectedIds: Set<string> | null = null;
-  private dropdownEl: HTMLElement | null = null;
-  private dismissDropdown: ((e: Event) => void) | null = null;
+  private operatorId: string | null = null;
   private onBadge: ActivityBadgeCallback | null = null;
   private unseenCount = 0;
   private visible = false;
@@ -102,10 +89,6 @@ export class ActivityView {
   constructor() {
     this.el = document.createElement("div");
     this.el.className = "teammate-panel-activity";
-
-    this.pickerEl = document.createElement("div");
-    this.pickerEl.className = "tp-activity-picker";
-    this.el.appendChild(this.pickerEl);
 
     this.summaryEl = document.createElement("div");
     this.summaryEl.className = "tp-activity-summary";
@@ -120,19 +103,19 @@ export class ActivityView {
     return this.el;
   }
 
-  async start(operators: Operator[], onBadge: ActivityBadgeCallback): Promise<void> {
-    this.operators = operators;
-    this.operatorsById = new Map(operators.map((o) => [o.id, o]));
+  async start(operatorId: string, onBadge: ActivityBadgeCallback): Promise<void> {
+    this.operatorId = operatorId;
     this.onBadge = onBadge;
     this.unseenCount = 0;
-    this.selectedIds = null;
-    this.renderPicker();
 
-    // Seed from recent history. Backend returns everything; we filter
-    // in-process so selection changes are instant.
+    // Seed from recent history.
     try {
-      this.rowsCache = await listOperatorDecisions(100);
-      this.paintHistorical();
+      const rows = await listOperatorDecisions(100);
+      // Filter to this operator if the row carries operator_id.
+      const filtered = rows.filter(
+        (r) => !r.operator_id || r.operator_id === operatorId,
+      );
+      this.paintHistorical(filtered);
     } catch (e) {
       console.warn("[activity-view] seed failed", e);
     }
@@ -141,7 +124,11 @@ export class ActivityView {
     try {
       this.unlistenDecision = await listen<DecisionEvent>(
         "operator-decision",
-        (event) => this.handleDecisionEvent(event.payload),
+        (event) => {
+          const d = event.payload;
+          if (d.operator_id && d.operator_id !== this.operatorId) return;
+          this.pushDecisionCard(d);
+        },
       );
       this.unlistenStartup = await listen<StartupActionEvent>(
         "operator-startup-action",
@@ -164,222 +151,6 @@ export class ActivityView {
       window.clearInterval(this.timeUpdateTimer);
       this.timeUpdateTimer = null;
     }
-    this.closeDropdown();
-  }
-
-  /* ── selection model ──────────────────────────────────────────── */
-
-  private passes(opId: string | null | undefined): boolean {
-    if (!opId) return true; // system rows always pass
-    if (this.selectedIds === null) return true;
-    return this.selectedIds.has(opId);
-  }
-
-  private setSelection(next: Set<string> | null): void {
-    this.selectedIds = next;
-    this.renderPicker();
-    this.paintHistorical();
-  }
-
-  /* ── picker UI ────────────────────────────────────────────────── */
-
-  private renderPicker(): void {
-    this.pickerEl.innerHTML = "";
-    if (this.operators.length === 0) return;
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "tp-activity-picker-btn";
-
-    const visibleOps = this.selectedIds === null
-      ? this.operators
-      : this.operators.filter((o) => this.selectedIds!.has(o.id));
-
-    // Avatar stack (up to 3, +N badge for the rest).
-    const stack = document.createElement("span");
-    stack.className = "tp-activity-picker-stack";
-    const show = visibleOps.slice(0, 3);
-    for (const op of show) stack.appendChild(this.operatorAvatar(op, 14));
-    if (visibleOps.length > show.length) {
-      const more = document.createElement("span");
-      more.className = "tp-activity-picker-more";
-      more.textContent = `+${visibleOps.length - show.length}`;
-      stack.appendChild(more);
-    }
-
-    const label = document.createElement("span");
-    label.className = "tp-activity-picker-label";
-    label.textContent = this.selectedIds === null
-      ? "All agents"
-      : visibleOps.length === 0
-        ? "No agents"
-        : visibleOps.length === 1
-          ? visibleOps[0].name
-          : visibleOps.map((o) => o.name).join(" + ");
-
-    const arrow = document.createElement("span");
-    arrow.className = "tp-activity-picker-arrow";
-    arrow.textContent = "▾";
-
-    btn.append(stack, label, arrow);
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (this.dropdownEl) this.closeDropdown();
-      else this.openDropdown(btn);
-    });
-    this.pickerEl.appendChild(btn);
-  }
-
-  private openDropdown(anchor: HTMLElement): void {
-    this.closeDropdown();
-    const drop = document.createElement("div");
-    drop.className = "tp-activity-picker-drop";
-
-    const head = document.createElement("div");
-    head.className = "tp-activity-picker-drop-head";
-    head.textContent = "Show activity for";
-    drop.appendChild(head);
-
-    // "All" row — special-cases the null state.
-    drop.appendChild(this.pickerRow({
-      isAll: true,
-      selected: this.selectedIds === null,
-      label: "All agents",
-      count: this.countFor(null),
-      onClick: () => { this.setSelection(null); this.closeDropdown(); },
-    }));
-
-    const sep = document.createElement("div");
-    sep.className = "tp-activity-picker-drop-sep";
-    drop.appendChild(sep);
-
-    const subhead = document.createElement("div");
-    subhead.className = "tp-activity-picker-drop-head";
-    subhead.textContent = "Or pick agents";
-    drop.appendChild(subhead);
-
-    for (const op of this.operators) {
-      const selected = this.selectedIds !== null && this.selectedIds.has(op.id);
-      drop.appendChild(this.pickerRow({
-        operator: op,
-        selected,
-        label: op.name,
-        count: this.countFor(op.id),
-        onClick: () => {
-          // Toggle within an explicit set. From the "all" state, a single
-          // pick switches to that one (most common case); cmd/shift could
-          // multi-select later — for now, click toggles inclusion.
-          const next = new Set(this.selectedIds ?? []);
-          if (selected) next.delete(op.id);
-          else next.add(op.id);
-          // If we just toggled the single remaining selection off, fall
-          // back to "all" rather than the awkward empty state.
-          this.setSelection(next.size === 0 ? null : next);
-          // Keep open so the user can multi-select; close on outside click.
-          this.renderDropdown(drop);
-        },
-      }));
-    }
-
-    document.body.appendChild(drop);
-    const r = anchor.getBoundingClientRect();
-    drop.style.top = `${r.bottom + 6}px`;
-    drop.style.left = `${r.left}px`;
-    drop.style.minWidth = `${r.width}px`;
-    this.dropdownEl = drop;
-
-    this.dismissDropdown = (e: Event) => {
-      const t = e.target as Node;
-      if (drop.contains(t) || anchor.contains(t)) return;
-      this.closeDropdown();
-    };
-    setTimeout(() => document.addEventListener("mousedown", this.dismissDropdown!), 0);
-  }
-
-  private renderDropdown(drop: HTMLElement): void {
-    // Re-paint the open dropdown after a multi-select toggle. Cheaper
-    // than tearing down and re-positioning.
-    const anchor = this.pickerEl.querySelector<HTMLElement>(".tp-activity-picker-btn");
-    if (!anchor) return;
-    drop.remove();
-    if (this.dismissDropdown) {
-      document.removeEventListener("mousedown", this.dismissDropdown);
-      this.dismissDropdown = null;
-    }
-    this.dropdownEl = null;
-    this.openDropdown(anchor);
-  }
-
-  private pickerRow(args: {
-    isAll?: boolean;
-    operator?: Operator;
-    selected: boolean;
-    label: string;
-    count: number;
-    onClick: () => void;
-  }): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "tp-activity-picker-opt";
-    if (args.selected) row.classList.add("is-selected");
-
-    const check = document.createElement("span");
-    check.className = "tp-activity-picker-check";
-    check.textContent = "✓";
-    row.appendChild(check);
-
-    if (args.operator) row.appendChild(this.operatorAvatar(args.operator, 14));
-    else if (args.isAll) {
-      const stack = document.createElement("span");
-      stack.className = "tp-activity-picker-stack";
-      for (const op of this.operators.slice(0, 3)) stack.appendChild(this.operatorAvatar(op, 12));
-      row.appendChild(stack);
-    }
-
-    const name = document.createElement("span");
-    name.className = "tp-activity-picker-name";
-    name.textContent = args.label;
-    row.appendChild(name);
-
-    const count = document.createElement("span");
-    count.className = "tp-activity-picker-count";
-    count.textContent = String(args.count);
-    row.appendChild(count);
-
-    row.addEventListener("click", (e) => { e.stopPropagation(); args.onClick(); });
-    return row;
-  }
-
-  private closeDropdown(): void {
-    this.dropdownEl?.remove();
-    this.dropdownEl = null;
-    if (this.dismissDropdown) {
-      document.removeEventListener("mousedown", this.dismissDropdown);
-      this.dismissDropdown = null;
-    }
-  }
-
-  private countFor(opId: string | null): number {
-    if (opId === null) return this.rowsCache.length;
-    return this.rowsCache.filter((r) => r.operator_id === opId).length;
-  }
-
-  private operatorAvatar(op: Operator, size: number): HTMLElement {
-    const av = document.createElement("span");
-    av.className = "tp-activity-av";
-    av.style.width = `${size}px`;
-    av.style.height = `${size}px`;
-    av.style.background = op.color || "#888";
-    return av;
-  }
-
-  /// Replace the operator roster after start() — the teammate panel
-  /// loads it asynchronously and we want the picker to refresh once
-  /// it lands instead of staying empty for the lifetime of the view.
-  setOperators(operators: Operator[]): void {
-    this.operators = operators;
-    this.operatorsById = new Map(operators.map((o) => [o.id, o]));
-    this.renderPicker();
-    this.paintHistorical();
   }
 
   /** Called when the Activity tab becomes visible/hidden. */
@@ -393,11 +164,10 @@ export class ActivityView {
 
   /* ── historical seed ──────────────────────────────────────────── */
 
-  private paintHistorical(): void {
+  private paintHistorical(rows: OperatorDecisionRow[]): void {
     this.listEl.innerHTML = "";
     this.summaryEl.innerHTML = "";
 
-    const rows = this.rowsCache.filter((r) => this.passes(r.operator_id));
     if (rows.length === 0) {
       this.listEl.innerHTML =
         '<div class="tp-activity-empty">No activity yet.</div>';
@@ -446,43 +216,10 @@ export class ActivityView {
     const costVal = (r as any).cost_usd ?? 0;
     const cost = costVal > 0 ? `$${costVal.toFixed(3)}` : "";
     const ts = r.timestamp_unix_ms ?? 0;
-    return this.buildCard({ cls, icon, title, body, tabSlug, cost, ts, operatorId: r.operator_id ?? null });
+    return this.buildCard({ cls, icon, title, body, tabSlug, cost, ts });
   }
 
   /* ── live events ──────────────────────────────────────────────── */
-
-  private handleDecisionEvent(d: DecisionEvent): void {
-    // Live events always go into the cache so the picker counts stay
-    // accurate even when the agent's chip is currently filtered out.
-    // Synthesize a minimal OperatorDecisionRow shape from the event.
-    const row = {
-      id: d.id,
-      session_id: d.session_id,
-      session_id_short: shortSession(d.session_id),
-      action: d.action,
-      reply_text: d.reply_text,
-      rationale: d.rationale,
-      executed: d.executed,
-      timestamp_unix_ms: d.timestamp_unix_ms || Date.now(),
-      operator_id: d.operator_id ?? null,
-      operator_name: d.operator_name ?? null,
-      cost_usd: d.cost_usd,
-    } as unknown as OperatorDecisionRow;
-    this.rowsCache.unshift(row);
-    if (this.rowsCache.length > 500) this.rowsCache.length = 500;
-    this.renderPicker(); // counts changed
-
-    if (!this.passes(d.operator_id)) {
-      // Still count toward the badge so the user knows new things happened
-      // somewhere, even if it's filtered out of the current view.
-      if (!this.visible) {
-        this.unseenCount++;
-        this.onBadge?.(this.unseenCount);
-      }
-      return;
-    }
-    this.pushDecisionCard(d);
-  }
 
   private pushDecisionCard(d: DecisionEvent): void {
     const { cls, icon, title, body } = this.classifyAction(
@@ -495,7 +232,7 @@ export class ActivityView {
     const tabSlug = shortSession(d.session_id);
     const cost = d.cost_usd > 0 ? `$${d.cost_usd.toFixed(3)}` : "";
     const ts = d.timestamp_unix_ms || Date.now();
-    const card = this.buildCard({ cls, icon, title, body, tabSlug, cost, ts, operatorId: d.operator_id ?? null });
+    const card = this.buildCard({ cls, icon, title, body, tabSlug, cost, ts });
 
     // Remove the empty state if present.
     this.listEl.querySelector(".tp-activity-empty")?.remove();
@@ -522,7 +259,6 @@ export class ActivityView {
       tabSlug: shortSession(e.session_id),
       cost: "",
       ts: Date.now(),
-      operatorId: null,
     });
 
     this.listEl.querySelector(".tp-activity-empty")?.remove();
@@ -585,36 +321,22 @@ export class ActivityView {
     tabSlug: string;
     cost: string;
     ts: number;
-    operatorId: string | null;
   }): HTMLElement {
     const card = document.createElement("div");
     card.className = `tp-activity-card tp-activity-${opts.cls}`;
     card.dataset.ts = String(opts.ts);
-    const meta = document.createElement("span");
-    meta.className = "tp-activity-meta";
-    // Operator chip — only when a row carries an operator and we're
-    // showing combined / multi-agent (so the user can tell who did what).
-    const op = opts.operatorId ? this.operatorsById.get(opts.operatorId) : null;
-    const showWho = op && (this.selectedIds === null || this.selectedIds.size > 1);
-    if (showWho) {
-      const who = document.createElement("span");
-      who.className = "tp-activity-who";
-      who.appendChild(this.operatorAvatar(op!, 10));
-      const n = document.createElement("span");
-      n.textContent = op!.name;
-      who.appendChild(n);
-      meta.appendChild(who);
-    }
-    meta.insertAdjacentHTML("beforeend",
-      `<span class="tp-activity-icon">${opts.icon}</span>` +
-      `<span class="tp-activity-title">${escapeHtml(opts.title)}</span>` +
-      `<span class="tp-activity-time" data-role="time">${escapeHtml(relativeTime(opts.ts))}</span>` +
-      (opts.cost ? `<span class="tp-activity-cost">${escapeHtml(opts.cost)}</span>` : ""));
-    card.appendChild(meta);
-    const body = document.createElement("span");
-    body.className = "tp-activity-body";
-    body.textContent = opts.body;
-    card.appendChild(body);
+    // Compact layout: icon + TITLE · time · $cost
+    //                  body row below (full width)
+    card.innerHTML = `
+      <span class="tp-activity-meta">
+        <span class="tp-activity-icon">${opts.icon}</span>
+        <span class="tp-activity-title">${escapeHtml(opts.title)}</span>
+        <span class="tp-activity-time" data-role="time">${escapeHtml(relativeTime(opts.ts))}</span>
+        ${opts.cost ? `<span class="tp-activity-cost">${escapeHtml(opts.cost)}</span>` : ""}
+      </span>
+      <span class="tp-activity-body"></span>
+    `;
+    card.querySelector<HTMLElement>(".tp-activity-body")!.textContent = opts.body;
     return card;
   }
 
