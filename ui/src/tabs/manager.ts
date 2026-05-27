@@ -36,6 +36,7 @@ import {
   getBlockedSessionIds,
   getSessionMission,
   getSettings,
+  getExperimentalFlags,
   isAomExcluded,
   isOperatorEnabled,
   isOperatorLive,
@@ -611,6 +612,26 @@ export class TabManager {
 
   setStatusBar(sb: StatusBar): void {
     this.statusBar = sb;
+  }
+
+  /// Whether experimental split-panes are enabled. Loaded from settings
+  /// at boot via `loadExperimentalFlags()`; updated live via
+  /// `setSplitPanesEnabled()` when the user saves the settings panel.
+  private splitPanesEnabled = false;
+
+  async loadExperimentalFlags(): Promise<void> {
+    const f = await getExperimentalFlags();
+    this.splitPanesEnabled = f.split_panes;
+  }
+
+  setSplitPanesEnabled(v: boolean): void {
+    this.splitPanesEnabled = v;
+    // D12 will wire `rebindSplitShortcuts()` here; for now this is a no-op.
+  }
+
+  /// Public read for keybindings + context menu gating.
+  canSplitPanes(): boolean {
+    return this.splitPanesEnabled;
   }
 
   /// 3.7 — fired whenever the *active* tab's cwd context changes:

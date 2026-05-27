@@ -1142,6 +1142,7 @@ async function boot(): Promise<void> {
     applyTabbarPosition(next.tabbar_position ?? "top");
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
+    manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);
     // Layout reflowed → xterm cells need re-measuring.
     manager.refitActive();
   };
@@ -1392,6 +1393,10 @@ async function boot(): Promise<void> {
 // Populate operator cache once the backend is up and tabs are
   // restored — chips in the tab strip and status bar need this.
   void manager.refreshOperatorCache();
+
+  // Load experimental feature flags (e.g. split_panes) once settings
+  // are available. Defaults to false until this resolves.
+  void manager.loadExperimentalFlags();
 
   // ⌘⇧O Operator Picker (Plan 3 Task 5)
   const operatorPicker = new OperatorPicker(document.body);

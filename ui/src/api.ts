@@ -948,6 +948,10 @@ export interface Settings {
   providers?: Record<string, ProviderEntry>;
   /// Model routing table mapping role names to provider+model.
   model_routes?: Record<string, RouteEntry>;
+  /// 4.x — experimental feature flags. Currently just split_panes.
+  experimental?: {
+    split_panes?: boolean;
+  };
 }
 
 export async function validateSendGridKey(apiKey: string): Promise<boolean> {
@@ -1016,6 +1020,15 @@ export async function gitSwitchBranch(cwd: string, branch: string): Promise<GitR
 
 export async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
+}
+
+export interface ExperimentalFlags {
+  split_panes: boolean;
+}
+
+export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
+  const settings = await getSettings();
+  return { split_panes: settings.experimental?.split_panes ?? false };
 }
 
 export interface CommandAction {

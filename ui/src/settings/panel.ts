@@ -94,7 +94,7 @@ interface RouteEntry {
 }
 
 interface ExperimentalConfig {
-  split_panes: boolean;
+  split_panes?: boolean;
 }
 
 interface Settings {
