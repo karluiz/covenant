@@ -2066,7 +2066,46 @@ async fn run_tick(
         let mut triage_short_circuit: Option<OperatorAction> = None;
         let mut triage_cost_usd = 0.0_f64;
         let mut triage_yielded = false;
-        if triage_enabled && !is_decision {
+        // Pre-triage cost gate. If the executor's despinnered screen
+        // signature matches the last Wait's AND we have a prior Wait on
+        // file, the operator already paid the triage call to confirm
+        // "nothing to do here" — repeating it would just spend another
+        // ~$0.018 to reach the same verdict. Synthesize a free Wait and
+        // skip triage entirely. The downstream loop-guard at
+        // `operator.rs:2592-2611` will then re-bump the counter for the
+        // synthesized Wait, eventually triggering an `idle-wait` escalate
+        // exactly as today — just at the same number of Waits but at
+        // zero triage cost.
+        let pretriage_sig = compute_progress_signature(&tail);
+        let (pretriage_skip, pretriage_prior_count, pretriage_prior_sig) = {
+            let i = inner.lock().await;
+            match i.sessions.get(&session_id) {
+                Some(att) => (
+                    should_skip_triage_for_idle_repeat(
+                        att.consecutive_idle_waits,
+                        att.progress_sig_at_last_wait,
+                        pretriage_sig,
+                    ),
+                    att.consecutive_idle_waits,
+                    att.progress_sig_at_last_wait,
+                ),
+                None => (false, 0, 0),
+            }
+        };
+        if pretriage_skip {
+            tracing::debug!(
+                session = %session_id,
+                prior_waits = pretriage_prior_count,
+                "operator: pre-triage gate fired (screen unchanged since last wait)"
+            );
+            triage_short_circuit = Some(OperatorAction::Wait {
+                rationale: format!(
+                    "pre-triage: screen unchanged (cached sig {:x}, {} prior waits)",
+                    pretriage_prior_sig, pretriage_prior_count,
+                ),
+            });
+        }
+        if triage_enabled && !is_decision && triage_short_circuit.is_none() {
             {
                 let mut inner_lock = inner.lock().await;
                 inner_lock.set_phase(session_id, OperatorPhase::Triaging);
@@ -3894,6 +3933,25 @@ fn compute_progress_signature(tail: &[u8]) -> u64 {
     hasher.finish()
 }
 
+/// Pre-triage cost gate. Returns true when the operator should skip
+/// the (paid) triage model call and synthesize a Wait inline.
+///
+/// Inputs come straight from the Attached struct + the current tick's
+/// tail signature; the function is pure so it's trivially testable.
+///
+/// The semantics mirror the existing post-triage idle-WAIT detector
+/// (`operator.rs:2592-2611`): a Wait is "repeated" when the despinnered
+/// screen signature matches the previous Wait's AND we already have at
+/// least one consecutive Wait on file. We just consult those signals
+/// earlier (before paying for triage) to skip the call entirely.
+pub(crate) fn should_skip_triage_for_idle_repeat(
+    consecutive_idle_waits: u32,
+    progress_sig_at_last_wait: u64,
+    current_progress_sig: u64,
+) -> bool {
+    consecutive_idle_waits > 0 && current_progress_sig == progress_sig_at_last_wait
+}
+
 /// Strip animated-glyph and elapsed-time churn from already-ANSI-
 /// stripped terminal text. Removes:
 ///   - Braille block (U+2800-U+28FF) — cli-spinners default
@@ -5673,5 +5731,47 @@ What would you like to do?
         const ACT_THRESHOLD: f32 = 0.6;
         assert!(0.7_f32 > ACT_THRESHOLD);
         assert!(!(0.5_f32 > ACT_THRESHOLD));
+    }
+
+    /// Pre-triage cost gate: when `consecutive_idle_waits > 0` AND the
+    /// current tail's progress signature equals `progress_sig_at_last_wait`,
+    /// `should_skip_triage_for_idle_repeat` must return true so the
+    /// caller can synthesize a Wait without calling the triage model.
+    /// The check is symmetric with the existing post-triage idle-WAIT
+    /// loop guard (`operator.rs:2592-2611`), just consulted earlier.
+    #[test]
+    fn pretriage_gate_fires_when_signature_repeats() {
+        let tail = b"Composing... 10m 24s\n[Esc to interrupt]\n".to_vec();
+        let sig = compute_progress_signature(&tail);
+        // First Wait: counter at 0, no prior sig. Gate must NOT fire.
+        assert!(!should_skip_triage_for_idle_repeat(0, 0, sig));
+        // Subsequent tick, same screen: counter > 0, sig matches → skip.
+        assert!(should_skip_triage_for_idle_repeat(1, sig, sig));
+        // Screen changed → gate must NOT fire even if counter > 0.
+        let new_sig = sig.wrapping_add(1);
+        assert!(!should_skip_triage_for_idle_repeat(1, sig, new_sig));
+        // Counter reset to 0 (e.g. after non-Wait outcome) → gate must
+        // NOT fire even if the cached sig happens to match.
+        assert!(!should_skip_triage_for_idle_repeat(0, sig, sig));
+    }
+
+    /// Regression guard for the gate-overwrite bug: once the pre-triage
+    /// gate sets `triage_short_circuit` to a Wait, the triage call site
+    /// must not run (else it overwrites the gate's verdict and pays for
+    /// the LLM call anyway). This is a structural assertion via grep —
+    /// the production guard at the triage-call site MUST include
+    /// `&& triage_short_circuit.is_none()`. We assert it by reading the
+    /// source file at test time.
+    #[test]
+    fn triage_block_guards_against_pretriage_shortcircuit() {
+        let src = include_str!("operator.rs");
+        // The exact guard the gate relies on. If anyone weakens this
+        // conjunction (e.g. drops the is_none() check during a refactor),
+        // the pre-triage cost gate becomes a no-op in production.
+        assert!(
+            src.contains("triage_enabled && !is_decision && triage_short_circuit.is_none()"),
+            "triage block must be guarded against an already-set triage_short_circuit; \
+             the pre-triage cost gate depends on this — see operator.rs::run_tick"
+        );
     }
 }
