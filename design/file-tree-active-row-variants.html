@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>File tree · active-row treatments</title>
+<style>
+  :root {
+    --bg: #0a0b0e;
+    --panel: #0f1014;
+    --panel-2: #14161b;
+    --border: rgba(255,255,255,0.08);
+    --fg: #e5e7eb;
+    --fg-dim: #8b8d94;
+    --fg-mute: #5e6068;
+    --accent: #b794f4;        /* lavender — matches existing CSS var */
+    --accent-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+    --accent-bg-soft: color-mix(in srgb, var(--accent) 8%, transparent);
+    --row-hover: rgba(255,255,255,0.04);
+  }
+
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    font-size: 13px;
+    margin: 0;
+    padding: 32px;
+    min-height: 100vh;
+  }
+
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: var(--fg);
+  }
+  .subtitle {
+    color: var(--fg-dim);
+    font-size: 12px;
+    margin-bottom: 32px;
+    max-width: 720px;
+    line-height: 1.5;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 320px);
+    gap: 24px;
+    align-items: start;
+  }
+
+  .variant {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .variant-header {
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .variant-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+    margin: 0 0 4px;
+  }
+  .variant-desc {
+    font-size: 11px;
+    color: var(--fg-dim);
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  /* --- File tree --- */
+  .tree {
+    padding: 6px 0;
+    user-select: none;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 8px 0 0;
+    color: var(--fg);
+    font-size: 12.5px;
+    line-height: 1;
+    position: relative;
+    cursor: default;
+  }
+  .row:hover { background: var(--row-hover); }
+  .chev {
+    width: 14px;
+    flex: 0 0 14px;
+    text-align: center;
+    color: var(--fg-mute);
+    font-size: 10px;
+    margin-right: 2px;
+  }
+  .chev.leaf { visibility: hidden; }
+  .icon {
+    width: 16px;
+    flex: 0 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 6px;
+    color: var(--fg-dim);
+  }
+  .icon svg { width: 14px; height: 14px; }
+  .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Indentation tiers (each level = 14px) */
+  .lv1 { padding-left: 8px; }
+  .lv2 { padding-left: 22px; }
+  .lv3 { padding-left: 36px; }
+  .lv4 { padding-left: 50px; }
+  .lv5 { padding-left: 64px; }
+
+  /* --- Variant A: tint + accent stripe (RECOMMENDED) --- */
+  .v-a .row.active {
+    background: var(--accent-bg);
+    color: var(--fg);
+  }
+  .v-a .row.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+  .v-a .row.active .icon { color: var(--accent); }
+
+  /* --- Variant B: tint only --- */
+  .v-b .row.active {
+    background: var(--accent-bg);
+  }
+  .v-b .row.active .icon { color: var(--accent); }
+
+  /* --- Variant C: stripe + bold filename --- */
+  .v-c .row.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+  .v-c .row.active .name {
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .v-c .row.active .icon { color: var(--accent); }
+
+  /* Legend bar at bottom */
+  .legend {
+    margin-top: 28px;
+    padding: 14px 16px;
+    background: var(--panel-2);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--fg-dim);
+    font-size: 12px;
+    max-width: 1000px;
+    line-height: 1.55;
+  }
+  .legend b { color: var(--fg); font-weight: 600; }
+  .legend code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--fg);
+    font-size: 11.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+</style>
+</head>
+<body>
+
+<h1>File tree — active-row treatments</h1>
+<p class="subtitle">
+  Three visual treatments for the currently-open file in the structure tree.
+  The "active" row in each mockup is the same file:
+  <code>docs/superpowers/plans/2026-05-04-aom-exclusion-visibility.md</code>.
+  All three treatments would be combined with auto-expand of collapsed
+  parents + scroll-into-view on <code>editor.open()</code>.
+</p>
+
+<div class="grid">
+
+  <!-- Variant A: tint + accent stripe -->
+  <div class="variant v-a">
+    <div class="variant-header">
+      <div class="variant-title">A · Background tint + accent stripe <span style="color:var(--accent);font-weight:500;">(recommended)</span></div>
+      <p class="variant-desc">Subtle accent-tinted background + 2px left stripe. Visible while scrolling. Pattern used by VSCode, Zed, Sublime.</p>
+    </div>
+    <div class="tree">
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">.pi</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">.superpowers</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">crates</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">design</span></div>
+      <div class="row lv1"><span class="chev">▾</span><span class="icon">📂</span><span class="name">docs</span></div>
+      <div class="row lv2"><span class="chev">▸</span><span class="icon">📁</span><span class="name">mockups</span></div>
+      <div class="row lv2"><span class="chev">▾</span><span class="icon">📂</span><span class="name">superpowers</span></div>
+      <div class="row lv3"><span class="chev">▸</span><span class="icon">📁</span><span class="name">notes</span></div>
+      <div class="row lv3"><span class="chev">▾</span><span class="icon">📂</span><span class="name">plans</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-02-structure-file-tree.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-03-aom-minimalist-ui.md</span></div>
+      <div class="row lv4 active"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-aom-exclusion-visibility.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-convergence-redesign.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-familiars.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-mission-picker-page.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-operator-no-mission-state.md</span></div>
+      <div class="row lv2"><span class="chev">▸</span><span class="icon">📁</span><span class="name">specs</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">ui</span></div>
+    </div>
+  </div>
+
+  <!-- Variant B: tint only -->
+  <div class="variant v-b">
+    <div class="variant-header">
+      <div class="variant-title">B · Background tint only</div>
+      <p class="variant-desc">Just the row background. Quieter, less discoverable when scrolling fast.</p>
+    </div>
+    <div class="tree">
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">.pi</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">.superpowers</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">crates</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">design</span></div>
+      <div class="row lv1"><span class="chev">▾</span><span class="icon">📂</span><span class="name">docs</span></div>
+      <div class="row lv2"><span class="chev">▸</span><span class="icon">📁</span><span class="name">mockups</span></div>
+      <div class="row lv2"><span class="chev">▾</span><span class="icon">📂</span><span class="name">superpowers</span></div>
+      <div class="row lv3"><span class="chev">▸</span><span class="icon">📁</span><span class="name">notes</span></div>
+      <div class="row lv3"><span class="chev">▾</span><span class="icon">📂</span><span class="name">plans</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-02-structure-file-tree.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-03-aom-minimalist-ui.md</span></div>
+      <div class="row lv4 active"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-aom-exclusion-visibility.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-convergence-redesign.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-familiars.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-mission-picker-page.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-operator-no-mission-state.md</span></div>
+      <div class="row lv2"><span class="chev">▸</span><span class="icon">📁</span><span class="name">specs</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">ui</span></div>
+    </div>
+  </div>
+
+  <!-- Variant C: stripe + bold filename -->
+  <div class="variant v-c">
+    <div class="variant-header">
+      <div class="variant-title">C · Left stripe + bold filename</div>
+      <p class="variant-desc">No row background. 2px stripe + bold/colored filename. Minimalist, terminal-feel.</p>
+    </div>
+    <div class="tree">
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">.pi</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">.superpowers</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">crates</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">design</span></div>
+      <div class="row lv1"><span class="chev">▾</span><span class="icon">📂</span><span class="name">docs</span></div>
+      <div class="row lv2"><span class="chev">▸</span><span class="icon">📁</span><span class="name">mockups</span></div>
+      <div class="row lv2"><span class="chev">▾</span><span class="icon">📂</span><span class="name">superpowers</span></div>
+      <div class="row lv3"><span class="chev">▸</span><span class="icon">📁</span><span class="name">notes</span></div>
+      <div class="row lv3"><span class="chev">▾</span><span class="icon">📂</span><span class="name">plans</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-02-structure-file-tree.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-03-aom-minimalist-ui.md</span></div>
+      <div class="row lv4 active"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-aom-exclusion-visibility.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-convergence-redesign.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-familiars.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-mission-picker-page.md</span></div>
+      <div class="row lv4"><span class="chev leaf">·</span><span class="icon">📄</span><span class="name">2026-05-04-operator-no-mission-state.md</span></div>
+      <div class="row lv2"><span class="chev">▸</span><span class="icon">📁</span><span class="name">specs</span></div>
+      <div class="row lv1"><span class="chev">▸</span><span class="icon">📁</span><span class="name">ui</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="legend">
+  <p style="margin:0 0 8px;"><b>Behavior layered on top of all three variants:</b></p>
+  <ul style="margin:0; padding-left: 20px;">
+    <li>On <code>editor.open(path)</code> → mark row active, auto-expand collapsed ancestors so the row is reachable, <code>scrollIntoView({ block: "nearest" })</code>.</li>
+    <li>On <code>editor.close()</code> → clear the active row.</li>
+    <li>Reveal fires <b>once per open</b>. User can collapse / scroll freely after that without the tree fighting them.</li>
+    <li>Per-tab — each tab has its own <code>StructureTree</code> + editor pairing, so the highlight follows the tab.</li>
+  </ul>
+  <p style="margin: 8px 0 0;">
+    <b>Accent color</b> is <code>var(--accent, #b794f4)</code> — already defined and used elsewhere in the app (matches the structure-context-menu hover tint at <code>styles.css:8034</code>).
+  </p>
+</div>
+
+</body>
+</html>
