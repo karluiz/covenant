@@ -332,6 +332,51 @@ export interface SerializedLayout {
   ratio?: number;
 }
 
+/// Serialize a live Tab into the canonical SerializedTab shape (panes[] +
+/// layout). The legacy scalar fields (cwd, mission_path, operator_id at the
+/// tab level) are emitted as null — new readers always use panes[i] instead.
+/// Exported so tests can call it directly without a full TabManager.
+export function serializeTab(tab: {
+  kind: "shell" | "pi";
+  customName: string | null;
+  color: string | null;
+  groupId: string | null;
+  panes: [Pane] | [Pane, Pane];
+  layout: TabLayout;
+}): SerializedTab {
+  const serializePane = (p: Pane): SerializedPane => ({
+    id: p.id,
+    kind: p.kind,
+    cwd: p.cwd || null,
+    mission_path: p.mission?.path ?? null,
+    operator_id: p.operator,
+    replay_key: p.replayKey,
+    observer_ids: p.observer_ids,
+    spawn_id: p.spawn_id,
+    aom_excluded: p.aomExcluded,
+  });
+  const pane0 = tab.panes[0]!;
+  const pane1 = tab.panes[1];
+  return {
+    kind: pane0.kind === "pi" ? "pi" : "shell",
+    custom_name: tab.customName,
+    cwd: null,           // legacy mirror; new readers use panes[i].cwd
+    color: tab.color,
+    group_id: tab.groupId,
+    mission_path: null,  // legacy mirror; new readers use panes[i].mission_path
+    operator_id: null,   // legacy mirror; new readers use panes[i].operator_id
+    panes: pane1
+      ? [serializePane(pane0), serializePane(pane1)]
+      : [serializePane(pane0)],
+    layout: {
+      kind: tab.layout.kind,
+      orientation: tab.layout.orientation,
+      active: tab.layout.activePaneIdx,
+      ratio: tab.layout.ratio,
+    },
+  };
+}
+
 export function liftLegacyTab(t: SerializedTab): SerializedTab {
   if (t.panes) {
     // Heal partial shape: if panes survived but layout didn't, synthesize a single-layout
@@ -3888,22 +3933,7 @@ export class TabManager {
             this.tabs.findIndex((t) => t.id === this.activeId),
           )
         : 0,
-      tabs: this.tabs.map((t) => {
-        const p = activePane(t);
-        return {
-          kind: t.kind,
-          custom_name: t.customName,
-          cwd: p.cwd || null,
-          color: t.color,
-          group_id: t.groupId,
-          mission_path: p.mission?.path ?? null,
-          operator_id: p.operator,
-          observer_ids: p.observer_ids,
-          spawn_id: p.spawn_id,
-          aom_excluded: p.aomExcluded,
-          replay_key: p.replayKey,
-        };
-      }),
+      tabs: this.tabs.map(serializeTab),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
         name: g.name,
