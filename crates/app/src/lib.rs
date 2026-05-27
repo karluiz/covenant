@@ -52,6 +52,7 @@ mod spec_detector;
 pub mod storage;
 mod structure;
 mod summarizer;
+mod pane;
 mod tab_manifest;
 pub mod teammate;
 pub mod telegram;
