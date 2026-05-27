@@ -278,7 +278,7 @@ pub(crate) async fn confirm_task_inner(
         cost_usd_cents: 0,
     };
     storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
-    storage.teammate_mark_message_confirmed(message_id, now_ms).await
+    storage.teammate_mark_message_confirmed(message_id, Some(task.id), now_ms).await
         .map_err(|e| e.to_string())?;
     runtime.start_task(operator_id, task.id, None).map_err(|e| e.to_string())?;
 

@@ -2353,15 +2353,25 @@ impl Storage {
     pub async fn teammate_mark_message_confirmed(
         &self,
         id: crate::teammate::MessageId,
+        task_id: Option<crate::teammate::TaskId>,
         now_unix_ms: u64,
     ) -> Result<(), StorageError> {
         let inner = self.inner.clone();
         tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
             let c = inner.blocking_lock();
-            c.execute(
-                "UPDATE teammate_messages SET confirmed_at_unix_ms = ?1 WHERE id = ?2",
-                params![now_unix_ms as i64, id.0.to_string()],
-            )?;
+            // Also backfill task_id so the confirmed Propose row can link
+            // back to the task it spawned — the chat pill renders as a
+            // dead-end without it (click handlers gate on msg.task_id).
+            match task_id {
+                Some(tid) => c.execute(
+                    "UPDATE teammate_messages SET confirmed_at_unix_ms = ?1, task_id = ?2 WHERE id = ?3",
+                    params![now_unix_ms as i64, tid.0.to_string(), id.0.to_string()],
+                )?,
+                None => c.execute(
+                    "UPDATE teammate_messages SET confirmed_at_unix_ms = ?1 WHERE id = ?2",
+                    params![now_unix_ms as i64, id.0.to_string()],
+                )?,
+            };
             Ok(())
         })
         .await
@@ -3757,7 +3767,7 @@ mod task_card_storage_tests {
 
         let msg = make_propose_msg(op);
         s.teammate_insert_message(&msg).await.unwrap();
-        s.teammate_mark_message_confirmed(msg.id, 1_700_000_000_500).await.unwrap();
+        s.teammate_mark_message_confirmed(msg.id, None, 1_700_000_000_500).await.unwrap();
 
         let fetched = s.teammate_get_message(msg.id).await.unwrap().expect("found");
         assert_eq!(fetched.confirmed_at_unix_ms, Some(1_700_000_000_500));
