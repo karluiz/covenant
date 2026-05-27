@@ -118,6 +118,7 @@ impl LlmProvider for AzureFoundryProvider {
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(AgentError::Api {
+                provider: "azure_foundry",
                 status: status.as_u16(),
                 body,
             });

@@ -16,12 +16,16 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AgentError {
-    #[error("anthropic api key is empty")]
+    #[error("api key is empty")]
     MissingKey,
     #[error("http: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("anthropic api {status}: {body}")]
-    Api { status: u16, body: String },
+    #[error("{provider} api {status}: {body}")]
+    Api {
+        provider: &'static str,
+        status: u16,
+        body: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -259,6 +263,7 @@ pub fn parse_triage_reply(text: &str) -> Result<TriageVerdict, AgentError> {
     let candidate = extract_first_json_object(text).unwrap_or_else(|| text.trim().to_string());
     let value: serde_json::Value =
         serde_json::from_str(&candidate).map_err(|e| AgentError::Api {
+            provider: "internal",
             status: 0,
             body: format!(
                 "triage reply not JSON: {e} — raw: {}",
@@ -276,6 +281,7 @@ pub fn parse_triage_reply(text: &str) -> Result<TriageVerdict, AgentError> {
         "yield" => TriageAction::Yield,
         other => {
             return Err(AgentError::Api {
+                provider: "internal",
                 status: 0,
                 body: format!("triage reply: unknown action {other:?}"),
             });

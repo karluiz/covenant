@@ -2085,6 +2085,7 @@ async fn run_tick(
                     tracing::warn!(?e, session = %session_id, "operator: triage provider unavailable — falling back to decision model");
                     // Fall through to decision model — treated same as triage error.
                     Err(karl_agent::AgentError::Api {
+                        provider: "internal",
                         status: 0,
                         body: e.to_string(),
                     })
@@ -2223,6 +2224,7 @@ async fn run_tick(
                     Err(e) => {
                         tracing::warn!(?e, session = %session_id, "operator: decision provider unavailable");
                         Err(karl_agent::AgentError::Api {
+                            provider: "internal",
                             status: 0,
                             body: e.to_string(),
                         })

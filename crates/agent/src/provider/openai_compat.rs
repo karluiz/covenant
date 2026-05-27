@@ -81,6 +81,7 @@ impl LlmProvider for OpenAiCompatProvider {
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(AgentError::Api {
+                provider: "openai_compat",
                 status: status.as_u16(),
                 body,
             });
