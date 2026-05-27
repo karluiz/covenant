@@ -1143,7 +1143,7 @@ export class TabManager {
       { label: "Split down",  visible: flag && isSingle, action: () => void this.splitActivePane("vertical") },
       { label: "Swap panes",  visible: flag && isSplit,  action: () => void this.swapActivePanes() },
       { label: "Convert to Pi", visible: flag && !isPi,  action: () => void this.convertPaneToPi(tab, paneIdx) },
-      { label: "Close pane",  visible: true,             action: () => void this.closeActivePaneOrTab() },
+      { label: "Close pane",  visible: true,             action: () => void this.closePaneByIdx(tab, paneIdx) },
     ];
 
     for (const item of items) {
@@ -2180,14 +2180,13 @@ export class TabManager {
   /// ⌘W semantic when split-panes flag is ON:
   /// - Split tab → collapse the active pane (kill its PTY, unmount DOM).
   /// - Single-pane tab → close the whole tab.
-  async closeActivePaneOrTab(): Promise<void> {
-    const tab = this.tabs.find((t) => t.id === this.activeId);
+  async closePaneByIdx(tab: Tab, paneIdx: 0 | 1): Promise<void> {
     if (!tab) return;
     if (tab.layout.kind === "single") {
-      this.closeTab(tab.id);
+      await this.closeTab(tab.id);
       return;
     }
-    const result = await closePaneAction(tab, tab.layout.activePaneIdx, {
+    const result = await closePaneAction(tab, paneIdx, {
       killSession: async (sid) => {
         try {
           await closeSession(sid as SessionId);
@@ -2199,7 +2198,7 @@ export class TabManager {
       focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
     });
     if (result === "close-tab") {
-      this.closeTab(tab.id);
+      await this.closeTab(tab.id);
       return;
     }
     // D14 — after collapsing to single-pane, reset the border to pane 0.
@@ -2207,6 +2206,12 @@ export class TabManager {
     this.scheduleSave();
     // F3 — remove the split glyph from tabbar after pane is closed.
     this.renderTabbar();
+  }
+
+  async closeActivePaneOrTab(): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    await this.closePaneByIdx(tab, tab.layout.activePaneIdx);
   }
 
   private unmountSecondPaneDom(tab: Tab, paneIdx: 0 | 1): void {
