@@ -17,6 +17,15 @@ const pane = (id: string, cwd = "/"): Pane => ({
   blocks: [],
   xterm: null,
   piView: null,
+  executor: null,
+  operatorEnabled: false,
+  operatorLive: false,
+  aomExcluded: false,
+  observer_ids: [],
+  spawn_id: null,
+  idleAgent: null,
+  busyProc: null,
+  replayKey: "",
 });
 
 const singleTab = (id: string): Tab => ({

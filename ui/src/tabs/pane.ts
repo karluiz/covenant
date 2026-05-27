@@ -25,6 +25,15 @@ export interface Pane {
   blocks: Block[];
   xterm: Terminal | null;
   piView: PiChatView | null;
+  executor: string | null;
+  operatorEnabled: boolean;
+  operatorLive: boolean;
+  aomExcluded: boolean;
+  observer_ids: string[];
+  spawn_id: string | null;
+  idleAgent: { agent: string; sinceMs: number; promptText: string | null } | null;
+  busyProc: string | null;
+  replayKey: string;
 }
 
 export interface TabLayout {

@@ -83,7 +83,7 @@ import { setFamiliarFor } from "../familiars/registry";
 import { zoom } from "../zoom";
 import { attachTooltip } from "../tooltip/tooltip";
 import type { Pane, TabLayout } from "./pane";
-import { assertLayoutValid } from "./pane";
+import { activePane, assertLayoutValid } from "./pane";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -1378,10 +1378,11 @@ export class TabManager {
       groupName: group?.name ?? null,
       groupColor: group?.color ?? null,
     });
-    this.onActiveSessionChange?.(tab?.sessionId ?? null);
+    const pane = tab ? activePane(tab) : null;
+    this.onActiveSessionChange?.(pane?.sessionId ?? null);
     scoreSetCurrentSession(
-      tab.sessionId ?? null,
-      tab.cwd ?? null,
+      pane?.sessionId ?? null,
+      pane?.cwd ?? null,
       group?.name ?? null,
     );
   }
@@ -1390,7 +1391,8 @@ export class TabManager {
   /// Safe to call any time mission state may have shifted.
   private emitActiveMission(): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    this.onActiveMissionChange?.(tab?.mission ?? null, tab?.sessionId ?? null);
+    const pane = tab ? activePane(tab) : null;
+    this.onActiveMissionChange?.(pane?.mission ?? null, pane?.sessionId ?? null);
   }
 
   /// Same idea as emitActiveMission but for Operator state. Called
@@ -2746,6 +2748,15 @@ export class TabManager {
       blocks: [],
       xterm: tab.term ?? null,
       piView: null,
+      executor: tab.executor,
+      operatorEnabled: tab.operatorEnabled,
+      operatorLive: tab.operatorLive,
+      aomExcluded: tab.aomExcluded,
+      observer_ids: tab.observer_ids,
+      spawn_id: tab.spawn_id,
+      idleAgent: tab.idleAgent ?? null,
+      busyProc: tab.busyProc ?? null,
+      replayKey: tab.replayKey,
     };
     tab.panes = [pane0Shell];
     assertLayoutValid(tab);
@@ -2991,6 +3002,15 @@ export class TabManager {
       blocks: [],
       xterm: null,
       piView: tab.piView ?? null,
+      executor: null,
+      operatorEnabled: false,
+      operatorLive: false,
+      aomExcluded: tab.aomExcluded,
+      observer_ids: tab.observer_ids,
+      spawn_id: tab.spawn_id,
+      idleAgent: null,
+      busyProc: null,
+      replayKey: tab.replayKey,
     };
     tab.panes = [pane0Pi];
     assertLayoutValid(tab);
@@ -3925,7 +3945,7 @@ export class TabManager {
     this.activeId = id;
     this.renderTabbar();
     this.onTabActivated?.();
-    this.onActiveContextChange?.(tab.cwd);
+    this.onActiveContextChange?.(activePane(tab).cwd);
     this.emitActiveMission();
     this.emitActiveOperator();
     this.emitActiveSpawn();
