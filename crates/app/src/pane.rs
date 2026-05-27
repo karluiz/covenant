@@ -1,6 +1,7 @@
 //! Rust mirror of the TS Pane/Layout types. Used for the tab manifest
 //! schema only — the live state lives in the UI; Rust just persists
 //! the manifest blob.
+#![allow(dead_code)] // TODO: remove once tab_manifest persistence wires these in (Phase E).
 
 use serde::{Deserialize, Serialize};
 
@@ -40,11 +41,12 @@ pub enum Orientation {
     Vertical,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedLayout {
     pub kind: LayoutKind,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub orientation: Option<Orientation>,
+    /// Index of the focused pane: `0` = left/top, `1` = right/bottom.
     pub active: u8,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub ratio: Option<f32>,
@@ -66,6 +68,7 @@ mod tests {
             replay_key: "rk1".into(),
         };
         let s = serde_json::to_string(&p).unwrap();
+        assert!(!s.contains("mission_path"));
         let p2: SerializedPane = serde_json::from_str(&s).unwrap();
         assert_eq!(p, p2);
     }
