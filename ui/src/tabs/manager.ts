@@ -5843,13 +5843,19 @@ export class TabManager {
 
   // F3 — split glyph helpers ------------------------------------------------
 
-  /// Returns a span element containing the ▣ split glyph + tooltip, or null
+  /// Returns a span element containing the split glyph + tooltip, or null
   /// when the glyph should not be shown (flag off or tab is not split).
   private buildSplitGlyph(tab: Tab): HTMLElement | null {
     if (!this.splitPanesEnabled || tab.layout.kind !== "split") return null;
     const glyph = document.createElement("span");
     glyph.className = "tab-chip-split-glyph";
-    glyph.textContent = "▣";
+    glyph.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" ' +
+      'aria-hidden="true">' +
+      '<rect x="2" y="3" width="12" height="10" rx="1.5"/>' +
+      '<line x1="8" y1="3" x2="8" y2="13"/>' +
+      "</svg>";
     glyph.setAttribute("aria-label", "split tab");
     attachTooltip(glyph, this.paneTooltipText(tab));
     return glyph;

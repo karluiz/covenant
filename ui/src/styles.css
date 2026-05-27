@@ -16397,10 +16397,10 @@ body.theme-light .task-card {
 .task-card__badge[data-archetype="review"] { background: rgba(80, 200, 120, 0.18); color: #88e3a8; }
 .task-card__badge[data-archetype="watch"]  { background: rgba(240, 180, 80,  0.18); color: #f0c870; }
 .task-card__title { font-weight: 600; }
-.task-card__rows { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12px; }
+.task-card__rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 12px; }
 .task-card__row { display: contents; }
 .task-card__row dt { color: var(--text-dim, #888); }
-.task-card__row dd { margin: 0; }
+.task-card__row dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-card__actions { display: flex; gap: 8px; margin-top: 10px; }
 .task-card__btn {
   padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
@@ -17149,9 +17149,20 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder]:empty:
 
 /* split tab glyph on tabbar chip (F3) */
 .tab-chip-split-glyph {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   margin-left: 4px;
-  opacity: 0.55;
-  font-size: 11px;
+  opacity: 0.6;
   vertical-align: middle;
+  color: currentColor;
+  transition: opacity 0.15s ease;
+}
+.tab-chip-split-glyph svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+.tab-chip:hover .tab-chip-split-glyph,
+.tab-chip-split-glyph:hover {
+  opacity: 0.95;
 }
