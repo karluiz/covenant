@@ -15401,9 +15401,15 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   letter-spacing: 0.04em;
 }
 .inline-notch .inline-notch-stream .row .count,
-.inline-notch .inline-notch-stream .row .dur {
+.inline-notch .inline-notch-stream .row .dur,
+.inline-notch .inline-notch-stream .row .tok {
   flex: 0 0 auto;
   opacity: 0.75;
+}
+.inline-notch .inline-notch-stream .row .tok {
+  color: #ffd166;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
 }
 .inline-notch .inline-notch-name .tab-id {
   text-transform: uppercase;

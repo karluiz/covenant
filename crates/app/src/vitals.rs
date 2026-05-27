@@ -163,6 +163,13 @@ pub(crate) struct VitalsState {
     last_call_unix_ms: Option<u64>,
 
     in_flight: Option<InFlight>,
+
+    /// Cumulative tokens charged to this session for its lifetime —
+    /// same accounting as `buckets` (input + output + cache_creation;
+    /// cache reads excluded). Doesn't roll over like buckets do, so
+    /// callers can take a delta between two timestamps. Used by the
+    /// notch bridge to attach "+N tok" annotations to phase events.
+    total_tokens: u64,
 }
 
 impl VitalsState {
@@ -175,6 +182,7 @@ impl VitalsState {
             last_latency_ms: None,
             last_call_unix_ms: None,
             in_flight: None,
+            total_tokens: 0,
         }
     }
 
@@ -207,6 +215,7 @@ impl VitalsState {
             .saturating_add(usage.cache_creation_input_tokens);
         let last = BUCKET_COUNT - 1;
         self.buckets[last] = self.buckets[last].saturating_add(counted);
+        self.total_tokens = self.total_tokens.saturating_add(counted as u64);
 
         self.cache_window.push_back(CacheSample {
             unix_ms: now_ms,
@@ -335,6 +344,15 @@ impl VitalsHandle {
     /// the cluster (no active session, e.g. all tabs closed).
     pub fn set_active(&self, session: Option<SessionId>) {
         let _ = self.tx.send(VitalsEvent::ActiveChanged { session });
+    }
+
+    /// Lifetime cumulative tokens charged to `session` — input + output
+    /// + cache_creation, cache reads excluded. Returns 0 for sessions
+    /// that have never recorded a call. Used by the notch bridge to
+    /// emit per-phase token deltas.
+    pub async fn session_tokens(&self, session: SessionId) -> u64 {
+        let inner = self.inner.lock().await;
+        inner.per_session.get(&session).map(|s| s.total_tokens).unwrap_or(0)
     }
 
     pub async fn snapshot(&self) -> VitalsPayload {
