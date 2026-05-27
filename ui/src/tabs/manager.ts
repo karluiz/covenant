@@ -2584,10 +2584,10 @@ export class TabManager {
             if (event.kind === "block_started") {
               const next = detectExecutor(event.command);
               if (tabRef.current) {
-                const p = activePane(tabRef.current);
+                const p = tabRef.current.panes[0];
                 if (p.executor !== next) {
                   p.executor = next;
-                  if (tabRef.current.id === this.activeId) {
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(next);
                     this.onActiveExecutorChange?.(next);
                   }
@@ -2606,10 +2606,10 @@ export class TabManager {
               }
             } else if (event.kind === "block_finished") {
               if (tabRef.current) {
-                const p = activePane(tabRef.current);
+                const p = tabRef.current.panes[0];
                 if (p.executor !== null) {
                   p.executor = null;
-                  if (tabRef.current.id === this.activeId) {
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(null);
                     this.onActiveExecutorChange?.(null);
                   }
@@ -2638,12 +2638,12 @@ export class TabManager {
                   sinceMs: Date.now() - event.quiet_ms,
                   promptText: event.prompt_text,
                 };
-                activePane(tabRef.current).idleAgent = idleState;
+                tabRef.current.panes[0].idleAgent = idleState;
                 this.renderTabBadge(tabRef.current);
               }
             } else if (event.kind === "agent_resumed") {
               if (tabRef.current) {
-                activePane(tabRef.current).idleAgent = null;
+                tabRef.current.panes[0].idleAgent = null;
                 this.renderTabBadge(tabRef.current);
               }
             } else if (event.kind === "foreground_changed") {
@@ -2655,14 +2655,14 @@ export class TabManager {
                 // executor chip already conveys "agent running here" —
                 // doubling up is just noise. Keep the dot strictly for
                 // user-initiated dev tools.
-                const pFg = activePane(tabRef.current);
+                const pFg = tabRef.current.panes[0];
                 const isAgent = !!pFg.executor;
                 pFg.busyProc = event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) {
-                activePane(tabRef.current).cwd = event.cwd ?? "";
+                tabRef.current.panes[0].cwd = event.cwd ?? "";
               }
               this.onAnyTabContextChange?.(event.cwd);
               recall?.setCwd(event.cwd);
@@ -2670,9 +2670,14 @@ export class TabManager {
                 void tabRef.current.structure.setCwd(event.cwd);
               }
               this.scheduleSave();
-              // Status bar: only push when this tab is the visible one.
-              // Background tabs cd'ing don't shift what the user sees.
-              if (tabRef.current && tabRef.current.id === this.activeId) {
+              // Status bar: only push when this tab is the visible one AND
+              // pane[0] is the active pane. If the user focused pane[1],
+              // pane[0]'s cwd change must not overwrite the bar.
+              if (
+                tabRef.current &&
+                tabRef.current.id === this.activeId &&
+                tabRef.current.layout.activePaneIdx === 0
+              ) {
                 this.onActiveContextChange?.(event.cwd);
                 this.emitActiveTab();
               }
