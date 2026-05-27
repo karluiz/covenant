@@ -15234,6 +15234,102 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   text-overflow: ellipsis;
 }
 
+/* Multi-agent picker — sits above the activity stream. Default state =
+   "All agents" (combined); click → dropdown to filter by one or many. */
+.inline-notch .inline-notch-picker {
+  padding: 0 0 8px;
+}
+.inline-notch .inline-notch-picker-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  color: var(--muted, #8a93a0);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.inline-notch .inline-notch-picker-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: var(--text, #d5d9de);
+}
+.inline-notch .inline-notch-picker-stack {
+  display: inline-flex; align-items: center;
+}
+.inline-notch .inline-notch-av-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+  flex-shrink: 0;
+}
+.inline-notch .inline-notch-picker-stack .inline-notch-av-dot {
+  margin-left: -4px;
+  box-shadow: 0 0 0 1.5px var(--bg-panel, #0f1014);
+}
+.inline-notch .inline-notch-picker-stack .inline-notch-av-dot:first-child { margin-left: 0; }
+.inline-notch .inline-notch-picker-more {
+  font-size: 10px; color: var(--muted, #8a93a0);
+  margin-left: 4px; font-variant-numeric: tabular-nums;
+}
+.inline-notch .inline-notch-picker-label {
+  flex: 1; min-width: 0;
+  color: var(--text, #d5d9de); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.inline-notch .inline-notch-picker-arrow {
+  color: var(--muted, #8a93a0); margin-left: auto;
+}
+
+.inline-notch-picker-drop {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-panel-2, #14161b);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 6px 0;
+  box-shadow: 0 30px 60px -28px rgba(0,0,0,0.9);
+  min-width: 220px;
+}
+.inline-notch-picker-drop-head {
+  padding: 4px 12px;
+  color: var(--muted, #8a93a0); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.inline-notch-picker-drop-sep {
+  height: 1px; background: rgba(255,255,255,0.06); margin: 4px 0;
+}
+.inline-notch-picker-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  color: var(--muted, #8a93a0);
+  cursor: pointer;
+}
+.inline-notch-picker-opt:hover { background: rgba(255,255,255,0.04); color: var(--text, #d5d9de); }
+.inline-notch-picker-check { width: 12px; color: #6ee7a8; opacity: 0; font-size: 11px; }
+.inline-notch-picker-opt.is-selected .inline-notch-picker-check { opacity: 1; }
+.inline-notch-picker-opt.is-selected .inline-notch-picker-name { color: var(--text, #d5d9de); }
+.inline-notch-picker-name { flex: 1; color: var(--text, #d5d9de); }
+.inline-notch-picker-count { color: var(--muted, #8a93a0); font-variant-numeric: tabular-nums; font-size: 11px; }
+.inline-notch-picker-drop .inline-notch-av-dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+  flex-shrink: 0;
+}
+
+/* Per-row "who did this" badge — shown in combined / multi-agent mode. */
+.inline-notch .inline-notch-stream .row .who {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-right: 6px;
+  color: var(--muted, #8a93a0); font-weight: 500;
+  font-size: 11px;
+}
+.inline-notch .inline-notch-stream .row .who .who-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block;
+}
+
 .inline-notch .inline-notch-stream-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 0 4px;

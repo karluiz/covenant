@@ -117,6 +117,13 @@ export function mountInlineNotch(host: HTMLElement): void {
       <span class="inline-notch-chev" aria-hidden="true">▾</span>
     </button>
     <div class="inline-notch-body">
+      <div class="inline-notch-picker">
+        <button class="inline-notch-picker-btn" type="button">
+          <span class="inline-notch-picker-stack"></span>
+          <span class="inline-notch-picker-label">All agents</span>
+          <span class="inline-notch-picker-arrow">▾</span>
+        </button>
+      </div>
       <div class="inline-notch-stream-head">
         <span class="label">activity</span>
         <button class="clear" type="button">clear</button>
@@ -147,6 +154,15 @@ export function mountInlineNotch(host: HTMLElement): void {
   const headAv = host.querySelector<HTMLElement>(".inline-notch-av")!;
   const streamEl = host.querySelector<HTMLElement>(".inline-notch-stream")!;
   const clearBtn = host.querySelector<HTMLButtonElement>(".clear")!;
+  const pickerBtn = host.querySelector<HTMLButtonElement>(".inline-notch-picker-btn")!;
+  const pickerStack = host.querySelector<HTMLElement>(".inline-notch-picker-stack")!;
+  const pickerLabel = host.querySelector<HTMLElement>(".inline-notch-picker-label")!;
+
+  /// Multi-agent filter. `null` = combined ("All agents"). Empty set
+  /// falls back to null so the user can't land in a no-rows view.
+  let selectedAgents: Set<string> | null = null;
+  let dropdownEl: HTMLElement | null = null;
+  let dismissDropdown: ((e: Event) => void) | null = null;
 
   const rows: Row[] = [];
   let nextRowId = 1;
@@ -211,6 +227,174 @@ export function mountInlineNotch(host: HTMLElement): void {
     streamEl.scrollTop = anchor.scrollTop + (streamEl.scrollHeight - anchor.scrollHeight);
   }
 
+  /* ── multi-agent picker ──────────────────────────────────────── */
+
+  function knownAgents(): string[] {
+    // Distinct, stable-ordered agent names from every session we've seen
+    // emit a phase. Ignore null/empty so the picker doesn't grow a
+    // "(no agent)" row for sessions still booting up.
+    const seen = new Set<string>();
+    for (const p of phases.values()) {
+      if (p.agent) seen.add(p.agent);
+    }
+    return [...seen].sort();
+  }
+
+  function agentCount(agent: string): number {
+    // How many of the buffered rows belong to this agent. Cheap because
+    // MAX_ROWS caps the array; runs on every picker open.
+    let n = 0;
+    for (const r of rows) {
+      if (phases.get(r.session)?.agent === agent) n++;
+    }
+    return n;
+  }
+
+  function passes(sessionId: string): boolean {
+    if (selectedAgents === null) return true;
+    const agent = phases.get(sessionId)?.agent;
+    return agent != null && selectedAgents.has(agent);
+  }
+
+  function agentColor(agent: string): string {
+    // Reuse the tab-color hash on agent names so chips/swatches are
+    // stable across renders without a separate palette table.
+    return TAB_COLORS[hash(agent) % TAB_COLORS.length];
+  }
+
+  function renderPicker(): void {
+    const all = knownAgents();
+    const visible = selectedAgents === null
+      ? all
+      : all.filter((a) => selectedAgents!.has(a));
+
+    pickerStack.innerHTML = "";
+    const show = visible.slice(0, 3);
+    for (const a of show) {
+      const dot = document.createElement("span");
+      dot.className = "inline-notch-av-dot";
+      dot.style.background = `linear-gradient(135deg, ${agentColor(a)}, #c7a8ff)`;
+      pickerStack.appendChild(dot);
+    }
+    if (visible.length > show.length) {
+      const more = document.createElement("span");
+      more.className = "inline-notch-picker-more";
+      more.textContent = `+${visible.length - show.length}`;
+      pickerStack.appendChild(more);
+    }
+    pickerLabel.textContent = selectedAgents === null
+      ? "All agents"
+      : visible.length === 0
+        ? "No agents"
+        : visible.length === 1
+          ? fmtAgent(visible[0])
+          : visible.map(fmtAgent).join(" + ");
+  }
+
+  function closeDropdown(): void {
+    dropdownEl?.remove();
+    dropdownEl = null;
+    if (dismissDropdown) {
+      document.removeEventListener("mousedown", dismissDropdown);
+      dismissDropdown = null;
+    }
+  }
+
+  function openDropdown(): void {
+    closeDropdown();
+    const drop = document.createElement("div");
+    drop.className = "inline-notch-picker-drop";
+
+    function addOpt(args: { isAll?: boolean; agent?: string; selected: boolean; label: string; count: number; onClick: () => void }): void {
+      const row = document.createElement("div");
+      row.className = "inline-notch-picker-opt";
+      if (args.selected) row.classList.add("is-selected");
+      const check = document.createElement("span");
+      check.className = "inline-notch-picker-check";
+      check.textContent = "✓";
+      row.appendChild(check);
+      const av = document.createElement("span");
+      av.className = "inline-notch-av-dot";
+      av.style.background = args.agent
+        ? `linear-gradient(135deg, ${agentColor(args.agent)}, #c7a8ff)`
+        : "linear-gradient(135deg, #7c5cff, #c7a8ff)";
+      row.appendChild(av);
+      const name = document.createElement("span");
+      name.className = "inline-notch-picker-name";
+      name.textContent = args.label;
+      row.appendChild(name);
+      const count = document.createElement("span");
+      count.className = "inline-notch-picker-count";
+      count.textContent = String(args.count);
+      row.appendChild(count);
+      row.addEventListener("click", (e) => { e.stopPropagation(); args.onClick(); });
+      drop.appendChild(row);
+    }
+
+    const head = document.createElement("div");
+    head.className = "inline-notch-picker-drop-head";
+    head.textContent = "Show activity for";
+    drop.appendChild(head);
+
+    addOpt({
+      isAll: true,
+      selected: selectedAgents === null,
+      label: "All agents",
+      count: rows.length,
+      onClick: () => { selectedAgents = null; closeDropdown(); renderPicker(); render(); },
+    });
+
+    const all = knownAgents();
+    if (all.length > 0) {
+      const sep = document.createElement("div");
+      sep.className = "inline-notch-picker-drop-sep";
+      drop.appendChild(sep);
+      const subhead = document.createElement("div");
+      subhead.className = "inline-notch-picker-drop-head";
+      subhead.textContent = "Or pick agents";
+      drop.appendChild(subhead);
+      for (const a of all) {
+        const selected = selectedAgents !== null && selectedAgents.has(a);
+        addOpt({
+          agent: a,
+          selected,
+          label: fmtAgent(a),
+          count: agentCount(a),
+          onClick: () => {
+            const next = new Set(selectedAgents ?? []);
+            if (selected) next.delete(a); else next.add(a);
+            selectedAgents = next.size === 0 ? null : next;
+            renderPicker();
+            render();
+            // Re-render the open dropdown in-place so multi-select feels
+            // natural (no flicker, no need to re-anchor).
+            closeDropdown();
+            openDropdown();
+          },
+        });
+      }
+    }
+
+    document.body.appendChild(drop);
+    const r = pickerBtn.getBoundingClientRect();
+    drop.style.top = `${r.bottom + 6}px`;
+    drop.style.left = `${r.left}px`;
+    drop.style.minWidth = `${r.width}px`;
+    dropdownEl = drop;
+    dismissDropdown = (e: Event) => {
+      const t = e.target as Node;
+      if (drop.contains(t) || pickerBtn.contains(t)) return;
+      closeDropdown();
+    };
+    setTimeout(() => document.addEventListener("mousedown", dismissDropdown!), 0);
+  }
+
+  pickerBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (dropdownEl) closeDropdown();
+    else openDropdown();
+  });
+
   function render(): void {
     // Header reflects the active session's executor, falling back to
     // any running session if no active one is set.
@@ -232,24 +416,33 @@ export function mountInlineNotch(host: HTMLElement): void {
     }
     const scrollAnchor = captureStreamScrollAnchor();
 
-    // Stream: reverse-chrono, most recent first.
+    // Show the "who" badge only when the user is looking at combined /
+    // multi-agent view — otherwise it's redundant noise.
+    const showWho = selectedAgents === null || selectedAgents.size > 1;
+
+    // Stream: reverse-chrono, most recent first. Filter by selected agents.
     streamEl.innerHTML = rows
+      .filter((r) => passes(r.session))
       .slice()
       .reverse()
-      .map(
-        (r) => `
+      .map((r) => {
+        const agent = phases.get(r.session)?.agent ?? null;
+        const who = showWho && agent
+          ? `<span class="who"><span class="who-dot" style="background:${agentColor(agent)}"></span>${escapeHtml(fmtAgent(agent))}</span>`
+          : "";
+        return `
           <div class="row ${r.kind}" data-row-id="${escapeHtml(r.id)}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}">
             <span class="ts">${fmtTime(r.ts)}</span>
             <span class="row-copy">
-              <span class="msg">${escapeHtml(r.message)}</span>
+              ${who}<span class="msg">${escapeHtml(r.message)}</span>
               <span class="row-meta">
                 <span class="tag">${escapeHtml(r.tag)}</span>
                 ${r.count > 1 ? `<span class="count">×${r.count}</span>` : ""}
                 ${r.ts > r.firstTs ? `<span class="dur">${fmtDuration(r.ts - r.firstTs)}</span>` : ""}
               </span>
             </span>
-          </div>`,
-      )
+          </div>`;
+      })
       .join("");
 
     streamEl.querySelectorAll<HTMLElement>(".row").forEach((row) => {
@@ -302,6 +495,7 @@ export function mountInlineNotch(host: HTMLElement): void {
       kind: phaseKind(ev.payload.phase),
       message: phaseLabel(ev.payload.phase),
     });
+    renderPicker();
     render();
   };
 
@@ -325,6 +519,7 @@ export function mountInlineNotch(host: HTMLElement): void {
   });
 
   // Paint the empty "no agent" state so the sidebar isn't blank on first open.
+  renderPicker();
   render();
 }
 
