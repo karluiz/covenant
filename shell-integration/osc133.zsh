@@ -53,6 +53,12 @@ __karl_emit_osc7() {
 
 __karl_precmd() {
     local exit=$?
+    # Re-assert PROMPT_SP suppression every prompt: some frameworks
+    # (p10k, oh-my-zsh option-restore, plugins using LOCAL_OPTIONS)
+    # flip it back on between prompts, which brings back the inverse
+    # `%` on tab reopen.
+    unsetopt PROMPT_SP 2>/dev/null
+    PROMPT_EOL_MARK=''
     if (( _karl_cmd_active )); then
         __karl_emit_command_done "$exit"
         _karl_cmd_active=0
