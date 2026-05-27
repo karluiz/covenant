@@ -3238,12 +3238,15 @@ export class TabManager {
     hasMission: boolean;
     hasOperator: boolean;
   }[] {
-    return this.tabs.map((t) => ({
-      id: t.id,
-      cwd: t.cwd ?? "",
-      hasMission: !!t.mission?.path,
-      hasOperator: !!t.operator_id,
-    }));
+    return this.tabs.map((t) => {
+      const pane = activePane(t);
+      return {
+        id: t.id,
+        cwd: pane.cwd,
+        hasMission: !!pane.mission?.path,
+        hasOperator: !!pane.operator,
+      };
+    });
   }
 
   /** 3.17 — returns the id of the currently-active tab, or null. */
@@ -3263,7 +3266,7 @@ export class TabManager {
     if (!this.activeId) return null;
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return null;
-    return { id: tab.id, hasMission: !!tab.mission?.path };
+    return { id: tab.id, hasMission: !!activePane(tab).mission?.path };
   }
 
   /**
