@@ -888,6 +888,9 @@ export class TabManager {
     paneHost1.addEventListener("focusin", pane1FocusIn);
     tab.disposers.push({ dispose: () => paneHost1.removeEventListener("focusin", pane1FocusIn) });
 
+    // F2 — right-click context menu on pane-host 1 (second pane).
+    tab.disposers.push(this.installPaneContextMenu(paneHost1, tab, 1));
+
     // Splitter drag wires to setPaneRatio.
     installPaneSplitter({
       splitter,
@@ -1060,6 +1063,74 @@ export class TabManager {
   }
 
   // End D14 active-pane helpers -------------------------------------------------
+
+  // F2 — right-click pane context menu ----------------------------------------
+
+  private installPaneContextMenu(paneHost: HTMLElement, tab: Tab, paneIdx: 0 | 1): IDisposable {
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      this.showPaneContextMenu(e.clientX, e.clientY, tab, paneIdx);
+    };
+    paneHost.addEventListener("contextmenu", onContextMenu);
+    return { dispose: () => paneHost.removeEventListener("contextmenu", onContextMenu) };
+  }
+
+  private showPaneContextMenu(x: number, y: number, tab: Tab, paneIdx: 0 | 1): void {
+    // Tear down any existing menu first.
+    document.querySelector(".pane-context-menu")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "pane-context-menu";
+    menu.style.position = "fixed";
+    menu.style.top = `${y}px`;
+    menu.style.left = `${x}px`;
+
+    const flag = this.splitPanesEnabled;
+    const isSingle = tab.layout.kind === "single";
+    const isSplit = tab.layout.kind === "split";
+    const pane = tab.panes[paneIdx];
+    const isPi = pane?.kind === "pi";
+
+    const items: { label: string; visible: boolean; action: () => void }[] = [
+      { label: "Split right", visible: flag && isSingle, action: () => void this.splitActivePane("horizontal") },
+      { label: "Split down",  visible: flag && isSingle, action: () => void this.splitActivePane("vertical") },
+      { label: "Swap panes",  visible: flag && isSplit,  action: () => void this.swapActivePanes() },
+      { label: "Convert to Pi", visible: flag && !isPi,  action: () => void this.convertPaneToPi(tab, paneIdx) },
+      { label: "Close pane",  visible: true,             action: () => void this.closeActivePaneOrTab() },
+    ];
+
+    for (const item of items) {
+      if (!item.visible) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pane-context-menu-item";
+      btn.textContent = item.label;
+      btn.addEventListener("click", () => {
+        menu.remove();
+        item.action();
+      });
+      menu.appendChild(btn);
+    }
+    document.body.appendChild(menu);
+
+    // Dismiss on outside click or Escape.
+    const dismiss = () => {
+      menu.remove();
+      document.removeEventListener("click", outsideClick, true);
+      document.removeEventListener("keydown", onKey);
+    };
+    const outsideClick = (ev: MouseEvent) => {
+      if (!menu.contains(ev.target as Node)) dismiss();
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") dismiss();
+    };
+    setTimeout(() => {
+      document.addEventListener("click", outsideClick, true);
+      document.addEventListener("keydown", onKey);
+    }, 0);
+  }
+
+  // End F2 pane context menu ---------------------------------------------------
 
   // End D12 split-pane helpers -------------------------------------------------
 
@@ -3259,6 +3330,9 @@ export class TabManager {
     paneHost0.addEventListener("focusin", pane0FocusIn);
     tab.disposers.push({ dispose: () => paneHost0.removeEventListener("focusin", pane0FocusIn) });
 
+    // F2 — right-click context menu on pane-host 0 (shell tabs).
+    tab.disposers.push(this.installPaneContextMenu(paneHost0, tab, 0));
+
     tabRef.current = tab;
 
     // Floating Cmd+F finder, scoped to this tab's pane. Created after
@@ -3525,6 +3599,9 @@ export class TabManager {
     };
     piPaneHost0.addEventListener("focusin", piPane0FocusIn);
     tab.disposers.push({ dispose: () => piPaneHost0.removeEventListener("focusin", piPane0FocusIn) });
+
+    // F2 — right-click context menu on pane-host 0 (Pi tabs).
+    tab.disposers.push(this.installPaneContextMenu(piPaneHost0, tab, 0));
 
     this.tabs.push(tab);
     if (tab.groupId) {
