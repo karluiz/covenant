@@ -1103,9 +1103,13 @@ export class TabManager {
   /// Toggle the `.active` CSS class on each pane-host so D5's
   /// `--accent` border follows the focused pane.
   private updateActivePaneClass(tab: Tab): void {
+    // The active-pane border is only meaningful when there's another pane
+    // to distinguish it from. Single-pane tabs get no border regardless of
+    // focus state.
+    const showBorder = tab.layout.kind === "split";
     tab.panes.forEach((p, idx) => {
       if (p.el) {
-        p.el.classList.toggle("active", idx === tab.layout.activePaneIdx);
+        p.el.classList.toggle("active", showBorder && idx === tab.layout.activePaneIdx);
       }
     });
   }
@@ -1116,11 +1120,28 @@ export class TabManager {
 
   private installPaneContextMenu(paneHost: HTMLElement, tab: Tab, paneIdx: 0 | 1): IDisposable {
     const onContextMenu = (e: MouseEvent) => {
+      // Only intercept when we have at least one meaningful item to show;
+      // otherwise let the existing terminal context handling (xterm/native)
+      // run. With the flag off and a single-pane tab there is nothing to
+      // offer, so don't suppress the default.
+      if (!this.paneContextMenuHasItems(tab)) return;
       e.preventDefault();
       this.showPaneContextMenu(e.clientX, e.clientY, tab, paneIdx);
     };
     paneHost.addEventListener("contextmenu", onContextMenu);
     return { dispose: () => paneHost.removeEventListener("contextmenu", onContextMenu) };
+  }
+
+  /// Cheap pre-check used by the contextmenu handler so we don't open an
+  /// empty menu (which would only contain "Close pane" → close tab, a
+  /// surprising mapping). Mirrors the visibility predicates in
+  /// `showPaneContextMenu` but only asks "does anything beyond the
+  /// always-on close make sense?".
+  private paneContextMenuHasItems(tab: Tab): boolean {
+    if (this.splitPanesEnabled) return true;
+    // Flag off: only meaningful when there's a real pane to close
+    // (split tabs persisted from when the flag was on).
+    return tab.layout.kind === "split";
   }
 
   private showPaneContextMenu(x: number, y: number, tab: Tab, paneIdx: 0 | 1): void {
@@ -1143,7 +1164,10 @@ export class TabManager {
       { label: "Split down",  visible: flag && isSingle, action: () => void this.splitActivePane("vertical") },
       { label: "Swap panes",  visible: flag && isSplit,  action: () => void this.swapActivePanes() },
       { label: "Convert to Pi", visible: flag && !isPi,  action: () => void this.convertPaneToPi(tab, paneIdx) },
-      { label: "Close pane",  visible: true,             action: () => void this.closePaneByIdx(tab, paneIdx) },
+      // Close pane only when there's actually a pane to close (not the tab).
+      // Single-pane "close pane" is "close tab" — handled by ⌘W; surfacing
+      // it here is misleading.
+      { label: "Close pane",  visible: isSplit,          action: () => void this.closePaneByIdx(tab, paneIdx) },
     ];
 
     for (const item of items) {
