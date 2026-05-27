@@ -105,6 +105,7 @@ impl LlmProvider for AnthropicProvider {
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(AgentError::Api {
+                provider: "anthropic",
                 status: status.as_u16(),
                 body,
             });

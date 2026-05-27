@@ -27,8 +27,8 @@ pub enum SpecAuthorError {
     NotFound { id: Ulid },
     #[error("http: {0}")]
     Http(#[from] reqwest::Error),
-    #[error("anthropic api {status}: {body}")]
-    Api { status: u16, body: String },
+    #[error("{provider} api {status}: {body}")]
+    Api { provider: &'static str, status: u16, body: String },
     #[error("invalid spec — missing sections: {missing:?}")]
     InvalidSpec { missing: Vec<String> },
 }
@@ -241,6 +241,7 @@ impl Dispatcher for AnthropicDispatcher {
         if !status.is_success() {
             let body_text = response.text().await.unwrap_or_default();
             return Err(SpecAuthorError::Api {
+                provider: "anthropic",
                 status: status.as_u16(),
                 body: body_text,
             });

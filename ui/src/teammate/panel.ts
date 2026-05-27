@@ -3,7 +3,7 @@ import type { OperatorDecisionRow } from "../api";
 import {
   findRecentCommands,
   findSpecs,
-  injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp,
+  injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp, primeSpawnedTab,
   operatorList, readBlockExcerpt, readSessionExcerpt,
   structureFindFiles, structureReadFile,
   teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal,
@@ -113,10 +113,6 @@ export interface TeammatePanelDeps {
   readBlockExcerpt:   (block_id: string) => Promise<BlockExcerpt>;
   /// Reads a session's cwd + last few blocks for `@session:<short>` expansion.
   readSessionExcerpt: (session_id: string) => Promise<SessionExcerpt>;
-  /// Set the mission spec path for a freshly-spawned tab. Called
-  /// automatically when the user confirmed a task whose originating
-  /// message contained an `@spec:` mention.
-  setMissionForSpawnedTab?: (sessionId: string, specPath: string) => Promise<void>;
   /// True if the given sessionId still has a live tab. Used to flip
   /// the task-detail "Open tab" button into a "Continue (new tab)"
   /// action when the original spawn died (e.g., dev-reload).
@@ -1399,12 +1395,20 @@ export class TeammatePanel {
             task.title, task.deliverable, operatorPickedExecutor,
             this.lastSentMentionMap, specPath, spawned.cwd,
           );
-          // Auto-set mission if the originating chat had a @spec chip.
-          if (specPath && this.deps.setMissionForSpawnedTab) {
+          // Auto-attach mission + queue /rename if the originating chat
+          // had a @spec chip. We AWAIT this (unlike the old fire-and-
+          // forget setMissionForSpawnedTab) so the rename slot is in
+          // place before the prompt-inject setTimeout fires below.
+          // Even if priming fails (e.g. spec deleted) we still inject
+          // the prompt — the spec content already inlined into the
+          // prompt via buildTaskInjection covers the executor.
+          if (specPath) {
             this.lastSentSpecPath = null;
-            this.deps.setMissionForSpawnedTab(spawned.sessionId, specPath).catch((e) =>
-              console.error("auto-set mission failed", e),
-            );
+            try {
+              await primeSpawnedTab(spawned.sessionId, specPath);
+            } catch (e) {
+              console.error("prime_spawned_tab failed", e);
+            }
           }
         } else {
           targetSessionId = getActiveSessionId?.() ?? null;
