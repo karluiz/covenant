@@ -17004,3 +17004,48 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder]:empty:
 }
 .mention-popup-row:hover,
 .mention-popup-row.is-active { background: var(--surface-hover, #2a2a2a); }
+
+/* ─── split panes ───────────────────────────────────────────────────────────── */
+.terminal-block {
+  display: grid;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.terminal-block[data-layout="single"] {
+  /* single-cell — child fills naturally, no special rules needed */
+}
+.terminal-block[data-split="horizontal"] {
+  grid-template-columns: var(--pane-ratio, 1fr) 4px 1fr;
+}
+.terminal-block[data-split="vertical"] {
+  grid-template-rows: var(--pane-ratio, 1fr) 4px 1fr;
+}
+.pane-host {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.pane-host.active {
+  border-color: var(--accent, #38bdf8);
+}
+.pane-splitter {
+  background: var(--border, #1f2937);
+  cursor: col-resize;
+  user-select: none;
+}
+.terminal-block[data-split="vertical"] .pane-splitter {
+  cursor: row-resize;
+}
+.terminal-block.pane-splitter-dragging {
+  cursor: col-resize;
+}
+.terminal-block[data-split="vertical"].pane-splitter-dragging {
+  cursor: row-resize;
+}
