@@ -17078,3 +17078,12 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder]:empty:
 .pane-context-menu-item:hover {
   background: var(--surface-hover, #1a2332);
 }
+
+/* split tab glyph on tabbar chip (F3) */
+.tab-chip-split-glyph {
+  display: inline-block;
+  margin-left: 4px;
+  opacity: 0.55;
+  font-size: 11px;
+  vertical-align: middle;
+}

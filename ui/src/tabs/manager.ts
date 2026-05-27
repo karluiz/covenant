@@ -709,6 +709,8 @@ export class TabManager {
     // D14 — reflect the new active-pane index after split.
     this.updateActivePaneClass(tab);
     this.scheduleSave();
+    // F3 — update tabbar so the split glyph appears immediately.
+    this.renderTabbar();
   }
 
   focusOtherPane(): void {
@@ -729,6 +731,8 @@ export class TabManager {
     // D14 — reflect swapped active-pane index.
     this.updateActivePaneClass(tab);
     this.scheduleSave();
+    // F3 — keep tabbar glyph tooltip in sync after swap.
+    this.renderTabbar();
   }
 
   /// F1 — convert an existing terminal pane to a Pi chat pane in place.
@@ -2155,6 +2159,8 @@ export class TabManager {
     // D14 — after collapsing to single-pane, reset the border to pane 0.
     this.updateActivePaneClass(tab);
     this.scheduleSave();
+    // F3 — remove the split glyph from tabbar after pane is closed.
+    this.renderTabbar();
   }
 
   private unmountSecondPaneDom(tab: Tab, paneIdx: 0 | 1): void {
@@ -5432,6 +5438,11 @@ export class TabManager {
       },
     );
 
+    // F3 — split glyph: appears only when the tab has a split layout and
+    // the experimental flag is on.
+    const splitGlyph = this.buildSplitGlyph(tab);
+    if (splitGlyph) pill.appendChild(splitGlyph);
+
     const close = document.createElement("span");
     close.className = "tab-close";
     close.textContent = "×";
@@ -5715,6 +5726,33 @@ export class TabManager {
         onClick: () => this.ungroup(group.id),
       },
     ]);
+  }
+
+  // F3 — split glyph helpers ------------------------------------------------
+
+  /// Returns a span element containing the ▣ split glyph + tooltip, or null
+  /// when the glyph should not be shown (flag off or tab is not split).
+  private buildSplitGlyph(tab: Tab): HTMLElement | null {
+    if (!this.splitPanesEnabled || tab.layout.kind !== "split") return null;
+    const glyph = document.createElement("span");
+    glyph.className = "tab-chip-split-glyph";
+    glyph.textContent = "▣";
+    glyph.setAttribute("aria-label", "split tab");
+    attachTooltip(glyph, this.paneTooltipText(tab));
+    return glyph;
+  }
+
+  /// Builds the tooltip string for a split tab, listing each pane's short
+  /// cwd and operator/kind, with ● marking the active pane.
+  private paneTooltipText(tab: Tab): string {
+    const lines: string[] = [];
+    tab.panes.forEach((p, idx) => {
+      const cwdShort = p.cwd ? p.cwd.split("/").slice(-2).join("/") : "(no cwd)";
+      const op = p.operator ?? p.kind;
+      const tag = idx === tab.layout.activePaneIdx ? "● " : "  ";
+      lines.push(`${tag}${idx === 0 ? "first" : "second"}: ${cwdShort} (${op})`);
+    });
+    return lines.join("\n");
   }
 }
 
