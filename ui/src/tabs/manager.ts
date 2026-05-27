@@ -3544,12 +3544,15 @@ export class TabManager {
         rootDir: g.root_dir ?? null,
       });
     }
+    // Normalise every tab into the new panes+layout shape so downstream
+    // code (Phase B and beyond) can safely access t.panes[0].
+    const tabs = m.tabs.map(liftLegacyTab);
     // Parallel spawns: fire every createTab at once and rebuild order
     // afterward. Each createTab still self-pushes to this.tabs, so the
     // final array reflects spawn-resolution order — we resort it to
     // manifest order before activating.
     const created = await Promise.all(
-      m.tabs.map((t) => {
+      tabs.map((t) => {
         if (t.kind === "pi") {
           // Pi tabs restore by spawning a fresh `pi --mode rpc` session.
           // Pi's own --session-dir would let us reattach to an existing
@@ -3589,7 +3592,7 @@ export class TabManager {
     // all tabs. Each Promise handles its own errors so one bad mission
     // path doesn't abort the others.
     await Promise.all(
-      m.tabs.map(async (t, i) => {
+      tabs.map(async (t, i) => {
         const tab = created[i];
         if (!tab) return;
         const tasks: Promise<unknown>[] = [];
