@@ -5,7 +5,6 @@ import {
   collapseToSingle,
   type Pane,
   type Tab,
-  type TabLayout,
 } from "./pane";
 
 const pane = (id: string, cwd = "/"): Pane => ({

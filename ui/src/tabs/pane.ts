@@ -1,18 +1,18 @@
 import type { Terminal } from "@xterm/xterm";
+import type { MissionInfo } from "../api";
 import type { PiChatView } from "../executors/pi/view";
 
 export type PaneId = string;
 export type PaneKind = "terminal" | "pi";
 export type SplitOrientation = "horizontal" | "vertical";
 
-export interface MissionInfo {
-  path: string;
-  title: string;
-}
+// MissionInfo is imported from ../api — the canonical definition lives there.
 
+// No exported Block type exists in the blocks module yet; keep a minimal
+// structural stub here so Pane.blocks compiles. Replace once blocks/manager
+// exports a real Block interface.
 export interface Block {
   id: string;
-  // …full Block shape lives in blocks module; we re-export for the Pane type
 }
 
 export interface Pane {
@@ -40,7 +40,9 @@ export interface Tab {
   layout: TabLayout;
 }
 
-export const activePane = (t: Tab): Pane => t.panes[t.layout.activePaneIdx];
+export const activePane = (t: Tab): Pane =>
+  // safe: assertLayoutValid keeps activePaneIdx < panes.length
+  t.panes[t.layout.activePaneIdx]!;
 
 export function assertLayoutValid(t: Tab): void {
   if (t.layout.kind === "single" && t.panes.length !== 1) {
@@ -59,7 +61,9 @@ export function assertLayoutValid(t: Tab): void {
 
 export function collapseToSingle(t: Tab, dropIdx: 0 | 1): void {
   if (t.layout.kind !== "split") return;
-  const survivor = t.panes[dropIdx === 0 ? 1 : 0];
+  // safe: split layout invariant guarantees panes.length === 2
+  const split = t.panes as [Pane, Pane];
+  const survivor = split[dropIdx === 0 ? 1 : 0];
   t.panes = [survivor];
   t.layout = { kind: "single", activePaneIdx: 0 };
   assertLayoutValid(t);
