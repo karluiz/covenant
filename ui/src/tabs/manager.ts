@@ -661,6 +661,8 @@ export class TabManager {
       mountPaneInDom: (t, idx) => this.mountSecondPaneDom(t as Tab, idx),
       focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
     });
+    // D14 — reflect the new active-pane index after split.
+    this.updateActivePaneClass(tab);
     this.scheduleSave();
   }
 
@@ -679,6 +681,8 @@ export class TabManager {
     swapPanesAction(tab, {
       remountSplit: (t) => this.remountSplitDom(t as Tab),
     });
+    // D14 — reflect swapped active-pane index.
+    this.updateActivePaneClass(tab);
     this.scheduleSave();
   }
 
@@ -787,6 +791,18 @@ export class TabManager {
     tab.disposers.push({ dispose: () => { ro.disconnect(); if (rafId !== null) cancelAnimationFrame(rafId); } });
     tab.disposers.push({ dispose: () => { try { term.dispose(); } catch { /* ignore */ } } });
 
+    // D14 — active-pane border: wire pane-1 focus via focusin.
+    // xterm's internal textarea bubbles focusin through the pane-host container.
+    const pane1FocusIn = (): void => {
+      if (tab.layout.activePaneIdx === paneIdx) return;
+      tab.layout.activePaneIdx = paneIdx;
+      this.updateActivePaneClass(tab);
+      this.onActiveContextChange?.(activePane(tab).cwd);
+      this.emitActiveMission();
+    };
+    paneHost1.addEventListener("focusin", pane1FocusIn);
+    tab.disposers.push({ dispose: () => paneHost1.removeEventListener("focusin", pane1FocusIn) });
+
     // Splitter drag wires to setPaneRatio.
     installPaneSplitter({
       splitter,
@@ -816,6 +832,20 @@ export class TabManager {
     // (swap DOM children) is deferred to D14 when focus indicators + a
     // real use-case drive it.
   }
+
+  // D14 — active-pane border follows focus -----------------------------------------
+
+  /// Toggle the `.active` CSS class on each pane-host so D5's
+  /// `--accent` border follows the focused pane.
+  private updateActivePaneClass(tab: Tab): void {
+    tab.panes.forEach((p, idx) => {
+      if (p.el) {
+        p.el.classList.toggle("active", idx === tab.layout.activePaneIdx);
+      }
+    });
+  }
+
+  // End D14 active-pane helpers -------------------------------------------------
 
   // End D12 split-pane helpers -------------------------------------------------
 
@@ -1837,6 +1867,8 @@ export class TabManager {
       this.closeTab(tab.id);
       return;
     }
+    // D14 — after collapsing to single-pane, reset the border to pane 0.
+    this.updateActivePaneClass(tab);
     this.scheduleSave();
   }
 
@@ -3000,6 +3032,19 @@ export class TabManager {
     tab.panes = [pane0Shell];
     assertLayoutValid(tab);
 
+    // D14 — active-pane border: wire pane-0 focus for shell tabs via focusin.
+    // xterm focuses an internal textarea; the event bubbles up through paneHost0.
+    const pane0FocusIn = (): void => {
+      const t = tabRef.current;
+      if (!t || t.layout.activePaneIdx === 0) return;
+      t.layout.activePaneIdx = 0;
+      this.updateActivePaneClass(t);
+      this.onActiveContextChange?.(activePane(t).cwd);
+      this.emitActiveMission();
+    };
+    paneHost0.addEventListener("focusin", pane0FocusIn);
+    tab.disposers.push({ dispose: () => paneHost0.removeEventListener("focusin", pane0FocusIn) });
+
     tabRef.current = tab;
 
     // Floating Cmd+F finder, scoped to this tab's pane. Created after
@@ -3253,6 +3298,19 @@ export class TabManager {
     };
     tab.panes = [pane0Pi];
     assertLayoutValid(tab);
+
+    // D14 — active-pane border: wire pane-0 focus for Pi tabs via focusin
+    // (PiChatView doesn't expose an onFocus signal; the textarea fires a
+    // native focusin that bubbles up from inside piPaneHost0).
+    const piPane0FocusIn = (): void => {
+      if (tab.layout.activePaneIdx === 0) return; // already active, skip
+      tab.layout.activePaneIdx = 0;
+      this.updateActivePaneClass(tab);
+      this.onActiveContextChange?.(activePane(tab).cwd);
+      this.emitActiveMission();
+    };
+    piPaneHost0.addEventListener("focusin", piPane0FocusIn);
+    tab.disposers.push({ dispose: () => piPaneHost0.removeEventListener("focusin", piPane0FocusIn) });
 
     this.tabs.push(tab);
     if (tab.groupId) {
@@ -4235,6 +4293,8 @@ export class TabManager {
     this.emitActiveOperator();
     this.emitActiveSpawn();
     this.emitActiveTab();
+    // D14 — refresh active-pane border when switching tabs.
+    this.updateActivePaneClass(tab);
     const activatorExecutor = activePane(tab).executor;
     this.statusBar?.setExecutor(activatorExecutor);
     this.onActiveExecutorChange?.(activatorExecutor);
