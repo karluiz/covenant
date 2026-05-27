@@ -811,7 +811,8 @@ export class TabManager {
 
     window.addEventListener("beforeunload", () => {
       for (const tab of this.tabs) {
-        void closeSession(activePane(tab).sessionId ?? "").catch(() => {});
+        const sid = activePane(tab).sessionId;
+        if (sid) void closeSession(sid as SessionId).catch(() => {});
       }
       if (this.blockedPollTimer !== null) {
         window.clearInterval(this.blockedPollTimer);
@@ -2946,7 +2947,7 @@ export class TabManager {
       blocks: [],
       xterm: null,
       piView: view,
-      executor: null,
+      executor: "pi",
       operatorEnabled: false,
       operatorLive: false,
       aomExcluded: true, // Pi sessions never enter AOM (no shell to drive)
@@ -3824,23 +3825,28 @@ export class TabManager {
     // Spec 3.20 phase 6: peek for accumulated operator memory; if any,
     // open the MindLossModal before destroying the tab. On error or
     // when there's nothing to lose, fall through to direct close.
-    void closeSessionCheck(activePane(tab).sessionId as SessionId)
-      .then((preview) => {
-        if (preview) {
-          openMindLossModal({
-            preview,
-            onConfirm: () => this.finalizeCloseTab(id),
-            onCancel: () => {
-              /* keep the tab — user backed out */
-            },
-          });
-        } else {
+    const closeSid = activePane(tab).sessionId;
+    if (closeSid) {
+      void closeSessionCheck(closeSid as SessionId)
+        .then((preview) => {
+          if (preview) {
+            openMindLossModal({
+              preview,
+              onConfirm: () => this.finalizeCloseTab(id),
+              onCancel: () => {
+                /* keep the tab — user backed out */
+              },
+            });
+          } else {
+            this.finalizeCloseTab(id);
+          }
+        })
+        .catch(() => {
           this.finalizeCloseTab(id);
-        }
-      })
-      .catch(() => {
-        this.finalizeCloseTab(id);
-      });
+        });
+    } else {
+      this.finalizeCloseTab(id);
+    }
   }
 
   private finalizeCloseTab(id: string): void {
@@ -3852,7 +3858,7 @@ export class TabManager {
     // labels survive for the operator-decisions panel.
     const closePane = activePane(tab);
     const closeSessionId = closePane.sessionId;
-    this.rememberSessionName(closeSessionId ?? "", tabDisplayName(tab));
+    if (closeSessionId) this.rememberSessionName(closeSessionId, tabDisplayName(tab));
     // Belt-and-suspenders: unpin operator before closing. Backend also
     // unpins in close_session, but this keeps the in-process state clean.
     if (closeSessionId) {
@@ -4061,7 +4067,7 @@ export class TabManager {
     const newCustomName = trimmed.length > 0 ? trimmed : null;
     tab.customName = newCustomName;
     const renamePane = activePane(tab);
-    this.rememberSessionName(renamePane.sessionId ?? "", tabDisplayName(tab));
+    if (renamePane.sessionId) this.rememberSessionName(renamePane.sessionId, tabDisplayName(tab));
     this.renaming = null;
     this.renderTabbar();
     if (id === this.activeId) this.emitActiveTab();
