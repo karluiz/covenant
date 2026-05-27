@@ -50,6 +50,7 @@ pub mod settings;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
+mod split_commands;
 pub mod storage;
 mod structure;
 mod summarizer;
@@ -3550,6 +3551,12 @@ pub fn run() {
             spawns_commands::spawns_list,
             spawns_commands::spawns_upsert,
             spawns_commands::spawns_delete,
+            split_commands::split_pane,
+            split_commands::close_pane,
+            split_commands::focus_pane,
+            split_commands::swap_panes,
+            split_commands::set_pane_orientation,
+            split_commands::set_pane_ratio,
             vitals::get_vitals,
             vitals::set_active_session_for_vitals,
             theme::set_window_theme,
