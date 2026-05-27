@@ -679,10 +679,8 @@ export class TeammatePanel {
     this.activityView = new ActivityView();
     this.activityEl = this.activityView.getElement();
     this.activityEl.classList.add("is-hidden");
-    // Pass the full operator roster so the activity view's multi-agent
-    // picker can default to a combined "all agents" feed and let the
-    // user filter by any subset.
-    void this.activityView.start(this.roster, (count) => {
+    const opId = this.operator?.id ?? "";
+    void this.activityView.start(opId, (count) => {
       this.updateActivityBadge(count);
     });
     // Suppress floating toasts — decisions now flow into the sidebar.
