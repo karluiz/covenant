@@ -2705,23 +2705,80 @@ export class TabManager {
           callback(undefined);
           return;
         }
-        const text = line.translateToString(true);
+        // Stitch wrapped lines into a single logical line so paths that
+        // overflow the terminal width are matched as a whole. xterm
+        // exposes wrapping via `isWrapped` on continuation rows; we walk
+        // back to the first non-wrapped row, then forward gathering all
+        // continuations, and record each segment's screen-row + col span
+        // so we can map regex match offsets back to per-row link ranges.
+        let startY = y - 1;
+        while (startY > 0) {
+          const above = buf.getLine(startY);
+          if (above && above.isWrapped) startY--;
+          else break;
+        }
+        const segments: { y: number; start: number; text: string }[] = [];
+        let cursor = startY;
+        let fullText = "";
+        while (true) {
+          const row = buf.getLine(cursor);
+          if (!row) break;
+          if (cursor !== startY && !row.isWrapped) break;
+          const segText = row.translateToString(true);
+          segments.push({ y: cursor + 1, start: fullText.length, text: segText });
+          fullText += segText;
+          cursor++;
+        }
+        if (segments.length === 0) {
+          callback(undefined);
+          return;
+        }
         const links = [] as Parameters<typeof callback>[0] extends
           | infer L
           | undefined
           ? L
           : never;
         const out: NonNullable<typeof links> = [];
-        for (const m of text.matchAll(PATH_RE)) {
+        // Map an absolute offset in `fullText` to {y, x} (1-based) on a
+        // specific screen row.
+        const locate = (offset: number): { y: number; x: number } | null => {
+          for (let i = segments.length - 1; i >= 0; i--) {
+            const s = segments[i];
+            if (offset >= s.start) {
+              return { y: s.y, x: offset - s.start + 1 };
+            }
+          }
+          return null;
+        };
+        for (const m of fullText.matchAll(PATH_RE)) {
           const raw = m[0];
-          // Trim trailing punctuation that often abuts a path in prose.
           const trimmed = raw.replace(/[.,;:)\]}>'"]+$/g, "");
           if (trimmed.length < 3) continue;
-          const startCol = m.index ?? 0;
+          const absStart = m.index ?? 0;
+          const absEnd = absStart + trimmed.length; // exclusive
+          // The current provideLinks call is for row `y` (1-based). Only
+          // emit a link entry for the slice of the match that lies on this
+          // row; xterm calls provideLinks once per row and stitches hover
+          // highlighting across rows automatically when ranges line up.
+          let rowStartOffset = -1;
+          let rowEndOffset = -1;
+          for (const s of segments) {
+            if (s.y !== y) continue;
+            rowStartOffset = s.start;
+            rowEndOffset = s.start + s.text.length;
+            break;
+          }
+          if (rowStartOffset < 0) continue;
+          const sliceStart = Math.max(absStart, rowStartOffset);
+          const sliceEnd = Math.min(absEnd, rowEndOffset);
+          if (sliceEnd <= sliceStart) continue;
+          const startPos = locate(sliceStart);
+          const endPos = locate(sliceEnd - 1);
+          if (!startPos || !endPos) continue;
           out.push({
             range: {
-              start: { x: startCol + 1, y },
-              end: { x: startCol + trimmed.length, y },
+              start: { x: startPos.x, y: startPos.y },
+              end: { x: endPos.x, y: endPos.y },
             },
             text: trimmed,
             activate: (event) => {
