@@ -17062,10 +17062,10 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder]:empty:
   /* single-cell — child fills naturally, no special rules needed */
 }
 .terminal-block[data-split="horizontal"] {
-  grid-template-columns: var(--pane-ratio, 1fr) 4px 1fr;
+  grid-template-columns: minmax(0, var(--pane-ratio, 1fr)) 4px minmax(0, var(--pane-complement, 1fr));
 }
 .terminal-block[data-split="vertical"] {
-  grid-template-rows: var(--pane-ratio, 1fr) 4px 1fr;
+  grid-template-rows: minmax(0, var(--pane-ratio, 1fr)) 4px minmax(0, var(--pane-complement, 1fr));
 }
 .pane-host {
   position: relative;

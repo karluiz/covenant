@@ -378,10 +378,29 @@ export function serializeTab(tab: {
 }
 
 export function liftLegacyTab(t: SerializedTab): SerializedTab {
-  if (t.panes) {
+  if (t.panes && t.panes.length > 0) {
+    const p0 = t.panes[0];
     // Heal partial shape: if panes survived but layout didn't, synthesize a single-layout
     // so we don't lose the panes array.
-    return t.layout ? t : { ...t, layout: { kind: "single", active: 0 } };
+    const withLayout: SerializedTab = t.layout
+      ? t
+      : { ...t, layout: { kind: "single", active: 0 } };
+    // Backfill top-level mirrors from pane[0] so the existing restore loop
+    // and any other top-level consumers keep working with new-format manifests.
+    // serializeTab writes top-level scalars as null for new-format tabs, which
+    // would cause restoreFromManifest to lose cwd/mission/operator on first restart.
+    // Use ?? (not ||) so that an explicit empty string is still respected.
+    return {
+      ...withLayout,
+      kind: withLayout.kind ?? (p0.kind === "pi" ? "pi" : "shell"),
+      cwd: withLayout.cwd ?? p0.cwd,
+      mission_path: withLayout.mission_path ?? p0.mission_path,
+      operator_id: withLayout.operator_id ?? p0.operator_id,
+      replay_key: withLayout.replay_key ?? p0.replay_key,
+      observer_ids: withLayout.observer_ids ?? p0.observer_ids,
+      spawn_id: withLayout.spawn_id ?? p0.spawn_id,
+      aom_excluded: withLayout.aom_excluded ?? p0.aom_excluded,
+    };
   }
   const pane: SerializedPane = {
     id: `legacy-${t.replay_key ?? crypto.randomUUID()}`,
@@ -804,7 +823,9 @@ export class TabManager {
     // Mark the grid container as split so CSS rules engage.
     block.dataset.split = layout.orientation ?? "horizontal";
     delete block.dataset.layout;
-    block.style.setProperty("--pane-ratio", `${layout.ratio ?? 0.5}fr`);
+    const initR = layout.ratio ?? 0.5;
+    block.style.setProperty("--pane-ratio", `${initR}fr`);
+    block.style.setProperty("--pane-complement", `${1 - initR}fr`);
 
     // Build the splitter strip between the two pane-hosts.
     const splitter = document.createElement("div");
@@ -882,9 +903,12 @@ export class TabManager {
 
     // D14 — active-pane border: wire pane-1 focus via focusin.
     // xterm's internal textarea bubbles focusin through the pane-host container.
+    // Dynamic findIndex lookup so the correct index is used after a pane swap.
     const pane1FocusIn = (): void => {
-      if (tab.layout.activePaneIdx === paneIdx) return;
-      tab.layout.activePaneIdx = paneIdx;
+      const idx = tab.panes.findIndex((p) => p.el === paneHost1);
+      if (idx < 0) return;
+      if (tab.layout.activePaneIdx === idx) return;
+      tab.layout.activePaneIdx = idx as 0 | 1;
       this.updateActivePaneClass(tab);
       this.onActiveContextChange?.(activePane(tab).cwd);
       this.emitActiveMission();
@@ -900,7 +924,10 @@ export class TabManager {
       splitter,
       block,
       orientation: layout.orientation ?? "horizontal",
-      onRatio: (r) => block.style.setProperty("--pane-ratio", `${r}fr`),
+      onRatio: (r) => {
+        block.style.setProperty("--pane-ratio", `${r}fr`);
+        block.style.setProperty("--pane-complement", `${1 - r}fr`);
+      },
       onCommit: (r) => {
         setPaneRatioAction(tab, r);
         this.scheduleSave();
@@ -918,11 +945,28 @@ export class TabManager {
     (pane.piView as unknown as { focus?: () => void } | null)?.focus?.();
   }
 
-  private remountSplitDom(_tab: Tab): void {
-    // D12 v0 stub: CSS data-split attribute + --pane-ratio variable are the
-    // only things that need updating for orientation changes. Full remount
-    // (swap DOM children) is deferred to D14 when focus indicators + a
-    // real use-case drive it.
+  private remountSplitDom(tab: Tab): void {
+    if (tab.layout.kind !== "split") return;
+    const block = tab.terminalBlock;
+    const splitter = block.querySelector<HTMLElement>(".pane-splitter");
+    if (!splitter) return;
+    const pane0 = tab.panes[0];
+    const pane1 = tab.panes[1];
+    if (!pane0?.el || !pane1?.el) return;
+    // Physically reorder DOM children to match panes[] order:
+    // pane0.el → splitter → pane1.el
+    block.insertBefore(pane0.el, splitter);
+    block.insertBefore(splitter, pane1.el);
+    block.appendChild(pane1.el);
+    // Refit both xterms — DOM reorder doesn't trigger ResizeObserver.
+    requestAnimationFrame(() => {
+      if (pane0.xterm) {
+        try { pane0.xterm.refresh(0, (pane0.xterm.rows ?? 1) - 1); } catch { /* ignore */ }
+      }
+      if (pane1.xterm) {
+        try { pane1.xterm.refresh(0, (pane1.xterm.rows ?? 1) - 1); } catch { /* ignore */ }
+      }
+    });
   }
 
   // E2 — restore second pane from manifest ----------------------------------------
@@ -1099,7 +1143,7 @@ export class TabManager {
       { label: "Split down",  visible: flag && isSingle, action: () => void this.splitActivePane("vertical") },
       { label: "Swap panes",  visible: flag && isSplit,  action: () => void this.swapActivePanes() },
       { label: "Convert to Pi", visible: flag && !isPi,  action: () => void this.convertPaneToPi(tab, paneIdx) },
-      { label: "Close pane",  visible: true,             action: () => void this.closeActivePaneOrTab() },
+      { label: "Close pane",  visible: true,             action: () => void this.closePaneByIdx(tab, paneIdx) },
     ];
 
     for (const item of items) {
@@ -1336,8 +1380,10 @@ export class TabManager {
 
     window.addEventListener("beforeunload", () => {
       for (const tab of this.tabs) {
-        const sid = activePane(tab).sessionId;
-        if (sid) void closeSession(sid as SessionId).catch(() => {});
+        for (const p of tab.panes) {
+          const sid = p.sessionId;
+          if (sid) void closeSession(sid as SessionId).catch(() => {});
+        }
       }
       if (this.blockedPollTimer !== null) {
         window.clearInterval(this.blockedPollTimer);
@@ -2134,14 +2180,13 @@ export class TabManager {
   /// ⌘W semantic when split-panes flag is ON:
   /// - Split tab → collapse the active pane (kill its PTY, unmount DOM).
   /// - Single-pane tab → close the whole tab.
-  async closeActivePaneOrTab(): Promise<void> {
-    const tab = this.tabs.find((t) => t.id === this.activeId);
+  async closePaneByIdx(tab: Tab, paneIdx: 0 | 1): Promise<void> {
     if (!tab) return;
     if (tab.layout.kind === "single") {
-      this.closeTab(tab.id);
+      await this.closeTab(tab.id);
       return;
     }
-    const result = await closePaneAction(tab, tab.layout.activePaneIdx, {
+    const result = await closePaneAction(tab, paneIdx, {
       killSession: async (sid) => {
         try {
           await closeSession(sid as SessionId);
@@ -2153,7 +2198,7 @@ export class TabManager {
       focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
     });
     if (result === "close-tab") {
-      this.closeTab(tab.id);
+      await this.closeTab(tab.id);
       return;
     }
     // D14 — after collapsing to single-pane, reset the border to pane 0.
@@ -2161,6 +2206,12 @@ export class TabManager {
     this.scheduleSave();
     // F3 — remove the split glyph from tabbar after pane is closed.
     this.renderTabbar();
+  }
+
+  async closeActivePaneOrTab(): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    await this.closePaneByIdx(tab, tab.layout.activePaneIdx);
   }
 
   private unmountSecondPaneDom(tab: Tab, paneIdx: 0 | 1): void {
@@ -2182,11 +2233,12 @@ export class TabManager {
     // Remove the pane-splitter sibling.
     block.querySelector(".pane-splitter")?.remove();
     // Reverse what mountSecondPaneDom did to the block dataset / style.
-    // mountSecondPaneDom: sets data-split, deletes data-layout, sets --pane-ratio.
+    // mountSecondPaneDom: sets data-split, deletes data-layout, sets --pane-ratio + --pane-complement.
     // After collapse we want the block to look like a single-pane block again.
     delete block.dataset.split;
     block.dataset.layout = "single";
     block.style.removeProperty("--pane-ratio");
+    block.style.removeProperty("--pane-complement");
   }
 
   /// Backend session id (Ulid string) for whichever tab is currently
@@ -2565,10 +2617,10 @@ export class TabManager {
             if (event.kind === "block_started") {
               const next = detectExecutor(event.command);
               if (tabRef.current) {
-                const p = activePane(tabRef.current);
+                const p = tabRef.current.panes[0];
                 if (p.executor !== next) {
                   p.executor = next;
-                  if (tabRef.current.id === this.activeId) {
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(next);
                     this.onActiveExecutorChange?.(next);
                   }
@@ -2587,10 +2639,10 @@ export class TabManager {
               }
             } else if (event.kind === "block_finished") {
               if (tabRef.current) {
-                const p = activePane(tabRef.current);
+                const p = tabRef.current.panes[0];
                 if (p.executor !== null) {
                   p.executor = null;
-                  if (tabRef.current.id === this.activeId) {
+                  if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(null);
                     this.onActiveExecutorChange?.(null);
                   }
@@ -2619,12 +2671,12 @@ export class TabManager {
                   sinceMs: Date.now() - event.quiet_ms,
                   promptText: event.prompt_text,
                 };
-                activePane(tabRef.current).idleAgent = idleState;
+                tabRef.current.panes[0].idleAgent = idleState;
                 this.renderTabBadge(tabRef.current);
               }
             } else if (event.kind === "agent_resumed") {
               if (tabRef.current) {
-                activePane(tabRef.current).idleAgent = null;
+                tabRef.current.panes[0].idleAgent = null;
                 this.renderTabBadge(tabRef.current);
               }
             } else if (event.kind === "foreground_changed") {
@@ -2636,14 +2688,14 @@ export class TabManager {
                 // executor chip already conveys "agent running here" —
                 // doubling up is just noise. Keep the dot strictly for
                 // user-initiated dev tools.
-                const pFg = activePane(tabRef.current);
+                const pFg = tabRef.current.panes[0];
                 const isAgent = !!pFg.executor;
                 pFg.busyProc = event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) {
-                activePane(tabRef.current).cwd = event.cwd ?? "";
+                tabRef.current.panes[0].cwd = event.cwd ?? "";
               }
               this.onAnyTabContextChange?.(event.cwd);
               recall?.setCwd(event.cwd);
@@ -2651,9 +2703,14 @@ export class TabManager {
                 void tabRef.current.structure.setCwd(event.cwd);
               }
               this.scheduleSave();
-              // Status bar: only push when this tab is the visible one.
-              // Background tabs cd'ing don't shift what the user sees.
-              if (tabRef.current && tabRef.current.id === this.activeId) {
+              // Status bar: only push when this tab is the visible one AND
+              // pane[0] is the active pane. If the user focused pane[1],
+              // pane[0]'s cwd change must not overwrite the bar.
+              if (
+                tabRef.current &&
+                tabRef.current.id === this.activeId &&
+                tabRef.current.layout.activePaneIdx === 0
+              ) {
                 this.onActiveContextChange?.(event.cwd);
                 this.emitActiveTab();
               }
@@ -3334,10 +3391,14 @@ export class TabManager {
 
     // D14 — active-pane border: wire pane-0 focus for shell tabs via focusin.
     // xterm focuses an internal textarea; the event bubbles up through paneHost0.
+    // Dynamic findIndex lookup so the correct index is used after a pane swap.
     const pane0FocusIn = (): void => {
       const t = tabRef.current;
-      if (!t || t.layout.activePaneIdx === 0) return;
-      t.layout.activePaneIdx = 0;
+      if (!t) return;
+      const idx = t.panes.findIndex((p) => p.el === paneHost0);
+      if (idx < 0) return;
+      if (t.layout.activePaneIdx === idx) return;
+      t.layout.activePaneIdx = idx as 0 | 1;
       this.updateActivePaneClass(t);
       this.onActiveContextChange?.(activePane(t).cwd);
       this.emitActiveMission();
@@ -3605,9 +3666,12 @@ export class TabManager {
     // D14 — active-pane border: wire pane-0 focus for Pi tabs via focusin
     // (PiChatView doesn't expose an onFocus signal; the textarea fires a
     // native focusin that bubbles up from inside piPaneHost0).
+    // Dynamic findIndex lookup so the correct index is used after a pane swap.
     const piPane0FocusIn = (): void => {
-      if (tab.layout.activePaneIdx === 0) return; // already active, skip
-      tab.layout.activePaneIdx = 0;
+      const idx = tab.panes.findIndex((p) => p.el === piPaneHost0);
+      if (idx < 0) return;
+      if (tab.layout.activePaneIdx === idx) return;
+      tab.layout.activePaneIdx = idx as 0 | 1;
       this.updateActivePaneClass(tab);
       this.onActiveContextChange?.(activePane(tab).cwd);
       this.emitActiveMission();
@@ -4525,22 +4589,28 @@ export class TabManager {
     tab.specBadge?.destroy();
     tab.specBadge = null;
     for (const d of tab.disposers) d.dispose();
-    if (tab.kind === "pi") {
-      // PiSession owns its own backend lifecycle; PiChatView destroy
-      // also fires closePiSession via closeSession().
-      void tab.piView?.closeSession().catch(() => {});
-    } else {
-      if (closeSessionId) void closeSession(closeSessionId as SessionId).catch(() => {});
-      // Drop the persisted scrollback log — the tab is gone for good.
-      // Workspace-switch teardown also flows through here, which is the
-      // wrong behavior for those tabs (they reopen in another workspace).
-      // Suppress during in-flight replace.
-      if (!this.inReplace) {
-        void deleteScrollback(closePane.replayKey).catch(() => {});
+    // Close EVERY pane's PTY and drop its scrollback log. Split tabs have
+    // 2 panes; pre-split tabs have 1. Iterating here ensures the non-active
+    // pane's PTY is not orphaned (bug #3) and its scrollback is deleted (bug #10).
+    for (const p of tab.panes) {
+      if (p.kind === "pi") {
+        // PiSession owns its own backend lifecycle; PiChatView destroy
+        // also fires closePiSession via closeSession().
+        void p.piView?.closeSession().catch(() => {});
+      } else {
+        if (p.sessionId) void closeSession(p.sessionId as SessionId).catch(() => {});
+        // Drop the persisted scrollback log — the tab is gone for good.
+        // Workspace-switch teardown also flows through here, which is the
+        // wrong behavior for those tabs (they reopen in another workspace).
+        // Suppress during in-flight replace.
+        if (!this.inReplace && p.replayKey) {
+          void deleteScrollback(p.replayKey).catch(() => {});
+        }
+        p.xterm?.dispose();
       }
-      tab.finder?.dispose();
-      tab.term?.dispose();
     }
+    // tab.finder is a per-tab overlay (not per-pane in D14 v0); keep its dispose.
+    tab.finder?.dispose();
     if (tab.pane.parentElement === this.workspace) {
       this.workspace.removeChild(tab.pane);
     }

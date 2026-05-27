@@ -87,7 +87,7 @@ describe("serializeTab", () => {
     expect(s.layout?.ratio).toBe(0.6);
   });
 
-  it("roundtrip: serialize → liftLegacyTab returns the same shape", () => {
+  it("roundtrip: serialize → liftLegacyTab backfills top-level from pane[0]", () => {
     const tab = {
       id: "t1",
       kind: "shell" as const,
@@ -99,9 +99,13 @@ describe("serializeTab", () => {
     };
     const s = serializeTab(tab);
     const lifted = liftLegacyTab(s);
-    // Already has panes + layout → liftLegacyTab must return the same reference.
-    expect(lifted).toBe(s);
+    // Already has panes + layout — liftLegacyTab now backfills top-level
+    // scalars from pane[0] so restoreFromManifest sees them.
+    expect(lifted.panes).toHaveLength(1);
     expect(lifted.panes![0].cwd).toBe("/repo");
+    // Top-level cwd should be backfilled from pane[0]
+    expect(lifted.cwd).toBe("/repo");
+    expect(lifted.layout).toEqual({ kind: "single", orientation: undefined, active: 0, ratio: undefined });
   });
 });
 
