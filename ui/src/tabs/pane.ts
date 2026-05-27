@@ -6,6 +6,12 @@ export type PaneId = string;
 export type PaneKind = "terminal" | "pi";
 export type SplitOrientation = "horizontal" | "vertical";
 
+export type IdleAgentState = {
+  agent: string;
+  sinceMs: number;
+  promptText: string | null;
+};
+
 // MissionInfo is imported from ../api — the canonical definition lives there.
 
 // No exported Block type exists in the blocks module yet; keep a minimal
@@ -31,7 +37,7 @@ export interface Pane {
   aomExcluded: boolean;
   observer_ids: string[];
   spawn_id: string | null;
-  idleAgent: { agent: string; sinceMs: number; promptText: string | null } | null;
+  idleAgent: IdleAgentState | null;
   busyProc: string | null;
   replayKey: string;
 }

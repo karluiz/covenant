@@ -82,7 +82,7 @@ import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 import { zoom } from "../zoom";
 import { attachTooltip } from "../tooltip/tooltip";
-import type { Pane, TabLayout } from "./pane";
+import type { Pane, TabLayout, IdleAgentState } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
 
 /// Ensure a Familiar exists for the given session. If one is already
@@ -284,7 +284,7 @@ interface Tab {
   specBadge: SpecBadgeHandle | null;
   /// Set when the agent in this tab has gone quiet apparently waiting on
   /// the user. Cleared on `agent_resumed`. Drives the pulsing tab badge.
-  idleAgent?: { agent: string; sinceMs: number; promptText: string | null } | null;
+  idleAgent?: IdleAgentState | null;
   /// Foreground process (non-shell) currently occupying the PTY.
   /// Drives the palpitating "app running" dot next to the tab label.
   /// Null = idle at shell prompt.
@@ -1405,9 +1405,10 @@ export class TabManager {
       this.onActiveOperatorEntityChange?.(null);
       return;
     }
+    const pane = activePane(tab);
     this.onActiveOperatorChange?.(
-      { enabled: tab.operatorEnabled, live: tab.operatorLive },
-      tab.sessionId,
+      { enabled: pane.operatorEnabled, live: pane.operatorLive },
+      pane.sessionId,
     );
     const opEntity = tab.operator_id ? (this.operatorCache.get(tab.operator_id) ?? null) : null;
     this.onActiveOperatorEntityChange?.(opEntity);
@@ -1416,13 +1417,15 @@ export class TabManager {
   /// Emit the active tab's bound spawn_id to whoever is listening.
   private emitActiveSpawn(): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    this.onActiveSpawnChange?.(tab?.spawn_id ?? null);
+    const pane = tab ? activePane(tab) : null;
+    this.onActiveSpawnChange?.(pane?.spawn_id ?? null);
   }
 
   /// Returns the spawn_id bound to the currently active tab, or null.
   activeSpawnId(): string | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    return tab?.spawn_id ?? null;
+    const pane = tab ? activePane(tab) : null;
+    return pane?.spawn_id ?? null;
   }
 
   /// Bind (or unbind) a spawn to the active tab in-memory, persist, and
