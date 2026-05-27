@@ -92,6 +92,17 @@ export class StructureTree {
   /// `listEl` and then both append, doubling every entry.
   private refreshGen = 0;
 
+  /// Path of the file currently open in the editor pane, or null when
+  /// no file is open. The matching row gets `.is-active` (CSS gives it
+  /// an accent tint + 2px left stripe). Set by manager.ts from
+  /// openEditor / editor onClose.
+  private activePath: string | null = null;
+  private activeNode: NodeState | null = null;
+  /// Monotonic counter. Each call to `revealActivePath` captures the
+  /// current value and bails on any await if a newer reveal has
+  /// started — avoids two reveals interleaving DOM updates.
+  private revealGen = 0;
+
   constructor(
     private readonly host: HTMLElement,
     private readonly onFileClick: FileClickHandler,
@@ -140,6 +151,8 @@ export class StructureTree {
   /// `list_dir` against the new root.
   async setCwd(cwd: string): Promise<void> {
     if (this.cwd === cwd && this.nodes.length > 0) return;
+    this.clearActive();
+    this.activePath = null;
     this.cwd = cwd;
     this.expandedPaths = loadExpanded(cwd);
     this.renderHeader(cwd);
@@ -222,9 +235,14 @@ export class StructureTree {
   private async refreshRoot(): Promise<void> {
     if (!this.cwd) return;
     const gen = ++this.refreshGen;
+    ++this.revealGen;           // abort any in-flight revealActivePath — it will bail at its post-await staleness check
     const cwd = this.cwd;
     this.listEl.innerHTML = "";
     this.nodes = [];
+    // Reset activeNode so clearActive() doesn't query a detached element
+    // during the upcoming await. activePath is intentionally preserved so
+    // applyActiveClass() can re-find the leaf on the freshly-built DOM.
+    this.activeNode = null;
     this.emptyEl.textContent = "Empty directory";
     this.emptyEl.hidden = true;
     let entries: DirEntry[];
@@ -255,6 +273,10 @@ export class StructureTree {
         if (gen !== this.refreshGen) return;
       }
     }
+    // Re-apply the active-file marker on the freshly-rendered nodes.
+    // This is a lightweight walk (no expand, no scroll) so it won't
+    // steal the user's scroll position on a routine refresh.
+    this.applyActiveClass();
   }
 
   private makeNode(entry: DirEntry, depth: number): NodeState {
@@ -659,6 +681,101 @@ export class StructureTree {
       this.expandedPaths.delete(node.entry.path);
       saveExpanded(this.cwd, this.expandedPaths);
     }
+  }
+
+  /// Public entry point: tell the tree which file is currently open in
+  /// the editor pane. Pass `null` to clear. Same-path repeated calls
+  /// are no-ops so callers can be lazy.
+  ///
+  /// Effects when path changes to a non-null value:
+  ///   - clear `.is-active` from the previously-marked row (if any)
+  ///   - if path is outside this tree's cwd, stop (no marker)
+  ///   - otherwise: walk ancestors, expand collapsed ones, mark the
+  ///     leaf row, and scrollIntoView({ block: "nearest" })
+  ///
+  /// Set by manager.ts after `editor.open(path)` and again with `null`
+  /// from the editor's `onClose` callback.
+  setActivePath(path: string | null): void {
+    if (path === this.activePath) return;
+    this.clearActive();
+    this.activePath = path;
+    if (path === null) return;
+    void this.revealActivePath(path);
+  }
+
+  private clearActive(): void {
+    const prev = this.activeNode;
+    if (prev) {
+      const row = prev.el.querySelector(".structure-row");
+      row?.classList.remove("is-active");
+    }
+    this.activeNode = null;
+  }
+
+  /// Walk loaded nodes from cwd to find the NodeState for `path`.
+  /// Returns null if any ancestor isn't expanded (with loaded children)
+  /// or if the leaf doesn't exist. Pure read — does not expand anything.
+  private findLeafNode(path: string): NodeState | null {
+    if (!this.cwd) return null;
+    if (path !== this.cwd && !path.startsWith(this.cwd + "/")) return null;
+    const rel = path === this.cwd ? "" : path.slice(this.cwd.length + 1);
+    if (rel === "") return null;
+    const segments = rel.split("/");
+    let level: NodeState[] = this.nodes;
+    let prefix = this.cwd;
+    for (let i = 0; i < segments.length - 1; i++) {
+      prefix = `${prefix}/${segments[i]}`;
+      const dirNode = level.find((n) => n.entry.path === prefix);
+      if (!dirNode || !dirNode.expanded || !dirNode.children) return null;
+      level = dirNode.children;
+    }
+    return level.find((n) => n.entry.path === path) ?? null;
+  }
+
+  /// Full reveal: expand ancestors + apply class + scroll. Used on a
+  /// fresh open. Refresh re-apply uses applyActiveClass instead so a
+  /// routine refresh doesn't steal the user's scroll position.
+  private async revealActivePath(path: string): Promise<void> {
+    if (!this.cwd) return;
+    if (path !== this.cwd && !path.startsWith(this.cwd + "/")) return;
+    const gen = ++this.revealGen;
+    const rel = path === this.cwd ? "" : path.slice(this.cwd.length + 1);
+    if (rel === "") return;
+    const segments = rel.split("/");
+    let level: NodeState[] = this.nodes;
+    let prefix = this.cwd;
+    for (let i = 0; i < segments.length - 1; i++) {
+      prefix = `${prefix}/${segments[i]}`;
+      const dirNode = level.find((n) => n.entry.path === prefix);
+      if (!dirNode || dirNode.entry.kind !== "dir") return;
+      if (!dirNode.expanded) {
+        await this.expand(dirNode);
+        if (gen !== this.revealGen) return;
+      }
+      level = dirNode.children ?? [];
+    }
+    const leaf = level.find((n) => n.entry.path === path);
+    if (!leaf) return;
+    const row = leaf.el.querySelector(".structure-row");
+    if (!(row instanceof HTMLElement)) return;
+    row.classList.add("is-active");
+    this.activeNode = leaf;
+    row.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }
+
+  /// Lightweight: walks the currently-loaded nodes to re-apply the
+  /// `.is-active` class without expanding anything new and without
+  /// scrolling. Called from refreshRoot after a re-render so a refresh
+  /// during which the active path hasn't changed keeps the marker
+  /// visible on the new DOM nodes.
+  private applyActiveClass(): void {
+    if (!this.activePath) return;
+    const leaf = this.findLeafNode(this.activePath);
+    if (!leaf) return;
+    const row = leaf.el.querySelector(".structure-row");
+    if (!(row instanceof HTMLElement)) return;
+    row.classList.add("is-active");
+    this.activeNode = leaf;
   }
 
   private showError(msg: string): void {

@@ -2284,6 +2284,7 @@ export class TabManager {
         editorHost.hidden = true;
         showSplitter(false);
         refitAfterLayoutTransition();
+        structure.setActivePath(null);
       },
       onOpenPath: (path) => openEditor(path),
       onApplySpec: (path) => {
@@ -2345,6 +2346,7 @@ export class TabManager {
       // splitter, no grid reflow, no terminal refit needed on open.
       showSplitter(false);
       void editor.open(path, opts);
+      structure.setActivePath(path);
     };
 
     const structure = new StructureTree(
