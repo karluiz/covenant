@@ -378,10 +378,29 @@ export function serializeTab(tab: {
 }
 
 export function liftLegacyTab(t: SerializedTab): SerializedTab {
-  if (t.panes) {
+  if (t.panes && t.panes.length > 0) {
+    const p0 = t.panes[0];
     // Heal partial shape: if panes survived but layout didn't, synthesize a single-layout
     // so we don't lose the panes array.
-    return t.layout ? t : { ...t, layout: { kind: "single", active: 0 } };
+    const withLayout: SerializedTab = t.layout
+      ? t
+      : { ...t, layout: { kind: "single", active: 0 } };
+    // Backfill top-level mirrors from pane[0] so the existing restore loop
+    // and any other top-level consumers keep working with new-format manifests.
+    // serializeTab writes top-level scalars as null for new-format tabs, which
+    // would cause restoreFromManifest to lose cwd/mission/operator on first restart.
+    // Use ?? (not ||) so that an explicit empty string is still respected.
+    return {
+      ...withLayout,
+      kind: withLayout.kind ?? (p0.kind === "pi" ? "pi" : "shell"),
+      cwd: withLayout.cwd ?? p0.cwd,
+      mission_path: withLayout.mission_path ?? p0.mission_path,
+      operator_id: withLayout.operator_id ?? p0.operator_id,
+      replay_key: withLayout.replay_key ?? p0.replay_key,
+      observer_ids: withLayout.observer_ids ?? p0.observer_ids,
+      spawn_id: withLayout.spawn_id ?? p0.spawn_id,
+      aom_excluded: withLayout.aom_excluded ?? p0.aom_excluded,
+    };
   }
   const pane: SerializedPane = {
     id: `legacy-${t.replay_key ?? crypto.randomUUID()}`,
