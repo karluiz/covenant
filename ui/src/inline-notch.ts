@@ -422,7 +422,11 @@ export function mountInlineNotch(host: HTMLElement): void {
     if (focus) {
       headName.innerHTML = `${escapeHtml(fmtAgent(focus.agent))} · <span class="tab-id">${escapeHtml(focus.tab)}</span>`;
       headSub.textContent = `▸ ${phaseLabel(focus.phase)}`;
-      headAv.style.background = `linear-gradient(135deg, ${tabColorFor(focus.tab)}, #c7a8ff)`;
+      // Use the per-agent color so the head avatar matches the picker
+      // stack and the per-row "who" dots. Fall back to tab color only
+      // for shell-only sessions with no foreground agent.
+      const swatch = focus.agent ? agentColor(focus.agent) : tabColorFor(focus.tab);
+      headAv.style.background = `linear-gradient(135deg, ${swatch}, #c7a8ff)`;
     } else {
       headName.textContent = "no agent";
       headSub.textContent = "idle";
