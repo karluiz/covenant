@@ -83,8 +83,15 @@ import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 import { zoom } from "../zoom";
 import { attachTooltip } from "../tooltip/tooltip";
-import type { Pane, TabLayout } from "./pane";
+import type { Pane, TabLayout, SplitOrientation } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
+import {
+  splitPaneAction,
+  focusPaneAction,
+  swapPanesAction,
+  setPaneRatioAction,
+} from "./split-actions";
+import { installPaneSplitter } from "./pane-splitter";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -636,6 +643,180 @@ export class TabManager {
   canSplitPanes(): boolean {
     return this.splitPanesEnabled;
   }
+
+  // D12 — split-pane public API -----------------------------------------------
+
+  canSplit(): boolean {
+    if (!this.splitPanesEnabled) return false;
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    return tab !== undefined && tab.layout.kind === "single";
+  }
+
+  async splitActivePane(orientation: SplitOrientation): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || !this.splitPanesEnabled || tab.layout.kind === "split") return;
+    await splitPaneAction(tab, orientation, 0, {
+      spawnSession: (cwd) => this.spawnPtyForPane(cwd),
+      mountPaneInDom: (t, idx) => this.mountSecondPaneDom(t as Tab, idx),
+      focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
+    });
+    this.scheduleSave();
+  }
+
+  focusOtherPane(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || tab.layout.kind !== "split") return;
+    const nextIdx = (1 - tab.layout.activePaneIdx) as 0 | 1;
+    focusPaneAction(tab, nextIdx, {
+      focusInDom: (t, idx) => this.focusPaneDom(t as Tab, idx),
+    });
+  }
+
+  swapActivePanes(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || !this.splitPanesEnabled || tab.layout.kind !== "split") return;
+    swapPanesAction(tab, {
+      remountSplit: (t) => this.remountSplitDom(t as Tab),
+    });
+    this.scheduleSave();
+  }
+
+  // D12 — private DOM/PTY helpers for split-pane actions -----------------------
+
+  private async spawnPtyForPane(cwd: string): Promise<string> {
+    const paneId = `p-${crypto.randomUUID()}`;
+    // Minimal spawn for D12 — output routing wired in mountSecondPaneDom.
+    // The xterm instance is created there; we bind it via pane.xterm after
+    // mount so onOutput can reference it.
+    let xtermRef: { write: (data: Uint8Array) => void } | null = null;
+    const sessionId = await spawnSession(
+      {
+        onOutput: (chunk) => { xtermRef?.write(chunk); },
+        onSessionEvent: (_event) => { /* TODO: D13 — full event wiring */ },
+      },
+      { initialCwd: cwd, paneId },
+    );
+    // Store on the pane after split-actions creates it, via a late-binding
+    // closure. The mount helper wires xtermRef after open().
+    (this as unknown as Record<string, unknown>)[`_xtermRef_${sessionId}`] = (ref: { write: (d: Uint8Array) => void } | null) => { xtermRef = ref; };
+    return sessionId as string;
+  }
+
+  private mountSecondPaneDom(tab: Tab, paneIdx: 0 | 1): void {
+    const block = tab.terminalBlock;
+    const layout = tab.layout;
+    if (layout.kind !== "split") return;
+
+    // Mark the grid container as split so CSS rules engage.
+    block.dataset.split = layout.orientation ?? "horizontal";
+    delete block.dataset.layout;
+    block.style.setProperty("--pane-ratio", `${layout.ratio ?? 0.5}fr`);
+
+    // Build the splitter strip between the two pane-hosts.
+    const splitter = document.createElement("div");
+    splitter.className = "pane-splitter";
+    block.appendChild(splitter);
+
+    // Build pane-host[1] — the new (second) pane container.
+    const paneHost1 = document.createElement("div");
+    paneHost1.className = "pane-host";
+    block.appendChild(paneHost1);
+
+    const newPane = tab.panes[paneIdx];
+    if (!newPane) return;
+    newPane.el = paneHost1;
+
+    // Mount a basic xterm Terminal in the new pane (D12 v0).
+    // Full feature parity (blocks, recall, finder, webgl, ligatures) follows in D13.
+    const term = new Terminal({
+      fontFamily: DEFAULT_FONT_FAMILY,
+      fontSize: DEFAULT_FONT_SIZE,
+      convertEol: true,
+      allowTransparency: true,
+      theme: termTheme(),
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(paneHost1);
+    fit.fit();
+    newPane.xterm = term;
+
+    // Late-bind the output channel so spawnPtyForPane's closure can write
+    // output bytes into this xterm. The sessionId is on newPane already.
+    const sessionId = newPane.sessionId;
+    if (sessionId) {
+      const binder = (this as unknown as Record<string, unknown>)[`_xtermRef_${sessionId}`] as ((ref: { write: (d: Uint8Array) => void } | null) => void) | undefined;
+      if (binder) {
+        binder({ write: (data) => term.write(data) });
+        delete (this as unknown as Record<string, unknown>)[`_xtermRef_${sessionId}`];
+      }
+    }
+
+    // Wire data (keystrokes) → PTY.
+    const encoder = new TextEncoder();
+    term.onData((data) => {
+      if (sessionId) {
+        void writeToSession(sessionId as SessionId, encoder.encode(data)).catch((e) => {
+          // eslint-disable-next-line no-console
+          console.error("split-pane write failed", e);
+        });
+      }
+    });
+
+    // Wire resize → backend.
+    term.onResize(({ cols, rows }) => {
+      if (sessionId) {
+        void resizeSession(sessionId as SessionId, cols, rows).catch(() => {});
+      }
+    });
+
+    // ResizeObserver so fit() fires whenever the pane-host dimensions change.
+    let rafId: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (paneHost1.offsetWidth === 0 || paneHost1.offsetHeight === 0) return;
+        try { fit.fit(); } catch { /* ignore */ }
+        if (sessionId) void resizeSession(sessionId as SessionId, term.cols, term.rows).catch(() => {});
+      });
+    });
+    ro.observe(paneHost1);
+    // Push cleanup into the parent tab's disposers so closeTab tears it down.
+    tab.disposers.push({ dispose: () => { ro.disconnect(); if (rafId !== null) cancelAnimationFrame(rafId); } });
+    tab.disposers.push({ dispose: () => { try { term.dispose(); } catch { /* ignore */ } } });
+
+    // Splitter drag wires to setPaneRatio.
+    installPaneSplitter({
+      splitter,
+      block,
+      orientation: layout.orientation ?? "horizontal",
+      onRatio: (r) => block.style.setProperty("--pane-ratio", `${r}fr`),
+      onCommit: (r) => {
+        setPaneRatioAction(tab, r);
+        this.scheduleSave();
+        requestAnimationFrame(() => { try { fit.fit(); } catch { /* ignore */ } });
+      },
+    });
+  }
+
+  private focusPaneDom(tab: Tab, paneIdx: 0 | 1): void {
+    const pane = tab.panes[paneIdx];
+    if (!pane) return;
+    try { pane.xterm?.focus(); } catch { /* ignore */ }
+    // PiChatView doesn't expose a public focus() method in v1 — call via
+    // duck-typed cast so this compiles and works when a focus() is added later.
+    (pane.piView as unknown as { focus?: () => void } | null)?.focus?.();
+  }
+
+  private remountSplitDom(_tab: Tab): void {
+    // D12 v0 stub: CSS data-split attribute + --pane-ratio variable are the
+    // only things that need updating for orientation changes. Full remount
+    // (swap DOM children) is deferred to D14 when focus indicators + a
+    // real use-case drive it.
+  }
+
+  // End D12 split-pane helpers -------------------------------------------------
 
   /// 3.7 — fired whenever the *active* tab's cwd context changes:
   ///   - tab switched (new active tab → its cwd)

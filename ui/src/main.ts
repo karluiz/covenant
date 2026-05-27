@@ -1684,6 +1684,35 @@ async function boot(): Promise<void> {
       release.toggle();
       return;
     }
+    // ⌘D → split right (add a second pane to the right). Gated inside manager.
+    if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === "d" || e.key === "D")) {
+      e.preventDefault();
+      void manager.splitActivePane("horizontal");
+      return;
+    }
+    // ⌘\ → split down (add a second pane below). Gated inside manager.
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key === "\\") {
+      e.preventDefault();
+      void manager.splitActivePane("vertical");
+      return;
+    }
+    // ⌘[ / ⌘] → focus previous / next pane. Gated inside manager.
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key === "[") {
+      e.preventDefault();
+      manager.focusOtherPane();
+      return;
+    }
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key === "]") {
+      e.preventDefault();
+      manager.focusOtherPane();
+      return;
+    }
+    // ⌘⇧] → swap panes. Gated inside manager.
+    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "}" || e.key === "]")) {
+      e.preventDefault();
+      manager.swapActivePanes();
+      return;
+    }
     // ⌘⇧D → open ProjectNotesPanel for the active group on the drafts tab.
     if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
       const g = manager.activeGroup();
