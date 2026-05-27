@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.37 — Single-row status bar opt-out (experimental)
+
+### Added
+
+- **Single-row status bar (experimental opt-out)**: the two-row status bar shipped in v0.8.36 isn't for everyone — some users prefer the denser pre-0.8.36 single-row layout for muscle memory or screen real estate. New `experimental.statusbar_two_row` setting in Settings → Experimental (default on) toggles the bar back to the original `grid-template-columns: auto auto 1fr auto` flat layout. Toggling is live, no respawn needed. CSS introduces a `--statusbar-h` custom property and a `body.statusbar-single-row` class so dependent panels (project-notes, etc.) reflow automatically when the user flips between layouts — no more hardcoded 50/51px offsets. `crates/app/src/settings.rs`, `ui/src/api.ts`, `ui/src/settings/panel.ts`, `ui/src/status/bar.ts`, `ui/src/status/bar.test.ts`, `ui/src/tabs/manager.ts`, `ui/src/main.ts`, `ui/src/styles.css`, `ui/src/project-notes/styles.css`.
+
 ## v0.8.36 — Split panes (experimental) + statusbar two-row + tree active reveal
 
 ### Added
