@@ -22,7 +22,8 @@ export interface ShortcutEntry {
 export const SHORTCUTS: ShortcutEntry[] = [
   // Tabs
   { category: "Tabs", keys: ["⌘", "T"], label: "New tab", description: "Open a fresh terminal session." },
-  { category: "Tabs", keys: ["⌘", "W"], label: "Close tab", description: "Close the active session." },
+  { category: "Tabs", keys: ["⌘", "W"], label: "Close pane / tab", description: "Close the active pane in a split tab; close the tab when single-pane. Requires experimental.split_panes; behaves as close-tab when flag is off." },
+  { category: "Tabs", keys: ["⌘", "⇧", "W"], label: "Close tab (escape hatch)", description: "Always closes the entire tab even when it has multiple panes." },
   { category: "Tabs", keys: ["⌘", "1–9"], label: "Jump to tab N", description: "Activate the Nth tab (1-indexed)." },
   { category: "Tabs", keys: ["⌘", "⇧", "{"], label: "Previous tab", description: "Cycle to the tab on the left." },
   { category: "Tabs", keys: ["⌘", "⇧", "}"], label: "Next tab", description: "Cycle to the tab on the right." },

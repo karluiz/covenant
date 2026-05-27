@@ -87,6 +87,7 @@ import type { Pane, TabLayout, SplitOrientation } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
 import {
   splitPaneAction,
+  closePaneAction,
   focusPaneAction,
   swapPanesAction,
   setPaneRatioAction,
@@ -1804,6 +1805,65 @@ export class TabManager {
 
   closeActive(): void {
     if (this.activeId) this.closeTab(this.activeId);
+  }
+
+  /// Close the active tab unconditionally (escape hatch for ⌘⇧W).
+  closeActiveTab(): void {
+    if (this.activeId) this.closeTab(this.activeId);
+  }
+
+  /// ⌘W semantic when split-panes flag is ON:
+  /// - Split tab → collapse the active pane (kill its PTY, unmount DOM).
+  /// - Single-pane tab → close the whole tab.
+  async closeActivePaneOrTab(): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab) return;
+    if (tab.layout.kind === "single") {
+      this.closeTab(tab.id);
+      return;
+    }
+    const result = await closePaneAction(tab, tab.layout.activePaneIdx, {
+      killSession: async (sid) => {
+        try {
+          await closeSession(sid as SessionId);
+        } catch {
+          /* ignore */
+        }
+      },
+      unmountPaneFromDom: (t, idx) => this.unmountSecondPaneDom(t as Tab, idx),
+      focusPane: (t, idx) => this.focusPaneDom(t as Tab, idx),
+    });
+    if (result === "close-tab") {
+      this.closeTab(tab.id);
+      return;
+    }
+    this.scheduleSave();
+  }
+
+  private unmountSecondPaneDom(tab: Tab, paneIdx: 0 | 1): void {
+    const pane = tab.panes[paneIdx];
+    // Remove the pane-host element.
+    if (pane?.el) {
+      pane.el.remove();
+      pane.el = null;
+    }
+    // Dispose xterm to release WebGL context and listeners.
+    if (pane?.xterm) {
+      try { pane.xterm.dispose(); } catch { /* ignore */ }
+      pane.xterm = null;
+    }
+    // Dispose piView if present.
+    (pane?.piView as unknown as { dispose?: () => void } | null)?.dispose?.();
+
+    const block = tab.terminalBlock;
+    // Remove the pane-splitter sibling.
+    block.querySelector(".pane-splitter")?.remove();
+    // Reverse what mountSecondPaneDom did to the block dataset / style.
+    // mountSecondPaneDom: sets data-split, deletes data-layout, sets --pane-ratio.
+    // After collapse we want the block to look like a single-pane block again.
+    delete block.dataset.split;
+    block.dataset.layout = "single";
+    block.style.removeProperty("--pane-ratio");
   }
 
   /// Backend session id (Ulid string) for whichever tab is currently

@@ -1818,7 +1818,18 @@ async function boot(): Promise<void> {
 
     if (!e.shiftKey && e.key === "w") {
       e.preventDefault();
-      manager.closeActive();
+      if (manager.canSplitPanes()) {
+        void manager.closeActivePaneOrTab();
+      } else {
+        manager.closeActiveTab();
+      }
+      return;
+    }
+
+    // ⌘⇧W — unconditional close tab (escape hatch even in split tabs).
+    if (e.shiftKey && e.key === "W") {
+      e.preventDefault();
+      manager.closeActiveTab();
       return;
     }
 
