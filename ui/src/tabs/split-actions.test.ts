@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { splitPaneAction } from "./split-actions";
+import { splitPaneAction, closePaneAction } from "./split-actions";
 import type { Tab, Pane } from "./pane";
 
 const makePane = (id: string, cwd = "/repo"): Pane => ({
@@ -64,5 +64,56 @@ describe("splitPaneAction", () => {
     };
     await expect(splitPaneAction(tab, "horizontal", 0, ctx)).rejects.toThrow(/already split/);
     expect(ctx.spawnSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("closePaneAction", () => {
+  it("collapses split → single, drops the right pane", async () => {
+    const tab = makeSingleTab("t1");
+    (tab.panes as Pane[]).push(makePane("p1"));
+    tab.layout = { kind: "split", orientation: "horizontal", activePaneIdx: 1, ratio: 0.5 };
+    const ctx = {
+      killSession: vi.fn().mockResolvedValue(undefined),
+      unmountPaneFromDom: vi.fn(),
+      focusPane: vi.fn(),
+    };
+    const result = await closePaneAction(tab, 1, ctx);
+    expect(result).toBe("collapsed");
+    expect(tab.panes.length).toBe(1);
+    expect(tab.panes[0].id).toBe("p0");
+    expect(tab.layout.kind).toBe("single");
+    expect(tab.layout.activePaneIdx).toBe(0);
+    expect(ctx.killSession).toHaveBeenCalledWith("s-p1");
+    expect(ctx.unmountPaneFromDom).toHaveBeenCalledWith(tab, 1);
+    expect(ctx.focusPane).toHaveBeenCalledWith(tab, 0);
+  });
+
+  it("closing pane 0 keeps pane 1, slides it to index 0", async () => {
+    const tab = makeSingleTab("t1");
+    (tab.panes as Pane[]).push(makePane("p1"));
+    tab.layout = { kind: "split", orientation: "horizontal", activePaneIdx: 0, ratio: 0.5 };
+    const ctx = {
+      killSession: vi.fn().mockResolvedValue(undefined),
+      unmountPaneFromDom: vi.fn(),
+      focusPane: vi.fn(),
+    };
+    const result = await closePaneAction(tab, 0, ctx);
+    expect(result).toBe("collapsed");
+    expect(tab.panes.length).toBe(1);
+    expect(tab.panes[0].id).toBe("p1");
+    expect(ctx.killSession).toHaveBeenCalledWith("s-p0");
+  });
+
+  it("returns 'close-tab' when called on a single-pane tab", async () => {
+    const tab = makeSingleTab("t1");
+    const ctx = {
+      killSession: vi.fn(),
+      unmountPaneFromDom: vi.fn(),
+      focusPane: vi.fn(),
+    };
+    const result = await closePaneAction(tab, 0, ctx);
+    expect(result).toBe("close-tab");
+    expect(ctx.killSession).not.toHaveBeenCalled();
+    expect(ctx.unmountPaneFromDom).not.toHaveBeenCalled();
   });
 });

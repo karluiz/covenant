@@ -77,3 +77,43 @@ export async function splitPaneAction(
   ctx.mountPaneInDom(tab, 1);
   ctx.focusPane(tab, 1);
 }
+
+export interface CloseActionCtx {
+  /** Kill the PTY session and free backend resources. */
+  killSession: (sessionId: string) => Promise<void>;
+  /** Remove the pane's DOM (.pane-host) from the .terminal-block. */
+  unmountPaneFromDom: (tab: Tab, paneIdx: 0 | 1) => void;
+  /** Move keyboard focus to the named pane. */
+  focusPane: (tab: Tab, paneIdx: 0 | 1) => void;
+}
+
+export type CloseResult = "collapsed" | "close-tab";
+
+/**
+ * Removes a pane from a tab. On a single-pane tab, returns "close-tab"
+ * so the caller can close the whole tab. On a split tab, kills the
+ * pane's PTY, unmounts its DOM, collapses the layout to single, and
+ * focuses the surviving pane.
+ */
+export async function closePaneAction(
+  tab: Tab,
+  paneIdx: 0 | 1,
+  ctx: CloseActionCtx,
+): Promise<CloseResult> {
+  if (tab.layout.kind === "single") {
+    return "close-tab";
+  }
+  const victim = tab.panes[paneIdx];
+  if (victim?.sessionId) {
+    await ctx.killSession(victim.sessionId);
+  }
+  ctx.unmountPaneFromDom(tab, paneIdx);
+  const survivorIdx = (paneIdx === 0 ? 1 : 0) as 0 | 1;
+  const survivor = tab.panes[survivorIdx];
+  if (!survivor) throw new Error(`closePaneAction: missing survivor pane at ${survivorIdx}`);
+  tab.panes = [survivor];
+  tab.layout = { kind: "single", activePaneIdx: 0 };
+  assertLayoutValid(tab);
+  ctx.focusPane(tab, 0);
+  return "collapsed";
+}
