@@ -82,7 +82,7 @@ import { Familiars } from "../familiars/api";
 import { setFamiliarFor } from "../familiars/registry";
 import { zoom } from "../zoom";
 import { attachTooltip } from "../tooltip/tooltip";
-import type { Pane, TabLayout, IdleAgentState } from "./pane";
+import type { Pane, TabLayout } from "./pane";
 import { activePane, assertLayoutValid } from "./pane";
 
 /// Ensure a Familiar exists for the given session. If one is already
@@ -190,13 +190,6 @@ interface Tab {
   /// xterm-specific fields below are undefined for "pi" tabs and every
   /// xterm-touching method early-returns on `kind === "pi"`.
   kind: "shell" | "pi";
-  /// Stable identifier for scrollback persistence. Unlike `id`, this is
-  /// persisted in the tab manifest and survives app restarts — used to
-  /// key `<data_dir>/scrollback/<replayKey>.log` so closed-and-reopened
-  /// tabs replay their last PTY bytes into xterm. Pi tabs use this as a
-  /// no-op key (Pi owns its own session JSONL).
-  replayKey: string;
-  sessionId: SessionId;
   /// Default name from the spawn sequence ("zsh 1"). Always present.
   defaultTitle: string;
   /// User-set name. When set, takes precedence over defaultTitle.
@@ -205,26 +198,6 @@ interface Tab {
   color: string | null;
   /// Group membership. Null = not in any group.
   groupId: string | null;
-  /// Operator enabled on this tab — controls whether the backend's
-  /// OperatorWatcher checks this session for prompts to answer.
-  operatorEnabled: boolean;
-  /// M-OP3 live mode. When true AND operatorEnabled is also true, the
-  /// Operator actually types replies into this PTY (after passing the
-  /// safety blocklist) instead of just logging dry-run decisions.
-  /// Disabling the Operator on the backend also clears live, so this
-  /// mirrors the server-side invariant.
-  operatorLive: boolean;
-  /// M-OP5 per-tab AOM opt-out. Only meaningful while AOM is on
-  /// globally — when true, this tab is invisible to the AOM banner
-  /// and keeps its per-tab live setting + normal persona. Persistent
-  /// across AOM cycles AND app restarts (UI stores it in the tab
-  /// manifest; restore path always calls setAomExcluded with the
-  /// persisted value).
-  aomExcluded: boolean;
-  /// M-OP6 mission spec attached to this tab. When set, the Operator
-  /// uses the spec content as authoritative scope — Out of scope →
-  /// escalate, File boundaries → constraints. Tab badge surfaces this.
-  mission: MissionInfo | null;
   pane: HTMLElement;
   /// xterm-specific fields below — populated for "shell" tabs, left
   /// undefined for "pi" tabs (the pane hosts a PiChatView instead).
@@ -258,40 +231,14 @@ interface Tab {
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure" | "recall";
-  /// Last cwd seen via OSC 7 / cwd_changed; passed to Recall so the
-  /// backend can apply its cwd bonus.
-  cwd: string | null;
-  /// Operator pinned to this tab. Null = backend default (first operator
-  /// in the registry). Persisted in the tab manifest; replayed on restore.
-  operator_id: string | null;
-  /// Operators subscribed to this tab as read-only observers. The primary
-  /// writer is `operator_id`; observers see everything but cannot type.
-  /// Persisted in the tab manifest. Always disjoint from `operator_id`
-  /// (setTabOperator strips the new writer from this list).
-  observer_ids: string[];
-  /// Spawn bound to this tab. When set, the SpawnsChip reflects this
-  /// binding and deploy was initiated from this tab. Persisted in the
-  /// tab manifest; replayed on restore.
-  spawn_id: string | null;
-  /// Currently-running agentic executor (claude/copilot/opencode/…)
-  /// detected from the in-flight command. Null when shell is idle or
-  /// the running command isn't a known agent. Drives the status-bar
-  /// brand chip when this tab is active.
-  executor: string | null;
   disposers: IDisposable[];
   /// Spec-pending badge handle. Destroyed on closeTab and recreated on
   /// each renderTabPill call to keep subscriptions symmetric.
   specBadge: SpecBadgeHandle | null;
-  /// Set when the agent in this tab has gone quiet apparently waiting on
-  /// the user. Cleared on `agent_resumed`. Drives the pulsing tab badge.
-  idleAgent?: IdleAgentState | null;
-  /// Foreground process (non-shell) currently occupying the PTY.
-  /// Drives the palpitating "app running" dot next to the tab label.
-  /// Null = idle at shell prompt.
-  busyProc?: string | null;
-  /// Phase A: multi-pane data model. `panes` always has length 1 or 2.
-  /// During Phase B (read migration) the scalar fields above are kept
-  /// in sync with `panes[0]` as a safety net; Phase C removes them.
+  /// Phase C: all data fields (sessionId, replayKey, cwd, mission,
+  /// operator_id/operator, operatorEnabled, operatorLive, aomExcluded,
+  /// observer_ids, spawn_id, executor, idleAgent, busyProc) have been
+  /// removed from Tab. Access via activePane(tab).<field> instead.
   panes: [Pane] | [Pane, Pane];
   layout: TabLayout;
 }
@@ -864,7 +811,7 @@ export class TabManager {
 
     window.addEventListener("beforeunload", () => {
       for (const tab of this.tabs) {
-        void closeSession(tab.sessionId).catch(() => {});
+        void closeSession(activePane(tab).sessionId ?? "").catch(() => {});
       }
       if (this.blockedPollTimer !== null) {
         window.clearInterval(this.blockedPollTimer);
@@ -896,11 +843,12 @@ export class TabManager {
     if (changed.size === 0) return;
     this.blockedSessionIds = next;
     for (const tab of this.tabs) {
-      if (!changed.has(tab.sessionId)) continue;
+      const pane = activePane(tab);
+      if (!pane.sessionId || !changed.has(pane.sessionId)) continue;
       const pill = this.tabbarHost.querySelector<HTMLElement>(
         `.tab-btn[data-tab-id="${tab.id}"]`,
       );
-      if (pill) this.applyEscalationDot(pill, next.has(tab.sessionId));
+      if (pill) this.applyEscalationDot(pill, next.has(pane.sessionId));
     }
   }
 
@@ -914,10 +862,11 @@ export class TabManager {
     if (!pill) return;
     const existing = pill.querySelector(".tab-idle-badge");
     if (existing) existing.remove();
-    if (tab.idleAgent) {
+    const idleAgent = activePane(tab).idleAgent;
+    if (idleAgent) {
       const badge = document.createElement("span");
       badge.className = "tab-idle-badge";
-      badge.title = tab.idleAgent.promptText ?? `${tab.idleAgent.agent} waiting`;
+      badge.title = idleAgent.promptText ?? `${idleAgent.agent} waiting`;
       // Insert before the close button so the pulse sits next to the
       // label, not past the X.
       const close = pill.querySelector(".tab-close");
@@ -938,15 +887,16 @@ export class TabManager {
     // Executor tabs (pi, claude, codex, …) already convey "agent running"
     // via the executor chip — the pulse dot is for user-initiated dev
     // tools only. Keep pi homologous to the other agent executors.
-    const isAgent = tab.kind === "pi" || !!tab.executor;
-    if (tab.busyProc && !isAgent) {
+    const paneB = activePane(tab);
+    const isAgent = tab.kind === "pi" || !!paneB.executor;
+    if (paneB.busyProc && !isAgent) {
       if (existing instanceof HTMLElement) {
-        existing.title = `${tab.busyProc} running`;
+        existing.title = `${paneB.busyProc} running`;
         return;
       }
       const dot = document.createElement("span");
       dot.className = "tab-busy-dot";
-      dot.title = `${tab.busyProc} running`;
+      dot.title = `${paneB.busyProc} running`;
       // Prepend so it sits before the label (left side of the tab).
       pill.insertBefore(dot, pill.firstChild);
     } else if (existing) {
@@ -1296,9 +1246,10 @@ export class TabManager {
   applyMissionTabNames(): void {
     let touched = false;
     for (const tab of this.tabs) {
-      if (!tab.mission) continue;
+      const mission = activePane(tab).mission;
+      if (!mission) continue;
       if (tab.customName && tab.customName.trim().length > 0) continue;
-      const slug = slugFromMissionPath(tab.mission.path);
+      const slug = slugFromMissionPath(mission.path);
       if (!slug) continue;
       tab.customName = slug;
       touched = true;
@@ -1318,27 +1269,26 @@ export class TabManager {
   /// disk content.
   async refreshAllOperatorState(): Promise<void> {
     for (const tab of this.tabs) {
-      const enabled = await isOperatorEnabled(tab.sessionId).catch(
-        () => tab.operatorEnabled,
+      const pane = activePane(tab);
+      const sessionId = pane.sessionId;
+      if (!sessionId) continue;
+      const enabled = await isOperatorEnabled(sessionId as SessionId).catch(
+        () => pane.operatorEnabled,
       );
       const live = enabled
-        ? await isOperatorLive(tab.sessionId).catch(() => tab.operatorLive)
+        ? await isOperatorLive(sessionId as SessionId).catch(() => pane.operatorLive)
         : false;
       const excluded = enabled
-        ? await isAomExcluded(tab.sessionId).catch(() => tab.aomExcluded)
+        ? await isAomExcluded(sessionId as SessionId).catch(() => pane.aomExcluded)
         : false;
-      const mission = await getSessionMission(tab.sessionId).catch(
-        () => tab.mission,
+      const mission = await getSessionMission(sessionId as SessionId).catch(
+        () => pane.mission,
       );
-      const wasEnabled = tab.operatorEnabled;
-      tab.operatorEnabled = enabled;
-      activePane(tab).operatorEnabled = enabled;
-      tab.operatorLive = live;
-      activePane(tab).operatorLive = live;
-      tab.aomExcluded = excluded;
-      activePane(tab).aomExcluded = excluded;
-      tab.mission = mission;
-      activePane(tab).mission = mission;
+      const wasEnabled = pane.operatorEnabled;
+      pane.operatorEnabled = enabled;
+      pane.operatorLive = live;
+      pane.aomExcluded = excluded;
+      pane.mission = mission;
       // Auto-spawn a Familiar when the operator transitions OFF→ON,
       // gated on the user's familiars-enabled setting (BYOK).
       // Failures are non-fatal — the operator stays enabled either way.
@@ -1346,7 +1296,7 @@ export class TabManager {
         try {
           const s = await getSettings();
           if (s.familiars_enabled) {
-            await ensureFamiliarFor(tab.sessionId);
+            await ensureFamiliarFor(sessionId);
           }
         } catch (err) {
           // eslint-disable-next-line no-console
@@ -1414,7 +1364,7 @@ export class TabManager {
       { enabled: pane.operatorEnabled, live: pane.operatorLive },
       pane.sessionId,
     );
-    const opEntity = tab.operator_id ? (this.operatorCache.get(tab.operator_id) ?? null) : null;
+    const opEntity = pane.operator ? (this.operatorCache.get(pane.operator) ?? null) : null;
     this.onActiveOperatorEntityChange?.(opEntity);
   }
 
@@ -1437,7 +1387,6 @@ export class TabManager {
   setActiveSpawnId(spawnId: string | null): void {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
-    tab.spawn_id = spawnId;
     activePane(tab).spawn_id = spawnId;
     this.scheduleSave();
     this.emitActiveSpawn();
@@ -1487,7 +1436,8 @@ export class TabManager {
         // eslint-disable-next-line no-console
         console.warn("fit failed on refitActive", err);
       }
-      void resizeSession(tab.sessionId, term.cols, term.rows).catch(() => {});
+      const sessId = activePane(tab).sessionId;
+      if (sessId) void resizeSession(sessId as SessionId, term.cols, term.rows).catch(() => {});
       term.focus();
     });
   }
@@ -1531,11 +1481,8 @@ export class TabManager {
           /* ignore */
         }
         term.refresh(0, term.rows - 1);
-        void resizeSession(
-          tab.sessionId,
-          term.cols,
-          term.rows,
-        ).catch(() => {});
+        const sid = activePane(tab).sessionId;
+        if (sid) void resizeSession(sid as SessionId, term.cols, term.rows).catch(() => {});
       });
     }
   }
@@ -1638,11 +1585,8 @@ export class TabManager {
               /* ignore */
             }
             term.refresh(0, term.rows - 1);
-            void resizeSession(
-              tab.sessionId,
-              term.cols,
-              term.rows,
-            ).catch(() => {});
+            const sid2 = activePane(tab).sessionId;
+            if (sid2) void resizeSession(sid2 as SessionId, term.cols, term.rows).catch(() => {});
           });
         } catch (err) {
           // eslint-disable-next-line no-console
@@ -1763,11 +1707,11 @@ export class TabManager {
     missionPath: string | null;
     open: boolean;
   } | null {
-    const tab = this.tabs.find((t) => t.sessionId.slice(-6) === short);
+    const tab = this.tabs.find((t) => activePane(t).sessionId?.slice(-6) === short);
     if (tab) {
       return {
         displayName: tabDisplayName(tab),
-        missionPath: tab.mission?.path ?? null,
+        missionPath: activePane(tab).mission?.path ?? null,
         open: true,
       };
     }
@@ -1793,7 +1737,7 @@ export class TabManager {
     // Tell the notch overlay the *display* label (group › tab) so the
     // pill shows "COVENANT › notch" instead of just "notch". AOM keeps
     // using the bare name above for slug generation.
-    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
     const group = tab?.groupId ? this.groups.get(tab.groupId) : null;
     const label = group ? `${group.name} › ${name}` : name;
     void notchSetLabel(sessionId as SessionId, label).catch(() => {});
@@ -1804,7 +1748,7 @@ export class TabManager {
   /// popup brings the user back to the originating tab. No-op if the tab
   /// has been closed since the notification fired.
   activateBySessionId(sessionId: SessionId): boolean {
-    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
     if (!tab) return false;
     this.activate(tab.id);
     return true;
@@ -2015,33 +1959,36 @@ export class TabManager {
             // operator panel and the bar agree on the name.
             if (event.kind === "block_started") {
               const next = detectExecutor(event.command);
-              if (tabRef.current && tabRef.current.executor !== next) {
-                tabRef.current.executor = next;
-                activePane(tabRef.current).executor = next;
-                if (tabRef.current.id === this.activeId) {
-                  this.statusBar?.setExecutor(next);
-                  this.onActiveExecutorChange?.(next);
-                }
-                // Tear down any Recall popup the moment an executor
-                // takes over the PTY: its buffer is now stale shell
-                // input that no longer maps to a prompt.
-                if (next) recall?.notifyPromptStart();
-                // Drop any pulse dot left over from a pre-agent dev
-                // tool; while an executor owns the PTY, the chip is
-                // the canonical "running" indicator.
-                if (next && tabRef.current.busyProc) {
-                  tabRef.current.busyProc = null;
-                  activePane(tabRef.current).busyProc = null;
-                  this.renderTabBusyDot(tabRef.current);
+              if (tabRef.current) {
+                const p = activePane(tabRef.current);
+                if (p.executor !== next) {
+                  p.executor = next;
+                  if (tabRef.current.id === this.activeId) {
+                    this.statusBar?.setExecutor(next);
+                    this.onActiveExecutorChange?.(next);
+                  }
+                  // Tear down any Recall popup the moment an executor
+                  // takes over the PTY: its buffer is now stale shell
+                  // input that no longer maps to a prompt.
+                  if (next) recall?.notifyPromptStart();
+                  // Drop any pulse dot left over from a pre-agent dev
+                  // tool; while an executor owns the PTY, the chip is
+                  // the canonical "running" indicator.
+                  if (next && p.busyProc) {
+                    p.busyProc = null;
+                    this.renderTabBusyDot(tabRef.current);
+                  }
                 }
               }
             } else if (event.kind === "block_finished") {
-              if (tabRef.current && tabRef.current.executor !== null) {
-                tabRef.current.executor = null;
-                activePane(tabRef.current).executor = null;
-                if (tabRef.current.id === this.activeId) {
-                  this.statusBar?.setExecutor(null);
-                  this.onActiveExecutorChange?.(null);
+              if (tabRef.current) {
+                const p = activePane(tabRef.current);
+                if (p.executor !== null) {
+                  p.executor = null;
+                  if (tabRef.current.id === this.activeId) {
+                    this.statusBar?.setExecutor(null);
+                    this.onActiveExecutorChange?.(null);
+                  }
                 }
               }
             }
@@ -2062,17 +2009,16 @@ export class TabManager {
               }
             } else if (event.kind === "agent_idle_waiting") {
               if (tabRef.current) {
-                tabRef.current.idleAgent = {
+                const idleState = {
                   agent: event.agent,
                   sinceMs: Date.now() - event.quiet_ms,
                   promptText: event.prompt_text,
                 };
-                activePane(tabRef.current).idleAgent = tabRef.current.idleAgent;
+                activePane(tabRef.current).idleAgent = idleState;
                 this.renderTabBadge(tabRef.current);
               }
             } else if (event.kind === "agent_resumed") {
               if (tabRef.current) {
-                tabRef.current.idleAgent = null;
                 activePane(tabRef.current).idleAgent = null;
                 this.renderTabBadge(tabRef.current);
               }
@@ -2085,15 +2031,13 @@ export class TabManager {
                 // executor chip already conveys "agent running here" —
                 // doubling up is just noise. Keep the dot strictly for
                 // user-initiated dev tools.
-                const isAgent = !!tabRef.current.executor;
-                tabRef.current.busyProc =
-                  event.busy && !isAgent ? event.name : null;
-                activePane(tabRef.current).busyProc = tabRef.current.busyProc;
+                const pFg = activePane(tabRef.current);
+                const isAgent = !!pFg.executor;
+                pFg.busyProc = event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) {
-                tabRef.current.cwd = event.cwd;
                 activePane(tabRef.current).cwd = event.cwd ?? "";
               }
               this.onAnyTabContextChange?.(event.cwd);
@@ -2453,7 +2397,7 @@ export class TabManager {
       } else if (view === "structure") {
         navTitle.textContent = "Files";
         structure.show();
-        if (t?.cwd) void structure.setCwd(t.cwd);
+        if (t) { const twCwd = activePane(t).cwd; if (twCwd) void structure.setCwd(twCwd); }
       } else {
         navTitle.textContent = "Recall";
         recall!.show();
@@ -2502,7 +2446,7 @@ export class TabManager {
       // Suppress Recall while an agent executor (claude/copilot/codex/
       // opencode/…) holds the PTY. Their TUIs don't run a shell prompt,
       // so the suggestion popup is just noise overlaying the agent UI.
-      if (!tabRef.current?.executor) {
+      if (!tabRef.current || !activePane(tabRef.current).executor) {
         recall?.notifyInput(data);
       }
     });
@@ -2724,16 +2668,10 @@ export class TabManager {
     const tab: Tab = {
       id,
       kind: "shell",
-      replayKey,
-      sessionId,
       defaultTitle: `zsh ${seq}`,
       customName: opts?.customName ?? null,
       color: opts?.color ?? null,
       groupId: opts?.groupId ?? null,
-      operatorEnabled,
-      operatorLive,
-      aomExcluded,
-      mission,
       pane,
       termHost,
       blocksHost,
@@ -2749,11 +2687,6 @@ export class TabManager {
       editor,
       openEditor,
       sidebarView: "blocks",
-      cwd: initialCwd,
-      operator_id: null,
-      observer_ids: [],
-      spawn_id: null,
-      executor: null,
       disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose],
       specBadge: null,
       panes: [] as unknown as [Pane],
@@ -2764,21 +2697,21 @@ export class TabManager {
       id: paneId,
       kind: "terminal",
       sessionId,
-      cwd: tab.cwd ?? "",
-      mission: tab.mission,
-      operator: tab.operator_id,
+      cwd: initialCwd ?? "",
+      mission,
+      operator: null,
       blocks: [],
-      xterm: tab.term ?? null,
+      xterm: term,
       piView: null,
-      executor: tab.executor,
-      operatorEnabled: tab.operatorEnabled,
-      operatorLive: tab.operatorLive,
-      aomExcluded: tab.aomExcluded,
-      observer_ids: tab.observer_ids,
-      spawn_id: tab.spawn_id,
-      idleAgent: tab.idleAgent ?? null,
-      busyProc: tab.busyProc ?? null,
-      replayKey: tab.replayKey,
+      executor: null,
+      operatorEnabled,
+      operatorLive,
+      aomExcluded,
+      observer_ids: [],
+      spawn_id: null,
+      idleAgent: null,
+      busyProc: null,
+      replayKey,
     };
     tab.panes = [pane0Shell];
     assertLayoutValid(tab);
@@ -2891,7 +2824,7 @@ export class TabManager {
               const colonSplit = trimmed.match(/^(.*?)(?::(\d+)(?::\d+)?)?$/);
               const pathPart = colonSplit?.[1] ?? trimmed;
               const lineNum = colonSplit?.[2] ? Number(colonSplit[2]) : undefined;
-              const cwd = tabRef.current?.cwd ?? null;
+              const cwd = tabRef.current ? (activePane(tabRef.current).cwd || null) : null;
               void resolveExistingPath(pathPart, cwd)
                 .then((abs) => {
                   if (!abs) return;
@@ -2990,24 +2923,13 @@ export class TabManager {
     const tab: Tab = {
       id,
       kind: "pi",
-      replayKey,
-      sessionId,
       defaultTitle: `pi ${seq}`,
       customName: opts?.customName ?? null,
       color: opts?.color ?? null,
       groupId: opts?.groupId ?? null,
-      operatorEnabled: false,
-      operatorLive: false,
-      aomExcluded: true, // Pi sessions never enter AOM (no shell to drive)
-      mission: null,
       pane,
       piView: view,
       sidebarView: "blocks",
-      cwd: opts?.cwd ?? null,
-      operator_id: null,
-      observer_ids: [],
-      spawn_id: null,
-      executor: "pi",
       disposers: [],
       specBadge: null,
       panes: [] as unknown as [Pane],
@@ -3018,21 +2940,21 @@ export class TabManager {
       id: `p-${sessionId}`,
       kind: "pi",
       sessionId,
-      cwd: tab.cwd ?? "",
-      mission: tab.mission,
-      operator: tab.operator_id,
+      cwd: opts?.cwd ?? "",
+      mission: null,
+      operator: null,
       blocks: [],
       xterm: null,
-      piView: tab.piView ?? null,
+      piView: view,
       executor: null,
       operatorEnabled: false,
       operatorLive: false,
-      aomExcluded: tab.aomExcluded,
-      observer_ids: tab.observer_ids,
-      spawn_id: tab.spawn_id,
+      aomExcluded: true, // Pi sessions never enter AOM (no shell to drive)
+      observer_ids: [],
+      spawn_id: null,
       idleAgent: null,
       busyProc: null,
-      replayKey: tab.replayKey,
+      replayKey,
     };
     tab.panes = [pane0Pi];
     assertLayoutValid(tab);
@@ -3061,11 +2983,13 @@ export class TabManager {
   private async toggleOperatorLive(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const next = !tab.operatorLive;
+    const pane = activePane(tab);
+    const sessionId = pane.sessionId;
+    if (!sessionId) return;
+    const next = !pane.operatorLive;
     try {
-      await setOperatorLive(tab.sessionId, next);
-      tab.operatorLive = next;
-      activePane(tab).operatorLive = next;
+      await setOperatorLive(sessionId as SessionId, next);
+      pane.operatorLive = next;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveOperator();
     } catch (err) {
@@ -3079,28 +3003,26 @@ export class TabManager {
   public async setTabOperator(tabId: string, operatorId: string | null): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    tab.operator_id = operatorId;
-    activePane(tab).operator = operatorId;
+    const pane = activePane(tab);
+    pane.operator = operatorId;
     // Promoting an existing observer to driver removes the duplicate entry —
     // observers and the primary writer must be disjoint.
     if (operatorId) {
-      tab.observer_ids = stripObserverOnPromote(tab.observer_ids, operatorId);
-      activePane(tab).observer_ids = tab.observer_ids;
+      pane.observer_ids = stripObserverOnPromote(pane.observer_ids, operatorId);
     }
-    if (tab.sessionId) {
-      await sessionSetOperator(tab.sessionId, operatorId);
+    const sessionId = pane.sessionId;
+    if (sessionId) {
+      await sessionSetOperator(sessionId as SessionId, operatorId);
       // Removing the operator must also tear down the M-OP3 enabled/live
       // flags. Without this, the per-session "operator engaged" bit stays
       // on, the tab keeps its running border, and the AOM-stop guard
-      // below sees `tab.operatorEnabled === true` and refuses to stop
+      // below sees `pane.operatorEnabled === true` and refuses to stop
       // AOM — leaving single-tab AOM running against an orphaned tab.
       if (operatorId === null) {
-        await setOperatorLive(tab.sessionId, false).catch(() => undefined);
-        await setOperatorEnabled(tab.sessionId, false).catch(() => undefined);
-        tab.operatorLive = false;
-        activePane(tab).operatorLive = false;
-        tab.operatorEnabled = false;
-        activePane(tab).operatorEnabled = false;
+        await setOperatorLive(sessionId as SessionId, false).catch(() => undefined);
+        await setOperatorEnabled(sessionId as SessionId, false).catch(() => undefined);
+        pane.operatorLive = false;
+        pane.operatorEnabled = false;
       }
     }
     this.scheduleSave();
@@ -3123,7 +3045,10 @@ export class TabManager {
     // has nothing left to drive — stop it so the global indicator and
     // budget don't keep ticking against an empty fleet.
     if (operatorId === null) {
-      const anyOperator = this.tabs.some((t) => t.operatorEnabled || t.operator_id);
+      const anyOperator = this.tabs.some((t) => {
+        const p = activePane(t);
+        return p.operatorEnabled || p.operator;
+      });
       if (!anyOperator) {
         const aomOn = await aomStatus().then((s) => s.enabled).catch(() => false);
         if (aomOn) await aomStop().catch(() => undefined);
@@ -3145,9 +3070,10 @@ export class TabManager {
       const tabName = (t.customName && t.customName.trim().length > 0)
         ? t.customName
         : t.defaultTitle;
-      if (t.operator_id === operatorId) {
+      const p = activePane(t);
+      if (p.operator === operatorId) {
         rows.push({ tabId: t.id, tabName, role: "driver" });
-      } else if (t.observer_ids.includes(operatorId)) {
+      } else if (p.observer_ids.includes(operatorId)) {
         rows.push({ tabId: t.id, tabName, role: "observer" });
       }
     }
@@ -3160,7 +3086,7 @@ export class TabManager {
     operatorId: string,
   ): Array<{ tabId: string; tabName: string }> {
     return this.tabs
-      .filter((t) => t.operator_id !== operatorId && !t.observer_ids.includes(operatorId))
+      .filter((t) => { const p = activePane(t); return p.operator !== operatorId && !p.observer_ids.includes(operatorId); })
       .map((t) => ({
         tabId: t.id,
         tabName: (t.customName && t.customName.trim().length > 0)
@@ -3175,10 +3101,10 @@ export class TabManager {
   public async addObserver(tabId: string, operatorId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const next = computeAddObserver(tab.operator_id, tab.observer_ids, operatorId);
-    if (next === tab.observer_ids) return; // no-op
-    tab.observer_ids = next;
-    activePane(tab).observer_ids = next;
+    const paneObs = activePane(tab);
+    const next = computeAddObserver(paneObs.operator, paneObs.observer_ids, operatorId);
+    if (next === paneObs.observer_ids) return; // no-op
+    paneObs.observer_ids = next;
     this.scheduleSave();
     this.renderTabbar();
     this.emitTabOperatorChange();
@@ -3188,10 +3114,10 @@ export class TabManager {
   public async removeObserver(tabId: string, operatorId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const next = computeRemoveObserver(tab.observer_ids, operatorId);
-    if (next === tab.observer_ids) return; // no-op
-    tab.observer_ids = next;
-    activePane(tab).observer_ids = next;
+    const paneRem = activePane(tab);
+    const next = computeRemoveObserver(paneRem.observer_ids, operatorId);
+    if (next === paneRem.observer_ids) return; // no-op
+    paneRem.observer_ids = next;
     this.scheduleSave();
     this.renderTabbar();
     this.emitTabOperatorChange();
@@ -3201,7 +3127,7 @@ export class TabManager {
   /// (⌘⇧O) to resolve the sessionId it receives back to a tab id so it
   /// can call setTabOperator.
   tabForSession(sessionId: SessionId): Tab | null {
-    return this.tabs.find((t) => t.sessionId === sessionId) ?? null;
+    return this.tabs.find((t) => activePane(t).sessionId === sessionId) ?? null;
   }
 
   /// Public sibling of `promptAndSetMission` that takes a sessionId
@@ -3210,7 +3136,7 @@ export class TabManager {
   /// flow as the tab context menu without leaking the tab-id
   /// abstraction.
   promptAndSetMissionForSession(sessionId: SessionId): void {
-    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
     if (!tab) return;
     void this.promptAndSetMission(tab.id);
   }
@@ -3218,7 +3144,7 @@ export class TabManager {
   /// SessionId-keyed clear so the status bar's mission context menu
   /// can remove the active tab's mission without leaking tabIds.
   clearMissionForSession(sessionId: SessionId): void {
-    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
     if (!tab) return;
     void this.clearMission(tab.id);
   }
@@ -3239,14 +3165,16 @@ export class TabManager {
   async setMissionPathForActiveTab(path: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     if (!tab) return;
+    const activeMissPane = activePane(tab);
+    const activeMissSid = activeMissPane.sessionId;
+    if (!activeMissSid) return;
     try {
-      const info = await setSessionMission(tab.sessionId, {
+      const info = await setSessionMission(activeMissSid as SessionId, {
         kind: "covenant",
         spec_path: path,
         plan_path: null,
       });
-      tab.mission = info;
-      activePane(tab).mission = info;
+      activeMissPane.mission = info;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveMission();
     } catch (err) {
@@ -3325,15 +3253,16 @@ export class TabManager {
   private async promptAndSetMission(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const repoRoot = tab.cwd ?? "."; // backend default; mission-picker handles "no specs dir"
+    const pickPane = activePane(tab);
+    const repoRoot = pickPane.cwd || "."; // backend default; mission-picker handles "no specs dir"
     if (!this.missionPicker) return;
     const result = await this.missionPicker({
       repoRoot,
-      currentMissionPath: tab.mission?.path ?? null,
+      currentMissionPath: pickPane.mission?.path ?? null,
       onBrowse: async () => {
         const start =
-          tab.mission?.path ??
-          (tab.cwd ? `${tab.cwd}/docs/specs` : undefined);
+          pickPane.mission?.path ??
+          (pickPane.cwd ? `${pickPane.cwd}/docs/specs` : undefined);
         const picked = await openDialog({
           title: "Pick mission spec",
           multiple: false,
@@ -3360,7 +3289,7 @@ export class TabManager {
       // "plan ✗" → spawn a fresh tab whose first prompt receives the
       // writing-plans skill-invocation. User owns the session from there.
       await this.createTab({
-        cwd: tab.cwd ?? null,
+        cwd: pickPane.cwd || null,
         initialCommand: result.initialCommand,
       });
       return;
@@ -3372,21 +3301,22 @@ export class TabManager {
       const topic = await openNewSuperpowersTopicModal();
       if (!topic) return;
       await this.createTab({
-        cwd: tab.cwd ?? null,
+        cwd: pickPane.cwd || null,
         initialCommand: `Use the brainstorming skill to design: ${topic}`,
       });
       return;
     }
 
     // result.kind === "set" | "setRef"
+    const pickSid = pickPane.sessionId;
+    if (!pickSid) return;
     try {
       const mref =
         result.kind === "setRef"
           ? result.mref
           : { kind: "covenant" as const, spec_path: result.path, plan_path: null };
-      const info = await setSessionMission(tab.sessionId, mref);
-      tab.mission = info;
-      activePane(tab).mission = info;
+      const info = await setSessionMission(pickSid as SessionId, mref);
+      pickPane.mission = info;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveMission();
     } catch (err) {
@@ -3399,10 +3329,12 @@ export class TabManager {
   private async clearMission(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    const clearPane = activePane(tab);
+    const clearSid = clearPane.sessionId;
+    if (!clearSid) return;
     try {
-      await clearSessionMission(tab.sessionId);
-      tab.mission = null;
-      activePane(tab).mission = null;
+      await clearSessionMission(clearSid as SessionId);
+      clearPane.mission = null;
       this.renderTabbar();
       if (tab.id === this.activeId) this.emitActiveMission();
     } catch (err) {
@@ -3417,9 +3349,11 @@ export class TabManager {
   /// behavior stays identical.
   private async viewMission(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
-    if (!tab || !tab.mission) return;
+    if (!tab) return;
+    const pane = activePane(tab);
+    if (!pane.mission || !pane.sessionId) return;
     if (tab.id !== this.activeId) this.activate(tab.id);
-    this.onMissionViewRequested?.(tab.mission, tab.sessionId);
+    this.onMissionViewRequested?.(pane.mission, pane.sessionId as SessionId);
   }
 
   /// Wired by main.ts to route the menu entry to the StatusBar's
@@ -3444,11 +3378,13 @@ export class TabManager {
   private async toggleAomExcluded(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const next = !tab.aomExcluded;
+    const paneAom = activePane(tab);
+    const sessionId = paneAom.sessionId;
+    if (!sessionId) return;
+    const next = !paneAom.aomExcluded;
     try {
-      await setAomExcluded(tab.sessionId, next);
-      tab.aomExcluded = next;
-      activePane(tab).aomExcluded = next;
+      await setAomExcluded(sessionId as SessionId, next);
+      paneAom.aomExcluded = next;
       this.renderTabbar();
       // Persist so the exclusion survives app restarts. Without this
       // the new aom_excluded field in TabManifestV1 would only see
@@ -3469,7 +3405,7 @@ export class TabManager {
     if (!this.aomBanner?.isOn()) return;
     if (!this.activeId) return;
     const tab = this.tabs.find((t) => t.id === this.activeId);
-    if (!tab || !tab.operatorEnabled) return;
+    if (!tab || !activePane(tab).operatorEnabled) return;
     await this.toggleAomExcluded(tab.id);
   }
 
@@ -3478,13 +3414,13 @@ export class TabManager {
   /// render + StatusBar push. Idempotent — bails if state already
   /// matches.
   async setAomExcludedFor(sessionId: SessionId, excluded: boolean): Promise<void> {
-    const tab = this.tabs.find((t) => t.sessionId === sessionId);
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
     if (!tab) return;
-    if (tab.aomExcluded === excluded) return;
+    const paneForExcl = activePane(tab);
+    if (paneForExcl.aomExcluded === excluded) return;
     try {
       await setAomExcluded(sessionId, excluded);
-      tab.aomExcluded = excluded;
-      activePane(tab).aomExcluded = excluded;
+      paneForExcl.aomExcluded = excluded;
       this.renderTabbar();
       this.scheduleSave();
       this.pushExcludedToStatusBar();
@@ -3506,7 +3442,7 @@ export class TabManager {
       // catch below correctly captures only `clearAllAomExcluded`
       // failure where backend AND local are unchanged.
       for (const t of this.tabs) {
-        t.aomExcluded = false;
+        activePane(t).aomExcluded = false;
       }
       this.renderTabbar();
       this.scheduleSave();
@@ -3531,12 +3467,15 @@ export class TabManager {
       return;
     }
     const list = this.tabs
-      .filter((t) => t.operatorEnabled && t.aomExcluded)
-      .map((t) => ({
-        sessionId: t.sessionId,
-        name: tabDisplayName(t),
-        cwdShort: shortCwd(t.cwd),
-      }));
+      .filter((t) => { const p = activePane(t); return p.operatorEnabled && p.aomExcluded; })
+      .map((t) => {
+        const p = activePane(t);
+        return {
+          sessionId: p.sessionId ?? "",
+          name: tabDisplayName(t),
+          cwdShort: shortCwd(p.cwd),
+        };
+      });
     this.statusBar?.setExcludedTabs(list);
   }
 
@@ -3596,19 +3535,22 @@ export class TabManager {
             this.tabs.findIndex((t) => t.id === this.activeId),
           )
         : 0,
-      tabs: this.tabs.map((t) => ({
-        kind: t.kind,
-        custom_name: t.customName,
-        cwd: t.cwd,
-        color: t.color,
-        group_id: t.groupId,
-        mission_path: t.mission?.path ?? null,
-        operator_id: t.operator_id,
-        observer_ids: t.observer_ids,
-        spawn_id: t.spawn_id,
-        aom_excluded: t.aomExcluded,
-        replay_key: t.replayKey,
-      })),
+      tabs: this.tabs.map((t) => {
+        const p = activePane(t);
+        return {
+          kind: t.kind,
+          custom_name: t.customName,
+          cwd: p.cwd || null,
+          color: t.color,
+          group_id: t.groupId,
+          mission_path: p.mission?.path ?? null,
+          operator_id: p.operator,
+          observer_ids: p.observer_ids,
+          spawn_id: p.spawn_id,
+          aom_excluded: p.aomExcluded,
+          replay_key: p.replayKey,
+        };
+      }),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
         name: g.name,
@@ -3693,16 +3635,17 @@ export class TabManager {
         const tab = created[i];
         if (!tab) return;
         const tasks: Promise<unknown>[] = [];
-        if (t.mission_path) {
+        const paneRestore = activePane(tab);
+        const restoreSessionId = paneRestore.sessionId;
+        if (t.mission_path && restoreSessionId) {
           tasks.push(
-            setSessionMission(tab.sessionId, {
+            setSessionMission(restoreSessionId as SessionId, {
               kind: "covenant",
               spec_path: t.mission_path,
               plan_path: null,
             })
               .then((info) => {
-                tab.mission = info;
-                activePane(tab).mission = info;
+                paneRestore.mission = info;
               })
               .catch((err) => {
                 console.warn(
@@ -3712,34 +3655,32 @@ export class TabManager {
               }),
           );
         }
-        tab.operator_id = t.operator_id ?? null;
-        activePane(tab).operator = t.operator_id ?? null;
+        paneRestore.operator = t.operator_id ?? null;
         // Old manifests pre-observers default to []. Observers are a
         // frontend-only subscription, so no backend call is needed.
-        tab.observer_ids = Array.isArray(t.observer_ids) ? [...t.observer_ids] : [];
-        activePane(tab).observer_ids = tab.observer_ids;
-        if (tab.operator_id) {
+        paneRestore.observer_ids = Array.isArray(t.observer_ids) ? [...t.observer_ids] : [];
+        if (paneRestore.operator && restoreSessionId) {
           tasks.push(
-            sessionSetOperator(tab.sessionId, tab.operator_id).catch((e) => {
+            sessionSetOperator(restoreSessionId as SessionId, paneRestore.operator).catch((e) => {
               console.warn("session_set_operator failed on restore", e);
             }),
           );
         }
-        tab.spawn_id = t.spawn_id ?? null;
-        activePane(tab).spawn_id = t.spawn_id ?? null;
+        paneRestore.spawn_id = t.spawn_id ?? null;
         // Always pin the persisted value: backend default at attach time
         // depends on whether AOM is currently running, which drifts.
         const persistedExcluded = t.aom_excluded ?? false;
-        tasks.push(
-          setAomExcluded(tab.sessionId, persistedExcluded)
-            .then(() => {
-              tab.aomExcluded = persistedExcluded;
-              activePane(tab).aomExcluded = persistedExcluded;
-            })
-            .catch((err) => {
-              console.warn("aom_excluded restore failed", err);
-            }),
-        );
+        if (restoreSessionId) {
+          tasks.push(
+            setAomExcluded(restoreSessionId as SessionId, persistedExcluded)
+              .then(() => {
+                paneRestore.aomExcluded = persistedExcluded;
+              })
+              .catch((err) => {
+                console.warn("aom_excluded restore failed", err);
+              }),
+          );
+        }
         await Promise.all(tasks);
       }),
     );
@@ -3883,7 +3824,7 @@ export class TabManager {
     // Spec 3.20 phase 6: peek for accumulated operator memory; if any,
     // open the MindLossModal before destroying the tab. On error or
     // when there's nothing to lose, fall through to direct close.
-    void closeSessionCheck(tab.sessionId)
+    void closeSessionCheck(activePane(tab).sessionId as SessionId)
       .then((preview) => {
         if (preview) {
           openMindLossModal({
@@ -3909,11 +3850,13 @@ export class TabManager {
     const tab = this.tabs[idx];
     // Stamp the final name in the cache before disposal so closed-tab
     // labels survive for the operator-decisions panel.
-    this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
+    const closePane = activePane(tab);
+    const closeSessionId = closePane.sessionId;
+    this.rememberSessionName(closeSessionId ?? "", tabDisplayName(tab));
     // Belt-and-suspenders: unpin operator before closing. Backend also
     // unpins in close_session, but this keeps the in-process state clean.
-    if (tab.sessionId) {
-      void sessionSetOperator(tab.sessionId, null).catch(() => {});
+    if (closeSessionId) {
+      void sessionSetOperator(closeSessionId as SessionId, null).catch(() => {});
     }
     tab.specBadge?.destroy();
     tab.specBadge = null;
@@ -3923,13 +3866,13 @@ export class TabManager {
       // also fires closePiSession via closeSession().
       void tab.piView?.closeSession().catch(() => {});
     } else {
-      void closeSession(tab.sessionId).catch(() => {});
+      if (closeSessionId) void closeSession(closeSessionId as SessionId).catch(() => {});
       // Drop the persisted scrollback log — the tab is gone for good.
       // Workspace-switch teardown also flows through here, which is the
       // wrong behavior for those tabs (they reopen in another workspace).
       // Suppress during in-flight replace.
       if (!this.inReplace) {
-        void deleteScrollback(tab.replayKey).catch(() => {});
+        void deleteScrollback(closePane.replayKey).catch(() => {});
       }
       tab.finder?.dispose();
       tab.term?.dispose();
@@ -3992,8 +3935,9 @@ export class TabManager {
     this.emitActiveOperator();
     this.emitActiveSpawn();
     this.emitActiveTab();
-    this.statusBar?.setExecutor(tab.executor);
-    this.onActiveExecutorChange?.(tab.executor);
+    const activatorExecutor = activePane(tab).executor;
+    this.statusBar?.setExecutor(activatorExecutor);
+    this.onActiveExecutorChange?.(activatorExecutor);
 
     if (tab.kind === "pi") {
       // Pi tabs have no xterm to fit/resize; just hand focus to the
@@ -4046,7 +3990,8 @@ export class TabManager {
             /* ignore — terminal may be mid-dispose */
           }
         }
-        void resizeSession(tab.sessionId, term.cols, term.rows).catch(() => {});
+        const activateSessId = activePane(tab).sessionId;
+        if (activateSessId) void resizeSession(activateSessId as SessionId, term.cols, term.rows).catch(() => {});
         term.scrollToBottom();
         term.focus();
       });
@@ -4115,7 +4060,8 @@ export class TabManager {
     const trimmed = value.trim();
     const newCustomName = trimmed.length > 0 ? trimmed : null;
     tab.customName = newCustomName;
-    this.rememberSessionName(tab.sessionId, tabDisplayName(tab));
+    const renamePane = activePane(tab);
+    this.rememberSessionName(renamePane.sessionId ?? "", tabDisplayName(tab));
     this.renaming = null;
     this.renderTabbar();
     if (id === this.activeId) this.emitActiveTab();
@@ -4127,14 +4073,15 @@ export class TabManager {
     if (
       newCustomName &&
       shouldForwardRename({
-        executor: tab.executor,
+        executor: renamePane.executor,
         kind: tab.kind,
         previousCustomName,
         newCustomName,
       })
     ) {
-      void piSetSessionName(tab.sessionId, newCustomName).catch((err) => {
-        console.debug("piSetSessionName failed", { sessionId: tab.sessionId, err });
+      const renameSessId = renamePane.sessionId;
+      if (renameSessId) void piSetSessionName(renameSessId as SessionId, newCustomName).catch((err) => {
+        console.debug("piSetSessionName failed", { sessionId: renameSessId, err });
       });
     }
   }
@@ -4699,14 +4646,15 @@ export class TabManager {
     //   - operator on, AOM on, driving this tab → animated gradient ring
     //   - operator on, AOM on, excluded → muted/dashed "disabled" ring
     // Toggling exclusion happens via the context menu.
-    if (tab.operatorEnabled) {
+    const pillPane = activePane(tab);
+    if (pillPane.operatorEnabled) {
       const aomOn = this.aomBanner?.isOn() ?? false;
-      const excluded = tab.aomExcluded;
+      const excluded = pillPane.aomExcluded;
       // Single-tab AOM: a tab where the operator is live counts as
       // "AOM driving here" even when the global banner is off — that's
       // how teammate-confirmed tasks light up without forcing the global
       // toggle on every other tab.
-      const drivingHere = (aomOn && !excluded) || tab.operatorLive;
+      const drivingHere = (aomOn && !excluded) || pillPane.operatorLive;
       if (drivingHere) pill.classList.add("tab-aom-active");
       else if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
     }
@@ -4723,8 +4671,8 @@ export class TabManager {
     // overlapping ~50%. Beyond MAX_VISIBLE we collapse to a "+N" pill so
     // the tab name never gets pushed out.
     const stackedIds: string[] = [
-      ...(tab.operator_id ? [tab.operator_id] : []),
-      ...tab.observer_ids,
+      ...(pillPane.operator ? [pillPane.operator] : []),
+      ...pillPane.observer_ids,
     ];
     if (stackedIds.length > 0) {
       const MAX_VISIBLE = 3;
@@ -4736,7 +4684,7 @@ export class TabManager {
       for (const id of visible) {
         const op = this.operatorCache.get(id) ?? null;
         if (!op) continue;
-        const isDriver = tab.operator_id === id;
+        const isDriver = pillPane.operator === id;
         const chip = document.createElement("span");
         chip.className =
           "tab-op-chip " + (isDriver ? "tab-op-chip--driver" : "tab-op-chip--observer");
@@ -4865,7 +4813,8 @@ export class TabManager {
 
     // 3.14 — re-apply escalation dot on (re)render so a strip rebuild
     // doesn't drop it while the session is still blocked.
-    if (this.blockedSessionIds.has(tab.sessionId)) {
+    const pillPaneLate = activePane(tab);
+    if (pillPaneLate.sessionId && this.blockedSessionIds.has(pillPaneLate.sessionId)) {
       this.applyEscalationDot(pill, true);
     }
 
@@ -4873,19 +4822,19 @@ export class TabManager {
     // strip) doesn't drop it until the next foreground_changed event.
     // Pill isn't in the DOM yet here — attach directly. Executor tabs
     // skip the dot (the chip already conveys "agent running here").
-    if (tab.busyProc && tab.kind !== "pi" && !tab.executor) {
+    if (pillPaneLate.busyProc && tab.kind !== "pi" && !pillPaneLate.executor) {
       const dot = document.createElement("span");
       dot.className = "tab-busy-dot";
-      dot.title = `${tab.busyProc} running`;
+      dot.title = `${pillPaneLate.busyProc} running`;
       pill.insertBefore(dot, pill.firstChild);
     }
 
     // Same idea for the agent-idle badge: re-attach on rebuild, before
     // the close button so it sits beside the label.
-    if (tab.idleAgent) {
+    if (pillPaneLate.idleAgent) {
       const badge = document.createElement("span");
       badge.className = "tab-idle-badge";
-      badge.title = tab.idleAgent.promptText ?? `${tab.idleAgent.agent} waiting`;
+      badge.title = pillPaneLate.idleAgent.promptText ?? `${pillPaneLate.idleAgent.agent} waiting`;
       pill.insertBefore(badge, close);
     }
 
@@ -4905,11 +4854,12 @@ export class TabManager {
     const aomOn = await aomStatus()
       .then((s) => s.enabled)
       .catch(() => false);
-    if (tab.operatorEnabled) {
-      tab.aomExcluded = await isAomExcluded(tab.sessionId).catch(
-        () => tab.aomExcluded,
+    const ctxPane = activePane(tab);
+    const ctxSessionId = ctxPane.sessionId;
+    if (ctxPane.operatorEnabled && ctxSessionId) {
+      ctxPane.aomExcluded = await isAomExcluded(ctxSessionId as SessionId).catch(
+        () => ctxPane.aomExcluded,
       );
-      activePane(tab).aomExcluded = tab.aomExcluded;
     }
 
     const items: Parameters<ContextMenu["show"]>[2] = [
@@ -4951,7 +4901,7 @@ export class TabManager {
     }
 
     items.push({ divider: true });
-    if (tab.mission) {
+    if (ctxPane.mission) {
       items.push({
         label: "View mission…",
         icon: Icons.lightbulb(),
@@ -4959,11 +4909,11 @@ export class TabManager {
       });
     }
     items.push({
-      label: tab.mission ? "Change mission…" : "Set mission…",
+      label: ctxPane.mission ? "Change mission…" : "Set mission…",
       icon: Icons.pencil(),
       onClick: () => this.promptAndSetMission(tab.id),
     });
-    if (tab.mission) {
+    if (ctxPane.mission) {
       items.push({
         label: "Clear mission",
         icon: Icons.x(),
@@ -4972,19 +4922,19 @@ export class TabManager {
     }
     items.push({ divider: true });
     items.push({
-      label: (tab.operatorEnabled || tab.operator_id) ? "Remove operator" : "Set operator",
+      label: (ctxPane.operatorEnabled || ctxPane.operator) ? "Remove operator" : "Set operator",
       icon: Icons.headphones(),
       onClick: () => {
-        if (tab.operatorEnabled || tab.operator_id) {
+        if (ctxPane.operatorEnabled || ctxPane.operator) {
           // Unpin + disable in one shot. setTabOperator(null) flips
           // operatorEnabled off and clears the avatar chip.
           void this.setTabOperator(tab.id, null);
-        } else {
-          this.onSetOperatorRequested?.(tab.sessionId);
+        } else if (ctxSessionId) {
+          this.onSetOperatorRequested?.(ctxSessionId as SessionId);
         }
       },
     });
-    if (tab.operatorEnabled) {
+    if (ctxPane.operatorEnabled) {
       if (aomOn) {
         // While AOM is global, the per-tab Live toggle is moot —
         // AOM forces live=true on every included tab. Surface that
@@ -4992,7 +4942,7 @@ export class TabManager {
         // exclusion toggle so the user can leave specific tabs out
         // of AOM without disabling Operator.
         items.push({
-          label: tab.aomExcluded
+          label: ctxPane.aomExcluded
             ? "Operator: dry-run (excluded from AOM)"
             : "Operator: AOM is driving this tab (LIVE)",
           icon: Icons.headphones(),
@@ -5002,7 +4952,7 @@ export class TabManager {
           },
         });
         items.push({
-          label: tab.aomExcluded
+          label: ctxPane.aomExcluded
             ? "Include in AOM"
             : "Exclude from AOM (keep this tab manual)",
           icon: Icons.headphones(),
@@ -5011,11 +4961,11 @@ export class TabManager {
       } else {
         // Normal day-mode: the per-tab Live toggle decides typing.
         items.push({
-          label: tab.operatorLive
+          label: ctxPane.operatorLive
             ? "Operator: stop typing (back to dry-run)"
             : "Operator: start typing into this tab (LIVE)",
           icon: Icons.headphones(),
-          danger: !tab.operatorLive,
+          danger: !ctxPane.operatorLive,
           onClick: () => this.toggleOperatorLive(tab.id),
         });
       }
