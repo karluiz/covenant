@@ -348,6 +348,7 @@ export interface SerializedTab {
 
 export interface SerializedPane {
   id: string;
+  /** "terminal" maps to "shell" at the tab level — renamed for clarity. */
   kind: "terminal" | "pi";
   cwd: string | null;
   mission_path: string | null;
@@ -366,9 +367,13 @@ export interface SerializedLayout {
 }
 
 export function liftLegacyTab(t: SerializedTab): SerializedTab {
-  if (t.panes && t.layout) return t;
+  if (t.panes) {
+    // Heal partial shape: if panes survived but layout didn't, synthesize a single-layout
+    // so we don't lose the panes array.
+    return t.layout ? t : { ...t, layout: { kind: "single", active: 0 } };
+  }
   const pane: SerializedPane = {
-    id: `legacy-${t.replay_key ?? Math.random().toString(36).slice(2)}`,
+    id: `legacy-${t.replay_key ?? crypto.randomUUID()}`,
     kind: t.kind === "pi" ? "pi" : "terminal",
     cwd: t.cwd,
     mission_path: t.mission_path,
