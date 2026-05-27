@@ -585,11 +585,6 @@ async function boot(): Promise<void> {
         color: tab.color ?? color,
       };
     },
-    setMissionForSpawnedTab: async (sessionId, specPath) => {
-      const tab = manager.tabForSession(sessionId as SessionId);
-      if (!tab) return;
-      await manager.setMissionPathForTab(tab.id, specPath);
-    },
     isSessionAlive: (sessionId) => !!manager.tabForSession(sessionId as SessionId),
     unbindOperatorFromTab: async (sessionId) => {
       const tab = manager.tabForSession(sessionId as SessionId);

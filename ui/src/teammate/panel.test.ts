@@ -1,7 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Operator } from "../api";
+import * as ApiModule from "../api";
 import { buildTaskInjection, sanitizeMentionTokens, TeammatePanel } from "./panel";
+
+// Hoist a module-level mock so panel.ts's static import of primeSpawnedTab
+// and injectCommand can be intercepted by individual tests.
+vi.mock("../api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../api")>();
+  return {
+    ...original,
+    primeSpawnedTab: vi.fn().mockResolvedValue(undefined),
+    injectCommand:   vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 describe("buildTaskInjection spec prefix", () => {
   it("prepends a relative spec path when cwd matches", () => {
@@ -379,5 +391,179 @@ describe("TeammatePanel propose rendering", () => {
     // Default is "active": attach to the active tab, do NOT spawn a new one.
     expect(createTab).not.toHaveBeenCalled();
     expect(attachSession).toHaveBeenCalledWith("op1", "task-1", "S-ACTIVE");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// primeSpawnedTab race-fix: called BEFORE the prompt-inject setTimeout fires
+// ---------------------------------------------------------------------------
+describe("TeammatePanel spawn+prime ordering", () => {
+  afterEach(() => {
+    localStorage.removeItem("covenant.teammate.confirm-target");
+    vi.useRealTimers();
+    vi.mocked(ApiModule.primeSpawnedTab).mockReset().mockResolvedValue(undefined);
+    vi.mocked(ApiModule.injectCommand).mockReset().mockResolvedValue(undefined);
+  });
+
+  /** shared fixtures */
+  function makeSpawnFixtures() {
+    const operator = {
+      id: "op1", name: "Mibli", emoji: "🧪", color: "#aaa",
+      tags: [], persona: "", escalate_threshold: 0.6,
+      model: "claude-sonnet-4-6", hard_constraints: "",
+      voice: "terse", is_default: true,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+    } as unknown as import("../api").Operator;
+
+    const proposeMsg: import("../api").TeammateMessage = {
+      id: "msg-propose",
+      operator_id: "op1",
+      task_id: null,
+      role: "operator",
+      content: {
+        kind: "propose",
+        data: {
+          draft: {
+            archetype: "do",
+            title: "Add achievements",
+            deliverable: "working feature",
+            scope: { paths: ["crates/app/src/achievements.rs"] },
+          },
+          rationale: "new feature",
+        },
+      },
+      created_at_unix_ms: 0,
+      confirmed_at_unix_ms: null,
+      dismissed_at_unix_ms: null,
+    };
+
+    const confirmTask = vi.fn().mockResolvedValue({
+      id: "task-99", operator_id: "op1", archetype: "do",
+      title: "Add achievements", body: "", deliverable: "working feature",
+      status: "active",
+      scope: { paths: ["crates/app/src/achievements.rs"] },
+      spawned_session: null,
+      created_at_unix_ms: 1, updated_at_unix_ms: 1, completed_at_unix_ms: null,
+      cost_usd_cents: 0,
+    });
+    const spawnTabForTask = vi.fn().mockResolvedValue({
+      sessionId: "S-SPAWNED", cwd: "/repo", groupId: null, color: null,
+    });
+    const attachSessionToTask = vi.fn().mockResolvedValue(undefined);
+    const listMessages = vi.fn().mockResolvedValue([proposeMsg]);
+
+    return { operator, proposeMsg, confirmTask, spawnTabForTask, attachSessionToTask, listMessages };
+  }
+
+  it("calls primeSpawnedTab with correct args BEFORE the inject setTimeout fires", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem("covenant.teammate.confirm-target", "spawn");
+
+    const { operator, proposeMsg, confirmTask, spawnTabForTask, attachSessionToTask, listMessages } =
+      makeSpawnFixtures();
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages,
+      sendText:    async () => proposeMsg,
+      listOperators: async () => [operator],
+      onMessage:   async () => () => {},
+      onToolCall:  async () => () => {},
+      confirmTask,
+      cancelTaskProposal: vi.fn(),
+      editTaskProposal:   vi.fn(),
+      attachSessionToTask,
+      spawnTabForTask,
+      getActiveSessionId: () => "S-ACTIVE",
+    });
+    await panel.openFor(operator);
+
+    // Plant a spec path as if the user sent a message with an @spec chip.
+    (panel as unknown as { lastSentSpecPath: string }).lastSentSpecPath =
+      "/repo/docs/specs/3.23-achievements.md";
+
+    const card = host.querySelector(".task-card") as HTMLElement;
+    expect(card).not.toBeNull();
+    (card.querySelector('[data-action="confirm"]') as HTMLButtonElement).click();
+
+    // Drain microtasks so handleConfirm runs through confirmTask →
+    // spawnTabForTask → primeSpawnedTab and registers the inject setTimeout.
+    // We use a real-Promise flush (multiple yields) rather than
+    // runAllTimersAsync to avoid triggering the ActivityView setInterval loop.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    // primeSpawnedTab must have been called (awaited inline, before the timer).
+    expect(ApiModule.primeSpawnedTab).toHaveBeenCalledWith(
+      "S-SPAWNED",
+      "/repo/docs/specs/3.23-achievements.md",
+    );
+
+    // Inject timer has NOT fired yet (timers are frozen).
+    expect(ApiModule.injectCommand).not.toHaveBeenCalled();
+
+    // Advance past the 1500 ms inject delay — injectCommand fires now.
+    await vi.advanceTimersByTimeAsync(1600);
+
+    expect(ApiModule.injectCommand).toHaveBeenCalledWith(
+      "S-SPAWNED",
+      expect.stringContaining("Add achievements"),
+    );
+
+    // primeSpawnedTab was invoked before injectCommand (call-order check).
+    const primeOrder   = vi.mocked(ApiModule.primeSpawnedTab).mock.invocationCallOrder[0]!;
+    const injectOrder  = vi.mocked(ApiModule.injectCommand).mock.invocationCallOrder[0]!;
+    expect(primeOrder).toBeLessThan(injectOrder);
+  });
+
+  it("still fires the inject when primeSpawnedTab throws (catch path)", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem("covenant.teammate.confirm-target", "spawn");
+
+    // Make primeSpawnedTab reject to exercise the catch branch.
+    vi.mocked(ApiModule.primeSpawnedTab).mockRejectedValue(new Error("spec deleted"));
+
+    const { operator, proposeMsg, confirmTask, spawnTabForTask, attachSessionToTask, listMessages } =
+      makeSpawnFixtures();
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages,
+      sendText:    async () => proposeMsg,
+      listOperators: async () => [operator],
+      onMessage:   async () => () => {},
+      onToolCall:  async () => () => {},
+      confirmTask,
+      cancelTaskProposal: vi.fn(),
+      editTaskProposal:   vi.fn(),
+      attachSessionToTask,
+      spawnTabForTask,
+      getActiveSessionId: () => "S-ACTIVE",
+    });
+    await panel.openFor(operator);
+
+    (panel as unknown as { lastSentSpecPath: string }).lastSentSpecPath =
+      "/repo/docs/specs/3.23-achievements.md";
+
+    const card = host.querySelector(".task-card") as HTMLElement;
+    (card.querySelector('[data-action="confirm"]') as HTMLButtonElement).click();
+
+    // Drain microtasks: handleConfirm's catch block swallows the rejection
+    // and execution continues to the inject setTimeout registration.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+
+    // Advance past the inject delay — injectCommand must still fire despite
+    // the primeSpawnedTab error.
+    await vi.advanceTimersByTimeAsync(1600);
+
+    // primeSpawnedTab threw — injectCommand must still have been called.
+    expect(ApiModule.primeSpawnedTab).toHaveBeenCalled();
+    expect(ApiModule.injectCommand).toHaveBeenCalledWith(
+      "S-SPAWNED",
+      expect.stringContaining("Add achievements"),
+    );
   });
 });

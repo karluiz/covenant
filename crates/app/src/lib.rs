@@ -910,6 +910,30 @@ async fn set_session_mission(
     state.operator.set_mission(id, mref).await
 }
 
+/// Atomic priming for a freshly-spawned executor tab. Attaches the
+/// originating chat's spec as the session mission AND queues a
+/// `/rename <slug>` for the next idle. The frontend awaits this before
+/// injecting the executor's first prompt so both effects land before
+/// the executor's first reply. See spec
+/// `docs/superpowers/specs/2026-05-26-spawned-task-and-cost-fixes-design.md`.
+#[tauri::command]
+async fn prime_spawned_tab(
+    state: State<'_, AppState>,
+    session_id: String,
+    spec_path: String,
+) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    let path = std::path::PathBuf::from(&spec_path);
+    let mref = mission_pair::MissionRef::covenant(path.clone());
+    // Mission attach first — surfaces real errors (file not found,
+    // permission denied) before we silently queue a rename for a
+    // tab whose mission failed. The rename queue is best-effort.
+    state.operator.set_mission(id, mref).await?;
+    let slug = operator::slug_from_mission_path(&path);
+    state.operator.queue_aom_rename(id, slug).await;
+    Ok(())
+}
+
 #[derive(serde::Serialize)]
 struct SuperpowersMissionEntry {
     spec_path: String,
@@ -3380,6 +3404,7 @@ pub fn run() {
             is_aom_excluded,
             clear_all_aom_excluded,
             set_session_mission,
+            prime_spawned_tab,
             list_superpowers_missions,
             clear_session_mission,
             get_session_mission,

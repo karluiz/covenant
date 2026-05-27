@@ -969,6 +969,23 @@ impl OperatorWatcher {
         mission_persistence::forget(&self.mission_store, &cwd);
     }
 
+    /// Queue an `aom_startup.rename_to` slot on a session. The next
+    /// time the executor reaches idle and matches a claude/pi pattern,
+    /// `/rename <slug>\r` (or `/name <slug>\r` for pi) gets injected.
+    /// Used by `prime_spawned_tab` so a spawned executor inherits the
+    /// originating chat's spec slug. No-op if the session isn't yet
+    /// attached — the caller orders this after `set_mission` so the
+    /// session is guaranteed to be present.
+    pub async fn queue_aom_rename(&self, session_id: SessionId, slug: String) {
+        if slug.is_empty() {
+            return;
+        }
+        let mut inner = self.inner.lock().await;
+        if let Some(att) = inner.sessions.get_mut(&session_id) {
+            att.aom_startup.rename_to = Some(slug);
+        }
+    }
+
     /// Hook for the session bus: when a session's cwd changes, see if
     /// we have a persisted mission for that directory. If yes AND the
     /// session has no current mission, restore it silently. Emits
@@ -4129,7 +4146,7 @@ fn mtime_unix_ms(path: &std::path::Path) -> Option<u64> {
 ///   `/docs/specs/3.5-docs-hub.md` → `docs-hub`
 ///   `/specs/mission-tracking.md`  → `mission-tracking`
 ///   `/work/My Notes.md`           → `my-notes`
-fn slug_from_mission_path(path: &std::path::Path) -> String {
+pub(crate) fn slug_from_mission_path(path: &std::path::Path) -> String {
     let file = path
         .file_name()
         .map(|f| f.to_string_lossy().to_string())

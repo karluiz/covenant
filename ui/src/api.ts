@@ -558,6 +558,21 @@ export async function setSessionMission(
   });
 }
 
+/// Atomic priming for a freshly-spawned executor tab. Attaches the
+/// originating chat's spec as the mission AND queues a /rename slot
+/// to be injected on next idle. Backend: `prime_spawned_tab` in
+/// `crates/app/src/lib.rs`. The caller MUST await this before
+/// injecting the executor's first prompt.
+export async function primeSpawnedTab(
+  sessionId: SessionId,
+  specPath: string,
+): Promise<void> {
+  return invoke<void>("prime_spawned_tab", {
+    sessionId,
+    specPath,
+  });
+}
+
 export async function markPlanTask(
   sessionId: SessionId,
   taskIndex: number,
