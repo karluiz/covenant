@@ -47,6 +47,7 @@ import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
+import { activePane } from "./tabs/pane";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
 
@@ -574,9 +575,10 @@ async function boot(): Promise<void> {
         color,
       });
       if (!tab) throw new Error("createTab returned null");
+      const pane = activePane(tab);
       return {
-        sessionId: tab.sessionId.toString(),
-        cwd: tab.cwd ?? cwd,
+        sessionId: (pane.sessionId ?? "").toString(),
+        cwd: pane.cwd || cwd,
         groupId: tab.groupId ?? groupId,
         color: tab.color ?? color,
       };
@@ -588,8 +590,11 @@ async function boot(): Promise<void> {
       // Flip AOM off at the tab level FIRST — setTabOperator(null)
       // doesn't touch operatorEnabled, so leaving it true keeps the
       // tab visible in the AOM count even though it has no operator.
-      await setOperatorLive(tab.sessionId, false).catch(() => undefined);
-      await setOperatorEnabled(tab.sessionId, false).catch(() => undefined);
+      const pane = activePane(tab);
+      if (pane.sessionId) {
+        await setOperatorLive(pane.sessionId as SessionId, false).catch(() => undefined);
+        await setOperatorEnabled(pane.sessionId as SessionId, false).catch(() => undefined);
+      }
       await manager.setTabOperator(tab.id, null);
       await manager.refreshAllOperatorState().catch(() => undefined);
     },
@@ -605,8 +610,11 @@ async function boot(): Promise<void> {
       const tab = manager.tabForSession(sessionId as SessionId);
       if (!tab) return;
       await manager.setTabOperator(tab.id, operatorId);
-      await setOperatorEnabled(tab.sessionId, true);
-      await setOperatorLive(tab.sessionId, true);
+      const pane = activePane(tab);
+      if (pane.sessionId) {
+        await setOperatorEnabled(pane.sessionId as SessionId, true);
+        await setOperatorLive(pane.sessionId as SessionId, true);
+      }
       // Re-read backend state into the tab + repaint ring/status bar.
       await manager.refreshAllOperatorState();
     },
@@ -1130,6 +1138,7 @@ async function boot(): Promise<void> {
     applyTabbarPosition(next.tabbar_position ?? "top");
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
+    manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);
     // Layout reflowed → xterm cells need re-measuring.
     manager.refitActive();
   };
@@ -1380,6 +1389,10 @@ async function boot(): Promise<void> {
 // Populate operator cache once the backend is up and tabs are
   // restored — chips in the tab strip and status bar need this.
   void manager.refreshOperatorCache();
+
+  // Load experimental feature flags (e.g. split_panes) once settings
+  // are available. Defaults to false until this resolves.
+  void manager.loadExperimentalFlags();
 
   // ⌘⇧O Operator Picker (Plan 3 Task 5)
   const operatorPicker = new OperatorPicker(document.body);
@@ -1667,6 +1680,35 @@ async function boot(): Promise<void> {
       release.toggle();
       return;
     }
+    // ⌘D → split right (add a second pane to the right). Gated inside manager.
+    if (e.metaKey && !e.shiftKey && !e.altKey && (e.key === "d" || e.key === "D")) {
+      e.preventDefault();
+      void manager.splitActivePane("horizontal");
+      return;
+    }
+    // ⌘\ → split down (add a second pane below). Gated inside manager.
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key === "\\") {
+      e.preventDefault();
+      void manager.splitActivePane("vertical");
+      return;
+    }
+    // ⌘[ / ⌘] → focus previous / next pane. Gated inside manager.
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key === "[") {
+      e.preventDefault();
+      manager.focusOtherPane();
+      return;
+    }
+    if (e.metaKey && !e.shiftKey && !e.altKey && e.key === "]") {
+      e.preventDefault();
+      manager.focusOtherPane();
+      return;
+    }
+    // ⌘⇧] → swap panes. Gated inside manager.
+    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "}" || e.key === "]")) {
+      e.preventDefault();
+      manager.swapActivePanes();
+      return;
+    }
     // ⌘⇧D → open ProjectNotesPanel for the active group on the drafts tab.
     if (e.metaKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
       const g = manager.activeGroup();
@@ -1772,7 +1814,18 @@ async function boot(): Promise<void> {
 
     if (!e.shiftKey && e.key === "w") {
       e.preventDefault();
-      manager.closeActive();
+      if (manager.canSplitPanes()) {
+        void manager.closeActivePaneOrTab();
+      } else {
+        manager.closeActiveTab();
+      }
+      return;
+    }
+
+    // ⌘⇧W — unconditional close tab (escape hatch even in split tabs).
+    if (e.shiftKey && e.key === "W") {
+      e.preventDefault();
+      manager.closeActiveTab();
       return;
     }
 

@@ -35,6 +35,7 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+mod pane;
 mod pi_commands;
 mod project_notes;
 mod project_ref;
@@ -49,6 +50,7 @@ pub mod settings;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
+mod split_commands;
 pub mod storage;
 mod structure;
 mod summarizer;
@@ -364,7 +366,9 @@ async fn spawn_session(
     on_session_event: Channel<SessionUiEvent>,
     initial_cwd: Option<String>,
     replay_key: Option<String>,
+    pane_id: Option<String>,
 ) -> Result<String, String> {
+    tracing::debug!(?pane_id, "spawn_session: pane association");
     let zdotdir = build_zdotdir().map_err(|e| format!("zdotdir setup: {e}"))?;
     let mut opts = SpawnOptions::from_default_shell().map_err(|e| format!("shell resolve: {e}"))?;
     // zsh-only args/env. On Windows the default shell is pwsh, where
@@ -3547,6 +3551,12 @@ pub fn run() {
             spawns_commands::spawns_list,
             spawns_commands::spawns_upsert,
             spawns_commands::spawns_delete,
+            split_commands::split_pane,
+            split_commands::close_pane,
+            split_commands::focus_pane,
+            split_commands::swap_panes,
+            split_commands::set_pane_orientation,
+            split_commands::set_pane_ratio,
             vitals::get_vitals,
             vitals::set_active_session_for_vitals,
             theme::set_window_theme,

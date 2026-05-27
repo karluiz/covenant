@@ -22,7 +22,8 @@ export interface ShortcutEntry {
 export const SHORTCUTS: ShortcutEntry[] = [
   // Tabs
   { category: "Tabs", keys: ["⌘", "T"], label: "New tab", description: "Open a fresh terminal session." },
-  { category: "Tabs", keys: ["⌘", "W"], label: "Close tab", description: "Close the active session." },
+  { category: "Tabs", keys: ["⌘", "W"], label: "Close pane / tab", description: "Close the active pane in a split tab; close the tab when single-pane. Requires experimental.split_panes; behaves as close-tab when flag is off." },
+  { category: "Tabs", keys: ["⌘", "⇧", "W"], label: "Close tab (escape hatch)", description: "Always closes the entire tab even when it has multiple panes." },
   { category: "Tabs", keys: ["⌘", "1–9"], label: "Jump to tab N", description: "Activate the Nth tab (1-indexed)." },
   { category: "Tabs", keys: ["⌘", "⇧", "{"], label: "Previous tab", description: "Cycle to the tab on the left." },
   { category: "Tabs", keys: ["⌘", "⇧", "}"], label: "Next tab", description: "Cycle to the tab on the right." },
@@ -43,6 +44,11 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Open version history / release notes." },
   { category: "Tabs", keys: ["⌘", "⌥", "⇧", "P"], label: "New Pi tab", description: "Create a permanent Pi RPC tab in the tabbar." },
   { category: "Tabs", keys: ["⌘", "⌥", "N"], label: "New workspace", description: "Create a new workspace and switch to it. The outgoing workspace's PTYs are killed and respawned from manifest on next switch." },
+  { category: "Tabs", keys: ["⌘", "D"], label: "Split right", description: "Add a second pane to the right of the active pane. Requires experimental.split_panes." },
+  { category: "Tabs", keys: ["⌘", "\\"], label: "Split down", description: "Add a second pane below the active pane. Requires experimental.split_panes." },
+  { category: "Tabs", keys: ["⌘", "["], label: "Focus previous pane", description: "Move focus to the other pane in a split tab." },
+  { category: "Tabs", keys: ["⌘", "]"], label: "Focus next pane", description: "Move focus to the other pane in a split tab." },
+  { category: "Tabs", keys: ["⌘", "⇧", "]"], label: "Swap panes", description: "Exchange the two panes' positions." },
 
   // Operator & AI — agent-driven features (super-agent, operators, mission, familiars)
   { category: "Operator & AI", keys: ["⌘", "K"], label: "Super-agent", description: "Toggle the agent chat panel." },

@@ -93,6 +93,10 @@ interface RouteEntry {
   model: string;
 }
 
+interface ExperimentalConfig {
+  split_panes?: boolean;
+}
+
 interface Settings {
   anthropic_api_key: string | null;
   sendgrid_api_key?: string | null;
@@ -116,6 +120,7 @@ interface Settings {
   telegram?: TelegramSettings;
   providers?: Record<string, ProviderEntry>;
   model_routes?: Record<string, RouteEntry>;
+  experimental?: ExperimentalConfig;
 }
 
 type TabbarPosition = "top" | "left";
@@ -238,6 +243,7 @@ export class SettingsPanel {
         ui_font_family: null,
         familiars_enabled: false,
         is_premium: false,
+        experimental: { split_panes: false },
       };
     }
     if (generation !== this.openGeneration) return;
@@ -507,6 +513,19 @@ export class SettingsPanel {
               by default.
             </small>
           </label>
+          <h4 class="settings-subsection-title">Experimental</h4>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="experimental_split_panes" />
+            <span class="settings-label">Split panes</span>
+            <small class="settings-hint">
+              Allow splitting a tab into two panes side-by-side or stacked.
+              Each pane gets its own session, mission, and operator.
+              Shortcuts: <kbd>⌘D</kbd> split right,
+              <kbd>⌘\</kbd> split down,
+              <kbd>⌘[</kbd>/<kbd>⌘]</kbd> focus prev/next,
+              <kbd>⌘⇧]</kbd> swap.
+            </small>
+          </label>
         </section>
         <section class="settings-section" id="sec-operators">
           <h3 class="settings-section-title">Operators</h3>
@@ -744,6 +763,9 @@ export class SettingsPanel {
     const termLigatures = form.querySelector<HTMLInputElement>(
       'input[name="term_ligatures"]',
     )!;
+    const splitPanesInput = form.querySelector<HTMLInputElement>(
+      'input[name="experimental_split_panes"]',
+    )!;
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
@@ -831,6 +853,7 @@ export class SettingsPanel {
     termLetterSpacing.value = String(this.current.terminal.letter_spacing);
     termLineHeight.value = String(this.current.terminal.line_height);
     termLigatures.checked = !!this.current.terminal.ligatures;
+    splitPanesInput.checked = !!this.current.experimental?.split_panes;
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
       r.checked = r.value === currentBg;
@@ -1251,6 +1274,9 @@ export class SettingsPanel {
         telegram: this.current!.telegram,
         providers: this.current!.providers,
         model_routes: this.current!.model_routes,
+        experimental: {
+          split_panes: splitPanesInput.checked,
+        },
       };
       try {
         await setSettings(next);

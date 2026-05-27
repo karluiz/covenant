@@ -52,6 +52,15 @@ pub struct RouteEntry {
     pub model: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExperimentalConfig {
+    /// Enable the split-panes UI (M-SP milestone). Off by default; flip
+    /// to `true` in config.json to try the feature while it is being
+    /// developed.
+    #[serde(default)]
+    pub split_panes: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     /// Empty / whitespace-only values are normalized to `None` on save.
@@ -83,6 +92,9 @@ pub struct Settings {
 
     #[serde(default)]
     pub aom: AomConfig,
+
+    #[serde(default)]
+    pub experimental: ExperimentalConfig,
 
     #[serde(default)]
     pub notifications: NotificationConfig,
@@ -368,6 +380,7 @@ impl Default for Settings {
             terminal: TerminalConfig::default(),
             window: WindowConfig::default(),
             aom: AomConfig::default(),
+            experimental: ExperimentalConfig::default(),
             notifications: NotificationConfig::default(),
             status_bar_enabled: default_status_bar_enabled(),
             notch_enabled: default_notch_enabled(),
@@ -734,6 +747,21 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn experimental_split_panes_defaults_false() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.experimental.split_panes);
+    }
+
+    #[test]
+    fn experimental_split_panes_roundtrip() {
+        let mut s = Settings::default();
+        s.experimental.split_panes = true;
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: Settings = serde_json::from_str(&json).unwrap();
+        assert!(s2.experimental.split_panes);
+    }
 
     #[test]
     fn notification_config_default_enables_executor_idle() {
