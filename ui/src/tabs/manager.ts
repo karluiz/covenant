@@ -310,7 +310,7 @@ export interface TabManifestV1 {
   groups: SerializedGroup[];
 }
 
-interface SerializedTab {
+export interface SerializedTab {
   /// Tab kind. Optional for backward compat — old manifests default to
   /// "shell" on restore so existing installs upgrade seamlessly.
   kind?: "shell" | "pi";
@@ -338,6 +338,47 @@ interface SerializedTab {
   /// manifests without it get a fresh key on first restore (so the
   /// first reopen has no replay, which is the correct behavior).
   replay_key?: string;
+  /// 4.x — multi-pane support. When present, supersedes the scalar
+  /// `cwd`/`mission_path`/`operator_id`/`replay_key` fields above; the
+  /// loader passes the legacy tab through `liftLegacyTab()` first so
+  /// the rest of the pipeline always sees the new shape.
+  panes?: SerializedPane[];
+  layout?: SerializedLayout;
+}
+
+export interface SerializedPane {
+  id: string;
+  kind: "terminal" | "pi";
+  cwd: string | null;
+  mission_path: string | null;
+  operator_id: string | null;
+  replay_key: string;
+  observer_ids?: string[];
+  spawn_id?: string | null;
+  aom_excluded?: boolean;
+}
+
+export interface SerializedLayout {
+  kind: "single" | "split";
+  orientation?: "horizontal" | "vertical";
+  active: 0 | 1;
+  ratio?: number;
+}
+
+export function liftLegacyTab(t: SerializedTab): SerializedTab {
+  if (t.panes && t.layout) return t;
+  const pane: SerializedPane = {
+    id: `legacy-${t.replay_key ?? Math.random().toString(36).slice(2)}`,
+    kind: t.kind === "pi" ? "pi" : "terminal",
+    cwd: t.cwd,
+    mission_path: t.mission_path,
+    operator_id: t.operator_id,
+    replay_key: t.replay_key ?? "",
+    observer_ids: t.observer_ids,
+    spawn_id: t.spawn_id,
+    aom_excluded: t.aom_excluded,
+  };
+  return { ...t, panes: [pane], layout: { kind: "single", active: 0 } };
 }
 
 interface SerializedGroup {
