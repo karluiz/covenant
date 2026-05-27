@@ -2203,6 +2203,7 @@ export class TabManager {
     const TERMINAL_MIN = 200;
     const EDITOR_MIN = 280;
     const SPLITTER_PX = 4;
+    const PANE_SPLITTER_PX = 4;  // pane-splitter thickness (must match CSS in styles.css)
 
     const applyTerminalWidth = (px: number | null): void => {
       if (px === null) {
@@ -2210,8 +2211,14 @@ export class TabManager {
         return;
       }
       const sidebar = sidebarWidth();
+      const horizontalSplit =
+        tabRef.current?.layout.kind === "split" &&
+        tabRef.current.layout.orientation === "horizontal";
+      const terminalBlockMin = horizontalSplit
+        ? 2 * TERMINAL_MIN + PANE_SPLITTER_PX
+        : TERMINAL_MIN;
       const clamped = Math.max(
-        TERMINAL_MIN,
+        terminalBlockMin,
         Math.min(px, pane.offsetWidth - sidebar - EDITOR_MIN - SPLITTER_PX),
       );
       pane.style.gridTemplateColumns =
