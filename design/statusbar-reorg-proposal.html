@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Status bar · re-org proposal</title>
+<style>
+  :root {
+    --bg: #0a0b0e;
+    --bar-bg: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+    --bar-stroke: rgba(255,255,255,0.08);
+    --divider: rgba(255,255,255,0.07);
+    --text: #e8e9ec;
+    --muted: #8b909a;
+    --dim: #5e636d;
+    --accent: #ffd166;
+    --good: #6ee7a7;
+    --info: #8ab4ff;
+    --warn: #ffb86b;
+    --bad: #ff7a7a;
+    --claude: #ff8a4c;
+    --codex: #6ee7a7;
+    --copilot: #b794f4;
+    --ws: #5ad1ff;
+    --aom: #b794f4;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 12px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 800px at 70% -10%, #1d2330 0%, transparent 60%),
+      radial-gradient(800px 600px at 10% 110%, #221a2e 0%, transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+    padding: 40px 28px 96px;
+  }
+  h1 {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--muted); margin: 28px 0 6px;
+  }
+  h1:first-of-type { margin-top: 0; }
+  .sub { color: var(--dim); font-size: 11px; margin-bottom: 16px; max-width: 920px; }
+
+  /* ---- shared bar shell ---- */
+  .bar {
+    display: flex; align-items: center;
+    height: 28px;
+    border: 1px solid var(--bar-stroke);
+    background: var(--bar-bg);
+    border-radius: 8px;
+    padding: 0 8px;
+    gap: 0;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px -16px #000;
+  }
+  .bar > * { display: inline-flex; align-items: center; gap: 6px; height: 100%; }
+  .seg { padding: 0 10px; }
+  .div { width: 1px; height: 16px; background: var(--divider); flex-shrink: 0; }
+  .grow { flex: 1; min-width: 0; }
+
+  /* generic chips */
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ws); flex-shrink: 0; }
+  .dot.aom { background: var(--aom); box-shadow: 0 0 8px var(--aom); }
+  .chev { color: var(--dim); padding: 0 2px; }
+  .mute { color: var(--muted); }
+  .dim  { color: var(--dim); }
+  .strong { color: var(--text); }
+  .ws { color: var(--ws); font-weight: 600; letter-spacing: 0.02em; }
+  .icon { width: 12px; height: 12px; display: inline-block; opacity: 0.7; }
+  .icon svg { width: 100%; height: 100%; display: block; }
+
+  /* mission chip (middle slot) */
+  .mid {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center;
+    color: var(--muted);
+    padding: 0 12px;
+    border-left: 1px solid var(--divider);
+    border-right: 1px solid var(--divider);
+    background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent);
+    cursor: pointer;
+  }
+  .mid:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .mid .label {
+    flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; direction: rtl;          /* head-truncate long paths */
+    text-align: left;
+  }
+  .mid .cycle { color: var(--dim); margin-left: 8px; }
+  .mid.aom { color: var(--aom); }
+  .mid.aom .label { direction: ltr; }
+  .mid.aom .spark {
+    width: 56px; height: 12px; margin: 0 6px;
+    background:
+      linear-gradient(180deg, transparent, rgba(183,148,244,0.25)),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 56 12' preserveAspectRatio='none'><polyline points='0,10 8,8 14,9 20,4 26,6 32,2 38,7 44,5 50,8 56,3' fill='none' stroke='%23b794f4' stroke-width='1.2'/></svg>") center/100% 100% no-repeat;
+    border-radius: 2px;
+  }
+
+  /* right runtime pill */
+  .right {
+    display: flex; align-items: center;
+    color: var(--muted);
+    padding: 0 10px;
+    gap: 10px;
+  }
+  .right .model { color: var(--text); font-weight: 500; }
+  .right .lat  { color: var(--good); }
+  .right .lat.bad { color: var(--warn); }
+  .right .more {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .right .more:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+
+  /* tab chip in left zone */
+  .tab-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 0 8px;
+    height: 20px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.03);
+  }
+  .tab-chip .av {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: linear-gradient(135deg, #c084fc, #6366f1);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.15) inset;
+  }
+
+  /* popover */
+  .pop-wrap { position: relative; }
+  .popover {
+    position: absolute; right: 0; bottom: calc(100% + 6px);
+    width: 280px;
+    background: #14161b;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    box-shadow: 0 24px 48px -20px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.05) inset;
+    padding: 10px 0;
+    color: var(--text);
+  }
+  .popover h4 {
+    margin: 8px 14px 4px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--dim); font-weight: 600;
+  }
+  .popover .kv {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 14px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .popover .kv .k { color: var(--muted); }
+  .popover .kv .v { color: var(--text); }
+  .popover .kv .v.good { color: var(--good); }
+  .popover .kv .v.warn { color: var(--warn); }
+  .popover .kv:hover { background: rgba(255,255,255,0.03); }
+  .popover .spark-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 14px;
+  }
+  .popover .spark-row .spark {
+    flex: 1; height: 22px;
+    background:
+      linear-gradient(180deg, transparent, rgba(110,231,167,0.2)),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 22' preserveAspectRatio='none'><polyline points='0,20 14,16 28,17 42,9 56,11 70,5 84,12 98,7 112,14 126,8 140,6 154,10 168,4 182,11 200,7' fill='none' stroke='%236ee7a7' stroke-width='1.2'/></svg>") center/100% 100% no-repeat;
+    border-radius: 3px;
+  }
+  .popover .divider {
+    height: 1px; background: rgba(255,255,255,0.06);
+    margin: 8px 0;
+  }
+  .popover .footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 14px 2px;
+    color: var(--dim); font-size: 11px;
+  }
+  .popover .footer .ver { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* current bar (today) */
+  .today {
+    display: flex; align-items: center; gap: 0;
+    height: 28px;
+    border: 1px solid var(--bar-stroke);
+    background: var(--bar-bg);
+    border-radius: 8px;
+    padding: 0 8px;
+    color: var(--muted);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .today .item { padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; }
+  .today .item.crush { color: var(--dim); }
+  .today .telegram { color: #5ad1ff; }
+  .today .lat { color: var(--bad); }
+  .today .mission { color: var(--muted); }
+  .today .aom { color: var(--aom); }
+  .today .sep { color: var(--dim); padding: 0 2px; }
+
+  /* narrow variant */
+  .narrow-wrap { max-width: 720px; }
+  .narrow .right { gap: 6px; padding: 0 8px; }
+
+  /* layout helpers */
+  .frame { max-width: 1500px; }
+  .row-gap { margin-top: 8px; }
+  .legend {
+    display: grid; grid-template-columns: 200px 1fr;
+    gap: 4px 16px; color: var(--dim); font-size: 11px;
+    margin-top: 8px;
+  }
+  .legend b { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+
+  <h1>Today — single overflowing row</h1>
+  <div class="sub">14 items packed into one bar. Mission filename eats the middle; cost/perf telemetry compete with chrome for the right edge.</div>
+  <div class="frame">
+    <div class="today">
+      <span class="item ws"><span class="dot"></span>COVENANT<span class="sep">›</span><span class="strong">claude</span></span>
+      <span class="sep">|</span>
+      <span class="item"><span class="icon">⎇</span>COVENANT <span class="strong">main</span></span>
+      <span class="sep">|</span>
+      <span class="item crush">🎧 Set operator</span>
+      <span class="sep">|</span>
+      <span class="item mission">⊚ 2026-05-24-operator-picker-resolver-design.md</span>
+      <span class="sep">|</span>
+      <span class="item aom">⚡ AOM 1h51m $0.413</span>
+      <span class="item" style="opacity:.7">▁▂▁▅▂▇▂▃▁▂</span>
+      <span class="item">50.1k tok/min</span>
+      <span class="item" style="color:var(--good)">cache 96%</span>
+      <span class="item">Opus 4.7</span>
+      <span class="item lat">● 3056ms</span>
+      <span class="item" style="color:var(--claude)">⚹ Claude</span>
+      <span class="item telegram">✈</span>
+      <span class="item">karluiz · 11d</span>
+      <span class="item crush">v0.8.35</span>
+    </div>
+  </div>
+
+  <h1>Proposal A — three zones, contextual middle, collapsed right</h1>
+  <div class="sub">Left = identity (workspace › tab). Middle = whichever ephemeral matters right now (mission / AOM run / active task). Right = runtime pill — model · throughput · spend · latency dot — everything else lives in the ▾ popover.</div>
+
+  <div class="frame">
+    <div class="bar">
+      <span class="seg">
+        <span class="dot"></span>
+        <span class="ws">COVENANT</span>
+        <span class="chev">›</span>
+        <span class="tab-chip"><span class="av"></span><span class="strong">claude</span></span>
+        <span class="dim" style="margin-left:6px">⎇ main</span>
+      </span>
+
+      <div class="mid" title="2026-05-24-operator-picker-resolver-design.md  •  click to cycle to AOM / task">
+        <span class="icon">🎯</span>
+        <span class="label">…operator-picker-resolver-design.md</span>
+        <span class="cycle">⇆</span>
+      </div>
+
+      <div class="right pop-wrap">
+        <span class="model">Opus 4.7</span>
+        <span class="dim">·</span>
+        <span>50k/m</span>
+        <span class="dim">·</span>
+        <span>$0.41</span>
+        <span class="dim">·</span>
+        <span class="lat bad">▲ 3.0s</span>
+        <span class="more" title="More telemetry">▾</span>
+      </div>
+    </div>
+
+    <!-- middle slot — AOM mode -->
+    <div class="bar row-gap">
+      <span class="seg">
+        <span class="dot"></span>
+        <span class="ws">COVENANT</span>
+        <span class="chev">›</span>
+        <span class="tab-chip"><span class="av"></span><span class="strong">claude</span></span>
+        <span class="dim" style="margin-left:6px">⎇ main</span>
+      </span>
+
+      <div class="mid aom" title="AOM running · click to cycle">
+        <span class="icon">⚡</span>
+        <span class="label"><strong>AOM</strong> · 1h51m · $0.413</span>
+        <span class="spark"></span>
+        <span class="cycle">⇆</span>
+      </div>
+
+      <div class="right pop-wrap">
+        <span class="model">Opus 4.7</span>
+        <span class="dim">·</span>
+        <span>50k/m</span>
+        <span class="dim">·</span>
+        <span>$0.41</span>
+        <span class="dim">·</span>
+        <span class="lat">▲ 1.1s</span>
+        <span class="more" title="More telemetry">▾</span>
+      </div>
+    </div>
+
+    <div class="legend">
+      <b>Left zone</b>     <span>Workspace · tab chip (avatar + name). Branch shows as <code>⎇ main</code>; click the chip for operator/branch detail.</span>
+      <b>Middle slot</b>   <span>Single contextual item. Priority: AOM running &gt; active task &gt; mission &gt; empty. Click to cycle, head-truncates long filenames, full path in tooltip.</span>
+      <b>Right pill</b>    <span>Model · throughput · spend · latency. Color codes only latency (the only one that signals trouble at a glance).</span>
+      <b>▾ popover</b>     <span>cache %, sparkline, exact latency ms, telegram bridge, user / streak, app version. See expanded view below.</span>
+    </div>
+  </div>
+
+  <h1>Proposal A — ▾ popover (right pill expanded)</h1>
+  <div class="sub">Everything we dropped from the row, in one place. Glanceable when needed, invisible when not.</div>
+
+  <div class="frame" style="display:flex; justify-content:flex-end;">
+    <div style="position:relative; width:560px; height:140px;">
+      <div style="position:absolute; right:0; bottom:0;">
+        <div class="popover">
+          <h4>Throughput</h4>
+          <div class="spark-row"><span class="spark"></span><span class="dim">last 10m</span></div>
+          <div class="kv"><span class="k">Tokens / min</span><span class="v">50,124</span></div>
+          <div class="kv"><span class="k">Cache hit rate</span><span class="v good">96%</span></div>
+
+          <div class="divider"></div>
+          <h4>Latency</h4>
+          <div class="kv"><span class="k">Last response</span><span class="v warn">3,056 ms</span></div>
+          <div class="kv"><span class="k">p50 / p95 (1h)</span><span class="v">820 / 2.9s</span></div>
+
+          <div class="divider"></div>
+          <h4>Connections</h4>
+          <div class="kv"><span class="k">Telegram bridge</span><span class="v good">connected</span></div>
+          <div class="kv"><span class="k">Account</span><span class="v">karluiz · 11d streak</span></div>
+
+          <div class="divider"></div>
+          <div class="footer">
+            <span>Covenant</span>
+            <span class="ver">v0.8.35</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h1>Proposal A — narrow window fallback (&lt;720px)</h1>
+  <div class="sub">Below a width threshold the middle slot drops first; the runtime pill collapses to model + ▾ only.</div>
+
+  <div class="frame narrow-wrap">
+    <div class="bar narrow">
+      <span class="seg">
+        <span class="dot"></span>
+        <span class="ws">COVENANT</span>
+        <span class="chev">›</span>
+        <span class="tab-chip"><span class="av"></span><span class="strong">claude</span></span>
+      </span>
+      <span class="grow"></span>
+      <div class="right pop-wrap">
+        <span class="model">Opus 4.7</span>
+        <span class="dim">·</span>
+        <span class="lat bad">▲ 3.0s</span>
+        <span class="more">▾</span>
+      </div>
+    </div>
+    <div class="legend" style="margin-top:10px">
+      <b>Hidden at narrow</b><span>Branch, mission slot, throughput, spend → all in popover or tab tooltip. Latency stays because it's the only red-flag signal.</span>
+    </div>
+  </div>
+
+  <h1>Proposal B — two-row variant (tall mode)</h1>
+  <div class="sub">If you'd rather not hide anything: identity + telemetry on top, ephemerals on a thinner row underneath. Costs 14px of vertical space but keeps everything visible.</div>
+
+  <div class="frame">
+    <div style="display:flex; flex-direction:column; gap:2px;">
+      <div class="bar">
+        <span class="seg">
+          <span class="dot"></span>
+          <span class="ws">COVENANT</span>
+          <span class="chev">›</span>
+          <span class="tab-chip"><span class="av"></span><span class="strong">claude</span></span>
+          <span class="dim" style="margin-left:6px">⎇ main</span>
+        </span>
+        <span class="grow"></span>
+        <div class="right">
+          <span class="model">Opus 4.7</span>
+          <span class="dim">·</span>
+          <span>50k/m</span>
+          <span class="dim">·</span>
+          <span class="lat bad">▲ 3.0s</span>
+          <span class="dim">·</span>
+          <span style="color:var(--good)">cache 96%</span>
+          <span class="dim">·</span>
+          <span class="dim">v0.8.35</span>
+        </div>
+      </div>
+
+      <div class="bar" style="height:22px; opacity:0.92;">
+        <span class="seg" style="color:var(--muted)">
+          <span class="icon">🎯</span>
+          <span class="dim">mission</span>
+          <span>…operator-picker-resolver-design.md</span>
+        </span>
+        <span class="div"></span>
+        <span class="seg aom" style="color:var(--aom)">
+          <span class="icon">⚡</span>
+          <strong>AOM</strong>
+          <span class="dim">1h51m</span>
+          <span>$0.413</span>
+        </span>
+        <span class="div"></span>
+        <span class="seg" style="color:var(--claude)">⚹ Claude task active</span>
+        <span class="grow"></span>
+        <span class="seg dim">karluiz · 11d · ✈ tg</span>
+      </div>
+    </div>
+  </div>
+
+  <h1>Tradeoffs</h1>
+  <div class="legend" style="grid-template-columns: 160px 1fr; max-width: 920px;">
+    <b>Proposal A</b><span>One row. Cleanest. Hides cache %, exact latency ms, telegram dot in popover — you lose at-a-glance for those signals.</span>
+    <b>Proposal B</b><span>Two rows. Nothing hidden. Costs vertical pixels and re-introduces the "wall of chips" feel on the second row.</span>
+    <b>Either way</b><span>Mission filename head-truncates with full path in tooltip; branch lives on the tab chip; latency is the only telemetry that earns dedicated screen real estate because it's the only one that matters when something's wrong.</span>
+  </div>
+
+</body>
+</html>

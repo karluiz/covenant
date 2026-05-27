@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Activity panel · multi-agent proposals</title>
+<style>
+  :root {
+    --bg: #0a0b0e;
+    --panel: #0f1014;
+    --panel-2: #14161b;
+    --stroke: rgba(255,255,255,0.06);
+    --stroke-2: rgba(255,255,255,0.1);
+    --text: #e8e9ec;
+    --muted: #8b909a;
+    --dim: #5e636d;
+    --accent: #ffd166;
+    --good: #6ee7a7;
+    --info: #8ab4ff;
+    --warn: #ffb86b;
+    --bad: #ff7a7a;
+
+    --c-claude: #c084fc;
+    --c-mibli:  #ff8ab1;
+    --c-codex:  #6ee7a7;
+    --c-hermes: #8ab4ff;
+    --c-pi:     #ffd166;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 12.5px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 800px at 70% -10%, #1d2330 0%, transparent 60%),
+      radial-gradient(800px 600px at 10% 110%, #221a2e 0%, transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+    padding: 40px 28px 96px;
+  }
+  h1 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--muted);
+    margin: 32px 0 6px;
+  }
+  h1:first-of-type { margin-top: 0; }
+  .sub { color: var(--dim); font-size: 11px; margin-bottom: 14px; max-width: 920px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(280px, 320px));
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  /* shared panel shell — mimics the teammate sidebar */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--stroke);
+    border-radius: 12px;
+    height: 620px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 60px -28px rgba(0,0,0,0.7);
+  }
+  .panel header {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--stroke);
+  }
+  .panel .feed {
+    flex: 1; min-height: 0;
+    overflow: auto;
+    padding: 8px 14px;
+  }
+  .panel .feed-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    color: var(--dim);
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 12px 14px 4px;
+    border-top: 1px solid var(--stroke);
+  }
+  .panel .feed-head a { color: var(--muted); text-decoration: none; }
+  .panel .feed-head a:hover { color: var(--text); }
+
+  /* ---------- shared row ---------- */
+  .row-evt {
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px dashed transparent;
+  }
+  .row-evt .ts { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 11px; padding-top: 2px; }
+  .row-evt .body { min-width: 0; }
+  .row-evt .title { color: var(--text); font-weight: 500; }
+  .row-evt .meta { color: var(--muted); font-size: 11px; }
+  .row-evt .who {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-right: 6px;
+    color: var(--muted); font-weight: 500;
+  }
+  .row-evt .who .dot { width: 6px; height: 6px; border-radius: 50%; }
+
+  /* ---------- avatars ---------- */
+  .av {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
+    flex-shrink: 0;
+  }
+  .av.claude  { background: radial-gradient(circle at 30% 30%, #d8b4fe, #7c3aed); }
+  .av.mibli   { background: radial-gradient(circle at 30% 30%, #fbc7da, #db2777); }
+  .av.codex   { background: radial-gradient(circle at 30% 30%, #a7f3d0, #059669); }
+  .av.hermes  { background: radial-gradient(circle at 30% 30%, #bfdbfe, #2563eb); }
+  .av.pi      { background: radial-gradient(circle at 30% 30%, #fde68a, #d97706); }
+  .av.lg { width: 28px; height: 28px; }
+
+  /* ---------- variant A — chip strip multi-select ---------- */
+  .chip-strip {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 9px 4px 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--stroke);
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    transition: background 120ms, color 120ms, border-color 120ms;
+  }
+  .chip:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .chip.is-active { color: var(--text); border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
+  .chip .badge {
+    background: rgba(255,255,255,0.12); color: var(--text);
+    font-size: 10px; padding: 0 5px;
+    border-radius: 8px; min-width: 14px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .chip.is-active.claude  { border-color: var(--c-claude); box-shadow: 0 0 0 1px var(--c-claude) inset; }
+  .chip.is-active.mibli   { border-color: var(--c-mibli);  box-shadow: 0 0 0 1px var(--c-mibli)  inset; }
+  .chip.is-active.codex   { border-color: var(--c-codex);  box-shadow: 0 0 0 1px var(--c-codex)  inset; }
+  .chip.is-active.hermes  { border-color: var(--c-hermes); box-shadow: 0 0 0 1px var(--c-hermes) inset; }
+  .chip.all { background: rgba(255,255,255,0.08); color: var(--text); }
+  .chip .status {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--good);
+    margin-left: 2px; box-shadow: 0 0 6px currentColor;
+  }
+  .chip .status.busy { background: var(--info); }
+  .chip .status.idle { background: var(--dim); box-shadow: none; }
+
+  /* ---------- variant B — tab bar single-select ---------- */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--stroke);
+    margin-top: 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 10px;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.is-active { color: var(--text); border-bottom-color: var(--text); }
+  .tab.is-active.claude { border-bottom-color: var(--c-claude); }
+  .tab.is-active.mibli  { border-bottom-color: var(--c-mibli); }
+  .tab.is-active.codex  { border-bottom-color: var(--c-codex); }
+  .tab.is-active.hermes { border-bottom-color: var(--c-hermes); }
+  .tab .count {
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- variant C — collapsed picker ---------- */
+  .picker-bar {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 10px;
+  }
+  .picker {
+    flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--stroke);
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .picker:hover { background: rgba(255,255,255,0.07); color: var(--text); }
+  .picker .stack {
+    display: inline-flex;
+  }
+  .picker .stack .av { margin-left: -6px; box-shadow: 0 0 0 1.5px var(--panel) inset, 0 0 0 1.5px var(--panel); }
+  .picker .stack .av:first-child { margin-left: 0; }
+  .picker .label { color: var(--text); font-weight: 500; }
+  .picker .arrow { color: var(--dim); margin-left: auto; }
+  .picker-counts { color: var(--dim); font-size: 11px; }
+
+  /* dropdown menu (shown statically for the mockup) */
+  .pop-wrap { position: relative; }
+  .pop {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--stroke-2);
+    border-radius: 10px;
+    padding: 6px 0;
+    z-index: 2;
+    box-shadow: 0 30px 60px -28px rgba(0,0,0,0.9);
+  }
+  .pop .opt {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .pop .opt:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  .pop .opt .name { flex: 1; color: var(--text); }
+  .pop .opt .count { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .pop .opt .check { width: 14px; color: var(--good); opacity: 0; }
+  .pop .opt.is-selected .check { opacity: 1; }
+  .pop .sep { height: 1px; background: var(--stroke); margin: 4px 0; }
+  .pop .grp-head {
+    padding: 4px 12px;
+    color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  }
+
+  /* operator header (top of panel) — used by all */
+  .op-head {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .op-head .name { color: var(--text); font-weight: 600; }
+  .op-head .tag {
+    font-size: 10px; padding: 1px 6px;
+    background: rgba(255,255,255,0.08); border-radius: 3px; color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .op-head .meta {
+    margin-left: auto;
+    color: var(--dim); font-size: 11px;
+  }
+
+  /* labels */
+  .legend {
+    display: grid; grid-template-columns: 160px 1fr;
+    gap: 4px 14px; color: var(--dim); font-size: 11px;
+    margin-top: 8px; max-width: 920px;
+  }
+  .legend b { color: var(--muted); font-weight: 500; }
+</style>
+</head>
+<body>
+
+  <h1>Three ways to show multiple agents in one activity panel</h1>
+  <div class="sub">Three identical activity feeds, three different selection models on top. Same scenario: Claude (busy), Mibli (idle), Codex (busy), Hermes (idle). Default view = combined.</div>
+
+  <div class="row">
+
+    <!-- =================================================== -->
+    <!-- Variant A — chip strip, multi-select               -->
+    <!-- =================================================== -->
+    <div class="panel">
+      <header>
+        <div class="op-head">
+          <div class="av lg claude"></div>
+          <div>
+            <div class="name">All agents</div>
+            <div style="color:var(--dim); font-size:11px;">4 active · 2 working</div>
+          </div>
+          <div class="meta">▾</div>
+        </div>
+        <div class="chip-strip">
+          <span class="chip all is-active">All <span class="badge">4</span></span>
+          <span class="chip claude"><span class="av claude"></span>Claude<span class="status busy"></span></span>
+          <span class="chip mibli"><span class="av mibli"></span>Mibli<span class="status idle"></span></span>
+          <span class="chip codex"><span class="av codex"></span>Codex<span class="status busy"></span></span>
+          <span class="chip hermes"><span class="av hermes"></span>Hermes<span class="status idle"></span></span>
+        </div>
+      </header>
+      <div class="feed-head"><span>Activity</span><a href="#">clear</a></div>
+      <div class="feed">
+        <div class="row-evt">
+          <span class="ts">21:08</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-claude)"></span>Claude</span><span class="title">read panel.ts</span></div>
+            <div class="meta">karlTerminal › ui/src/teammate</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:08</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-codex)"></span>Codex</span><span class="title">test_command_passed</span></div>
+            <div class="meta">codex › cargo test -p score</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:07</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-claude)"></span>Claude</span><span class="title">proposed task</span></div>
+            <div class="meta">Develop achievements system · do · self</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:06</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-mibli)"></span>Mibli</span><span class="title">idle</span></div>
+            <div class="meta">COVENANT › URL</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:05</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-hermes)"></span>Hermes</span><span class="title">spawned</span></div>
+            <div class="meta">claude-sonnet · added</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================== -->
+    <!-- Variant B — tab bar, single-select                 -->
+    <!-- =================================================== -->
+    <div class="panel">
+      <header>
+        <div class="op-head">
+          <div class="av lg claude"></div>
+          <div>
+            <div class="name">Claude · ACTIVE</div>
+            <div style="color:var(--dim); font-size:11px;">▸ writing patch</div>
+          </div>
+          <div class="meta">▾</div>
+        </div>
+        <div class="tabs">
+          <span class="tab"><span>All</span><span class="count">37</span></span>
+          <span class="tab claude is-active"><span class="av claude"></span>Claude<span class="count">12</span></span>
+          <span class="tab mibli"><span class="av mibli"></span>Mibli<span class="count">3</span></span>
+          <span class="tab codex"><span class="av codex"></span>Codex<span class="count">18</span></span>
+          <span class="tab hermes"><span class="av hermes"></span>Hermes<span class="count">4</span></span>
+        </div>
+      </header>
+      <div class="feed-head"><span>Activity · Claude</span><a href="#">clear</a></div>
+      <div class="feed">
+        <div class="row-evt">
+          <span class="ts">21:08</span>
+          <div class="body">
+            <div class="title">read panel.ts</div>
+            <div class="meta">karlTerminal › ui/src/teammate · 442 lines</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:07</span>
+          <div class="body">
+            <div class="title">proposed task</div>
+            <div class="meta">Develop achievements system · do</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:06</span>
+          <div class="body">
+            <div class="title">edited panel.ts</div>
+            <div class="meta">+24 / −7 lines</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:05</span>
+          <div class="body">
+            <div class="title">cargo check</div>
+            <div class="meta">passed in 12.4s</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:03</span>
+          <div class="body">
+            <div class="title">read mentions.ts</div>
+            <div class="meta">ui/src/teammate · 188 lines</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================== -->
+    <!-- Variant C — collapsed picker with dropdown         -->
+    <!-- =================================================== -->
+    <div class="panel">
+      <header>
+        <div class="op-head">
+          <div class="av lg claude"></div>
+          <div>
+            <div class="name">Mixed view</div>
+            <div style="color:var(--dim); font-size:11px;">Claude + Codex</div>
+          </div>
+          <div class="meta">▾</div>
+        </div>
+        <div class="picker-bar">
+          <div class="pop-wrap" style="flex:1;">
+            <div class="picker">
+              <span class="stack">
+                <span class="av claude"></span>
+                <span class="av codex"></span>
+              </span>
+              <span class="label">Claude + Codex</span>
+              <span class="arrow">▾</span>
+            </div>
+            <div class="pop">
+              <div class="grp-head">Show activity for</div>
+              <div class="opt is-selected">
+                <span class="check">✓</span>
+                <span class="av claude"></span>
+                <span class="name">All agents</span>
+                <span class="count">37</span>
+              </div>
+              <div class="sep"></div>
+              <div class="grp-head">Or pick agents</div>
+              <div class="opt is-selected">
+                <span class="check">✓</span>
+                <span class="av claude"></span>
+                <span class="name">Claude</span>
+                <span class="count">12</span>
+              </div>
+              <div class="opt">
+                <span class="check">✓</span>
+                <span class="av mibli"></span>
+                <span class="name">Mibli</span>
+                <span class="count">3</span>
+              </div>
+              <div class="opt is-selected">
+                <span class="check">✓</span>
+                <span class="av codex"></span>
+                <span class="name">Codex</span>
+                <span class="count">18</span>
+              </div>
+              <div class="opt">
+                <span class="check">✓</span>
+                <span class="av hermes"></span>
+                <span class="name">Hermes</span>
+                <span class="count">4</span>
+              </div>
+              <div class="opt">
+                <span class="check">✓</span>
+                <span class="av pi"></span>
+                <span class="name">Pi</span>
+                <span class="count">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="height: 144px;"></div>
+      </header>
+      <div class="feed-head"><span>Activity · Claude + Codex</span><a href="#">clear</a></div>
+      <div class="feed">
+        <div class="row-evt">
+          <span class="ts">21:08</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-claude)"></span>Claude</span><span class="title">read panel.ts</span></div>
+            <div class="meta">karlTerminal › ui/src/teammate</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:08</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-codex)"></span>Codex</span><span class="title">test_command_passed</span></div>
+            <div class="meta">cargo test -p score</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:07</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-claude)"></span>Claude</span><span class="title">proposed task</span></div>
+            <div class="meta">Develop achievements system</div>
+          </div>
+        </div>
+        <div class="row-evt">
+          <span class="ts">21:05</span>
+          <div class="body">
+            <div><span class="who"><span class="dot" style="background:var(--c-codex)"></span>Codex</span><span class="title">edited score/lib.rs</span></div>
+            <div class="meta">+44 / −12 lines</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <h1>Variant A — chip strip · multi-select</h1>
+  <div class="legend">
+    <b>Best for</b><span>2–5 agents you want to glance at the same time. Quick toggles in/out.</span>
+    <b>Default state</b><span>"All" pill is hot; the per-agent chips are dim. Click one → solo it (ring lights up in agent color). Cmd-click → add to selection.</span>
+    <b>Wins</b><span>Status (busy/idle) is always visible inline on the chip. Lowest click-cost to compare two agents.</span>
+    <b>Risks</b><span>Eats ~36px vertical; wraps to 2 rows past ~5 agents and starts to look messy.</span>
+  </div>
+
+  <h1>Variant B — tab bar · single-select</h1>
+  <div class="legend">
+    <b>Best for</b><span>You usually want to focus on one agent at a time. Combined view is rare.</span>
+    <b>Default state</b><span>"All" tab selected; switch by clicking any tab. The header rephrases ("Claude · ACTIVE · ▸ writing patch") so the panel feels like a per-agent inspector.</span>
+    <b>Wins</b><span>Familiar (matches the existing Chat/Tasks/Activity tab strip). Per-agent counts are obvious. Cheap horizontal scroll for &gt;5 agents.</span>
+    <b>Risks</b><span>No multi-select — can't isolate "Claude + Codex" without going back to All.</span>
+  </div>
+
+  <h1>Variant C — collapsed picker · dropdown</h1>
+  <div class="legend">
+    <b>Best for</b><span>Lots of agents (10+), or when vertical space in the panel is tight.</span>
+    <b>Default state</b><span>Stacked avatars + selection label ("Claude + Codex"). Click → multi-select dropdown with counts and an "All agents" top option.</span>
+    <b>Wins</b><span>Scales to N agents without overflow. Mirrors GitHub's reviewers/assignees picker — instantly familiar.</span>
+    <b>Risks</b><span>Selection isn't visible until you open it. Two clicks to swap from solo Claude → solo Mibli (open, uncheck, check, close).</span>
+  </div>
+
+  <h1>Recommendation</h1>
+  <div class="sub">
+    Start with <b>A (chip strip)</b> because today you have ≤5 agents and the always-visible status dots are valuable signal — you'd see "Claude is busy" without clicking anything. Migrate to <b>C</b> later if the agent count grows past comfortable chip-strip width. <b>B</b> is a fallback if multi-select feels like overkill and you really do focus on one at a time.
+  </div>
+
+</body>
+</html>
