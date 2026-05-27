@@ -139,6 +139,20 @@ body.statusbar-single-row {
     --statusbar-h: 26px;
 }
 
+/* Single-row layout: restore the pre-8aee4f5 grid container so the four
+   segment groups (left, framing, center, right) flow horizontally as
+   columns instead of inheriting the two-row mode's flex-direction:column.
+   Mirrors the original `grid-template-columns: auto auto 1fr auto`. */
+body.statusbar-single-row #status-bar {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+}
+body.statusbar-single-row .sb-center {
+    border-left: 1px solid rgba(var(--ink-rgb), 0.06);
+    border-right: 1px solid rgba(var(--ink-rgb), 0.06);
+}
+
 /* Light theme — overrides the dark tokens defined in :root. Activated
    by `body.theme-light` (toggled from ui/src/theme/mode.ts). Only the
    color tokens change; layout/spacing tokens stay shared. */
