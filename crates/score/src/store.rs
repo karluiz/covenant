@@ -756,6 +756,17 @@ impl ScoreStore {
         })
     }
 
+    /// Test/diagnostic helper: does a table exist in the schema?
+    pub fn table_exists(&self, name: &str) -> Result<bool> {
+        let c = self.conn.lock().unwrap();
+        let count: i64 = c.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            params![name],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     // ─── Achievements ─────────────────────────────────────────────────────
 
     /// Record a fact and update achievement progress/awards in a single txn.
