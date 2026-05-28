@@ -66,3 +66,81 @@ fn record_prompt_with_agent_persists_label() {
     assert_eq!(agent.as_deref(), Some("claude_code"));
     karl_score::clear_recorder_for_test();
 }
+
+#[test]
+fn record_spec_emits_cartographer_and_is_idempotent() {
+    let _guard = LOCK.lock().unwrap();
+    let dir = tempdir().unwrap();
+    let store = Arc::new(ScoreStore::open(dir.path()).unwrap());
+    set_recorder(store.clone());
+
+    let ctx = karl_score::Context {
+        repo: Some("karlTerminal".into()),
+        branch: Some("main".into()),
+        group_name: None,
+    };
+    karl_score::record_spec("docs/specs/foo.md", &ctx);
+
+    let conn = store.connection();
+    {
+        let c = conn.lock().unwrap();
+        let awards: i64 = c
+            .query_row(
+                "SELECT count(*) FROM achievement_awards \
+                 WHERE achievement_id='cartographer' AND tier=1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(awards, 1, "first spec should award Cartographer tier I");
+        let progress: i64 = c
+            .query_row(
+                "SELECT progress FROM achievement_progress WHERE achievement_id='cartographer'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(progress, 1);
+    }
+
+    // Re-recording the same spec path is a no-op (append_spec returns false; the
+    // dedupe_key also guards) — progress must not advance.
+    karl_score::record_spec("docs/specs/foo.md", &ctx);
+    {
+        let c = conn.lock().unwrap();
+        let progress: i64 = c
+            .query_row(
+                "SELECT progress FROM achievement_progress WHERE achievement_id='cartographer'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(progress, 1, "duplicate spec must not advance progress");
+    }
+
+    karl_score::clear_recorder_for_test();
+}
+
+#[test]
+fn record_spec_without_repo_does_not_emit_cartographer() {
+    let _guard = LOCK.lock().unwrap();
+    let dir = tempdir().unwrap();
+    let store = Arc::new(ScoreStore::open(dir.path()).unwrap());
+    set_recorder(store.clone());
+
+    let ctx = karl_score::Context {
+        repo: None,
+        branch: None,
+        group_name: None,
+    };
+    karl_score::record_spec("/tmp/loose-spec.md", &ctx);
+
+    let conn = store.connection();
+    let c = conn.lock().unwrap();
+    let facts: i64 = c
+        .query_row("SELECT count(*) FROM achievement_facts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(facts, 0, "repo-less spec should emit no achievement fact");
+    drop(c);
+    karl_score::clear_recorder_for_test();
+}

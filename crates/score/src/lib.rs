@@ -149,11 +149,36 @@ pub fn record_achievement_fact(
 
 pub fn record_spec(path: &str, ctx: &Context) {
     let now = chrono::Utc::now().timestamp_millis();
+    let mut newly_created = false;
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
-            if let Err(e) = store.append_spec(now, path, ctx) {
-                tracing::warn!(target: "score", error = %e, "record_spec failed");
+            match store.append_spec(now, path, ctx) {
+                Ok(created) => newly_created = created,
+                Err(e) => tracing::warn!(target: "score", error = %e, "record_spec failed"),
             }
+        }
+    }
+
+    // A newly recorded spec/note advances the Cartographer (project memory)
+    // achievement. Emit only on first insert — re-scans return false above, and
+    // the dedupe_key guards against any double counting. We emit AFTER dropping
+    // the slot() lock: record_achievement_fact re-acquires it, so emitting
+    // inside the block above would deadlock.
+    if newly_created {
+        if let Some(repo) = ctx.repo.clone() {
+            let dedupe = format!("project_note_created:{repo}:{path}");
+            let _ = record_achievement_fact(achievements::AchievementFact {
+                kind: "project_note_created".to_string(),
+                subject_type: achievements::SubjectKind::Project,
+                subject_id: Some(repo.clone()),
+                repo: Some(repo),
+                branch: ctx.branch.clone(),
+                group_name: ctx.group_name.clone(),
+                session_id: None,
+                task_id: None,
+                verification: None,
+                dedupe_key: Some(dedupe),
+            });
         }
     }
 }
