@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.38 — Review-archetype enforcement + operator/teammate polish
+
+### Changed
+
+- **Sentiment badge relocated out of the avatar**: the mood badge used to sit above the operator avatar in the teammate panel header, occluding the v2 character art. It now lives in the title row next to the level pill, so the avatar reads cleanly while the badge still updates in lockstep. `ui/src/teammate/panel.ts`, `ui/src/styles.css`.
+
+- **English copy in the mind-loss modal**: the "delete tab and its operator memory?" dialog was the last Spanish-language surface in the UI. Translated headers, body, dt/dd labels, action buttons, and relative-time strings to English to match the English-first UI policy. `ui/src/operator/mind-loss-modal.ts`.
+
+- **Activity view rework**: large visual + structural pass on the teammate activity feed. `ui/src/teammate/activity-view.ts`, `ui/src/styles.css`.
+
+- **SVG split-tab glyph**: replaced the `▣` Unicode glyph for the split-tab chip with an inline SVG (rounded rect + vertical divider) so it renders consistently across fonts and animates opacity on hover. `ui/src/tabs/manager.ts`, `ui/src/styles.css`.
+
+- **README: macOS Gatekeeper workaround documented**: until App Store / notarized signing lands, the unsigned `.app` triggers "Covenant is damaged". The Install section now documents `xattr -cr /Applications/Covenant.app` with an explanation of what each flag does and why it's safe. `README.md`.
+
+### Fixed
+
+- **Review-archetype enforcement + operator auto-stop**: the operator had no notion of task archetype, so a Review task could emit mutating REPLYs ("merge it", "push it"), and `tick_loop` ran forever with no termination criterion. `TaskArchetype` is now plumbed from the teammate Task into `Attached` via a new `set_task_archetype` setter called from `teammate_attach_session_to_task`. `build_system_prompt` injects a REVIEW TASK CONTRACT block when the attached archetype is Review (read-only auditor, no mutating REPLY). `parse_response` runs a `reply_is_mutating` classifier on Review turns; mutating REPLYs convert to ESCALATE with a declined-reason notification + `tracing::warn`. Whole-token match for short verbs (merge/push/commit/rm/sudo), substring for multi-word phrases ("git push", "npm install", "reset --hard"). Mission plan reaching 100% sets `enabled=false` on the session, gated by `Settings.operator.auto_stop_on_mission_completed` (default true), emitting `operator-disabled` alongside `operator-mission-completed`. New `OperatorWatcher::disable_for_session`; `teammate_cancel_active_task` calls it after `forget_task` so cancel terminates the operator too. 10 new unit tests; 71 operator + 56 teammate tests pass. `crates/app/src/operator.rs`, `crates/app/src/operator_mind.rs`, `crates/app/src/settings.rs`, `crates/app/src/teammate/commands.rs`.
+
+- **Operator avatar persisted after delete**: deleting an operator cleared the backend registry but left stale references in the frontend — `TabsManager.operatorCache`, the status bar's `currentOperatorEntity`, and `pane.operator` pointers all kept the deleted id alive until the next tab switch or XP tick. A window-level `operator:deleted` CustomEvent now fires after `operatorDelete` succeeds; `TabsManager` drops the cache entry, nulls every `pane.operator` that matched, and re-renders. Status bar listens and nulls `currentOperatorEntity` + re-renders if the deleted id was the active one. `ui/src/settings/operators.ts`, `ui/src/status/bar.ts`, `ui/src/tabs/manager.ts`.
+
+- **Teammate leaked machine session ids in chat**: the model replied "Focus on `MWA8BF`" because the world-snapshot rendered the short SessionId ulid indistinguishably from a human-facing label. The snapshot now tells the model the id is machine-only and never to surface it, and relabels the rendered line accordingly. `crates/app/src/teammate/world_snapshot.rs`.
+
+- **Empty-state chips grounded in workspace scope**: two chip prompts referenced state the teammate didn't have. "Review my code" → "Audit this workspace" (scope = cwd). "Explain this file" → "Summarize recent changes" (scope = git log of cwd). `ui/src/teammate/panel.ts`.
+
+- **SENTIMENT tag matching tightened**: restrict tag detection to line-lead occurrences (with bullet/quote prefix tolerance) or an inline tag at end-of-text. Prevents prose mentions of "sentiment:" from being treated as a tag, and fixes a body-concatenation bug where content following a mid-text tag was glued to the head with no separator. `crates/app/src/teammate/llm.rs`.
+
 ## v0.8.37 — Single-row status bar opt-out (experimental)
 
 ### Added
