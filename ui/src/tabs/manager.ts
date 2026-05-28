@@ -1357,6 +1357,25 @@ export class TabManager {
     newTabBtn.addEventListener("click", () => {
       void this.createTab();
     });
+
+    // Operator deletion: drop the cache entry and unpin any tab whose
+    // `operator` pointer matched. The backend already unpinned the
+    // session record; this keeps the in-memory view consistent so the
+    // status bar avatar (which reads via operatorCache) stops rendering
+    // the removed operator without waiting for a tab switch / XP tick.
+    window.addEventListener("operator:deleted", (ev: Event) => {
+      const id = (ev as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      this.operatorCache.delete(id);
+      for (const tab of this.tabs) {
+        for (const pane of tab.panes) {
+          if (pane.operator === id) pane.operator = null;
+        }
+      }
+      // Pull fresh data from backend (handles default re-pin etc.) and
+      // re-render. refreshOperatorCache also calls renderTabbar.
+      void this.refreshOperatorCache();
+    });
     // Right-click on empty tabbar area → "New group" menu. We only
     // catch the event when it isn't on a tab pill or a group chip;
     // those have their own contextmenu handlers that stop here.

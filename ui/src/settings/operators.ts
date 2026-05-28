@@ -177,6 +177,12 @@ export class OperatorsPane {
     }
     try {
       await operatorDelete(op.id);
+      // Notify the rest of the app — tabs/manager.ts drops the cache
+      // entry and clears any pane.operator pointer; the status bar
+      // re-renders without the dangling avatar.
+      window.dispatchEvent(
+        new CustomEvent("operator:deleted", { detail: { id: op.id } }),
+      );
       await this.refresh();
       pushInfoToast({ message: `Deleted operator: ${op.name}` });
     } catch (e) {

@@ -170,6 +170,17 @@ export class StatusBar {
       this.online = online;
       this.render(this.lastDirCtx);
     });
+    // If the active tab's operator gets deleted, drop the cached
+    // entity immediately so the avatar disappears on the next render
+    // (otherwise it sticks until the user switches tabs).
+    window.addEventListener("operator:deleted", (ev: Event) => {
+      const id = (ev as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      if (this.currentOperatorEntity?.id === id) {
+        this.currentOperatorEntity = null;
+        this.render(this.lastDirCtx);
+      }
+    });
   }
 
   private startTelegramPolling(): void {
