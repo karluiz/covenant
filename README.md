@@ -51,6 +51,16 @@ Current capabilities include multi-session tabs with persistence, OSC 133 block 
 
 **macOS:** Download the latest `.dmg` from [Releases](../../releases/latest), drag `Covenant.app` to `/Applications`, and launch.
 
+> **First launch on macOS — "Covenant is damaged"**
+>
+> Until Covenant ships through the App Store / a notarized developer certificate, macOS Gatekeeper will block the unsigned `.app` with a "damaged and can't be opened" error. Strip the quarantine attribute once and you're done:
+>
+> ```bash
+> xattr -cr /Applications/Covenant.app
+> ```
+>
+> What this does: `xattr` manages extended filesystem attributes; `-c` clears all of them, `-r` recurses into the `.app` bundle (which is just a directory). macOS tags anything downloaded from the internet with `com.apple.quarantine`, which is what Gatekeeper checks against its signature requirements. Removing the attribute tells the OS this file is local, so Gatekeeper steps aside and the app launches normally. This is the only way to test Covenant while App Store publishing is in progress.
+
 **Windows:** See [docs/install-windows.md](docs/install-windows.md) for the MSI installer and shell integration setup.
 
 On first run, Covenant will offer to install OSC 133 snippets into your `~/.zshrc`, `~/.bashrc`, fish config, or PowerShell `$PROFILE` (Windows). Without these, block segmentation falls back to heuristics — accept the prompt for the real experience.

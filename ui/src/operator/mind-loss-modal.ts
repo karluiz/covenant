@@ -17,16 +17,16 @@ export function openMindLossModal(opts: MindLossModalOptions): void {
   const turns = preview.turn_count;
   overlay.innerHTML = `
     <div class="modal mind-loss-modal" role="dialog" aria-modal="true" aria-labelledby="mind-loss-title">
-      <h2 id="mind-loss-title">¿Borrar tab y su memoria del operador?</h2>
-      <p>El operador acumuló <strong>${turns} turno${turns === 1 ? "" : "s"}</strong> de memoria desde ${escapeHtml(formatRelative(preview.updated_at_rfc3339))}.</p>
+      <h2 id="mind-loss-title">Delete tab and its operator memory?</h2>
+      <p>The operator accumulated <strong>${turns} turn${turns === 1 ? "" : "s"}</strong> of memory since ${escapeHtml(formatRelative(preview.updated_at_rfc3339))}.</p>
       <dl>
-        <dt>Objetivo actual</dt><dd>${escapeHtml(preview.goal || "—")}</dd>
-        <dt>Última creencia</dt><dd>${escapeHtml(truncate(preview.belief || "—", 200))}</dd>
+        <dt>Current goal</dt><dd>${escapeHtml(preview.goal || "—")}</dd>
+        <dt>Last belief</dt><dd>${escapeHtml(truncate(preview.belief || "—", 200))}</dd>
       </dl>
-      <p class="warn">Si borrás el tab, esta memoria se pierde permanentemente.</p>
+      <p class="warn">If you delete the tab, this memory is lost permanently.</p>
       <div class="modal-actions">
-        <button type="button" class="btn-cancel">Cancelar</button>
-        <button type="button" class="btn-confirm danger">Borrar de todas formas</button>
+        <button type="button" class="btn-cancel">Cancel</button>
+        <button type="button" class="btn-confirm danger">Delete anyway</button>
       </div>
     </div>
   `;
@@ -78,10 +78,10 @@ function formatRelative(rfc: string): string {
   const then = new Date(rfc).getTime();
   if (isNaN(then)) return rfc;
   const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (diffSec < 60) return `hace ${diffSec}s`;
+  if (diffSec < 60) return `${diffSec}s ago`;
   const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `hace ${diffMin}m`;
+  if (diffMin < 60) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `hace ${diffHr}h`;
-  return `hace ${Math.floor(diffHr / 24)}d`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
 }

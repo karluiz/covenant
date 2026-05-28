@@ -14,7 +14,6 @@ import {
 } from "../api";
 import { Icons } from "../icons";
 import { EMOTION_LABEL, renderAvatarHtml, type Emotion } from "../operator/avatars";
-import { pushInfoToast } from "../notifications/toast";
 import { attachTooltip } from "../tooltip/tooltip";
 import { ComposerInput } from "./composer-input";
 import type { MentionSourcesDeps } from "./mention-sources";
@@ -44,19 +43,9 @@ function renderHeaderAvatarWithRing(
   const xpProgress = Math.max(0, Math.min(1, (xp % 100) / 100));
   const emotion: Emotion = (sentiment as Emotion | undefined) ?? "neutral";
   const avatar = renderAvatarHtml(operator?.emoji ?? "🤖", 32, "", emotion);
-  // Sentiment badge: only shown when the LLM tagged this turn. Spanish
-  // token doubles as the modifier class for color theming + the
-  // tooltip's `title` so the user sees the original.
-  const badge = sentiment
-    ? `<span class="teammate-panel-sentiment teammate-panel-sentiment--${sentiment}" ` +
-            `title="${sentiment}">${EMOTION_LABEL[sentiment as Emotion] ?? sentiment}</span>`
-    : "";
-  // Level pill moved out of the avatar wrap — it lives next to the name
-  // in .teammate-panel-title-row now. The wrap holds only the XP ring
-  // (traces the avatar's outside circumference), the avatar itself, and
-  // the sentiment badge (sits above the head where there's headroom).
-  // Net effect: the v2 character art is no longer occluded by a level
-  // pill on its chin.
+  // Avatar wrap holds only the XP ring + avatar. The sentiment badge
+  // moved next to the level pill in .teammate-panel-title-row so it
+  // stops occluding the v2 character art.
   return (
     `<span class="teammate-panel-avatar-wrap" data-operator-id="${operator?.id ?? ""}" ` +
           `style="--xp-progress:${xpProgress.toFixed(3)};">` +
@@ -65,9 +54,14 @@ function renderHeaderAvatarWithRing(
         `<circle class="fill"  cx="16" cy="16" r="15"/>` +
       `</svg>` +
       `<span class="teammate-panel-avatar">${avatar}</span>` +
-      badge +
     `</span>`
   );
+}
+
+function renderSentimentBadge(sentiment?: Sentiment | null): string {
+  if (!sentiment) return "";
+  const label = EMOTION_LABEL[sentiment as Emotion] ?? sentiment;
+  return `<span class="teammate-panel-sentiment teammate-panel-sentiment--${sentiment}" title="${sentiment}">${label}</span>`;
 }
 
 export interface TeammatePanelDeps {
@@ -456,6 +450,7 @@ export class TeammatePanel {
         <span class="teammate-panel-title-row">
           <span class="teammate-panel-title-name">${escapeHtml(op?.name ?? "")}</span>
           ${levelPill}
+          ${renderSentimentBadge(sentiment)}
         </span>
         <span class="teammate-panel-subtitle" data-role="subtitle">${escapeHtml(op?.model ?? "")}</span>
       </span>
@@ -484,11 +479,23 @@ export class TeammatePanel {
     const op = this.operator;
     const sentiment = op ? this.currentMoodByOperator.get(op.id) ?? null : null;
     // Replace the whole wrap rather than mutate children — keeps the
-    // XP-progress CSS var, the SVG ring, and the badge in lockstep.
+    // XP-progress CSS var and the SVG ring in lockstep with the avatar.
     const tmp = document.createElement("div");
     tmp.innerHTML = renderHeaderAvatarWithRing(op, sentiment);
     const fresh = tmp.firstElementChild;
     if (fresh) wrap.replaceWith(fresh);
+    // Sentiment badge lives next to the level pill in the title row; swap
+    // it in-place so the mood updates without rebuilding the whole header.
+    const titleRow = header.querySelector(".teammate-panel-title-row");
+    if (titleRow) {
+      const oldBadge = titleRow.querySelector(".teammate-panel-sentiment");
+      const tmp2 = document.createElement("div");
+      tmp2.innerHTML = renderSentimentBadge(sentiment);
+      const newBadge = tmp2.firstElementChild;
+      if (oldBadge && newBadge) oldBadge.replaceWith(newBadge);
+      else if (oldBadge) oldBadge.remove();
+      else if (newBadge) titleRow.appendChild(newBadge);
+    }
   }
 
   private renderTabsBar(): HTMLElement {
@@ -535,6 +542,8 @@ export class TeammatePanel {
       return;
     }
     const opId = this.operator.id;
+    const msgCount = this.messagesCache.length;
+    const taskCount = this.tasksCache.length;
     const snapshot = {
       operatorId: opId,
       messages: this.messagesCache.slice(),
@@ -547,16 +556,47 @@ export class TeammatePanel {
     this.paintTasks();
     this.updateTasksCount();
     this.updateHeaderWorkingState();
-    pushInfoToast({
-      message: "Chat & tasks cleared · Click to undo",
-      onClick: () => {
-        // The toast host auto-dismisses on click — we just need to
-        // restore the snapshot if it's still the active pending clear.
-        if (this.pendingClear && this.pendingClear.operatorId === opId) {
-          this.undoPendingClear();
-        }
-      },
+    this.renderUndoBar(msgCount, taskCount);
+  }
+
+  /// Inline undo card shown inside the now-empty thread. Replaces the
+  /// empty-state CTAs while a pending clear is in flight. Two explicit
+  /// buttons (Undo / Delete now) + a 6s progress bar so the user knows
+  /// how much time is left before the clear commits.
+  private renderUndoBar(msgCount: number, taskCount: number): void {
+    if (!this.threadEl) return;
+    this.threadEl.innerHTML = "";
+    const parts: string[] = [];
+    if (msgCount > 0) parts.push(`${msgCount} message${msgCount === 1 ? "" : "s"}`);
+    if (taskCount > 0) parts.push(`${taskCount} task${taskCount === 1 ? "" : "s"}`);
+    const summary = parts.length > 0 ? parts.join(" and ") : "this chat";
+    const card = document.createElement("div");
+    card.className = "teammate-undo-card";
+    card.innerHTML = `
+      <div class="teammate-undo-title">Cleared ${escapeHtml(summary)}</div>
+      <div class="teammate-undo-hint">Commits in <span data-role="countdown">6</span>s if no action.</div>
+      <div class="teammate-undo-progress"><span class="teammate-undo-progress-fill"></span></div>
+      <div class="teammate-undo-actions">
+        <button type="button" class="teammate-undo-btn teammate-undo-btn--primary" data-action="undo">Undo</button>
+        <button type="button" class="teammate-undo-btn" data-action="commit">Delete now</button>
+      </div>
+    `;
+    const countdownEl = card.querySelector<HTMLElement>('[data-role="countdown"]');
+    let remaining = 6;
+    const countdownTimer = window.setInterval(() => {
+      remaining -= 1;
+      if (countdownEl) countdownEl.textContent = String(Math.max(0, remaining));
+      if (remaining <= 0) window.clearInterval(countdownTimer);
+    }, 1000);
+    card.dataset["countdownTimer"] = String(countdownTimer);
+    card.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-action]");
+      if (!btn) return;
+      window.clearInterval(countdownTimer);
+      if (btn.dataset["action"] === "undo") this.undoPendingClear();
+      else if (btn.dataset["action"] === "commit") void this.commitPendingClear();
     });
+    this.threadEl.append(card);
   }
 
   private undoPendingClear(): void {
@@ -580,6 +620,11 @@ export class TeammatePanel {
     if (!p) return;
     window.clearTimeout(p.timer);
     this.pendingClear = null;
+    // Replace the undo card with the empty-state CTAs (only if the user
+    // is still viewing the same operator).
+    if (this.operator?.id === p.operatorId) {
+      this.paintMessages([]);
+    }
     try {
       await this.deps.clearForOperator?.(p.operatorId);
     } catch (e) {
