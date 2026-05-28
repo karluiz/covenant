@@ -1143,8 +1143,8 @@ export class TeammatePanel {
         <div class="teammate-empty-hint">Ask about your project, get code reviewed, or delegate tasks.</div>
         <div class="teammate-empty-chips">
           <button type="button" class="teammate-empty-chip" data-prompt="What's happening in my open tabs?">What's happening in my tabs?</button>
-          <button type="button" class="teammate-empty-chip" data-prompt="Review the code I'm working on and suggest improvements">Review my code</button>
-          <button type="button" class="teammate-empty-chip" data-prompt="Read the current file and explain what it does">Explain this file</button>
+          <button type="button" class="teammate-empty-chip" data-prompt="Audit the workspace I'm in for code-quality issues and surface the top findings.">Audit this workspace</button>
+          <button type="button" class="teammate-empty-chip" data-prompt="Summarize the changes in the last 10 commits of this workspace.">Summarize recent changes</button>
           <button type="button" class="teammate-empty-chip" data-prompt="What should I work on next?">What should I do next?</button>
         </div>
       `;
