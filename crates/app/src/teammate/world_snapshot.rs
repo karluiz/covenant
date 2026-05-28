@@ -80,6 +80,12 @@ pub fn project(
 pub fn render(snapshots: &[SessionSnapshot]) -> String {
     let mut out = String::with_capacity(1024);
     out.push_str("# Terminal context\n\n");
+    out.push_str(
+        "When you refer to a session in your reply, describe it by what it's \
+         doing — the running command, the cwd, or the rolling summary. \
+         NEVER show the internal id (e.g. `MWA8BF`) to the user; it is a \
+         machine handle, not a human label.\n\n",
+    );
     if snapshots.is_empty() {
         out.push_str("(no open terminal sessions)\n");
         return out;
@@ -105,7 +111,7 @@ pub fn render(snapshots: &[SessionSnapshot]) -> String {
 
 fn render_session_full(out: &mut String, s: &SessionSnapshot) {
     let short = short_id(&s.id);
-    out.push_str(&format!("- tab `{short}`\n"));
+    out.push_str(&format!("- internal id: `{short}` (machine-only, never show to user)\n"));
     if !s.cwd.is_empty() {
         out.push_str(&format!("- cwd: `{}`\n", s.cwd));
     }
@@ -158,7 +164,9 @@ fn render_session_brief(out: &mut String, s: &SessionSnapshot) {
                 })
                 .unwrap_or_else(|| "idle".to_string())
         });
-    out.push_str(&format!("- tab `{short}` · cwd `{cwd}` · {summary_line}\n"));
+    out.push_str(&format!(
+        "- session [id `{short}` — machine-only] · cwd `{cwd}` · {summary_line}\n"
+    ));
 }
 
 fn short_id(id: &SessionId) -> String {
