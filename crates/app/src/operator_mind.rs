@@ -326,6 +326,11 @@ pub fn mask_in_place<F: Fn(&str) -> String>(mind: &mut OperatorMind, mask: F) {
 }
 
 /// Find the JSON object inside a possibly-noisy text block and parse.
+// TODO(review-archetype): the V2 (mind) parse path does not yet enforce
+// the read-only Review-archetype REPLY rewrite that `operator::parse_response`
+// applies on the V1 path. V1 covers the bug seen in the screenshot
+// (Claude told to "merge it"); revisit once Review tasks routinely
+// exercise the V2 path.
 pub fn parse_model_response(text: &str) -> Result<ModelResponse, MindParseError> {
     let candidate = find_first_json_object(text).ok_or(MindParseError::NoJsonObject)?;
     Ok(serde_json::from_str(candidate)?)

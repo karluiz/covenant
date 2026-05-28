@@ -369,6 +369,7 @@ pub async fn teammate_cancel_task_proposal(
 #[tauri::command]
 pub async fn teammate_cancel_active_task(
     app: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
     storage: State<'_, Arc<Storage>>,
     supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     task_id: crate::teammate::TaskId,
@@ -386,6 +387,7 @@ pub async fn teammate_cancel_active_task(
         .ok_or_else(|| "task not found".to_string())?;
     if let Some(s) = task.spawned_session {
         supervisor.forget_task(s);
+        state.operator.disable_for_session(&app, s, "task_cancelled").await;
     }
     let msg = TaskMessage {
         id: MessageId::new(),
@@ -443,6 +445,7 @@ pub async fn teammate_clear_for_operator(
 #[tauri::command]
 pub async fn teammate_attach_session_to_task(
     app: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
     storage: State<'_, Arc<Storage>>,
     runtime: State<'_, Arc<TeammateRuntime>>,
     supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
@@ -456,6 +459,13 @@ pub async fn teammate_attach_session_to_task(
     let now = now_unix_ms();
     storage.teammate_update_task_spawned_session(task_id, session, now).await
         .map_err(|e| e.to_string())?;
+    // Propagate the Task's archetype into the per-session operator state so
+    // the decision loop can apply archetype-specific contracts (e.g. the
+    // read-only contract for Review). Failure to load is non-fatal — the
+    // operator just runs without archetype context.
+    if let Ok(Some(task)) = storage.teammate_get_task(task_id).await {
+        state.operator.set_task_archetype(session, task.archetype).await;
+    }
     let _ = runtime.finish_task(operator_id, task_id);
     runtime.start_task(operator_id, task_id, Some(session)).map_err(|e| e.to_string())?;
     supervisor.register_task(session, task_id, operator_id);

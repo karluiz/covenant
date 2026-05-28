@@ -622,6 +622,14 @@ pub struct OperatorConfig {
     /// Cap 4000 server-side. Ignored when mind_v2 is false.
     #[serde(default = "default_mind_thinking_budget")]
     pub mind_thinking_budget: u32,
+
+    /// Auto-disable the per-session Operator when its attached mission's
+    /// plan reaches 100% complete. Prevents runaway operators on long
+    /// "review the code" / "fix bugs" missions. Default true; set false
+    /// to keep the operator running past completion (e.g. for follow-up
+    /// tasks the user will queue).
+    #[serde(default = "default_auto_stop_on_mission_completed")]
+    pub auto_stop_on_mission_completed: bool,
 }
 
 impl Default for OperatorConfig {
@@ -637,8 +645,13 @@ impl Default for OperatorConfig {
             triage_model: default_triage_model(),
             mind_v2: false,
             mind_thinking_budget: default_mind_thinking_budget(),
+            auto_stop_on_mission_completed: default_auto_stop_on_mission_completed(),
         }
     }
+}
+
+fn default_auto_stop_on_mission_completed() -> bool {
+    true
 }
 
 fn default_mind_thinking_budget() -> u32 {
