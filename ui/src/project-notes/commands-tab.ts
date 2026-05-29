@@ -108,7 +108,7 @@ export class CommandsTab {
     const dialog = document.createElement("div");
     dialog.className = "pn-cmd-editor";
     dialog.innerHTML = `
-      <input class="pn-cmd-title-input" placeholder="Title" />
+      <input class="pn-cmd-title-input" placeholder="Title" autocomplete="off" autocapitalize="off" spellcheck="false" />
       <textarea class="pn-cmd-cmd-input" placeholder="Command" rows="3"></textarea>
       <div class="pn-cmd-editor-actions">
         <button class="pn-cmd-save">Save</button>

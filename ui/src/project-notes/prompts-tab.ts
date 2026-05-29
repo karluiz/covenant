@@ -163,7 +163,7 @@ export class PromptsTab {
     const dialog = document.createElement("div");
     dialog.className = "pn-prompt-editor";
     dialog.innerHTML = `
-      <input class="pn-prompt-title-input" placeholder="Title" />
+      <input class="pn-prompt-title-input" placeholder="Title" autocomplete="off" autocapitalize="off" spellcheck="false" />
       <textarea class="pn-prompt-body-input" placeholder="Prompt" rows="6"></textarea>
       <div class="pn-prompt-editor-actions">
         <button class="pn-prompt-save">Save</button>
