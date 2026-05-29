@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Context menu — commands/prompts proposals</title>
+<style>
+  /* ---- real app tokens (from styles.css) ---- */
+  :root {
+    --bg-elevated: #1c1c28;
+    --border: #2a2a3a;
+    --text: #e0e0f0;
+    --muted: #8a8aa8;
+    --accent: #6aa9ff;
+    --danger: #e0556a;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 70% -10%, #20202e, #0e0e16 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 80px;
+    gap: 8px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; max-width: 720px; text-align: center; }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+    align-items: flex-start;
+    justify-content: center;
+    width: 100%;
+    max-width: 1200px;
+  }
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    min-height: 360px;
+  }
+  .card .title { font-size: 14px; font-weight: 600; }
+  .card .desc {
+    color: var(--muted);
+    font-size: 12px;
+    max-width: 320px;
+    text-align: center;
+    line-height: 1.5;
+    min-height: 54px;
+  }
+  .stage {
+    position: relative;
+    width: 340px;
+    height: 280px;
+    border-radius: 12px;
+    border: 1px dashed #33334a;
+    background:
+      repeating-linear-gradient(0deg, transparent, transparent 22px, rgba(255,255,255,0.015) 22px, rgba(255,255,255,0.015) 23px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 18px;
+    overflow: visible;
+  }
+  .stage .hint {
+    position: absolute;
+    bottom: 8px; right: 12px;
+    font-size: 10px; color: #50506a;
+  }
+
+  /* ---- real context-menu styles ---- */
+  .context-menu {
+    position: static;
+    min-width: 200px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    font-size: 13px;
+  }
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 7px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: inherit;
+    gap: 8px;
+  }
+  .context-menu-item:hover:not(.disabled) { background: var(--accent); color: #fff; }
+  .context-menu-item.hovered { background: var(--accent); color: #fff; }
+  .context-menu-separator { height: 1px; margin: 4px 8px; background: var(--border); }
+
+  /* shared bits */
+  .ico { width: 14px; text-align: center; opacity: 0.8; flex: 0 0 14px; }
+  .context-menu-item:hover .ico, .context-menu-item.hovered .ico { opacity: 1; }
+  .chev { margin-left: auto; opacity: 0.5; font-size: 11px; }
+  .spacer { flex: 1; }
+  .sub-meta { margin-left: auto; color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+  .context-menu-item:hover .sub-meta { color: rgba(255,255,255,0.7); }
+
+  /* section header (proposal C) */
+  .ctx-section {
+    padding: 6px 12px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* submenu flyout (proposal A) */
+  .has-sub { position: relative; }
+  .submenu {
+    position: absolute;
+    top: -5px;
+    left: calc(100% + 4px);
+    min-width: 210px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .submenu .pill {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.06);
+    border-radius: 999px;
+    padding: 1px 7px;
+  }
+  .context-menu-item:hover .pill { color: #fff; background: rgba(255,255,255,0.18); }
+
+  /* search input (proposal B) */
+  .ctx-search {
+    width: 100%;
+    margin: 2px 0 4px;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #15151f;
+    color: var(--text);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    outline: none;
+  }
+  .ctx-search::placeholder { color: #55556e; }
+  .ctx-search:focus { border-color: var(--accent); }
+  .ctx-empty { padding: 8px 12px; color: var(--muted); font-size: 12px; }
+  .kbd {
+    font-family: var(--font-mono); font-size: 10px;
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 5px; color: var(--muted); margin-left: auto;
+  }
+</style>
+</head>
+<body>
+  <h1>Right-click → run a saved command / prompt</h1>
+  <p class="sub">Three ways to surface saved <b>commands</b> (per-group) and <b>prompts</b> (global) inside the terminal context menu, below the existing Split actions. All use the app's real menu styling. The blue row is the hover state.</p>
+
+  <div class="row">
+
+    <!-- ========== PROPOSAL A: nested flyout submenus ========== -->
+    <div class="card">
+      <div class="title">A · Nested flyout</div>
+      <div class="stage">
+        <div class="context-menu">
+          <button class="context-menu-item"><span class="ico">⇥</span>Split right</button>
+          <button class="context-menu-item"><span class="ico">⤓</span>Split down</button>
+          <div class="context-menu-separator"></div>
+          <div class="has-sub">
+            <button class="context-menu-item hovered"><span class="ico">⌘</span>Commands<span class="chev">▸</span></button>
+            <div class="submenu">
+              <button class="context-menu-item"><span class="ico">▸</span>Run tests<span class="pill">2</span></button>
+              <button class="context-menu-item"><span class="ico">▸</span>Build release</button>
+              <button class="context-menu-item"><span class="ico">▸</span>Deploy staging</button>
+            </div>
+          </div>
+          <button class="context-menu-item"><span class="ico">✦</span>Prompts<span class="chev">▸</span></button>
+        </div>
+      </div>
+      <div class="desc">Two parent items expand a side flyout on hover. Keeps the root menu tiny; scales to any number of saved items. Requires extending <code>contextMenu.ts</code> with submenu support.</div>
+    </div>
+
+    <!-- ========== PROPOSAL B: single "send…" item → searchable picker ========== -->
+    <div class="card">
+      <div class="title">B · Quick picker</div>
+      <div class="stage">
+        <div class="context-menu" style="min-width:240px">
+          <button class="context-menu-item"><span class="ico">⇥</span>Split right</button>
+          <button class="context-menu-item"><span class="ico">⤓</span>Split down</button>
+          <div class="context-menu-separator"></div>
+          <input class="ctx-search" placeholder="Run command or prompt…" value="dep" />
+          <button class="context-menu-item"><span class="ico">▸</span>Deploy staging<span class="sub-meta">cmd</span></button>
+          <button class="context-menu-item hovered"><span class="ico">✦</span>Dependency audit<span class="sub-meta">prompt</span></button>
+          <button class="context-menu-item"><span class="ico">▸</span>Update dependencies<span class="sub-meta">cmd</span></button>
+        </div>
+      </div>
+      <div class="desc">One unified, type-to-filter list of commands + prompts (tagged by kind). Fastest when you have many — no hunting through nested menus. Slightly heavier menu; needs a tiny filter input.</div>
+    </div>
+
+    <!-- ========== PROPOSAL C: flat inline sections ========== -->
+    <div class="card">
+      <div class="title">C · Flat sections</div>
+      <div class="stage">
+        <div class="context-menu">
+          <button class="context-menu-item"><span class="ico">⇥</span>Split right</button>
+          <button class="context-menu-item"><span class="ico">⤓</span>Split down</button>
+          <div class="context-menu-separator"></div>
+          <div class="ctx-section">Commands</div>
+          <button class="context-menu-item"><span class="ico">▸</span>Run tests</button>
+          <button class="context-menu-item hovered"><span class="ico">▸</span>Build release</button>
+          <div class="ctx-section">Prompts</div>
+          <button class="context-menu-item"><span class="ico">✦</span>Review the diff</button>
+          <button class="context-menu-item"><span class="ico">✦</span>Closing the day</button>
+        </div>
+      </div>
+      <div class="desc">Everything inline under labeled sections — zero extra interaction, one glance. Simplest to build (no submenu/search). Gets tall if you have many saved items, so best capped to a top-N.</div>
+    </div>
+
+  </div>
+</body>
+</html>
