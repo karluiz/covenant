@@ -78,7 +78,7 @@ import { StructureTree } from "../structure/tree";
 import { StructureEditor } from "../structure/editor";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
-import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL } from "../menu/context-menu";
+import { ContextMenu, COLOR_SWATCHES, COLOR_SWATCHES_PASTEL, type MenuItem } from "../menu/context-menu";
 import { openNewSuperpowersTopicModal, type MissionPageOpts, type PageResult } from "../mission/page";
 import { createGroupShell } from "./group-shell";
 import { renderAvatarHtml } from "../operator/avatars";
@@ -5941,6 +5941,61 @@ export class TabManager {
         });
       }
     }
+    // Saved commands (per-group) and prompts (global) as submenus, targeting
+    // this tab's active-pane session. Best-effort: a fetch failure or empty
+    // list just omits that entry. Capped so a big library stays usable.
+    if (ctxSessionId) {
+      const cap = TabManager.PANE_MENU_SECTION_CAP;
+      const encoder = new TextEncoder();
+      const sid = ctxSessionId as SessionId;
+      let commands: Command[] = [];
+      let prompts: Prompt[] = [];
+      try {
+        if (tab.groupId) {
+          commands = (await projectNotesApi.snapshot(tab.groupId)).commands;
+        }
+      } catch {
+        /* omit */
+      }
+      try {
+        prompts = await promptsApi.list();
+      } catch {
+        /* omit */
+      }
+
+      const sub: MenuItem[] = [];
+      if (commands.length > 0) {
+        const rows: MenuItem[] = commands.slice(0, cap).map((c) => ({
+          label: c.title,
+          // Paste without newline (Commands semantics) — user hits Enter.
+          onClick: () => {
+            void writeToSession(sid, encoder.encode(c.command));
+          },
+        }));
+        if (commands.length > cap) {
+          rows.push({ label: `+${commands.length - cap} more in panel`, disabled: true });
+        }
+        sub.push({ label: "Run command…", icon: Icons.terminal(), submenu: rows });
+      }
+      if (prompts.length > 0) {
+        const rows: MenuItem[] = prompts.slice(0, cap).map((p) => ({
+          label: p.title,
+          // Bracketed paste + submit (Prompts semantics).
+          onClick: () => {
+            void writeToSession(sid, encoder.encode(wrapForSend(p.body)));
+          },
+        }));
+        if (prompts.length > cap) {
+          rows.push({ label: `+${prompts.length - cap} more in panel`, disabled: true });
+        }
+        sub.push({ label: "Run prompt…", icon: Icons.zap(), submenu: rows });
+      }
+      if (sub.length > 0) {
+        items.push({ divider: true });
+        items.push(...sub);
+      }
+    }
+
     items.push({ divider: true });
     items.push({
       label: "Close tab",
