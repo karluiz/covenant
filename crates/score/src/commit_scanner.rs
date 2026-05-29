@@ -53,6 +53,7 @@ pub fn scan_repo_since(
             repo: Some(repo_name.clone()),
             branch: branch.clone(),
             group_name: None,
+            workspace: None,
         };
         let exec = format!("{repo_name}:{}", &sha[..sha.len().min(7)]);
         let _ = store.append_with_context(ts_s * 1000, EventKind::Commit, &exec, None, &ctx);

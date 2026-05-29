@@ -88,6 +88,7 @@ fn derive_context(p: &Path) -> Context {
                 repo: d.file_name().and_then(|s| s.to_str()).map(String::from),
                 branch: None,
                 group_name: None,
+                workspace: None,
             };
         }
         cur = d.parent();

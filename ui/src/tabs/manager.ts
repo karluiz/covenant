@@ -615,6 +615,19 @@ export class TabManager {
     this.onPersistRequest = cb;
   }
 
+  /// Name of the active workspace, pushed in by WorkspaceManager on boot
+  /// and on every switch. Threaded into score events so the analytics
+  /// "BY GROUP" panel can attribute same-named tab groups to the right
+  /// workspace. Null until WorkspaceManager wires it.
+  private activeWorkspaceName: string | null = null;
+
+  setActiveWorkspaceName(name: string | null): void {
+    this.activeWorkspaceName = name;
+    // Re-push the active session context so the workspace lands on
+    // subsequent score events even if the tab strip didn't change.
+    this.emitActiveTab();
+  }
+
   /// Workspace integration hooks. The workspace layer injects:
   ///  - `listWorkspaces`: returns the catalog (id+name+active) so the
   ///    group context menu can render a "Move to workspace…" submenu.
@@ -1965,7 +1978,7 @@ export class TabManager {
     if (!tab) {
       this.onActiveTabChange?.(null);
       this.onActiveSessionChange?.(null);
-      scoreSetCurrentSession(null, null, null);
+      scoreSetCurrentSession(null, null, null, this.activeWorkspaceName);
       return;
     }
     const group = tab.groupId ? this.groups.get(tab.groupId) ?? null : null;
@@ -1981,6 +1994,7 @@ export class TabManager {
       pane?.sessionId ?? null,
       pane?.cwd ?? null,
       group?.name ?? null,
+      this.activeWorkspaceName,
     );
   }
 

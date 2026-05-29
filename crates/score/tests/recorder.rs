@@ -78,6 +78,7 @@ fn record_spec_emits_cartographer_and_is_idempotent() {
         repo: Some("karlTerminal".into()),
         branch: Some("main".into()),
         group_name: None,
+        workspace: None,
     };
     karl_score::record_spec("docs/specs/foo.md", &ctx);
 
@@ -132,6 +133,7 @@ fn record_spec_without_repo_does_not_emit_cartographer() {
         repo: None,
         branch: None,
         group_name: None,
+        workspace: None,
     };
     karl_score::record_spec("/tmp/loose-spec.md", &ctx);
 

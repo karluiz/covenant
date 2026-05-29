@@ -10,6 +10,7 @@ fn record_spec_dedup_and_query() {
             repo: Some("repo".into()),
             branch: None,
             group_name: None,
+            workspace: None,
         },
     );
     // dup path: should be a no-op

@@ -18,6 +18,24 @@ fn seed(
                 repo: Some(repo.into()),
                 branch: Some(branch.into()),
                 group_name: group.map(String::from),
+                workspace: None,
+            },
+        )
+        .unwrap();
+}
+
+fn seed_ws(store: &ScoreStore, ts: i64, group: &str, workspace: Option<&str>) {
+    store
+        .append_with_context(
+            ts,
+            EventKind::Prompt,
+            "x",
+            None,
+            &Context {
+                repo: None,
+                branch: None,
+                group_name: Some(group.into()),
+                workspace: workspace.map(String::from),
             },
         )
         .unwrap();
@@ -76,6 +94,31 @@ fn groups_breakdown_sums_by_group() {
     let b = rows.iter().find(|g| g.group_name == "b").unwrap();
     assert_eq!(a.prompts, 3);
     assert_eq!(b.prompts, 7);
+}
+
+#[test]
+fn groups_breakdown_collapses_casing_keeps_workspace_distinct() {
+    let d = tempfile::tempdir().unwrap();
+    let s = ScoreStore::open(d.path()).unwrap();
+    let t = 1_700_000_000_000;
+    // Two casings of the same group inside the SAME workspace must collapse.
+    for _ in 0..3 {
+        seed_ws(&s, t, "COVENANT", Some("ws-a"));
+    }
+    for _ in 0..2 {
+        seed_ws(&s, t, "COVEnant", Some("ws-a"));
+    }
+    // A same-named group in a DIFFERENT workspace stays its own row.
+    for _ in 0..7 {
+        seed_ws(&s, t, "Covenant", Some("ws-b"));
+    }
+    let rows = s.breakdown_groups(&ScoreFilter::default()).unwrap();
+    let ws_a: Vec<_> = rows.iter().filter(|g| g.workspace.as_deref() == Some("ws-a")).collect();
+    let ws_b: Vec<_> = rows.iter().filter(|g| g.workspace.as_deref() == Some("ws-b")).collect();
+    assert_eq!(ws_a.len(), 1, "casing variants in one workspace collapse to one row");
+    assert_eq!(ws_a[0].prompts, 5);
+    assert_eq!(ws_b.len(), 1);
+    assert_eq!(ws_b[0].prompts, 7);
 }
 
 #[test]

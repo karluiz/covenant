@@ -25,6 +25,7 @@ pub fn score_set_current_session(
     session_id: Option<String>,
     cwd: Option<String>,
     group_name: Option<String>,
+    workspace: Option<String>,
 ) {
     match (session_id, cwd) {
         (Some(sid), Some(c)) => {
@@ -32,6 +33,7 @@ pub fn score_set_current_session(
                 session_id: sid,
                 cwd: std::path::PathBuf::from(c),
                 group_name,
+                workspace,
             }));
         }
         _ => karl_score::set_current_session(None),

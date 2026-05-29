@@ -36,6 +36,7 @@ pub struct CurrentSession {
     pub session_id: String,
     pub cwd: std::path::PathBuf,
     pub group_name: Option<String>,
+    pub workspace: Option<String>,
 }
 
 fn current_slot() -> &'static Mutex<Option<CurrentSession>> {
@@ -70,7 +71,7 @@ pub fn record_prompt_with_agent(executor: &str, agent: Option<&str>) {
     let now = chrono::Utc::now().timestamp_millis();
     let cur = current_slot().lock().ok().and_then(|g| g.clone());
     let ctx = match cur {
-        Some(c) => resolver().resolve(&c.session_id, &c.cwd, c.group_name),
+        Some(c) => resolver().resolve(&c.session_id, &c.cwd, c.group_name, c.workspace),
         None => Context::default(),
     };
     if let Ok(g) = slot().lock() {
@@ -98,6 +99,7 @@ pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>
         repo: Some(repo.to_string()),
         branch,
         group_name: None,
+        workspace: None,
     };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {

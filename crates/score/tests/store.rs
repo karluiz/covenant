@@ -91,6 +91,7 @@ fn append_with_context_stores_fields() {
         repo: Some("karlTerminal".into()),
         branch: Some("notch".into()),
         group_name: Some("main".into()),
+        workspace: None,
     };
     store
         .append_with_context(
@@ -121,11 +122,13 @@ fn summary_filtered_by_repo() {
         repo: Some("kt".into()),
         branch: Some("n".into()),
         group_name: None,
+        workspace: None,
     };
     let cs = karl_score::Context {
         repo: Some("cs".into()),
         branch: Some("m".into()),
         group_name: None,
+        workspace: None,
     };
     for _ in 0..3 {
         store
@@ -166,6 +169,7 @@ fn heatmap_filtered_by_repo() {
         repo: Some("kt".into()),
         branch: None,
         group_name: None,
+        workspace: None,
     };
     for _ in 0..4 {
         store
@@ -182,6 +186,7 @@ fn heatmap_filtered_by_repo() {
         repo: Some("cs".into()),
         branch: None,
         group_name: None,
+        workspace: None,
     };
     for _ in 0..2 {
         store

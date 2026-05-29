@@ -121,6 +121,7 @@ export class WorkspaceManager {
       } else {
         await this.tabManager.replaceFromManifest(workspaceAsV1Body(active), { silent: true });
       }
+      this.tabManager.setActiveWorkspaceName(active.name);
       active.last_used_at = nowMs();
     } finally {
       this.suspendPersist = false;
@@ -303,6 +304,7 @@ export class WorkspaceManager {
       // Detach the outgoing workspace's tabs without killing PTYs.
       this.tabManager.hibernate(outgoingId);
       this.activeId = id;
+      this.tabManager.setActiveWorkspaceName(target.name);
       target.last_used_at = nowMs();
 
       // If we already hibernated this workspace earlier in the session,
@@ -335,6 +337,7 @@ export class WorkspaceManager {
     const ws = this.workspaces.find((w) => w.id === id);
     if (!ws) return;
     ws.name = name.trim() || ws.name;
+    if (id === this.activeId) this.tabManager.setActiveWorkspaceName(ws.name);
     void this.saveAll();
     this.emitChange();
   }

@@ -189,6 +189,18 @@ impl ScoreStore {
                  PRAGMA user_version = 4;",
             )?;
         }
+        // v5: workspace attribution on events. Disambiguates same-named tab
+        // groups across workspaces. Historical rows keep NULL workspace.
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 5 {
+            conn.execute_batch(
+                "ALTER TABLE score_events ADD COLUMN workspace TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_events_workspace ON score_events(workspace, group_name);
+                 PRAGMA user_version = 5;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -228,8 +240,8 @@ impl ScoreStore {
         };
         let c = self.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name, agent)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name, agent, workspace)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 timestamp_ms,
                 kind_s,
@@ -238,7 +250,8 @@ impl ScoreStore {
                 ctx.repo,
                 ctx.branch,
                 ctx.group_name,
-                agent
+                agent,
+                ctx.workspace
             ],
         )?;
         Ok(())
@@ -470,13 +483,17 @@ impl ScoreStore {
 
     pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {
         let w = crate::filter::build_where(f);
+        // Key by (workspace, case-insensitive group_name): same-named groups
+        // in different workspaces stay distinct, while casing typos of one
+        // group (e.g. COVENANT / COVEnant) collapse into a single row.
+        // MIN(group_name) picks a stable representative casing for display.
         let sql = format!(
-            "SELECT group_name,
+            "SELECT MIN(group_name), workspace,
                     SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END)
              FROM score_events
              WHERE group_name IS NOT NULL AND {}
-             GROUP BY group_name
-             ORDER BY 2 DESC",
+             GROUP BY workspace, group_name COLLATE NOCASE
+             ORDER BY 3 DESC",
             w.sql
         );
         let c = self.conn.lock().unwrap();
@@ -484,7 +501,8 @@ impl ScoreStore {
         let rows = stmt.query_map(rusqlite::params_from_iter(w.params.iter()), |r| {
             Ok(crate::GroupCell {
                 group_name: r.get(0)?,
-                prompts: r.get::<_, i64>(1)? as u32,
+                workspace: r.get(1)?,
+                prompts: r.get::<_, i64>(2)? as u32,
             })
         })?;
         rows.collect::<rusqlite::Result<Vec<_>>>()

@@ -53,6 +53,10 @@ pub struct Context {
     pub repo: Option<String>,
     pub branch: Option<String>,
     pub group_name: Option<String>,
+    /// Active workspace name at event time. Disambiguates same-named tab
+    /// groups across workspaces (e.g. a "Covenant" group in two different
+    /// workspaces). `None` for historical rows recorded before v5.
+    pub workspace: Option<String>,
 }
 
 pub fn day_from_ms_local(ms: i64) -> String {
@@ -103,6 +107,10 @@ pub struct BranchCell {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupCell {
     pub group_name: String,
+    /// Workspace this group belongs to, if known. Rows are keyed by
+    /// (workspace, case-insensitive group_name) so same-named groups in
+    /// different workspaces stay distinct and casing typos collapse.
+    pub workspace: Option<String>,
     pub prompts: u32,
 }
 

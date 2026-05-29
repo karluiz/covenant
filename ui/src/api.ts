@@ -1942,8 +1942,9 @@ export function scoreSetCurrentSession(
   sessionId: string | null,
   cwd: string | null,
   groupName: string | null,
+  workspace: string | null,
 ): void {
-  void invoke<void>("score_set_current_session", { sessionId, cwd, groupName });
+  void invoke<void>("score_set_current_session", { sessionId, cwd, groupName, workspace });
 }
 
 /// Subscribe to a Pi session's event stream. Returns an unlisten fn that

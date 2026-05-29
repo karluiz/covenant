@@ -23,7 +23,13 @@ impl ContextResolver {
         }
     }
 
-    pub fn resolve(&self, session_id: &str, cwd: &Path, group_name: Option<String>) -> Context {
+    pub fn resolve(
+        &self,
+        session_id: &str,
+        cwd: &Path,
+        group_name: Option<String>,
+        workspace: Option<String>,
+    ) -> Context {
         if let Ok(g) = self.cache.lock() {
             if let Some(e) = g.get(session_id) {
                 if e.at.elapsed() < TTL {
@@ -31,11 +37,14 @@ impl ContextResolver {
                     if group_name.is_some() {
                         c.group_name = group_name.clone();
                     }
+                    if workspace.is_some() {
+                        c.workspace = workspace.clone();
+                    }
                     return c;
                 }
             }
         }
-        let ctx = Self::compute(cwd, group_name);
+        let ctx = Self::compute(cwd, group_name, workspace);
         if let Ok(mut g) = self.cache.lock() {
             g.insert(
                 session_id.to_string(),
@@ -48,7 +57,7 @@ impl ContextResolver {
         ctx
     }
 
-    fn compute(cwd: &Path, group_name: Option<String>) -> Context {
+    fn compute(cwd: &Path, group_name: Option<String>, workspace: Option<String>) -> Context {
         let toplevel = Self::git(cwd, &["rev-parse", "--show-toplevel"]);
         let repo = toplevel
             .as_deref()
@@ -73,6 +82,7 @@ impl ContextResolver {
             repo,
             branch,
             group_name,
+            workspace,
         }
     }
 
