@@ -116,6 +116,13 @@ const DEFAULT_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 const DEFAULT_FONT_SIZE = 13;
 
+/// Split panes (D12 v0) build their own xterm + FitAddon locally in
+/// mountSecondPaneDom rather than going through spawnTab. We keep their
+/// fit addons here, keyed by the terminal, so applyTerminalSettings can
+/// refit a secondary pane after a live font change. WeakMap so entries
+/// are reclaimed automatically when a pane's terminal is disposed.
+const paneFitAddons = new WeakMap<Terminal, FitAddon>();
+
 /// xterm palettes. background stays fully transparent so the workspace
 /// surface tint (--surface-alpha) reads through. Light palette is
 /// GitHub Light — ANSI values chosen to match its terminal preset.
@@ -855,15 +862,25 @@ export class TabManager {
 
     // Mount a basic xterm Terminal in the new pane (D12 v0).
     // Full feature parity (blocks, recall, finder, webgl, ligatures) follows in D13.
+    // Inherit the font from the sibling (first) pane's live xterm so the
+    // split pane matches the user's configured font/size/zoom exactly.
+    // The sibling was built via buildTerminalOptions() and is kept in
+    // sync by applyTerminalSettings(); copying its options avoids an
+    // async settings fetch in this synchronous mount path. Falls back to
+    // defaults only when there is no sibling terminal.
+    const sib = tab.term;
     const term = new Terminal({
-      fontFamily: DEFAULT_FONT_FAMILY,
-      fontSize: DEFAULT_FONT_SIZE,
+      fontFamily: sib?.options.fontFamily ?? DEFAULT_FONT_FAMILY,
+      fontSize: sib?.options.fontSize ?? DEFAULT_FONT_SIZE,
+      lineHeight: sib?.options.lineHeight ?? 1.2,
+      letterSpacing: sib?.options.letterSpacing ?? 0,
       convertEol: true,
       allowTransparency: true,
       theme: termTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    paneFitAddons.set(term, fit);
     term.open(paneHost1);
     fit.fit();
     newPane.xterm = term;
@@ -2132,6 +2149,32 @@ export class TabManager {
     const size = baseSize * zoom.level();
 
     void document.fonts.ready.then(() => {
+      // Secondary split panes keep their own xterm on pane.xterm; the
+      // main loop below only touches tab.term (the first pane). Mirror
+      // the font onto any second pane so a Settings save reaches both
+      // halves of a split. These panes are basic (no ligatures/webgl),
+      // so only the font options + a refit are needed.
+      for (const tab of this.tabs) {
+        for (const pane of tab.panes) {
+          const pterm = pane.xterm;
+          if (!pterm || pterm === tab.term) continue;
+          try {
+            pterm.options.fontFamily = family;
+            pterm.options.fontSize = size;
+            pterm.options.letterSpacing = scaledLetterSpacing(cfg.letter_spacing ?? 0);
+            pterm.options.lineHeight = cfg.line_height ?? 1.2;
+            const fit = paneFitAddons.get(pterm);
+            if (fit) {
+              fit.fit();
+              if (pane.sessionId) {
+                void resizeSession(pane.sessionId as SessionId, pterm.cols, pterm.rows).catch(() => {});
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       for (const tab of this.tabs) {
         if (tab.kind === "pi" || !tab.term) continue;
         const term = tab.term;
