@@ -244,13 +244,16 @@ pub enum TabbarPosition {
 /// frontend toggles a `body.tab-style-<variant>` class and the rest is
 /// CSS. `Classic` is the shipped flat-pill look; `Forge` is the angled,
 /// mechanical IDE-style variant (rising trapezoids horizontally, sliding
-/// chamfered rows in the vertical sidebar).
+/// chamfered rows in the vertical sidebar); `Glass` is a sleek translucent
+/// variant; `Crt` is a retro CRT-screen inspired theme.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TabStyle {
     #[default]
     Classic,
     Forge,
+    Glass,
+    Crt,
 }
 
 /// AOM configuration. Today only the budget default; Phase C will add
@@ -1054,5 +1057,24 @@ mod theme_mode_tests {
         assert_eq!(cfg.theme, ThemeMode::Light);
         let back = serde_json::to_string(&cfg).unwrap();
         assert!(back.contains("\"theme\":\"light\""));
+    }
+}
+
+#[cfg(test)]
+mod tab_style_tests {
+    use super::TabStyle;
+
+    #[test]
+    fn deserializes_all_lowercase_variants() {
+        assert_eq!(serde_json::from_str::<TabStyle>("\"classic\"").unwrap(), TabStyle::Classic);
+        assert_eq!(serde_json::from_str::<TabStyle>("\"forge\"").unwrap(), TabStyle::Forge);
+        assert_eq!(serde_json::from_str::<TabStyle>("\"glass\"").unwrap(), TabStyle::Glass);
+        assert_eq!(serde_json::from_str::<TabStyle>("\"crt\"").unwrap(), TabStyle::Crt);
+    }
+
+    #[test]
+    fn serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&TabStyle::Glass).unwrap(), "\"glass\"");
+        assert_eq!(serde_json::to_string(&TabStyle::Crt).unwrap(), "\"crt\"");
     }
 }
