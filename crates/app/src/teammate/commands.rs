@@ -463,12 +463,41 @@ pub async fn teammate_attach_session_to_task(
     // the decision loop can apply archetype-specific contracts (e.g. the
     // read-only contract for Review). Failure to load is non-fatal — the
     // operator just runs without archetype context.
-    if let Ok(Some(task)) = storage.teammate_get_task(task_id).await {
+    let existing = storage.teammate_get_task(task_id).await.ok().flatten();
+    if let Some(task) = &existing {
         state.operator.set_task_archetype(session, task.archetype).await;
+    }
+    // Re-attaching a session to a task that is no longer active — the user
+    // reopened a cancelled/done task from the chat pill, which respawns the
+    // tab and re-injects the prompt — must flip the persisted status back to
+    // Active. Otherwise the tab restarts the work but `firstWorkingTask()`
+    // still sees `cancelled`, so Mibli's header never relights its working
+    // indicator and the teammate looks dead.
+    let reactivated = matches!(&existing, Some(t) if !matches!(t.status, TaskStatus::Active));
+    if reactivated {
+        storage
+            .teammate_update_task_status(task_id, TaskStatus::Active, now)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     let _ = runtime.finish_task(operator_id, task_id);
     runtime.start_task(operator_id, task_id, Some(session)).map_err(|e| e.to_string())?;
     supervisor.register_task(session, task_id, operator_id);
+    if reactivated {
+        let msg = TaskMessage {
+            id: MessageId::new(),
+            operator_id,
+            task_id: Some(task_id),
+            role: Role::System,
+            content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Resumed },
+            created_at_unix_ms: now,
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
+            sentiment: Some(crate::teammate::types::Sentiment::Feliz),
+        };
+        storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+        let _ = app.emit("teammate-message", &msg);
+    }
     let _ = app.emit("teammate-task", serde_json::json!({
         "task_id": task_id,
         "spawned_session": session.to_string(),

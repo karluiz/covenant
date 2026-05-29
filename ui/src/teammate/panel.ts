@@ -21,7 +21,7 @@ import {
   expandMentions, MentionPopup,
   type MentionRegistry, type ReadFileFn,
 } from "./mentions";
-import { renderTaskCard } from "./task-card";
+import { renderTaskCard, type TaskLifecycleEvent } from "./task-card";
 import { ActivityView } from "./activity-view";
 import { AomActivityFeed } from "../aom/activity-feed";
 
@@ -793,7 +793,16 @@ export class TeammatePanel {
   /// header's "is-working" state (animated ring + subtitle showing the
   /// task title instead of the model name).
   private firstWorkingTask(): Task | null {
-    return this.tasksCache.find((t) => t.status === "active" || t.status === "blocked") ?? null;
+    return this.tasksCache.find((t) => {
+      if (t.status !== "active" && t.status !== "blocked") return false;
+      // An active task whose tab/session is gone isn't actually running —
+      // e.g. after an app restart or the tab was closed. Don't light up the
+      // header working ring for it (it reads as "Mibli is busy" / AOM-on when
+      // nothing is executing). The task stays active so it can be reopened.
+      const sid = this.taskSpawnedSessions.get(t.id)?.sessionId ?? t.spawned_session;
+      if (!sid) return false;
+      return this.deps.isSessionAlive?.(sid) ?? true;
+    }) ?? null;
   }
 
   private updateHeaderWorkingState(): void {
@@ -1180,12 +1189,31 @@ export class TeammatePanel {
   /// Populated in paintMessages and refreshed by refreshTasks.
   private executorByTaskId = new Map<string, string>();
 
+  /// Lifecycle events (started/cancelled/resumed/…) grouped by task id, so a
+  /// confirmed task's pill renders them in its drawer instead of as loose
+  /// system rows. Rebuilt every paintMessages.
+  private lifecycleByTaskId = new Map<string, TaskLifecycleEvent[]>();
+  /// Task ids that have a propose card in the current thread — their
+  /// task_update messages are owned by the pill drawer, not painted as rows.
+  private tasksWithCard = new Set<string>();
+
   private paintMessages(msgs: TeammateMessage[]): void {
     // Lift task_id → executor from propose messages so renderTaskBody
     // can show the executor strip without joining tables.
+    this.lifecycleByTaskId = new Map();
+    this.tasksWithCard = new Set();
     for (const m of msgs) {
-      if (m.content.kind === "propose" && m.task_id && m.content.data.draft.executor) {
-        this.executorByTaskId.set(m.task_id, m.content.data.draft.executor);
+      if (m.content.kind === "propose" && m.task_id) {
+        this.tasksWithCard.add(m.task_id);
+        if (m.content.data.draft.executor) {
+          this.executorByTaskId.set(m.task_id, m.content.data.draft.executor);
+        }
+      }
+      if (m.content.kind === "task_update") {
+        const tid = m.content.data.task;
+        const arr = this.lifecycleByTaskId.get(tid) ?? [];
+        arr.push({ kind: m.content.data.kind, ts: m.created_at_unix_ms });
+        this.lifecycleByTaskId.set(tid, arr);
       }
     }
     this.messagesCache = msgs;
@@ -1227,6 +1255,8 @@ export class TeammatePanel {
         this.paintProposeCard(msg);
         return;
       case "task_update":
+        // Belongs to a task pill → folded into that pill's drawer, not a row.
+        if (this.tasksWithCard.has(msg.content.data.task)) return;
         this.paintSystemLine(msg, taskUpdateSummary(msg.content.data.kind));
         return;
       case "task_draft":
@@ -1287,6 +1317,7 @@ export class TeammatePanel {
       onOpenTab: (taskId) => { this.focusTabForTaskId(taskId); },
       onShowTask: (taskId) => { this.showTaskDetail(taskId); },
       confirmedTabLabel: this.tabLabelForMessage(msg),
+      lifecycle: msg.task_id ? this.lifecycleByTaskId.get(msg.task_id) ?? [] : [],
     });
     const wrap = document.createElement("div");
     wrap.className = "teammate-row teammate-row--operator";
@@ -1578,8 +1609,20 @@ export class TeammatePanel {
       this.currentMoodByOperator.set(this.operator.id, msg.sentiment);
       this.refreshHeaderAvatar();
     }
-    this.appendBubble(msg);
-    if (msg.content.kind === "task_update") void this.refreshTasks();
+    if (msg.content.kind === "task_update") {
+      // Lifecycle events live inside the task pill's drawer, not as loose
+      // rows. Reload the thread so the pill rebuilds with the new event +
+      // refreshed state chip (mirrors the confirm/cancel repaint path).
+      if (this.operator) {
+        void this.deps
+          .listMessages(this.operator.id, 200)
+          .then((refreshed) => this.paintMessages(refreshed))
+          .catch((e) => console.error("reload thread on task_update failed", e));
+      }
+      void this.refreshTasks();
+    } else {
+      this.appendBubble(msg);
+    }
     // YOLO mode (default ON): auto-confirm fresh propose messages with
     // archetype="do" the moment they arrive — no click required. Opt out
     // with localStorage.setItem("covenant.teammate.yolo", "off").

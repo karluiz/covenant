@@ -51,6 +51,8 @@ import {
   setOperatorLive,
   setSessionMission,
   setTabTitle,
+  teammateListTasks,
+  teammateCancelActiveTask,
   notchSetLabel,
   spawnSession,
   replayScrollback,
@@ -964,10 +966,12 @@ export class TabManager {
     const pane1 = tab.panes[1];
     if (!pane0?.el || !pane1?.el) return;
     // Physically reorder DOM children to match panes[] order:
-    // pane0.el → splitter → pane1.el
-    block.insertBefore(pane0.el, splitter);
+    // pane0.el → splitter → pane1.el. Position the three relative to each
+    // other (not via absolute moves) so the result holds regardless of their
+    // current order — the old sequence left the splitter at index 0 after a
+    // swap, collapsing the flex layout into one blank pane.
     block.insertBefore(splitter, pane1.el);
-    block.appendChild(pane1.el);
+    block.insertBefore(pane0.el, splitter);
     // Refit both xterms — DOM reorder doesn't trigger ResizeObserver.
     requestAnimationFrame(() => {
       if (pane0.xterm) {
@@ -1166,14 +1170,11 @@ export class TabManager {
     const flag = this.splitPanesEnabled;
     const isSingle = tab.layout.kind === "single";
     const isSplit = tab.layout.kind === "split";
-    const pane = tab.panes[paneIdx];
-    const isPi = pane?.kind === "pi";
 
     const items: { label: string; visible: boolean; action: () => void }[] = [
       { label: "Split right", visible: flag && isSingle, action: () => void this.splitActivePane("horizontal") },
       { label: "Split down",  visible: flag && isSingle, action: () => void this.splitActivePane("vertical") },
       { label: "Swap panes",  visible: flag && isSplit,  action: () => void this.swapActivePanes() },
-      { label: "Convert to Pi", visible: flag && !isPi,  action: () => void this.convertPaneToPi(tab, paneIdx) },
       // Close pane only when there's actually a pane to close (not the tab).
       // Single-pane "close pane" is "close tab" — handled by ⌘W; surfacing
       // it here is misleading.
@@ -3780,6 +3781,7 @@ export class TabManager {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
     const pane = activePane(tab);
+    const priorOperator = pane.operator;
     pane.operator = operatorId;
     // Promoting an existing observer to driver removes the duplicate entry —
     // observers and the primary writer must be disjoint.
@@ -3830,8 +3832,37 @@ export class TabManager {
         if (aomOn) await aomStop().catch(() => undefined);
       }
     }
+    // Removing the operator means the task it was driving in this tab has
+    // no driver left. Cancel it so the work stops and Mibli's chat avatar
+    // drops its working indicator — leaving the task `active` would keep the
+    // header ring spinning for a task nobody is running.
+    if (operatorId === null && priorOperator && sessionId) {
+      await this.cancelTaskForUnboundSession(priorOperator, sessionId);
+    }
     // Notify derived-state subscribers (e.g. teammate panel subtitle).
     this.emitTabOperatorChange();
+  }
+
+  /// Cancel the active task `operatorId` was driving in `sessionId`, if any.
+  /// Used when the operator is unbound from a tab. No-op when the task is
+  /// already finished/cancelled (so the cancel→unbind→close stop flow in the
+  /// teammate panel doesn't double-cancel). The backend emits a
+  /// TaskUpdate(Cancelled) that the teammate panel reacts to.
+  private async cancelTaskForUnboundSession(
+    operatorId: string,
+    sessionId: string,
+  ): Promise<void> {
+    try {
+      const tasks = await teammateListTasks(operatorId);
+      const active = tasks.find(
+        (t) =>
+          t.spawned_session === sessionId &&
+          (t.status === "active" || t.status === "blocked"),
+      );
+      if (active) await teammateCancelActiveTask(active.id);
+    } catch (e) {
+      console.error("cancelTaskForUnboundSession failed", e);
+    }
   }
 
   /// All tabs the given operator is bound to — either as primary writer

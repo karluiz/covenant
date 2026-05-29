@@ -15680,8 +15680,8 @@ body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.05em;
-  padding: 3px 6px;
-  border-radius: 4px;
+  padding: 3px 7px;
+  border-radius: 5px;
   color: var(--operator-color, var(--accent, #b794f4));
   background: color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 18%, transparent);
   border: 1px solid color-mix(in srgb, var(--operator-color, var(--accent, #b794f4)) 28%, transparent);
@@ -15718,36 +15718,39 @@ body.theme-light .teammate-panel-avatar .op-avatar {
 .teammate-panel-sentiment {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   font-size: 9px;
   font-weight: 700;
   line-height: 1;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  color: #fff;
-  /* Each modifier overrides the background; this is just a safe
-   * fallback for the rare case the modifier class is missing. */
-  background: #555;
+  letter-spacing: 0.05em;
+  padding: 3px 7px;
+  border-radius: 5px;
+  /* Tinted twin of .teammate-panel-level: the emotion hue is carried via
+   * --sentiment-color (set by each --<emotion> modifier below) and the
+   * color-mix recipe matches the level pill exactly so the two chips read
+   * as one system. Same recipe works on both themes (mirrors the level
+   * pill), so no body.theme-light override is needed. */
+  --sentiment-color: #6b7280;
+  color: var(--sentiment-color);
+  background: color-mix(in srgb, var(--sentiment-color) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sentiment-color) 28%, transparent);
   font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
   white-space: nowrap;
   text-transform: lowercase;
   pointer-events: none;
 }
-/* Emotion color palette. Tokens (Spanish) match the filename suffix in
- * ui/operatorsv2/. Colors chosen for legibility on both themes — dark
- * backgrounds with white text. */
-.teammate-panel-sentiment--neutral     { background: #6b7280; }
-.teammate-panel-sentiment--feliz       { background: #16a34a; }
-.teammate-panel-sentiment--triste      { background: #3b82f6; }
-.teammate-panel-sentiment--enojo       { background: #dc2626; }
-.teammate-panel-sentiment--sorpresa    { background: #eab308; color: #1a1a1a; }
-.teammate-panel-sentiment--duda        { background: #8b5cf6; }
-.teammate-panel-sentiment--expectacion { background: #f97316; }
-.teammate-panel-sentiment--incomodidad { background: #6d6875; }
-.teammate-panel-sentiment--ver         { background: #ec4899; }
-body.theme-light .teammate-panel-sentiment {
-  border-color: var(--bg, #fff);
-}
+/* Emotion hue palette. Tokens (Spanish) match the filename suffix in
+ * ui/operatorsv2/. Each modifier only sets the tint color; the base rule
+ * derives fill + border + text from it. */
+.teammate-panel-sentiment--neutral     { --sentiment-color: #6b7280; }
+.teammate-panel-sentiment--feliz       { --sentiment-color: #16a34a; }
+.teammate-panel-sentiment--triste      { --sentiment-color: #3b82f6; }
+.teammate-panel-sentiment--enojo       { --sentiment-color: #dc2626; }
+.teammate-panel-sentiment--sorpresa    { --sentiment-color: #eab308; }
+.teammate-panel-sentiment--duda        { --sentiment-color: #8b5cf6; }
+.teammate-panel-sentiment--expectacion { --sentiment-color: #f97316; }
+.teammate-panel-sentiment--incomodidad { --sentiment-color: #6d6875; }
+.teammate-panel-sentiment--ver         { --sentiment-color: #ec4899; }
 
 .teammate-panel-subtitle {
   font-size: 10px;
@@ -16540,6 +16543,79 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 }
 .task-pill__chevron { color: var(--text-dim, #5e6068); font-size: 14px; line-height: 1; }
 
+/* --- Confirmed pill: lifecycle state chip + collapsible drawer (variant C) --- */
+.task-pill-unit { margin: 6px 0; }
+.task-pill-unit .task-pill { margin: 0; }
+
+/* Current-state chip, right-aligned on the collapsed pill. */
+.task-pill__state {
+  margin-left: auto; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.task-pill__led { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
+.task-pill__state--ok    { color: #3aa564; }
+.task-pill__state--ok    .task-pill__led { background: #50c878; box-shadow: 0 0 0 3px rgba(80,200,120,0.18); }
+.task-pill__state--warn  { color: #c79320; }
+.task-pill__state--warn  .task-pill__led { background: #f0c870; box-shadow: 0 0 0 3px rgba(240,200,112,0.18); }
+.task-pill__state--muted { color: var(--text-dim, #888); }
+.task-pill__state--muted .task-pill__led { background: var(--text-dim, #9aa0aa); }
+
+/* Count + expand toggle. */
+.task-pill__toggle {
+  flex: 0 0 auto; margin-left: 2px;
+  display: inline-flex; align-items: center; gap: 3px;
+  background: transparent; border: none; padding: 2px 5px; border-radius: 6px;
+  color: var(--text-dim, #888); font: inherit; font-size: 11px; cursor: pointer;
+}
+.task-pill__toggle:hover { color: var(--text, #ccc); background: rgba(127,127,127,0.12); }
+.task-pill__toggle .chev { display: inline-block; transition: transform 140ms ease; }
+.task-pill-unit.is-open .task-pill__toggle .chev { transform: rotate(180deg); }
+
+/* Drawer: vertical spine of lifecycle nodes. */
+.task-pill-drawer {
+  margin: 2px 0 4px 14px; padding-left: 4px;
+  animation: tpl-drawer-in 140ms ease both;
+}
+.task-pill-drawer[hidden] { display: none; }
+@keyframes tpl-drawer-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.tpl-item {
+  position: relative;
+  display: grid; grid-template-columns: 14px 1fr auto;
+  align-items: baseline; column-gap: 9px; padding: 5px 0;
+}
+.tpl-item::before {
+  content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px;
+  background: var(--border-soft, rgba(127,127,127,0.25));
+}
+.tpl-item:first-child::before { top: 9px; }
+.tpl-item:last-child::before  { height: 9px; bottom: auto; }
+.tpl-node {
+  grid-column: 1; z-index: 1; width: 9px; height: 9px; margin-top: 3px;
+  border-radius: 50%;
+  background: var(--sidebar-bg, #fff); border: 2px solid var(--text-dim, #9aa0aa);
+}
+.tpl--ok    .tpl-node { background: #50c878; border-color: #50c878; }
+.tpl--warn  .tpl-node { background: #f0c870; border-color: #f0c870; }
+.tpl--muted .tpl-node { background: var(--sidebar-bg, #fff); border-color: var(--text-dim, #b9bdc6); }
+.tpl-item--current.tpl--ok .tpl-node { box-shadow: 0 0 0 3px rgba(80,200,120,0.16); }
+.tpl-label { grid-column: 2; font-size: 12px; line-height: 1.3; color: var(--text-soft, #8b8d94); }
+.tpl-item--current .tpl-label { color: var(--text, #e6e8ec); font-weight: 600; }
+.tpl--muted .tpl-label { color: var(--text-dim, #888); }
+.tpl-time {
+  grid-column: 3; font-size: 10px; color: var(--text-dim, #888);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tpl-footer { padding: 6px 0 2px 23px; }
+.tpl-open {
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  color: var(--operator-color, #6f7bff); font: inherit; font-size: 11.5px; font-weight: 600;
+}
+.tpl-open:hover { text-decoration: underline; }
+
 /* --- Teammate panel: Chat / Tasks tabs --- */
 .teammate-panel-tabs {
   display: flex; gap: 0; padding: 0 8px;
@@ -17278,7 +17354,7 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
   cursor: pointer;
 }
 .mention-popup-row:hover,
-.mention-popup-row.is-active { background: var(--surface-hover, #2a2a2a); }
+.mention-popup-row.is-active { background: rgba(var(--ink-rgb), 0.08); }
 
 /* ─── split panes ───────────────────────────────────────────────────────────── */
 .terminal-block {
@@ -17351,7 +17427,7 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
   font-size: inherit;
 }
 .pane-context-menu-item:hover {
-  background: var(--surface-hover, #1a2332);
+  background: rgba(var(--ink-rgb), 0.08);
 }
 
 /* split tab glyph on tabbar chip (F3) */

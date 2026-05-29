@@ -1,6 +1,13 @@
-import type { ProposeTask, TaskArchetype, TeammateMessage } from "../api";
+import type { ProposeTask, TaskArchetype, TeammateMessage, UpdateKind } from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
+
+/// One entry in a confirmed task's lifecycle history (started / cancelled /
+/// resumed / …). Rendered as a node on the pill's collapsible drawer spine.
+export interface TaskLifecycleEvent {
+  kind: UpdateKind;
+  ts: number;
+}
 
 export interface TaskCardHandlers {
   onConfirm: (messageId: string) => void;
@@ -16,6 +23,9 @@ export interface TaskCardHandlers {
   /// Optional label rendered on the confirmed pill ("tab "Integrate GitHub…"").
   /// When omitted, falls back to a generic "tab abierto".
   confirmedTabLabel?: string;
+  /// Lifecycle history for a confirmed task, oldest-first. Drives the
+  /// collapsed state chip + expandable drawer spine.
+  lifecycle?: TaskLifecycleEvent[];
 }
 
 const ARCHETYPE_LABEL: Record<TaskArchetype, string> = {
@@ -87,6 +97,14 @@ function renderConfirmedPill(
   title: string,
   handlers: TaskCardHandlers,
 ): HTMLElement {
+  const events = handlers.lifecycle ?? [];
+
+  // The unit wraps the collapsed pill + its (hidden) lifecycle drawer so
+  // expanding pushes history down without disturbing the chat layout.
+  const unit = document.createElement("div");
+  unit.className = "task-pill-unit";
+  if (msg.task_id) unit.dataset.taskId = msg.task_id;
+
   const pill = document.createElement("div");
   pill.className = "task-pill task-pill--confirmed";
   pill.dataset.messageId = msg.id;
@@ -97,8 +115,9 @@ function renderConfirmedPill(
     pill.tabIndex = 0;
     const openDetail = () => handlers.onShowTask?.(msg.task_id ?? "");
     pill.addEventListener("click", (e) => {
-      // The "open tab" button has its own handler — don't double-fire.
-      if ((e.target as HTMLElement).closest(".task-pill__link")) return;
+      // The toggle + open-tab controls have their own handlers — clicking
+      // them must not also open the detail view.
+      if ((e.target as HTMLElement).closest("[data-action]")) return;
       openDetail();
     });
     pill.addEventListener("keydown", (e) => {
@@ -113,33 +132,132 @@ function renderConfirmedPill(
   titleEl.textContent = title;
   pill.append(titleEl);
 
-  const meta = document.createElement("span");
-  meta.className = "task-pill__meta";
-  meta.textContent = "→";
-  pill.append(meta);
+  // Current-state chip — derived from the latest lifecycle event.
+  const { label: stateLabel, tone } = currentState(events);
+  const state = document.createElement("span");
+  state.className = `task-pill__state task-pill__state--${tone}`;
+  const led = document.createElement("span");
+  led.className = "task-pill__led";
+  state.append(led, document.createTextNode(stateLabel));
+  pill.append(state);
 
-  const link = document.createElement("button");
-  link.type = "button";
-  link.className = "task-pill__link";
-  link.dataset.action = "open-tab";
-  link.textContent = handlers.confirmedTabLabel ?? "open tab";
+  unit.append(pill);
+
+  // No history yet (e.g. a just-confirmed task before its "started" event
+  // lands) → leave the pill bare; the reload on the first task_update will
+  // repaint it with the toggle + drawer.
+  if (events.length > 0) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "task-pill__toggle";
+    toggle.dataset.action = "toggle-drawer";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.innerHTML = `${events.length} <span class="chev" aria-hidden="true">⌄</span>`;
+    attachTooltip(toggle, "Show task history");
+    pill.append(toggle);
+
+    const drawer = renderLifecycleDrawer(msg, events, handlers);
+    unit.append(drawer);
+
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = unit.classList.toggle("is-open");
+      drawer.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+    });
+  }
+
+  return unit;
+}
+
+function renderLifecycleDrawer(
+  msg: TeammateMessage,
+  events: TaskLifecycleEvent[],
+  handlers: TaskCardHandlers,
+): HTMLElement {
+  const drawer = document.createElement("div");
+  drawer.className = "task-pill-drawer";
+  drawer.hidden = true;
+
+  events.forEach((ev, i) => {
+    const isLast = i === events.length - 1;
+    const item = document.createElement("div");
+    item.className = `tpl-item tpl--${nodeTone(ev.kind)}`;
+    if (isLast && nodeTone(ev.kind) === "ok") item.classList.add("tpl-item--current");
+
+    const node = document.createElement("span");
+    node.className = "tpl-node";
+    const label = document.createElement("span");
+    label.className = "tpl-label";
+    label.textContent = EVENT_LABEL[ev.kind];
+    const time = document.createElement("span");
+    time.className = "tpl-time";
+    time.textContent = relTime(ev.ts);
+    item.append(node, label, time);
+    drawer.append(item);
+  });
+
   if (handlers.onOpenTab && msg.task_id) {
-    link.addEventListener("click", (e) => {
+    const footer = document.createElement("div");
+    footer.className = "tpl-footer";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "tpl-open";
+    open.dataset.action = "open-tab";
+    open.textContent = `${handlers.confirmedTabLabel ?? "Open tab"} →`;
+    open.addEventListener("click", (e) => {
       e.stopPropagation();
       handlers.onOpenTab?.(msg.task_id ?? "");
     });
-  } else {
-    link.disabled = true;
+    footer.append(open);
+    drawer.append(footer);
   }
-  pill.append(link);
 
-  const chev = document.createElement("span");
-  chev.className = "task-pill__chevron";
-  chev.textContent = "›";
-  chev.setAttribute("aria-hidden", "true");
-  pill.append(chev);
+  return drawer;
+}
 
-  return pill;
+const EVENT_LABEL: Record<UpdateKind, string> = {
+  started:   "Started in a new tab",
+  progress:  "Update in progress",
+  blocked:   "Blocked",
+  resumed:   "Resumed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+type StateTone = "ok" | "warn" | "muted";
+
+/// Collapsed-pill status, derived from the most recent lifecycle event.
+function currentState(events: TaskLifecycleEvent[]): { label: string; tone: StateTone } {
+  const last = events[events.length - 1];
+  if (!last) return { label: "Active", tone: "ok" };
+  switch (last.kind) {
+    case "started":
+    case "resumed":
+    case "progress":  return { label: "Active",    tone: "ok" };
+    case "blocked":   return { label: "Blocked",   tone: "warn" };
+    case "completed": return { label: "Done",      tone: "ok" };
+    case "cancelled": return { label: "Cancelled", tone: "muted" };
+  }
+}
+
+function nodeTone(kind: UpdateKind): StateTone {
+  switch (kind) {
+    case "blocked":   return "warn";
+    case "cancelled": return "muted";
+    default:          return "ok";
+  }
+}
+
+/// Compact relative time ("now" / "4m" / "3h" / "2d") for the drawer spine.
+function relTime(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 45_000) return "now";
+  const m = Math.round(diff / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.round(h / 24)}d`;
 }
 
 function renderCancelledPill(
