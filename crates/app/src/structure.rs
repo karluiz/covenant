@@ -35,6 +35,13 @@ const HARDCODED_IGNORES: &[&str] = &[
     "__pycache__",
 ];
 
+/// Config dotfiles the finder surfaces even when `.gitignore` would hide
+/// them — the user still wants to open `.env`/`.env.local` from the
+/// palette. Matched by exact basename `.env` or any `.env.*` variant.
+fn is_finder_dotfile(name: &str) -> bool {
+    name == ".env" || name.starts_with(".env.")
+}
+
 /// List a directory's immediate children. When `show_ignored` is
 /// false we apply `.gitignore` rules (and the hardcoded ignore set)
 /// so build artifacts and secrets stay out of view. When true, the
@@ -425,58 +432,76 @@ pub fn find_files(root: &Path, query: &str, limit: u32) -> Result<Vec<FileHit>, 
     let needle: Vec<char> = query.to_lowercase().chars().collect();
     let limit = limit as usize;
 
-    let walker = ignore::WalkBuilder::new(root)
-        .hidden(false)
-        .git_ignore(true)
-        .git_exclude(true)
-        .git_global(false)
-        .require_git(false)
-        .filter_entry(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .map(|n| !HARDCODED_IGNORES.iter().any(|h| *h == n))
-                .unwrap_or(true)
-        })
-        .build();
-
     // (score, hit) — keep the best `limit` overall, sorted by score desc.
     let mut scored: Vec<(i32, FileHit)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for entry in walker {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        let ft = match entry.file_type() {
-            Some(ft) => ft,
-            None => continue,
-        };
-        if !ft.is_file() {
-            continue;
-        }
-        let path = entry.path();
+    // Score one file path and push it (deduped by rel-path across passes).
+    let mut consider = |path: &Path| {
         let rel = path.strip_prefix(root).unwrap_or(path);
         let rel_str: String = rel
             .components()
             .map(|c| c.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        if rel_str.is_empty() {
-            continue;
+        if rel_str.is_empty() || !seen.insert(rel_str.clone()) {
+            return;
         }
-        let (score, indices) = match fuzzy_score(&rel_str, &needle) {
-            Some(v) => v,
-            None => continue,
-        };
-        scored.push((
-            score,
-            FileHit {
-                path: path.display().to_string(),
-                rel_path: rel_str,
-                match_indices: indices.into_iter().map(|c| c as u32).collect(),
-            },
-        ));
+        if let Some((score, indices)) = fuzzy_score(&rel_str, &needle) {
+            scored.push((
+                score,
+                FileHit {
+                    path: path.display().to_string(),
+                    rel_path: rel_str,
+                    match_indices: indices.into_iter().map(|c| c as u32).collect(),
+                },
+            ));
+        }
+    };
+
+    let prune_hardcoded = |entry: &ignore::DirEntry| {
+        entry
+            .file_name()
+            .to_str()
+            .map(|n| !HARDCODED_IGNORES.iter().any(|h| *h == n))
+            .unwrap_or(true)
+    };
+
+    // Pass 1: the common case — honor `.gitignore`.
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .git_global(false)
+        .require_git(false)
+        .filter_entry(prune_hardcoded)
+        .build();
+    for entry in walker.flatten() {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
+            consider(entry.path());
+        }
+    }
+
+    // Pass 2: re-walk with `.gitignore` off to surface whitelisted config
+    // dotfiles (`.env`, `.env.*`) that pass 1 dropped. Only those basenames
+    // are emitted; the hardcoded prune still keeps us out of node_modules/etc.
+    let dotfile_walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(false)
+        .git_exclude(false)
+        .git_global(false)
+        .require_git(false)
+        .filter_entry(prune_hardcoded)
+        .build();
+    for entry in dotfile_walker.flatten() {
+        if entry.file_type().is_some_and(|ft| ft.is_file())
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(is_finder_dotfile)
+        {
+            consider(entry.path());
+        }
     }
 
     scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.rel_path.cmp(&b.1.rel_path)));
@@ -838,6 +863,35 @@ mod tests {
         let hits = search(tmp.path(), "hello", 100).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].path.ends_with("a.txt"));
+    }
+
+    #[test]
+    fn find_files_surfaces_gitignored_config_dotfiles() {
+        let tmp = TempDir::new().unwrap();
+        make_tree(
+            &tmp,
+            &["src/main.rs", ".env", ".env.local", "secret.txt", ".gitignore"],
+        );
+        fs::write(tmp.path().join(".gitignore"), ".env\n.env.*\nsecret.txt\n").unwrap();
+
+        let rels = |q: &str| -> Vec<String> {
+            find_files(tmp.path(), q, 50)
+                .unwrap()
+                .into_iter()
+                .map(|h| h.rel_path)
+                .collect()
+        };
+
+        // .env and .env.local are gitignored but whitelisted → findable.
+        let env_hits = rels(".env");
+        assert!(env_hits.contains(&".env".to_string()), "got {env_hits:?}");
+        assert!(env_hits.iter().any(|r| r == ".env.local"), "got {env_hits:?}");
+        // No duplicate entry for .env across the two passes.
+        assert_eq!(env_hits.iter().filter(|r| *r == ".env").count(), 1);
+        // A non-config gitignored file stays hidden.
+        assert!(!rels("secret").contains(&"secret.txt".to_string()));
+        // Non-ignored source is still found normally.
+        assert!(rels("main").iter().any(|r| r == "src/main.rs"));
     }
 
     #[test]
