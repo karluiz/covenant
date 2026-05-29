@@ -8083,6 +8083,33 @@ button.status-segment.status-aom.status-aom-warn:hover {
 .structure-context-menu-item.danger:hover {
     background: rgba(247, 118, 142, 0.14);
 }
+/* Light theme: the structure file-tree menu, rename input, and confirm
+   dialog ship hardcoded dark surfaces (rgb(20 24 30) / black overlays)
+   that read as a black box in light mode. Override the surfaces + text
+   to light values; danger red and accent hovers already work on both. */
+body.theme-light .structure-context-menu {
+    background: rgb(252 252 253 / 0.99);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+body.theme-light .structure-context-menu-item {
+    color: var(--text-primary, #1f2329);
+}
+body.theme-light .structure-rename-input {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--text-primary, #1f2329);
+}
+body.theme-light .structure-rename-input:focus {
+    background: rgba(0, 0, 0, 0.02);
+}
+body.theme-light .structure-confirm-dialog {
+    background: rgb(252 252 253 / 0.99);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+}
+body.theme-light .structure-confirm-dialog h3,
+body.theme-light .structure-confirm-dialog p,
+body.theme-light .structure-confirm-cancel {
+    color: var(--text-primary, #1f2329);
+}
 
 /* Inline rename input that replaces the name span on a tree row. */
 .structure-rename-input {
