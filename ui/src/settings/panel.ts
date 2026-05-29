@@ -156,6 +156,20 @@ export class SettingsPanel {
     void import("../score/page").then((m) => m.mountCovenantPage(root));
   }
 
+  /// Append the achievements card to the bottom of the Operators tab.
+  /// Re-mounts if the section was wiped (DOM presence is the guard, so this
+  /// survives any re-render of the operators pane).
+  private mountAchievementsOnce(): void {
+    const section = document.getElementById("sec-operators");
+    if (!section) return;
+    if (section.querySelector(".cov-ach-card")) return;
+    const root = document.createElement("div");
+    root.className = "cov-card cov-ach-card";
+    root.style.marginTop = "16px";
+    section.appendChild(root);
+    void import("../score/achievements").then((m) => m.renderAchievementsCard(root));
+  }
+
   /// Optional callback fired whenever settings are saved. Used by main
   /// to push live updates (terminal font, operator state, etc.) into
   /// open tabs without requiring a restart.
@@ -1236,11 +1250,13 @@ export class SettingsPanel {
       const derivedTab = sectionId.replace(/^sec-/, "") as SettingsTab;
       if (this.panelBody) activateTab(this.panelBody, derivedTab);
       if (derivedTab === "covenant") this.mountCovenantOnce();
+      if (derivedTab === "operators") this.mountAchievementsOnce();
     });
 
     // Activate the initial tab.
     activateTab(body, tab);
     if (tab === "covenant") this.mountCovenantOnce();
+    if (tab === "operators") this.mountAchievementsOnce();
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();

@@ -3,7 +3,6 @@ import * as api from "./api";
 import type { ModelSource } from "./api";
 import { displayGroupName, renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
 import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
-import { renderAchievementsCard } from "./achievements";
 import { getCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -54,9 +53,6 @@ const TEMPLATE = /* html */ `
         <h4>Token usage · per model</h4>
         <div data-role="models"></div>
       </div>
-    </div>
-    <div class="cov-card cov-ach-card">
-      <div data-role="achievements"></div>
     </div>
     <div class="cov-card">
       <h4>Recent sessions</h4>
@@ -143,10 +139,6 @@ async function refresh(host: HTMLElement, state: State): Promise<void> {
   });
 
   renderSessions(sessionsHost, sessions);
-  const achHost = host.querySelector<HTMLElement>("[data-role=achievements]");
-  if (achHost) {
-    void renderAchievementsCard(achHost);
-  }
   renderSync(syncHost, user, host, state);
 }
 
