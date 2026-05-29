@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.39 — Achievements MVP + .env support + teammate polish
+
+### Added
+
+- **Achievements layer (MVP A)**: a full reputation/badge system from spec 3.23. New `crates/score/src/achievements.rs` defines the types, a 10-badge static catalog (clean_run, finisher, guardian, secret_keeper, spec_keeper, build_steward, cartographer, command_librarian, recovery_artist, good_delegate) and the tier/rarity/reputation model. `store.rs` adds schema **v4** (`achievement_facts`, `achievement_progress`, `achievement_awards` with `subject_key`/`scope_key` for NULL-safe PKs) plus a transactional `record_achievement_fact` with dedupe and tier-crossing award emission, recompute, and summary rollup. Six Tauri commands (catalog, summary, progress, awards, mark_seen, recompute) are wired in `score_commands.rs`/`lib.rs`, and the Metrics page gains a reputation-bar / in-progress / recently-earned / catalog-grid UI with rarity-aware styling. `crates/score/src/achievements.rs`, `crates/score/src/store.rs`, `crates/score/src/lib.rs`, `crates/app/src/score_commands.rs`, `ui/src/score/`.
+
+- **Cartographer achievement wired to spec creation**: `record_spec` now emits a `project_note_created` fact on first insert so the Cartographer badge advances in production. Emitted *after* releasing the `slot()` lock to avoid a nested-mutex deadlock with `record_achievement_fact`. `crates/score/src/lib.rs`.
+
+- **`.env` syntax highlighting**: a custom dotenv `StreamParser` (comments, optional `export`, KEY, `=`, value) plus an `isDotenvPath` predicate matching `.env`, `.env.<stage>`, and `*.env`. Wired into `languageForPath` ahead of the extension lookup — the bare `.env` basename has no usable extension and previously fell through to plain text. Tokens route through the shared `HighlightStyle`, so dark and light themes both work. `ui/src/structure/languages.ts`.
+
+- **`.env` dotfiles surfaced in the file finder**: a two-pass walker — pass 1 honors `.gitignore`; a second pass deliberately re-includes `.env`/`.env.*` basenames so they stay openable from the palette even when gitignored. Results are deduped by rel-path across passes. `crates/app/src/structure.rs`.
+
+### Changed
+
+- **Task cards show only relevant actions**: a done/cancelled task used to leave a dead, disabled "Stop" (and sometimes "Open tab") button on the card. The action row now renders the Open/Continue button only when there's a live or respawnable session, and the Stop button only while the task is still running; an empty action grid collapses instead of leaving a lopsided row. `ui/src/teammate/panel.ts`, `ui/src/teammate/panel.test.ts`.
+
+### Fixed
+
+- **Composer placeholder vanished after type-then-delete**: the teammate composer placeholder was driven by CSS `:empty::before`, which only matches when the contenteditable has zero child nodes. WebKit leaves a bogus `<br>` behind after you type a character then delete it, so the element was never `:empty` again and the placeholder disappeared permanently. The composer now toggles an explicit `is-empty` class from the serialized value (which strips the bogus `<br>`/whitespace) and the placeholder keys off that class instead. `ui/src/teammate/composer-input.ts`, `ui/src/styles.css`.
+
 ## v0.8.38 — Review-archetype enforcement + operator/teammate polish
 
 ### Changed
