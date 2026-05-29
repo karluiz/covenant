@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Operator Header Proposal</title>
+  <style>
+    :root {
+      --panel: #f3f5f8;
+      --text: #24262b;
+      --muted: #6b7280;
+      --operator: #9a45aa;
+      --operator-soft: #efd8f4;
+      --mood: #4f7df3;
+      --border: #d7dce5;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #dfe3ea;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .frame {
+      width: min(680px, calc(100vw - 32px));
+      display: grid;
+      gap: 18px;
+    }
+
+    .operator-header {
+      width: 100%;
+      min-height: 92px;
+      border: 0;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 20px;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .operator-header:hover {
+      background: #eef1f6;
+    }
+
+    .avatar-shell {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background:
+        conic-gradient(
+          var(--operator) 0 78%,
+          color-mix(in srgb, var(--operator) 18%, white) 78% 100%
+        );
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--operator) 12%, transparent);
+      position: relative;
+      isolation: isolate;
+    }
+
+    .avatar-shell::after {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border-radius: inherit;
+      background: #eef1f6;
+      z-index: -1;
+    }
+
+    .avatar {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      object-fit: cover;
+      image-rendering: pixelated;
+      background: #d8dce7;
+    }
+
+    .identity {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .name {
+      font-size: 26px;
+      line-height: 1;
+      font-weight: 780;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .level-pill,
+    .mood-pill {
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 8px;
+      font-weight: 760;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .level-pill {
+      padding: 0 12px;
+      color: #8b319a;
+      background: var(--operator-soft);
+      border: 2px solid color-mix(in srgb, var(--operator) 32%, transparent);
+      font-size: 17px;
+      letter-spacing: 1px;
+    }
+
+    .mood-pill {
+      padding: 0 14px;
+      color: #fff;
+      background: linear-gradient(180deg, #5d8cff, var(--mood));
+      font-size: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.28);
+    }
+
+    .model {
+      color: var(--muted);
+      font-size: 21px;
+      font-weight: 560;
+    }
+
+    .chevron {
+      width: 32px;
+      height: 32px;
+      border: 0;
+      background: transparent;
+      color: #1f2933;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+    }
+
+    .operator-header:hover .chevron {
+      background: rgba(30, 41, 59, .07);
+    }
+
+    .chevron svg {
+      width: 22px;
+      height: 22px;
+      stroke-width: 2.4;
+    }
+
+    .note {
+      margin: 0;
+      color: #4b5563;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <button class="operator-header" type="button" aria-label="Switch operator">
+      <span class="avatar-shell" aria-hidden="true">
+        <img class="avatar" src="../ui/operatorsv2/maria_triste.png" alt="" />
+      </span>
+
+      <span class="identity">
+        <span class="title-row">
+          <span class="name">Mibli</span>
+          <span class="level-pill">Lv 43</span>
+          <span class="mood-pill">sad</span>
+        </span>
+        <span class="model">gpt-4o</span>
+      </span>
+
+      <span class="chevron" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </span>
+    </button>
+
+    <p class="note">Standalone HTML preview using an existing operator asset.</p>
+  </main>
+</body>
+</html>

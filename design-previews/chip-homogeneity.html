@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LVL + Mood chip homogeneity</title>
+  <style>
+    :root {
+      --bg: #16181d;
+      --panel: #1b1e24;
+      --fg: #e6e8ec;
+      --muted: #8b919c;
+      --operator-color: #b794f4;
+
+      /* emotion palette — mirrors styles.css .teammate-panel-sentiment--* */
+      --neutral: #6b7280;
+      --feliz:   #16a34a;
+      --triste:  #3b82f6;
+      --enojo:   #dc2626;
+      --sorpresa:#eab308;
+      --duda:    #8b5cf6;
+      --expect:  #f97316;
+      --uneasy:  #6d6875;
+      --ver:     #ec4899;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 40px 32px 80px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    h1 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+    .lede { color: var(--muted); font-size: 13px; margin: 0 0 32px; max-width: 720px; line-height: 1.5; }
+
+    .grid { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); max-width: 1100px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card h2 { font-size: 13px; font-weight: 700; margin: 0 0 2px; letter-spacing: .02em; }
+    .card .desc { color: var(--muted); font-size: 11.5px; margin: 0 0 16px; line-height: 1.45; }
+    .recommend { outline: 1px solid color-mix(in srgb, var(--operator-color) 55%, transparent); }
+    .tag { display:inline-block; font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+           color: var(--operator-color); background: color-mix(in srgb, var(--operator-color) 16%, transparent);
+           border-radius: 4px; padding: 2px 6px; margin-left: 6px; vertical-align: middle; }
+
+    /* mock panel header */
+    .hdr { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid color-mix(in srgb, var(--fg) 7%, transparent); }
+    .hdr:first-of-type { border-top: 0; }
+    .avatar { width:32px;height:32px;border-radius:50%;flex:0 0 32px;
+              background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--operator-color) 70%, #fff), var(--operator-color));
+              box-shadow: 0 0 0 2px color-mix(in srgb, var(--operator-color) 30%, transparent); }
+    .titlerow { display:flex; align-items:center; gap:6px; min-width:0; }
+    .name { font-weight:600; font-size:13px; }
+
+    /* ---- shared chip base ---- */
+    .chip {
+      display:inline-flex; align-items:center; line-height:1;
+      font-size:9px; font-weight:700; letter-spacing:.05em;
+      font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+      white-space:nowrap;
+    }
+
+    /* === CURRENT (for reference) === */
+    .cur-lvl {
+      font-size:9px;font-weight:700;letter-spacing:.05em;line-height:1;padding:3px 6px;border-radius:4px;
+      color:var(--operator-color);
+      background: color-mix(in srgb, var(--operator-color) 18%, transparent);
+      border:1px solid color-mix(in srgb, var(--operator-color) 28%, transparent);
+      font-family: ui-monospace, monospace; display:inline-flex; align-items:center;
+    }
+    .cur-mood {
+      font-size:9px;font-weight:700;letter-spacing:.04em;line-height:1;padding:2px 7px;border-radius:999px;
+      color:#fff; background: var(--triste); text-transform:lowercase;
+      font-family: ui-monospace, monospace; display:inline-flex; align-items:center;
+    }
+
+    /* === A — both TINTED (level treatment wins) === */
+    .a-chip { padding:3px 7px; border-radius:5px; border:1px solid; }
+    .a-lvl  { color:var(--operator-color);
+              background: color-mix(in srgb, var(--operator-color) 16%, transparent);
+              border-color: color-mix(in srgb, var(--operator-color) 30%, transparent); }
+    .a-mood { color: var(--triste);
+              background: color-mix(in srgb, var(--triste) 18%, transparent);
+              border-color: color-mix(in srgb, var(--triste) 34%, transparent);
+              text-transform:lowercase; }
+
+    /* === B — both SOLID PILLS (mood treatment wins) === */
+    .b-chip { padding:3px 8px; border-radius:999px; color:#fff; border:1px solid transparent; }
+    .b-lvl  { background: var(--operator-color); color:#16121f; }
+    .b-mood { background: var(--triste); text-transform:lowercase; }
+
+    /* === C — unified soft pill (hybrid: tinted + pill) === */
+    .c-chip { padding:3px 8px; border-radius:999px; border:1px solid; }
+    .c-lvl  { color:var(--operator-color);
+              background: color-mix(in srgb, var(--operator-color) 16%, transparent);
+              border-color: color-mix(in srgb, var(--operator-color) 28%, transparent); }
+    .c-mood { color: color-mix(in srgb, var(--triste) 80%, #fff);
+              background: color-mix(in srgb, var(--triste) 18%, transparent);
+              border-color: color-mix(in srgb, var(--triste) 34%, transparent);
+              text-transform:lowercase; }
+
+    /* emotion sweep row */
+    .sweep { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .footer { margin-top:36px; color:var(--muted); font-size:11px; max-width:720px; line-height:1.5; }
+    code { background: color-mix(in srgb, var(--fg) 9%, transparent); padding:1px 5px; border-radius:4px; font-size:11px; }
+  </style>
+</head>
+<body>
+  <h1>LVL + mood chip — homogeneity options</h1>
+  <p class="lede">
+    Today the level pill and the sentiment badge use two different chip languages.
+    Below: the current state, then three ways to make them one consistent chip.
+    Each variant keeps per-chip color (operator color for level, emotion color for mood)
+    but unifies geometry, padding, radius and weight. Pick one.
+  </p>
+
+  <div class="grid">
+
+    <!-- CURRENT -->
+    <div class="card">
+      <h2>Current</h2>
+      <p class="desc">Level = tinted rectangle (4px). Mood = solid pill (999px). Two visual systems sitting side by side.</p>
+      <div class="hdr">
+        <div class="avatar"></div>
+        <div class="titlerow">
+          <span class="name">Mibli</span>
+          <span class="cur-lvl">Lv 43</span>
+          <span class="cur-mood">sad</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- A -->
+    <div class="card recommend">
+      <h2>A — Tinted twins <span class="tag">recommended</span></h2>
+      <p class="desc">Both adopt the level chip's treatment: transparent color-tint fill, matching colored text + border, soft 5px radius. Mood keeps its emotion hue but stops shouting with a solid fill. Quietest, most "system" look.</p>
+      <div class="hdr">
+        <div class="avatar"></div>
+        <div class="titlerow">
+          <span class="name">Mibli</span>
+          <span class="chip a-chip a-lvl">Lv 43</span>
+          <span class="chip a-chip a-mood">sad</span>
+        </div>
+      </div>
+      <div class="sweep" id="sweep-a"></div>
+    </div>
+
+    <!-- B -->
+    <div class="card">
+      <h2>B — Solid pills</h2>
+      <p class="desc">Both adopt the mood chip's treatment: solid fill, full 999px pill. Level fills with the operator color. Boldest, most playful — reads almost like game badges.</p>
+      <div class="hdr">
+        <div class="avatar"></div>
+        <div class="titlerow">
+          <span class="name">Mibli</span>
+          <span class="chip b-chip b-lvl">Lv 43</span>
+          <span class="chip b-chip b-mood">sad</span>
+        </div>
+      </div>
+      <div class="sweep" id="sweep-b"></div>
+    </div>
+
+    <!-- C -->
+    <div class="card">
+      <h2>C — Soft pills (hybrid)</h2>
+      <p class="desc">Geometry of B (full pill) with the tinted fill of A. Rounder than the current level chip, calmer than the current mood chip. Middle ground.</p>
+      <div class="hdr">
+        <div class="avatar"></div>
+        <div class="titlerow">
+          <span class="name">Mibli</span>
+          <span class="chip c-chip c-lvl">Lv 43</span>
+          <span class="chip c-chip c-mood">sad</span>
+        </div>
+      </div>
+      <div class="sweep" id="sweep-c"></div>
+    </div>
+
+  </div>
+
+  <p class="footer">
+    Emotion sweep under each variant shows all moods (<code>happy/sad/angry/surprised/unsure/eager/uneasy/ashamed</code>)
+    so you can judge legibility across the palette, not just on "sad". Standalone preview — no app code changed yet.
+    Tell me which letter and I'll wire it into <code>ui/src/styles.css</code>.
+  </p>
+
+  <script>
+    const moods = [
+      ["happy","--feliz"],["sad","--triste"],["angry","--enojo"],["surprised","--sorpresa"],
+      ["unsure","--duda"],["eager","--expect"],["uneasy","--uneasy"],["ashamed","--ver"],["neutral","--neutral"],
+    ];
+    const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+    function fill(id, mk) {
+      const el = document.getElementById(id);
+      moods.forEach(([label, varName]) => {
+        const c = cssv(varName);
+        const s = document.createElement("span");
+        s.className = "chip";
+        s.textContent = label;
+        s.style.fontSize = "9px"; s.style.fontWeight = "700"; s.style.lineHeight = "1";
+        s.style.textTransform = "lowercase";
+        mk(s, c);
+        el.appendChild(s);
+      });
+    }
+    // A — tinted
+    fill("sweep-a", (s,c) => {
+      s.style.padding="3px 7px"; s.style.borderRadius="5px";
+      s.style.color=c; s.style.background=`color-mix(in srgb, ${c} 18%, transparent)`;
+      s.style.border=`1px solid color-mix(in srgb, ${c} 34%, transparent)`;
+    });
+    // B — solid
+    fill("sweep-b", (s,c) => {
+      s.style.padding="3px 8px"; s.style.borderRadius="999px";
+      s.style.color="#fff"; s.style.background=c; s.style.border="1px solid transparent";
+    });
+    // C — soft pill
+    fill("sweep-c", (s,c) => {
+      s.style.padding="3px 8px"; s.style.borderRadius="999px";
+      s.style.color=`color-mix(in srgb, ${c} 80%, #fff)`;
+      s.style.background=`color-mix(in srgb, ${c} 18%, transparent)`;
+      s.style.border=`1px solid color-mix(in srgb, ${c} 34%, transparent)`;
+    });
+  </script>
+</body>
+</html>
