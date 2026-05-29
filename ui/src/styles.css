@@ -17396,13 +17396,15 @@ body.tab-style-forge:not(.tabbar-left) #tabs {
 
 body.tab-style-forge:not(.tabbar-left) .tab-btn {
     --forge-skew: 11px;
+    /* Recessed surface midway between the tabbar and the active tab.
+       Theme-aware via tokens — reads correctly in both light and dark. */
+    --forge-surface: color-mix(in srgb, var(--tab-bg-active) 42%, var(--bg-tabbar));
     border: none;
     border-radius: 0;
     margin: 0 -6px;    /* overlap the slanted edges → mechanical interlock */
     padding: 0 22px;
-    /* honor per-tab color (--tab-color set inline on .tab-colored), else
-       fall back to the forged charcoal. transparent*8% = the charcoal. */
-    background: color-mix(in srgb, var(--tab-color, transparent) 8%, #14171d);
+    /* honor per-tab color (--tab-color set inline on .tab-colored). */
+    background: color-mix(in srgb, var(--tab-color, transparent) 10%, var(--forge-surface));
     clip-path: polygon(
         var(--forge-skew) 0,
         calc(100% - var(--forge-skew)) 0,
@@ -17421,19 +17423,17 @@ body.tab-style-forge:not(.tabbar-left) .tab-btn {
 }
 
 body.tab-style-forge:not(.tabbar-left) .tab-btn:hover:not(.active) {
-    background: color-mix(in srgb, var(--tab-color, transparent) 12%, #191d24);
+    background: color-mix(in srgb, var(--tab-color, transparent) 14%,
+        color-mix(in srgb, var(--tab-bg-active) 62%, var(--bg-tabbar)));
     color: var(--text-primary);
 }
 
-/* Active tab rises and brightens; sits above its neighbors' slants. */
+/* Active tab rises and brightens to the full active surface; sits above
+   its neighbors' slants. */
 body.tab-style-forge:not(.tabbar-left) .tab-btn.active {
     height: calc(var(--tab-h) + 8px);
     color: var(--tab-fg-active);
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--tab-color, transparent) 20%, #20252f),
-        #181c23
-    );
+    background: color-mix(in srgb, var(--tab-color, transparent) 18%, var(--tab-bg-active));
     z-index: 5;
 }
 
@@ -17449,7 +17449,7 @@ body.tab-style-forge:not(.tabbar-left) .tab-btn.active::before {
         90deg,
         transparent,
         var(--tab-stripe, var(--accent)) 30%,
-        #fff 50%,
+        color-mix(in srgb, var(--tab-stripe, var(--accent)) 45%, #fff) 50%,
         var(--tab-stripe, var(--accent)) 70%,
         transparent
     );
@@ -17471,14 +17471,36 @@ body.tab-style-forge:not(.tabbar-left) .tab-group-stripe {
 }
 body.tab-style-forge:not(.tabbar-left) .group-chip {
     border: none;
+    /* Solid colored spine carries the group identity + gives a hard edge
+       the washed clip-path shape was missing. */
+    border-left: 3px solid var(--group-color, var(--accent));
     border-radius: 0;
-    margin-right: -4px;       /* fuse into the first member's slant */
-    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 100%, 0 100%);
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--group-color, var(--accent)) 16%, #12151b),
-        #0e1116
-    );
+    margin-right: 2px;
+    /* Gentle bottom-right chamfer — the mechanical tell, without the
+       unbalanced full-height slant that looked off on lonely collapsed
+       groups. */
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+    /* Built on the real tab surface (white in light, dark in dark), tinted
+       by the group color — a defined chip, not a wash over the tabbar. */
+    background: color-mix(in srgb, var(--group-color, var(--accent)) 15%, var(--tab-bg-active));
+    box-shadow:
+        inset -1px 0 0 color-mix(in srgb, var(--group-color, var(--accent)) 30%, transparent),
+        inset 0 -1px 0 color-mix(in srgb, var(--group-color, var(--accent)) 30%, transparent);
+}
+
+/* Pull the collapsed-group count back next to the label (the base sheet
+   uses margin-left:auto, which left a wide empty gap inside the chip). */
+body.tab-style-forge:not(.tabbar-left) .group-chip-count {
+    margin-left: 6px;
+    padding: 1px 5px;
+    background: color-mix(in srgb, var(--group-color, var(--accent)) 22%, transparent);
+    color: color-mix(in srgb, var(--group-color, var(--accent)) 65%, var(--text-primary));
+}
+
+/* The colored left spine already carries the group color — drop the
+   redundant inline dot so the chip reads chevron → label → count. */
+body.tab-style-forge:not(.tabbar-left) .group-chip-dot {
+    display: none;
 }
 
 /* ── FORGE · VERTICAL (left sidebar) ─────────────────────────────── */
@@ -17486,17 +17508,13 @@ body.tab-style-forge:not(.tabbar-left) .group-chip {
    slides toward the content, lights a left rail, and reveals a chamfered
    bottom-right corner — the mechanical tell. */
 body.tab-style-forge.tabbar-left .tab-btn {
-    --forge-notch: 9px;
     border: none;
-    border-radius: 0;
-    background: transparent;
-    clip-path: polygon(
-        0 0,
-        100% 0,
-        100% calc(100% - var(--forge-notch)),
-        calc(100% - var(--forge-notch)) 100%,
-        0 100%
-    );
+    border-radius: 0;          /* sharp rows — the Forge tell vs classic's 6px pills */
+    background: transparent;   /* flat at rest = seamless surface */
+    /* NO clip-path here. The operator avatar is positioned OUTSIDE the
+       row (left: -7px, or -20px for grouped tabs) and clip-path clips the
+       whole subtree — a chamfer would slice off the avatar + level badge.
+       Forge identity comes from the slide + glowing rail instead. */
     transition:
         background 0.25s ease,
         color 0.12s ease-out,
@@ -17511,13 +17529,17 @@ body.tab-style-forge.tabbar-left .tab-btn:hover:not(.active) {
 }
 
 body.tab-style-forge.tabbar-left .tab-btn.active {
+    background: color-mix(in srgb, var(--tab-stripe, var(--accent)) 16%, var(--tab-bg-active));
+}
+
+/* Slide the active row toward the content — but ONLY when no operator is
+   pinned. The operator avatar is absolutely positioned on the row's left
+   edge (left:-7px / -20px grouped), so translating the row visibly shoves
+   the avatar sideways on select. Operator tabs stay anchored and use the
+   avatar's own active glow ring as the indicator instead. */
+body.tab-style-forge.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading)) {
     transform: translateX(5px);
     padding-left: 14px;
-    background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--tab-stripe, var(--accent)) 18%, #1b1f27),
-        #181c23 72%
-    );
 }
 
 /* Glowing left rail — repurposed ::before flipped to the vertical edge. */
@@ -17537,8 +17559,7 @@ body.tab-style-forge.tabbar-left .tab-btn.active::before {
 
 body.tab-style-forge.tabbar-left .tab-btn.tab-aom-active::after,
 body.tab-style-forge.tabbar-left .tab-btn.tab-aom-excluded::after {
-    border-radius: 0;
-    clip-path: inherit;
+    border-radius: 0;   /* sharp ring to match the sharp row (parent has no clip-path) */
 }
 
 /* Vertical group: a hard left bracket bar, no chip fill. */
