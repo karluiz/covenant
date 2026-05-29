@@ -17428,6 +17428,20 @@ body.tab-style-forge:not(.tabbar-left) .tab-btn:hover:not(.active) {
     color: var(--text-primary);
 }
 
+/* Re-assert the folded collapse. The base .tab-pill-folded rule zeroes a
+   hidden group member's width, but the forge .tab-btn rule above sets
+   padding + margin at higher specificity, which left every folded member
+   ~32px wide → big empty gaps between collapsed groups. Restore zero. */
+body.tab-style-forge:not(.tabbar-left) .tab-btn.tab-pill-folded {
+    max-width: 0;
+    min-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    opacity: 0;
+}
+
 /* Active tab rises and brightens to the full active surface; sits above
    its neighbors' slants. */
 body.tab-style-forge:not(.tabbar-left) .tab-btn.active {
