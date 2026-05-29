@@ -16312,7 +16312,7 @@ body.theme-light .tmt-chip--commands  { color: #5b3aa0; border-color: rgba(130, 
 body.theme-light .tmt-chip--teammates { color: #1f6a48; border-color: rgba(60, 160, 110, 0.55); background: rgba(120, 220, 170, 0.16); }
 
 /* Placeholder for the contenteditable composer */
-.teammate-panel-input[contenteditable][data-placeholder]:empty::before {
+.teammate-panel-input[contenteditable][data-placeholder].is-empty::before {
   content: attr(data-placeholder);
   color: var(--fg-muted, #7c8597);
   pointer-events: none;
@@ -17215,7 +17215,7 @@ body.theme-light .task-item.is-open {
 }
 /* Placeholder for the contenteditable composer (input::placeholder
    does not apply to contenteditable elements) */
-.teammate-panel-input[contenteditable][data-placeholder]:empty::before {
+.teammate-panel-input[contenteditable][data-placeholder].is-empty::before {
   content: attr(data-placeholder);
   color: var(--text-dim, #a9a9a9);
   opacity: 0.78;
@@ -17240,7 +17240,7 @@ body.theme-light .teammate-panel-input:focus {
   border-top-color: color-mix(in srgb, var(--accent) 30%, rgba(0,0,0,0.08)) !important;
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.04) !important;
 }
-body.theme-light .teammate-panel-input[contenteditable][data-placeholder]:empty::before {
+body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-empty::before {
   color: rgba(0,0,0,0.38);
   opacity: 1;
 }

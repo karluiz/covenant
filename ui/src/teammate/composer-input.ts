@@ -39,7 +39,8 @@ export class ComposerInput {
     this.el.setAttribute("role", "textbox");
     this.el.setAttribute("aria-multiline", "false");
     if (opts.placeholder) this.el.dataset.placeholder = opts.placeholder;
-    this.el.addEventListener("input", () => { this.inputCbs.forEach((cb) => cb()); });
+    this.el.classList.add("is-empty");
+    this.el.addEventListener("input", () => { this.fireInput(); });
     this.el.addEventListener("keydown", (e) => {
       this.keydownCbs.forEach((cb) => cb(e));
       if (e.defaultPrevented) return;
@@ -51,7 +52,7 @@ export class ComposerInput {
       if (e.key === "Backspace") {
         if (this.tryDeleteChipBeforeCaret()) {
           e.preventDefault();
-          this.inputCbs.forEach((cb) => cb());
+          this.fireInput();
         }
       }
     });
@@ -62,7 +63,22 @@ export class ComposerInput {
 
   setPlaceholder(p: string): void { this.el.dataset.placeholder = p; }
 
-  setValue(text: string): void { this.el.textContent = text; }
+  setValue(text: string): void { this.el.textContent = text; this.syncEmpty(); }
+
+  /// Toggle the placeholder-driving class. We can't rely on CSS :empty:
+  /// WebKit leaves a bogus <br> behind after you type then delete the
+  /// last character, so the contenteditable is no longer :empty even
+  /// though it has no real content. Drive the placeholder off material
+  /// emptiness (serialized value) instead.
+  private syncEmpty(): void {
+    this.el.classList.toggle("is-empty", this.getValue().length === 0);
+  }
+
+  /// Sync the empty state, then notify input subscribers.
+  private fireInput(): void {
+    this.syncEmpty();
+    this.inputCbs.forEach((cb) => cb());
+  }
 
   getValue(): string {
     let out = "";
@@ -79,7 +95,7 @@ export class ComposerInput {
     return out.replace(/​/g, "");
   }
 
-  clear(): void { this.el.innerHTML = ""; }
+  clear(): void { this.el.innerHTML = ""; this.syncEmpty(); }
   focus(): void { this.el.focus(); }
 
   /// Returns the active `@token` segment to the left of the caret, or
@@ -161,7 +177,7 @@ export class ComposerInput {
       range.collapse(false);
       this.el.appendChild(document.createTextNode(" "));
     }
-    this.inputCbs.forEach((cb) => cb());
+    this.fireInput();
   }
 
   /// If the caret sits at the start of an empty/whitespace-only text
@@ -245,7 +261,7 @@ export class ComposerInput {
 
   removeAllChips(): void {
     this.el.querySelectorAll(".tmt-chip").forEach((c) => c.remove());
-    this.inputCbs.forEach((cb) => cb());
+    this.fireInput();
   }
 
   chips(): Array<{ kind: Source; token: string }> {

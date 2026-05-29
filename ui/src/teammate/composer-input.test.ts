@@ -47,6 +47,34 @@ describe("ComposerInput", () => {
     expect((chip as HTMLElement).dataset.token).toBe("session:abc");
   });
 
+  it("starts marked empty so the placeholder shows", () => {
+    expect(ci.element().classList.contains("is-empty")).toBe(true);
+  });
+
+  it("drops is-empty once real text is present", () => {
+    ci.element().textContent = "hi";
+    ci.element().dispatchEvent(new InputEvent("input"));
+    expect(ci.element().classList.contains("is-empty")).toBe(false);
+  });
+
+  it("restores is-empty when a leftover <br> is all that remains after delete", () => {
+    // WebKit leaves a bogus <br> behind after you type then delete the
+    // last character, so the div is no longer CSS :empty. Material
+    // emptiness must still be detected so the placeholder returns.
+    ci.element().textContent = "x";
+    ci.element().dispatchEvent(new InputEvent("input"));
+    expect(ci.element().classList.contains("is-empty")).toBe(false);
+    ci.element().innerHTML = "<br>";
+    ci.element().dispatchEvent(new InputEvent("input"));
+    expect(ci.element().classList.contains("is-empty")).toBe(true);
+  });
+
+  it("clear() marks the composer empty", () => {
+    ci.setValue("hello");
+    ci.clear();
+    expect(ci.element().classList.contains("is-empty")).toBe(true);
+  });
+
   it("chips() returns kind+token pairs in DOM order", () => {
     ci.element().textContent = "";
     const r1 = document.createRange(); r1.selectNodeContents(ci.element()); r1.collapse(false);
