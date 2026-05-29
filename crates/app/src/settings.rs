@@ -240,6 +240,19 @@ pub enum TabbarPosition {
     Left,
 }
 
+/// Visual style of the tab pills + group chips. Purely cosmetic — the
+/// frontend toggles a `body.tab-style-<variant>` class and the rest is
+/// CSS. `Classic` is the shipped flat-pill look; `Forge` is the angled,
+/// mechanical IDE-style variant (rising trapezoids horizontally, sliding
+/// chamfered rows in the vertical sidebar).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabStyle {
+    #[default]
+    Classic,
+    Forge,
+}
+
 /// AOM configuration. Today only the budget default; Phase C will add
 /// per-mission profiles (e.g. "long overnight" vs "lunch break").
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -457,6 +470,8 @@ pub struct WindowConfig {
     pub background: WindowBackground,
     #[serde(default)]
     pub theme: ThemeMode,
+    #[serde(default)]
+    pub tab_style: TabStyle,
 }
 
 impl Default for WindowConfig {
@@ -464,6 +479,7 @@ impl Default for WindowConfig {
         Self {
             background: WindowBackground::default(),
             theme: ThemeMode::default(),
+            tab_style: TabStyle::default(),
         }
     }
 }

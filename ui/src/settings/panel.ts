@@ -56,10 +56,12 @@ interface TerminalConfig {
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
 type ThemeMode = "dark" | "light" | "system";
+type TabStyle = "classic" | "forge";
 
 interface WindowConfig {
   background: WindowBackground;
   theme?: ThemeMode;
+  tab_style?: TabStyle;
 }
 
 interface AomConfig {
@@ -447,6 +449,23 @@ export class SettingsPanel {
               </span>
             </label>
           </fieldset>
+          <fieldset class="settings-field settings-radio-group">
+            <span class="settings-label">Tab style</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_style" value="classic" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Classic <span class="settings-badge">default</span></span>
+                <span class="settings-radio-hint">Flat pills with a top accent stripe. The shipped look.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_style" value="forge" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Forge</span>
+                <span class="settings-radio-hint">Angled, mechanical tabs — the active one rises and lights a hot seam. Works in both top and left layouts.</span>
+              </span>
+            </label>
+          </fieldset>
           <label class="settings-field">
             <span class="settings-label">UI font</span>
             <input
@@ -813,6 +832,9 @@ export class SettingsPanel {
     const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tabbar_position"]',
     );
+    const tabStyleRadios = form.querySelectorAll<HTMLInputElement>(
+      'input[name="tab_style"]',
+    );
     const uiFont = form.querySelector<HTMLInputElement>(
       'input[name="ui_font"]',
     )!;
@@ -885,6 +907,10 @@ export class SettingsPanel {
     const currentTabbarPos = this.current.tabbar_position ?? "top";
     tabbarPosRadios.forEach((r) => {
       r.checked = r.value === currentTabbarPos;
+    });
+    const currentTabStyle = this.current.window?.tab_style ?? "classic";
+    tabStyleRadios.forEach((r) => {
+      r.checked = r.value === currentTabStyle;
     });
     uiFont.value = this.current.ui_font_family ?? "";
     const n: NotificationConfig = this.current.notifications ?? {
@@ -1259,6 +1285,9 @@ export class SettingsPanel {
           theme:
             (Array.from(themeRadios).find((r) => r.checked)
               ?.value as ThemeMode) || "system",
+          tab_style:
+            (Array.from(tabStyleRadios).find((r) => r.checked)
+              ?.value as TabStyle) || "classic",
         },
         aom: {
           default_budget_usd: Math.max(

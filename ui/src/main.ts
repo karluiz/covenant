@@ -33,7 +33,7 @@ import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
-import type { Settings, WindowBackground } from "./api";
+import type { Settings, WindowBackground, TabStyle } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
@@ -149,6 +149,15 @@ async function applyTheme(
 /// `body.tabbar-left`; the rest of the app stays layout-agnostic.
 function applyTabbarPosition(pos: "top" | "left" | undefined): void {
   document.body.classList.toggle("tabbar-left", pos === "left");
+}
+
+/// Cosmetic tab skin. Like the theme/background toggles, this only
+/// flips a body class — `body.tab-style-forge` — and CSS reskins the
+/// pills + group chips in both horizontal and vertical layouts. The
+/// default ("classic") carries no class so the shipped look is the
+/// no-class baseline.
+function applyTabStyle(style: TabStyle | undefined): void {
+  document.body.classList.toggle("tab-style-forge", style === "forge");
 }
 
 /// Override the chrome font stack. Empty / null restores the default
@@ -401,10 +410,12 @@ async function boot(): Promise<void> {
     initialSettings = await invoke<Settings>("get_settings");
     applyWindowBackground(initialSettings.window?.background ?? "vibrant");
     applyTabbarPosition(initialSettings.tabbar_position ?? "top");
+    applyTabStyle(initialSettings.window?.tab_style ?? "classic");
     applyUiFont(initialSettings.ui_font_family);
   } catch {
     applyWindowBackground("vibrant");
     applyTabbarPosition("top");
+    applyTabStyle("classic");
     applyUiFont(null);
   }
   // Set the theme class before the TabManager exists so first-run chrome
@@ -1136,6 +1147,7 @@ async function boot(): Promise<void> {
     applyWindowBackground(next.window?.background ?? "vibrant");
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
+    applyTabStyle(next.window?.tab_style ?? "classic");
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
     manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);

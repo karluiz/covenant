@@ -17373,3 +17373,181 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
 .tab-chip-split-glyph:hover {
   opacity: 0.95;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAB STYLE: FORGE  (body.tab-style-forge)
+   ───────────────────────────────────────────────────────────────────
+   A cosmetic reskin selected from Settings → Appearance → Tab style.
+   Pure CSS: the markup in tabs/manager.ts is untouched. We reshape the
+   existing .tab-btn / .group-chip pills and REPURPOSE the two pseudo-
+   elements the base sheet already owns:
+     .tab-btn.active::before        → the "hot seam" (H) / left rail (V)
+     .tab-btn.tab-aom-active::after → AOM ring, re-clipped to the shape
+   Horizontal = rising interlocked trapezoids. Vertical = chamfered rows
+   that slide toward the content with a glowing rail. Classic (default)
+   carries no class, so it is the no-op baseline.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── FORGE · HORIZONTAL (top tabbar) ─────────────────────────────── */
+body.tab-style-forge:not(.tabbar-left) #tabs {
+    gap: 0;            /* slants interlock via negative margin instead */
+    padding-top: 10px; /* headroom for the active tab's 8px rise */
+}
+
+body.tab-style-forge:not(.tabbar-left) .tab-btn {
+    --forge-skew: 11px;
+    border: none;
+    border-radius: 0;
+    margin: 0 -6px;    /* overlap the slanted edges → mechanical interlock */
+    padding: 0 22px;
+    /* honor per-tab color (--tab-color set inline on .tab-colored), else
+       fall back to the forged charcoal. transparent*8% = the charcoal. */
+    background: color-mix(in srgb, var(--tab-color, transparent) 8%, #14171d);
+    clip-path: polygon(
+        var(--forge-skew) 0,
+        calc(100% - var(--forge-skew)) 0,
+        100% 100%,
+        0 100%
+    );
+    transition:
+        height 0.32s cubic-bezier(0.34, 1.4, 0.5, 1),
+        background 0.25s ease,
+        color 0.2s ease,
+        max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.22s ease-out;
+    z-index: 1;
+}
+
+body.tab-style-forge:not(.tabbar-left) .tab-btn:hover:not(.active) {
+    background: color-mix(in srgb, var(--tab-color, transparent) 12%, #191d24);
+    color: var(--text-primary);
+}
+
+/* Active tab rises and brightens; sits above its neighbors' slants. */
+body.tab-style-forge:not(.tabbar-left) .tab-btn.active {
+    height: calc(var(--tab-h) + 8px);
+    color: var(--tab-fg-active);
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--tab-color, transparent) 20%, #20252f),
+        #181c23
+    );
+    z-index: 5;
+}
+
+/* Hot seam across the active tab's top edge — repurposed ::before. */
+body.tab-style-forge:not(.tabbar-left) .tab-btn.active::before {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    border-radius: 0;
+    clip-path: inherit;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        var(--tab-stripe, var(--accent)) 30%,
+        #fff 50%,
+        var(--tab-stripe, var(--accent)) 70%,
+        transparent
+    );
+    filter: drop-shadow(0 0 5px var(--tab-stripe, var(--accent)));
+}
+
+/* AOM ring + excluded dashed ring follow the trapezoid silhouette. */
+body.tab-style-forge:not(.tabbar-left) .tab-btn.tab-aom-active::after,
+body.tab-style-forge:not(.tabbar-left) .tab-btn.tab-aom-excluded::after {
+    inset: 0;
+    border-radius: 0;
+    clip-path: inherit;
+}
+
+/* Group chip becomes a forged bracket the members seat into; its own
+   2px stripe is redundant against the chip shape, so hide it. */
+body.tab-style-forge:not(.tabbar-left) .tab-group-stripe {
+    display: none;
+}
+body.tab-style-forge:not(.tabbar-left) .group-chip {
+    border: none;
+    border-radius: 0;
+    margin-right: -4px;       /* fuse into the first member's slant */
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 100%, 0 100%);
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--group-color, var(--accent)) 16%, #12151b),
+        #0e1116
+    );
+}
+
+/* ── FORGE · VERTICAL (left sidebar) ─────────────────────────────── */
+/* Rows are flat/transparent at rest (seamless surface). The active row
+   slides toward the content, lights a left rail, and reveals a chamfered
+   bottom-right corner — the mechanical tell. */
+body.tab-style-forge.tabbar-left .tab-btn {
+    --forge-notch: 9px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    clip-path: polygon(
+        0 0,
+        100% 0,
+        100% calc(100% - var(--forge-notch)),
+        calc(100% - var(--forge-notch)) 100%,
+        0 100%
+    );
+    transition:
+        background 0.25s ease,
+        color 0.12s ease-out,
+        transform 0.34s cubic-bezier(0.34, 1.4, 0.5, 1),
+        padding-left 0.34s cubic-bezier(0.34, 1.4, 0.5, 1),
+        max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.3s ease-out;
+}
+
+body.tab-style-forge.tabbar-left .tab-btn:hover:not(.active) {
+    background: color-mix(in srgb, var(--tab-color, transparent) 10%, rgba(var(--ink-rgb), 0.05));
+}
+
+body.tab-style-forge.tabbar-left .tab-btn.active {
+    transform: translateX(5px);
+    padding-left: 14px;
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--tab-stripe, var(--accent)) 18%, #1b1f27),
+        #181c23 72%
+    );
+}
+
+/* Glowing left rail — repurposed ::before flipped to the vertical edge. */
+body.tab-style-forge.tabbar-left .tab-btn.active::before {
+    left: 0;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    height: auto;
+    border-radius: 0;
+    clip-path: none;
+    background: var(--tab-stripe, var(--accent));
+    filter: none;
+    box-shadow: 0 0 8px var(--tab-stripe, var(--accent));
+}
+
+body.tab-style-forge.tabbar-left .tab-btn.tab-aom-active::after,
+body.tab-style-forge.tabbar-left .tab-btn.tab-aom-excluded::after {
+    border-radius: 0;
+    clip-path: inherit;
+}
+
+/* Vertical group: a hard left bracket bar, no chip fill. */
+body.tab-style-forge.tabbar-left .tab-group-stripe {
+    display: none;
+}
+body.tab-style-forge.tabbar-left .group-chip {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    border-left: 3px solid var(--group-color, var(--accent));
+}
