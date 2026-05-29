@@ -39,11 +39,23 @@ pub struct ToolEnv {
     pub root: PathBuf,
     /// Hard cap per file. Anything bigger errors before the file is read.
     pub max_bytes_per_file: usize,
+    /// Live rendered screen of the active tab, if one is known. Read by
+    /// `read_terminal_screen`. `None` when there's no active tab.
+    pub active_screen: Option<std::sync::Arc<std::sync::Mutex<String>>>,
 }
 
 impl ToolEnv {
     pub fn new(root: PathBuf, max_bytes_per_file: usize) -> Self {
-        Self { root, max_bytes_per_file }
+        Self { root, max_bytes_per_file, active_screen: None }
+    }
+
+    /// Attach the active tab's rendered-screen handle (builder style).
+    pub fn with_screen(
+        mut self,
+        screen: Option<std::sync::Arc<std::sync::Mutex<String>>>,
+    ) -> Self {
+        self.active_screen = screen;
+        self
     }
 }
 
@@ -694,6 +706,47 @@ pub fn git_diff_tool_def() -> Value {
     })
 }
 
+pub fn read_terminal_screen_tool_def() -> Value {
+    serde_json::json!({
+        "name": "read_terminal_screen",
+        "description": "Read the CURRENT rendered screen of the user's active \
+                        terminal tab. Use this to see what an interactive \
+                        program (like a `claude`, `codex`, or `pi` agent, a \
+                        REPL, a TUI, or a long-running process) is showing \
+                        right now — these never finish as 'blocks', so their \
+                        state is invisible unless you read the screen. Call \
+                        this when the user asks what's happening on their tab \
+                        and the foreground command is interactive. Returns \
+                        plain text (no path argument; always the active tab).",
+        "input_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+        }
+    })
+}
+
+/// Return the active tab's current rendered screen, with common secret
+/// shapes masked before it reaches the LLM (CLAUDE.md rule #7). The vt100
+/// grid is already plain text (no escape sequences), so no ANSI stripping
+/// is needed — only secret redaction. No args.
+pub fn read_terminal_screen(env: &ToolEnv, _args: &Value) -> Result<String, ToolError> {
+    match &env.active_screen {
+        None => Ok("(no active terminal tab to read)".to_string()),
+        Some(cell) => {
+            let text = cell
+                .lock()
+                .map(|g| g.clone())
+                .map_err(|_| ToolError::Io("screen lock poisoned".into()))?;
+            if text.trim().is_empty() {
+                Ok("(no screen captured for the active tab yet)".to_string())
+            } else {
+                Ok(crate::safety::mask_secrets(&text))
+            }
+        }
+    }
+}
+
 pub fn run_command_tool_def() -> Value {
     serde_json::json!({
         "name": "run_command",
@@ -818,6 +871,46 @@ mod tests {
         assert_eq!(def["name"], "read_file");
         assert_eq!(def["input_schema"]["required"][0], "path");
         assert_eq!(def["input_schema"]["properties"]["path"]["type"], "string");
+    }
+
+    #[test]
+    fn read_terminal_screen_returns_active_screen() {
+        use std::sync::{Arc, Mutex};
+        let screen = Arc::new(Mutex::new("$ cargo test\nrunning 3 tests".to_string()));
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
+            .with_screen(Some(screen));
+        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
+        assert!(out.contains("cargo test"));
+        assert!(out.contains("running 3 tests"));
+    }
+
+    #[test]
+    fn read_terminal_screen_handles_no_active_tab() {
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024);
+        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
+        assert!(out.to_lowercase().contains("no active terminal"));
+    }
+
+    #[test]
+    fn read_terminal_screen_handles_empty_capture() {
+        use std::sync::{Arc, Mutex};
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
+            .with_screen(Some(Arc::new(Mutex::new(String::new()))));
+        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
+        assert!(out.to_lowercase().contains("no screen captured"));
+    }
+
+    #[test]
+    fn read_terminal_screen_masks_secrets() {
+        use std::sync::{Arc, Mutex};
+        let screen = Arc::new(Mutex::new(
+            "$ export TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234".to_string(),
+        ));
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
+            .with_screen(Some(screen));
+        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
+        assert!(!out.contains("ghp_abcdefghijklmnopqrstuvwxyz1234"));
+        assert!(out.contains("[REDACTED:github]"));
     }
 
     #[test]

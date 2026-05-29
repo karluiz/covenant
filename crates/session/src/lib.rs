@@ -20,6 +20,9 @@ pub mod operator_ref;
 pub use operator_ref::{OperatorAction, OperatorRef, ProjectRef, VoiceToneSnapshot};
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
@@ -399,6 +402,13 @@ pub struct Session {
     pub started_at: Instant,
     pty: PtySession,
     events_tx: broadcast::Sender<SessionEvent>,
+    /// Latest tidied headless screen render, refreshed by the pump once
+    /// per tick. Read on demand by the teammate `read_terminal_screen`
+    /// tool so an operator can see inside an interactive-agent tab.
+    screen: Arc<StdMutex<String>>,
+    /// Live PTY dimensions (cols<<16|rows), written by `resize`, read by
+    /// the pump so the headless vt100 grid matches the real terminal.
+    dims: Arc<AtomicU32>,
 }
 
 impl Session {
@@ -415,7 +425,21 @@ impl Session {
         let master_fd = pty.master_fd();
         #[cfg(not(unix))]
         let master_fd: () = ();
-        tokio::spawn(pump(id, pty_rx, raw_tx, pump_events_tx, master_fd));
+
+        let screen = Arc::new(StdMutex::new(String::new()));
+        let dims = Arc::new(AtomicU32::new(pack_dims(80, 24)));
+        let pump_screen = screen.clone();
+        let pump_dims = dims.clone();
+
+        tokio::spawn(pump(
+            id,
+            pty_rx,
+            raw_tx,
+            pump_events_tx,
+            master_fd,
+            pump_screen,
+            pump_dims,
+        ));
 
         // Best-effort opened announcement. Subscribers attached after
         // spawn won't see this — that's the broadcast contract.
@@ -430,6 +454,8 @@ impl Session {
                 started_at: Instant::now(),
                 pty,
                 events_tx,
+                screen,
+                dims,
             },
             SessionStreams { raw_bytes: raw_rx },
         ))
@@ -451,7 +477,20 @@ impl Session {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), SessionError> {
+        self.dims.store(pack_dims(cols, rows), Ordering::Relaxed);
         self.pty.resize(cols, rows).map_err(Into::into)
+    }
+
+    /// Shared handle to the latest tidied headless screen render. The
+    /// app layer clones this into the teammate tool sandbox.
+    pub fn screen_handle(&self) -> Arc<StdMutex<String>> {
+        self.screen.clone()
+    }
+
+    /// Snapshot of the current rendered screen (for tests / callers that
+    /// want the value, not the handle).
+    pub fn screen_snapshot(&self) -> String {
+        self.screen.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
     pub fn kill(&mut self) -> Result<(), SessionError> {
@@ -471,6 +510,8 @@ async fn pump(
     events_tx: broadcast::Sender<SessionEvent>,
     #[cfg(unix)] master_fd: std::os::fd::RawFd,
     #[cfg(not(unix))] _master_fd: (),
+    screen: Arc<StdMutex<String>>,
+    dims: Arc<AtomicU32>,
 ) {
     let mut parser = BlockParser::new();
     // (block_id, command, cwd_at_submit, output_buf, started_at) of the
@@ -560,6 +601,17 @@ async fn pump(
                 }
             }
             _ = tick.tick() => {
+                // Keep the headless vt100 grid the same size as the real
+                // PTY so the captured screen isn't clipped to 24×80.
+                let (cols, rows) = unpack_dims(dims.load(Ordering::Relaxed));
+                if vt.screen().size() != (rows, cols) {
+                    vt.set_size(rows, cols);
+                }
+                // Capture the rendered screen for on-demand teammate reads.
+                let tick_screen = vt.screen().contents();
+                if let Ok(mut g) = screen.lock() {
+                    *g = tidy_screen(&tick_screen);
+                }
                 #[cfg(unix)]
                 {
                     let fg = foreground_process_name(master_fd);
@@ -571,14 +623,14 @@ async fn pump(
                         last_fg = fg.clone();
                     }
                     let alt = vt.screen().alternate_screen();
-                    // contents() can be expensive; only call when other gates pass.
+                    // Reuse the screen we already rendered this tick (above)
+                    // rather than calling the expensive contents() twice.
                     if let Some(name) = fg.as_deref() {
                         let is_known = crate::idle::KNOWN_AGENTS.contains(&name);
                         let is_inline = crate::idle::INLINE_AGENTS.contains(&name);
                         if is_known && (alt || is_inline) {
-                            let screen_text = vt.screen().contents();
                             if let Decision::Idle { agent, prompt_text, quiet_ms } =
-                                detector.evaluate(Instant::now(), Some(name), alt, &screen_text)
+                                detector.evaluate(Instant::now(), Some(name), alt, &tick_screen)
                             {
                                 let _ = events_tx.send(SessionEvent::AgentIdleWaiting {
                                     session: id, agent, prompt_text, quiet_ms,
@@ -600,6 +652,31 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Pack (cols, rows) into a single u32 for lock-free sharing with the
+/// pump task. cols in the high 16 bits, rows in the low 16.
+fn pack_dims(cols: u16, rows: u16) -> u32 {
+    ((cols as u32) << 16) | (rows as u32)
+}
+
+/// Inverse of [`pack_dims`]; returns (cols, rows).
+fn unpack_dims(packed: u32) -> (u16, u16) {
+    (((packed >> 16) & 0xffff) as u16, (packed & 0xffff) as u16)
+}
+
+/// Tidy a raw vt100 `screen().contents()` dump for LLM consumption:
+/// strip trailing whitespace on each line, then drop leading/trailing
+/// blank lines. The rendered grid is already plain text (no escapes),
+/// so no ANSI stripping is needed here.
+fn tidy_screen(raw: &str) -> String {
+    let lines: Vec<&str> = raw.lines().map(|l| l.trim_end()).collect();
+    let start = lines.iter().position(|l| !l.is_empty());
+    let end = lines.iter().rposition(|l| !l.is_empty());
+    match (start, end) {
+        (Some(s), Some(e)) => lines[s..=e].join("\n"),
+        _ => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -673,6 +750,26 @@ mod tests {
         assert!(
             output.contains("karl-bus"),
             "expected 'karl-bus' in output_text, got: {output:?}"
+        );
+    }
+
+    /// The pump should render the live PTY screen into the shared cell so
+    /// an operator can read inside a tab on demand.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pump_captures_rendered_screen() {
+        let mut opts = SpawnOptions::zsh_interactive();
+        opts.args.push("--no-globalrcs".to_string());
+        let (mut session, _streams) = Session::spawn(opts).expect("spawn session");
+        session.resize(100, 30).expect("resize");
+        session
+            .write(b"printf 'CAPTURE_MARKER_42\\n'\n")
+            .expect("write");
+        tokio::time::sleep(Duration::from_millis(1400)).await;
+        let screen = session.screen_snapshot();
+        assert!(
+            screen.contains("CAPTURE_MARKER_42"),
+            "screen snapshot did not contain marker; got:\n{screen}"
         );
     }
 }
@@ -767,5 +864,24 @@ mod vt100_state_tests {
         assert!(p.screen().alternate_screen());
         p.process(b"\x1b[?1049l");
         assert!(!p.screen().alternate_screen());
+    }
+
+    #[test]
+    fn dims_roundtrip() {
+        let packed = super::pack_dims(120, 40);
+        assert_eq!(super::unpack_dims(packed), (120, 40));
+        let packed2 = super::pack_dims(80, 24);
+        assert_eq!(super::unpack_dims(packed2), (80, 24));
+    }
+
+    #[test]
+    fn tidy_screen_trims_trailing_blank_lines_and_padding() {
+        let raw = "hello   \nworld\n\n\n   \n";
+        assert_eq!(super::tidy_screen(raw), "hello\nworld");
+    }
+
+    #[test]
+    fn tidy_screen_empty_when_all_blank() {
+        assert_eq!(super::tidy_screen("   \n\n  \n"), "");
     }
 }

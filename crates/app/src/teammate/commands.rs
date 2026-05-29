@@ -57,11 +57,15 @@ pub async fn teammate_send_text_message(
         .await
         .map_err(|e| e.to_string())?;
 
-    // 2) Snapshot the open sessions' world arcs while we hold the
-    //    sessions lock, then drop it before locking individual worlds.
-    let session_worlds: Vec<(karl_session::SessionId, std::sync::Arc<tokio::sync::Mutex<crate::world::SessionWorldModel>>)> = {
+    // 2) Snapshot the open sessions' world arcs + screen handles while we
+    //    hold the sessions lock, then drop it before locking worlds.
+    type WorldArc = std::sync::Arc<tokio::sync::Mutex<crate::world::SessionWorldModel>>;
+    type ScreenArc = std::sync::Arc<std::sync::Mutex<String>>;
+    let session_data: Vec<(karl_session::SessionId, WorldArc, ScreenArc)> = {
         let g = state.sessions.lock().await;
-        g.iter().map(|(id, m)| (*id, m.world.clone())).collect()
+        g.iter()
+            .map(|(id, m)| (*id, m.world.clone(), m.session.screen_handle()))
+            .collect()
     };
 
     let active_session_id_parsed: Option<karl_session::SessionId> = active_session_id
@@ -89,12 +93,12 @@ pub async fn teammate_send_text_message(
         };
 
         // Build snapshot per session under each world's own lock.
-        let mut snapshots = Vec::with_capacity(session_worlds.len());
-        for (sid, world_arc) in session_worlds {
+        let mut snapshots = Vec::with_capacity(session_data.len());
+        for (sid, world_arc, _screen) in &session_data {
             let w = world_arc.lock().await;
-            let is_active = Some(sid) == active_session_id_parsed;
+            let is_active = Some(*sid) == active_session_id_parsed;
             snapshots.push(crate::teammate::world_snapshot::project(
-                sid, &*w, is_active, now_ms(),
+                *sid, &*w, is_active, now_ms(),
             ));
         }
         let world_context_str = crate::teammate::world_snapshot::render(&snapshots);
@@ -125,7 +129,15 @@ pub async fn teammate_send_text_message(
 
         use crate::teammate::llm::DispatchOutcome;
         let outcome: DispatchOutcome = if let Some(root) = active_cwd {
-            let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024);
+            let active_screen: Option<std::sync::Arc<std::sync::Mutex<String>>> =
+                active_session_id_parsed.and_then(|aid| {
+                    session_data
+                        .iter()
+                        .find(|(id, _, _)| *id == aid)
+                        .map(|(_, _, screen)| screen.clone())
+                });
+            let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024)
+                .with_screen(active_screen);
             let app_for_progress = app_bg.clone();
             let op_id_for_progress = operator_id;
             let progress = move |p: crate::teammate::llm::ToolProgress| {
