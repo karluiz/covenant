@@ -16210,39 +16210,54 @@ body.theme-light .teammate-bubble-operator {
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  padding: 4px;
+  padding: 0;
   font-size: 12px;
   overflow: hidden;
 }
-.tmt-mp-header {
+/* Side rail: vertical category list on the left, results on the right.
+   Replaces the old equal-width horizontal tab row that truncated the
+   longer labels (Commands / Teammates) at composer width. */
+.tmt-mp-wrap {
   display: flex;
-  gap: 2px;
-  padding: 3px 3px 5px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 4px;
-}
-.tmt-mp-tab {
-  flex: 1 1 0;
+  flex: 1 1 auto;
+  min-height: 168px;
   min-width: 0;
-  text-align: center;
-  padding: 4px 2px;
-  border-radius: 5px;
+}
+.tmt-mp-rail {
+  flex: 0 0 128px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.tmt-mp-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  border-radius: 6px;
   color: var(--fg-muted, #7c8597);
-  font-size: 10px;
-  letter-spacing: 0;
-  text-transform: none;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
 }
-.tmt-mp-tab.is-active {
+.tmt-mp-rail-item:hover { background: color-mix(in srgb, var(--fg) 7%, transparent); color: var(--fg); }
+.tmt-mp-rail-item.is-active {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
 }
-.tmt-mp-list { overflow-y: auto; max-height: 200px; }
+.tmt-mp-rail-ico {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+.tmt-mp-rail-label { overflow: hidden; text-overflow: ellipsis; }
+.tmt-mp-list { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 4px; }
 .tmt-mp-group {
   padding: 6px 8px 3px;
   color: var(--fg-muted, #5d6577);

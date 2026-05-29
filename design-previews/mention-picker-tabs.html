@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mention Picker · Tab Layout Proposals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* ── Design tokens: faithful to the real .tmt-mp habitat (dark composer) ── */
+  :root {
+    --page-bg: #0a0d12;
+    --page-bg2: #0e1319;
+    --bg-overlay: #161b22;
+    --bg-composer: #11161d;
+    --border: #2a313c;
+    --border-soft: #232a33;
+    --fg: #e6ebf2;
+    --fg-muted: #7c8597;
+    --fg-dim: #5d6577;
+    --accent: #5eead4;       /* teal — matches score dashboard */
+    --accent-ink: #062b25;
+    --c-files: #9ec6ff;
+    --c-specs: #ffd987;
+    --c-sessions: #9ec6ff;
+    --c-commands: #c8b1ff;
+    --c-teammates: #9ee7c2;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --picker-w: 372px;       /* the cramped width that truncated the labels */
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #12202a 0%, transparent 55%),
+      radial-gradient(900px 500px at 95% 110%, #1a1430 0%, transparent 50%),
+      var(--page-bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    min-height: 100vh;
+    padding: 56px clamp(20px, 5vw, 72px) 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    /* faint grain */
+    content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .035; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  header.page { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto 44px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: .28em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 12px;
+  }
+  h1 {
+    font-family: "Fraunces", serif; font-weight: 600; font-size: clamp(30px, 4.6vw, 52px);
+    line-height: 1.02; margin: 0 0 16px; letter-spacing: -.01em;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .lede { color: var(--fg-muted); font-size: 13.5px; max-width: 62ch; line-height: 1.6; margin: 0; }
+  .lede code {
+    background: #1b212a; border: 1px solid var(--border-soft); border-radius: 4px;
+    padding: 1px 5px; color: #cfe; font-size: 12px;
+  }
+
+  .grid {
+    position: relative; z-index: 1; max-width: 1180px; margin: 0 auto;
+    display: grid; gap: 30px;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    align-items: start;
+  }
+
+  .card {
+    background: linear-gradient(180deg, #11161d 0%, #0d1218 100%);
+    border: 1px solid var(--border-soft);
+    border-radius: 16px;
+    padding: 22px 22px 26px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .card__tag {
+    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 999px; padding: 4px 11px;
+  }
+  .card__tag b { color: var(--fg); font-weight: 700; }
+  .card__title { font-family: "Fraunces", serif; font-size: 21px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  .card__why { color: var(--fg-muted); font-size: 12.5px; line-height: 1.55; margin: -6px 0 0; }
+  .card__why strong { color: #bfe9df; font-weight: 600; }
+
+  /* The composer "stage" — recreates the dark input the picker floats above. */
+  .stage {
+    margin-top: 4px; background: var(--bg-composer); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px; position: relative;
+    width: 100%; display: flex; justify-content: center;
+  }
+  .stage__hint { position: absolute; left: 14px; bottom: 12px; color: var(--fg-dim); font-size: 12px; }
+  .stage__hint b { color: #ff9d6e; font-weight: 600; }
+
+  /* ─────────────────────────── BASE PICKER ─────────────────────────── */
+  .mp {
+    width: var(--picker-w); max-width: 100%;
+    background: var(--bg-overlay); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: 0 16px 44px rgba(0,0,0,.55);
+    padding: 4px; font-size: 12px; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .mp-list { max-height: 260px; overflow-y: auto; }
+  .mp-group {
+    padding: 8px 8px 3px; color: var(--fg-dim); font-size: 9.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+  }
+  .mp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 7px; cursor: pointer; }
+  .mp-row.is-sel, .mp-row:hover { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+  .mp-ico {
+    width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 12px;
+    background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg-muted);
+  }
+  .mp-row--sessions  .mp-ico { background: rgba(120,180,255,.15); color: var(--c-sessions); }
+  .mp-row--commands  .mp-ico { background: rgba(180,140,255,.15); color: var(--c-commands); }
+  .mp-main { flex: 1; min-width: 0; }
+  .mp-name { color: var(--fg); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mp-meta { color: var(--fg-dim); font-size: 10.5px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mp-foot {
+    border-top: 1px solid var(--border-soft); margin-top: 4px; padding: 6px 8px;
+    display: flex; gap: 14px; color: var(--fg-dim); font-size: 10.5px;
+  }
+  .mp-foot kbd {
+    background: color-mix(in srgb, var(--fg) 8%, transparent); border: 1px solid var(--border);
+    border-radius: 3px; padding: 0 4px; font-family: var(--mono); font-size: 10px; color: var(--fg);
+  }
+  .glyph { width: 14px; height: 14px; display: block; }
+
+  /* ══════════════ A · SCROLL RAIL (content-width, fades, snaps) ══════════════ */
+  .hdr-scroll {
+    position: relative; border-bottom: 1px solid var(--border-soft); margin-bottom: 4px;
+  }
+  .hdr-scroll__track {
+    display: flex; gap: 4px; padding: 4px 4px 7px; overflow-x: auto; scrollbar-width: none;
+  }
+  .hdr-scroll__track::-webkit-scrollbar { display: none; }
+  .hdr-scroll::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 7px; width: 28px; pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--bg-overlay));
+  }
+  .tab-s {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border-radius: 999px; white-space: nowrap;
+    color: var(--fg-muted); font-size: 11px; font-weight: 600; cursor: pointer;
+    border: 1px solid transparent; transition: background .14s, color .14s, border-color .14s;
+  }
+  .tab-s:hover { color: var(--fg); background: #1c232c; }
+  .tab-s.is-active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+  .tab-s .glyph { opacity: .85; }
+
+  /* ══════════════ B · SIDE RAIL (vertical categories) ══════════════ */
+  .mp--rail { padding: 0; }
+  .rail-wrap { display: flex; min-height: 220px; }
+  .rail {
+    flex: 0 0 132px; border-right: 1px solid var(--border-soft); padding: 6px;
+    display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,.012);
+  }
+  .rail__item {
+    display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 7px;
+    color: var(--fg-muted); font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: background .14s, color .14s;
+  }
+  .rail__item:hover { background: #1c232c; color: var(--fg); }
+  .rail__item.is-active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+  .rail__item .glyph { flex-shrink: 0; opacity: .9; }
+  .rail__count { margin-left: auto; font-size: 10px; color: var(--fg-dim); font-weight: 600; }
+  .rail__item.is-active .rail__count { color: color-mix(in srgb, var(--accent) 80%, white); }
+  .rail-body { flex: 1; min-width: 0; padding: 4px; display: flex; flex-direction: column; }
+  .rail-body .mp-list { flex: 1; }
+
+  /* ══════════════ C · EXPANDING ICONS (active label expands) ══════════════ */
+  .hdr-exp { display: flex; gap: 3px; padding: 5px 4px 8px; border-bottom: 1px solid var(--border-soft); margin-bottom: 4px; }
+  .tab-e {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0;
+    height: 30px; min-width: 30px; padding: 0; border-radius: 8px; cursor: pointer;
+    color: var(--fg-muted); background: transparent; border: 1px solid transparent;
+    overflow: hidden; transition: all .2s cubic-bezier(.4,.0,.2,1);
+  }
+  .tab-e:hover { background: #1c232c; color: var(--fg); }
+  .tab-e .glyph { flex-shrink: 0; }
+  .tab-e__label {
+    max-width: 0; opacity: 0; white-space: nowrap; font-size: 11px; font-weight: 600;
+    transition: max-width .22s ease, opacity .18s ease, margin .22s ease;
+  }
+  .tab-e.is-active {
+    flex: 0 0 auto; padding: 0 12px 0 10px; gap: 7px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .tab-e.is-active .tab-e__label { max-width: 90px; opacity: 1; }
+
+  /* ══════════════ D · WRAPPING CHIPS WITH COUNTS ══════════════ */
+  .hdr-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 5px 8px; border-bottom: 1px solid var(--border-soft); margin-bottom: 4px; }
+  .tab-c {
+    display: inline-flex; align-items: center; gap: 7px; padding: 4px 9px 4px 8px; border-radius: 8px;
+    background: #1a2029; border: 1px solid var(--border-soft); color: var(--fg-muted);
+    font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    transition: background .14s, color .14s, border-color .14s;
+  }
+  .tab-c:hover { color: var(--fg); border-color: var(--border); }
+  .tab-c .glyph { opacity: .8; }
+  .tab-c__n {
+    font-size: 9.5px; min-width: 16px; text-align: center; padding: 0 4px; border-radius: 999px;
+    background: #232b35; color: var(--fg-dim); font-weight: 700;
+  }
+  .tab-c.is-active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 34%, transparent); }
+  .tab-c.is-active .tab-c__n { background: var(--accent); color: var(--accent-ink); }
+
+  .foot-note { position: relative; z-index: 1; max-width: 1180px; margin: 40px auto 0; color: var(--fg-dim); font-size: 12px; line-height: 1.7; }
+  .foot-note b { color: var(--fg-muted); }
+</style>
+</head>
+<body>
+  <header class="page">
+    <p class="eyebrow">Covenant · Teammate composer</p>
+    <h1>Mention picker, <em>uncramped</em>.</h1>
+    <p class="lede">Six equal-width tabs (<code>flex: 1 1 0; text-overflow: clip</code>) can't fit the composer-width popover, so <code>Commands</code> and <code>Teammates</code> get chopped. Four ways out — each rendered as the real picker at the <b>same 372&nbsp;px width that broke it</b>. Click the tabs.</p>
+  </header>
+
+  <main class="grid">
+
+    <!-- ───────────────────── A · SCROLL RAIL ───────────────────── -->
+    <section class="card">
+      <span class="card__tag">Proposal <b>A</b></span>
+      <h2 class="card__title">Scroll rail</h2>
+      <p class="card__why">Tabs sized to their text with a leading glyph; the row scrolls horizontally with an edge fade hinting more. <strong>Zero truncation, ever</strong> — labels stay whole no matter how many categories you add. Closest to the current look.</p>
+      <div class="stage">
+        <div class="mp" data-group="A">
+          <div class="hdr-scroll"><div class="hdr-scroll__track">
+            <div class="tab-s is-active" data-tab>✱ All</div>
+            <div class="tab-s" data-tab>▢ Files</div>
+            <div class="tab-s" data-tab>◆ Specs</div>
+            <div class="tab-s" data-tab>▮ Sessions</div>
+            <div class="tab-s" data-tab>$ Commands</div>
+            <div class="tab-s" data-tab>◉ Teammates</div>
+          </div></div>
+          <div class="mp-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────── B · SIDE RAIL ───────────────────── -->
+    <section class="card">
+      <span class="card__tag">Proposal <b>B</b></span>
+      <h2 class="card__title">Side rail</h2>
+      <p class="card__why">Categories move to a vertical column on the left, results on the right. <strong>Kills the horizontal squeeze entirely</strong> and adds room for live counts. Scales to 10+ categories. Biggest departure from today's layout.</p>
+      <div class="stage">
+        <div class="mp mp--rail" data-group="B">
+          <div class="rail-wrap">
+            <nav class="rail">
+              <div class="rail__item is-active" data-tab>✱ All <span class="rail__count">12</span></div>
+              <div class="rail__item" data-tab>▢ Files <span class="rail__count">5</span></div>
+              <div class="rail__item" data-tab>◆ Specs <span class="rail__count">2</span></div>
+              <div class="rail__item" data-tab>▮ Sessions <span class="rail__count">3</span></div>
+              <div class="rail__item" data-tab>$ Commands <span class="rail__count">8</span></div>
+              <div class="rail__item" data-tab>◉ Teammates <span class="rail__count">2</span></div>
+            </nav>
+            <div class="rail-body"><div class="mp-body"></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────── C · EXPANDING ICONS ───────────────────── -->
+    <section class="card">
+      <span class="card__tag">Proposal <b>C</b></span>
+      <h2 class="card__title">Expanding icons</h2>
+      <p class="card__why">Inactive tabs collapse to a single icon; the active one animates open to reveal its label. <strong>Always fits, however narrow</strong> — the selected category is always spelled out. Most compact, most "app-like" motion.</p>
+      <div class="stage">
+        <div class="mp" data-group="C">
+          <div class="hdr-exp">
+            <div class="tab-e is-active" data-tab><span class="glyph">✱</span><span class="tab-e__label">All</span></div>
+            <div class="tab-e" data-tab><span class="glyph">▢</span><span class="tab-e__label">Files</span></div>
+            <div class="tab-e" data-tab><span class="glyph">◆</span><span class="tab-e__label">Specs</span></div>
+            <div class="tab-e" data-tab><span class="glyph">▮</span><span class="tab-e__label">Sessions</span></div>
+            <div class="tab-e" data-tab><span class="glyph">$</span><span class="tab-e__label">Commands</span></div>
+            <div class="tab-e" data-tab><span class="glyph">◉</span><span class="tab-e__label">Teammates</span></div>
+          </div>
+          <div class="mp-body"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────── D · WRAPPING CHIPS ───────────────────── -->
+    <section class="card">
+      <span class="card__tag">Proposal <b>D</b></span>
+      <h2 class="card__title">Counted chips</h2>
+      <p class="card__why">Tabs become rounded chips carrying a result count, and <strong>wrap to a second line</strong> instead of shrinking. You see how much is in each category before you click. Tallest header, but nothing is ever hidden.</p>
+      <div class="stage">
+        <div class="mp" data-group="D">
+          <div class="hdr-chips">
+            <div class="tab-c is-active" data-tab>✱ All <span class="tab-c__n">12</span></div>
+            <div class="tab-c" data-tab>▢ Files <span class="tab-c__n">5</span></div>
+            <div class="tab-c" data-tab>◆ Specs <span class="tab-c__n">2</span></div>
+            <div class="tab-c" data-tab>▮ Sessions <span class="tab-c__n">3</span></div>
+            <div class="tab-c" data-tab>$ Commands <span class="tab-c__n">8</span></div>
+            <div class="tab-c" data-tab>◉ Teammates <span class="tab-c__n">2</span></div>
+          </div>
+          <div class="mp-body"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <p class="foot-note">
+    All four solve the truncation; they differ in <b>footprint</b> and <b>departure from today</b>.
+    A &amp; C keep the horizontal header (smallest change), B reclaims the most space, D is the most informative.
+    My pick: <b>A (scroll rail)</b> for a drop-in fix, or <b>C (expanding icons)</b> if you want the picker to feel tighter and more deliberate.
+  </p>
+
+<script>
+  // Shared list body (faithful to the screenshot data) injected into every picker.
+  const BODY = `
+    <div class="mp-list">
+      <div class="mp-group">Sessions</div>
+      <div class="mp-row mp-row--sessions is-sel">
+        <div class="mp-ico">▮</div>
+        <div class="mp-main">
+          <div class="mp-name">tab 1 · zsh</div>
+          <div class="mp-meta">…/Sources/karlTerminal · 0 blocks</div>
+        </div>
+      </div>
+      <div class="mp-row mp-row--sessions">
+        <div class="mp-ico">▮</div>
+        <div class="mp-main">
+          <div class="mp-name">tab 2 · zsh</div>
+          <div class="mp-meta">…/Sources/karlTerminal · 0 blocks</div>
+        </div>
+      </div>
+      <div class="mp-row mp-row--sessions">
+        <div class="mp-ico">▮</div>
+        <div class="mp-main">
+          <div class="mp-name">tab 3 · zsh</div>
+          <div class="mp-meta">…/Sources/karlTerminal · 0 blocks</div>
+        </div>
+      </div>
+      <div class="mp-group">Recent commands</div>
+      <div class="mp-row mp-row--commands">
+        <div class="mp-ico">$</div>
+        <div class="mp-main">
+          <div class="mp-name">claude --dangerously-skip-permissions</div>
+          <div class="mp-meta">exit 0 · 4h ago · …/Sources/groowcity</div>
+        </div>
+      </div>
+    </div>
+    <div class="mp-foot">
+      <span><kbd>↑↓</kbd> nav</span>
+      <span><kbd>⇥</kbd>/<kbd>↵</kbd> insert</span>
+      <span><kbd>esc</kbd> close</span>
+    </div>`;
+  document.querySelectorAll(".mp-body").forEach(el => { el.innerHTML = BODY; });
+
+  // Tab interactivity, scoped per picker.
+  document.querySelectorAll(".mp").forEach(mp => {
+    const tabs = mp.querySelectorAll("[data-tab]");
+    tabs.forEach(t => t.addEventListener("click", () => {
+      tabs.forEach(x => x.classList.remove("is-active"));
+      t.classList.add("is-active");
+    }));
+  });
+</script>
+</body>
+</html>

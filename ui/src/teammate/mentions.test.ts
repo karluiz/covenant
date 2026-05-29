@@ -180,13 +180,13 @@ describe("MentionPopup v2", () => {
     expect(popup.currentEl()?.querySelector(".tmt-mp-foot")).toBeTruthy();
   });
 
-  it("renders 6 tabs and shows footer key hints", async () => {
+  it("renders 6 rail categories and shows footer key hints", async () => {
     const { popup, input } = harness({ listOperators: async () => [fakeOp()] });
     input.element().textContent = "@";
     placeCaretAtEnd(input.element());
     input.element().dispatchEvent(new InputEvent("input"));
     await flush();
-    expect(popup.currentEl()!.querySelectorAll(".tmt-mp-tab").length).toBe(6);
+    expect(popup.currentEl()!.querySelectorAll(".tmt-mp-rail-item").length).toBe(6);
     expect(popup.currentEl()!.textContent).toMatch(/nav/);
   });
 

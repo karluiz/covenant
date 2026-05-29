@@ -423,8 +423,10 @@ export class MentionPopup {
   private render(): void {
     if (!this.el || !this.state) return;
     const { hits, selected, loading, cwd, activeTab, query } = this.state;
-    const header = TABS.map((t) =>
-      `<div class="tmt-mp-tab${t.id === activeTab ? " is-active" : ""}" data-tab="${t.id}">${t.label}</div>`,
+    const rail = TABS.map((t) =>
+      `<div class="tmt-mp-rail-item${t.id === activeTab ? " is-active" : ""}" data-tab="${t.id}">`
+      + `<span class="tmt-mp-rail-ico">${tabIcon(t.id)}</span>`
+      + `<span class="tmt-mp-rail-label">${t.label}</span></div>`,
     ).join("");
     let body = "";
     if (loading && hits.length === 0) {
@@ -438,15 +440,17 @@ export class MentionPopup {
       body = renderRows(hits, selected, activeTab);
     }
     this.el.innerHTML = `
-      <div class="tmt-mp-header">${header}</div>
-      <div class="tmt-mp-list">${body}</div>
+      <div class="tmt-mp-wrap">
+        <nav class="tmt-mp-rail">${rail}</nav>
+        <div class="tmt-mp-list">${body}</div>
+      </div>
       <div class="tmt-mp-foot">
         <span><kbd>↑↓</kbd> nav</span>
         <span><kbd>⇥</kbd>/<kbd>↵</kbd> insert</span>
         <span><kbd>esc</kbd> close</span>
       </div>
     `;
-    this.el.querySelectorAll<HTMLElement>(".tmt-mp-tab").forEach((t) => {
+    this.el.querySelectorAll<HTMLElement>(".tmt-mp-rail-item").forEach((t) => {
       t.addEventListener("mousedown", (e) => {
         e.preventDefault();
         this.setTab(t.dataset.tab as Tab);
@@ -492,6 +496,11 @@ function labelFor(k: Source): string {
 }
 function iconFor(k: Source): string {
   return ({ files: "⌗", specs: "§", sessions: "▮", commands: "$", teammates: "@" } as const)[k];
+}
+/// Rail glyph per tab. Mirrors `iconFor` but adds the "all" scope, which
+/// has no single source kind.
+function tabIcon(t: Tab): string {
+  return ({ all: "✱", files: "⌗", specs: "§", sessions: "▮", commands: "$", teammates: "@" } as const)[t];
 }
 
 function highlight(text: string, indices: number[]): string {
