@@ -6,6 +6,54 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.40 — Forge tab style + teammate task lifecycle
+
+### Added
+
+- **Forge tab style**: New cosmetic "Tab style" selector in
+  Settings → Appearance (Classic | Forge), persisted as `window.tab_style`
+  (`crates/app/src/settings.rs`). Forge reskins the tab pills + group chips
+  into an angled, mechanical look — interlocking trapezoid tabs that rise
+  on select in the top tabbar, and sharp rows with a glowing left rail in
+  the vertical sidebar. Pure CSS gated on a `body.tab-style-forge` class
+  toggled at boot and on save (`ui/src/main.ts`, `ui/src/settings/panel.ts`,
+  `ui/src/styles.css`); the markup in `tabs/manager.ts` is untouched.
+
+- **Teammate task reactivation on re-attach**: Reopening a cancelled or
+  done task from the chat pill now flips its persisted status back to
+  `Active` and emits a `TaskUpdate(Resumed)`, so the teammate's working
+  indicator relights instead of the tab silently restarting work the panel
+  still believes is cancelled (`crates/app/src/teammate/commands.rs`,
+  `ui/src/teammate/task-card.ts`, `ui/src/teammate/panel.ts`).
+
+### Changed
+
+- **Tab-style design mockups**: Standalone HTML mockups exploring three
+  candidate tab/group styles (Forge / Glass / CRT) across both horizontal
+  and vertical layouts, captured during design (`design-previews/`).
+  Reference only — not wired into the app.
+
+### Fixed
+
+- **Forge light-theme + operator avatar**: Forge now uses theme tokens
+  (`--tab-bg-active`, `--bg-tabbar`, `--tab-stripe`) so it renders correctly
+  in light mode rather than painting dark tabs on light chrome. The vertical
+  chamfer `clip-path` was dropped because it clipped the subtree and sliced
+  off the operator avatar + level badge, and active operator rows no longer
+  slide (the slide shoved the absolutely-positioned avatar sideways on
+  select) (`ui/src/styles.css`).
+
+- **Forge collapsed-group gaps**: Folded group members are zero-width again
+  under Forge. A specificity clash with the Forge `.tab-btn` rule had left
+  each folded member ~32px wide, opening large empty gaps between collapsed
+  groups proportional to their member count (`ui/src/styles.css`).
+
+- **Split-pane swap layout**: Unbinding an operator from a tab now cancels
+  the active task it was driving (`cancelTaskForUnboundSession`), and the
+  pane-swap remount positions its three children relatively instead of via
+  absolute moves — fixing a swap that left the splitter at index 0 and
+  collapsed the layout into one blank pane (`ui/src/tabs/manager.ts`).
+
 ## v0.8.39 — Achievements MVP + .env support + teammate polish
 
 ### Added
