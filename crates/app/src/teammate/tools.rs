@@ -726,8 +726,10 @@ pub fn read_terminal_screen_tool_def() -> Value {
     })
 }
 
-/// Return the active tab's current rendered screen. Plain text already
-/// (the vt100 grid carries no escape sequences). No args.
+/// Return the active tab's current rendered screen, with common secret
+/// shapes masked before it reaches the LLM (CLAUDE.md rule #7). The vt100
+/// grid is already plain text (no escape sequences), so no ANSI stripping
+/// is needed — only secret redaction. No args.
 pub fn read_terminal_screen(env: &ToolEnv, _args: &Value) -> Result<String, ToolError> {
     match &env.active_screen {
         None => Ok("(no active terminal tab to read)".to_string()),
@@ -739,7 +741,7 @@ pub fn read_terminal_screen(env: &ToolEnv, _args: &Value) -> Result<String, Tool
             if text.trim().is_empty() {
                 Ok("(no screen captured for the active tab yet)".to_string())
             } else {
-                Ok(text)
+                Ok(crate::safety::mask_secrets(&text))
             }
         }
     }
@@ -896,6 +898,19 @@ mod tests {
             .with_screen(Some(Arc::new(Mutex::new(String::new()))));
         let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
         assert!(out.to_lowercase().contains("no screen captured"));
+    }
+
+    #[test]
+    fn read_terminal_screen_masks_secrets() {
+        use std::sync::{Arc, Mutex};
+        let screen = Arc::new(Mutex::new(
+            "$ export TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234".to_string(),
+        ));
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
+            .with_screen(Some(screen));
+        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
+        assert!(!out.contains("ghp_abcdefghijklmnopqrstuvwxyz1234"));
+        assert!(out.contains("[REDACTED:github]"));
     }
 
     #[test]
