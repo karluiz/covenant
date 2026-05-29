@@ -439,6 +439,7 @@ where
         tools::git_status_tool_def(),
         tools::git_diff_tool_def(),
         tools::run_command_tool_def(),
+        tools::read_terminal_screen_tool_def(),
         tools::propose_task_tool_def(),
     ];
 
@@ -501,6 +502,10 @@ where
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
                     "run_command" => match tools::run_command(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "read_terminal_screen" => match tools::read_terminal_screen(&tool_env, &input) {
                         Ok(text) => (text, true, None),
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
@@ -650,6 +655,7 @@ where
         tools::git_status_tool_def(),
         tools::git_diff_tool_def(),
         tools::run_command_tool_def(),
+        tools::read_terminal_screen_tool_def(),
         tools::propose_task_tool_def(),
     ]
     .iter()
@@ -722,6 +728,10 @@ where
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
                     "run_command" => match tools::run_command(&tool_env, &input) {
+                        Ok(text) => (text, true, None),
+                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
+                    },
+                    "read_terminal_screen" => match tools::read_terminal_screen(&tool_env, &input) {
                         Ok(text) => (text, true, None),
                         Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
                     },
