@@ -26,6 +26,13 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { closeSessionCheck } from "../api";
+import {
+  projectNotesApi,
+  promptsApi,
+  type Command,
+  type Prompt,
+} from "../project-notes/api";
+import { wrapForSend } from "../project-notes/paste";
 import { openMindLossModal } from "../operator/mind-loss-modal";
 import {
   aomStatus,
@@ -1164,73 +1171,155 @@ export class TabManager {
 
   private installPaneContextMenu(paneHost: HTMLElement, tab: Tab, paneIdx: 0 | 1): IDisposable {
     const onContextMenu = (e: MouseEvent) => {
-      // Only intercept when we have at least one meaningful item to show;
-      // otherwise let the existing terminal context handling (xterm/native)
-      // run. With the flag off and a single-pane tab there is nothing to
-      // offer, so don't suppress the default.
-      if (!this.paneContextMenuHasItems(tab)) return;
+      // We take over right-click on panes to surface split actions plus saved
+      // commands/prompts. Always suppress the native menu and build our own.
       e.preventDefault();
-      this.showPaneContextMenu(e.clientX, e.clientY, tab, paneIdx);
+      void this.showPaneContextMenu(e.clientX, e.clientY, tab, paneIdx);
     };
     paneHost.addEventListener("contextmenu", onContextMenu);
     return { dispose: () => paneHost.removeEventListener("contextmenu", onContextMenu) };
   }
 
-  /// Cheap pre-check used by the contextmenu handler so we don't open an
-  /// empty menu (which would only contain "Close pane" → close tab, a
-  /// surprising mapping). Mirrors the visibility predicates in
-  /// `showPaneContextMenu` but only asks "does anything beyond the
-  /// always-on close make sense?".
-  private paneContextMenuHasItems(tab: Tab): boolean {
-    if (this.splitPanesEnabled) return true;
-    // Flag off: only meaningful when there's a real pane to close
-    // (split tabs persisted from when the flag was on).
-    return tab.layout.kind === "split";
-  }
+  /// Max saved items rendered per section before we stop and point the user at
+  /// the panel — keeps the menu from growing taller than the viewport.
+  private static readonly PANE_MENU_SECTION_CAP = 8;
 
-  private showPaneContextMenu(x: number, y: number, tab: Tab, paneIdx: 0 | 1): void {
+  private async showPaneContextMenu(
+    x: number,
+    y: number,
+    tab: Tab,
+    paneIdx: 0 | 1,
+  ): Promise<void> {
     // Tear down any existing menu first.
     document.querySelector(".pane-context-menu")?.remove();
+
+    const flag = this.splitPanesEnabled;
+    const isSingle = tab.layout.kind === "single";
+    const isSplit = tab.layout.kind === "split";
+
+    // Resolve the pane the user clicked so commands/prompts target ITS session,
+    // not whatever happens to be active elsewhere. `panes` is [Pane] | [Pane,
+    // Pane]; a single-pane tab only has index 0.
+    const pane = tab.panes[paneIdx] ?? tab.panes[0];
+    const sessionId = pane?.sessionId ?? null;
+    const groupId = tab.groupId ?? null;
+
+    // Fetch saved items: commands are per-group, prompts are global. Both are
+    // best-effort — a failure just omits that section.
+    let commands: Command[] = [];
+    let prompts: Prompt[] = [];
+    try {
+      if (groupId) commands = (await projectNotesApi.snapshot(groupId)).commands;
+    } catch {
+      /* omit commands section */
+    }
+    try {
+      prompts = await promptsApi.list();
+    } catch {
+      /* omit prompts section */
+    }
+
     const menu = document.createElement("div");
     menu.className = "pane-context-menu";
     menu.style.position = "fixed";
     menu.style.top = `${y}px`;
     menu.style.left = `${x}px`;
 
-    const flag = this.splitPanesEnabled;
-    const isSingle = tab.layout.kind === "single";
-    const isSplit = tab.layout.kind === "split";
-
-    const items: { label: string; visible: boolean; action: () => void }[] = [
-      { label: "Split right", visible: flag && isSingle, action: () => void this.splitActivePane("horizontal") },
-      { label: "Split down",  visible: flag && isSingle, action: () => void this.splitActivePane("vertical") },
-      { label: "Swap panes",  visible: flag && isSplit,  action: () => void this.swapActivePanes() },
-      // Close pane only when there's actually a pane to close (not the tab).
-      // Single-pane "close pane" is "close tab" — handled by ⌘W; surfacing
-      // it here is misleading.
-      { label: "Close pane",  visible: isSplit,          action: () => void this.closePaneByIdx(tab, paneIdx) },
-    ];
-
-    for (const item of items) {
-      if (!item.visible) continue;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "pane-context-menu-item";
-      btn.textContent = item.label;
-      btn.addEventListener("click", () => {
-        menu.remove();
-        item.action();
-      });
-      menu.appendChild(btn);
-    }
-    document.body.appendChild(menu);
-
-    // Dismiss on outside click or Escape.
     const dismiss = () => {
       menu.remove();
       document.removeEventListener("click", outsideClick, true);
       document.removeEventListener("keydown", onKey);
     };
+
+    const addItem = (label: string, action: () => void): void => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pane-context-menu-item";
+      btn.textContent = label;
+      btn.addEventListener("click", () => {
+        dismiss();
+        action();
+      });
+      menu.appendChild(btn);
+    };
+    const addSection = (label: string): void => {
+      if (menu.childElementCount > 0) {
+        const sep = document.createElement("div");
+        sep.className = "pane-context-menu-separator";
+        menu.appendChild(sep);
+      }
+      const head = document.createElement("div");
+      head.className = "pane-context-menu-section";
+      head.textContent = label;
+      menu.appendChild(head);
+    };
+    const addHint = (label: string): void => {
+      const hint = document.createElement("div");
+      hint.className = "pane-context-menu-hint";
+      hint.textContent = label;
+      menu.appendChild(hint);
+    };
+    const addCapped = <T>(rows: T[], render: (row: T) => void): void => {
+      const cap = TabManager.PANE_MENU_SECTION_CAP;
+      for (const row of rows.slice(0, cap)) render(row);
+      if (rows.length > cap) addHint(`+${rows.length - cap} more in panel`);
+    };
+
+    // Split actions (only when the feature is on / a split exists).
+    if (flag && isSingle) {
+      addItem("Split right", () => void this.splitActivePane("horizontal"));
+      addItem("Split down", () => void this.splitActivePane("vertical"));
+    }
+    if (flag && isSplit) {
+      addItem("Swap panes", () => void this.swapActivePanes());
+    }
+    // Close pane only when there's actually a pane to close (not the tab).
+    if (isSplit) {
+      addItem("Close pane", () => void this.closePaneByIdx(tab, paneIdx));
+    }
+
+    const encoder = new TextEncoder();
+    // Commands/prompts need a target session. `sessionId` is a const, so the
+    // truthiness narrowing below carries into the click closures.
+    if (sessionId) {
+      // Commands paste WITHOUT a trailing newline — the user reviews then hits
+      // Enter (matches the Commands tab "paste" semantics).
+      if (commands.length > 0) {
+        addSection("Commands");
+        addCapped(commands, (c) =>
+          addItem(c.title, () => {
+            void writeToSession(sessionId, encoder.encode(c.command));
+          }),
+        );
+      }
+      // Prompts send AND submit (bracketed paste + carriage return).
+      if (prompts.length > 0) {
+        addSection("Prompts");
+        addCapped(prompts, (p) =>
+          addItem(p.title, () => {
+            void writeToSession(sessionId, encoder.encode(wrapForSend(p.body)));
+          }),
+        );
+      }
+    }
+
+    if (menu.childElementCount === 0) {
+      addHint("No saved commands or prompts");
+    }
+
+    document.body.appendChild(menu);
+
+    // Clamp into the viewport — sections can make the menu tall/wide.
+    const rect = menu.getBoundingClientRect();
+    const margin = 8;
+    if (rect.bottom > window.innerHeight - margin) {
+      menu.style.top = `${Math.max(margin, window.innerHeight - margin - rect.height)}px`;
+    }
+    if (rect.right > window.innerWidth - margin) {
+      menu.style.left = `${Math.max(margin, window.innerWidth - margin - rect.width)}px`;
+    }
+
+    // Dismiss on outside click or Escape.
     const outsideClick = (ev: MouseEvent) => {
       if (!menu.contains(ev.target as Node)) dismiss();
     };
