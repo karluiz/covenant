@@ -1105,18 +1105,23 @@ export class TeammatePanel {
     const sessionLive = !!recordedSid && (this.deps.isSessionAlive?.(recordedSid) ?? true);
     const closed = task.status === "done" || task.status === "cancelled";
 
-    const open = document.createElement("button");
-    open.type = "button";
-    open.className = "btn btn--primary";
+    // Open / Continue button — only when there's something to open.
     if (sessionLive && recordedSid) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "btn btn--primary";
       open.textContent = "Open tab";
       open.addEventListener("click", (e) => {
         e.stopPropagation();
         this.deps.focusTabBySessionId?.(recordedSid);
       });
+      actions.append(open);
     } else if (!closed && this.deps.spawnTabForTask) {
       // Spawn died (likely a dev reload) — offer to respawn into a
       // fresh tab so the task is recoverable instead of orphaned.
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "btn btn--primary";
       open.textContent = "Continue in new tab";
       open.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -1126,17 +1131,25 @@ export class TeammatePanel {
           console.error("respawn tab failed", err);
         }
       });
-    } else {
-      open.textContent = "Open tab";
-      open.disabled = true;
+      actions.append(open);
     }
-    actions.append(open);
+
+    // Stop button — only meaningful while the task is still running.
+    // A done/cancelled task has nothing to stop, so we omit the button
+    // entirely rather than leaving a dead, disabled control on the card.
+    if (closed) {
+      // Collapse to a single column (or no row at all) so we don't leave
+      // a lopsided/empty actions grid behind.
+      if (actions.childElementCount === 0) actions.style.display = "none";
+      else actions.style.gridTemplateColumns = "1fr";
+      return actions;
+    }
 
     const stop = document.createElement("button");
     stop.type = "button";
     stop.className = "btn btn--danger";
     stop.textContent = "Stop";
-    stop.disabled = closed || !this.deps.cancelActiveTask;
+    stop.disabled = !this.deps.cancelActiveTask;
     stop.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (!this.deps.cancelActiveTask) return;

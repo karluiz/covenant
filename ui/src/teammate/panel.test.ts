@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Operator } from "../api";
+import type { Operator, Task } from "../api";
 import * as ApiModule from "../api";
 import { buildTaskInjection, sanitizeMentionTokens, TeammatePanel } from "./panel";
 
@@ -565,5 +565,79 @@ describe("TeammatePanel spawn+prime ordering", () => {
       "S-SPAWNED",
       expect.stringContaining("Add achievements"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Closed-task action row: a done/cancelled task must NOT leave a dead Stop
+// (or a dead disabled "Open tab") button on the card. Regression for the
+// "I pressed Stop, now there's a Stop button I can't press" dead-end.
+// ---------------------------------------------------------------------------
+describe("TeammatePanel task action row", () => {
+  function makeTask(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "task-x",
+      operator_id: "op1",
+      archetype: "do",
+      title: "Implement achievements",
+      body: "",
+      deliverable: "feature",
+      status: "active",
+      scope: { paths: [] },
+      spawned_session: null,
+      created_at_unix_ms: 1,
+      updated_at_unix_ms: 1,
+      completed_at_unix_ms: null,
+      cost_usd_cents: 0,
+      ...overrides,
+    };
+  }
+
+  async function mountWithTask(task: Task): Promise<HTMLElement> {
+    const operator = makeOp({ id: "op1" });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages:  async () => [],
+      sendText:      vi.fn(),
+      listOperators: async () => [operator],
+      listTasks:     async () => [task],
+      cancelActiveTask: vi.fn().mockResolvedValue(undefined),
+      spawnTabForTask:  vi.fn(),
+    });
+    await panel.openFor(operator);
+    // Expand the card so the action row renders.
+    (host.querySelector(".task-item__head") as HTMLElement).click();
+    return host;
+  }
+
+  function stopButton(host: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(host.querySelectorAll<HTMLButtonElement>(".task-actions .btn"))
+      .find((b) => b.textContent === "Stop");
+  }
+
+  it("renders an enabled Stop button for an active task", async () => {
+    const host = await mountWithTask(makeTask({ status: "active" }));
+    const stop = stopButton(host);
+    expect(stop).toBeDefined();
+    expect(stop!.disabled).toBe(false);
+  });
+
+  it("renders no Stop button for a cancelled task", async () => {
+    const host = await mountWithTask(makeTask({ status: "cancelled" }));
+    expect(stopButton(host)).toBeUndefined();
+  });
+
+  it("renders no Stop button for a done task", async () => {
+    const host = await mountWithTask(makeTask({ status: "done" }));
+    expect(stopButton(host)).toBeUndefined();
+  });
+
+  it("leaves no dead disabled buttons on a cancelled task with no live session", async () => {
+    const host = await mountWithTask(makeTask({ status: "cancelled" }));
+    const dead = Array.from(host.querySelectorAll<HTMLButtonElement>(".task-actions .btn"))
+      .filter((b) => b.disabled);
+    expect(dead).toHaveLength(0);
   });
 });
