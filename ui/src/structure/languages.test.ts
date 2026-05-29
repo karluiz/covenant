@@ -1,5 +1,34 @@
 import { describe, it, expect } from "vitest";
-import { sqlDialectFor } from "./languages";
+import { sqlDialectFor, isDotenvPath, languageForPath } from "./languages";
+
+describe("isDotenvPath", () => {
+  it("matches bare .env", () => {
+    expect(isDotenvPath("/x/raven-prep/clever-hub/.env")).toBe(true);
+  });
+
+  it("matches .env.<stage> variants", () => {
+    expect(isDotenvPath(".env.local")).toBe(true);
+    expect(isDotenvPath("/a/.env.production")).toBe(true);
+    expect(isDotenvPath(".env.example")).toBe(true);
+  });
+
+  it("matches *.env files", () => {
+    expect(isDotenvPath("config.env")).toBe(true);
+    expect(isDotenvPath("/srv/prod.env")).toBe(true);
+  });
+
+  it("does not match unrelated dotfiles or names", () => {
+    expect(isDotenvPath(".environment")).toBe(false);
+    expect(isDotenvPath(".zshrc")).toBe(false);
+    expect(isDotenvPath("env.ts")).toBe(false);
+    expect(isDotenvPath("/x/server.rs")).toBe(false);
+  });
+
+  it("languageForPath resolves a grammar for .env (not null)", () => {
+    expect(languageForPath("/x/clever-hub/.env")).not.toBeNull();
+    expect(languageForPath(".env.local")).not.toBeNull();
+  });
+});
 
 describe("sqlDialectFor", () => {
   it("returns PostgreSQL for .psql extension regardless of content", () => {

@@ -22,9 +22,74 @@ import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { yaml } from "@codemirror/lang-yaml";
 import { StreamLanguage } from "@codemirror/language";
+import type { StreamParser } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+
+// ---------------------------------------------------------------------------
+// dotenv grammar
+// ---------------------------------------------------------------------------
+//
+// No upstream CodeMirror grammar ships for `.env`, and the legacy
+// `properties` mode mis-handles the values (URLs with `:`, JWTs, etc.).
+// The format is trivial enough to tokenize directly: full-line `#`/`;`
+// comments, an optional leading `export`, a KEY, the `=` separator, and
+// everything after it as the value. Token names route through the custom
+// `tokenTable` into the editor's shared HighlightStyle (see theme.ts).
+
+interface DotenvState {
+  pos: "start" | "key" | "value";
+}
+
+const dotenv: StreamParser<DotenvState> = {
+  name: "dotenv",
+  startState: () => ({ pos: "start" }),
+  token(stream, state) {
+    if (stream.sol()) state.pos = "start";
+
+    if (state.pos === "start") {
+      if (stream.eatSpace()) return null;
+      const ch = stream.peek();
+      if (ch === "#" || ch === ";") {
+        stream.skipToEnd();
+        return "comment";
+      }
+      // `export FOO=bar` — common in shell-sourced env files.
+      if (stream.match(/^export(?=\s)/)) return "keyword";
+      state.pos = "key";
+    }
+
+    if (state.pos === "key") {
+      if (stream.eatSpace()) return null;
+      if (stream.eat("=")) {
+        state.pos = "value";
+        return "operator";
+      }
+      if (stream.eatWhile(/[^=\s]/)) return "envKey";
+      stream.next();
+      return null;
+    }
+
+    // value — consume the rest of the line verbatim.
+    stream.skipToEnd();
+    return "envValue";
+  },
+  languageData: { commentTokens: { line: "#" } },
+  tokenTable: {
+    envKey: t.attributeName,
+    envValue: t.string,
+  },
+};
+
+/// Match dotenv files by basename: `.env`, `.env.<stage>` (e.g.
+/// `.env.local`, `.env.production`), and `*.env`. Excludes lookalikes
+/// such as `.environment`.
+export function isDotenvPath(path: string): boolean {
+  const base = path.split("/").pop() ?? "";
+  return base === ".env" || base.startsWith(".env.") || base.endsWith(".env");
+}
 
 // ---------------------------------------------------------------------------
 // SQL dialect detection
@@ -178,6 +243,11 @@ export function languageForPath(path: string, head: string = ""): Extension | nu
 
   const byName = BY_NAME[base];
   if (byName) return byName();
+
+  // dotenv files (`.env`, `.env.local`, `*.env`) — handled here because
+  // the basename either has no extension (`.env`) or a misleading one
+  // (`.env.local` → "local") that BY_EXT can't key off.
+  if (isDotenvPath(base)) return StreamLanguage.define(dotenv);
 
   // Dotfiles like `.zshrc`, `.bashrc` — treat as shell.
   if (base.startsWith(".") && /^\.(z|ba)shrc$|^\.profile$|^\.zprofile$/.test(base)) {
