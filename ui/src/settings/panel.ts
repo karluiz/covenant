@@ -56,7 +56,7 @@ interface TerminalConfig {
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
 type ThemeMode = "dark" | "light" | "system";
-type TabStyle = "classic" | "forge";
+type TabStyle = "classic" | "forge" | "glass" | "crt";
 
 interface WindowConfig {
   background: WindowBackground;
