@@ -1,5 +1,6 @@
 import { projectNotesApi, type Command } from "./api";
 import { writeToActiveTabInGroup } from "./paste";
+import { attachTooltip } from "../tooltip/tooltip";
 
 export interface CommandsTabHooks {
   groupId: string;
@@ -63,22 +64,24 @@ export class CommandsTab {
           <code class="pn-cmd-code"></code>
         </div>
         <div class="pn-cmd-actions">
-          <button class="pn-cmd-paste" title="Paste into active tab">paste</button>
-          <button class="pn-cmd-edit" title="Edit">edit</button>
-          <button class="pn-cmd-del" title="Delete">×</button>
+          <button class="pn-cmd-paste">paste</button>
+          <button class="pn-cmd-edit">edit</button>
+          <button class="pn-cmd-del">×</button>
         </div>
       `;
       (li.querySelector(".pn-cmd-title") as HTMLElement).textContent = c.title;
       (li.querySelector(".pn-cmd-code") as HTMLElement).textContent = c.command;
-      li.querySelector(".pn-cmd-paste")!.addEventListener("click", () =>
-        this.paste(c),
-      );
-      li.querySelector(".pn-cmd-edit")!.addEventListener("click", () =>
-        this.openEditor(c),
-      );
-      li.querySelector(".pn-cmd-del")!.addEventListener("click", () =>
-        this.delete(c),
-      );
+      const pasteBtn = li.querySelector<HTMLElement>(".pn-cmd-paste")!;
+      pasteBtn.addEventListener("click", () => this.paste(c));
+      attachTooltip(pasteBtn, "Paste into active tab");
+
+      const editBtn = li.querySelector<HTMLElement>(".pn-cmd-edit")!;
+      editBtn.addEventListener("click", () => this.openEditor(c));
+      attachTooltip(editBtn, "Edit");
+
+      const delBtn = li.querySelector<HTMLElement>(".pn-cmd-del")!;
+      delBtn.addEventListener("click", () => this.delete(c));
+      attachTooltip(delBtn, "Delete");
       this.list.appendChild(li);
     }
   }

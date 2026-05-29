@@ -38,6 +38,7 @@ pub mod operator_registry;
 mod pane;
 mod pi_commands;
 mod project_notes;
+mod prompts;
 mod project_ref;
 pub mod provider_resolve;
 mod providers_cmd;
@@ -2879,6 +2880,7 @@ pub fn run() {
             let teammate_runtime = Arc::new(teammate::TeammateRuntime::new());
             app.manage(teammate_runtime.clone());
             app.manage(project_notes::Store::new(storage.conn()));
+            app.manage(prompts::PromptStore::new(storage.conn()));
 
             // Task supervisor: aggregates per-session SessionEvent buses
             // and translates BlockFinished into operator sentiment +
@@ -3502,6 +3504,11 @@ pub fn run() {
             project_notes::project_note_list,
             project_notes::project_docs_get,
             project_notes::project_docs_save,
+            prompts::prompt_list,
+            prompts::prompt_create,
+            prompts::prompt_update,
+            prompts::prompt_delete,
+            prompts::prompt_reorder,
             telegram_test_connection,
             telegram_status,
             capabilities_commands::capabilities_list,

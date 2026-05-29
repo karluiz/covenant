@@ -47,3 +47,23 @@ export const projectNotesApi = {
   saveDocs: (groupId: string, body: string) =>
     invoke<void>("project_docs_save", { groupId, body }),
 };
+
+export interface Prompt {
+  id: string;
+  title: string;
+  body: string;
+  sort_order: number;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+}
+
+export const promptsApi = {
+  list: () => invoke<Prompt[]>("prompt_list"),
+  create: (title: string, body: string) =>
+    invoke<Prompt>("prompt_create", { title, body }),
+  update: (id: string, title: string, body: string) =>
+    invoke<Prompt | null>("prompt_update", { id, title, body }),
+  delete: (id: string) => invoke<void>("prompt_delete", { id }),
+  reorder: (orderedIds: string[]) =>
+    invoke<void>("prompt_reorder", { orderedIds }),
+};

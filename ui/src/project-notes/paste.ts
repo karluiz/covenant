@@ -15,3 +15,23 @@ export async function writeToActiveTabInGroup(
   const encoder = new TextEncoder();
   await writeToSession(sessionId, encoder.encode(text));
 }
+
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
+
+/// Wraps `text` in bracketed-paste markers and appends a carriage return so a
+/// multi-line prompt lands as ONE paste block and is then submitted. Pure +
+/// unit-testable (no PTY / no dynamic import).
+export function wrapForSend(text: string): string {
+  return `${BRACKETED_PASTE_START}${text}${BRACKETED_PASTE_END}\r`;
+}
+
+/// Resolves the active tab in `groupId` and SENDS `text` to its PTY: pastes the
+/// body (bracketed-paste safe for multi-line) and submits it with a carriage
+/// return. Use this for prompts; use `writeToActiveTabInGroup` for paste-only.
+export async function sendToActiveTabInGroup(
+  groupId: string,
+  text: string,
+): Promise<void> {
+  await writeToActiveTabInGroup(groupId, wrapForSend(text));
+}

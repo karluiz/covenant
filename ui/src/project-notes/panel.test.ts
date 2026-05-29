@@ -45,6 +45,17 @@ vi.mock("./drafts-tab", () => ({
   },
 }));
 
+vi.mock("./prompts-tab", () => ({
+  PromptsTab: class {
+    mount(parent: HTMLElement) {
+      const el = document.createElement("div");
+      el.className = "pn-prompt-tab";
+      parent.appendChild(el);
+      return this;
+    }
+  },
+}));
+
 describe("ProjectNotesPanel", () => {
   let host: HTMLElement;
 
@@ -55,11 +66,11 @@ describe("ProjectNotesPanel", () => {
     localStorage.clear();
   });
 
-  it("renders four tab buttons and the default tab", () => {
+  it("renders five tab buttons and the default tab", () => {
     const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "COVENANT" });
     p.mount(host);
     const buttons = host.querySelectorAll(".pn-tabs button");
-    expect(buttons.length).toBe(4);
+    expect(buttons.length).toBe(5);
     expect(host.querySelector(".pn-cmd-tab")).not.toBeNull();
   });
 
@@ -106,6 +117,12 @@ describe("ProjectNotesPanel", () => {
     p.switchTab("drafts");
     expect(host.querySelector(".pn-drafts-tab")).not.toBeNull();
     const buttons = host.querySelectorAll(".pn-tabs button");
-    expect(buttons.length).toBe(4);
+    expect(buttons.length).toBe(5);
+  });
+
+  it("renders the prompts tab when selected", () => {
+    const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "G1" }).mount(host);
+    p.switchTab("prompts");
+    expect(host.querySelector(".pn-prompt-tab")).not.toBeNull();
   });
 });

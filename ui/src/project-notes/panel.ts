@@ -3,8 +3,9 @@ import { CommandsTab } from "./commands-tab";
 import { NotesTab } from "./notes-tab";
 import { DocsTab } from "./docs-tab";
 import { DraftsTab } from "./drafts-tab";
+import { PromptsTab } from "./prompts-tab";
 
-export type PanelTab = "commands" | "notes" | "docs" | "drafts";
+export type PanelTab = "commands" | "prompts" | "notes" | "docs" | "drafts";
 
 export interface PanelOpts {
   groupId: string;
@@ -28,7 +29,7 @@ const LAST_TAB_STORAGE_KEY = "covenant.project-notes.last-tab";
 function readLastTab(groupId: string): PanelTab {
   try {
     const raw = localStorage.getItem(`${LAST_TAB_STORAGE_KEY}:${groupId}`);
-    if (raw === "commands" || raw === "notes" || raw === "docs" || raw === "drafts") return raw;
+    if (raw === "commands" || raw === "prompts" || raw === "notes" || raw === "docs" || raw === "drafts") return raw;
   } catch {}
   return "commands";
 }
@@ -76,7 +77,7 @@ export class ProjectNotesPanel {
     const tabs = document.createElement("div");
     tabs.className = "pn-tabs";
     this.tabButtons = {} as Record<PanelTab, HTMLButtonElement>;
-    for (const t of ["commands", "notes", "docs", "drafts"] as PanelTab[]) {
+    for (const t of ["commands", "prompts", "notes", "docs", "drafts"] as PanelTab[]) {
       const b = document.createElement("button");
       b.textContent = t[0].toUpperCase() + t.slice(1);
       b.dataset.tab = t;
@@ -129,6 +130,8 @@ export class ProjectNotesPanel {
     this.body.replaceChildren();
     if (this.currentTab === "commands") {
       new CommandsTab({ groupId: this.opts.groupId }).mount(this.body);
+    } else if (this.currentTab === "prompts") {
+      new PromptsTab({ groupId: this.opts.groupId }).mount(this.body);
     } else if (this.currentTab === "notes") {
       new NotesTab({ groupId: this.opts.groupId }).mount(this.body);
     } else if (this.currentTab === "docs") {

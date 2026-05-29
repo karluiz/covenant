@@ -175,6 +175,16 @@ CREATE TABLE IF NOT EXISTS project_docs (
     updated_at_unix_ms INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS prompts (
+    id                 TEXT PRIMARY KEY,
+    title              TEXT NOT NULL,
+    body               TEXT NOT NULL,
+    sort_order         INTEGER NOT NULL,
+    created_at_unix_ms INTEGER NOT NULL,
+    updated_at_unix_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_prompts_order ON prompts(sort_order);
+
 CREATE TABLE IF NOT EXISTS operator_mind (
     session_id  TEXT PRIMARY KEY,
     json        TEXT NOT NULL,
