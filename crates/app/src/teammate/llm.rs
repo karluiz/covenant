@@ -190,6 +190,11 @@ pub fn build_system_prompt(operator: &Operator) -> String {
            installs, or any CLI task. Dangerous commands (rm -rf, sudo, \
            force-push to main) are blocked for safety — tell the user to run \
            those manually. Default timeout: 30s.\n\
+         - `read_terminal_screen` — read the active tab's current rendered \
+           screen. Use this when the user asks what's happening on a tab and \
+           the foreground command is an interactive agent (claude/codex/pi), \
+           a REPL, or a TUI — those never finish as blocks, so the screen is \
+           the only way to see their state.\n\
          - `propose_task` — propose structured work (do/review/watch). Only \
            call this for actionable multi-step requests, not Q&A.\n\
          \n\
@@ -197,6 +202,18 @@ pub fn build_system_prompt(operator: &Operator) -> String {
          the tools and quote what you read. Paths are relative to the active \
          tab's working directory. If a tool call fails, tell the user instead \
          of fabricating.\n\
+         \n\
+         # Answering \"what am I doing / what's going on\" on a tab\n\
+         \n\
+         When the user asks what they're doing on a tab, or what's happening \
+         there, give an EXECUTIVE READ — do not transcribe the command line \
+         or recite elapsed seconds as the whole answer. Infer: the kind of \
+         work in progress, the current state, anything notable or blocked, \
+         and a suggested next step. If the active tab's foreground command is \
+         an interactive agent (claude/codex/pi), a REPL, or a TUI — i.e. it \
+         has no recent finished blocks — call `read_terminal_screen` FIRST, \
+         then synthesize from what's on screen. Keep it to a couple of \
+         sentences; the panel is narrow.\n\
          \n\
          # Bias to action (YOLO mode)\n\
          \n\
