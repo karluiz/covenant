@@ -152,12 +152,14 @@ function applyTabbarPosition(pos: "top" | "left" | undefined): void {
 }
 
 /// Cosmetic tab skin. Like the theme/background toggles, this only
-/// flips a body class — `body.tab-style-forge` — and CSS reskins the
-/// pills + group chips in both horizontal and vertical layouts. The
-/// default ("classic") carries no class so the shipped look is the
-/// no-class baseline.
+/// flips a body class — `body.tab-style-<forge|glass|crt>` — and CSS
+/// reskins the pills + group chips in both horizontal and vertical
+/// layouts. The default ("classic") carries no class so the shipped
+/// look is the no-class baseline.
 function applyTabStyle(style: TabStyle | undefined): void {
-  document.body.classList.toggle("tab-style-forge", style === "forge");
+  for (const s of ["forge", "glass", "crt"] as const) {
+    document.body.classList.toggle(`tab-style-${s}`, style === s);
+  }
 }
 
 /// Override the chrome font stack. Empty / null restores the default
