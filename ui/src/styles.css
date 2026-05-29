@@ -15511,6 +15511,10 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   opacity: 0.85;
   font-variant-numeric: tabular-nums;
 }
+body.theme-light .inline-notch .inline-notch-stream .row .tok {
+  color: #b45309;
+  opacity: 1;
+}
 .inline-notch .inline-notch-name .tab-id {
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -15544,6 +15548,37 @@ body.theme-light .inline-notch .inline-notch-stream .row .msg {
 }
 body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   color: var(--text-primary);
+}
+
+/* Agent-filter dropdown is portaled to <body>, so it sits outside
+   .inline-notch and needs its own light-mode surface treatment. */
+body.theme-light .inline-notch-picker-drop {
+  background: var(--bg-panel);
+  border-color: rgba(var(--ink-rgb), 0.12);
+  box-shadow: 0 24px 50px -24px rgba(0, 0, 0, 0.35);
+}
+body.theme-light .inline-notch-picker-drop-head {
+  color: var(--muted);
+}
+body.theme-light .inline-notch-picker-drop-sep {
+  background: rgba(var(--ink-rgb), 0.08);
+}
+body.theme-light .inline-notch-picker-opt {
+  color: var(--muted);
+}
+body.theme-light .inline-notch-picker-opt:hover {
+  background: rgba(var(--ink-rgb), 0.05);
+  color: var(--text-primary);
+}
+body.theme-light .inline-notch-picker-name,
+body.theme-light .inline-notch-picker-opt.is-selected .inline-notch-picker-name {
+  color: var(--text-primary);
+}
+body.theme-light .inline-notch-picker-count {
+  color: var(--muted);
+}
+body.theme-light .inline-notch-picker-drop .inline-notch-av-dot {
+  box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.18) inset;
 }
 
 /* Global tab finder — search input + result rows inside the workspace
