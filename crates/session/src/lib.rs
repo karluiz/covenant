@@ -602,6 +602,31 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Pack (cols, rows) into a single u32 for lock-free sharing with the
+/// pump task. cols in the high 16 bits, rows in the low 16.
+fn pack_dims(cols: u16, rows: u16) -> u32 {
+    ((cols as u32) << 16) | (rows as u32)
+}
+
+/// Inverse of [`pack_dims`]; returns (cols, rows).
+fn unpack_dims(packed: u32) -> (u16, u16) {
+    (((packed >> 16) & 0xffff) as u16, (packed & 0xffff) as u16)
+}
+
+/// Tidy a raw vt100 `screen().contents()` dump for LLM consumption:
+/// strip trailing whitespace on each line, then drop leading/trailing
+/// blank lines. The rendered grid is already plain text (no escapes),
+/// so no ANSI stripping is needed here.
+fn tidy_screen(raw: &str) -> String {
+    let lines: Vec<&str> = raw.lines().map(|l| l.trim_end()).collect();
+    let start = lines.iter().position(|l| !l.is_empty());
+    let end = lines.iter().rposition(|l| !l.is_empty());
+    match (start, end) {
+        (Some(s), Some(e)) => lines[s..=e].join("\n"),
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -767,5 +792,24 @@ mod vt100_state_tests {
         assert!(p.screen().alternate_screen());
         p.process(b"\x1b[?1049l");
         assert!(!p.screen().alternate_screen());
+    }
+
+    #[test]
+    fn dims_roundtrip() {
+        let packed = super::pack_dims(120, 40);
+        assert_eq!(super::unpack_dims(packed), (120, 40));
+        let packed2 = super::pack_dims(80, 24);
+        assert_eq!(super::unpack_dims(packed2), (80, 24));
+    }
+
+    #[test]
+    fn tidy_screen_trims_trailing_blank_lines_and_padding() {
+        let raw = "hello   \nworld\n\n\n   \n";
+        assert_eq!(super::tidy_screen(raw), "hello\nworld");
+    }
+
+    #[test]
+    fn tidy_screen_empty_when_all_blank() {
+        assert_eq!(super::tidy_screen("   \n\n  \n"), "");
     }
 }
