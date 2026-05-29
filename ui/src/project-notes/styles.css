@@ -642,17 +642,20 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 /* ---- Prompts tab ---- */
 .pn-prompt-tab { display: flex; flex-direction: column; gap: 12px; }
 .pn-prompt-new {
-  align-self: flex-start;
-  padding: 6px 12px;
-  font-size: 12px;
-  border: 1px solid var(--border, #2a2d35);
+  background: transparent;
+  border: 1px dashed var(--border, #2a2d35);
+  color: var(--muted, #8a8aa8);
   border-radius: 6px;
-  background: var(--bg-hover, #1c1f26);
-  color: var(--text, #e6e8eb);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms, color 120ms;
 }
 .pn-prompt-new:hover {
-  border-color: color-mix(in srgb, var(--pn-accent, var(--accent, #6aa9ff)) 40%, var(--border, #2a2d35));
+  border-color: var(--pn-accent, var(--accent, #6aa9ff));
+  color: var(--text, #e6e8eb);
 }
 .pn-prompt-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .pn-prompt-row {
