@@ -368,6 +368,65 @@ impl OperatorRegistry {
         Ok(op)
     }
 
+    pub async fn create_from_soul(
+        &self,
+        storage: &Storage,
+        raw: &str,
+    ) -> Result<Operator, RegistryError> {
+        let soul = crate::soul::parse(raw).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        crate::soul::validate(&soul).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let mut op = Operator {
+            id: OperatorId(Ulid::new()), name: String::new(), emoji: String::new(),
+            color: String::new(), tags: vec![], persona: String::new(),
+            escalate_threshold: 0.6, model: String::new(), hard_constraints: String::new(),
+            is_default: false, created_at_unix_ms: now, updated_at_unix_ms: now, xp: 0,
+            voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+        };
+        crate::soul::hydrate_operator(&mut op, &soul);
+        self.create(storage, op).await
+    }
+
+    pub async fn update_from_soul(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        raw: &str,
+    ) -> Result<Operator, RegistryError> {
+        let soul = crate::soul::parse(raw).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        crate::soul::validate(&soul).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        let mut op = self.get(id).ok_or(RegistryError::NotFound(id))?;
+        crate::soul::hydrate_operator(&mut op, &soul);
+        op.updated_at_unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        self.update(storage, op).await
+    }
+
+    /// Read the current SOUL.md text for an operator (file content if present,
+    /// else freshly serialized from the cached identity).
+    pub fn read_soul(&self, id: OperatorId) -> Option<String> {
+        let op = self.get(id)?;
+        if let Some(p) = &op.soul_path {
+            if let Ok(raw) = std::fs::read_to_string(p) {
+                return Some(raw);
+            }
+        }
+        Some(crate::soul::serialize(&crate::soul::soul_from_operator(&op)))
+    }
+
     pub async fn delete(&self, storage: &Storage, id: OperatorId) -> Result<(), RegistryError> {
         {
             let g = self.by_id.read().unwrap();
@@ -578,6 +637,74 @@ pub mod commands {
 
     fn map_err<E: std::fmt::Display>(e: E) -> String {
         e.to_string()
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct SoulView {
+        pub name: String,
+        pub avatar: Option<String>,
+        pub color: Option<String>,
+        pub model: Option<String>,
+        pub voice: Option<String>,
+        pub escalate_threshold: Option<f32>,
+        pub tags: Vec<String>,
+        pub hard_constraints: Option<String>,
+        pub body: String,
+        pub validation_error: Option<String>,
+    }
+
+    #[tauri::command]
+    pub async fn operator_list_archetypes() -> Result<Vec<crate::archetypes::ArchetypeView>, String> {
+        Ok(crate::archetypes::list())
+    }
+
+    #[tauri::command]
+    pub async fn operator_soul_read(
+        id: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<String, String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.read_soul(id).ok_or_else(|| format!("operator not found: {id}"))
+    }
+
+    /// Parse + validate raw SOUL.md text without persisting. Returns the parsed
+    /// frontmatter view for the editor's synced form controls + live preview.
+    #[tauri::command]
+    pub async fn operator_soul_parse(raw: String) -> Result<SoulView, String> {
+        let soul = crate::soul::parse(&raw).map_err(map_err)?;
+        let err = crate::soul::validate(&soul).err().map(|e| e.to_string());
+        Ok(SoulView {
+            name: soul.frontmatter.name,
+            avatar: soul.frontmatter.avatar,
+            color: soul.frontmatter.color,
+            model: soul.frontmatter.model,
+            voice: soul.frontmatter.voice,
+            escalate_threshold: soul.frontmatter.escalate_threshold,
+            tags: soul.frontmatter.tags,
+            hard_constraints: soul.frontmatter.hard_constraints,
+            body: soul.body,
+            validation_error: err,
+        })
+    }
+
+    #[tauri::command]
+    pub async fn operator_create_from_soul(
+        raw: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<Operator, String> {
+        registry.create_from_soul(&storage, &raw).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_update_from_soul(
+        id: String,
+        raw: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<Operator, String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.update_from_soul(&storage, id, &raw).await.map_err(map_err)
     }
 
     #[tauri::command]
