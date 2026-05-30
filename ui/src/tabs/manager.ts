@@ -102,6 +102,7 @@ import {
   setPaneRatioAction,
 } from "./split-actions";
 import { installPaneSplitter } from "./pane-splitter";
+import { positionGlassIndicator } from "./glass-indicator";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -1530,6 +1531,14 @@ export class TabManager {
       } else {
         this.refitActive();
       }
+    });
+
+    // Glass theme: reposition the sliding indicator on layout changes.
+    window.addEventListener("resize", () => positionGlassIndicator(this.tabbarHost));
+    this.tabbarHost.addEventListener("scroll", () => positionGlassIndicator(this.tabbarHost));
+    this.tabbarHost.addEventListener("transitionend", (e) => {
+      const p = (e as TransitionEvent).propertyName;
+      if (p === "max-width" || p === "max-height") positionGlassIndicator(this.tabbarHost);
     });
 
     // When the window moves between monitors with different scaling
@@ -5428,6 +5437,7 @@ export class TabManager {
     }
 
     this.onAfterRender?.();
+    positionGlassIndicator(this.tabbarHost);
   }
 
   /// Read-only snapshot of the tabbar's logical structure for the
