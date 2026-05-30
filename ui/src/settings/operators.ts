@@ -903,102 +903,322 @@ function renderArchetypeGallery(onPick: (raw: string) => void): HTMLElement {
   return wrap;
 }
 
-// ── Split editor: raw SOUL.md (left) + synced knobs & live preview (right) ──
+// ── Editor: rich identity/behaviour controls (left) + the soul prose &
+//    live preview (right), with the full SOUL.md source as an escape hatch ──
+
+const COLOR_SWATCHES = [
+  "#6B7280", "#3b82f6", "#a855f7", "#5ad19a", "#e6b673",
+  "#c4a7ff", "#ff8585", "#f472b6", "#34d399", "#fbbf24",
+];
+
+/// YAML-quote a hex colour — unquoted `#…` reads as a comment.
+function yamlColor(c: string): string {
+  return `'${c}'`;
+}
+
+/// Does a name need quoting to survive a YAML round-trip?
+function nameNeedsQuote(s: string): boolean {
+  return /[:#[\]{}",&*!|>%@`]/.test(s) || /^\s|\s$/.test(s);
+}
+
+/// Deterministically rebuild the full SOUL.md text from a parsed view.
+/// Invoked whenever a form control changes a field — canonicalises the
+/// frontmatter; the body is preserved verbatim.
+function soulRawFromView(v: SoulView): string {
+  const out: string[] = ["---"];
+  const name = v.name && v.name.trim().length ? v.name : "New Operator";
+  out.push(`name: ${nameNeedsQuote(name) ? JSON.stringify(name) : name}`);
+  if (v.avatar) out.push(`avatar: ${v.avatar}`);
+  if (v.color) out.push(`color: ${yamlColor(v.color)}`);
+  if (v.model) out.push(`model: ${v.model}`);
+  out.push(`voice: ${v.voice ?? "terse"}`);
+  out.push(`escalate_threshold: ${v.escalate_threshold ?? 0.6}`);
+  const tags = (v.tags ?? []).map((t) => t.trim()).filter(Boolean);
+  if (tags.length) out.push(`tags: [${tags.join(", ")}]`);
+  const hc = (v.hard_constraints ?? "").replace(/\s+$/, "");
+  if (hc.length) {
+    out.push("hard_constraints: |");
+    for (const ln of hc.split("\n")) out.push(`  ${ln}`);
+  }
+  out.push("---", "", (v.body ?? "").replace(/\s+$/, ""), "");
+  return out.join("\n");
+}
+
+function soulSection(title: string): HTMLElement {
+  const s = document.createElement("div");
+  s.className = "op-soul-section";
+  const t = document.createElement("div");
+  t.className = "op-soul-section-title";
+  t.textContent = title;
+  s.append(t);
+  return s;
+}
+
 function renderSoulEditor(h: ModalHandle): HTMLElement {
   const split = document.createElement("div");
   split.className = "op-soul-split";
 
+  // Working structured view. Controls mutate this and regenerate the raw
+  // SOUL.md; seeded from the modal's current soulRaw on first parse.
+  let view: SoulView = {
+    name: "", avatar: null, color: null, model: null, voice: "terse",
+    escalate_threshold: 0.6, tags: [], hard_constraints: null, body: "",
+    validation_error: null,
+  };
+
+  // Left — structured controls.
+  const controls = document.createElement("div");
+  controls.className = "op-soul-controls";
+
+  // Right — hero, the soul prose, live preview, raw source.
+  const right = document.createElement("div");
+  right.className = "op-soul-right";
+
+  const heroWrap = document.createElement("div");
+  heroWrap.className = "op-soul-hero";
+
+  const bodyLabel = document.createElement("div");
+  bodyLabel.className = "op-soul-section-title";
+  bodyLabel.textContent = "The soul";
+  const body = document.createElement("textarea");
+  body.className = "op-soul-body";
+  body.spellcheck = true;
+  body.placeholder =
+    "Write this operator's soul — who it is, how it judges, what it will never do without you.";
+
+  const preview = document.createElement("div");
+  preview.className = "op-soul-preview";
+
+  const rawDetails = document.createElement("details");
+  rawDetails.className = "op-soul-rawwrap";
+  const rawSummary = document.createElement("summary");
+  rawSummary.textContent = "SOUL.md source";
   const src = document.createElement("textarea");
   src.className = "op-soul-source";
   src.spellcheck = false;
-  src.value = h.state.soulRaw;
+  rawDetails.append(rawSummary, src);
 
-  const right = document.createElement("div");
-  right.className = "op-soul-right";
-  const knobs = document.createElement("div");
-  knobs.className = "op-soul-knobs";
-  const preview = document.createElement("div");
-  preview.className = "op-soul-preview";
   const errLine = document.createElement("div");
   errLine.className = "op-soul-error";
-  right.append(knobs, errLine, preview);
 
-  split.append(src, right);
+  right.append(heroWrap, bodyLabel, body, preview, rawDetails, errLine);
+  split.append(controls, right);
 
-  let debounce: number | undefined;
+  let markedFn: typeof import("marked").marked | null = null;
+  async function renderPreview(): Promise<void> {
+    if (!markedFn) markedFn = (await import("marked")).marked;
+    preview.innerHTML = markedFn.parse(view.body ?? "", { async: false }) as string;
+  }
+
+  function renderHero(): void {
+    heroWrap.innerHTML = "";
+    heroWrap.append(
+      renderOperatorChip(
+        { name: view.name || "New Operator", emoji: view.avatar || "🟣", color: view.color || "#6B7280" },
+        "lg",
+      ),
+    );
+  }
+
+  // Funnel a control change into the raw text + state. `repaintControls`
+  // is skipped while a text field is focused so the caret survives.
+  function commit(repaintControls: boolean): void {
+    h.state.soulRaw = soulRawFromView(view);
+    src.value = h.state.soulRaw;
+    renderHero();
+    if (repaintControls) paintControls();
+  }
+
+  function paintControls(): void {
+    controls.innerHTML = "";
+
+    // ── Identity ──────────────────────────────────────────────────────
+    const identity = soulSection("Identity");
+
+    const name = document.createElement("input");
+    name.type = "text";
+    name.className = "op-modal-input";
+    name.maxLength = 64;
+    name.value = view.name ?? "";
+    name.addEventListener("input", () => { view.name = name.value; commit(false); });
+    identity.append(labeled("Name", name));
+
+    const avField = document.createElement("div");
+    avField.className = "op-modal-field";
+    const avLbl = document.createElement("span");
+    avLbl.className = "op-modal-label";
+    avLbl.textContent = "Avatar";
+    const grid = document.createElement("div");
+    grid.className = "op-soul-avatar-grid";
+    for (const a of AVATAR_PACK_V2) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "op-soul-avatar-cell";
+      if (view.avatar === `pack2:${a.character}`) cell.classList.add("is-selected");
+      cell.setAttribute("aria-label", a.label);
+      const img = document.createElement("img");
+      img.src = a.url; img.width = 44; img.height = 44; img.draggable = false;
+      img.className = "op-avatar op-avatar-pixel"; img.alt = a.label;
+      cell.append(img);
+      cell.addEventListener("click", () => { view.avatar = `pack2:${a.character}`; commit(true); });
+      grid.append(cell);
+    }
+    avField.append(avLbl, grid);
+    identity.append(avField);
+
+    const colField = document.createElement("div");
+    colField.className = "op-modal-field";
+    const colLbl = document.createElement("span");
+    colLbl.className = "op-modal-label";
+    colLbl.textContent = "Color";
+    const swatches = document.createElement("div");
+    swatches.className = "op-soul-swatches";
+    for (const c of COLOR_SWATCHES) {
+      const sw = document.createElement("button");
+      sw.type = "button";
+      sw.className = "op-soul-swatch";
+      if ((view.color ?? "").toLowerCase() === c.toLowerCase()) sw.classList.add("is-selected");
+      sw.style.background = c;
+      sw.setAttribute("aria-label", c);
+      sw.addEventListener("click", () => { view.color = c; commit(true); });
+      swatches.append(sw);
+    }
+    const custom = document.createElement("input");
+    custom.type = "color";
+    custom.className = "op-soul-color-custom";
+    custom.value = view.color ?? "#6B7280";
+    custom.addEventListener("input", () => { view.color = custom.value; commit(false); });
+    custom.addEventListener("change", () => { view.color = custom.value; commit(true); });
+    swatches.append(custom);
+    colField.append(colLbl, swatches);
+    identity.append(colField);
+
+    const tags = document.createElement("input");
+    tags.type = "text";
+    tags.className = "op-modal-input";
+    tags.placeholder = "comma, separated";
+    tags.value = (view.tags ?? []).join(", ");
+    tags.addEventListener("input", () => {
+      view.tags = tags.value.split(",").map((t) => t.trim()).filter(Boolean);
+      commit(false);
+    });
+    identity.append(labeled("Tags", tags));
+    controls.append(identity);
+
+    // ── Behaviour ─────────────────────────────────────────────────────
+    const behaviour = soulSection("Behaviour");
+
+    const voice = document.createElement("select");
+    voice.className = "op-modal-select";
+    for (const v of ["terse", "warm", "formal"]) {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = v;
+      if ((view.voice ?? "terse") === v) o.selected = true;
+      voice.append(o);
+    }
+    voice.addEventListener("change", () => { view.voice = voice.value; commit(true); });
+    behaviour.append(labeled("Voice", voice));
+
+    const modelField = document.createElement("label");
+    modelField.className = "op-modal-field";
+    const modelLbl = document.createElement("span");
+    modelLbl.className = "op-modal-label";
+    modelLbl.textContent = "Model";
+    const modelOptions = [...MODELS];
+    if (view.model && !modelOptions.some((m) => m.value === view.model)) {
+      modelOptions.push({ value: view.model, label: `${view.model} (custom)` });
+    }
+    const modelSelect = new CustomSelect({
+      className: "op-modal-select",
+      ariaLabel: "Operator model",
+      value: view.model ?? "claude-sonnet-4-6",
+      options: modelOptions,
+    });
+    modelSelect.element.addEventListener("change", () => { view.model = modelSelect.value; commit(false); });
+    modelField.append(modelLbl, modelSelect.element);
+    behaviour.append(modelField);
+
+    const thr = document.createElement("input");
+    thr.type = "range"; thr.min = "0"; thr.max = "1"; thr.step = "0.05";
+    thr.value = String(view.escalate_threshold ?? 0.6);
+    const thrField = labeled(
+      `Escalate threshold · ${(view.escalate_threshold ?? 0.6).toFixed(2)}`,
+      thr,
+    );
+    thr.addEventListener("input", () => {
+      view.escalate_threshold = Number.parseFloat(thr.value);
+      const lbl = thrField.querySelector<HTMLElement>(".op-modal-label");
+      if (lbl) lbl.textContent = `Escalate threshold · ${(view.escalate_threshold ?? 0.6).toFixed(2)}`;
+      commit(false);
+    });
+    behaviour.append(thrField);
+    controls.append(behaviour);
+
+    // ── Hard constraints (safety — extra deny rules) ──────────────────
+    const adv = document.createElement("details");
+    adv.className = "op-soul-advanced";
+    if ((view.hard_constraints ?? "").trim().length) adv.open = true;
+    const advSum = document.createElement("summary");
+    advSum.textContent = "Hard constraints";
+    const hc = document.createElement("textarea");
+    hc.className = "op-soul-hard";
+    hc.rows = 4;
+    hc.placeholder = "One deny rule per line (regex). e.g. ^git push --force";
+    hc.value = view.hard_constraints ?? "";
+    hc.addEventListener("input", () => { view.hard_constraints = hc.value; commit(false); });
+    adv.append(advSum, hc);
+    controls.append(adv);
+  }
+
+  // Body prose drives the soul; debounced preview.
+  let bodyDebounce: number | undefined;
+  body.addEventListener("input", () => {
+    view.body = body.value;
+    h.state.soulRaw = soulRawFromView(view);
+    src.value = h.state.soulRaw;
+    window.clearTimeout(bodyDebounce);
+    bodyDebounce = window.setTimeout(() => void renderPreview(), 200);
+  });
+
+  // Raw source escape hatch — authoritative re-parse on edit.
+  let rawDebounce: number | undefined;
   src.addEventListener("input", () => {
     h.state.soulRaw = src.value;
-    window.clearTimeout(debounce);
-    debounce = window.setTimeout(() => void refresh(), 200);
+    window.clearTimeout(rawDebounce);
+    rawDebounce = window.setTimeout(() => void syncFromRaw(), 200);
   });
 
-  async function refresh(): Promise<void> {
-    let view: SoulView;
+  async function syncFromRaw(): Promise<void> {
     try {
-      view = await operatorSoulParse(h.state.soulRaw);
+      const v = await operatorSoulParse(h.state.soulRaw);
+      if (!v) return;
+      view = v;
+      errLine.textContent = v.validation_error ?? "";
+      if (document.activeElement !== body) body.value = view.body ?? "";
+      renderHero();
+      paintControls();
+      void renderPreview();
     } catch (e) {
       errLine.textContent = `Parse failed: ${e}`;
-      return;
     }
-    if (!view) return;
-    const { marked } = await import("marked");
-    preview.innerHTML = marked.parse(view.body ?? "", { async: false }) as string;
-    errLine.textContent = view.validation_error ?? "";
-    renderSoulKnobs(h, knobs, view, () => {
-      // Knob edits rewrite the YAML; re-sync the textarea so the user
-      // sees the change reflected in the raw source.
-      src.value = h.state.soulRaw;
-    });
   }
-  void refresh();
+
+  // Initial hydrate from the modal's current soulRaw.
+  void (async () => {
+    try {
+      const v = await operatorSoulParse(h.state.soulRaw);
+      if (v) { view = v; errLine.textContent = v.validation_error ?? ""; }
+    } catch (e) {
+      errLine.textContent = `Parse failed: ${e}`;
+    }
+    src.value = h.state.soulRaw;
+    body.value = view.body ?? "";
+    renderHero();
+    paintControls();
+    void renderPreview();
+  })();
 
   return split;
-}
-
-function renderSoulKnobs(
-  h: ModalHandle,
-  host: HTMLElement,
-  view: SoulView,
-  afterChange: () => void,
-): void {
-  host.innerHTML = "";
-
-  const voice = document.createElement("select");
-  voice.className = "op-modal-select";
-  for (const v of ["terse", "warm", "formal"]) {
-    const o = document.createElement("option");
-    o.value = v;
-    o.textContent = v;
-    if ((view.voice ?? "terse") === v) o.selected = true;
-    voice.append(o);
-  }
-  voice.addEventListener("change", () => {
-    h.state.soulRaw = setFrontmatterScalar(h.state.soulRaw, "voice", voice.value);
-    afterChange();
-  });
-  host.append(labeled("Voice", voice));
-
-  const thr = document.createElement("input");
-  thr.type = "range";
-  thr.min = "0";
-  thr.max = "1";
-  thr.step = "0.05";
-  thr.value = String(view.escalate_threshold ?? 0.6);
-  thr.addEventListener("input", () => {
-    h.state.soulRaw = setFrontmatterScalar(h.state.soulRaw, "escalate_threshold", thr.value);
-    afterChange();
-  });
-  host.append(labeled(`Escalate threshold ${(view.escalate_threshold ?? 0.6).toFixed(2)}`, thr));
-
-  const model = document.createElement("input");
-  model.type = "text";
-  model.className = "op-modal-input";
-  model.value = view.model ?? "";
-  model.addEventListener("change", () => {
-    h.state.soulRaw = setFrontmatterScalar(h.state.soulRaw, "model", model.value);
-    afterChange();
-  });
-  host.append(labeled("Model", model));
 }
 
 // ── Footer: default toggle (left), delete + cancel + save (right) ───────────
