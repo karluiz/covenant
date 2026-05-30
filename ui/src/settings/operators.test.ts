@@ -35,15 +35,14 @@ describe('operator modal', () => {
     expect(m.state.draft.voice).toBe('Terse');
   });
 
-  it('saves via tauri command', async () => {
-    const m = openOperatorModal({ mode: 'create', preset: 'reviewer' });
-    m.setName('Cal');
+  it('saves via the from-soul tauri command', async () => {
+    const m = openOperatorModal({ mode: 'create' });
+    // Create mode routes the raw SOUL.md text through the from-soul
+    // command (the form's draft is now vestigial).
     await saveOperator(m);
     expect(invokeMock).toHaveBeenCalledWith(
-      'operator_create',
-      expect.objectContaining({
-        draft: expect.objectContaining({ name: 'Cal', voice: 'Terse' }),
-      }),
+      'operator_create_from_soul',
+      expect.objectContaining({ raw: expect.stringContaining('New Operator') }),
     );
   });
 });

@@ -822,3 +822,21 @@ body.theme-light .op-tg-bubble {
   background: rgba(94, 170, 224, 0.08);
   border-color: rgba(94, 170, 224, 0.30);
 }
+
+/* ── SOUL.md operator editor (archetype gallery + split editor) ─────────── */
+.op-archetypes { margin-bottom: 14px; }
+.op-archetype-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.op-archetype-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border, #2a2f37);
+  border-radius: 8px; background: var(--surface, #14181e); cursor: pointer; color: inherit; font: inherit; }
+.op-archetype-card:hover { border-color: var(--operator-color, #7aa2ff); }
+.op-archetype-name { font-weight: 600; font-size: 13px; }
+.op-archetype-tagline { font-size: 11px; opacity: .7; margin-top: 4px; }
+
+.op-soul-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 360px; }
+.op-soul-source { width: 100%; min-height: 360px; font-family: ui-monospace, Menlo, monospace;
+  font-size: 12.5px; line-height: 1.55; resize: vertical; }
+.op-soul-right { display: flex; flex-direction: column; gap: 12px; }
+.op-soul-knobs { display: flex; flex-direction: column; gap: 8px; }
+.op-soul-preview { border: 1px solid var(--border, #2a2f37); border-radius: 8px; padding: 12px;
+  overflow: auto; flex: 1; }
+.op-soul-error { color: #ff8585; font-size: 12px; min-height: 16px; }
