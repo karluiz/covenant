@@ -61,6 +61,25 @@ pub fn parse(raw: &str) -> Result<Soul, SoulError> {
     Ok(Soul { frontmatter, body })
 }
 
+/// Emit canonical SOUL.md text. Field order follows `SoulFrontmatter`.
+pub fn serialize(soul: &Soul) -> String {
+    let yaml = serde_yaml::to_string(&soul.frontmatter).unwrap_or_default();
+    format!("---\n{}---\n\n{}\n", yaml, soul.body.trim_end())
+}
+
+pub fn validate(soul: &Soul) -> Result<(), SoulError> {
+    let n = soul.frontmatter.name.trim();
+    if n.is_empty() || n.len() > 64 {
+        return Err(SoulError::InvalidName);
+    }
+    if let Some(t) = soul.frontmatter.escalate_threshold {
+        if !(0.0..=1.0).contains(&t) {
+            return Err(SoulError::InvalidThreshold);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,5 +95,28 @@ mod tests {
         assert_eq!(s.frontmatter.escalate_threshold, Some(0.55));
         assert_eq!(s.frontmatter.tags, vec!["deploys".to_string()]);
         assert_eq!(s.body, "# Atlas\n\nI was made to wait.");
+    }
+
+    #[test]
+    fn round_trips() {
+        let s = parse(SAMPLE).expect("parse");
+        let out = serialize(&s);
+        let s2 = parse(&out).expect("reparse");
+        assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn rejects_missing_frontmatter() {
+        assert!(matches!(parse("# just a body\n"), Err(SoulError::NoFrontmatter)));
+    }
+
+    #[test]
+    fn validate_rejects_empty_name_and_bad_threshold() {
+        let mut s = parse(SAMPLE).unwrap();
+        s.frontmatter.name = "   ".into();
+        assert!(matches!(validate(&s), Err(SoulError::InvalidName)));
+        let mut s2 = parse(SAMPLE).unwrap();
+        s2.frontmatter.escalate_threshold = Some(1.5);
+        assert!(matches!(validate(&s2), Err(SoulError::InvalidThreshold)));
     }
 }
