@@ -832,7 +832,8 @@ body.theme-light .op-tg-bubble {
 }
 
 /* ── SOUL.md operator editor (archetype gallery + split editor) ─────────── */
-.op-archetypes { margin-bottom: 14px; }
+.op-archetypes { margin-top: 14px; margin-bottom: 18px; }
+.op-archetypes > .op-modal-label { margin-bottom: 10px; }
 .op-archetype-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .op-archetype-card { text-align: left; padding: 10px 12px; border: 1px solid var(--border, #2a2f37);
   border-radius: 8px; background: var(--surface, #14181e); cursor: pointer; color: inherit; font: inherit; }
