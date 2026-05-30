@@ -20,12 +20,19 @@ body.tab-style-crt .tab-btn:hover:not(.active) {
   background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
-/* Active: phosphor glow + scanline rail (repurpose ::before). */
+/* Active: phosphor text + faint scanline texture across the row + a blinking
+   caret-rail on the left edge. The scanlines + pulse are what separate CRT
+   from Forge's static accent. */
 body.tab-style-crt .tab-btn.active {
   color: var(--tab-fg-active);
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--tab-stripe, var(--accent)) 14%, transparent), transparent 80%);
-  text-shadow: 0 0 8px color-mix(in srgb, var(--tab-stripe, var(--accent)) 60%, transparent);
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--tab-stripe, var(--accent)) 16%, transparent), transparent 78%),
+    repeating-linear-gradient(0deg,
+      rgba(var(--ink-rgb), 0.05) 0 1px, transparent 1px 3px);
+  text-shadow:
+    0 0 6px color-mix(in srgb, var(--tab-stripe, var(--accent)) 75%, transparent),
+    0 0 13px color-mix(in srgb, var(--tab-stripe, var(--accent)) 38%, transparent);
 }
 body.tab-style-crt .tab-btn.active::before {
   left: 0; right: auto; top: 0; bottom: 0;
@@ -34,6 +41,11 @@ body.tab-style-crt .tab-btn.active::before {
   background: var(--tab-stripe, var(--accent));
   filter: none;
   box-shadow: 0 0 8px var(--tab-stripe, var(--accent)), 0 0 16px var(--tab-stripe, var(--accent));
+  animation: crt-caret 1.06s steps(2, jump-none) infinite;
+}
+@keyframes crt-caret { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  body.tab-style-crt .tab-btn.active::before { animation: none; }
 }
 /* Base hides the vertical active ::before (avatar competition). Re-enable the
    CRT scanline rail only on rows without a pinned operator. */
@@ -77,6 +89,58 @@ body.tab-style-crt .group-chip {
 body.tab-style-crt .group-chip-count {
   color: color-mix(in srgb, var(--group-color, var(--accent)) 70%, var(--text-primary));
 }
+/* VERTICAL: match the base 0,3,1 chip rule so CRT's sharp ASCII header wins
+   over the base "project card" fill (rounded tinted box). */
+body.tab-style-crt.tabbar-left .group-chip {
+  height: 28px;
+  min-height: 28px;
+  border: none;
+  border-left: 3px solid var(--group-color, var(--accent));
+  border-radius: 0;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--group-color, var(--accent)) 12%, transparent), transparent);
+  box-shadow: none;
+}
 
 /* Vertical: tree feel — indent members slightly under the ASCII header. */
-body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn { padding-left: 16px; }
+body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn { padding-left: 12px; }
+
+/* ── Terminal prompt · tree connectors · blinking caret ──
+   These light the theme-agnostic .tab-lead / .tab-caret slots the tab
+   renderer emits. Hidden globally by default (only CRT shows them). */
+.tab-lead, .tab-caret { display: none; }
+
+body.tab-style-crt .tab-lead {
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 50%, var(--tab-fg-rest));
+  opacity: 0.6;
+}
+body.tab-style-crt .tab-lead::before { content: "$"; }
+body.tab-style-crt .tab-btn.active .tab-lead {
+  color: var(--tab-stripe, var(--accent));
+  opacity: 1;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--tab-stripe, var(--accent)) 60%, transparent);
+}
+/* Grouped members hang off ASCII tree connectors (vertical only). */
+body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn .tab-lead {
+  color: color-mix(in srgb, var(--group-color, var(--accent)) 55%, var(--tab-fg-rest));
+}
+body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn .tab-lead::before { content: "├─"; }
+body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn:last-child .tab-lead::before { content: "└─"; }
+
+/* Blinking phosphor caret trailing the active row's label. */
+body.tab-style-crt .tab-btn.active .tab-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 4px;
+  vertical-align: text-bottom;
+  background: var(--tab-stripe, var(--accent));
+  box-shadow: 0 0 6px var(--tab-stripe, var(--accent));
+  animation: crt-caret 1.06s steps(2, jump-none) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.tab-style-crt .tab-btn.active .tab-caret { animation: none; }
+}

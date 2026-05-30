@@ -5705,6 +5705,13 @@ export class TabManager {
       pill.appendChild(stack);
     }
 
+    // Theme lead slot (hidden by default). CRT lights it as a terminal prompt:
+    // "$" for loose tabs, ├─/└─ tree connectors for grouped members (via CSS).
+    const lead = document.createElement("span");
+    lead.className = "tab-lead";
+    lead.setAttribute("aria-hidden", "true");
+    pill.appendChild(lead);
+
     if (this.isRenamingTab(tab.id)) {
       const input = document.createElement("input");
       input.type = "text";
@@ -5744,6 +5751,13 @@ export class TabManager {
       label.textContent = tabDisplayName(tab);
       pill.appendChild(label);
     }
+
+    // Theme caret slot (hidden by default). CRT shows a blinking phosphor
+    // caret on the active row.
+    const caret = document.createElement("span");
+    caret.className = "tab-caret";
+    caret.setAttribute("aria-hidden", "true");
+    pill.appendChild(caret);
 
     // Spec-pending badge. Mounted here so it sits before the close button.
     tab.specBadge = mountSpecBadge(
