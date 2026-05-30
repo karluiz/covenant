@@ -219,6 +219,62 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    /// kebab-case ascii slug for a directory name.
+    fn slugify(name: &str) -> String {
+        let mut out = String::new();
+        let mut prev_dash = false;
+        for ch in name.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch.to_ascii_lowercase());
+                prev_dash = false;
+            } else if !prev_dash {
+                out.push('-');
+                prev_dash = true;
+            }
+        }
+        let s = out.trim_matches('-').to_string();
+        if s.is_empty() {
+            "operator".into()
+        } else {
+            s
+        }
+    }
+
+    /// Resolve a unique SOUL.md path for a new operator, avoiding collisions.
+    fn soul_path_for(&self, name: &str, id: OperatorId) -> std::path::PathBuf {
+        let base = Self::slugify(name);
+        let dir = self.souls_dir.join(&base);
+        if dir.exists() {
+            let suffix = id.to_string().to_lowercase();
+            let short = &suffix[suffix.len().saturating_sub(6)..];
+            self.souls_dir
+                .join(format!("{base}-{short}"))
+                .join("SOUL.md")
+        } else {
+            dir.join("SOUL.md")
+        }
+    }
+
+    /// Write an operator's identity to its SOUL.md (creating parent dirs).
+    /// Returns the file's new mtime.
+    fn write_soul(op: &Operator) -> Result<u64, RegistryError> {
+        let path = op.soul_path.as_ref().ok_or_else(|| {
+            RegistryError::Storage(crate::storage::StorageError::Other(
+                "operator has no soul_path".into(),
+            ))
+        })?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+            })?;
+        }
+        let text = crate::soul::serialize(&crate::soul::soul_from_operator(op));
+        std::fs::write(path, text).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        Ok(crate::soul::mtime_of(path).unwrap_or(0))
+    }
+
     pub async fn create(
         &self,
         storage: &Storage,
@@ -241,12 +297,20 @@ impl OperatorRegistry {
                 op.is_default = true;
             }
         }
+        if op.soul_path.is_none() {
+            op.soul_path = Some(self.soul_path_for(&op.name, op.id));
+        }
+        op.soul_mtime_unix_ms = Self::write_soul(&op)?;
         storage.operator_insert(op.clone()).await?;
         self.by_id.write().unwrap().insert(op.id, op.clone());
         Ok(op)
     }
 
-    pub async fn update(&self, storage: &Storage, op: Operator) -> Result<Operator, RegistryError> {
+    pub async fn update(
+        &self,
+        storage: &Storage,
+        mut op: Operator,
+    ) -> Result<Operator, RegistryError> {
         Self::validate(&op)?;
         {
             let g = self.by_id.read().unwrap();
@@ -259,6 +323,18 @@ impl OperatorRegistry {
                 return Err(RegistryError::DuplicateName(op.name));
             }
         }
+        if op.soul_path.is_none() {
+            op.soul_path = self
+                .by_id
+                .read()
+                .unwrap()
+                .get(&op.id)
+                .and_then(|o| o.soul_path.clone());
+            if op.soul_path.is_none() {
+                op.soul_path = Some(self.soul_path_for(&op.name, op.id));
+            }
+        }
+        op.soul_mtime_unix_ms = Self::write_soul(&op)?;
         storage.operator_update(op.clone()).await?;
         self.by_id.write().unwrap().insert(op.id, op.clone());
         Ok(op)
@@ -623,5 +699,56 @@ mod voice_tests {
         );
         assert_ne!(t, w);
         assert_ne!(w, f);
+    }
+}
+
+#[cfg(test)]
+mod soul_io_tests {
+    use super::*;
+
+    async fn temp_storage(dir: &std::path::Path) -> std::sync::Arc<Storage> {
+        std::sync::Arc::new(Storage::open(&dir.join("history.db")).expect("open"))
+    }
+
+    #[tokio::test]
+    async fn create_writes_soul_file_and_load_hydrates_from_it() {
+        let tmp = std::env::temp_dir().join(format!("covenant-soul-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+        let reg = OperatorRegistry::load(&storage, souls.clone()).await.unwrap();
+
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Atlas".into(),
+            emoji: "pack2:guardian".into(),
+            color: "#c4a7ff".into(),
+            tags: vec!["deploys".into()],
+            persona: "I was made to wait.".into(),
+            escalate_threshold: 0.55,
+            model: "claude-sonnet-4-6".into(),
+            hard_constraints: "^git push --force".into(),
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Warm,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+        };
+        let created = reg.create(&storage, op).await.unwrap();
+        let path = created.soul_path.clone().expect("soul_path set");
+        assert!(path.exists(), "SOUL.md written to disk");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("name: Atlas"));
+        assert!(raw.contains("I was made to wait."));
+
+        let mutated = raw.replace("I was made to wait.", "I keep the night watch.");
+        std::fs::write(&path, mutated).unwrap();
+        let reg2 = OperatorRegistry::load(&storage, souls).await.unwrap();
+        let hydrated = reg2.get(created.id).unwrap();
+        assert_eq!(hydrated.persona, "I keep the night watch.");
+
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }
