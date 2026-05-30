@@ -9009,6 +9009,11 @@ body.tabbar-left #tabs {
    layout uses — vertical stacking doesn't need them. */
 body.tabbar-left .tab-btn {
     width: 100%;
+    /* content-box (the default for .tab-btn) + width:100% + horizontal padding
+       overflowed #tabs to the right, where overflow-x:hidden clipped the
+       trailing cluster (split glyph / close). border-box keeps the pill within
+       its column. */
+    box-sizing: border-box;
     max-width: none;
     min-width: 0;
     height: 32px;
@@ -9150,6 +9155,7 @@ body.tabbar-left .tab-group-body > * + * {
    colored stroke into a parenthesis shape automatically. */
 body.tabbar-left .group-chip {
     width: 100%;
+    box-sizing: border-box;
     height: 28px;
     border-radius: 10px;
     border: 1px solid
