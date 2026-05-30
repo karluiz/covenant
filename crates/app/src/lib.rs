@@ -2851,7 +2851,8 @@ pub fn run() {
             // Tauri commands (Task 6) can resolve State<Arc<OperatorRegistry>>
             // and State<Arc<Storage>>.
             let registry = tauri::async_runtime::block_on(async {
-                crate::operator_registry::OperatorRegistry::load(&storage).await
+                crate::operator_registry::OperatorRegistry::load(&storage, dir.join("operators"))
+                    .await
             })
             .map_err(|e| format!("load operator registry: {e}"))?;
 

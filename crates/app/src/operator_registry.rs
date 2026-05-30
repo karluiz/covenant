@@ -119,18 +119,37 @@ use std::sync::RwLock;
 pub struct OperatorRegistry {
     by_id: RwLock<HashMap<OperatorId, Operator>>,
     pins: RwLock<HashMap<SessionId, OperatorId>>,
+    souls_dir: std::path::PathBuf,
 }
 
 impl OperatorRegistry {
-    pub async fn load(storage: &Storage) -> Result<Self, RegistryError> {
+    pub async fn load(
+        storage: &Storage,
+        souls_dir: std::path::PathBuf,
+    ) -> Result<Self, RegistryError> {
         let rows = storage.operator_list().await?;
         let mut by_id = HashMap::new();
-        for op in rows {
+        for mut op in rows {
+            if let Some(path) = op.soul_path.clone() {
+                match std::fs::read_to_string(&path) {
+                    Ok(raw) => match crate::soul::parse(&raw) {
+                        Ok(soul) => {
+                            crate::soul::hydrate_operator(&mut op, &soul);
+                            op.soul_mtime_unix_ms = crate::soul::mtime_of(&path).unwrap_or(0);
+                        }
+                        Err(e) => tracing::warn!(path = %path.display(), error = %e,
+                            "SOUL.md parse failed; using DB cache"),
+                    },
+                    Err(e) => tracing::warn!(path = %path.display(), error = %e,
+                        "SOUL.md unreadable; using DB cache"),
+                }
+            }
             by_id.insert(op.id, op);
         }
         Ok(Self {
             by_id: RwLock::new(by_id),
             pins: RwLock::new(HashMap::new()),
+            souls_dir,
         })
     }
 
@@ -176,6 +195,7 @@ impl OperatorRegistry {
         std::sync::Arc::new(Self {
             by_id: RwLock::new(by_id),
             pins: RwLock::new(HashMap::new()),
+            souls_dir: std::env::temp_dir().join("covenant-test-souls"),
         })
     }
 
