@@ -35,6 +35,7 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+mod soul;
 mod pane;
 mod pi_commands;
 mod project_notes;
