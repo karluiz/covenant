@@ -1,0 +1,82 @@
+/* ═══ TAB STYLE: CRT (body.tab-style-crt) ═══
+   Terminal-brutalist. Active = scanline glow + phosphor text (repurposes
+   ::before as the left scanline rail, ::after for AOM flicker). Group =
+   ASCII header with a glowing left bar. */
+
+body.tab-style-crt #tabs { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+body.tab-style-crt .tab-btn {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--tab-fg-rest);
+  letter-spacing: 0.02em;
+  transition: color 0.15s, background 0.15s, border-color 0.15s,
+    max-width 0.32s ease, max-height 0.32s ease, opacity 0.22s;
+}
+body.tab-style-crt .tab-btn:hover:not(.active) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+/* Active: phosphor glow + scanline rail (repurpose ::before). */
+body.tab-style-crt .tab-btn.active {
+  color: var(--tab-fg-active);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--tab-stripe, var(--accent)) 14%, transparent), transparent 80%);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--tab-stripe, var(--accent)) 60%, transparent);
+}
+body.tab-style-crt .tab-btn.active::before {
+  left: 0; right: auto; top: 0; bottom: 0;
+  width: 2px; height: auto;
+  border-radius: 0; clip-path: none;
+  background: var(--tab-stripe, var(--accent));
+  filter: none;
+  box-shadow: 0 0 8px var(--tab-stripe, var(--accent)), 0 0 16px var(--tab-stripe, var(--accent));
+}
+/* Base hides the vertical active ::before (avatar competition). Re-enable the
+   CRT scanline rail only on rows without a pinned operator. */
+body.tab-style-crt.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+  display: block;
+}
+
+/* AOM = flicker rail (repurpose ::after as a thin flickering border). */
+body.tab-style-crt .tab-btn.tab-aom-active::after {
+  content: "";
+  inset: 0;
+  border-radius: 0;
+  clip-path: none;
+  -webkit-mask: none; mask: none;
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent-2, #22d3ee) 45%, transparent);
+  animation: crt-flicker 0.13s steps(2) infinite;
+}
+@keyframes crt-flicker { 50% { border-color: color-mix(in srgb, var(--accent-2, #22d3ee) 80%, transparent); } }
+@media (prefers-reduced-motion: reduce) {
+  body.tab-style-crt .tab-btn.tab-aom-active::after { animation: none; }
+}
+body.tab-style-crt .tab-btn.tab-aom-excluded::after {
+  inset: 0; border: 1px dashed color-mix(in srgb, var(--text-primary) 35%, transparent);
+  background: none; -webkit-mask: none; mask: none;
+}
+
+/* Group = ASCII header with glowing left bar. */
+body.tab-style-crt .tab-group-stripe { display: none; }
+body.tab-style-crt .group-chip {
+  border: none;
+  border-radius: 0;
+  border-left: 3px solid var(--group-color, var(--accent));
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--group-color, var(--accent)) 12%, transparent), transparent);
+  color: var(--group-color, var(--accent));
+  text-shadow: 0 0 8px color-mix(in srgb, var(--group-color, var(--accent)) 50%, transparent);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+body.tab-style-crt .group-chip-count {
+  color: color-mix(in srgb, var(--group-color, var(--accent)) 70%, var(--text-primary));
+}
+
+/* Vertical: tree feel — indent members slightly under the ASCII header. */
+body.tab-style-crt.tabbar-left .tab-group-shell .tab-btn { padding-left: 16px; }

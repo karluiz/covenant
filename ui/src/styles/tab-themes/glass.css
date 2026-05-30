@@ -1,0 +1,92 @@
+/* ═══ TAB STYLE: GLASS (body.tab-style-glass) ═══
+   Frosted capsules + one sliding indicator. Group = tinted glass trough.
+   AOM = breathing color aura. Repurposes no base pseudo-elements for the
+   active highlight; that is the JS-positioned .tab-glass-indicator. */
+
+/* The sliding indicator (created/positioned in tabs/glass-indicator.ts). */
+.tab-glass-indicator {
+  position: absolute;
+  border-radius: 11px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--gi-color, var(--accent)) 22%, rgba(var(--ink-rgb), 0.10)),
+    rgba(var(--ink-rgb), 0.04));
+  box-shadow: 0 6px 18px -6px rgba(0,0,0,0.6),
+    inset 0 1px 0 rgba(var(--ink-rgb), 0.18), 0 0 0 1px rgba(var(--ink-rgb), 0.06);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: top 0.42s cubic-bezier(0.22,1.2,0.36,1),
+    left 0.42s cubic-bezier(0.22,1.2,0.36,1),
+    width 0.42s cubic-bezier(0.22,1.2,0.36,1),
+    height 0.42s cubic-bezier(0.22,1.2,0.36,1),
+    background 0.4s, opacity 0.2s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-glass-indicator { transition: opacity 0.1s; }
+}
+
+/* ── GLASS · shared pill treatment ── */
+body.tab-style-glass .tab-btn {
+  position: relative;
+  z-index: 1;
+  border: none;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--tab-fg-rest);
+  transition: color 0.3s, transform 0.3s cubic-bezier(0.22,1.2,0.36,1),
+    max-width 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease-out;
+}
+body.tab-style-glass .tab-btn:hover:not(.active) { color: var(--text-primary); }
+body.tab-style-glass .tab-btn.active { color: var(--tab-fg-active); }
+/* base active ::before seam is redundant under the indicator — hide it. */
+body.tab-style-glass .tab-btn.active::before { display: none; }
+
+/* AOM = breathing aura behind the capsule (repurpose ::after). */
+body.tab-style-glass .tab-btn.tab-aom-active::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 13px;
+  z-index: -1;
+  background: conic-gradient(from 0deg,
+    var(--accent), var(--accent-3, #bb9af7), var(--accent-2, #22d3ee), var(--accent));
+  filter: blur(7px);
+  opacity: 0.5;
+  -webkit-mask: none; mask: none; /* override base ring masking */
+  animation: glass-breathe 3.2s ease-in-out infinite;
+}
+@keyframes glass-breathe { 50% { opacity: 0.8; filter: blur(10px); } }
+@media (prefers-reduced-motion: reduce) {
+  body.tab-style-glass .tab-btn.tab-aom-active::after { animation: none; opacity: 0.6; }
+}
+body.tab-style-glass .tab-btn.tab-aom-excluded::after {
+  inset: -1px; border-radius: 12px; opacity: 0.78;
+}
+
+/* Group = tinted glass trough. */
+body.tab-style-glass .tab-group-stripe { display: none; }
+body.tab-style-glass .tab-group-shell {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--group-color, var(--accent)) 9%, rgba(var(--ink-rgb), 0.015));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--accent)) 20%, transparent);
+  padding: 4px;
+}
+body.tab-style-glass .group-chip {
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: color-mix(in srgb, var(--group-color, var(--accent)) 60%, var(--text-primary));
+}
+body.tab-style-glass .group-chip-dot {
+  box-shadow: 0 0 8px var(--group-color, var(--accent));
+}
+
+/* ── GLASS · HORIZONTAL ── */
+body.tab-style-glass:not(.tabbar-left) #tabs { gap: 6px; padding: 0 8px; position: relative; }
+body.tab-style-glass:not(.tabbar-left) .tab-btn:hover:not(.active) { transform: translateY(-1px); }
+
+/* ── GLASS · VERTICAL ── */
+body.tab-style-glass.tabbar-left #tabs { position: relative; }
+body.tab-style-glass.tabbar-left .tab-btn:hover:not(.active):not(:has(.tab-op-chip-leading)) {
+  transform: translateX(2px);
+}

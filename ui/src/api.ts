@@ -876,9 +876,9 @@ export type ThemeMode = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 
 /// Cosmetic tab/group skin. Mirrors the Rust `TabStyle` enum. Applied by
-/// toggling a `body.tab-style-<variant>` class; "classic" is the default
-/// flat-pill look, "forge" is the angled mechanical variant.
-export type TabStyle = "classic" | "forge";
+/// toggling a `body.tab-style-<variant>` class: "classic" (default flat-pill),
+/// "forge" (angled mechanical), "glass" (icy translucent), "crt" (phosphor retro).
+export type TabStyle = "classic" | "forge" | "glass" | "crt";
 
 export async function setWindowTheme(mode: ResolvedTheme): Promise<void> {
   await invoke("set_window_theme", { mode });

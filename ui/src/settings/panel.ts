@@ -56,7 +56,7 @@ interface TerminalConfig {
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
 type ThemeMode = "dark" | "light" | "system";
-type TabStyle = "classic" | "forge";
+type TabStyle = "classic" | "forge" | "glass" | "crt";
 
 interface WindowConfig {
   background: WindowBackground;
@@ -477,6 +477,20 @@ export class SettingsPanel {
               <span class="settings-radio-body">
                 <span class="settings-radio-title">Forge</span>
                 <span class="settings-radio-hint">Angled, mechanical tabs — the active one rises and lights a hot seam. Works in both top and left layouts.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_style" value="glass" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Glass</span>
+                <span class="settings-radio-hint">Frosted capsules with a single indicator that springs between tabs. Calm, premium. Both layouts.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_style" value="crt" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">CRT</span>
+                <span class="settings-radio-hint">Terminal-brutalist — blinking caret, scanline glow, ASCII group headers. The screenshot magnet. Both layouts.</span>
               </span>
             </label>
           </fieldset>
