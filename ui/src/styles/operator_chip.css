@@ -139,22 +139,30 @@ body.theme-dark .op-card-summary {
   inset: 0;
   z-index: 10200;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Right-anchored drawer: panel slides in from the edge, full height. */
+  align-items: stretch;
+  justify-content: flex-end;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  padding: 24px;
+  padding: 0;
+}
+@keyframes op-drawer-in {
+  from { transform: translateX(28px); opacity: 0.5; }
+  to { transform: translateX(0); opacity: 1; }
 }
 .op-modal-step {
-  width: min(760px, 100%);
-  max-height: calc(100vh - 48px);
+  width: 75vw;
+  min-width: min(100vw, 640px);
+  height: 100vh;
+  max-height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 0;
   padding: 0;
-  border-radius: 12px;
+  border-radius: 14px 0 0 14px;
+  animation: op-drawer-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
   background: var(--bg-overlay, #1a1a1a);
   color: var(--text-primary, #e6e6e6);
   /* Accent-tinted hairline border so the card feels related to the
