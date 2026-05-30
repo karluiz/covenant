@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS operators (
     is_default           INTEGER NOT NULL DEFAULT 0,
     created_at_unix_ms   INTEGER NOT NULL,
     updated_at_unix_ms   INTEGER NOT NULL,
-    voice                TEXT NOT NULL DEFAULT 'Terse'
+    voice                TEXT NOT NULL DEFAULT 'Terse',
+    soul_path            TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS operators_default_unique
     ON operators(is_default) WHERE is_default = 1;
@@ -551,6 +552,8 @@ impl Storage {
             "ALTER TABLE operators ADD COLUMN voice TEXT NOT NULL DEFAULT 'Terse'",
             [],
         );
+        // SOUL.md: per-operator file pointer (source of truth for identity).
+        let _ = conn.execute("ALTER TABLE operators ADD COLUMN soul_path TEXT", []);
         // Teammate phase 1: rolling summary per operator for prompt
         // caching when DMing. Empty for existing rows.
         let _ = conn.execute(
@@ -1558,8 +1561,8 @@ impl Storage {
             c.execute(
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms, xp, voice) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                 created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1575,6 +1578,7 @@ impl Storage {
                     op.updated_at_unix_ms as i64,
                     op.xp as i64,
                     voice_to_str(op.voice),
+                    op.soul_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
                 ],
             )?;
             Ok(())
@@ -1595,7 +1599,7 @@ impl Storage {
             c.execute(
                 "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
                  persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
-                 updated_at_unix_ms=?10, voice=?11 WHERE id=?1",
+                 updated_at_unix_ms=?10, voice=?11, soul_path=?12 WHERE id=?1",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1608,7 +1612,28 @@ impl Storage {
                     op.hard_constraints,
                     op.updated_at_unix_ms as i64,
                     voice_to_str(op.voice),
+                    op.soul_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
                 ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Set only the `soul_path` for an operator (used by the SOUL.md backfill
+    /// migration so it doesn't have to rewrite the whole row).
+    pub async fn operator_set_soul_path(
+        &self,
+        id: String,
+        path: String,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            c.execute(
+                "UPDATE operators SET soul_path=?2 WHERE id=?1",
+                params![id, path],
             )?;
             Ok(())
         })
@@ -1658,7 +1683,7 @@ impl Storage {
             let mut stmt = c.prepare(
                 "SELECT id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms, xp, voice FROM operators \
+                 created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path FROM operators \
                  ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -1690,7 +1715,11 @@ impl Storage {
                             .get::<_, String>(13)
                             .map(|s| voice_from_str(&s))
                             .unwrap_or_default(),
-                        soul_path: None,
+                        soul_path: row
+                            .get::<_, Option<String>>(14)
+                            .ok()
+                            .flatten()
+                            .map(std::path::PathBuf::from),
                         soul_mtime_unix_ms: 0,
                     })
                 })?
