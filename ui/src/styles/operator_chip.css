@@ -161,7 +161,7 @@ body.theme-dark .op-card-summary {
   flex-direction: column;
   gap: 0;
   padding: 0;
-  border-radius: 14px 0 0 14px;
+  border-radius: 0;
   animation: op-drawer-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
   background: var(--bg-overlay, #1a1a1a);
   color: var(--text-primary, #e6e6e6);
