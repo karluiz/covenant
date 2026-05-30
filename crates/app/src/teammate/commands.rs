@@ -551,6 +551,8 @@ mod task_lifecycle_tests {
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             xp: 0,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         }).await.unwrap();
 
         let msg_id = MessageId::new();

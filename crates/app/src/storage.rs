@@ -1690,6 +1690,8 @@ impl Storage {
                             .get::<_, String>(13)
                             .map(|s| voice_from_str(&s))
                             .unwrap_or_default(),
+                        soul_path: None,
+                        soul_mtime_unix_ms: 0,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -3649,6 +3651,8 @@ mod tests {
             updated_at_unix_ms: 1,
             xp: 0,
             voice: VoiceTone::Warm,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         let warm_id = warm.id;
         s.operator_insert(warm).await.unwrap();
@@ -3669,6 +3673,8 @@ mod tests {
             updated_at_unix_ms: 2,
             xp: 0,
             voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         let terse_id = terse.id;
         s.operator_insert(terse).await.unwrap();
@@ -3773,6 +3779,7 @@ mod task_card_storage_tests {
             model: "x".into(), hard_constraints: "".into(),
             voice: crate::operator_registry::VoiceTone::Terse,
             is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+            soul_path: None, soul_mtime_unix_ms: 0,
         }).await.unwrap();
 
         let msg = make_propose_msg(op);

@@ -47,6 +47,14 @@ pub struct Operator {
     /// Tone applied to outbound messages (Telegram summaries, banner text).
     #[serde(default)]
     pub voice: VoiceTone,
+    /// Path to this operator's SOUL.md (source of truth for identity).
+    /// `None` only transiently before migration backfills it.
+    #[serde(default)]
+    pub soul_path: Option<std::path::PathBuf>,
+    /// Last-seen mtime of `soul_path`, for hot-reload change detection.
+    /// Not persisted; recomputed on load.
+    #[serde(default, skip)]
+    pub soul_mtime_unix_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -161,6 +169,8 @@ impl OperatorRegistry {
             updated_at_unix_ms: 0,
             xp: 0,
             voice: VoiceTone::default(),
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
@@ -341,6 +351,8 @@ impl OperatorRegistry {
             updated_at_unix_ms: now,
             xp: 0,
             voice: VoiceTone::default(),
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         let id = op.id;
         let name = op.name.clone();
@@ -454,6 +466,8 @@ pub mod commands {
             updated_at_unix_ms: now,
             xp: 0,
             voice: draft.voice,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -484,6 +498,8 @@ pub mod commands {
             updated_at_unix_ms: now_ms(),
             xp: existing.xp,
             voice: draft.voice,
+            soul_path: existing.soul_path.clone(),
+            soul_mtime_unix_ms: existing.soul_mtime_unix_ms,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -556,6 +572,8 @@ mod voice_tests {
             updated_at_unix_ms: 0,
             xp: 0,
             voice: VoiceTone::default(),
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
