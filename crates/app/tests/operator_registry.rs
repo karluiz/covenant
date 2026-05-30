@@ -10,6 +10,12 @@ fn tmp_storage() -> (tempfile::TempDir, Storage) {
     (dir, s)
 }
 
+/// souls dir for a registry under test, derived from the per-test TempDir so
+/// SOUL.md files (written by create/update) land inside the temp tree.
+fn souls(d: &tempfile::TempDir) -> std::path::PathBuf {
+    d.path().join("operators")
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -33,13 +39,15 @@ fn sample(name: &str, is_default: bool) -> Operator {
         updated_at_unix_ms: now_ms(),
         xp: 0,
         voice: covenant_lib::operator_registry::VoiceTone::default(),
+        soul_path: None,
+        soul_mtime_unix_ms: 0,
     }
 }
 
 #[tokio::test]
 async fn insert_then_list_returns_row() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     reg.create(&s, sample("Default", true)).await.unwrap();
     let rows = reg.list();
     assert_eq!(rows.len(), 1);
@@ -50,7 +58,7 @@ async fn insert_then_list_returns_row() {
 #[tokio::test]
 async fn duplicate_name_rejected_case_insensitive() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     reg.create(&s, sample("Default", true)).await.unwrap();
     let err = reg.create(&s, sample("default", false)).await.unwrap_err();
     assert!(matches!(
@@ -62,7 +70,7 @@ async fn duplicate_name_rejected_case_insensitive() {
 #[tokio::test]
 async fn cannot_delete_default() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     let def = sample("Default", true);
     let id = def.id;
     reg.create(&s, def).await.unwrap();
@@ -76,7 +84,7 @@ async fn cannot_delete_default() {
 #[tokio::test]
 async fn set_default_flips_atomically() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     let a = sample("A", true);
     let b = sample("B", false);
     let (id_a, id_b) = (a.id, b.id);
@@ -92,7 +100,7 @@ async fn set_default_flips_atomically() {
 #[tokio::test]
 async fn effective_for_unpinned_session_returns_default() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     reg.create(&s, sample("Default", true)).await.unwrap();
     let session_id = SessionId::new();
     let op = reg.effective_for(session_id);
@@ -105,7 +113,7 @@ async fn migration_seeds_default_from_settings_only_once() {
     let cfg = OperatorConfig::default();
     let model = "claude-sonnet-4-6".to_string();
 
-    let reg1 = OperatorRegistry::load(&s).await.unwrap();
+    let reg1 = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     let inserted = reg1
         .seed_default_from_settings(&s, &cfg, &model)
         .await
@@ -118,7 +126,7 @@ async fn migration_seeds_default_from_settings_only_once() {
     assert!(def.is_default);
 
     // Second call (e.g. next boot) is a no-op.
-    let reg2 = OperatorRegistry::load(&s).await.unwrap();
+    let reg2 = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     let inserted2 = reg2
         .seed_default_from_settings(&s, &cfg, &model)
         .await
@@ -130,7 +138,7 @@ async fn migration_seeds_default_from_settings_only_once() {
 #[tokio::test]
 async fn pin_unpin_round_trip() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     reg.create(&s, sample("Default", true)).await.unwrap();
     let sec = sample("Sec-Op", false);
     let sec_id = sec.id;
@@ -179,7 +187,7 @@ async fn teammate_messages_roundtrip() {
 #[tokio::test]
 async fn deleting_pinned_operator_falls_back_to_default() {
     let (_d, s) = tmp_storage();
-    let reg = OperatorRegistry::load(&s).await.unwrap();
+    let reg = OperatorRegistry::load(&s, souls(&_d)).await.unwrap();
     reg.create(&s, sample("Default", true)).await.unwrap();
     let sec = sample("Sec-Op", false);
     let sec_id = sec.id;

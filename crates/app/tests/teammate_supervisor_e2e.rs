@@ -57,6 +57,8 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         updated_at_unix_ms: now_ms(),
         xp: 0,
         voice: VoiceTone::default(),
+        soul_path: None,
+        soul_mtime_unix_ms: 0,
     };
     storage.operator_insert(operator).await.expect("insert operator");
 

@@ -1417,6 +1417,12 @@ async fn tick_loop(
             if let Err(e) = refresh_changed_missions(&inner, &app).await {
                 tracing::debug!(error = %e, "mission refresh tick failed");
             }
+            // Mirror the mission watch for SOUL.md: pick up external-editor
+            // edits to an operator's soul live, on the same cadence.
+            let reloaded = registry.refresh_changed_souls();
+            if reloaded > 0 {
+                tracing::info!(reloaded, "operator SOUL.md files hot-reloaded");
+            }
         }
 
         // Proactive mission-completion proposal (separate from

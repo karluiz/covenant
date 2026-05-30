@@ -8,15 +8,24 @@ import {
   operatorList,
   operatorSetDefault,
   operatorUpdate,
+  operatorListArchetypes,
+  operatorSoulRead,
+  operatorSoulParse,
+  type ArchetypeView,
+  type SoulView,
 } from "../api";
 import { PRESETS, type PresetKey } from "./operator_presets";
+import { setFrontmatterScalar } from "./soul_frontmatter";
 import { renderOperatorChip } from "./operator_chip";
 import { AVATAR_PACK_V2, parseAvatar, renderAvatarHtml } from "../operator/avatars";
-import { workspacesManager } from "../main";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
+
+/// Blank SOUL.md template seeded into the editor when the user starts
+/// from scratch (or opens create-mode before picking an archetype).
+const BLANK_SOUL = `---\nname: New Operator\nvoice: terse\nescalate_threshold: 0.6\n---\n\n# New Operator\n\n`;
 
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
@@ -100,22 +109,20 @@ export class OperatorsPane {
         ev.preventDefault();
         (async () => {
           try {
-            await saveOperator(handle);
+            // saveOperator now routes through the from-soul commands and
+            // returns the persisted operator — use it for the set-default
+            // + toast flow instead of the (now vestigial) draft.
+            const saved = await saveOperator(handle);
             // Promote to default if the toggle was flipped on.
-            if (
-              handle.state.setAsDefault &&
-              !handle.state.isDefault &&
-              (handle.state.draft.id || handle.state.existing?.id)
-            ) {
-              const id = handle.state.draft.id ?? handle.state.existing!.id;
-              try { await operatorSetDefault(id); } catch (e) {
+            if (handle.state.setAsDefault && !handle.state.isDefault && saved.id) {
+              try { await operatorSetDefault(saved.id); } catch (e) {
                 console.warn("operator_set_default failed", e);
               }
             }
             handle.el.remove();
             await this.refresh();
             pushInfoToast({
-              message: `${handle.state.mode === "edit" ? "Saved" : "Created"} operator: ${handle.state.draft.name}`,
+              message: `${handle.state.mode === "edit" ? "Saved" : "Created"} operator: ${saved.name}`,
             });
           } catch (e) {
             console.error("operator save failed", e);
@@ -633,6 +640,12 @@ export interface ModalState {
   setAsDefault: boolean;
   /// Present in edit/duplicate mode; needed for Delete + default flow.
   existing?: Operator;
+  /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
+  /// source for create/update (routed through the from-soul commands).
+  soulRaw: string;
+  /// Operator id when editing an existing persona; drives
+  /// `operator_update_from_soul`. Absent in create/duplicate mode.
+  existingId?: string;
 }
 
 export interface ModalHandle {
@@ -658,11 +671,6 @@ export function canSave(m: ModalHandle): boolean {
 // Back-compat alias used by the unit tests written against the
 // earlier two-step wizard. Behaves identically to `canSave`.
 export const canProceedFromStep1 = canSave;
-
-const SWATCHES = [
-  "#a855f7", "#22c55e", "#3b82f6", "#eab308",
-  "#f97316", "#ef4444", "#a16207", "#94a3b8",
-];
 
 function defaultDraft(): ModalDraft {
   return {
@@ -715,7 +723,31 @@ export function openOperatorModal(opts: {
     isDefault,
     setAsDefault: isDefault,
     existing: opts.existing,
+    // SOUL.md is the authoritative source for the new split editor.
+    // Edit mode loads it asynchronously below; create starts blank
+    // (or from a picked archetype).
+    soulRaw: BLANK_SOUL,
+    existingId: opts.mode === "edit" ? opts.existing?.id : undefined,
   };
+
+  // Edit mode: pull the operator's real SOUL.md off disk and re-render.
+  // Duplicate (create-mode + existing) also seeds from the source soul so
+  // the user starts from the original body rather than a blank template.
+  if (opts.existing && opts.existing.id) {
+    void operatorSoulRead(opts.existing.id)
+      .then((raw) => {
+        if (opts.mode === "create") {
+          // Duplicate: keep the body but rename so it doesn't clash.
+          state.soulRaw = setFrontmatterScalar(raw, "name", opts.existing!.name);
+        } else {
+          state.soulRaw = raw;
+        }
+        render();
+      })
+      .catch((e) => {
+        console.warn("operator_soul_read failed", e);
+      });
+  }
 
   const el = document.createElement("div");
   el.className = "op-modal";
@@ -758,6 +790,10 @@ export function openOperatorModal(opts: {
     const body = el.querySelector<HTMLElement>(".op-modal-body");
     if (body) body.scrollTop = prevScroll;
   }
+  // Stamp the render closure on the element so renderers (e.g. the
+  // archetype gallery's onPick) can request a full re-render without the
+  // closure being threaded through every helper.
+  (el as HTMLElement & { __rerender?: () => void }).__rerender = render;
   render();
   return h;
 }
@@ -780,16 +816,33 @@ function renderForm(h: ModalHandle): HTMLElement {
 
   const body = document.createElement("div");
   body.className = "op-modal-body";
-  if (h.state.mode === "create") body.append(renderPresets(h));
-  body.append(renderHero(h));
-  body.append(renderIdentity(h));
-  body.append(renderBehavior(h));
-  body.append(renderAdvanced(h));
+  // Create mode: an archetype gallery seeds the editor. The gallery stays
+  // above the editor so the user can re-pick. Picking a soul replaces
+  // `soulRaw` and triggers a full modal re-render so the textarea +
+  // preview pick up the new source.
+  if (h.state.mode === "create") {
+    body.append(
+      renderArchetypeGallery((raw) => {
+        h.state.soulRaw = raw;
+        rerenderModal(h);
+      }),
+    );
+  }
+  body.append(renderSoulEditor(h));
   wrap.append(body);
 
   wrap.append(renderFooter(h));
 
   return wrap;
+}
+
+/// Force a full modal re-render. `openOperatorModal` owns the actual
+/// `render()` closure (it preserves scroll); we re-invoke it by clearing
+/// and rebuilding from the handle. We expose it via a stamped function on
+/// the element to avoid threading `render` through every renderer.
+function rerenderModal(h: ModalHandle): void {
+  const fn = (h.el as HTMLElement & { __rerender?: () => void }).__rerender;
+  if (fn) fn();
 }
 
 function renderTopBar(h: ModalHandle): HTMLElement {
@@ -809,388 +862,143 @@ function renderTopBar(h: ModalHandle): HTMLElement {
   return bar;
 }
 
-function renderPresets(h: ModalHandle): HTMLElement {
-  const row = document.createElement("div");
-  row.className = "op-preset-row";
-  const label = document.createElement("span");
-  label.className = "op-modal-label";
-  label.textContent = "Start from preset";
-  row.append(label);
-  const chips = document.createElement("div");
-  chips.className = "op-preset-chips";
-  PRESETS.forEach((p) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "op-preset-chip";
-    b.title = p.description;
-    b.textContent = p.label;
-    b.addEventListener("click", () => h.applyPreset(p.key));
-    chips.append(b);
-  });
-  row.append(chips);
-  return row;
-}
-
-// ── Hero: avatar card + live "where this shows up" preview ─────────────────
-function renderHero(h: ModalHandle): HTMLElement {
-  const hero = document.createElement("div");
-  hero.className = "op-hero";
-  hero.style.setProperty("--operator-color", h.state.draft.color);
-
-  // Left: large avatar + name typography
-  const card = document.createElement("div");
-  card.className = "op-hero-card";
-  const av = document.createElement("div");
-  av.className = "op-hero-avatar";
-  av.innerHTML = renderAvatarHtml(h.state.draft.emoji || "🤖", 88);
-  card.append(av);
-  const nm = document.createElement("div");
-  nm.className = "op-hero-name";
-  nm.textContent = h.state.draft.name || "New operator";
-  card.append(nm);
-  if (h.state.isDefault) {
-    const badge = document.createElement("span");
-    badge.className = "op-hero-default-badge";
-    badge.textContent = "DEFAULT";
-    card.append(badge);
-  }
-  hero.append(card);
-
-  // Right: live previews — Telegram bubble + tab pill + activity feed line
-  const previews = document.createElement("div");
-  previews.className = "op-hero-previews";
-
-  const previewLabel = document.createElement("div");
-  previewLabel.className = "op-hero-previews-label";
-  previewLabel.textContent = "How this operator will look";
-  previews.append(previewLabel);
-
-  previews.append(renderTelegramPreview(h));
-  previews.append(renderTabAndFeedPreview(h));
-
-  hero.append(previews);
-  return hero;
-}
-
-function renderTelegramPreview(h: ModalHandle): HTMLElement {
+// ── Archetype gallery (create mode): seeds the editor with a soul ───────────
+function renderArchetypeGallery(onPick: (raw: string) => void): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "op-tg-preview";
-
-  const bubble = document.createElement("div");
-  bubble.className = "op-tg-bubble";
-
-  const headerLine = document.createElement("div");
-  headerLine.className = "op-tg-header";
-  const av = document.createElement("span");
-  av.className = "op-tg-avatar";
-  av.innerHTML = renderAvatarHtml(h.state.draft.emoji || "🤖", 16);
-  const headerText = document.createElement("span");
-  headerText.className = "op-tg-header-text";
-  const name = (h.state.draft.name || "Operator").trim();
-  headerText.textContent = `${name} · ${currentProjectLabel()} (main)`;
-  headerText.style.color = h.state.draft.color;
-  headerLine.append(av, headerText);
-  bubble.append(headerLine);
-
-  const body = document.createElement("div");
-  body.className = "op-tg-body";
-  body.textContent = "feat/task-dnd is done — wants to push & open PR.";
-  bubble.append(body);
-
-  const actions = document.createElement("div");
-  actions.className = "op-tg-actions";
-  ["✓ Approve push", "✗ Reject", "⏸ 10m"].forEach((label) => {
-    const b = document.createElement("span");
-    b.className = "op-tg-btn";
-    b.textContent = label;
-    actions.append(b);
-  });
-  bubble.append(actions);
-
-  wrap.append(bubble);
-  return wrap;
-}
-
-function renderTabAndFeedPreview(h: ModalHandle): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "op-mini-previews";
-
-  // Tab pill
-  const tab = document.createElement("div");
-  tab.className = "op-mini-tab";
-  tab.innerHTML = `${renderAvatarHtml(h.state.draft.emoji || "🤖", 14)}<span class="op-mini-tab-name">${escapeHtml(h.state.draft.name || "Operator")}</span><span class="op-mini-tab-level">L1</span>`;
-  wrap.append(tab);
-
-  // Activity feed sample line
-  const feed = document.createElement("div");
-  feed.className = "op-mini-feed";
-  const av = document.createElement("span");
-  av.className = "op-mini-feed-avatar";
-  av.innerHTML = renderAvatarHtml(h.state.draft.emoji || "🤖", 14);
-  const txt = document.createElement("span");
-  txt.className = "op-mini-feed-text";
-  const nm = (h.state.draft.name || "Operator").trim();
-  txt.textContent = `${nm} approved push to main`;
-  txt.style.setProperty("--operator-color", h.state.draft.color);
-  feed.append(av, txt);
-  wrap.append(feed);
-
-  return wrap;
-}
-
-// ── Identity: avatar grid, color, voice ─────────────────────────────────────
-function renderIdentity(h: ModalHandle): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "op-modal-section-block";
-
-  wrap.append(sectionHeader("Identity"));
-
-  // Name (full-width)
-  const name = document.createElement("input");
-  name.type = "text";
-  name.className = "op-modal-input";
-  name.maxLength = 24;
-  name.placeholder = "Operator name";
-  name.value = h.state.draft.name;
-  name.addEventListener("input", () => h.setName(name.value));
-  wrap.append(labeled("Name", name));
-
-  // Avatar grid — v2 pack. Each tile is one character; on hover the
-  // image cycles through the 9 emotional poses to advertise that this
-  // operator has feelings. Click locks in the character (stored as
-  // `pack2:<character>`); the actual pose at runtime is driven by the
-  // SENTIMENT: tag the LLM emits, not by what was last hovered.
+  wrap.className = "op-archetypes";
+  const title = document.createElement("div");
+  title.className = "op-modal-label";
+  title.textContent = "Start from a soul";
+  wrap.append(title);
   const grid = document.createElement("div");
-  grid.className = "op-avatar-grid";
-  AVATAR_PACK_V2.forEach((entry) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className =
-      "op-avatar-tile" +
-      (h.state.draft.emoji === `pack2:${entry.character}` ? " is-selected" : "");
-    // Use aria-label instead of title so the character name is exposed
-    // to screen readers without triggering the native browser tooltip
-    // (the hover cycle is the visual preview now — a tooltip on top of
-    // it competes for attention).
-    b.setAttribute("aria-label", entry.label);
-    const img = document.createElement("img");
-    img.src = entry.url; // neutral pose by default
-    img.alt = entry.label;
-    img.width = 44;
-    img.height = 44;
-    img.draggable = false;
-    b.append(img);
-    // Hover cycle: walk through whatever emotions this character has,
-    // 250ms per frame. Use the entry's own urlsByEmotion map so we
-    // gracefully skip any poses missing from disk.
-    let cycleTimer: number | null = null;
-    const poses = Object.values(entry.urlsByEmotion).filter(Boolean) as string[];
-    b.addEventListener("mouseenter", () => {
-      if (poses.length < 2) return;
-      let i = 0;
-      cycleTimer = window.setInterval(() => {
-        i = (i + 1) % poses.length;
-        img.src = poses[i]!;
-      }, 250);
-    });
-    b.addEventListener("mouseleave", () => {
-      if (cycleTimer != null) {
-        clearInterval(cycleTimer);
-        cycleTimer = null;
-      }
-      img.src = entry.url; // snap back to neutral
-    });
-    b.addEventListener("click", () => h.setEmoji(`pack2:${entry.character}`));
-    grid.append(b);
-  });
-  wrap.append(labeled("Avatar", grid));
+  grid.className = "op-archetype-grid";
+  wrap.append(grid);
 
-  // Color + Voice side-by-side
-  const sideBySide = document.createElement("div");
-  sideBySide.className = "op-modal-row-2";
+  const blank = document.createElement("button");
+  blank.type = "button";
+  blank.className = "op-archetype-card op-archetype-blank";
+  blank.textContent = "＋ Blank";
+  blank.addEventListener("click", () => onPick(BLANK_SOUL));
+  grid.append(blank);
 
-  const colorWrap = document.createElement("div");
-  colorWrap.className = "op-modal-field";
-  const colorLbl = document.createElement("span");
-  colorLbl.className = "op-modal-label";
-  colorLbl.textContent = "Color";
-  colorWrap.append(colorLbl);
-  const colors = document.createElement("div");
-  colors.className = "op-color-row";
-  SWATCHES.forEach((c) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "op-color-swatch" + (h.state.draft.color === c ? " is-selected" : "");
-    b.style.background = c;
-    // Set `color` too so the .is-selected ring (CSS uses currentColor)
-    // takes the swatch's hue. Without this, currentColor inherits from
-    // the modal's foreground and every selected ring is the same color.
-    b.style.color = c;
-    b.dataset.color = c;
-    b.addEventListener("click", () => h.setColor(c));
-    colors.append(b);
-  });
-  colorWrap.append(colors);
-
-  const voiceWrap = document.createElement("div");
-  voiceWrap.className = "op-modal-field";
-  const voiceLbl = document.createElement("span");
-  voiceLbl.className = "op-modal-label";
-  voiceLbl.textContent = "Voice";
-  voiceWrap.append(voiceLbl);
-  const voiceRow = document.createElement("div");
-  voiceRow.className = "op-voice-row";
-  (["Terse", "Warm", "Formal"] as VoiceTone[]).forEach((v) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = v;
-    b.className = "op-voice" + (h.state.draft.voice === v ? " op-voice-active" : "");
-    b.addEventListener("click", () => h.setVoice(v));
-    voiceRow.append(b);
-  });
-  voiceWrap.append(voiceRow);
-  const sample = document.createElement("div");
-  sample.className = "op-voice-sample";
-  sample.textContent = VOICE_SAMPLES[h.state.draft.voice];
-  voiceWrap.append(sample);
-
-  sideBySide.append(colorWrap, voiceWrap);
-  wrap.append(sideBySide);
-
-  return wrap;
-}
-
-// ── Behavior: model, threshold slider, persona ──────────────────────────────
-function renderBehavior(h: ModalHandle): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "op-modal-section-block";
-  wrap.append(sectionHeader("Behavior"));
-
-  const row = document.createElement("div");
-  row.className = "op-modal-row-2";
-
-  // Model select
-  const modelWrap = document.createElement("div");
-  modelWrap.className = "op-modal-field";
-  const modelLbl = document.createElement("span");
-  modelLbl.className = "op-modal-label";
-  modelLbl.textContent = "Model";
-  modelWrap.append(modelLbl);
-  const modelOptions = [...MODELS];
-  // Allow custom values that don't match the catalog
-  if (!modelOptions.some((m) => m.value === h.state.draft.model)) {
-    modelOptions.push({
-      value: h.state.draft.model,
-      label: `${h.state.draft.model} (custom)`,
-    });
-  }
-  const model = new CustomSelect({
-    className: "op-modal-select",
-    ariaLabel: "Operator model",
-    value: h.state.draft.model,
-    options: modelOptions,
-  });
-  model.element.addEventListener("change", () => h.setModel(model.value));
-  modelWrap.append(model.element);
-  row.append(modelWrap);
-
-  // Threshold slider with anchor labels
-  const thrWrap = document.createElement("div");
-  thrWrap.className = "op-modal-field op-modal-field-threshold";
-  const thrLbl = document.createElement("span");
-  thrLbl.className = "op-modal-label op-modal-label-row";
-  const thrLblText = document.createElement("span");
-  thrLblText.textContent = "Escalate threshold";
-  const thrReadout = document.createElement("span");
-  thrReadout.className = "op-threshold-readout";
-  thrReadout.textContent = h.state.draft.escalate_threshold.toFixed(2);
-  thrLbl.append(thrLblText, thrReadout);
-  thrWrap.append(thrLbl);
-  const slider = document.createElement("input");
-  slider.type = "range";
-  slider.className = "op-threshold-slider";
-  slider.min = "0";
-  slider.max = "1";
-  slider.step = "0.05";
-  slider.value = String(h.state.draft.escalate_threshold);
-  slider.style.setProperty("--thr", String(h.state.draft.escalate_threshold));
-  slider.addEventListener("input", () => {
-    const v = Number.parseFloat(slider.value);
-    if (!Number.isNaN(v)) {
-      h.state.draft.escalate_threshold = v;
-      thrReadout.textContent = v.toFixed(2);
-      slider.style.setProperty("--thr", String(v));
+  void operatorListArchetypes().then((list: ArchetypeView[]) => {
+    for (const a of list ?? []) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "op-archetype-card";
+      if (a.color) card.style.setProperty("--operator-color", a.color);
+      const name = document.createElement("div");
+      name.className = "op-archetype-name";
+      name.textContent = a.name;
+      const tag = document.createElement("div");
+      tag.className = "op-archetype-tagline";
+      tag.textContent = a.tagline;
+      card.append(name, tag);
+      card.addEventListener("click", () => onPick(a.raw));
+      grid.append(card);
     }
+  }).catch((e) => {
+    console.warn("operator_list_archetypes failed", e);
   });
-  thrWrap.append(slider);
-  const anchors = document.createElement("div");
-  anchors.className = "op-threshold-anchors";
-  anchors.innerHTML = `<span>Cautious</span><span>Autonomous</span>`;
-  thrWrap.append(anchors);
-  row.append(thrWrap);
-  wrap.append(row);
-
-  // Persona textarea
-  const persona = document.createElement("textarea");
-  persona.rows = 8;
-  persona.className = "op-modal-textarea";
-  persona.placeholder = "How should this operator behave? Free-form prompt addition.";
-  persona.value = h.state.draft.persona;
-  persona.addEventListener("input", () => {
-    h.state.draft.persona = persona.value;
-  });
-  wrap.append(labeled("Persona", persona));
-
   return wrap;
 }
 
-// ── Advanced (collapsed): custom emoji override + hard constraints ──────────
-function renderAdvanced(h: ModalHandle): HTMLElement {
-  const det = document.createElement("details");
-  det.className = "op-modal-advanced";
-  // Auto-expand Advanced when the user has either (a) typed hard
-  // constraints or (b) overridden the avatar with a custom emoji
-  // (anything not handled by a pack: or pack2: prefix).
-  const isPackAvatar =
-    h.state.draft.emoji.startsWith("pack:") ||
-    h.state.draft.emoji.startsWith("pack2:");
-  if (h.state.draft.hard_constraints.trim() || !isPackAvatar) {
-    det.open = true;
+// ── Split editor: raw SOUL.md (left) + synced knobs & live preview (right) ──
+function renderSoulEditor(h: ModalHandle): HTMLElement {
+  const split = document.createElement("div");
+  split.className = "op-soul-split";
+
+  const src = document.createElement("textarea");
+  src.className = "op-soul-source";
+  src.spellcheck = false;
+  src.value = h.state.soulRaw;
+
+  const right = document.createElement("div");
+  right.className = "op-soul-right";
+  const knobs = document.createElement("div");
+  knobs.className = "op-soul-knobs";
+  const preview = document.createElement("div");
+  preview.className = "op-soul-preview";
+  const errLine = document.createElement("div");
+  errLine.className = "op-soul-error";
+  right.append(knobs, errLine, preview);
+
+  split.append(src, right);
+
+  let debounce: number | undefined;
+  src.addEventListener("input", () => {
+    h.state.soulRaw = src.value;
+    window.clearTimeout(debounce);
+    debounce = window.setTimeout(() => void refresh(), 200);
+  });
+
+  async function refresh(): Promise<void> {
+    let view: SoulView;
+    try {
+      view = await operatorSoulParse(h.state.soulRaw);
+    } catch (e) {
+      errLine.textContent = `Parse failed: ${e}`;
+      return;
+    }
+    if (!view) return;
+    const { marked } = await import("marked");
+    preview.innerHTML = marked.parse(view.body ?? "", { async: false }) as string;
+    errLine.textContent = view.validation_error ?? "";
+    renderSoulKnobs(h, knobs, view, () => {
+      // Knob edits rewrite the YAML; re-sync the textarea so the user
+      // sees the change reflected in the raw source.
+      src.value = h.state.soulRaw;
+    });
   }
-  const sum = document.createElement("summary");
-  sum.textContent = "Advanced";
-  det.append(sum);
+  void refresh();
 
-  // Custom emoji
-  const emoji = document.createElement("input");
-  emoji.type = "text";
-  emoji.className = "op-modal-input";
-  emoji.maxLength = 24;
-  emoji.placeholder = "Override avatar with text or emoji";
-  // Show the literal emoji string only when the user is NOT on a pack
-  // avatar; pack avatars are owned by the grid above, not this input.
-  emoji.value = isPackAvatar ? "" : h.state.draft.emoji;
-  emoji.addEventListener("input", () => {
-    // Empty = revert to whichever pack avatar was already selected (no-op
-    // here; we just keep the existing pack: value). Non-empty = literal
-    // override.
-    if (emoji.value.length > 0) h.setEmoji(emoji.value);
+  return split;
+}
+
+function renderSoulKnobs(
+  h: ModalHandle,
+  host: HTMLElement,
+  view: SoulView,
+  afterChange: () => void,
+): void {
+  host.innerHTML = "";
+
+  const voice = document.createElement("select");
+  voice.className = "op-modal-select";
+  for (const v of ["terse", "warm", "formal"]) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = v;
+    if ((view.voice ?? "terse") === v) o.selected = true;
+    voice.append(o);
+  }
+  voice.addEventListener("change", () => {
+    h.state.soulRaw = setFrontmatterScalar(h.state.soulRaw, "voice", voice.value);
+    afterChange();
   });
-  det.append(labeled("Custom avatar (emoji or text)", emoji));
+  host.append(labeled("Voice", voice));
 
-  // Hard constraints
-  const hc = document.createElement("textarea");
-  hc.rows = 4;
-  hc.className = "op-modal-textarea";
-  hc.placeholder =
-    "One rule per line. Examples:\nalways ask before touching ~/.aws or ~/.ssh\nnever auto-merge to main";
-  hc.value = h.state.draft.hard_constraints;
-  hc.addEventListener("input", () => {
-    h.state.draft.hard_constraints = hc.value;
+  const thr = document.createElement("input");
+  thr.type = "range";
+  thr.min = "0";
+  thr.max = "1";
+  thr.step = "0.05";
+  thr.value = String(view.escalate_threshold ?? 0.6);
+  thr.addEventListener("input", () => {
+    h.state.soulRaw = setFrontmatterScalar(h.state.soulRaw, "escalate_threshold", thr.value);
+    afterChange();
   });
-  det.append(labeled("Hard constraints", hc));
+  host.append(labeled(`Escalate threshold ${(view.escalate_threshold ?? 0.6).toFixed(2)}`, thr));
 
-  return det;
+  const model = document.createElement("input");
+  model.type = "text";
+  model.className = "op-modal-input";
+  model.value = view.model ?? "";
+  model.addEventListener("change", () => {
+    h.state.soulRaw = setFrontmatterScalar(h.state.soulRaw, "model", model.value);
+    afterChange();
+  });
+  host.append(labeled("Model", model));
 }
 
 // ── Footer: default toggle (left), delete + cancel + save (right) ───────────
@@ -1234,18 +1042,14 @@ function renderFooter(h: ModalHandle): HTMLElement {
   save.type = "button";
   save.className = "op-modal-save settings-save";
   save.textContent = h.state.mode === "edit" ? "Save changes" : "Create operator";
-  save.disabled = !canSave(h);
+  // SOUL.md is now the source of truth; gate save on the raw text being
+  // non-empty rather than the (vestigial) draft name. Backend
+  // `operator_*_from_soul` does the authoritative validation.
+  save.disabled = h.state.soulRaw.trim().length === 0;
   right.append(save);
 
   foot.append(right);
   return foot;
-}
-
-function sectionHeader(title: string): HTMLElement {
-  const el = document.createElement("div");
-  el.className = "op-modal-section";
-  el.textContent = title;
-  return el;
 }
 
 const MODELS: Array<{ value: string; label: string }> = [
@@ -1254,31 +1058,15 @@ const MODELS: Array<{ value: string; label: string }> = [
   { value: "claude-opus-4-7", label: "Opus 4.7" },
 ];
 
-const VOICE_SAMPLES: Record<VoiceTone, string> = {
-  Terse: '"feat/x done. push?"',
-  Warm: '"All set on feat/x — want me to push?"',
-  Formal: '"Feature feat/x is complete. Shall I proceed with the push?"',
-};
-
-/// Best-effort read of the active workspace name for the modal preview.
-/// Falls back to a neutral label if the manager isn't bootstrapped yet
-/// (e.g. settings is opened before workspaces load).
-function currentProjectLabel(): string {
-  try {
-    const w = workspacesManager?.getActive();
-    if (w?.name) return w.name;
-  } catch { /* manager may be null at boot */ }
-  return "your project";
-}
-
-export async function saveOperator(h: ModalHandle): Promise<void> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  const { id, ...draft } = h.state.draft;
-  if (h.state.mode === "edit" && id) {
-    await invoke("operator_update", { id, draft });
-  } else {
-    await invoke("operator_create", { draft });
+/// Persist the operator via the SOUL.md (`*_from_soul`) commands. Returns
+/// the created/updated operator so the caller can drive the post-save
+/// set-default + toast flow off real backend data.
+export async function saveOperator(h: ModalHandle): Promise<Operator> {
+  const { operatorCreateFromSoul, operatorUpdateFromSoul } = await import("../api");
+  if (h.state.mode === "edit" && h.state.existingId) {
+    return operatorUpdateFromSoul(h.state.existingId, h.state.soulRaw);
   }
+  return operatorCreateFromSoul(h.state.soulRaw);
 }
 
 export interface ListHandlers {

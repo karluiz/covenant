@@ -255,6 +255,7 @@ export interface Operator {
   updated_at_unix_ms: number;
   /// 3.12 — accumulated XP. Level = floor(xp / 100) + 1.
   xp: number;
+  soul_path?: string | null;
 }
 
 /// Payload of the `operator-xp-updated` event emitted after a decision
@@ -304,6 +305,48 @@ export async function operatorDelete(id: string): Promise<void> {
 
 export async function operatorSetDefault(id: string): Promise<void> {
   return invoke<void>("operator_set_default", { id });
+}
+
+export interface ArchetypeView {
+  key: string;
+  raw: string;
+  name: string;
+  avatar: string | null;
+  color: string | null;
+  tagline: string;
+}
+
+export interface SoulView {
+  name: string;
+  avatar: string | null;
+  color: string | null;
+  model: string | null;
+  voice: string | null;
+  escalate_threshold: number | null;
+  tags: string[];
+  hard_constraints: string | null;
+  body: string;
+  validation_error: string | null;
+}
+
+export async function operatorListArchetypes(): Promise<ArchetypeView[]> {
+  return invoke<ArchetypeView[]>("operator_list_archetypes");
+}
+
+export async function operatorSoulRead(id: string): Promise<string> {
+  return invoke<string>("operator_soul_read", { id });
+}
+
+export async function operatorSoulParse(raw: string): Promise<SoulView> {
+  return invoke<SoulView>("operator_soul_parse", { raw });
+}
+
+export async function operatorCreateFromSoul(raw: string): Promise<Operator> {
+  return invoke<Operator>("operator_create_from_soul", { raw });
+}
+
+export async function operatorUpdateFromSoul(id: string, raw: string): Promise<Operator> {
+  return invoke<Operator>("operator_update_from_soul", { id, raw });
 }
 
 // ── Teammate (Phase 1) ───────────────────────────────────────────────

@@ -47,6 +47,14 @@ pub struct Operator {
     /// Tone applied to outbound messages (Telegram summaries, banner text).
     #[serde(default)]
     pub voice: VoiceTone,
+    /// Path to this operator's SOUL.md (source of truth for identity).
+    /// `None` only transiently before migration backfills it.
+    #[serde(default)]
+    pub soul_path: Option<std::path::PathBuf>,
+    /// Last-seen mtime of `soul_path`, for hot-reload change detection.
+    /// Not persisted; recomputed on load.
+    #[serde(default, skip)]
+    pub soul_mtime_unix_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -111,18 +119,37 @@ use std::sync::RwLock;
 pub struct OperatorRegistry {
     by_id: RwLock<HashMap<OperatorId, Operator>>,
     pins: RwLock<HashMap<SessionId, OperatorId>>,
+    souls_dir: std::path::PathBuf,
 }
 
 impl OperatorRegistry {
-    pub async fn load(storage: &Storage) -> Result<Self, RegistryError> {
+    pub async fn load(
+        storage: &Storage,
+        souls_dir: std::path::PathBuf,
+    ) -> Result<Self, RegistryError> {
         let rows = storage.operator_list().await?;
         let mut by_id = HashMap::new();
-        for op in rows {
+        for mut op in rows {
+            if let Some(path) = op.soul_path.clone() {
+                match std::fs::read_to_string(&path) {
+                    Ok(raw) => match crate::soul::parse(&raw) {
+                        Ok(soul) => {
+                            crate::soul::hydrate_operator(&mut op, &soul);
+                            op.soul_mtime_unix_ms = crate::soul::mtime_of(&path).unwrap_or(0);
+                        }
+                        Err(e) => tracing::warn!(path = %path.display(), error = %e,
+                            "SOUL.md parse failed; using DB cache"),
+                    },
+                    Err(e) => tracing::warn!(path = %path.display(), error = %e,
+                        "SOUL.md unreadable; using DB cache"),
+                }
+            }
             by_id.insert(op.id, op);
         }
         Ok(Self {
             by_id: RwLock::new(by_id),
             pins: RwLock::new(HashMap::new()),
+            souls_dir,
         })
     }
 
@@ -139,6 +166,34 @@ impl OperatorRegistry {
 
     pub fn get(&self, id: OperatorId) -> Option<Operator> {
         self.by_id.read().unwrap().get(&id).cloned()
+    }
+
+    /// Re-stat every operator's SOUL.md; for any whose mtime changed, re-parse
+    /// and re-hydrate the in-memory operator. Returns the number reloaded.
+    /// Disk I/O only — does not touch the DB (the file is the source of truth).
+    pub fn refresh_changed_souls(&self) -> usize {
+        let candidates: Vec<(OperatorId, std::path::PathBuf, u64)> = {
+            let g = self.by_id.read().unwrap();
+            g.values()
+                .filter_map(|o| o.soul_path.clone().map(|p| (o.id, p, o.soul_mtime_unix_ms)))
+                .collect()
+        };
+        let mut n = 0;
+        for (id, path, prev) in candidates {
+            let Some(mt) = crate::soul::mtime_of(&path) else { continue };
+            if mt == prev { continue; }
+            match std::fs::read_to_string(&path).ok().and_then(|r| crate::soul::parse(&r).ok()) {
+                Some(soul) => {
+                    if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+                        crate::soul::hydrate_operator(op, &soul);
+                        op.soul_mtime_unix_ms = mt;
+                        n += 1;
+                    }
+                }
+                None => tracing::warn!(path = %path.display(), "SOUL.md reload parse failed; keeping last-good"),
+            }
+        }
+        n
     }
 
     /// Test helper: build an in-memory registry pre-populated with a
@@ -161,11 +216,14 @@ impl OperatorRegistry {
             updated_at_unix_ms: 0,
             xp: 0,
             voice: VoiceTone::default(),
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
             by_id: RwLock::new(by_id),
             pins: RwLock::new(HashMap::new()),
+            souls_dir: std::env::temp_dir().join("covenant-test-souls"),
         })
     }
 
@@ -187,6 +245,62 @@ impl OperatorRegistry {
             return Err(RegistryError::InvalidThreshold);
         }
         Ok(())
+    }
+
+    /// kebab-case ascii slug for a directory name.
+    fn slugify(name: &str) -> String {
+        let mut out = String::new();
+        let mut prev_dash = false;
+        for ch in name.trim().chars() {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch.to_ascii_lowercase());
+                prev_dash = false;
+            } else if !prev_dash {
+                out.push('-');
+                prev_dash = true;
+            }
+        }
+        let s = out.trim_matches('-').to_string();
+        if s.is_empty() {
+            "operator".into()
+        } else {
+            s
+        }
+    }
+
+    /// Resolve a unique SOUL.md path for a new operator, avoiding collisions.
+    fn soul_path_for(&self, name: &str, id: OperatorId) -> std::path::PathBuf {
+        let base = Self::slugify(name);
+        let dir = self.souls_dir.join(&base);
+        if dir.exists() {
+            let suffix = id.to_string().to_lowercase();
+            let short = &suffix[suffix.len().saturating_sub(6)..];
+            self.souls_dir
+                .join(format!("{base}-{short}"))
+                .join("SOUL.md")
+        } else {
+            dir.join("SOUL.md")
+        }
+    }
+
+    /// Write an operator's identity to its SOUL.md (creating parent dirs).
+    /// Returns the file's new mtime.
+    fn write_soul(op: &Operator) -> Result<u64, RegistryError> {
+        let path = op.soul_path.as_ref().ok_or_else(|| {
+            RegistryError::Storage(crate::storage::StorageError::Other(
+                "operator has no soul_path".into(),
+            ))
+        })?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+            })?;
+        }
+        let text = crate::soul::serialize(&crate::soul::soul_from_operator(op));
+        std::fs::write(path, text).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        Ok(crate::soul::mtime_of(path).unwrap_or(0))
     }
 
     pub async fn create(
@@ -211,12 +325,20 @@ impl OperatorRegistry {
                 op.is_default = true;
             }
         }
+        if op.soul_path.is_none() {
+            op.soul_path = Some(self.soul_path_for(&op.name, op.id));
+        }
+        op.soul_mtime_unix_ms = Self::write_soul(&op)?;
         storage.operator_insert(op.clone()).await?;
         self.by_id.write().unwrap().insert(op.id, op.clone());
         Ok(op)
     }
 
-    pub async fn update(&self, storage: &Storage, op: Operator) -> Result<Operator, RegistryError> {
+    pub async fn update(
+        &self,
+        storage: &Storage,
+        mut op: Operator,
+    ) -> Result<Operator, RegistryError> {
         Self::validate(&op)?;
         {
             let g = self.by_id.read().unwrap();
@@ -229,9 +351,80 @@ impl OperatorRegistry {
                 return Err(RegistryError::DuplicateName(op.name));
             }
         }
+        if op.soul_path.is_none() {
+            op.soul_path = self
+                .by_id
+                .read()
+                .unwrap()
+                .get(&op.id)
+                .and_then(|o| o.soul_path.clone());
+            if op.soul_path.is_none() {
+                op.soul_path = Some(self.soul_path_for(&op.name, op.id));
+            }
+        }
+        op.soul_mtime_unix_ms = Self::write_soul(&op)?;
         storage.operator_update(op.clone()).await?;
         self.by_id.write().unwrap().insert(op.id, op.clone());
         Ok(op)
+    }
+
+    pub async fn create_from_soul(
+        &self,
+        storage: &Storage,
+        raw: &str,
+    ) -> Result<Operator, RegistryError> {
+        let soul = crate::soul::parse(raw).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        crate::soul::validate(&soul).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let mut op = Operator {
+            id: OperatorId(Ulid::new()), name: String::new(), emoji: String::new(),
+            color: String::new(), tags: vec![], persona: String::new(),
+            escalate_threshold: 0.6, model: String::new(), hard_constraints: String::new(),
+            is_default: false, created_at_unix_ms: now, updated_at_unix_ms: now, xp: 0,
+            voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+        };
+        crate::soul::hydrate_operator(&mut op, &soul);
+        self.create(storage, op).await
+    }
+
+    pub async fn update_from_soul(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        raw: &str,
+    ) -> Result<Operator, RegistryError> {
+        let soul = crate::soul::parse(raw).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        crate::soul::validate(&soul).map_err(|e| {
+            RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+        })?;
+        let mut op = self.get(id).ok_or(RegistryError::NotFound(id))?;
+        crate::soul::hydrate_operator(&mut op, &soul);
+        op.updated_at_unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        self.update(storage, op).await
+    }
+
+    /// Read the current SOUL.md text for an operator (file content if present,
+    /// else freshly serialized from the cached identity).
+    pub fn read_soul(&self, id: OperatorId) -> Option<String> {
+        let op = self.get(id)?;
+        if let Some(p) = &op.soul_path {
+            if let Ok(raw) = std::fs::read_to_string(p) {
+                return Some(raw);
+            }
+        }
+        Some(crate::soul::serialize(&crate::soul::soul_from_operator(&op)))
     }
 
     pub async fn delete(&self, storage: &Storage, id: OperatorId) -> Result<(), RegistryError> {
@@ -341,6 +534,8 @@ impl OperatorRegistry {
             updated_at_unix_ms: now,
             xp: 0,
             voice: VoiceTone::default(),
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         let id = op.id;
         let name = op.name.clone();
@@ -350,6 +545,34 @@ impl OperatorRegistry {
             .operator_decisions_backfill(id.to_string(), name)
             .await?;
         Ok(true)
+    }
+
+    /// Backfill: any operator lacking a `soul_path` gets a SOUL.md written from
+    /// its current DB fields (persona → body; hard_constraints → frontmatter).
+    /// Idempotent — operators that already have a soul_path are skipped.
+    pub async fn migrate_personas_to_souls(
+        &self,
+        storage: &Storage,
+    ) -> Result<usize, RegistryError> {
+        let to_migrate: Vec<Operator> = {
+            let g = self.by_id.read().unwrap();
+            g.values()
+                .filter(|o| o.soul_path.is_none())
+                .cloned()
+                .collect()
+        };
+        let mut n = 0;
+        for mut op in to_migrate {
+            op.soul_path = Some(self.soul_path_for(&op.name, op.id));
+            op.soul_mtime_unix_ms = Self::write_soul(&op)?;
+            let path = op.soul_path.clone().unwrap();
+            storage
+                .operator_set_soul_path(op.id.to_string(), path.to_string_lossy().into_owned())
+                .await?;
+            self.by_id.write().unwrap().insert(op.id, op);
+            n += 1;
+        }
+        Ok(n)
     }
 
     /// One-shot: bump the legacy `🤖` default-emoji to the new
@@ -416,6 +639,74 @@ pub mod commands {
         e.to_string()
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct SoulView {
+        pub name: String,
+        pub avatar: Option<String>,
+        pub color: Option<String>,
+        pub model: Option<String>,
+        pub voice: Option<String>,
+        pub escalate_threshold: Option<f32>,
+        pub tags: Vec<String>,
+        pub hard_constraints: Option<String>,
+        pub body: String,
+        pub validation_error: Option<String>,
+    }
+
+    #[tauri::command]
+    pub async fn operator_list_archetypes() -> Result<Vec<crate::archetypes::ArchetypeView>, String> {
+        Ok(crate::archetypes::list())
+    }
+
+    #[tauri::command]
+    pub async fn operator_soul_read(
+        id: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+    ) -> Result<String, String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.read_soul(id).ok_or_else(|| format!("operator not found: {id}"))
+    }
+
+    /// Parse + validate raw SOUL.md text without persisting. Returns the parsed
+    /// frontmatter view for the editor's synced form controls + live preview.
+    #[tauri::command]
+    pub async fn operator_soul_parse(raw: String) -> Result<SoulView, String> {
+        let soul = crate::soul::parse(&raw).map_err(map_err)?;
+        let err = crate::soul::validate(&soul).err().map(|e| e.to_string());
+        Ok(SoulView {
+            name: soul.frontmatter.name,
+            avatar: soul.frontmatter.avatar,
+            color: soul.frontmatter.color,
+            model: soul.frontmatter.model,
+            voice: soul.frontmatter.voice,
+            escalate_threshold: soul.frontmatter.escalate_threshold,
+            tags: soul.frontmatter.tags,
+            hard_constraints: soul.frontmatter.hard_constraints,
+            body: soul.body,
+            validation_error: err,
+        })
+    }
+
+    #[tauri::command]
+    pub async fn operator_create_from_soul(
+        raw: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<Operator, String> {
+        registry.create_from_soul(&storage, &raw).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_update_from_soul(
+        id: String,
+        raw: String,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<Operator, String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.update_from_soul(&storage, id, &raw).await.map_err(map_err)
+    }
+
     #[tauri::command]
     pub async fn operator_list(
         registry: State<'_, Arc<OperatorRegistry>>,
@@ -454,6 +745,8 @@ pub mod commands {
             updated_at_unix_ms: now,
             xp: 0,
             voice: draft.voice,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -484,6 +777,8 @@ pub mod commands {
             updated_at_unix_ms: now_ms(),
             xp: existing.xp,
             voice: draft.voice,
+            soul_path: existing.soul_path.clone(),
+            soul_mtime_unix_ms: existing.soul_mtime_unix_ms,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -556,6 +851,8 @@ mod voice_tests {
             updated_at_unix_ms: 0,
             xp: 0,
             voice: VoiceTone::default(),
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
@@ -585,5 +882,124 @@ mod voice_tests {
         );
         assert_ne!(t, w);
         assert_ne!(w, f);
+    }
+}
+
+#[cfg(test)]
+mod soul_io_tests {
+    use super::*;
+
+    async fn temp_storage(dir: &std::path::Path) -> std::sync::Arc<Storage> {
+        std::sync::Arc::new(Storage::open(&dir.join("history.db")).expect("open"))
+    }
+
+    #[tokio::test]
+    async fn create_writes_soul_file_and_load_hydrates_from_it() {
+        let tmp = std::env::temp_dir().join(format!("covenant-soul-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+        let reg = OperatorRegistry::load(&storage, souls.clone()).await.unwrap();
+
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Atlas".into(),
+            emoji: "pack2:guardian".into(),
+            color: "#c4a7ff".into(),
+            tags: vec!["deploys".into()],
+            persona: "I was made to wait.".into(),
+            escalate_threshold: 0.55,
+            model: "claude-sonnet-4-6".into(),
+            hard_constraints: "^git push --force".into(),
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Warm,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+        };
+        let created = reg.create(&storage, op).await.unwrap();
+        let path = created.soul_path.clone().expect("soul_path set");
+        assert!(path.exists(), "SOUL.md written to disk");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("name: Atlas"));
+        assert!(raw.contains("I was made to wait."));
+
+        let mutated = raw.replace("I was made to wait.", "I keep the night watch.");
+        std::fs::write(&path, mutated).unwrap();
+        let reg2 = OperatorRegistry::load(&storage, souls).await.unwrap();
+        let hydrated = reg2.get(created.id).unwrap();
+        assert_eq!(hydrated.persona, "I keep the night watch.");
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn migration_backfills_soul_for_legacy_row() {
+        let tmp = std::env::temp_dir().join(format!("covenant-mig-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Legacy".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: "old persona text".into(),
+            escalate_threshold: 0.6,
+            model: "m".into(),
+            hard_constraints: "^sudo".into(),
+            is_default: true,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+        };
+        storage.operator_insert(op.clone()).await.unwrap();
+
+        let reg = OperatorRegistry::load(&storage, souls.clone()).await.unwrap();
+        let migrated = reg.migrate_personas_to_souls(&storage).await.unwrap();
+        assert_eq!(migrated, 1);
+
+        let reg2 = OperatorRegistry::load(&storage, souls).await.unwrap();
+        let got = reg2.get(op.id).unwrap();
+        assert!(got.soul_path.is_some());
+        assert_eq!(got.persona, "old persona text");
+        assert_eq!(got.hard_constraints, "^sudo");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn refresh_changed_souls_picks_up_external_edit() {
+        let tmp = std::env::temp_dir().join(format!("covenant-hot-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+        let reg = OperatorRegistry::load(&storage, souls).await.unwrap();
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()), name: "Hot".into(), emoji: "🟣".into(),
+            color: "#a855f7".into(), tags: vec![], persona: "before".into(),
+            escalate_threshold: 0.5, model: "m".into(), hard_constraints: "".into(),
+            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+            voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+        };
+        let created = reg.create(&storage, op).await.unwrap();
+        let path = created.soul_path.unwrap();
+        // Force the cached mtime to differ from the file so the reload triggers
+        // regardless of filesystem mtime granularity.
+        let raw = std::fs::read_to_string(&path).unwrap().replace("before", "after");
+        let mut op2 = reg.get(created.id).unwrap();
+        op2.soul_mtime_unix_ms = 0;
+        reg.by_id.write().unwrap().insert(created.id, op2);
+        std::fs::write(&path, raw).unwrap();
+        let n = reg.refresh_changed_souls();
+        assert_eq!(n, 1);
+        assert_eq!(reg.get(created.id).unwrap().persona, "after");
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }

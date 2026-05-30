@@ -35,6 +35,8 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
+mod soul;
+mod archetypes;
 mod pane;
 mod pi_commands;
 mod project_notes;
@@ -2868,7 +2870,8 @@ pub fn run() {
             // Tauri commands (Task 6) can resolve State<Arc<OperatorRegistry>>
             // and State<Arc<Storage>>.
             let registry = tauri::async_runtime::block_on(async {
-                crate::operator_registry::OperatorRegistry::load(&storage).await
+                crate::operator_registry::OperatorRegistry::load(&storage, dir.join("operators"))
+                    .await
             })
             .map_err(|e| format!("load operator registry: {e}"))?;
 
@@ -2888,6 +2891,11 @@ pub fn run() {
                     registry.upgrade_legacy_default_avatar(&storage).await
                 }) {
                     tracing::warn!(error = %e, "upgrade_legacy_default_avatar failed; continuing");
+                }
+                if let Err(e) = tauri::async_runtime::block_on(async {
+                    registry.migrate_personas_to_souls(&storage).await
+                }) {
+                    tracing::warn!(error = %e, "SOUL.md migration failed; continuing");
                 }
             }
 
@@ -3484,6 +3492,11 @@ pub fn run() {
             operator_registry::commands::operator_update,
             operator_registry::commands::operator_delete,
             operator_registry::commands::operator_set_default,
+            operator_registry::commands::operator_list_archetypes,
+            operator_registry::commands::operator_soul_read,
+            operator_registry::commands::operator_soul_parse,
+            operator_registry::commands::operator_create_from_soul,
+            operator_registry::commands::operator_update_from_soul,
             operator_registry::commands::session_set_operator,
             operator_registry::commands::session_get_operator,
             teammate::commands::teammate_list_messages_for_operator,
