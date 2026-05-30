@@ -460,6 +460,34 @@ impl OperatorRegistry {
         Ok(true)
     }
 
+    /// Backfill: any operator lacking a `soul_path` gets a SOUL.md written from
+    /// its current DB fields (persona → body; hard_constraints → frontmatter).
+    /// Idempotent — operators that already have a soul_path are skipped.
+    pub async fn migrate_personas_to_souls(
+        &self,
+        storage: &Storage,
+    ) -> Result<usize, RegistryError> {
+        let to_migrate: Vec<Operator> = {
+            let g = self.by_id.read().unwrap();
+            g.values()
+                .filter(|o| o.soul_path.is_none())
+                .cloned()
+                .collect()
+        };
+        let mut n = 0;
+        for mut op in to_migrate {
+            op.soul_path = Some(self.soul_path_for(&op.name, op.id));
+            op.soul_mtime_unix_ms = Self::write_soul(&op)?;
+            let path = op.soul_path.clone().unwrap();
+            storage
+                .operator_set_soul_path(op.id.to_string(), path.to_string_lossy().into_owned())
+                .await?;
+            self.by_id.write().unwrap().insert(op.id, op);
+            n += 1;
+        }
+        Ok(n)
+    }
+
     /// One-shot: bump the legacy `🤖` default-emoji to the new
     /// pack avatar. Idempotent — only runs against operators where
     /// emoji is exactly the legacy value, so user-customized emojis
@@ -749,6 +777,45 @@ mod soul_io_tests {
         let hydrated = reg2.get(created.id).unwrap();
         assert_eq!(hydrated.persona, "I keep the night watch.");
 
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn migration_backfills_soul_for_legacy_row() {
+        let tmp = std::env::temp_dir().join(format!("covenant-mig-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Legacy".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: "old persona text".into(),
+            escalate_threshold: 0.6,
+            model: "m".into(),
+            hard_constraints: "^sudo".into(),
+            is_default: true,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+        };
+        storage.operator_insert(op.clone()).await.unwrap();
+
+        let reg = OperatorRegistry::load(&storage, souls.clone()).await.unwrap();
+        let migrated = reg.migrate_personas_to_souls(&storage).await.unwrap();
+        assert_eq!(migrated, 1);
+
+        let reg2 = OperatorRegistry::load(&storage, souls).await.unwrap();
+        let got = reg2.get(op.id).unwrap();
+        assert!(got.soul_path.is_some());
+        assert_eq!(got.persona, "old persona text");
+        assert_eq!(got.hard_constraints, "^sudo");
         std::fs::remove_dir_all(&tmp).ok();
     }
 }

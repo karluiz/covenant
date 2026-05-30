@@ -2873,6 +2873,11 @@ pub fn run() {
                 }) {
                     tracing::warn!(error = %e, "upgrade_legacy_default_avatar failed; continuing");
                 }
+                if let Err(e) = tauri::async_runtime::block_on(async {
+                    registry.migrate_personas_to_souls(&storage).await
+                }) {
+                    tracing::warn!(error = %e, "SOUL.md migration failed; continuing");
+                }
             }
 
             let registry_arc = Arc::new(registry);
