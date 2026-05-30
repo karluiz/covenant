@@ -196,6 +196,13 @@ body.tab-style-forge.tabbar-left .tab-btn.active::before {
     box-shadow: 0 0 8px var(--tab-stripe, var(--accent));
 }
 
+/* The base sheet hides the vertical active ::before (it competed with the
+   operator avatar at the left edge). Re-enable it as the Forge rail ONLY for
+   rows without a pinned operator — operator rows keep the avatar glow. */
+body.tab-style-forge.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+    display: block;
+}
+
 body.tab-style-forge.tabbar-left .tab-btn.tab-aom-active::after,
 body.tab-style-forge.tabbar-left .tab-btn.tab-aom-excluded::after {
     border-radius: 0;   /* sharp ring to match the sharp row (parent has no clip-path) */

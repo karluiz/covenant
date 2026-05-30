@@ -35,6 +35,11 @@ body.tab-style-crt .tab-btn.active::before {
   filter: none;
   box-shadow: 0 0 8px var(--tab-stripe, var(--accent)), 0 0 16px var(--tab-stripe, var(--accent));
 }
+/* Base hides the vertical active ::before (avatar competition). Re-enable the
+   CRT scanline rail only on rows without a pinned operator. */
+body.tab-style-crt.tabbar-left .tab-btn.active:not(:has(.tab-op-chip-leading))::before {
+  display: block;
+}
 
 /* AOM = flicker rail (repurpose ::after as a thin flickering border). */
 body.tab-style-crt .tab-btn.tab-aom-active::after {
