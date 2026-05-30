@@ -6,6 +6,81 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.41 — SOUL.md operator persona + Glass/CRT tab themes
+
+### Added
+
+- **Operator persona as a living SOUL.md document**: An operator's persona
+  is no longer a SQLite string — it's a real `SOUL.md` file per operator at
+  `<app_config_dir>/operators/<slug>/SOUL.md` (YAML frontmatter for
+  name/avatar/color/model/voice/escalate_threshold/tags/hard_constraints +
+  an Origin-Letter markdown body). The file is the source of truth; the DB
+  row keeps a denormalized cache plus runtime state (`xp`, `is_default`,
+  timestamps). New `crates/app/src/soul.rs` parses/serializes/validates the
+  format; the registry writes the file on create/update and hydrates the
+  in-memory operator from it on load (`crates/app/src/operator_registry.rs`,
+  `crates/app/src/storage.rs`). Per-operator `hard_constraints` stay
+  structured frontmatter so they still compile into deny-regexes
+  (`crates/app/src/operator.rs`). Legacy DB personas migrate to files on
+  boot, and external edits hot-reload on the operator tick.
+
+- **SOUL.md drawer editor + archetype gallery**: The operator editor is now
+  a 75vw right-side drawer. Create starts from an archetype gallery (Guardian,
+  Scout, Surgeon, Diplomat, Archivist — bundled `operator-souls/*.md`), then
+  drops into a split editor: structured Identity/Behaviour controls on the
+  left (name, avatar grid with hover-cycling emotional poses, colour swatches,
+  tags, voice, model, escalate threshold, hard constraints) synced to the
+  frontmatter, with the soul prose, a live markdown preview, and the raw
+  SOUL.md source on the right (`ui/src/settings/operators.ts`,
+  `ui/src/settings/soul_frontmatter.ts`, `ui/src/styles/operator_chip.css`,
+  Tauri commands in `crates/app/src/operator_registry.rs`).
+
+- **Glass and CRT tab styles**: Two new cosmetic tab styles alongside
+  Classic/Forge in Settings → Appearance — Glass (capsules, sliding
+  indicator, breathing AOM) and CRT (scanline glow, ASCII groups, flicker).
+  Pure CSS gated on body classes, extracted per-theme under
+  `ui/src/styles/tab-themes/` (`glass.css`, `crt.css`, `forge.css`);
+  `TabStyle` union + `applyTabStyle` extended (`ui/src/api.ts`,
+  `crates/app/src/settings.rs`).
+
+- **Teammate executive-read of the active tab**: The teammate can read a
+  live, rendered snapshot of the active tab's screen via a new
+  `read_terminal_screen` tool. The session pump tracks PTY size and
+  publishes a tidied headless capture; secrets are masked before the LLM
+  sees them (`crates/app/src/session/*`, `crates/app/src/teammate/*`).
+
+- **Global prompt library + run saved prompts/commands from menus**: A
+  prompt library in the right panel, plus running saved commands/prompts
+  directly from the tab and pane right-click menus
+  (`ui/src/prompts/*`, tab/pane context menus).
+
+- **Side-rail mention picker**: The mention picker moved into a vertical
+  side rail, replacing the horizontal tab row (`ui/src/mentions/*`).
+
+### Changed
+
+- **Achievements card relocated** from the Metrics tab to the Operators tab
+  in Settings (`acba11d`).
+- **Score attribution** now rolls group breakdowns up to the workspace and
+  collapses casing-duplicate group names (`c491ca9`).
+- **Capability buttons + structure-editor chrome** polished (`c468a6f`).
+
+### Fixed
+
+- **Light-mode surfaces**: structure menu, rename input, confirm dialog, and
+  the inline-notch agent-filter dropdown now use theme tokens instead of
+  painting dark on light (`8f293a2`, `006dc8b`).
+- **Vertical tab rendering**: border-box pills + chips to stop right-edge
+  clipping, decluttered Glass groups with a legible count badge, and a
+  restored active rail for Forge/CRT on non-operator rows (`5444db9`,
+  `60d75c3`, `be16a9f`).
+- **Operator drawer**: square corners flush to the viewport edge
+  (`ui/src/styles/operator_chip.css`).
+- **Split panes** inherit the live font and mirror Settings font changes
+  (`431b302`).
+- **Project-notes** title inputs no longer trigger autofill/autocapitalize
+  (`424e95a`).
+
 ## v0.8.40 — Forge tab style + teammate task lifecycle
 
 ### Added
