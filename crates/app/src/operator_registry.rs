@@ -168,6 +168,34 @@ impl OperatorRegistry {
         self.by_id.read().unwrap().get(&id).cloned()
     }
 
+    /// Re-stat every operator's SOUL.md; for any whose mtime changed, re-parse
+    /// and re-hydrate the in-memory operator. Returns the number reloaded.
+    /// Disk I/O only — does not touch the DB (the file is the source of truth).
+    pub fn refresh_changed_souls(&self) -> usize {
+        let candidates: Vec<(OperatorId, std::path::PathBuf, u64)> = {
+            let g = self.by_id.read().unwrap();
+            g.values()
+                .filter_map(|o| o.soul_path.clone().map(|p| (o.id, p, o.soul_mtime_unix_ms)))
+                .collect()
+        };
+        let mut n = 0;
+        for (id, path, prev) in candidates {
+            let Some(mt) = crate::soul::mtime_of(&path) else { continue };
+            if mt == prev { continue; }
+            match std::fs::read_to_string(&path).ok().and_then(|r| crate::soul::parse(&r).ok()) {
+                Some(soul) => {
+                    if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+                        crate::soul::hydrate_operator(op, &soul);
+                        op.soul_mtime_unix_ms = mt;
+                        n += 1;
+                    }
+                }
+                None => tracing::warn!(path = %path.display(), "SOUL.md reload parse failed; keeping last-good"),
+            }
+        }
+        n
+    }
+
     /// Test helper: build an in-memory registry pre-populated with a
     /// single default operator. Avoids spinning up sqlite from tests.
     #[cfg(test)]
@@ -816,6 +844,35 @@ mod soul_io_tests {
         assert!(got.soul_path.is_some());
         assert_eq!(got.persona, "old persona text");
         assert_eq!(got.hard_constraints, "^sudo");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn refresh_changed_souls_picks_up_external_edit() {
+        let tmp = std::env::temp_dir().join(format!("covenant-hot-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+        let reg = OperatorRegistry::load(&storage, souls).await.unwrap();
+        let op = Operator {
+            id: OperatorId(ulid::Ulid::new()), name: "Hot".into(), emoji: "🟣".into(),
+            color: "#a855f7".into(), tags: vec![], persona: "before".into(),
+            escalate_threshold: 0.5, model: "m".into(), hard_constraints: "".into(),
+            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+            voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+        };
+        let created = reg.create(&storage, op).await.unwrap();
+        let path = created.soul_path.unwrap();
+        // Force the cached mtime to differ from the file so the reload triggers
+        // regardless of filesystem mtime granularity.
+        let raw = std::fs::read_to_string(&path).unwrap().replace("before", "after");
+        let mut op2 = reg.get(created.id).unwrap();
+        op2.soul_mtime_unix_ms = 0;
+        reg.by_id.write().unwrap().insert(created.id, op2);
+        std::fs::write(&path, raw).unwrap();
+        let n = reg.refresh_changed_souls();
+        assert_eq!(n, 1);
+        assert_eq!(reg.get(created.id).unwrap().persona, "after");
         std::fs::remove_dir_all(&tmp).ok();
     }
 }
