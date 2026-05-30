@@ -37,3 +37,16 @@ if functions -q fish_prompt
         printf '\e]133;B\e\\'
     end
 end
+
+# ── Covenant theme sync ──────────────────────────────────────────────
+# Launch Claude Code matching Covenant's appearance. Covenant exports
+# COVENANT_CLAUDE_THEME (e.g. dark-daltonized) into this shell's env at
+# spawn; we forward it via --settings unless the caller already pinned a
+# theme. `command claude` avoids recursing into this function.
+function claude
+    if set -q COVENANT_CLAUDE_THEME; and not contains -- --settings $argv; and not contains -- --theme $argv
+        command claude --settings "{\"theme\":\"$COVENANT_CLAUDE_THEME\"}" $argv
+    else
+        command claude $argv
+    end
+end

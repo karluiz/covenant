@@ -52,3 +52,16 @@ case "$PROMPT_COMMAND" in
     *__karl_precmd*) ;;
     *) PROMPT_COMMAND="__karl_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
 esac
+
+# ── Covenant theme sync ──────────────────────────────────────────────
+# Launch Claude Code matching Covenant's appearance. Covenant exports
+# COVENANT_CLAUDE_THEME (e.g. `dark-daltonized`) into this shell's env at
+# spawn; we forward it via `--settings` unless the caller already pinned a
+# theme. `command claude` avoids recursing into this function.
+claude() {
+    if [[ -n "${COVENANT_CLAUDE_THEME:-}" && "$*" != *--settings* && "$*" != *--theme* ]]; then
+        command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\"}" "$@"
+    else
+        command claude "$@"
+    fi
+}

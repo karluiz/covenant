@@ -35,7 +35,8 @@ import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
-import { resolveTheme, watchSystemTheme, type ThemeMode } from "./theme/mode";
+import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
+import { detectExecutor } from "./executor";
 import type { Settings, WindowBackground, TabStyle } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -120,6 +121,9 @@ function applyWindowBackground(kind: WindowBackground): void {
 }
 
 let unwatchSystem: (() => void) | null = null;
+/// Latest applied theme mode, mirrored here so `runSpawn` can resolve the
+/// Claude theme for a freshly-launched executor without re-reading settings.
+let activeThemeMode: ThemeMode = "system";
 
 /// Single source of truth for theme application. Resolves system mode,
 /// flips the body class, calls the Rust effect swap, and reapplies the
@@ -128,6 +132,7 @@ async function applyTheme(
   mode: ThemeMode,
   tabs: { applyTerminalTheme: () => void },
 ): Promise<void> {
+  activeThemeMode = mode;
   const resolved = resolveTheme(mode);
   const body = document.body;
   body.classList.toggle("theme-light", resolved === "light");
@@ -815,7 +820,18 @@ async function boot(): Promise<void> {
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
         if (!spec || !spec.command) return;
-        const cmdline = [spec.command, ...spec.args].join(" ") + "\n";
+        // Launch Claude Code matching Covenant's theme. Skip if the user
+        // already pinned a theme via --settings/--theme. The osc133 shell
+        // wrapper is idempotent and won't double-inject once this is set.
+        const args = [...spec.args];
+        if (
+          detectExecutor(spec.command) === "claude" &&
+          !args.some((a) => a === "--settings" || a === "--theme")
+        ) {
+          const theme = claudeThemeFor(resolveTheme(activeThemeMode));
+          args.push("--settings", `'{"theme":"${theme}"}'`);
+        }
+        const cmdline = [spec.command, ...args].join(" ") + "\n";
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
         manager.setActiveSpawnId(spec.id);

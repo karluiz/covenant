@@ -15,6 +15,19 @@ pub enum ResolvedTheme {
 /// macOS's native light vibrancy.
 #[tauri::command]
 pub fn set_window_theme(app: AppHandle, mode: ResolvedTheme) -> Result<(), String> {
+    // Mirror the resolved appearance into the Claude theme used for new
+    // shells. Colorblind-friendly variants match the daltonized palette
+    // Covenant ships with; see COVENANT_CLAUDE_THEME in spawn_session.
+    if let Some(state) = app.try_state::<crate::AppState>() {
+        let claude = match mode {
+            ResolvedTheme::Dark => "dark-daltonized",
+            ResolvedTheme::Light => "light-daltonized",
+        };
+        if let Ok(mut t) = state.claude_theme.lock() {
+            *t = claude.to_string();
+        }
+    }
+
     let win = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;

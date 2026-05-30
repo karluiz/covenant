@@ -12,6 +12,15 @@ export function resolveTheme(mode: ThemeMode): ResolvedTheme {
   return window.matchMedia(LIGHT_QUERY).matches ? "light" : "dark";
 }
 
+/// Claude Code theme name matching a resolved Covenant appearance. We use
+/// the colorblind-friendly (daltonized) variants to match the palette
+/// Covenant ships. Passed to `claude --settings '{"theme":"…"}'` so a
+/// session launched from the spawns chip matches Covenant. Mirrors the
+/// backend mapping in `theme.rs` (COVENANT_CLAUDE_THEME).
+export function claudeThemeFor(resolved: ResolvedTheme): string {
+  return resolved === "light" ? "light-daltonized" : "dark-daltonized";
+}
+
 /// Subscribe to OS appearance changes. Only relevant while mode === "system".
 /// Returns an unsubscribe function the caller invokes when mode changes or
 /// the app shuts down.

@@ -119,6 +119,12 @@ pub(crate) struct AppState {
     /// App data dir (same dir holding `history.db`). Scrollback logs
     /// live under `<data_dir>/scrollback/`.
     data_dir: PathBuf,
+    /// Resolved Claude Code theme (e.g. `dark-daltonized`) mirroring the
+    /// app's current appearance. Injected into every new shell's env as
+    /// `COVENANT_CLAUDE_THEME` so the `claude` shell wrapper launches
+    /// Claude matching Covenant. Updated by `set_window_theme` on every
+    /// theme change (and OS appearance flip in system mode).
+    claude_theme: std::sync::Mutex<String>,
     /// 3.7 status-bar — git/runtime detection cache shared across all
     /// `get_dir_context` calls. Tiny LRU, 5s TTL, no fs watcher.
     dir_context_cache: Arc<ContextCache>,
@@ -380,6 +386,18 @@ async fn spawn_session(
         opts.args.push("--no-globalrcs".to_string());
         opts.env
             .push(("ZDOTDIR".to_string(), zdotdir.path().display().to_string()));
+    }
+    // Mirror Covenant's appearance into the shell env so the `claude`
+    // wrapper (shell-integration) launches Claude Code with a matching
+    // theme via `--settings`. Fixed for this shell's lifetime — new tabs
+    // pick up the current value; a mid-session toggle does not retroact.
+    {
+        let theme = state
+            .claude_theme
+            .lock()
+            .map(|t| t.clone())
+            .unwrap_or_else(|_| "dark-daltonized".to_string());
+        opts.env.push(("COVENANT_CLAUDE_THEME".to_string(), theme));
     }
     // Persistence-restored cwd is set HERE (before spawn) instead of
     // injected as `cd <path>\r` after the first prompt. portable-pty
@@ -3300,6 +3318,7 @@ pub fn run() {
                 aom: aom_handle,
                 tab_manifest_path,
                 data_dir,
+                claude_theme: std::sync::Mutex::new("dark-daltonized".to_string()),
                 dir_context_cache: Arc::new(ContextCache::new()),
                 notifier,
                 email_notifier,

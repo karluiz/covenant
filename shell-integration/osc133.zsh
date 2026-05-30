@@ -160,3 +160,17 @@ __karl_load_autosuggestions() {
 }
 
 __karl_load_autosuggestions
+
+# ── Covenant theme sync ──────────────────────────────────────────────
+# Launch Claude Code matching Covenant's appearance. Covenant exports
+# COVENANT_CLAUDE_THEME (e.g. `dark-daltonized`) into this shell's env at
+# spawn; we forward it via `--settings` unless the caller already pinned a
+# theme. `command claude` avoids recursing into this function. Fixed for
+# the shell's lifetime — new tabs reflect the current theme.
+claude() {
+    if [[ -n "${COVENANT_CLAUDE_THEME:-}" && "$*" != *--settings* && "$*" != *--theme* ]]; then
+        command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\"}" "$@"
+    else
+        command claude "$@"
+    fi
+}
