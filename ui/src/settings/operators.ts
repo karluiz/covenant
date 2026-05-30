@@ -1060,6 +1060,22 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
       img.src = a.url; img.width = 44; img.height = 44; img.draggable = false;
       img.className = "op-avatar op-avatar-pixel"; img.alt = a.label;
       cell.append(img);
+      // Hover-cycle through the character's emotional poses (250ms),
+      // snapping back to the neutral pose on leave — mirrors the old pane.
+      const poses = Object.values(a.urlsByEmotion).filter(Boolean) as string[];
+      let cycle: number | null = null;
+      cell.addEventListener("mouseenter", () => {
+        if (poses.length < 2) return;
+        let i = 0;
+        cycle = window.setInterval(() => {
+          i = (i + 1) % poses.length;
+          img.src = poses[i];
+        }, 250);
+      });
+      cell.addEventListener("mouseleave", () => {
+        if (cycle !== null) { window.clearInterval(cycle); cycle = null; }
+        img.src = a.url;
+      });
       cell.addEventListener("click", () => { view.avatar = `pack2:${a.character}`; commit(true); });
       grid.append(cell);
     }
