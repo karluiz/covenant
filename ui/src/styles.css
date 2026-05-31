@@ -16006,6 +16006,155 @@ body.theme-light .teammate-panel-avatar .op-avatar {
 .teammate-panel.switcher-open .teammate-panel-header-chevron {
   transform: rotate(180deg);
 }
+
+/* --- Conversation thread bar (ChatGPT-style) --------------------------- */
+.teammate-thread-bar {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+}
+.teammate-thread-bar.is-hidden { display: none; }
+.teammate-thread-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.teammate-thread-current:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.teammate-thread-current-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.teammate-thread-current-title.is-editing {
+  white-space: nowrap;
+  overflow: visible;
+  outline: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.teammate-thread-chev {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  display: inline-flex;
+  transition: transform 180ms ease;
+}
+.teammate-thread-current.is-open .teammate-thread-chev { transform: rotate(180deg); }
+.teammate-thread-chev .teammate-panel-header-chevron { width: 14px; height: 14px; margin: 0; }
+
+.teammate-thread-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 6px;
+  right: 6px;
+  z-index: 30;
+  margin-top: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-1, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  padding: 4px;
+}
+.teammate-thread-new {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.teammate-thread-new:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.teammate-thread-item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.teammate-thread-item:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.teammate-thread-item.is-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.teammate-thread-item-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.teammate-thread-item-check {
+  flex: 0 0 12px;
+  width: 12px;
+  color: var(--accent);
+  font-size: 11px;
+}
+.teammate-thread-item-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teammate-thread-item-time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+.teammate-thread-item-archive {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+.teammate-thread-item:hover .teammate-thread-item-archive { opacity: 1; }
+.teammate-thread-item-archive:hover {
+  color: var(--danger, #e5484d);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
 .teammate-panel-thread {
   flex: 1;
   min-height: 0;
@@ -16028,78 +16177,6 @@ body.theme-light .teammate-panel-avatar .op-avatar {
   gap: 8px;
 }
 
-/* Inline undo card — replaces the empty-state CTAs while a clear is
- * pending. Two explicit buttons + a 6s draining progress bar make the
- * undo affordance discoverable (the old toast-only flow was too easy
- * to miss). */
-.teammate-undo-card {
-  margin: auto 14px;
-  padding: 16px 16px 14px;
-  border: 1px solid rgba(239,107,107,0.25);
-  background: rgba(239,107,107,0.05);
-  border-radius: 12px;
-  text-align: center;
-  color: var(--text-primary, #e6e8ea);
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  max-width: 320px;
-}
-.teammate-undo-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary, #e6e8ea);
-}
-.teammate-undo-hint {
-  font-size: 11px;
-  color: var(--text-dim, #8b8d94);
-}
-.teammate-undo-progress {
-  height: 3px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.teammate-undo-progress-fill {
-  display: block;
-  height: 100%;
-  width: 100%;
-  background: var(--fail, #ef6b6b);
-  transform-origin: left;
-  animation: teammate-undo-drain 6s linear forwards;
-}
-@keyframes teammate-undo-drain {
-  from { transform: scaleX(1); }
-  to   { transform: scaleX(0); }
-}
-.teammate-undo-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-}
-.teammate-undo-btn {
-  flex: 1;
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px solid var(--border, rgba(255,255,255,0.1));
-  background: transparent;
-  color: var(--text-primary, #e6e8ea);
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-}
-.teammate-undo-btn:hover { background: rgba(255,255,255,0.06); }
-.teammate-undo-btn--primary {
-  background: var(--accent, #6f7bff);
-  border-color: var(--accent, #6f7bff);
-  color: #fff;
-  font-weight: 600;
-}
-.teammate-undo-btn--primary:hover {
-  filter: brightness(1.1);
-  background: var(--accent, #6f7bff);
-}
 .teammate-empty-icon {
   color: var(--operator-color, var(--accent, #6f7bff));
   opacity: 0.5;

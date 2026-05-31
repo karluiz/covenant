@@ -49,7 +49,24 @@ describe("sanitizeMentionTokens", () => {
   });
 });
 
+const stubThread = {
+  id: "th-1",
+  operator_id: "op-mibli",
+  title: "New conversation",
+  created_at_unix_ms: 0,
+  last_message_at_unix_ms: 0,
+  archived: false,
+};
+
+const stubThreadDeps = {
+  listThreads:   async () => [stubThread],
+  createThread:  async () => ({ ...stubThread, id: "th-new" }),
+  renameThread:  async () => {},
+  archiveThread: async () => {},
+};
+
 const stubMentionDeps = {
+  ...stubThreadDeps,
   mentionSources: {
     findFiles:          async () => [],
     listOperators:      async () => [],
@@ -164,7 +181,7 @@ describe("TeammatePanel", () => {
       ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn().mockResolvedValue({
-        id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
+        id: "u1", operator_id: "op-mibli", task_id: null, thread_id: null, role: "user",
         content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
         confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
       }),
@@ -174,7 +191,7 @@ describe("TeammatePanel", () => {
     await panel.openFor(makeOp());
     await panel.send("hola");
     captured!({
-      id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
+      id: "m1", operator_id: "op-mibli", task_id: null, thread_id: null, role: "operator",
       content: { kind: "text", data: "hola, ¿en qué te ayudo?" }, created_at_unix_ms: 2,
       confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
@@ -198,7 +215,7 @@ describe("TeammatePanel", () => {
     });
     await panel.openFor(makeOp());
     captured!({
-      id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
+      id: "m1", operator_id: "op-mibli", task_id: null, thread_id: null, role: "operator",
       content: { kind: "text", data: "the file is `src/main.rs`" }, created_at_unix_ms: 2,
       confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
@@ -212,7 +229,7 @@ describe("TeammatePanel", () => {
     const send = vi.fn().mockResolvedValue({
       id: "m1",
       operator_id: "op-mibli",
-      task_id: null,
+      task_id: null, thread_id: null,
       role: "user",
       content: { kind: "text", data: "hola" },
       created_at_unix_ms: 1,
@@ -227,7 +244,7 @@ describe("TeammatePanel", () => {
     });
     await panel.openFor(makeOp());
     await panel.send("hola");
-    expect(send).toHaveBeenCalledWith("op-mibli", "hola", null);
+    expect(send).toHaveBeenCalledWith("op-mibli", "th-1", "hola", null);
     expect(host.querySelectorAll(".teammate-bubble:not(.teammate-typing)").length).toBe(1);
   });
 
@@ -238,7 +255,7 @@ describe("TeammatePanel", () => {
       ...stubMentionDeps,
       listMessages:  vi.fn().mockResolvedValue([]),
       sendText:      vi.fn().mockResolvedValue({
-        id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
+        id: "u1", operator_id: "op-mibli", task_id: null, thread_id: null, role: "user",
         content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
         confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
       }),
@@ -249,7 +266,7 @@ describe("TeammatePanel", () => {
     await panel.send("hola");
     expect(host.querySelector(".teammate-typing")).not.toBeNull();
     captured!({
-      id: "m1", operator_id: "op-mibli", task_id: null, role: "operator",
+      id: "m1", operator_id: "op-mibli", task_id: null, thread_id: null, role: "operator",
       content: { kind: "text", data: "hola, ¿en qué te ayudo?" }, created_at_unix_ms: 2,
       confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
@@ -277,7 +294,7 @@ describe("TeammatePanel", () => {
   it("passes active session id from resolver to sendText", async () => {
     const host = document.createElement("div");
     const send = vi.fn().mockResolvedValue({
-      id: "u1", operator_id: "op-mibli", task_id: null, role: "user",
+      id: "u1", operator_id: "op-mibli", task_id: null, thread_id: null, role: "user",
       content: { kind: "text", data: "hola" }, created_at_unix_ms: 1,
       confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
     });
@@ -290,7 +307,7 @@ describe("TeammatePanel", () => {
     });
     await panel.openFor(makeOp());
     await panel.send("hola");
-    expect(send).toHaveBeenCalledWith("op-mibli", "hola", "session-abc");
+    expect(send).toHaveBeenCalledWith("op-mibli", "th-1", "hola", "session-abc");
   });
 
   it("renders a tool-call line when the operator reads a file", async () => {
@@ -334,7 +351,7 @@ describe("TeammatePanel propose rendering", () => {
     const proposeMsg: import("../api").TeammateMessage = {
       id: "msg-propose",
       operator_id: "op1",
-      task_id: null,
+      task_id: null, thread_id: null,
       role: "operator",
       content: {
         kind: "propose",
@@ -418,7 +435,7 @@ describe("TeammatePanel spawn+prime ordering", () => {
     const proposeMsg: import("../api").TeammateMessage = {
       id: "msg-propose",
       operator_id: "op1",
-      task_id: null,
+      task_id: null, thread_id: null,
       role: "operator",
       content: {
         kind: "propose",
