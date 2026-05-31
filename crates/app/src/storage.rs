@@ -2252,12 +2252,13 @@ impl Storage {
             };
             c.execute(
                 "INSERT INTO teammate_messages \
-                 (id, operator_id, task_id, role, content_kind, content_json, created_at_unix_ms, sentiment) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (id, operator_id, task_id, thread_id, role, content_kind, content_json, created_at_unix_ms, sentiment) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     msg.id.0.to_string(),
                     msg.operator_id.0.to_string(),
                     msg.task_id.map(|t| t.0.to_string()),
+                    msg.thread_id.map(|t| t.0.to_string()),
                     role,
                     content_kind,
                     content_json,
@@ -2265,6 +2266,12 @@ impl Storage {
                     msg.sentiment.map(|s| s.as_token()),
                 ],
             )?;
+            if let Some(tid) = msg.thread_id {
+                c.execute(
+                    "UPDATE teammate_threads SET last_message_at_unix_ms = ?1 WHERE id = ?2",
+                    params![msg.created_at_unix_ms as i64, tid.0.to_string()],
+                )?;
+            }
             Ok(())
         })
         .await
@@ -2329,6 +2336,197 @@ impl Storage {
                     operator_id: crate::operator_registry::OperatorId(op_id),
                     task_id: task_id.map(crate::teammate::TaskId),
                     thread_id: None,
+                    role,
+                    content,
+                    created_at_unix_ms: ts as u64,
+                    confirmed_at_unix_ms: confirmed.map(|v| v as u64),
+                    dismissed_at_unix_ms: dismissed.map(|v| v as u64),
+                    sentiment,
+                });
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Create a new conversation thread for an operator. Returns its id.
+    pub async fn teammate_create_thread(
+        &self,
+        operator_id: crate::operator_registry::OperatorId,
+        title: &str,
+    ) -> Result<crate::teammate::ThreadId, StorageError> {
+        let inner = self.inner.clone();
+        let title = title.to_string();
+        tokio::task::spawn_blocking(move || -> Result<crate::teammate::ThreadId, StorageError> {
+            let c = inner.blocking_lock();
+            let id = crate::teammate::ThreadId::new();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            c.execute(
+                "INSERT INTO teammate_threads \
+                 (id, operator_id, title, created_at_unix_ms, last_message_at_unix_ms, archived) \
+                 VALUES (?1, ?2, ?3, ?4, ?4, 0)",
+                params![id.0.to_string(), operator_id.0.to_string(), title, now],
+            )?;
+            Ok(id)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// List an operator's non-archived threads, most-recently-active first.
+    pub async fn teammate_list_threads(
+        &self,
+        operator_id: crate::operator_registry::OperatorId,
+    ) -> Result<Vec<crate::teammate::TeammateThread>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<crate::teammate::TeammateThread>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, operator_id, title, created_at_unix_ms, last_message_at_unix_ms, archived \
+                 FROM teammate_threads WHERE operator_id = ?1 AND archived = 0 \
+                 ORDER BY last_message_at_unix_ms DESC",
+            )?;
+            let rows = stmt.query_map(
+                params![operator_id.0.to_string()],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                        r.get::<_, i64>(4)?,
+                        r.get::<_, i64>(5)?,
+                    ))
+                },
+            )?;
+            let mut out = Vec::new();
+            for row in rows {
+                let (id, op_id, title, created, last_msg, archived) = row?;
+                let id = ulid::Ulid::from_string(&id)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let op_id = ulid::Ulid::from_string(&op_id)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                out.push(crate::teammate::TeammateThread {
+                    id: crate::teammate::ThreadId(id),
+                    operator_id: crate::operator_registry::OperatorId(op_id),
+                    title,
+                    created_at_unix_ms: created as u64,
+                    last_message_at_unix_ms: last_msg as u64,
+                    archived: archived != 0,
+                });
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Rename a thread.
+    pub async fn teammate_rename_thread(
+        &self,
+        thread_id: crate::teammate::ThreadId,
+        title: &str,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        let title = title.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_threads SET title = ?1 WHERE id = ?2",
+                params![title, thread_id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Archive a thread (excludes it from `teammate_list_threads`).
+    pub async fn teammate_archive_thread(
+        &self,
+        thread_id: crate::teammate::ThreadId,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_threads SET archived = 1 WHERE id = ?1",
+                params![thread_id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// List messages scoped to a single thread, oldest first.
+    pub async fn teammate_list_messages_in_thread(
+        &self,
+        thread_id: crate::teammate::ThreadId,
+        limit: usize,
+    ) -> Result<Vec<crate::teammate::TaskMessage>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<crate::teammate::TaskMessage>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(
+                "SELECT id, operator_id, task_id, thread_id, role, content_kind, content_json, \
+                        created_at_unix_ms, confirmed_at_unix_ms, dismissed_at_unix_ms, sentiment \
+                 FROM teammate_messages WHERE thread_id = ?1 \
+                 ORDER BY created_at_unix_ms ASC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(
+                params![thread_id.0.to_string(), limit as i64],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
+                        r.get::<_, i64>(7)?,
+                        r.get::<_, Option<i64>>(8)?,
+                        r.get::<_, Option<i64>>(9)?,
+                        r.get::<_, Option<String>>(10)?,
+                    ))
+                },
+            )?;
+            let mut out = Vec::new();
+            for row in rows {
+                let (id, op_id, task_id, thread_id_s, role, _kind, content_json, ts, confirmed, dismissed, sentiment_s) = row?;
+                let id = ulid::Ulid::from_string(&id)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let op_id = ulid::Ulid::from_string(&op_id)
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let task_id = task_id
+                    .as_deref()
+                    .map(ulid::Ulid::from_string)
+                    .transpose()
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let thread_id = thread_id_s
+                    .as_deref()
+                    .map(ulid::Ulid::from_string)
+                    .transpose()
+                    .map_err(|e| StorageError::Other(e.to_string()))?;
+                let role: crate::teammate::Role =
+                    serde_json::from_str(&format!("\"{}\"", role))
+                        .map_err(|e| StorageError::Other(e.to_string()))?;
+                let content: crate::teammate::MessageContent =
+                    serde_json::from_str(&content_json)
+                        .map_err(|e| StorageError::Other(e.to_string()))?;
+                let sentiment = sentiment_s
+                    .as_deref()
+                    .and_then(crate::teammate::Sentiment::from_token);
+                out.push(crate::teammate::TaskMessage {
+                    id: crate::teammate::MessageId(id),
+                    operator_id: crate::operator_registry::OperatorId(op_id),
+                    task_id: task_id.map(crate::teammate::TaskId),
+                    thread_id: thread_id.map(crate::teammate::ThreadId),
                     role,
                     content,
                     created_at_unix_ms: ts as u64,
@@ -3930,5 +4128,53 @@ mod task_card_storage_tests {
             )
             .unwrap();
         assert_eq!(nulls, 0, "no orphaned messages remain");
+    }
+
+    #[tokio::test]
+    async fn thread_crud_and_scoped_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::open(&dir.path().join("t.db")).unwrap();
+        let op = crate::operator_registry::OperatorId(Ulid::new());
+        {
+            let c = store.conn();
+            let c = c.lock().await;
+            c.execute(
+                "INSERT INTO operators \
+                 (id, name, persona, model, created_at_unix_ms, updated_at_unix_ms) \
+                 VALUES (?1,'op','p','m',1,1)",
+                params![op.0.to_string()],
+            )
+            .unwrap();
+        }
+
+        let t1 = store.teammate_create_thread(op, "Alpha").await.unwrap();
+        let t2 = store.teammate_create_thread(op, "Beta").await.unwrap();
+        assert_eq!(store.teammate_list_threads(op).await.unwrap().len(), 2);
+
+        let mk = |tid| crate::teammate::TaskMessage {
+            id: MessageId::new(),
+            operator_id: op,
+            task_id: None,
+            thread_id: Some(tid),
+            role: Role::User,
+            content: MessageContent::Text("x".into()),
+            created_at_unix_ms: 10,
+            confirmed_at_unix_ms: None,
+            dismissed_at_unix_ms: None,
+            sentiment: None,
+        };
+        store.teammate_insert_message(&mk(t1)).await.unwrap();
+        store.teammate_insert_message(&mk(t1)).await.unwrap();
+        store.teammate_insert_message(&mk(t2)).await.unwrap();
+        assert_eq!(store.teammate_list_messages_in_thread(t1, 200).await.unwrap().len(), 2);
+        let t2_msgs = store.teammate_list_messages_in_thread(t2, 200).await.unwrap();
+        assert_eq!(t2_msgs.len(), 1);
+        assert_eq!(t2_msgs[0].thread_id, Some(t2));
+
+        store.teammate_rename_thread(t1, "Renamed").await.unwrap();
+        store.teammate_archive_thread(t2).await.unwrap();
+        let after = store.teammate_list_threads(op).await.unwrap();
+        assert_eq!(after.len(), 1, "archived excluded");
+        assert_eq!(after[0].title, "Renamed");
     }
 }
