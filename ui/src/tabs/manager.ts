@@ -32,7 +32,7 @@ import {
   type Command,
   type Prompt,
 } from "../project-notes/api";
-import { wrapForSend } from "../project-notes/paste";
+import { sendPromptToSession } from "../project-notes/paste";
 import { openMindLossModal } from "../operator/mind-loss-modal";
 import {
   aomStatus,
@@ -1298,7 +1298,7 @@ export class TabManager {
         addSection("Prompts");
         addCapped(prompts, (p) =>
           addItem(p.title, () => {
-            void writeToSession(sessionId, encoder.encode(wrapForSend(p.body)));
+            void sendPromptToSession(sessionId, p.body);
           }),
         );
       }
@@ -6006,7 +6006,7 @@ export class TabManager {
           label: p.title,
           // Bracketed paste + submit (Prompts semantics).
           onClick: () => {
-            void writeToSession(sid, encoder.encode(wrapForSend(p.body)));
+            void sendPromptToSession(sid, p.body);
           },
         }));
         if (prompts.length > cap) {
