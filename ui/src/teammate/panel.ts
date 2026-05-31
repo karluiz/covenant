@@ -1,9 +1,9 @@
-import type { Operator, Sentiment, Task, TaskArchetype, TeammateMessage, TeammateThread, TeammateToolCall, UpdateKind } from "../api";
+import type { Operator, Sentiment, Task, TaskArchetype, TeammateMessage, TeammateThread, TeammateThreadRenamed, TeammateToolCall, UpdateKind } from "../api";
 import type { OperatorDecisionRow } from "../api";
 import {
   findRecentCommands,
   findSpecs,
-  injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp, primeSpawnedTab,
+  injectCommand, onTeammateMessage, onTeammateThreadRenamed, onTeammateToolCall, operatorLevelFromXp, primeSpawnedTab,
   operatorList, readBlockExcerpt, readSessionExcerpt,
   structureFindFiles, structureReadFile,
   teammateAttachSessionToTask, teammateArchiveThread, teammateCancelActiveTask, teammateCancelTaskProposal,
@@ -77,6 +77,7 @@ export interface TeammatePanelDeps {
   archiveThread?: (threadId: string) => Promise<void>;
   onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
   onToolCall?:   (handler: (call: TeammateToolCall) => void) => Promise<() => void>;
+  onThreadRenamed?: (handler: (e: TeammateThreadRenamed) => void) => Promise<() => void>;
   getActiveSessionId?: () => string | null;
   /// Returns the executor (claude/codex/copilot/…) running in the active
   /// tab, or null when the foreground is a plain shell. When null, the
@@ -142,6 +143,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   archiveThread: teammateArchiveThread,
   onMessage:     onTeammateMessage,
   onToolCall:    onTeammateToolCall,
+  onThreadRenamed: onTeammateThreadRenamed,
   confirmTask:         teammateConfirmTask,
   cancelTaskProposal:  teammateCancelTaskProposal,
   editTaskProposal:    teammateEditTaskProposal,
@@ -267,6 +269,7 @@ export class TeammatePanel {
   private dismissSwitcher: ((e: Event) => void) | null = null;
   private unlisten: (() => void) | null = null;
   private unlistenToolCall: (() => void) | null = null;
+  private unlistenThreadRenamed: (() => void) | null = null;
   private viewMode: "chat" | "tasks" | "activity" = "chat";
   /// Absolute path of the most-recently-mentioned spec in this session.
   /// Used to auto-set mission on tabs spawned from a confirmed task.
@@ -351,6 +354,16 @@ export class TeammatePanel {
     if (!this.unlistenToolCall && this.deps.onToolCall) {
       this.unlistenToolCall = await this.deps.onToolCall((c) => this.onIncomingToolCall(c));
     }
+    if (!this.unlistenThreadRenamed && this.deps.onThreadRenamed) {
+      this.unlistenThreadRenamed = await this.deps.onThreadRenamed((e) => this.onThreadRenamed(e));
+    }
+  }
+
+  private onThreadRenamed(e: TeammateThreadRenamed): void {
+    const t = this.threads.find((th) => th.id === e.thread_id);
+    if (!t) return;
+    t.title = e.title;
+    this.paintThreadBar();
   }
 
   close(): void {
@@ -359,6 +372,8 @@ export class TeammatePanel {
     this.unlisten = null;
     this.unlistenToolCall?.();
     this.unlistenToolCall = null;
+    this.unlistenThreadRenamed?.();
+    this.unlistenThreadRenamed = null;
     this.activityView?.stop();
     this.activityView = null;
     this.activityEl = null;

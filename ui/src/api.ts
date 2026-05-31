@@ -2072,6 +2072,22 @@ export async function onTeammateMessage(
   return unlisten;
 }
 
+export interface TeammateThreadRenamed {
+  thread_id: string;
+  title: string;
+}
+
+export async function onTeammateThreadRenamed(
+  handler: (e: TeammateThreadRenamed) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<TeammateThreadRenamed>(
+    "teammate-thread-renamed",
+    (e) => handler(e.payload),
+  );
+  return unlisten;
+}
+
 export interface TeammateToolCall {
   operator_id: string;
   progress: {

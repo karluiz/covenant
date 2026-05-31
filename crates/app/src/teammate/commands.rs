@@ -96,6 +96,7 @@ pub async fn teammate_send_text_message(
     }
 
     // 1) Persist the user message immediately.
+    let user_text = text.clone();
     let user_msg = TaskMessage {
         id: MessageId::new(),
         operator_id,
@@ -147,6 +148,45 @@ pub async fn teammate_send_text_message(
                 return;
             }
         };
+
+        // First user message in a still-default thread → auto-title it in a
+        // separate task so titling never blocks (or breaks) the reply.
+        if thread.len() == 1 {
+            let storage_bg2 = storage_bg.clone();
+            let app_bg2 = app_bg.clone();
+            let settings_bg2 = settings_bg.clone();
+            let model = operator.model.clone();
+            let user_text2 = user_text.clone();
+            tokio::spawn(async move {
+                // Only retitle a thread the user hasn't already named.
+                let still_default = match storage_bg2.teammate_list_threads(operator_id).await {
+                    Ok(threads) => threads
+                        .iter()
+                        .find(|t| t.id == thread_id)
+                        .map(|t| t.title == "New conversation")
+                        .unwrap_or(false),
+                    Err(_) => false,
+                };
+                if !still_default {
+                    return;
+                }
+                let settings = settings_bg2.lock().await.clone();
+                if let Ok(title) = crate::teammate::llm::generate_thread_title(
+                    &settings, &model, &user_text2,
+                )
+                .await
+                {
+                    let _ = storage_bg2.teammate_rename_thread(thread_id, &title).await;
+                    let _ = app_bg2.emit(
+                        "teammate-thread-renamed",
+                        serde_json::json!({
+                            "thread_id": thread_id.0.to_string(),
+                            "title": title,
+                        }),
+                    );
+                }
+            });
+        }
 
         // Build snapshot per session under each world's own lock.
         let mut snapshots = Vec::with_capacity(session_data.len());
