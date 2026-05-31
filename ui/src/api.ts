@@ -426,6 +426,7 @@ export interface TeammateMessage {
   id: string;
   operator_id: string;
   task_id: string | null;
+  thread_id: string | null;
   role: TeammateRole;
   content: TeammateContent;
   created_at_unix_ms: number;
@@ -438,26 +439,50 @@ export interface TeammateMessage {
   sentiment?: Sentiment | null;
 }
 
+export interface TeammateThread {
+  id: string;
+  operator_id: string;
+  title: string;
+  created_at_unix_ms: number;
+  last_message_at_unix_ms: number;
+  archived: boolean;
+}
+
 export async function teammateListMessages(
-  operatorId: string,
+  threadId: string,
   limit = 200,
 ): Promise<TeammateMessage[]> {
   return invoke<TeammateMessage[]>("teammate_list_messages_for_operator", {
-    operatorId,
+    threadId,
     limit,
   });
 }
 
 export async function teammateSendText(
   operatorId: string,
+  threadId: string,
   text: string,
   activeSessionId?: string | null,
 ): Promise<TeammateMessage> {
   return invoke<TeammateMessage>("teammate_send_text_message", {
     operatorId,
+    threadId,
     text,
     activeSessionId: activeSessionId ?? null,
   });
+}
+
+export async function teammateListThreads(operatorId: string): Promise<TeammateThread[]> {
+  return invoke<TeammateThread[]>("teammate_list_threads", { operatorId });
+}
+export async function teammateCreateThread(operatorId: string, title: string): Promise<TeammateThread> {
+  return invoke<TeammateThread>("teammate_create_thread", { operatorId, title });
+}
+export async function teammateRenameThread(threadId: string, title: string): Promise<void> {
+  return invoke<void>("teammate_rename_thread", { threadId, title });
+}
+export async function teammateArchiveThread(threadId: string): Promise<void> {
+  return invoke<void>("teammate_archive_thread", { threadId });
 }
 
 export async function teammateConfirmTask(
