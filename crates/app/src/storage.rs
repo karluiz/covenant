@@ -213,6 +213,17 @@ CREATE TABLE IF NOT EXISTS teammate_tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_operator ON teammate_tasks(operator_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status   ON teammate_tasks(status);
 
+CREATE TABLE IF NOT EXISTS teammate_threads (
+    id                      TEXT PRIMARY KEY,
+    operator_id             TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    title                   TEXT NOT NULL,
+    created_at_unix_ms      INTEGER NOT NULL,
+    last_message_at_unix_ms INTEGER NOT NULL,
+    archived                INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_threads_operator
+    ON teammate_threads(operator_id, last_message_at_unix_ms DESC);
+
 CREATE TABLE IF NOT EXISTS teammate_messages (
     id                  TEXT PRIMARY KEY,
     operator_id         TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
@@ -579,6 +590,52 @@ impl Storage {
             "ALTER TABLE teammate_messages ADD COLUMN sentiment TEXT",
             [],
         );
+        // Operator threads: split the flat per-operator chat into separate
+        // conversations. `thread_id` is NULL on legacy rows until backfilled
+        // below. Fresh DBs also take this path (SCHEMA omits the column).
+        let _ = conn.execute(
+            "ALTER TABLE teammate_messages ADD COLUMN thread_id TEXT \
+             REFERENCES teammate_threads(id) ON DELETE CASCADE",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_thread \
+             ON teammate_messages(thread_id, created_at_unix_ms)",
+            [],
+        );
+        // Backfill: every operator with orphaned (thread_id IS NULL) messages
+        // gets one "General" thread; all its orphaned messages move into it.
+        // Idempotent — operators with no NULL-thread rows are untouched.
+        {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let orphan_ops: Vec<String> = {
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT operator_id FROM teammate_messages \
+                     WHERE thread_id IS NULL",
+                )?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            let tx = conn.unchecked_transaction()?;
+            for op in orphan_ops {
+                let tid = ulid::Ulid::new().to_string();
+                tx.execute(
+                    "INSERT INTO teammate_threads \
+                     (id, operator_id, title, created_at_unix_ms, last_message_at_unix_ms, archived) \
+                     VALUES (?1, ?2, 'General', ?3, ?3, 0)",
+                    rusqlite::params![tid, op, now],
+                )?;
+                tx.execute(
+                    "UPDATE teammate_messages SET thread_id = ?1 \
+                     WHERE operator_id = ?2 AND thread_id IS NULL",
+                    rusqlite::params![tid, op],
+                )?;
+            }
+            tx.commit()?;
+        }
         tracing::info!(path = %path.display(), "storage opened");
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
@@ -2271,6 +2328,7 @@ impl Storage {
                     id: crate::teammate::MessageId(id),
                     operator_id: crate::operator_registry::OperatorId(op_id),
                     task_id: task_id.map(crate::teammate::TaskId),
+                    thread_id: None,
                     role,
                     content,
                     created_at_unix_ms: ts as u64,
@@ -2379,6 +2437,7 @@ impl Storage {
                 id: crate::teammate::MessageId(id),
                 operator_id: crate::operator_registry::OperatorId(op),
                 task_id: task.map(crate::teammate::TaskId),
+                thread_id: None,
                 role,
                 content,
                 created_at_unix_ms: created as u64,
@@ -3779,6 +3838,7 @@ mod task_card_storage_tests {
             id: MessageId::new(),
             operator_id: op,
             task_id: None,
+            thread_id: None,
             role: Role::Operator,
             content: MessageContent::Propose(ProposeTask {
                 draft: TaskDraft {
@@ -3818,5 +3878,57 @@ mod task_card_storage_tests {
         let fetched = s.teammate_get_message(msg.id).await.unwrap().expect("found");
         assert_eq!(fetched.confirmed_at_unix_ms, Some(1_700_000_000_500));
         assert_eq!(fetched.dismissed_at_unix_ms, None);
+    }
+
+    #[tokio::test]
+    async fn backfill_creates_general_thread_for_legacy_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let store = Storage::open(&path).unwrap();
+        {
+            let c = store.conn();
+            let c = c.lock().await;
+            c.execute(
+                "INSERT INTO operators \
+                 (id, name, persona, model, created_at_unix_ms, updated_at_unix_ms) \
+                 VALUES ('op1','op1','p','m',1,1)",
+                [],
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO teammate_messages \
+                 (id, operator_id, role, content_kind, content_json, created_at_unix_ms, thread_id) \
+                 VALUES ('m1','op1','user','text','\"hi\"',1, NULL)",
+                [],
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO teammate_messages \
+                 (id, operator_id, role, content_kind, content_json, created_at_unix_ms, thread_id) \
+                 VALUES ('m2','op1','operator','text','\"yo\"',2, NULL)",
+                [],
+            )
+            .unwrap();
+        }
+        drop(store);
+        let store = Storage::open(&path).unwrap();
+        let c = store.conn();
+        let c = c.lock().await;
+        let n: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM teammate_threads WHERE operator_id='op1' AND title='General'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "exactly one General thread");
+        let nulls: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM teammate_messages WHERE operator_id='op1' AND thread_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(nulls, 0, "no orphaned messages remain");
     }
 }

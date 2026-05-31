@@ -169,6 +169,7 @@ async fn teammate_messages_roundtrip() {
         id: MessageId(Ulid::new()),
         operator_id: op_id,
         task_id: None,
+        thread_id: None,
         role: Role::User,
         content: MessageContent::Text("hola Mibli".into()),
         created_at_unix_ms: now_ms(),

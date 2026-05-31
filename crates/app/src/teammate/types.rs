@@ -40,6 +40,23 @@ impl ArtifactId {
     pub fn new() -> Self { Self(Ulid::new()) }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ThreadId(pub Ulid);
+
+impl ThreadId {
+    pub fn new() -> Self { Self(Ulid::new()) }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeammateThread {
+    pub id: ThreadId,
+    pub operator_id: crate::operator_registry::OperatorId,
+    pub title: String,
+    pub created_at_unix_ms: u64,
+    pub last_message_at_unix_ms: u64,
+    pub archived: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskArchetype { Watch, Do, Review }
@@ -184,6 +201,9 @@ pub struct TaskMessage {
     pub id: MessageId,
     pub operator_id: OperatorId,
     pub task_id: Option<TaskId>,
+    /// The conversation thread this message belongs to. `None` only for
+    /// legacy rows not yet backfilled; all new messages carry a thread.
+    pub thread_id: Option<ThreadId>,
     pub role: Role,
     pub content: MessageContent,
     pub created_at_unix_ms: u64,
