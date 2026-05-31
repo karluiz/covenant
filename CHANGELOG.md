@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.42 — Paste submit race fix + project notes border-top
+
+### Fixed
+
+- **Bracketed-paste submit race**: Sending a prompt to a tab no longer glues
+  the submitting carriage return onto the paste-end marker in one atomic PTY
+  write. That combined write delivered `accept-line` before zsh-autosuggestions'
+  async bracketed-paste zle hook settled, racing it — the line was re-emitted
+  (appeared twice) with a stale suggestion fragment merged mid-line. The submit
+  CR is now a separate write delivered ~40ms after the paste block, mirroring
+  human paste-then-Enter timing. `wrapForSend` is replaced by `pasteBlock` +
+  `sendPromptToSession` (`ui/src/project-notes/paste.ts`), with call sites
+  updated in `ui/src/tabs/manager.ts`.
+
+- **Project notes panel border-top**: The Covenant project-notes rail
+  (`.pn-panel`) only drew a `border-left` and a left accent bar, leaving its
+  top edge butting against the tab bar with no seam like the other sidebars.
+  Added a matching `border-top` (plus the light-theme override and a
+  `border-top: none` in fullscreen) in `ui/src/project-notes/styles.css`.
+
 ## v0.8.41 — SOUL.md operator persona + Glass/CRT tab themes
 
 ### Added
