@@ -17510,7 +17510,7 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
 /* pane context menu */
 .pane-context-menu {
   z-index: 10000;
-  background: var(--bg, #0d1117);
+  background: var(--bg-overlay, #0d1117);
   border: 1px solid var(--border, #1f2937);
   border-radius: 6px;
   padding: 4px;
