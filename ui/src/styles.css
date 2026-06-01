@@ -16066,7 +16066,7 @@ body.theme-light .teammate-panel-avatar .op-avatar {
   margin-top: 2px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--bg-1, var(--bg));
+  background: var(--bg-overlay);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
@@ -17675,10 +17675,18 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
   border-top: 1px solid rgba(var(--ink-rgb), 0.06);
 }
 .teammate-card__label {
-  flex: 0 0 auto;
+  /* Bounded so a long label (e.g. a full "Merge branch '…'" subject the
+     operator emitted with a pipe) can't hog the row and squeeze the value
+     column to ~1ch, which forced per-character vertical wrapping. Caps at
+     45% and truncates; the value column always keeps ≥55%. */
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   opacity: 0.7;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .teammate-card__value,
 .teammate-card__cell {
