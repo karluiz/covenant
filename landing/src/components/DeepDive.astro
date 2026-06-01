@@ -7,13 +7,13 @@ const shots = [
 ];
 ---
 <section class="section">
-  <p class="eyebrow">Deep dive</p>
-  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl">
+  <p class="eyebrow fade-in-up">Deep dive</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl fade-in-up delay-100">
     See the orchestrator in action.
   </h2>
   <div class="mt-14 grid md:grid-cols-2 gap-6">
-    {shots.map((s) => (
-      <figure class="rounded-xl border border-mist/10 overflow-hidden bg-mist/[0.02]">
+    {shots.map((s, i) => (
+      <figure class={`rounded-xl border border-mist/10 overflow-hidden bg-mist/[0.02] fade-in-up delay-${(i + 2) * 100}`}>
         <div class="aspect-video grid place-items-center text-mist/40 text-sm">
           [ {s.path} ]
         </div>

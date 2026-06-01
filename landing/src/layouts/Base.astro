@@ -1,8 +1,9 @@
 ---
 import "../styles/globals.css";
+import Navbar from "../components/Navbar.astro";
 interface Props { title: string; description: string; }
 const { title, description } = Astro.props;
-const ogUrl = new URL("/og.png", Astro.site).toString();
+const ogUrl = new URL("/og-image.png", Astro.site).toString();
 ---
 <!doctype html>
 <html lang="en">
@@ -17,8 +18,27 @@ const ogUrl = new URL("/og.png", Astro.site).toString();
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link href="https://fonts.cdnfonts.com/css/sansation" rel="stylesheet" />
   </head>
-  <body class="min-h-screen">
+  <body class="min-h-screen pt-16">
+    <Navbar />
     <slot />
+    <script>
+      // Intersection Observer for fade-in-up animations
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, {
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+      });
+
+      document.querySelectorAll('.fade-in-up').forEach(el => {
+        observer.observe(el);
+      });
+    </script>
   </body>
 </html>

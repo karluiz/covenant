@@ -1,3 +1,5 @@
+@import url('https://fonts.cdnfonts.com/css/sansation');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -7,7 +9,7 @@
 html, body {
   background: theme(colors.ink);
   color: theme(colors.mist);
-  font-family: theme(fontFamily.sans);
+  font-family: 'Sansation', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -19,6 +21,28 @@ html, body {
   @apply mx-auto max-w-content px-6 py-24 md:py-32;
 }
 
+/* Fade in up animation with blur */
+.fade-in-up {
+  opacity: 0;
+  transform: translateY(30px);
+  filter: blur(10px);
+  transition: opacity 0.8s ease-out, transform 0.8s ease-out, filter 0.8s ease-out;
+}
+
+.fade-in-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* Staggered delay classes */
+.delay-100 { transition-delay: 100ms; }
+.delay-200 { transition-delay: 200ms; }
+.delay-300 { transition-delay: 300ms; }
+.delay-400 { transition-delay: 400ms; }
+.delay-500 { transition-delay: 500ms; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .fade-in-up { opacity: 1; transform: none; filter: none; }
 }

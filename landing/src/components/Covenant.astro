@@ -22,13 +22,13 @@ const guarantees = [
 ];
 ---
 <section class="section">
-  <p class="eyebrow">The covenant</p>
-  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl">
+  <p class="eyebrow fade-in-up">The covenant</p>
+  <h2 class="mt-4 text-3xl md:text-5xl font-semibold tracking-tight max-w-3xl fade-in-up delay-100">
     Autonomy with a contract. Not vibes — Rust functions you can grep.
   </h2>
   <div class="mt-14 grid md:grid-cols-3 gap-6">
-    {guarantees.map((g) => (
-      <article class="rounded-xl border border-moss-500/20 bg-moss-500/[0.04] p-6">
+    {guarantees.map((g, i) => (
+      <article class={`rounded-xl border border-moss-500/20 bg-moss-500/[0.04] p-6 fade-in-up delay-${(i + 2) * 100}`}>
         <h3 class="text-lg font-semibold">{g.title}</h3>
         <p class="mt-3 text-mist/70 text-sm leading-relaxed">{g.body}</p>
         <a href={g.href} class="mt-4 inline-block text-moss-400 font-mono text-xs hover:underline">

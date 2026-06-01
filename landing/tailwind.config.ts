@@ -11,7 +11,7 @@ export default {
         bone: "#f3efe7",
       },
       fontFamily: {
-        sans: ["Inter Tight", "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: ["Sansation", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       letterSpacing: { eyebrow: "0.18em" },
