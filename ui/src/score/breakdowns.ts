@@ -74,11 +74,11 @@ export function renderGroupBars(host: HTMLElement, rows: GroupCell[]): void {
     const el = document.createElement("div");
     el.className = "bar-row";
     const ws = row.workspace
-      ? `<span class="ws-tag">${escHtml(row.workspace)}</span>`
+      ? `<span class="ws-tag" style="color:${color}">${escHtml(row.workspace)}</span>`
       : "";
     el.innerHTML = `
       <div class="name"><span class="dotc" style="background:${color}"></span>${escHtml(displayGroupName(row.group_name))}${ws}</div>
-      <div class="bar"><div class="seg-p" style="width:${pPct.toFixed(1)}%"></div></div>
+      <div class="bar"><div class="seg-p" style="width:${pPct.toFixed(1)}%;background:${color}"></div></div>
       <div class="meta">${row.prompts} prompts</div>
     `;
     host.appendChild(el);

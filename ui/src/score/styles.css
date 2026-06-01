@@ -257,13 +257,17 @@
 }
 .bar-row .name .dotc { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .bar-row .name .ws-tag {
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  /* `color` is set inline to the row's group color, so the border + fill tint
+     derive from it via currentColor. */
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-muted, #6b7d82);
-  opacity: 0.75;
-  padding: 1px 5px;
-  border: 1px solid currentColor;
+  opacity: 0.9;
+  padding: 1px 6px;
+  line-height: 1.5;
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+  background: color-mix(in srgb, currentColor 12%, transparent);
   border-radius: 999px;
   flex-shrink: 0;
 }

@@ -483,16 +483,24 @@ impl ScoreStore {
 
     pub fn breakdown_groups(&self, f: &crate::ScoreFilter) -> Result<Vec<crate::GroupCell>> {
         let w = crate::filter::build_where(f);
-        // Key by (workspace, case-insensitive group_name): same-named groups
-        // in different workspaces stay distinct, while casing typos of one
-        // group (e.g. COVENANT / COVEnant) collapse into a single row.
-        // MIN(group_name) picks a stable representative casing for display.
+        // Key by case-insensitive group_name only: one row per logical group,
+        // summing prompts across workspaces. This folds legacy null-workspace
+        // events into the named group (so "Covenant" isn't split into a bare
+        // null row + a badged row) and collapses casing typos (COVENANT /
+        // COVEnant). MIN(group_name) picks a stable representative casing.
+        //
+        // The workspace badge is only meaningful when the group lives in
+        // exactly one named workspace: COUNT(DISTINCT workspace) ignores NULLs,
+        // so it's 1 iff there's a single named workspace (regardless of how
+        // many null-workspace events also exist); MAX(workspace) then surfaces
+        // it. 0 named (all legacy) or 2+ named (ambiguous) → no badge.
         let sql = format!(
-            "SELECT MIN(group_name), workspace,
+            "SELECT MIN(group_name),
+                    CASE WHEN COUNT(DISTINCT workspace) = 1 THEN MAX(workspace) END,
                     SUM(CASE WHEN kind='prompt' THEN 1 ELSE 0 END)
              FROM score_events
              WHERE group_name IS NOT NULL AND {}
-             GROUP BY workspace, group_name COLLATE NOCASE
+             GROUP BY group_name COLLATE NOCASE
              ORDER BY 3 DESC",
             w.sql
         );
@@ -1279,6 +1287,61 @@ mod ach_tests {
         let progress = s.achievement_progress_all().unwrap();
         let p = progress.iter().find(|p| p.achievement_id == "finisher").unwrap();
         assert_eq!(p.progress, 5);
+    }
+}
+
+#[cfg(test)]
+mod group_breakdown_tests {
+    use super::*;
+    use crate::types::Context;
+    use crate::{EventKind, ScoreFilter};
+
+    fn ctx(group: &str, workspace: Option<&str>) -> Context {
+        Context {
+            repo: None,
+            branch: None,
+            group_name: Some(group.to_string()),
+            workspace: workspace.map(str::to_string),
+        }
+    }
+
+    fn prompt(s: &ScoreStore, ts: i64, group: &str, workspace: Option<&str>) {
+        s.append_with_context(ts, EventKind::Prompt, "claude", None, &ctx(group, workspace))
+            .unwrap();
+    }
+
+    #[test]
+    fn folds_null_workspace_into_named_group_and_collapses_casing() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = ScoreStore::open(dir.path()).unwrap();
+
+        // Legacy events with no workspace + a named-workspace event, same group
+        // under different casing → one merged row, one named badge.
+        prompt(&s, 1_000, "Covenant", None);
+        prompt(&s, 1_001, "covenant", None);
+        prompt(&s, 1_002, "Covenant", Some("PANDORAS"));
+        // A second group lives in two named workspaces → ambiguous, no badge.
+        prompt(&s, 1_003, "Fluxa", Some("PANDORAS"));
+        prompt(&s, 1_004, "Fluxa", Some("ATLAS"));
+
+        let rows = s.breakdown_groups(&ScoreFilter::default()).unwrap();
+
+        let cov = rows
+            .iter()
+            .find(|r| r.group_name.eq_ignore_ascii_case("covenant"))
+            .expect("covenant row");
+        assert_eq!(cov.prompts, 3, "null-workspace prompts fold into the group");
+        assert_eq!(
+            cov.workspace.as_deref(),
+            Some("PANDORAS"),
+            "single named workspace surfaces as the badge"
+        );
+
+        let fluxa = rows.iter().find(|r| r.group_name == "Fluxa").expect("fluxa row");
+        assert_eq!(fluxa.prompts, 2);
+        assert_eq!(fluxa.workspace, None, "multiple named workspaces → no badge");
+
+        assert_eq!(rows.len(), 2, "no duplicate same-name rows");
     }
 }
 
