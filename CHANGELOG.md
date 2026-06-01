@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.43 — Operator threads — ChatGPT-style conversations + message cards
+
+### Added
+
+- **Operator threads**: each operator now holds multiple separate, ChatGPT-style
+  conversations instead of one flat history. New `teammate_threads` table plus a
+  `thread_id` column on `teammate_messages`, with an idempotent backfill migration
+  that moves every operator's existing history into a "General" thread (nothing is
+  lost). Persona, XP, sentiment, and the live terminal world-model stay global;
+  only the chat history is thread-scoped. Backend in `crates/app/src/storage.rs`,
+  `crates/app/src/teammate/{types.rs,commands.rs}`.
+
+- **Thread switcher UI**: a thread row under the operator name opens a dropdown to
+  switch, create (`+ New thread`), rename (double-click), and archive threads; the
+  trash icon now archives the active thread rather than wiping all history. New
+  threads auto-title from their first message via a cheap one-shot LLM call. UI in
+  `ui/src/teammate/panel.ts`, bindings in `ui/src/api.ts`.
+
+- **Operator message cards**: operators can emit structured card blocks that render
+  as rich cards inside chat messages. Card markup parser and HTML builder, with the
+  operator taught to emit card blocks. `crates/app/src/teammate` + the message
+  renderer.
+
+### Fixed
+
+- **Opaque thread dropdown**: the thread switcher dropdown used a translucent
+  surface and bled the tabs/content behind it; switched to `--bg-overlay` so it
+  paints solid in both themes (`ui/src/styles.css`).
+
+- **Pane context menu background**: now uses `--bg-overlay` for a solid backdrop
+  instead of the vibrancy-translucent `--bg` (`ui/src/styles.css`).
+
 ## v0.8.42 — Paste submit race fix + project notes border-top
 
 ### Fixed
