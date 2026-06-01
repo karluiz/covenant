@@ -287,6 +287,7 @@ impl TaskSupervisor {
             id: MessageId::new(),
             operator_id: ctx.operator_id,
             task_id: Some(ctx.task_id),
+            thread_id: None,
             role: Role::System,
             content: MessageContent::TaskUpdate { task: ctx.task_id, kind },
             created_at_unix_ms: now_ms,

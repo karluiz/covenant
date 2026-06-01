@@ -227,6 +227,16 @@ CREATE TABLE IF NOT EXISTS teammate_messages (
 CREATE INDEX IF NOT EXISTS idx_messages_operator ON teammate_messages(operator_id, created_at_unix_ms);
 CREATE INDEX IF NOT EXISTS idx_messages_task     ON teammate_messages(task_id) WHERE task_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS teammate_threads (
+    id                      TEXT PRIMARY KEY,
+    operator_id             TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+    title                   TEXT NOT NULL,
+    created_at_unix_ms      INTEGER NOT NULL,
+    last_message_at_unix_ms INTEGER NOT NULL,
+    archived                INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_threads_operator ON teammate_threads(operator_id, last_message_at_unix_ms DESC);
+
 CREATE TABLE IF NOT EXISTS teammate_artifacts (
     id                  TEXT PRIMARY KEY,
     task_id             TEXT NOT NULL REFERENCES teammate_tasks(id) ON DELETE CASCADE,
@@ -577,6 +587,18 @@ impl Storage {
         // LLM emitted no parseable `SENTIMENT:` directive.
         let _ = conn.execute(
             "ALTER TABLE teammate_messages ADD COLUMN sentiment TEXT",
+            [],
+        );
+        // 5.x Operator threads: each message belongs to a conversation thread
+        // (NULL for legacy rows and non-thread paths). The thread table itself
+        // is created idempotently in SCHEMA above; the column + its index are
+        // added here so existing DBs gain them too.
+        let _ = conn.execute(
+            "ALTER TABLE teammate_messages ADD COLUMN thread_id TEXT REFERENCES teammate_threads(id) ON DELETE CASCADE",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_messages_thread ON teammate_messages(thread_id, created_at_unix_ms)",
             [],
         );
         tracing::info!(path = %path.display(), "storage opened");
@@ -2278,6 +2300,7 @@ impl Storage {
                     id: crate::teammate::MessageId(id),
                     operator_id: crate::operator_registry::OperatorId(op_id),
                     task_id: task_id.map(crate::teammate::TaskId),
+                    thread_id: None,
                     role,
                     content,
                     created_at_unix_ms: ts as u64,
@@ -2577,6 +2600,7 @@ impl Storage {
                 id: crate::teammate::MessageId(id),
                 operator_id: crate::operator_registry::OperatorId(op),
                 task_id: task.map(crate::teammate::TaskId),
+                thread_id: None,
                 role,
                 content,
                 created_at_unix_ms: created as u64,
@@ -3977,6 +4001,7 @@ mod task_card_storage_tests {
             id: MessageId::new(),
             operator_id: op,
             task_id: None,
+            thread_id: None,
             role: Role::Operator,
             content: MessageContent::Propose(ProposeTask {
                 draft: TaskDraft {

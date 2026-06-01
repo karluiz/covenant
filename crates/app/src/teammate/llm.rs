@@ -950,6 +950,7 @@ mod tests {
             id: MessageId::new(),
             operator_id: OperatorId(Ulid::new()),
             task_id: None,
+            thread_id: None,
             role,
             content: MessageContent::Text(text.into()),
             created_at_unix_ms: 0,

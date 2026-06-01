@@ -30,6 +30,9 @@ pub struct MessageId(pub Ulid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ArtifactId(pub Ulid);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ThreadId(pub Ulid);
+
 impl TaskId {
     pub fn new() -> Self { Self(Ulid::new()) }
 }
@@ -38,6 +41,22 @@ impl MessageId {
 }
 impl ArtifactId {
     pub fn new() -> Self { Self(Ulid::new()) }
+}
+impl ThreadId {
+    pub fn new() -> Self { Self(Ulid::new()) }
+}
+
+/// One operator conversation thread (ChatGPT-style). The operator entity,
+/// persona, XP, and world-model stay global; only the chat history is
+/// scoped to a thread.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeammateThread {
+    pub id: ThreadId,
+    pub operator_id: crate::operator_registry::OperatorId,
+    pub title: String,
+    pub created_at_unix_ms: u64,
+    pub last_message_at_unix_ms: u64,
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +203,10 @@ pub struct TaskMessage {
     pub id: MessageId,
     pub operator_id: OperatorId,
     pub task_id: Option<TaskId>,
+    /// Conversation thread this message belongs to. None for legacy rows
+    /// and non-thread-scoped paths (tasks, system turns).
+    #[serde(default)]
+    pub thread_id: Option<ThreadId>,
     pub role: Role,
     pub content: MessageContent,
     pub created_at_unix_ms: u64,
