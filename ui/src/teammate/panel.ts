@@ -1,15 +1,15 @@
-import type { Operator, Sentiment, Task, TaskArchetype, TeammateMessage, TeammateToolCall, UpdateKind } from "../api";
+import type { Operator, Sentiment, Task, TaskArchetype, TeammateMessage, TeammateThread, TeammateThreadRenamed, TeammateToolCall, UpdateKind } from "../api";
 import type { OperatorDecisionRow } from "../api";
 import {
   findRecentCommands,
   findSpecs,
-  injectCommand, onTeammateMessage, onTeammateToolCall, operatorLevelFromXp, primeSpawnedTab,
+  injectCommand, onTeammateMessage, onTeammateThreadRenamed, onTeammateToolCall, operatorLevelFromXp, primeSpawnedTab,
   operatorList, readBlockExcerpt, readSessionExcerpt,
   structureFindFiles, structureReadFile,
-  teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal,
-  teammateClearForOperator, teammateConfirmTask, teammateEditTaskProposal,
-  teammateListDecisionsForSession, teammateListMessages, teammateListTasks,
-  teammateSendText,
+  teammateAttachSessionToTask, teammateArchiveThread, teammateCancelActiveTask, teammateCancelTaskProposal,
+  teammateConfirmTask, teammateCreateThread, teammateEditTaskProposal,
+  teammateListDecisionsForSession, teammateListMessages, teammateListTasks, teammateListThreads,
+  teammateRenameThread, teammateSendText,
   type BlockExcerpt, type SessionExcerpt,
 } from "../api";
 import { Icons } from "../icons";
@@ -66,11 +66,19 @@ function renderSentimentBadge(sentiment?: Sentiment | null): string {
 }
 
 export interface TeammatePanelDeps {
-  listMessages:  (operatorId: string, limit?: number) => Promise<TeammateMessage[]>;
-  sendText:      (operatorId: string, text: string, activeSessionId?: string | null) => Promise<TeammateMessage>;
+  listMessages:  (threadId: string, limit?: number) => Promise<TeammateMessage[]>;
+  sendText:      (operatorId: string, threadId: string, text: string, activeSessionId?: string | null) => Promise<TeammateMessage>;
   listOperators: () => Promise<Operator[]>;
+  /// Conversation threads (ChatGPT-style). Optional so tests without
+  /// thread wiring still mount — openFor falls back to a null active
+  /// thread and message loads pass an empty threadId.
+  listThreads?:   (operatorId: string) => Promise<TeammateThread[]>;
+  createThread?:  (operatorId: string, title: string) => Promise<TeammateThread>;
+  renameThread?:  (threadId: string, title: string) => Promise<void>;
+  archiveThread?: (threadId: string) => Promise<void>;
   onMessage?:    (handler: (msg: TeammateMessage) => void) => Promise<() => void>;
   onToolCall?:   (handler: (call: TeammateToolCall) => void) => Promise<() => void>;
+  onThreadRenamed?: (handler: (e: TeammateThreadRenamed) => void) => Promise<() => void>;
   getActiveSessionId?: () => string | null;
   /// Returns the executor (claude/codex/copilot/…) running in the active
   /// tab, or null when the foreground is a plain shell. When null, the
@@ -89,8 +97,6 @@ export interface TeammatePanelDeps {
   listTasks?:       (operatorId: string) => Promise<Task[]>;
   /// Activate the tab whose backing SessionId matches. Returns true if found.
   focusTabBySessionId?: (sessionId: string) => boolean;
-  /// Wipe all messages + tasks for this operator (test/reset affordance).
-  clearForOperator?:    (operatorId: string) => Promise<void>;
   /// Pin the operator to the target tab, enable it, flip live (single-tab
   /// AOM), and refresh tab state so the operator ring + status bar update
   /// in the UI. Routed through TabsManager.setTabOperator under the hood.
@@ -132,14 +138,18 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   listMessages:  teammateListMessages,
   sendText:      teammateSendText,
   listOperators: operatorList,
+  listThreads:   teammateListThreads,
+  createThread:  teammateCreateThread,
+  renameThread:  teammateRenameThread,
+  archiveThread: teammateArchiveThread,
   onMessage:     onTeammateMessage,
   onToolCall:    onTeammateToolCall,
+  onThreadRenamed: onTeammateThreadRenamed,
   confirmTask:         teammateConfirmTask,
   cancelTaskProposal:  teammateCancelTaskProposal,
   editTaskProposal:    teammateEditTaskProposal,
   attachSessionToTask: teammateAttachSessionToTask,
   listTasks:           teammateListTasks,
-  clearForOperator:    teammateClearForOperator,
   cancelActiveTask:    teammateCancelActiveTask,
   mentionSources: {
     findFiles:          structureFindFiles,
@@ -244,6 +254,12 @@ export class TeammatePanel {
   /// the last real mood instead of snapping back to neutral on a
   /// model that occasionally forgets the directive).
   private currentMoodByOperator: Map<string, Sentiment> = new Map();
+  /// Conversation-thread state. The chat view is scoped to activeThreadId;
+  /// Tasks/Activity stay global per operator.
+  private activeThreadId: string | null = null;
+  private threads: TeammateThread[] = [];
+  private threadDropdownOpen = false;
+  private threadBarEl: HTMLElement | null = null;
   private threadEl: HTMLElement | null = null;
   private tasksEl: HTMLElement | null = null;
   private composerEl: HTMLElement | null = null;
@@ -254,6 +270,7 @@ export class TeammatePanel {
   private dismissSwitcher: ((e: Event) => void) | null = null;
   private unlisten: (() => void) | null = null;
   private unlistenToolCall: (() => void) | null = null;
+  private unlistenThreadRenamed: (() => void) | null = null;
   private viewMode: "chat" | "tasks" | "activity" = "chat";
   /// Absolute path of the most-recently-mentioned spec in this session.
   /// Used to auto-set mission on tabs spawned from a confirmed task.
@@ -270,20 +287,6 @@ export class TeammatePanel {
   /// with the same cwd + group, instead of a dangling root-shell tab.
   private taskSpawnedSessions = loadTaskSpawnedSessions();
   private tasksCache: Task[] = [];
-  /// Last-painted messages, snapshotted so the trash → undo-toast flow
-  /// can restore the chat if the user clicks Undo before the deferred
-  /// backend clear fires.
-  private messagesCache: TeammateMessage[] = [];
-  /// Pending soft-delete kicked off by the trash button. While set, the
-  /// UI is empty but the backend still holds the data — the timer fires
-  /// the actual `clearForOperator` call after the undo window, and any
-  /// outgoing send / panel switch / operator change commits it early.
-  private pendingClear: {
-    operatorId: string;
-    messages: TeammateMessage[];
-    tasks: Task[];
-    timer: number;
-  } | null = null;
   private tasksFilter: "all" | "active" | "proposed" | "done" = "all";
   private expandedTaskIds = new Set<string>();
   private decisionsByTask = new Map<string, OperatorDecisionRow[]>();
@@ -311,8 +314,14 @@ export class TeammatePanel {
     } else {
       this.host.style.removeProperty("--operator-color");
     }
+    // Load (or seed) conversation threads before painting so the thread
+    // bar renders with a title and the message load is thread-scoped.
+    // When thread deps are absent (tests), activeThreadId stays null and
+    // the message load passes an empty threadId — the panel still mounts.
+    await this.loadThreads(operator.id);
     this.host.append(
       this.renderHeader(),
+      this.renderThreadBar(),
       this.renderTabsBar(),
       this.renderThread(),
       this.renderTasksView(),
@@ -321,7 +330,7 @@ export class TeammatePanel {
     );
     this.applyViewMode();
     const [messages] = await Promise.all([
-      this.deps.listMessages(operator.id, 200),
+      this.deps.listMessages(this.activeThreadId ?? "", 200),
       this.deps.listOperators().then((ops) => { this.roster = ops; }).catch(() => { /* ignore */ }),
       this.refreshTasks(),
     ]);
@@ -346,18 +355,26 @@ export class TeammatePanel {
     if (!this.unlistenToolCall && this.deps.onToolCall) {
       this.unlistenToolCall = await this.deps.onToolCall((c) => this.onIncomingToolCall(c));
     }
+    if (!this.unlistenThreadRenamed && this.deps.onThreadRenamed) {
+      this.unlistenThreadRenamed = await this.deps.onThreadRenamed((e) => this.onThreadRenamed(e));
+    }
+  }
+
+  private onThreadRenamed(e: TeammateThreadRenamed): void {
+    const t = this.threads.find((th) => th.id === e.thread_id);
+    if (!t) return;
+    t.title = e.title;
+    this.paintThreadBar();
   }
 
   close(): void {
-    // Commit any in-flight soft-delete before tearing down — the toast
-    // host outlives the panel and the user can't undo a panel they
-    // can't see.
-    if (this.pendingClear) { void this.commitPendingClear(); }
     this.closeSwitcher();
     this.unlisten?.();
     this.unlisten = null;
     this.unlistenToolCall?.();
     this.unlistenToolCall = null;
+    this.unlistenThreadRenamed?.();
+    this.unlistenThreadRenamed = null;
     this.activityView?.stop();
     this.activityView = null;
     this.activityEl = null;
@@ -378,9 +395,6 @@ export class TeammatePanel {
   async send(text: string): Promise<void> {
     if (!this.operator) return;
     if (!text.trim()) return;
-    // Commit any in-flight soft-delete before sending — otherwise the
-    // pending timer will wipe the message the user just typed.
-    if (this.pendingClear) { await this.commitPendingClear(); }
     const activeId = this.deps.getActiveSessionId?.() ?? null;
     let payload = text.trim();
     if (this.mentionRegistry.size > 0) {
@@ -417,12 +431,236 @@ export class TeammatePanel {
     this.composerInput?.focus();
     this.mentionRegistry.clear();
     try {
-      const msg = await this.deps.sendText(this.operator.id, payload, activeId);
+      const msg = await this.deps.sendText(this.operator.id, this.activeThreadId ?? "", payload, activeId);
       this.appendBubble(msg);
       this.setTyping(true);
     } catch (e) {
       console.error("teammate sendText failed", e);
     }
+  }
+
+  /// Load the operator's threads (most-recent first). Seeds a first
+  /// "New conversation" thread when the operator has none. Sets
+  /// this.threads + this.activeThreadId. No-op (null active) when thread
+  /// deps are absent so the panel still renders in tests.
+  private async loadThreads(operatorId: string): Promise<void> {
+    this.threadDropdownOpen = false;
+    if (!this.deps.listThreads) {
+      this.threads = [];
+      this.activeThreadId = null;
+      return;
+    }
+    let threads: TeammateThread[] = [];
+    try {
+      threads = await this.deps.listThreads(operatorId);
+    } catch (e) {
+      console.error("listThreads failed", e);
+      threads = [];
+    }
+    if (threads.length === 0 && this.deps.createThread) {
+      try {
+        const t = await this.deps.createThread(operatorId, "New conversation");
+        threads = [t];
+      } catch (e) {
+        console.error("createThread (seed) failed", e);
+      }
+    }
+    this.threads = threads;
+    this.activeThreadId = threads[0]?.id ?? null;
+  }
+
+  /// Reload + repaint messages for the active thread. DRYs the load used
+  /// by openFor, thread switching, and the trash button.
+  private async reloadActiveThreadMessages(): Promise<void> {
+    const messages = await this.deps.listMessages(this.activeThreadId ?? "", 200);
+    this.paintMessages(messages);
+  }
+
+  private renderThreadBar(): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "teammate-thread-bar";
+    this.threadBarEl = bar;
+    this.paintThreadBar();
+    return bar;
+  }
+
+  private activeThread(): TeammateThread | null {
+    return this.threads.find((t) => t.id === this.activeThreadId) ?? null;
+  }
+
+  private paintThreadBar(): void {
+    const bar = this.threadBarEl;
+    if (!bar) return;
+    bar.innerHTML = "";
+    // Hide the bar entirely when thread deps are absent (tests / no
+    // backend) — nothing to switch between.
+    if (!this.deps.listThreads) {
+      bar.classList.add("is-hidden");
+      return;
+    }
+    bar.classList.remove("is-hidden");
+
+    const active = this.activeThread();
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "teammate-thread-current";
+    if (this.threadDropdownOpen) row.classList.add("is-open");
+    const titleSpan = document.createElement("span");
+    titleSpan.className = "teammate-thread-current-title";
+    titleSpan.textContent = active?.title ?? "New conversation";
+    const chev = document.createElement("span");
+    chev.className = "teammate-thread-chev";
+    chev.innerHTML = CHEVRON_DOWN_SVG;
+    row.append(titleSpan, chev);
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Don't toggle while an inline rename is active.
+      if (titleSpan.isContentEditable) return;
+      this.threadDropdownOpen = !this.threadDropdownOpen;
+      this.paintThreadBar();
+    });
+    // Double-click the active title → inline rename.
+    titleSpan.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      if (active) this.beginRename(titleSpan, active);
+    });
+    bar.append(row);
+
+    if (this.threadDropdownOpen) bar.append(this.renderThreadDropdown());
+  }
+
+  private renderThreadDropdown(): HTMLElement {
+    const dd = document.createElement("div");
+    dd.className = "teammate-thread-dropdown";
+
+    const create = document.createElement("button");
+    create.type = "button";
+    create.className = "teammate-thread-new";
+    create.textContent = "+ New thread";
+    create.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.handleNewThread();
+    });
+    dd.append(create);
+
+    for (const t of this.threads) {
+      const item = document.createElement("div");
+      item.className = "teammate-thread-item";
+      if (t.id === this.activeThreadId) item.classList.add("is-active");
+
+      const main = document.createElement("button");
+      main.type = "button";
+      main.className = "teammate-thread-item-main";
+      main.innerHTML =
+        `<span class="teammate-thread-item-check">${t.id === this.activeThreadId ? "✓" : ""}</span>` +
+        `<span class="teammate-thread-item-title"></span>` +
+        `<span class="teammate-thread-item-time">${threadRelTime(t.last_message_at_unix_ms)}</span>`;
+      const titleEl = main.querySelector<HTMLElement>(".teammate-thread-item-title");
+      if (titleEl) titleEl.textContent = t.title;
+      main.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.switchThread(t.id);
+      });
+      item.append(main);
+
+      const archive = document.createElement("button");
+      archive.type = "button";
+      archive.className = "teammate-thread-item-archive";
+      archive.innerHTML = Icons.trash({ size: 12 });
+      attachTooltip(archive, "Archive thread");
+      archive.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.handleArchiveThread(t.id);
+      });
+      item.append(archive);
+
+      dd.append(item);
+    }
+    return dd;
+  }
+
+  private beginRename(titleSpan: HTMLElement, thread: TeammateThread): void {
+    titleSpan.contentEditable = "true";
+    titleSpan.classList.add("is-editing");
+    titleSpan.focus();
+    const range = document.createRange();
+    range.selectNodeContents(titleSpan);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    let committed = false;
+    const commit = (save: boolean) => {
+      if (committed) return;
+      committed = true;
+      titleSpan.contentEditable = "false";
+      titleSpan.classList.remove("is-editing");
+      const next = (titleSpan.textContent ?? "").trim();
+      if (save && next && next !== thread.title) {
+        thread.title = next;
+        void this.deps.renameThread?.(thread.id, next).catch((e) =>
+          console.error("renameThread failed", e),
+        );
+      }
+      titleSpan.textContent = thread.title;
+    };
+    titleSpan.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(true); }
+      else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    });
+    titleSpan.addEventListener("blur", () => commit(true), { once: true });
+  }
+
+  private async handleNewThread(): Promise<void> {
+    if (!this.operator || !this.deps.createThread) return;
+    try {
+      const t = await this.deps.createThread(this.operator.id, "New conversation");
+      this.threads.unshift(t);
+      this.activeThreadId = t.id;
+      this.threadDropdownOpen = false;
+      this.paintThreadBar();
+      await this.reloadActiveThreadMessages();
+    } catch (e) {
+      console.error("createThread failed", e);
+    }
+  }
+
+  private async switchThread(threadId: string): Promise<void> {
+    if (threadId === this.activeThreadId) {
+      this.threadDropdownOpen = false;
+      this.paintThreadBar();
+      return;
+    }
+    this.activeThreadId = threadId;
+    this.threadDropdownOpen = false;
+    this.paintThreadBar();
+    await this.reloadActiveThreadMessages();
+  }
+
+  /// Archive a specific thread. If it was active, fall to the most-recent
+  /// remaining thread (or seed a fresh one) and reload the chat view.
+  private async handleArchiveThread(threadId: string): Promise<void> {
+    if (!this.operator) return;
+    try {
+      await this.deps.archiveThread?.(threadId);
+    } catch (e) {
+      console.error("archiveThread failed", e);
+      return;
+    }
+    const wasActive = threadId === this.activeThreadId;
+    this.threads = this.threads.filter((t) => t.id !== threadId);
+    if (wasActive) {
+      if (this.threads.length === 0 && this.deps.createThread) {
+        try {
+          const t = await this.deps.createThread(this.operator.id, "New conversation");
+          this.threads = [t];
+        } catch (e) {
+          console.error("createThread (after archive) failed", e);
+        }
+      }
+      this.activeThreadId = this.threads[0]?.id ?? null;
+      await this.reloadActiveThreadMessages();
+    }
+    this.paintThreadBar();
   }
 
   private renderHeader(): HTMLElement {
@@ -516,9 +754,9 @@ export class TeammatePanel {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "teammate-panel-reset";
-    b.setAttribute("aria-label", "Reset chats & tasks");
+    b.setAttribute("aria-label", "Delete this thread");
     b.innerHTML = Icons.trash({ size: 14 });
-    attachTooltip(b, "Reset chats & tasks for this operator");
+    attachTooltip(b, "Delete this thread");
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.handleResetClick();
@@ -526,112 +764,17 @@ export class TeammatePanel {
     return b;
   }
 
-  /// Soft-delete the operator's chat + tasks: clear locally, defer the
-  /// backend wipe, and surface an undo toast. Restores from snapshot if
-  /// the user clicks the toast within the undo window; otherwise the
-  /// timer commits the clear. Any send/panel-switch commits early so a
-  /// new message can't get wiped by the pending timer.
+  /// Trash button — archives the ACTIVE thread (non-destructive: data is
+  /// retained, just hidden) and switches to the most-recent remaining
+  /// thread, seeding a fresh one if none remain. Tasks/Activity are
+  /// global and untouched.
   private async handleResetClick(): Promise<void> {
     if (!this.operator) return;
-    if (!this.deps.clearForOperator) {
-      this.appendErrorCard("Action unavailable", "clearForOperator is not wired up.");
+    if (!this.activeThreadId || !this.deps.archiveThread) {
+      // No thread wiring (tests / no backend) — nothing to archive.
       return;
     }
-    // Already pending → second click commits immediately (escape hatch).
-    if (this.pendingClear) {
-      await this.commitPendingClear();
-      return;
-    }
-    const opId = this.operator.id;
-    const msgCount = this.messagesCache.length;
-    const taskCount = this.tasksCache.length;
-    const snapshot = {
-      operatorId: opId,
-      messages: this.messagesCache.slice(),
-      tasks:    this.tasksCache.slice(),
-      timer:    window.setTimeout(() => { void this.commitPendingClear(); }, 6000),
-    };
-    this.pendingClear = snapshot;
-    this.tasksCache = [];
-    this.paintMessages([]);
-    this.paintTasks();
-    this.updateTasksCount();
-    this.updateHeaderWorkingState();
-    this.renderUndoBar(msgCount, taskCount);
-  }
-
-  /// Inline undo card shown inside the now-empty thread. Replaces the
-  /// empty-state CTAs while a pending clear is in flight. Two explicit
-  /// buttons (Undo / Delete now) + a 6s progress bar so the user knows
-  /// how much time is left before the clear commits.
-  private renderUndoBar(msgCount: number, taskCount: number): void {
-    if (!this.threadEl) return;
-    this.threadEl.innerHTML = "";
-    const parts: string[] = [];
-    if (msgCount > 0) parts.push(`${msgCount} message${msgCount === 1 ? "" : "s"}`);
-    if (taskCount > 0) parts.push(`${taskCount} task${taskCount === 1 ? "" : "s"}`);
-    const summary = parts.length > 0 ? parts.join(" and ") : "this chat";
-    const card = document.createElement("div");
-    card.className = "teammate-undo-card";
-    card.innerHTML = `
-      <div class="teammate-undo-title">Cleared ${escapeHtml(summary)}</div>
-      <div class="teammate-undo-hint">Commits in <span data-role="countdown">6</span>s if no action.</div>
-      <div class="teammate-undo-progress"><span class="teammate-undo-progress-fill"></span></div>
-      <div class="teammate-undo-actions">
-        <button type="button" class="teammate-undo-btn teammate-undo-btn--primary" data-action="undo">Undo</button>
-        <button type="button" class="teammate-undo-btn" data-action="commit">Delete now</button>
-      </div>
-    `;
-    const countdownEl = card.querySelector<HTMLElement>('[data-role="countdown"]');
-    let remaining = 6;
-    const countdownTimer = window.setInterval(() => {
-      remaining -= 1;
-      if (countdownEl) countdownEl.textContent = String(Math.max(0, remaining));
-      if (remaining <= 0) window.clearInterval(countdownTimer);
-    }, 1000);
-    card.dataset["countdownTimer"] = String(countdownTimer);
-    card.addEventListener("click", (e) => {
-      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-action]");
-      if (!btn) return;
-      window.clearInterval(countdownTimer);
-      if (btn.dataset["action"] === "undo") this.undoPendingClear();
-      else if (btn.dataset["action"] === "commit") void this.commitPendingClear();
-    });
-    this.threadEl.append(card);
-  }
-
-  private undoPendingClear(): void {
-    const p = this.pendingClear;
-    if (!p) return;
-    window.clearTimeout(p.timer);
-    this.pendingClear = null;
-    // Only restore if the user is still viewing the same operator —
-    // otherwise the panel context has moved on and a restore would
-    // splice messages into the wrong thread.
-    if (this.operator?.id !== p.operatorId) return;
-    this.tasksCache = p.tasks;
-    this.paintMessages(p.messages);
-    this.paintTasks();
-    this.updateTasksCount();
-    this.updateHeaderWorkingState();
-  }
-
-  private async commitPendingClear(): Promise<void> {
-    const p = this.pendingClear;
-    if (!p) return;
-    window.clearTimeout(p.timer);
-    this.pendingClear = null;
-    // Replace the undo card with the empty-state CTAs (only if the user
-    // is still viewing the same operator).
-    if (this.operator?.id === p.operatorId) {
-      this.paintMessages([]);
-    }
-    try {
-      await this.deps.clearForOperator?.(p.operatorId);
-    } catch (e) {
-      console.error("clearForOperator failed", e);
-      this.appendErrorCard("Couldn't reset the operator.", String(e));
-    }
+    await this.handleArchiveThread(this.activeThreadId);
   }
 
   private renderTabButton(mode: "chat" | "tasks" | "activity", label: string): HTMLButtonElement {
@@ -1217,7 +1360,6 @@ export class TeammatePanel {
         this.lifecycleByTaskId.set(tid, arr);
       }
     }
-    this.messagesCache = msgs;
     if (!this.threadEl) return;
     this.threadEl.innerHTML = "";
     if (msgs.length === 0) {
@@ -1530,7 +1672,7 @@ export class TeammatePanel {
           }, injectDelayMs);
         }
       }
-      const refreshed = await this.deps.listMessages(this.operator.id, 200);
+      const refreshed = await this.deps.listMessages(this.activeThreadId ?? "", 200);
       this.paintMessages(refreshed);
       void this.refreshTasks();
     } catch (e) {
@@ -1550,7 +1692,7 @@ export class TeammatePanel {
     }
     try {
       await cancelTaskProposal(messageId);
-      const refreshed = await this.deps.listMessages(this.operator.id, 200);
+      const refreshed = await this.deps.listMessages(this.activeThreadId ?? "", 200);
       this.paintMessages(refreshed);
       void this.refreshTasks();
     } catch (e) {
@@ -1567,9 +1709,8 @@ export class TeammatePanel {
     if (nextTitle === null || nextTitle === current.title) return;
     const { editTaskProposal } = this.deps;
     if (!editTaskProposal || !this.operator) return;
-    const operatorId = this.operator.id;
     void editTaskProposal(messageId, { ...current, title: nextTitle })
-      .then(() => this.deps.listMessages(operatorId, 200))
+      .then(() => this.deps.listMessages(this.activeThreadId ?? "", 200))
       .then((refreshed) => this.paintMessages(refreshed))
       .catch((e) => {
         console.error("editTaskProposal failed", e);
@@ -1601,6 +1742,21 @@ export class TeammatePanel {
 
   private onIncomingMessage(msg: TeammateMessage): void {
     if (!this.operator || msg.operator_id !== this.operator.id) return;
+    // Thread-scoped: a message addressed to a different thread belongs to
+    // another conversation and must not paint in the current view. (Null
+    // thread_id = legacy/global → always shown.)
+    if (msg.thread_id && msg.thread_id !== this.activeThreadId) return;
+    // Bump the active thread's recency + float it to the top of the
+    // dropdown ordering so switching feels fresh. Low-risk, local-only.
+    if (msg.thread_id) {
+      const idx = this.threads.findIndex((t) => t.id === msg.thread_id);
+      if (idx >= 0) {
+        const t = this.threads[idx];
+        t.last_message_at_unix_ms = msg.created_at_unix_ms;
+        this.threads.splice(idx, 1);
+        this.threads.unshift(t);
+      }
+    }
     this.setTyping(false);
     // Update the per-operator mood map before painting so any DOM that
     // re-reads it (header avatar wrap, future per-bubble badges) picks
@@ -2000,6 +2156,16 @@ function decisionDetailText(d: OperatorDecisionRow): string {
   if (d.in_flight_command && d.in_flight_command.trim()) return d.in_flight_command.trim();
   if (d.rationale && d.rationale.trim()) return d.rationale.trim();
   return d.output_excerpt.slice(0, 80);
+}
+
+/// Compact relative time for the thread dropdown: <60s "now", <60m "Xm",
+/// <24h "Xh", else "Xd".
+function threadRelTime(unixMs: number): string {
+  const diffSec = Math.max(0, (Date.now() - unixMs) / 1000);
+  if (diffSec < 60)    return "now";
+  if (diffSec < 3600)  return `${Math.floor(diffSec / 60)}m`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h`;
+  return `${Math.floor(diffSec / 86400)}d`;
 }
 
 function formatAge(unixMs: number): string {

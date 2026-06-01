@@ -392,6 +392,50 @@ pub async fn dispatch_reply(
     Ok(text)
 }
 
+/// Generate a short 3-5 word title for a freshly-created thread, from
+/// the user's first message. Best-effort: callers ignore errors and keep
+/// the default "New conversation" title on failure.
+pub async fn generate_thread_title(
+    settings: &Settings,
+    model: &str,
+    first_user_message: &str,
+) -> Result<String, TeammateLlmError> {
+    let resolved = resolve_route(settings, SettingsRole::Operator)
+        .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
+    let req = AskRequest {
+        api_key: String::new(),
+        model: model.to_string(),
+        system_prompt: "You generate a concise 3-5 word title summarizing a \
+            conversation, given its first message. Reply with ONLY the title — \
+            no quotes, no trailing punctuation, no preamble."
+            .to_string(),
+        user_message: format!("First message:\n{first_user_message}\n\nTitle:"),
+        max_tokens: 24,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let resp = collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| TeammateLlmError::Provider(e.to_string()))?;
+    // Sanitize: single line, strip wrapping quotes, cap length.
+    let mut title = resp
+        .text
+        .trim()
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    title = title.trim_matches('"').trim_matches('\'').trim().to_string();
+    if title.chars().count() > 48 {
+        title = title.chars().take(48).collect::<String>().trim().to_string();
+    }
+    if title.is_empty() {
+        return Err(TeammateLlmError::EmptyReply);
+    }
+    Ok(title)
+}
+
 // ── Phase 4a: multi-turn tool-use dispatch ──────────────────────────
 
 use crate::teammate::anthropic_http::{

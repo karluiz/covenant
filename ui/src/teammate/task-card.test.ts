@@ -16,6 +16,7 @@ function sampleMessage(opts: { confirmed?: boolean; dismissed?: boolean; taskId?
     id: "msg1",
     operator_id: "op1",
     task_id: opts.taskId ?? null,
+    thread_id: null,
     role: "operator",
     content: { kind: "propose", data: propose },
     created_at_unix_ms: 0,

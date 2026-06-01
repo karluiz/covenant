@@ -11,11 +11,65 @@ use crate::teammate::types::{MessageContent, MessageId, Role, TaskMessage};
 #[tauri::command]
 pub async fn teammate_list_messages_for_operator(
     storage: State<'_, Arc<Storage>>,
-    operator_id: OperatorId,
+    thread_id: crate::teammate::ThreadId,
     limit: Option<usize>,
 ) -> Result<Vec<TaskMessage>, String> {
     storage
-        .teammate_list_messages(operator_id, limit.unwrap_or(200))
+        .teammate_list_messages_in_thread(thread_id, limit.unwrap_or(200))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn teammate_create_thread(
+    storage: State<'_, Arc<Storage>>,
+    operator_id: OperatorId,
+    title: String,
+) -> Result<crate::teammate::TeammateThread, String> {
+    let id = storage
+        .teammate_create_thread(operator_id, &title)
+        .await
+        .map_err(|e| e.to_string())?;
+    let threads = storage
+        .teammate_list_threads(operator_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    threads
+        .into_iter()
+        .find(|t| t.id == id)
+        .ok_or_else(|| "created thread not found".to_string())
+}
+
+#[tauri::command]
+pub async fn teammate_list_threads(
+    storage: State<'_, Arc<Storage>>,
+    operator_id: OperatorId,
+) -> Result<Vec<crate::teammate::TeammateThread>, String> {
+    storage
+        .teammate_list_threads(operator_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn teammate_rename_thread(
+    storage: State<'_, Arc<Storage>>,
+    thread_id: crate::teammate::ThreadId,
+    title: String,
+) -> Result<(), String> {
+    storage
+        .teammate_rename_thread(thread_id, &title)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn teammate_archive_thread(
+    storage: State<'_, Arc<Storage>>,
+    thread_id: crate::teammate::ThreadId,
+) -> Result<(), String> {
+    storage
+        .teammate_archive_thread(thread_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -27,6 +81,7 @@ pub async fn teammate_send_text_message(
     storage: tauri::State<'_, std::sync::Arc<crate::storage::Storage>>,
     registry: tauri::State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
     operator_id: crate::operator_registry::OperatorId,
+    thread_id: crate::teammate::ThreadId,
     text: String,
     active_session_id: Option<String>,
 ) -> Result<crate::teammate::TaskMessage, String> {
@@ -41,11 +96,12 @@ pub async fn teammate_send_text_message(
     }
 
     // 1) Persist the user message immediately.
+    let user_text = text.clone();
     let user_msg = TaskMessage {
         id: MessageId::new(),
         operator_id,
         task_id: None,
-        thread_id: None,
+        thread_id: Some(thread_id),
         role: TmRole::User,
         content: MessageContent::Text(text),
         created_at_unix_ms: now_ms(),
@@ -85,13 +141,52 @@ pub async fn teammate_send_text_message(
                 return;
             }
         };
-        let thread = match storage_bg.teammate_list_messages(operator_id, 200).await {
+        let thread = match storage_bg.teammate_list_messages_in_thread(thread_id, 200).await {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %e, "teammate: failed to load thread");
                 return;
             }
         };
+
+        // First user message in a still-default thread → auto-title it in a
+        // separate task so titling never blocks (or breaks) the reply.
+        if thread.len() == 1 {
+            let storage_bg2 = storage_bg.clone();
+            let app_bg2 = app_bg.clone();
+            let settings_bg2 = settings_bg.clone();
+            let model = operator.model.clone();
+            let user_text2 = user_text.clone();
+            tokio::spawn(async move {
+                // Only retitle a thread the user hasn't already named.
+                let still_default = match storage_bg2.teammate_list_threads(operator_id).await {
+                    Ok(threads) => threads
+                        .iter()
+                        .find(|t| t.id == thread_id)
+                        .map(|t| t.title == "New conversation")
+                        .unwrap_or(false),
+                    Err(_) => false,
+                };
+                if !still_default {
+                    return;
+                }
+                let settings = settings_bg2.lock().await.clone();
+                if let Ok(title) = crate::teammate::llm::generate_thread_title(
+                    &settings, &model, &user_text2,
+                )
+                .await
+                {
+                    let _ = storage_bg2.teammate_rename_thread(thread_id, &title).await;
+                    let _ = app_bg2.emit(
+                        "teammate-thread-renamed",
+                        serde_json::json!({
+                            "thread_id": thread_id.0.to_string(),
+                            "title": title,
+                        }),
+                    );
+                }
+            });
+        }
 
         // Build snapshot per session under each world's own lock.
         let mut snapshots = Vec::with_capacity(session_data.len());
@@ -181,7 +276,7 @@ pub async fn teammate_send_text_message(
             id: MessageId::new(),
             operator_id,
             task_id: None,
-            thread_id: None,
+            thread_id: Some(thread_id),
             role: TmRole::Operator,
             content: reply_content,
             created_at_unix_ms: now_ms(),
