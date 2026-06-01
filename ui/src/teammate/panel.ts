@@ -21,6 +21,7 @@ import {
   expandMentions, MentionPopup,
   type MentionRegistry, type ReadFileFn,
 } from "./mentions";
+import { renderCardSegments } from "./card";
 import { renderTaskCard, type TaskLifecycleEvent } from "./task-card";
 import { ActivityView } from "./activity-view";
 import { AomActivityFeed } from "../aom/activity-feed";
@@ -1301,7 +1302,7 @@ export class TeammatePanel {
       }
       const b = document.createElement("div");
       b.className = `teammate-bubble teammate-bubble-${msg.role}`;
-      b.innerHTML = renderInlineContent(msg.content.data);
+      b.innerHTML = renderMessageBody(msg.content.data);
       row.append(av, b);
       this.threadEl.append(row);
     }
@@ -1727,15 +1728,17 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderInlineContent(text: string): string {
-  // The send pipeline appends a "--- Mentioned ---" block with the full
-  // resolved content of every @mention so the LLM gets it as context.
-  // For chat display we strip that bundle and render the visible portion
-  // only — mention tokens like `@spec:3.23` become clickable chips.
-  const SEP = "\n\n--- Mentioned ---\n";
-  const idx = text.indexOf(SEP);
-  const visible = idx >= 0 ? text.slice(0, idx) : text;
-  const bundle  = idx >= 0 ? text.slice(idx + SEP.length) : "";
+const MENTION_SEP = "\n\n--- Mentioned ---\n";
+
+function splitMentionBundle(text: string): { visible: string; bundle: string } {
+  const idx = text.indexOf(MENTION_SEP);
+  if (idx < 0) return { visible: text, bundle: "" };
+  return { visible: text.slice(0, idx), bundle: text.slice(idx + MENTION_SEP.length) };
+}
+
+// Render already-bundle-split visible text to inline HTML. Escapes, then
+// applies code spans and @spec/@file mention chips resolved from `bundle`.
+function renderInline(visible: string, bundle: string): string {
   const specMeta = extractSpecMeta(bundle);
 
   let html = escapeHtml(visible).replace(/`([^`\n]+)`/g, '<code>$1</code>');
@@ -1756,6 +1759,19 @@ function renderInlineContent(text: string): string {
     });
   }
   return html;
+}
+
+function renderInlineContent(text: string): string {
+  const { visible, bundle } = splitMentionBundle(text);
+  return renderInline(visible, bundle);
+}
+
+// Render an operator message: same inline handling as renderInlineContent,
+// plus ```card``` fences become card blocks. Cells reuse renderInline so code
+// spans and mention chips work inside them.
+function renderMessageBody(text: string): string {
+  const { visible, bundle } = splitMentionBundle(text);
+  return renderCardSegments(visible, (cell) => renderInline(cell, bundle));
 }
 
 /// Pull file-mention paths out of the bundle. File sections are headed

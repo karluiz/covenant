@@ -45,6 +45,25 @@ const SENTIMENT_DIRECTIVE: &str = "\n\n# Sentiment tag\n\
     `neutral` if nothing fits. The tag line is stripped from your reply \
     before it reaches the user; it drives your avatar's expression.";
 
+/// Appended to every operator system prompt: teach the operator to present
+/// structured information as a `card` block instead of a numbered paragraph.
+/// Static text so the system prompt stays stable and the prompt cache hits.
+const CARD_DIRECTIVE: &str = "\n\n# Cards\n\
+    \n\
+    When you inform the user of a LIST of structured items — commits, changed \
+    files, tasks, options, or key/value facts — present them as a card instead \
+    of a numbered paragraph. A card is a fenced block:\n\
+    \n\
+    ```card title=<short title>\n\
+    <label> | <value>\n\
+    <label> | <value>\n\
+    ```\n\
+    \n\
+    Rules: one row per line; the part before the first `|` is the label, the \
+    rest is the value; omit the `|` for a single full-width line; `title=` is \
+    optional. Use plain prose for normal conversational replies — only reach \
+    for a card when the content is genuinely a list/table of items.";
+
 /// Try to extract a `SENTIMENT: <token>` line from the tail of an LLM
 /// reply. Returns `(stripped_text, sentiment_or_none)`. Tolerant: scans
 /// the LAST non-empty line, accepts surrounding whitespace, optional
@@ -270,9 +289,9 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         voice = voice,
     );
     if persona.is_empty() {
-        format!("{header}{SENTIMENT_DIRECTIVE}")
+        format!("{header}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
     } else {
-        format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}")
+        format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
     }
 }
 
@@ -947,6 +966,14 @@ mod tests {
         assert!(p.contains("Mibli"));
         assert!(p.contains("Always answer in Spanish."));
         assert!(p.contains("terse"));
+    }
+
+    #[test]
+    fn system_prompt_includes_card_directive() {
+        let op = sample_op("Mibli", "");
+        let p = build_system_prompt(&op);
+        assert!(p.contains("```card"), "prompt must teach the card fence");
+        assert!(p.contains("# Cards"), "prompt must have the Cards section header");
     }
 
     #[test]
