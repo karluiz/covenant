@@ -312,6 +312,63 @@ pub fn copy_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<
     Ok(created)
 }
 
+/// Move `sources` into `dest_dir` (internal drag-to-move within the tree).
+/// Same target-naming + self-into-descendant guards as [`copy_into`], but
+/// the entry leaves its original location. A source already sitting directly
+/// in `dest_dir` is a no-op (returns its own path) so dropping onto the
+/// folder it's already in doesn't spuriously rename it.
+///
+/// Uses `rename` (atomic, same-filesystem); on a cross-device error it falls
+/// back to copy-then-delete so moves across mount points still succeed.
+pub fn move_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<String>, String> {
+    if !dest_dir.is_dir() {
+        return Err(format!("destination is not a directory: {}", dest_dir.display()));
+    }
+    let dest_canon = dest_dir
+        .canonicalize()
+        .map_err(|e| format!("canonicalize dest: {e}"))?;
+    let mut moved = Vec::with_capacity(sources.len());
+    for src in sources {
+        if !src.exists() {
+            return Err(format!("source does not exist: {}", src.display()));
+        }
+        let name = src
+            .file_name()
+            .ok_or_else(|| format!("source has no file name: {}", src.display()))?;
+        let is_dir = src.is_dir();
+        let src_canon = src
+            .canonicalize()
+            .map_err(|e| format!("canonicalize source: {e}"))?;
+
+        // Refuse to move a directory into itself or one of its descendants.
+        if is_dir && (dest_canon == src_canon || dest_canon.starts_with(&src_canon)) {
+            return Err(format!("cannot move a directory into itself: {}", src.display()));
+        }
+        // Already living directly in the destination → nothing to do.
+        if src_canon.parent() == Some(dest_canon.as_path()) {
+            moved.push(src.display().to_string());
+            continue;
+        }
+
+        let target = unique_target(dest_dir, &name.to_string_lossy(), is_dir);
+        if let Err(rename_err) = std::fs::rename(src, &target) {
+            // Cross-device (EXDEV) and similar: fall back to copy + remove.
+            if is_dir {
+                copy_dir_all(src, &target)?;
+                std::fs::remove_dir_all(src)
+                    .map_err(|e| format!("remove moved dir {}: {e}", src.display()))?;
+            } else {
+                std::fs::copy(src, &target)
+                    .map_err(|e| format!("move file (copy fallback): {e} (rename: {rename_err})"))?;
+                std::fs::remove_file(src)
+                    .map_err(|e| format!("remove moved file {}: {e}", src.display()))?;
+            }
+        }
+        moved.push(target.display().to_string());
+    }
+    Ok(moved)
+}
+
 /// Compute a non-clobbering path for `name` inside `dir`. If `dir/name`
 /// is free, returns it as-is; otherwise appends ` (2)`, ` (3)`, … For
 /// files the suffix is inserted before the extension (`a.txt` →
@@ -1121,6 +1178,70 @@ mod tests {
         fs::create_dir_all(&child).unwrap();
         // Copying `parent` into its own descendant `child` must fail.
         let err = copy_into(&[parent], &child).expect_err("should reject");
+        assert!(err.contains("into itself"));
+    }
+
+    #[test]
+    fn move_into_moves_a_file() {
+        let src = tempfile::tempdir().expect("tempdir");
+        let dest = tempfile::tempdir().expect("tempdir");
+        let file = src.path().join("hello.txt");
+        fs::write(&file, b"hi").unwrap();
+
+        let moved = move_into(&[file.clone()], dest.path()).expect("move ok");
+        assert_eq!(moved.len(), 1);
+        assert!(!file.exists(), "source should be gone after a move");
+        let landed = dest.path().join("hello.txt");
+        assert!(landed.is_file());
+        assert_eq!(fs::read(&landed).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn move_into_moves_a_directory_recursively() {
+        let src = tempfile::tempdir().expect("tempdir");
+        let dest = tempfile::tempdir().expect("tempdir");
+        let dir = src.path().join("proj");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub/b.txt"), b"b").unwrap();
+
+        move_into(&[dir.clone()], dest.path()).expect("move ok");
+        assert!(!dir.exists());
+        assert_eq!(fs::read(dest.path().join("proj/sub/b.txt")).unwrap(), b"b");
+    }
+
+    #[test]
+    fn move_into_auto_renames_on_collision() {
+        let src = tempfile::tempdir().expect("tempdir");
+        let dest = tempfile::tempdir().expect("tempdir");
+        fs::write(dest.path().join("note.txt"), b"old").unwrap();
+        let f = src.path().join("note.txt");
+        fs::write(&f, b"new").unwrap();
+
+        move_into(&[f], dest.path()).expect("move ok");
+        assert_eq!(fs::read(dest.path().join("note.txt")).unwrap(), b"old");
+        assert_eq!(fs::read(dest.path().join("note (2).txt")).unwrap(), b"new");
+    }
+
+    #[test]
+    fn move_into_is_a_noop_when_already_in_dest() {
+        let dest = tempfile::tempdir().expect("tempdir");
+        let file = dest.path().join("a.txt");
+        fs::write(&file, b"x").unwrap();
+        // Dropping a file onto the folder it already lives in must not
+        // rename it to `a (2).txt`.
+        let moved = move_into(&[file.clone()], dest.path()).expect("move ok");
+        assert_eq!(moved.len(), 1);
+        assert!(file.is_file());
+        assert!(!dest.path().join("a (2).txt").exists());
+    }
+
+    #[test]
+    fn move_into_rejects_dir_into_itself() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let parent = root.path().join("parent");
+        let child = parent.join("child");
+        fs::create_dir_all(&child).unwrap();
+        let err = move_into(&[parent], &child).expect_err("should reject");
         assert!(err.contains("into itself"));
     }
 }

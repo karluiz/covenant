@@ -5,12 +5,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // picks up the mock at import time.
 vi.mock("../api", () => ({
   structureListDir: vi.fn(),
+  structureMoveInto: vi.fn(),
 }));
 
 import { StructureTree } from "./tree";
-import { structureListDir } from "../api";
+import { structureListDir, structureMoveInto } from "../api";
 
 const listDirMock = structureListDir as unknown as ReturnType<typeof vi.fn>;
+const moveIntoMock = structureMoveInto as unknown as ReturnType<typeof vi.fn>;
 
 function entry(path: string, name: string, kind: "file" | "dir") {
   return { path, name, kind, is_symlink: false };
@@ -188,5 +190,79 @@ describe("StructureTree.setActivePath", () => {
     expect(matchingRows.length).toBe(1);
     // The single marked row should be in the LIVE DOM (attached to host).
     expect(host.contains(matchingRows[0])).toBe(true);
+  });
+});
+
+describe("StructureTree internal drag-to-move", () => {
+  let host: HTMLDivElement;
+  let tree: StructureTree;
+  let changes: Array<
+    | { kind: "rename"; oldPath: string; newPath: string }
+    | { kind: "trash"; path: string }
+  >;
+
+  beforeEach(async () => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    listDirMock.mockReset();
+    moveIntoMock.mockReset();
+    localStorage.clear();
+    Element.prototype.scrollIntoView = vi.fn();
+    changes = [];
+    tree = new StructureTree(host, () => undefined, (c) => changes.push(c));
+    tree.show();
+    listDirMock.mockResolvedValueOnce([
+      entry("/cwd/a.md", "a.md", "file"),
+      entry("/cwd/dir", "dir", "dir"),
+    ]);
+    await tree.setCwd("/cwd");
+    await flush();
+  });
+
+  // The pointer-drag plumbing relies on document.elementFromPoint for
+  // hit-testing, which jsdom doesn't implement (no layout). So we exercise
+  // the two pieces it composes: resolveDropTarget (DOM-closest, works in
+  // jsdom) and moveEntry (the move + reroute + refresh logic).
+
+  it("resolveDropTarget maps a folder row to itself", () => {
+    const folderRow = host.querySelector<HTMLElement>(
+      '[data-path="/cwd/dir"] .structure-row',
+    )!;
+    const target = tree.resolveDropTarget(folderRow);
+    expect(target?.dir).toBe("/cwd/dir");
+  });
+
+  it("resolveDropTarget maps a file row to its parent folder", () => {
+    const fileRow = host.querySelector<HTMLElement>(
+      '[data-path="/cwd/a.md"] .structure-row',
+    )!;
+    expect(tree.resolveDropTarget(fileRow)?.dir).toBe("/cwd");
+  });
+
+  it("resolveDropTarget maps empty tree space to the cwd root", () => {
+    expect(tree.resolveDropTarget(tree.element)?.dir).toBe("/cwd");
+  });
+
+  it("moveEntry moves a file into a folder and reroutes the open editor", async () => {
+    moveIntoMock.mockResolvedValueOnce(["/cwd/dir/a.md"]);
+    listDirMock.mockResolvedValue([]); // refresh after move
+
+    await (tree as unknown as {
+      moveEntry(src: string, dest: string): Promise<void>;
+    }).moveEntry("/cwd/a.md", "/cwd/dir");
+
+    expect(moveIntoMock).toHaveBeenCalledWith(["/cwd/a.md"], "/cwd/dir");
+    expect(changes).toContainEqual({
+      kind: "rename",
+      oldPath: "/cwd/a.md",
+      newPath: "/cwd/dir/a.md",
+    });
+  });
+
+  it("moveEntry is a no-op into the folder it already lives in", async () => {
+    await (tree as unknown as {
+      moveEntry(src: string, dest: string): Promise<void>;
+    }).moveEntry("/cwd/a.md", "/cwd");
+    expect(moveIntoMock).not.toHaveBeenCalled();
   });
 });

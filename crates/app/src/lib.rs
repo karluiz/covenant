@@ -2491,6 +2491,20 @@ async fn structure_copy_into(
         .map_err(|e| format!("copy_into join: {e}"))?
 }
 
+/// Move tree entries into a directory (internal drag-to-move between
+/// folders). Rename when possible, copy+delete across filesystems.
+#[tauri::command]
+async fn structure_move_into(
+    sources: Vec<String>,
+    dest_dir: String,
+) -> Result<Vec<String>, String> {
+    let srcs: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
+    let dest = PathBuf::from(dest_dir);
+    tokio::task::spawn_blocking(move || structure::move_into(&srcs, &dest))
+        .await
+        .map_err(|e| format!("move_into join: {e}"))?
+}
+
 /// Project-wide substring search across the cwd, honoring .gitignore.
 /// Heavy filesystem work runs on the blocking pool so the IPC thread
 /// stays responsive while the user is still typing the next char.
@@ -3487,6 +3501,7 @@ pub fn run() {
             structure_rename_path,
             structure_trash_path,
             structure_copy_into,
+            structure_move_into,
             structure_search,
             structure_find_files,
             find_recent_commands,

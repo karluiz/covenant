@@ -7307,6 +7307,32 @@ button.status-segment.status-aom.status-aom-warn:hover {
     box-shadow: inset 0 0 0 2px var(--accent, #7aa2f7);
     border-radius: 6px;
 }
+/* Floating label that trails the pointer during an internal drag-to-move. */
+.structure-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1100;
+    pointer-events: none;
+    padding: 3px 8px;
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--text-primary, #e6e6e6);
+    background: var(--bg-overlay, rgb(28 32 40));
+    border: 1px solid var(--accent, #7aa2f7);
+    border-radius: 5px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+    opacity: 0.94;
+}
+/* Suppress text selection + show the grabbing cursor app-wide during a
+   tree drag (mirrors body.tab-drag-active for the tab strip). */
+body.structure-dragging,
+body.structure-dragging * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    cursor: grabbing !important;
+}
 .structure-chevron {
     display: inline-flex;
     align-items: center;

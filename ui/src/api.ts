@@ -1245,6 +1245,16 @@ export async function structureCopyInto(
   return invoke<string[]>("structure_copy_into", { sources, destDir });
 }
 
+/// Move tree entries into `destDir` (internal drag-to-move between folders).
+/// Returns the new top-level paths. Collisions auto-rename; a source already
+/// in `destDir` is a no-op.
+export async function structureMoveInto(
+  sources: string[],
+  destDir: string,
+): Promise<string[]> {
+  return invoke<string[]>("structure_move_into", { sources, destDir });
+}
+
 /// One match from a global search. `match_start`/`match_end` are CHAR
 /// offsets within `line_text` (already truncated server-side if the
 /// source line was very long), suitable for highlighting in the UI.

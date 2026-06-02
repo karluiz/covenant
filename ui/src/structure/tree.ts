@@ -11,6 +11,7 @@ import {
   structureCopyInto,
   structureCreatePath,
   structureListDir,
+  structureMoveInto,
   structureRenamePath,
   structureTrashPath,
   type DirEntry,
@@ -100,6 +101,17 @@ export class StructureTree {
   /// openEditor / editor onClose.
   private activePath: string | null = null;
   private activeNode: NodeState | null = null;
+  /// Path of the row currently being dragged within the tree (internal
+  /// drag-to-move), or null when no internal drag is in flight. Used to
+  /// distinguish our HTML5 drag from unrelated drags and to know the
+  /// source on drop. (Finder→tree drops go through `file-drop.ts` and the
+  /// native `onDragDropEvent` path, not this.)
+  private draggingPath: string | null = null;
+  /// Row currently showing the `.structure-drop-target` highlight during
+  /// an internal drag.
+  private dragHighlight: HTMLElement | null = null;
+  /// Floating label that follows the pointer during an internal drag.
+  private dragGhost: HTMLElement | null = null;
   /// Monotonic counter. Each call to `revealActivePath` captures the
   /// current value and bails on any await if a newer reveal has
   /// started — avoids two reveals interleaving DOM updates.
@@ -129,6 +141,117 @@ export class StructureTree {
     this.root.appendChild(this.emptyEl);
 
     this.host.appendChild(this.root);
+  }
+
+  /// Pointer-based drag-to-move. We can't use HTML5 DnD here: the Tauri
+  /// webview has `dragDropEnabled` on (for the Finder→tree native drop), and
+  /// on macOS WKWebView that swallows in-page HTML5 `dragstart`/`drop`. So we
+  /// synthesize the drag from pointer events, exactly like the tab strip does
+  /// (see `installTabPointerDrag` in tabs/manager.ts).
+  private beginRowDrag(e: PointerEvent, node: NodeState): void {
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let activated = false;
+
+    const onMove = (ev: PointerEvent): void => {
+      if (!activated) {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (dx * dx + dy * dy < 5 * 5) return; // movement threshold
+        activated = true;
+        this.draggingPath = node.entry.path;
+        document.body.classList.add("structure-dragging");
+        this.dragGhost = this.makeDragGhost(node.entry.name);
+        document.body.appendChild(this.dragGhost);
+      }
+      if (this.dragGhost) {
+        this.dragGhost.style.transform = `translate(${ev.clientX + 12}px, ${ev.clientY + 6}px)`;
+      }
+      const target = this.resolveDropTarget(
+        document.elementFromPoint(ev.clientX, ev.clientY),
+      );
+      if (target) this.setDragHighlight(target.highlight);
+      else this.clearDragHighlight();
+    };
+
+    const onUp = (ev: PointerEvent): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      const wasDragging = activated;
+      if (this.dragGhost) {
+        this.dragGhost.remove();
+        this.dragGhost = null;
+      }
+      document.body.classList.remove("structure-dragging");
+      this.clearDragHighlight();
+      const src = this.draggingPath;
+      this.draggingPath = null;
+      if (!wasDragging) return; // a plain click — let the row handler run
+      // Swallow the click that the browser fires after this pointerup so a
+      // drag that ends on the source row doesn't also toggle/open it.
+      const swallow = (ce: Event): void => {
+        ce.stopPropagation();
+        ce.preventDefault();
+        window.removeEventListener("click", swallow, true);
+      };
+      window.addEventListener("click", swallow, true);
+      setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+
+      const target = this.resolveDropTarget(
+        document.elementFromPoint(ev.clientX, ev.clientY),
+      );
+      if (src && target) void this.moveEntry(src, target.dir);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
+  private makeDragGhost(label: string): HTMLElement {
+    const g = document.createElement("div");
+    g.className = "structure-drag-ghost";
+    g.textContent = label;
+    return g;
+  }
+
+  private setDragHighlight(el: HTMLElement): void {
+    if (this.dragHighlight === el) return;
+    this.clearDragHighlight();
+    el.classList.add("structure-drop-target");
+    this.dragHighlight = el;
+  }
+
+  private clearDragHighlight(): void {
+    if (this.dragHighlight) {
+      this.dragHighlight.classList.remove("structure-drop-target");
+      this.dragHighlight = null;
+    }
+  }
+
+  /// Move a single dragged entry into `destDir` (internal drag-to-move).
+  /// No-ops when dropped into the folder it already lives in. Reroutes an
+  /// open editor via the `rename` change event when the moved file was
+  /// open, then refreshes.
+  private async moveEntry(src: string, destDir: string): Promise<void> {
+    if (this.cwd && parentDir(src, this.cwd) === destDir) return; // already there
+    let created: string[];
+    try {
+      created = await structureMoveInto([src], destDir);
+    } catch (err) {
+      this.showError(`Move failed: ${err}`);
+      return;
+    }
+    const newPath = created[0];
+    if (newPath && newPath !== src) {
+      this.onChange?.({ kind: "rename", oldPath: src, newPath });
+    }
+    if (this.cwd && destDir !== this.cwd) {
+      this.expandedPaths.add(destDir);
+      saveExpanded(this.cwd, this.expandedPaths);
+    }
+    await this.refresh();
   }
 
   show(): void {
@@ -372,6 +495,15 @@ export class StructureTree {
     row.appendChild(name);
 
     const node: NodeState = { entry, expanded: false, children: null, depth, el: li };
+
+    // Internal drag source (pointer-based — see beginRowDrag). Only the
+    // primary button starts a drag; the chevron still toggles on click.
+    row.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      // Prevent WebKit's text-selection sweep when dragging across rows.
+      ev.preventDefault();
+      this.beginRowDrag(ev, node);
+    });
 
     row.addEventListener("click", (ev) => {
       // Ignore the 2nd+ click of a rapid double-click: a single click
