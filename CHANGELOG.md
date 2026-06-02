@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.45 — Signed macOS releases + Homebrew tap
+
+### Added
+
+- **Apple Developer ID signing + notarization**: `release-macos.yml` now signs the bundled `Covenant.app` with the Developer ID Application certificate and notarizes via `notarytool` inline during `tauri build`. Users no longer get the "unidentified developer" Gatekeeper prompt. Wires `APPLE_CERTIFICATE`, `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_CONTENT` secrets.
+
+- **Homebrew tap**: new repo `karluiz/homebrew-covenant` with `Casks/covenant.rb`. Install with `brew install --cask karluiz/covenant/covenant`. The release workflow auto-rewrites the cask (version + dmg sha256) and pushes on every tagged release via `HOMEBREW_TAP_TOKEN`. Tap-update step is gated and `continue-on-error: true` so a missing token never breaks the release.
+
+- **Pi: clickable URLs + file paths in transcript**: streaming output now linkifies URLs and absolute / relative file paths. Paths open in an inline `StructureEditor` overlay lazy-mounted over the chat host; the Pi session cwd flows from `TabManager` → `PiPanel` → `PiChatView` so relative paths resolve. New `ui/src/executors/pi/linkify.ts` + test.
+
+### Changed
+
+- **`release-macos.yml`**: locates the signed `.dmg` after bundling, uploads it to the GitHub Release, and emits `dmg_sha256` for the cask step. Workflow now produces three artifacts per release (`.dmg`, `.app.tar.gz`, `.sig`).
+
+- **Project notes — drafts empty state**: replaced the inline empty variant with the canonical centered `.pn-empty` layout (icon + title + hint pointing at the **+ New spec** button). Restyled `.pn-drafts-new` to the dashed mono-font convention with accent hover.
+
+### Fixed
+
+- **Pi streaming scroll snap**: disabled `overflow-anchor` on the messages container — browser scroll-anchoring was losing its anchor each delta (linkify rebuilds the message subtree wholesale) and snapping the viewport to the top. Replaced with manual stick-to-bottom: tracks whether the user is parked near the bottom, only auto-scrolls when they are.
+
 ## v0.8.44 — Landing redesign + GitHub Pages deploy
 
 ### Added
