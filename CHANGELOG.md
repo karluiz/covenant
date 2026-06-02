@@ -6,6 +6,36 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.44 — Landing redesign + GitHub Pages deploy
+
+### Added
+
+- **Landing redesign + new branding**: reworked the marketing hero with an
+  image slider, animations, and refreshed Covenant brand assets (logotipos,
+  favicon, hero laptops, OG image) under `landing/public/`. New `Companion.astro`
+  and `Covenant.astro` components.
+
+- **GitHub Pages deploy**: the landing now ships automatically to GitHub Pages
+  via `.github/workflows/deploy-landing.yml` (Astro build → Pages artifact) on
+  any push under `landing/**`. Served from `www.covenant.uno` (`landing/public/CNAME`,
+  Astro `site` in `astro.config.mjs`); the apex `covenant.uno` stays reserved for
+  the metrics backend.
+
+- **Default spawn executor in task injection**: teammate task injection now honors
+  the configured default spawn executor instead of hardcoding one
+  (`ui/src/teammate/panel.ts`).
+
+### Changed
+
+- **Regenerated app icons**: rebuilt all platform launcher icons from the new
+  Covenant mark across `crates/app/icons/` (macOS, Windows tiles, Android mipmaps).
+
+### Fixed
+
+- **Tree context menu positioning**: the file-tree context menu now lands under
+  the cursor at any zoom level, and a stray second hit from a double-click is
+  ignored (`ui/src/structure/tree.ts`).
+
 ## v0.8.43 — Operator threads — ChatGPT-style conversations + message cards
 
 ### Added
