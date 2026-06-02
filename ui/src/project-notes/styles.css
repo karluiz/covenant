@@ -581,18 +581,20 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 
 .pn-drafts-new {
   background: transparent;
-  border: 1px dashed var(--border);
-  color: var(--fg-muted);
+  border: 1px dashed var(--border, #2a2d35);
+  color: var(--muted, #8a8aa8);
   border-radius: 6px;
   padding: 8px 12px;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   cursor: pointer;
   text-align: left;
+  transition: border-color 120ms, color 120ms;
 }
 
 .pn-drafts-new:hover:not(:disabled) {
-  color: var(--fg);
-  border-color: var(--fg-muted);
+  border-color: var(--pn-accent, var(--accent, #6aa9ff));
+  color: var(--text, #e6e8eb);
 }
 
 .pn-drafts-new:disabled {

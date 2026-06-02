@@ -112,9 +112,10 @@ export class DraftsTab {
   private renderList(root: string, drafts: DraftSummary[]): void {
     if (drafts.length === 0) {
       this.listEl.innerHTML =
-        `<div class="pn-empty pn-empty-inline">
-           <div class="pn-empty-title">No drafts</div>
-           <div class="pn-empty-hint">Agents will write drafts here, or start one with the button above.</div>
+        `<div class="pn-empty">
+           <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M14 4v4h4"/><path d="M8 13h8M8 17h5"/></svg>
+           <div class="pn-empty-title">No drafts yet</div>
+           <div class="pn-empty-hint">Click <span class="pn-kbd">+ New spec (AI-assisted)</span> to start one</div>
          </div>`;
       return;
     }
