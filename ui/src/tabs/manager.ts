@@ -1846,11 +1846,29 @@ export class TabManager {
           document.body.appendChild(ghost);
           void vertical; // currently unused, layout is absolute either way
         } else {
-          ghost = sourceEl.cloneNode(true) as HTMLElement;
-          ghost.classList.add("tab-ghost");
+          // Wrap the clone in a `.tab-ghost` div (same shape as the group
+          // path) rather than tagging the `.tab-btn` clone itself. A clone
+          // that is *also* a `.tab-btn` inherits per-theme overrides — e.g.
+          // CRT's `body.tab-style-crt .tab-btn { background: transparent }`
+          // (specificity 0,2,1) beats `.tab-ghost` (0,1,0), making the
+          // picked-up card invisible. The wrapper isn't a `.tab-btn`, so its
+          // card chrome (bg/border/shadow) survives in every tab theme.
           const rect = sourceEl.getBoundingClientRect();
-          ghost.style.width = `${rect.width}px`;
-          ghost.style.height = `${rect.height}px`;
+          const wrap = document.createElement("div");
+          wrap.className = "tab-ghost";
+          wrap.style.width = `${rect.width}px`;
+          wrap.style.height = `${rect.height}px`;
+          const clone = sourceEl.cloneNode(true) as HTMLElement;
+          clone.classList.remove("tab-drop-left", "tab-drop-right", "group-chip-drop");
+          clone.querySelector(".tab-drop-anchor")?.remove();
+          clone.style.position = "absolute";
+          clone.style.left = "0";
+          clone.style.top = "0";
+          clone.style.width = `${rect.width}px`;
+          clone.style.height = `${rect.height}px`;
+          clone.style.margin = "0";
+          wrap.appendChild(clone);
+          ghost = wrap;
           ghostOriginX = rect.left;
           ghostOriginY = rect.top;
           ghost.style.left = `${ghostOriginX}px`;
