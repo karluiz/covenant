@@ -25,6 +25,7 @@ import { renderCardSegments } from "./card";
 import { renderTaskCard, type TaskLifecycleEvent } from "./task-card";
 import { ActivityView } from "./activity-view";
 import { AomActivityFeed } from "../aom/activity-feed";
+import { listSpawns } from "../spawns/api";
 
 const CHEVRON_DOWN_SVG =
   '<svg class="teammate-panel-header-chevron" viewBox="0 0 16 16" aria-hidden="true">' +
@@ -247,6 +248,10 @@ export class TeammatePanel {
   private deps: TeammatePanelDeps;
   private operator: Operator | null = null;
   private roster: Operator[] = [];
+  // Command of the spawn marked `default` in spawns.json, cached so the
+  // synchronous buildTaskInjection() can honor it without an await. Null
+  // until loaded (or if no spawn is marked default) → falls back to claude.
+  private defaultExecutor: string | null = null;
   /// Latest sentiment seen per operator (keyed by OperatorId). Updated
   /// whenever a tagged operator message arrives so the avatar feels
   /// "alive" — the pose + badge follow the most recent mood across
@@ -304,6 +309,21 @@ export class TeammatePanel {
 
   isOpen(): boolean { return this.operator !== null; }
 
+  /// Resolve the executor command of the spawn marked `default` in
+  /// spawns.json and cache it for buildTaskInjection(). Non-fatal: on any
+  /// error (or no default marked) we leave defaultExecutor null and fall
+  /// back to "claude".
+  private async loadDefaultExecutor(): Promise<void> {
+    try {
+      const specs = await listSpawns();
+      const def = specs.find((s) => s.default);
+      this.defaultExecutor = def?.command?.trim() || null;
+    } catch (e) {
+      console.error("loadDefaultExecutor failed", e);
+      this.defaultExecutor = null;
+    }
+  }
+
   async openFor(operator: Operator): Promise<void> {
     this.operator = operator;
     this.viewMode = "chat";
@@ -333,6 +353,7 @@ export class TeammatePanel {
       this.deps.listMessages(this.activeThreadId ?? "", 200),
       this.deps.listOperators().then((ops) => { this.roster = ops; }).catch(() => { /* ignore */ }),
       this.refreshTasks(),
+      this.loadDefaultExecutor(),
     ]);
     // Backfill the operator's mood from history: scan messages newest-
     // first and adopt the first non-null sentiment we find. Keeps the
@@ -1542,7 +1563,9 @@ export class TeammatePanel {
     // currently persisted on the task row; fall back to whatever the
     // operator's default executor is by passing null (buildTaskInjection
     // emits a plain prompt the operator will pick up on its next turn).
-    const line = buildTaskInjection(task.title, task.deliverable, null);
+    const line = buildTaskInjection(
+      task.title, task.deliverable, null, new Map(), null, null, this.defaultExecutor,
+    );
     window.setTimeout(() => {
       void injectCommand(spawned.sessionId, line).catch((e) =>
         console.error("injectCommand on respawn failed", e),
@@ -1617,7 +1640,7 @@ export class TeammatePanel {
           const specPath = this.lastSentSpecPath;
           line = buildTaskInjection(
             task.title, task.deliverable, operatorPickedExecutor,
-            this.lastSentMentionMap, specPath, spawned.cwd,
+            this.lastSentMentionMap, specPath, spawned.cwd, this.defaultExecutor,
           );
           // Auto-attach mission + queue /rename if the originating chat
           // had a @spec chip. We AWAIT this (unlike the old fire-and-
@@ -1651,7 +1674,7 @@ export class TeammatePanel {
             const specPath = this.lastSentSpecPath;
             line = fg
               ? buildActiveTabInjection(task.title, task.deliverable, this.lastSentMentionMap, specPath, null)
-              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap, specPath, null);
+              : buildTaskInjection(task.title, task.deliverable, operatorPickedExecutor, this.lastSentMentionMap, specPath, null, this.defaultExecutor);
             if (specPath) this.lastSentSpecPath = null;
           }
         }
@@ -2015,14 +2038,18 @@ export function buildTaskInjection(
   mentionMap: Map<string, string> = new Map(),
   specPath: string | null = null,
   cwd: string | null = null,
+  defaultExecutor: string | null = null,
 ): string {
   const cleanTitle = sanitizeMentionTokens(title, mentionMap);
   const cleanDeliverable = sanitizeMentionTokens(deliverable, mentionMap);
   const base = [cleanTitle.trim(), cleanDeliverable.trim()].filter(Boolean).join(" — ");
   const prompt = withSpecPrefix(base, specPath, cwd);
   // Precedence: operator's choice (from the propose draft) → localStorage
-  // override → default "claude". "none"/"off" disables autorun.
-  const fallback = (localStorage.getItem("covenant.teammate.executor") ?? "claude").trim();
+  // override → the spawn marked `default` in spawns.json → "claude".
+  // "none"/"off" disables autorun.
+  const fallback = (
+    localStorage.getItem("covenant.teammate.executor") ?? defaultExecutor ?? "claude"
+  ).trim();
   const exec = (operatorPicked ?? fallback).trim();
   if (!exec || exec === "none" || exec === "off") {
     return `# ${prompt} `;

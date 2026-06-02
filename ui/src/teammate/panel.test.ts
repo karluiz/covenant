@@ -33,6 +33,28 @@ describe("buildTaskInjection spec prefix", () => {
   });
 });
 
+describe("buildTaskInjection executor precedence", () => {
+  afterEach(() => localStorage.clear());
+
+  it("uses the default spawn executor when nothing else is picked", () => {
+    expect(buildTaskInjection("x", "y", null, new Map(), null, null, "pi"))
+      .toBe("pi 'x — y'\n");
+  });
+  it("falls back to claude when no default spawn is set", () => {
+    expect(buildTaskInjection("x", "y", null, new Map(), null, null, null))
+      .toBe("claude 'x — y'\n");
+  });
+  it("operator pick beats the default spawn", () => {
+    expect(buildTaskInjection("x", "y", "codex", new Map(), null, null, "pi"))
+      .toBe("codex 'x — y'\n");
+  });
+  it("localStorage override beats the default spawn", () => {
+    localStorage.setItem("covenant.teammate.executor", "hermes");
+    expect(buildTaskInjection("x", "y", null, new Map(), null, null, "pi"))
+      .toBe("hermes 'x — y'\n");
+  });
+});
+
 describe("sanitizeMentionTokens", () => {
   it("rewrites known tokens to their resolved display", () => {
     const map = new Map([["@achievement", "docs/specs/3.23-achievements-and-reputation.md"]]);
