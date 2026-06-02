@@ -264,6 +264,110 @@ pub fn trash_path(path: &Path) -> Result<(), String> {
     trash::delete(path).map_err(|e| format!("trash: {e}"))
 }
 
+/// Copy each of `sources` into directory `dest_dir`, returning the
+/// created top-level paths. Used by the file-tree drag-drop: the user
+/// drops OS files/folders onto a tree row and we copy them in.
+///
+/// - Files copy directly; directories copy recursively.
+/// - Name collisions never clobber — we auto-rename to `name (2)`,
+///   `name (3)`, … (extension-aware for files).
+/// - Refuses to copy a directory into itself or one of its own
+///   descendants (would recurse forever / corrupt).
+pub fn copy_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<String>, String> {
+    if !dest_dir.is_dir() {
+        return Err(format!("destination is not a directory: {}", dest_dir.display()));
+    }
+    let mut created = Vec::with_capacity(sources.len());
+    for src in sources {
+        if !src.exists() {
+            return Err(format!("source does not exist: {}", src.display()));
+        }
+        let name = src
+            .file_name()
+            .ok_or_else(|| format!("source has no file name: {}", src.display()))?;
+        let is_dir = src.is_dir();
+        let target = unique_target(dest_dir, &name.to_string_lossy(), is_dir);
+
+        if is_dir {
+            // Guard against copying a directory into itself/descendant.
+            // Compare canonical paths so symlinks / `..` can't sneak past.
+            let src_canon = src
+                .canonicalize()
+                .map_err(|e| format!("canonicalize source: {e}"))?;
+            let dest_canon = dest_dir
+                .canonicalize()
+                .map_err(|e| format!("canonicalize dest: {e}"))?;
+            if dest_canon == src_canon || dest_canon.starts_with(&src_canon) {
+                return Err(format!(
+                    "cannot copy a directory into itself: {}",
+                    src.display()
+                ));
+            }
+            copy_dir_all(src, &target)?;
+        } else {
+            std::fs::copy(src, &target).map_err(|e| format!("copy file: {e}"))?;
+        }
+        created.push(target.display().to_string());
+    }
+    Ok(created)
+}
+
+/// Compute a non-clobbering path for `name` inside `dir`. If `dir/name`
+/// is free, returns it as-is; otherwise appends ` (2)`, ` (3)`, … For
+/// files the suffix is inserted before the extension (`a.txt` →
+/// `a (2).txt`); directories and extensionless names get the suffix at
+/// the end (`logs` → `logs (2)`).
+fn unique_target(dir: &Path, name: &str, is_dir: bool) -> std::path::PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    // Split stem / extension. Directories are never treated as having an
+    // extension (a folder called `my.config` keeps its whole name).
+    let (stem, ext) = if is_dir {
+        (name.to_string(), None)
+    } else {
+        match name.rsplit_once('.') {
+            // Leading-dot dotfiles (".env") have an empty stem — treat
+            // the whole thing as the stem so we get ".env (2)".
+            Some((s, e)) if !s.is_empty() => (s.to_string(), Some(e.to_string())),
+            _ => (name.to_string(), None),
+        }
+    };
+    let mut n = 2;
+    loop {
+        let candidate = match &ext {
+            Some(e) => format!("{stem} ({n}).{e}"),
+            None => format!("{stem} ({n})"),
+        };
+        let path = dir.join(&candidate);
+        if !path.exists() {
+            return path;
+        }
+        n += 1;
+    }
+}
+
+/// Recursively copy directory `src` to a fresh directory `dst`.
+/// `dst` must not exist yet (the caller picks a unique target).
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir(dst).map_err(|e| format!("create dir {}: {e}", dst.display()))?;
+    for entry in std::fs::read_dir(src).map_err(|e| format!("read dir {}: {e}", src.display()))? {
+        let entry = entry.map_err(|e| format!("read entry: {e}"))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let ty = entry.file_type().map_err(|e| format!("file type: {e}"))?;
+        if ty.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            // Symlinks are copied as their target's contents via fs::copy;
+            // good enough for a drag-drop import and avoids dangling links.
+            std::fs::copy(&from, &to).map_err(|e| format!("copy {}: {e}", from.display()))?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SearchHit {
     pub path: String,
@@ -953,5 +1057,70 @@ mod tests {
         let path = tmp.path().join("missing/sub/out.png");
         let err = write_file_binary(&path, b"x").expect_err("should fail");
         assert!(err.contains("parent dir"));
+    }
+
+    #[test]
+    fn copy_into_copies_a_file() {
+        let src = tempfile::tempdir().expect("tempdir");
+        let dest = tempfile::tempdir().expect("tempdir");
+        let file = src.path().join("hello.txt");
+        fs::write(&file, b"hi").unwrap();
+
+        let created = copy_into(&[file], dest.path()).expect("copy ok");
+        assert_eq!(created.len(), 1);
+        let copied = dest.path().join("hello.txt");
+        assert!(copied.is_file());
+        assert_eq!(fs::read(&copied).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn copy_into_copies_a_directory_recursively() {
+        let src = tempfile::tempdir().expect("tempdir");
+        let dest = tempfile::tempdir().expect("tempdir");
+        let dir = src.path().join("proj");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("a.txt"), b"a").unwrap();
+        fs::write(dir.join("sub/b.txt"), b"b").unwrap();
+
+        copy_into(&[dir], dest.path()).expect("copy ok");
+        assert_eq!(fs::read(dest.path().join("proj/a.txt")).unwrap(), b"a");
+        assert_eq!(fs::read(dest.path().join("proj/sub/b.txt")).unwrap(), b"b");
+    }
+
+    #[test]
+    fn copy_into_auto_renames_on_collision() {
+        let src = tempfile::tempdir().expect("tempdir");
+        let dest = tempfile::tempdir().expect("tempdir");
+        // Pre-existing file with extension, a dotfile, and a directory.
+        fs::write(dest.path().join("note.txt"), b"old").unwrap();
+        fs::write(dest.path().join(".env"), b"old").unwrap();
+        fs::create_dir(dest.path().join("logs")).unwrap();
+
+        let f = src.path().join("note.txt");
+        fs::write(&f, b"new").unwrap();
+        let env = src.path().join(".env");
+        fs::write(&env, b"new").unwrap();
+        let logs = src.path().join("logs");
+        fs::create_dir(&logs).unwrap();
+
+        copy_into(&[f, env, logs], dest.path()).expect("copy ok");
+        // Extension-aware for the regular file.
+        assert!(dest.path().join("note (2).txt").is_file());
+        assert_eq!(fs::read(dest.path().join("note (2).txt")).unwrap(), b"new");
+        // Dotfiles keep their whole name as the stem.
+        assert!(dest.path().join(".env (2)").is_file());
+        // Directories get the suffix at the end.
+        assert!(dest.path().join("logs (2)").is_dir());
+    }
+
+    #[test]
+    fn copy_into_rejects_dir_into_itself() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let parent = root.path().join("parent");
+        let child = parent.join("child");
+        fs::create_dir_all(&child).unwrap();
+        // Copying `parent` into its own descendant `child` must fail.
+        let err = copy_into(&[parent], &child).expect_err("should reject");
+        assert!(err.contains("into itself"));
     }
 }

@@ -1236,6 +1236,15 @@ export async function structureTrashPath(path: string): Promise<void> {
   return invoke<void>("structure_trash_path", { path });
 }
 
+/// Copy OS files/folders (dragged in from Finder) into `destDir`.
+/// Returns the created top-level paths. Collisions auto-rename.
+export async function structureCopyInto(
+  sources: string[],
+  destDir: string,
+): Promise<string[]> {
+  return invoke<string[]>("structure_copy_into", { sources, destDir });
+}
+
 /// One match from a global search. `match_start`/`match_end` are CHAR
 /// offsets within `line_text` (already truncated server-side if the
 /// source line was very long), suitable for highlighting in the UI.

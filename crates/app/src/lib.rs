@@ -2477,6 +2477,20 @@ async fn structure_trash_path(path: String) -> Result<(), String> {
         .map_err(|e| format!("trash join: {e}"))?
 }
 
+/// Copy OS files/folders (dragged in from Finder, etc.) into a tree
+/// directory. Heavy recursive I/O runs on the blocking pool.
+#[tauri::command]
+async fn structure_copy_into(
+    sources: Vec<String>,
+    dest_dir: String,
+) -> Result<Vec<String>, String> {
+    let srcs: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
+    let dest = PathBuf::from(dest_dir);
+    tokio::task::spawn_blocking(move || structure::copy_into(&srcs, &dest))
+        .await
+        .map_err(|e| format!("copy_into join: {e}"))?
+}
+
 /// Project-wide substring search across the cwd, honoring .gitignore.
 /// Heavy filesystem work runs on the blocking pool so the IPC thread
 /// stays responsive while the user is still typing the next char.
@@ -3472,6 +3486,7 @@ pub fn run() {
             structure_read_binary_file,
             structure_rename_path,
             structure_trash_path,
+            structure_copy_into,
             structure_search,
             structure_find_files,
             find_recent_commands,

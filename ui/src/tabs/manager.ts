@@ -75,6 +75,7 @@ import { BlockManager } from "../blocks/manager";
 import type { StatusBar } from "../status/bar";
 import { RecallManager } from "../recall/manager";
 import { StructureTree } from "../structure/tree";
+import { attachFileDrop } from "../structure/file-drop";
 import { StructureEditor } from "../structure/editor";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
@@ -3276,6 +3277,10 @@ export class TabManager {
         }
       },
     );
+
+    // Native OS file drag-drop: drop files from Finder onto the tree to
+    // copy them into the targeted folder.
+    attachFileDrop(structure);
 
     const switchSidebar = (view: "blocks" | "structure" | "recall") => {
       const t = tabRef.current;

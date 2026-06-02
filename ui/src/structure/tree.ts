@@ -8,6 +8,7 @@
 import { Icons } from "../icons";
 import { zoom } from "../zoom";
 import {
+  structureCopyInto,
   structureCreatePath,
   structureListDir,
   structureRenamePath,
@@ -147,6 +148,58 @@ export class StructureTree {
     return this.visible;
   }
 
+  /// The tree's root container element. Used by the file-drop module to
+  /// test whether a drop position landed inside the tree at all.
+  get element(): HTMLElement {
+    return this.root;
+  }
+
+  /// Resolve where a dropped OS file should land, given the DOM element
+  /// under the pointer. Returns the destination directory plus the row
+  /// element to highlight, or null if the point isn't over the tree (so
+  /// the caller can ignore drops onto the terminal / other panels).
+  ///
+  /// - Over a folder row → into that folder.
+  /// - Over a file row → into that file's parent folder.
+  /// - Over empty tree space → into the tree root (cwd).
+  resolveDropTarget(
+    el: Element | null,
+  ): { dir: string; highlight: HTMLElement } | null {
+    if (!this.cwd || !el || !this.root.contains(el)) return null;
+    const li = el.closest<HTMLElement>(".structure-node");
+    const path = li?.dataset.path;
+    if (li && path) {
+      const row = li.querySelector<HTMLElement>(".structure-row") ?? li;
+      if (li.dataset.kind === "dir") {
+        return { dir: path, highlight: row };
+      }
+      // File row → drop into its parent directory.
+      return { dir: parentDir(path, this.cwd), highlight: row };
+    }
+    // Empty space within the tree → root.
+    return { dir: this.cwd, highlight: this.root };
+  }
+
+  /// Copy dropped OS paths into `destDir` (Finder → tree drag-drop).
+  /// On success, expands the target folder and refreshes so the new
+  /// entries are visible; on failure surfaces the error inline.
+  async ingestDrop(sources: string[], destDir: string): Promise<void> {
+    if (sources.length === 0) return;
+    try {
+      await structureCopyInto(sources, destDir);
+    } catch (err) {
+      this.showError(`Drop failed: ${err}`);
+      return;
+    }
+    // Keep the destination expanded across the refresh so the dropped
+    // entries don't land in a collapsed folder the user can't see.
+    if (this.cwd && destDir !== this.cwd) {
+      this.expandedPaths.add(destDir);
+      saveExpanded(this.cwd, this.expandedPaths);
+    }
+    await this.refresh();
+  }
+
   /// Re-root the tree at `cwd`. Idempotent: passing the same cwd re-uses
   /// the existing expanded state from localStorage. Triggers a fresh
   /// `list_dir` against the new root.
@@ -284,6 +337,7 @@ export class StructureTree {
     const li = document.createElement("li");
     li.className = "structure-node";
     li.dataset.kind = entry.kind;
+    li.dataset.path = entry.path;
     li.style.setProperty("--depth", String(depth));
 
     const row = document.createElement("div");
@@ -798,6 +852,15 @@ export class StructureTree {
     err.textContent = msg;
     this.listEl.appendChild(err);
   }
+}
+
+/// Parent directory of `path`, falling back to `fallback` (the cwd) if
+/// `path` has no `/` separator. Trailing slashes are ignored.
+function parentDir(path: string, fallback: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const idx = trimmed.lastIndexOf("/");
+  if (idx <= 0) return fallback;
+  return trimmed.slice(0, idx);
 }
 
 function shortenCwd(cwd: string): string {
