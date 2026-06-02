@@ -150,6 +150,11 @@
   flex-direction: column;
   gap: 12px;
   scrollbar-gutter: stable;
+  /* Streaming deltas rebuild message subtrees wholesale (linkify does a
+     replaceChildren each chunk). The browser's scroll-anchoring then loses
+     its anchor and snaps the viewport — usually to the top. Disable it; we
+     drive follow-scroll manually via scrollToBottom(). */
+  overflow-anchor: none;
 }
 
 .pi-chat-empty {
@@ -328,6 +333,36 @@
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 .pi-tool-body:empty { display: none; }
+
+/* ---- Clickable links (URLs + file paths) ---- */
+.pi-link {
+  color: var(--accent, #6fb3ff);
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.pi-link:hover {
+  text-decoration: none;
+  border-bottom-color: currentColor;
+}
+.pi-link:focus-visible {
+  outline: 1px solid var(--accent, #6fb3ff);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* ---- File editor overlay (opened from a clicked path) ---- */
+.pi-editor-host {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  background: rgb(17 20 26);
+  box-shadow: -8px 0 28px rgb(0 0 0 / 0.55);
+}
+.pi-editor-host[hidden] {
+  display: none;
+}
 
 /* ---- Thinking ---- */
 .pi-thinking {

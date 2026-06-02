@@ -36,6 +36,10 @@ import {
   subscribePiEvents,
 } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
+import { StructureEditor } from "../../structure/editor";
+import { resolveExistingPath } from "../../api";
+import { pushInfoToast } from "../../notifications/toast";
+import { setLinkifiedText, type LinkifyContext } from "./linkify";
 
 const PI_LOGO = brandIconSvg("pi", 16) ?? "π";
 
@@ -95,6 +99,10 @@ export interface PiChatViewOptions {
   /// process exits and the user dismisses the crash banner). Callers
   /// typically call `closePiSession()` here and remove the tab.
   onClose?: () => void;
+  /// Working directory of the Pi session. Used to resolve relative file
+  /// paths clicked in the transcript. Absolute / `~`-prefixed paths don't
+  /// need it; pass when known so relative paths resolve too.
+  cwd?: string | null;
 }
 
 /// Public surface kept narrow: mount on construction, [`destroy`] to
@@ -104,6 +112,12 @@ export class PiChatView {
   private readonly host: HTMLElement;
   private readonly sessionId: SessionId;
   private readonly onCloseCb?: () => void;
+  private readonly cwd: string | null;
+  /// Lazily-created editor overlay used when the user clicks a file path
+  /// in the transcript. Mounted into `this.host` on first open.
+  private editor: StructureEditor | null = null;
+  private editorHost: HTMLElement | null = null;
+  private readonly linkCtx: LinkifyContext;
 
   private unlisten: (() => void) | null = null;
   private destroyed = false;
@@ -126,13 +140,54 @@ export class PiChatView {
   /// Bumped on every render so screen readers (aria-live) re-announce
   /// rather than getting wedged on identical content during streaming.
   private liveTick = 0;
+  /// True while the user is parked at the bottom of the transcript. Flipped
+  /// false as soon as they scroll up so streaming output stops yanking the
+  /// viewport; flipped back true when they scroll near the bottom again.
+  private stickToBottom = true;
 
   constructor(opts: PiChatViewOptions) {
     this.host = opts.host;
     this.sessionId = opts.sessionId;
     this.onCloseCb = opts.onClose;
+    this.cwd = opts.cwd ?? null;
+    this.linkCtx = {
+      cwd: this.cwd,
+      openPath: (abs, line) => this.openEditor(abs, line),
+    };
     this.mount();
     void this.subscribe();
+  }
+
+  /// Open `path` in an editor overlay floating over the chat transcript.
+  /// The StructureEditor is created on first use; subsequent calls reuse it.
+  private openEditor(path: string, line?: number): void {
+    if (!this.editorHost) {
+      const host = document.createElement("div");
+      host.className = "pi-editor-host";
+      host.hidden = true;
+      this.host.appendChild(host);
+      this.editorHost = host;
+      this.editor = new StructureEditor(host, {
+        toast: (msg, severity) => {
+          if (severity === "error") console.error(msg);
+          pushInfoToast({ message: msg });
+        },
+        onClose: () => {
+          if (this.editorHost) this.editorHost.hidden = true;
+        },
+        onOpenPath: (p) => {
+          void resolveExistingPath(p, this.cwd)
+            .then((abs) => {
+              if (abs) this.openEditor(abs);
+            })
+            .catch(() => {
+              /* ignore — path didn't resolve */
+            });
+        },
+      });
+    }
+    this.editorHost!.hidden = false;
+    void this.editor!.open(path, line !== undefined ? { line } : undefined);
   }
 
   /// Tear down DOM + event subscription. Idempotent.
@@ -147,6 +202,13 @@ export class PiChatView {
       }
       this.unlisten = null;
     }
+    try {
+      this.editor?.close();
+    } catch {
+      /* editor already torn down */
+    }
+    this.editor = null;
+    this.editorHost = null;
     this.host.innerHTML = "";
     this.host.classList.remove("pi-chat-view");
   }
@@ -193,6 +255,18 @@ export class PiChatView {
     `;
     this.statusEl = requireChild(this.host, ".pi-chat-status");
     this.messagesEl = requireChild(this.host, ".pi-chat-messages");
+    // Track whether the user is pinned to the bottom. We only auto-scroll
+    // on new content when they already are — otherwise scrolling up to read
+    // earlier output gets yanked back down (or, with scroll-anchoring, to
+    // the top) on every streaming delta.
+    this.messagesEl.addEventListener(
+      "scroll",
+      () => {
+        const el = this.messagesEl;
+        this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+      },
+      { passive: true },
+    );
     this.emptyEl = requireChild(this.host, ".pi-chat-empty");
     this.queueEl = requireChild(this.host, ".pi-chat-queue");
     this.inputEl = requireChild(this.host, ".pi-chat-textarea") as HTMLTextAreaElement;
@@ -337,7 +411,7 @@ export class PiChatView {
     const d = delta as { type: string } & Record<string, unknown>;
     if (d.type === "text_delta" && typeof d.delta === "string") {
       turn.assistantBuffer += d.delta;
-      turn.assistantTextEl.textContent = turn.assistantBuffer;
+      setLinkifiedText(turn.assistantTextEl, turn.assistantBuffer, this.linkCtx);
       this.scrollToBottom();
     } else if (d.type === "thinking_delta" && typeof d.delta === "string") {
       this.appendThinkingDelta(turn, d.delta);
@@ -383,7 +457,7 @@ export class PiChatView {
     `;
     (card.querySelector(".pi-tool-name") as HTMLElement).textContent = toolName;
     const argsEl = card.querySelector(".pi-tool-args") as HTMLElement;
-    argsEl.textContent = compactArgs(args);
+    setLinkifiedText(argsEl, compactArgs(args), this.linkCtx);
     const toggleEl = requireChild(card, ".pi-tool-toggle");
     const bodyEl = requireChild(card, ".pi-tool-body");
     toggleEl.addEventListener("click", () => {
@@ -412,7 +486,7 @@ export class PiChatView {
     const text = extractToolText(partialResult);
     if (text !== null) {
       dom.partialBuffer = text;
-      dom.bodyEl.textContent = text;
+      setLinkifiedText(dom.bodyEl, text, this.linkCtx);
       this.scrollToBottom();
     }
   }
@@ -422,7 +496,7 @@ export class PiChatView {
     if (!dom) return;
     const text = extractToolText(result);
     if (text !== null) {
-      dom.bodyEl.textContent = text;
+      setLinkifiedText(dom.bodyEl, text, this.linkCtx);
     } else {
       // Fall back to JSON-stringified result if no text content.
       try {
@@ -725,6 +799,8 @@ export class PiChatView {
       <div class="pi-msg-content">${escapeHtml(msg.content)}</div>
     `;
     this.messagesEl.appendChild(el);
+    // A fresh prompt re-anchors the reader to the live tail.
+    this.stickToBottom = true;
     this.scrollToBottom();
   }
 
@@ -795,8 +871,12 @@ export class PiChatView {
   }
 
   private scrollToBottom(): void {
+    // Respect a user who has scrolled up to read earlier output — only the
+    // bottom-parked reader gets followed.
+    if (!this.stickToBottom) return;
     // requestAnimationFrame so the layout settles before we measure.
     requestAnimationFrame(() => {
+      if (!this.stickToBottom) return;
       this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
     });
   }

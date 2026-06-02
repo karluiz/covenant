@@ -820,7 +820,7 @@ export class TabManager {
     const piSessionId = await spawnPiSession({ cwd: p.cwd || undefined });
 
     // 5. Mount a new PiChatView into the existing pane-host element.
-    const view = new PiChatView({ sessionId: piSessionId, host: p.el });
+    const view = new PiChatView({ sessionId: piSessionId, host: p.el, cwd: p.cwd || null });
 
     // 6. Update pane state.
     p.kind = "pi";
@@ -3829,7 +3829,7 @@ export class TabManager {
     piTerminalBlock.appendChild(piPaneHost0);
     pane.appendChild(piTerminalBlock);
 
-    const view = new PiChatView({ sessionId, host: piPaneHost0 });
+    const view = new PiChatView({ sessionId, host: piPaneHost0, cwd: opts?.cwd ?? null });
 
     const tab: Tab = {
       id,

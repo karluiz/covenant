@@ -70,6 +70,7 @@ export class PiPanel {
       sessionId: this.sessionId,
       host: body,
       onClose: () => void this.close(),
+      cwd: opts.cwd ?? null,
     });
     this.focusInput();
   }
