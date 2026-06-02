@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.46 — Real Homebrew install command on landing
+
+### Changed
+
+- **Landing install command**: replaced the placeholder `brew install covenant` with the actual tap-prefixed `brew install --cask karluiz/covenant/covenant` pointing at `karluiz/homebrew-covenant`, in `landing/src/components/Install.astro`.
+
 ## v0.8.45 — Signed macOS releases + Homebrew tap
 
 ### Added
