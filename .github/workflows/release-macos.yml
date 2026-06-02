@@ -62,11 +62,17 @@ jobs:
         run: |
           TGZ=$(find target -name '*.app.tar.gz' | head -n1)
           SIG=$(find target -name '*.app.tar.gz.sig' | head -n1)
+          DMG=$(find target -name '*.dmg' | head -n1)
           if [ -z "$TGZ" ] || [ -z "$SIG" ]; then
             echo "missing tar.gz or .sig"; exit 1
           fi
+          if [ -z "$DMG" ]; then
+            echo "missing .dmg (codesign likely failed)"; exit 1
+          fi
           echo "tgz=$TGZ" >> "$GITHUB_OUTPUT"
           echo "sig=$SIG" >> "$GITHUB_OUTPUT"
+          echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
+          echo "dmg_sha256=$(shasum -a 256 "$DMG" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -78,6 +84,7 @@ jobs:
             gh release create "$TAG" --title "$TAG" --notes "Automated release. See CHANGELOG for details."
           gh release upload "$TAG" "${{ steps.artifacts.outputs.tgz }}" --clobber
           gh release upload "$TAG" "${{ steps.artifacts.outputs.sig }}" --clobber
+          gh release upload "$TAG" "${{ steps.artifacts.outputs.dmg }}" --clobber
 
       - name: Emit per-platform manifest fragment
         run: |
