@@ -6,6 +6,7 @@
 // entries at all). Manual refresh button re-lists from root.
 
 import { Icons } from "../icons";
+import { zoom } from "../zoom";
 import {
   structureCreatePath,
   structureListDir,
@@ -318,7 +319,11 @@ export class StructureTree {
 
     const node: NodeState = { entry, expanded: false, children: null, depth, el: li };
 
-    row.addEventListener("click", () => {
+    row.addEventListener("click", (ev) => {
+      // Ignore the 2nd+ click of a rapid double-click: a single click
+      // already toggles a folder, so a double-click would toggle twice
+      // (open then immediately close) and feel broken.
+      if (ev.detail > 1) return;
       if (entry.kind === "dir" && !entry.is_symlink) {
         if (node.expanded) {
           this.collapse(node);
@@ -332,7 +337,14 @@ export class StructureTree {
 
     row.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
-      this.openContextMenu(ev.clientX, ev.clientY, node);
+      // The UI scales via CSS `zoom` on <html>. WebKit reports
+      // MouseEvent.clientX/Y in unzoomed layout coords, but a
+      // position:fixed element's left/top are interpreted in the zoomed
+      // space — so at zoom != 1 the menu drifts from the cursor,
+      // proportional to distance from the origin. Divide back into
+      // layout coords so the menu lands under the cursor at any zoom.
+      const z = zoom.level() || 1;
+      this.openContextMenu(ev.clientX / z, ev.clientY / z, node);
     });
 
     return node;
