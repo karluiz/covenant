@@ -330,3 +330,61 @@ Resist the urge to design the agent before the PTY plumbing is rock solid. The a
 - If it conflicts with the architecture above → push back with the reason, propose an alternative, and only proceed after confirmation.
 
 The user is a senior engineer / CTO. Be direct, terse, and technical. No hedging. No over-explaining basics. Show diffs, not prose, when proposing code changes.
+
+---
+
+## Release & Distribution
+
+Covenant distributes via **GitHub Releases** with Apple Developer ID signing + notarization, and via a **Homebrew tap** at `karluiz/homebrew-covenant`. **NOT** via the Mac App Store — a terminal that spawns shells via PTY cannot pass Apple's sandbox requirements (iTerm2, Warp, WezTerm all distribute this same way for the same reason).
+
+### Cutting a release
+
+Use the `horizon` skill — it bumps version in `package.json`, `crates/app/Cargo.toml`, and `crates/app/tauri.conf.json`; writes the `CHANGELOG.md` entry; commits; tags; pushes.
+
+The tag push triggers `.github/workflows/release-macos.yml`, which:
+1. Compiles for `aarch64-apple-darwin`
+2. Signs with Developer ID Application cert (via `APPLE_CERTIFICATE` / `APPLE_SIGNING_IDENTITY` secrets)
+3. Notarizes with `notarytool` (via `APPLE_API_KEY` / `APPLE_API_ISSUER` / `APPLE_API_KEY_CONTENT` secrets)
+4. Uploads `Covenant_<version>_aarch64.dmg` + `.app.tar.gz` + `.sig` to the GitHub Release
+5. Computes the `.dmg` sha256 and **auto-updates the Homebrew cask** at `karluiz/homebrew-covenant` (requires `HOMEBREW_TAP_TOKEN` secret — see below)
+
+The Windows workflow runs in parallel and emits the `.msi`. The aggregate `latest.json` (auto-updater manifest) is built by `release-manifest.yml` once both per-platform jobs finish.
+
+### GitHub Actions secrets reference
+
+| Secret | Source | Notes |
+|---|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | `tauri signer generate` | For Tauri's auto-updater `.sig`, NOT Apple |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | (you set) | |
+| `APPLE_CERTIFICATE` | `base64 -i covenant-dev-id.p12` | The Developer ID Application `.p12`, base64-encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | (you set when exporting) | |
+| `APPLE_SIGNING_IDENTITY` | `security find-identity -v -p codesigning` | Exact string: `Developer ID Application: <Name> (<TeamID>)` |
+| `APPLE_TEAM_ID` | developer.apple.com top-right | 10 chars |
+| `APPLE_API_KEY` | App Store Connect → Users and Access → Keys | The 10-char Key ID |
+| `APPLE_API_ISSUER` | Same page | UUID at top of page |
+| `APPLE_API_KEY_CONTENT` | Contents of the `.p8` file | Includes `-----BEGIN PRIVATE KEY-----` lines |
+| `HOMEBREW_TAP_TOKEN` | GitHub PAT (fine-grained) | Needs `Contents: read+write` on `karluiz/homebrew-covenant` only |
+
+### Setting up `HOMEBREW_TAP_TOKEN` (one-time)
+
+1. https://github.com/settings/personal-access-tokens → **Generate new token** → **Fine-grained**
+2. Resource owner: `karluiz`. Repository access: **Only select repositories** → `karluiz/homebrew-covenant`
+3. Permissions → **Repository permissions** → **Contents: Read and write**
+4. Generate, copy the `github_pat_*` string
+5. `gh secret set HOMEBREW_TAP_TOKEN --repo karluiz/covenant` and paste
+
+If this secret is missing, the cask-update step in `release-macos.yml` is skipped (`continue-on-error: true`) and you'll need to manually update `Casks/covenant.rb` in the tap repo with the new version + sha256 from that release.
+
+### Install command for users
+
+```bash
+brew install --cask karluiz/covenant/covenant
+```
+
+Tap auto-discovers under the `homebrew-` prefix. After first install, upgrades are just `brew upgrade --cask covenant`.
+
+### What this DOES NOT cover yet
+
+- **Intel (x86_64) builds** — release workflow currently only targets `aarch64-apple-darwin`. To add Intel: build a second target and either ship two `.dmg`s with `on_arm`/`on_intel` blocks in the cask, or build a universal binary with `lipo`.
+- **Submission to the official `homebrew-cask` repo** — requires ~30 days of stable releases and ideally universal binaries. Self-tap is canonical for now.
+- **Sparkle / auto-update through Homebrew** — Covenant's built-in updater (Tauri's) is the canonical update path; Homebrew users get updates via `brew upgrade`.

@@ -105,3 +105,44 @@ jobs:
         with:
           name: manifest-darwin
           path: manifest-fragments/darwin-aarch64.json
+
+      - name: Update Homebrew tap (karluiz/homebrew-covenant)
+        if: startsWith(github.ref, 'refs/tags/v') && env.HOMEBREW_TAP_TOKEN != ''
+        continue-on-error: true
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          DMG_SHA256: ${{ steps.artifacts.outputs.dmg_sha256 }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAP_DIR="$RUNNER_TEMP/homebrew-covenant"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/karluiz/homebrew-covenant.git" "$TAP_DIR"
+          cat > "$TAP_DIR/Casks/covenant.rb" <<EOF
+          cask "covenant" do
+            version "${VERSION}"
+            sha256 "${DMG_SHA256}"
+
+            url "https://github.com/karluiz/covenant/releases/download/v#{version}/Covenant_#{version}_aarch64.dmg"
+            name "Covenant"
+            desc "AI-native terminal for macOS"
+            homepage "https://covenant.uno"
+
+            depends_on macos: ">= :ventura"
+            depends_on arch: :arm64
+
+            app "Covenant.app"
+
+            zap trash: [
+              "~/Library/Application Support/com.karluiz.covenant",
+              "~/Library/Preferences/com.karluiz.covenant.plist",
+              "~/Library/Caches/com.karluiz.covenant",
+              "~/Library/Logs/Covenant",
+            ]
+          end
+          EOF
+          cd "$TAP_DIR"
+          git config user.name "covenant-release-bot"
+          git config user.email "noreply@covenant.uno"
+          git add Casks/covenant.rb
+          git commit -m "covenant ${VERSION}"
+          git push origin HEAD
