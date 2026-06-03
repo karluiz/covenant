@@ -66,6 +66,11 @@ pub struct ExperimentalConfig {
     /// to use the original single-row layout.
     #[serde(default = "default_true")]
     pub statusbar_two_row: bool,
+
+    /// Enable the internal browser panel. Off by default; flip to `true`
+    /// in config.json to try the feature while it is being developed.
+    #[serde(default)]
+    pub internal_browser: bool,
 }
 
 impl Default for ExperimentalConfig {
@@ -73,6 +78,7 @@ impl Default for ExperimentalConfig {
         Self {
             split_panes: false,
             statusbar_two_row: true,
+            internal_browser: false,
         }
     }
 }
@@ -833,6 +839,21 @@ mod tests {
         }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
         assert!(s.experimental.statusbar_two_row);
+    }
+
+    #[test]
+    fn experimental_internal_browser_defaults_false() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!s.experimental.internal_browser);
+    }
+
+    #[test]
+    fn experimental_internal_browser_roundtrip() {
+        let mut s = Settings::default();
+        s.experimental.internal_browser = true;
+        let json = serde_json::to_string(&s).unwrap();
+        let s2: Settings = serde_json::from_str(&json).unwrap();
+        assert!(s2.experimental.internal_browser);
     }
 
     #[test]

@@ -721,6 +721,20 @@ async function boot(): Promise<void> {
     });
   }
 
+  // Internal-browser globe launcher — gated by `experimental.internal_browser`.
+  // Hidden when the flag is off. Icon + tooltip wired here; the click handler
+  // and visibility sync (which need `manager`) are wired after it's created.
+  const browserBtn = document.getElementById(
+    "titlebar-browser",
+  ) as HTMLButtonElement | null;
+  if (browserBtn) {
+    browserBtn.innerHTML = Icons.globe({ size: 14 });
+    attachTooltip(browserBtn, "Browser");
+  }
+  const applyInternalBrowserFlag = (on: boolean): void => {
+    if (browserBtn) browserBtn.hidden = !on;
+  };
+
   const foldRightBtn = document.getElementById("tabbar-fold-right");
   if (foldRightBtn) {
     attachTooltip(foldRightBtn, "Toggle right sidebar");
@@ -789,6 +803,15 @@ async function boot(): Promise<void> {
   });
   tabsManager = manager;
   installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
+
+  // Now that `manager` exists, wire the globe launcher's click + initial
+  // visibility. The cached flag is populated by `loadExperimentalFlags()`
+  // (boot, re-synced below) and on every settings save.
+  browserBtn?.addEventListener(
+    "click",
+    () => void manager.openBrowserTab("", true),
+  );
+  applyInternalBrowserFlag(manager.isInternalBrowserEnabled());
 
   const publishActivityActiveSession = (): void => {
     const sessionId = manager.activeSessionId();
@@ -1178,6 +1201,7 @@ async function boot(): Promise<void> {
     statusBar.setEnabled(next.status_bar_enabled ?? true);
     manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);
     manager.setStatusbarTwoRow(next.experimental?.statusbar_two_row ?? true);
+    applyInternalBrowserFlag(next.experimental?.internal_browser ?? false);
     // Layout reflowed → xterm cells need re-measuring.
     manager.refitActive();
   };
@@ -1430,8 +1454,11 @@ async function boot(): Promise<void> {
   void manager.refreshOperatorCache();
 
   // Load experimental feature flags (e.g. split_panes) once settings
-  // are available. Defaults to false until this resolves.
-  void manager.loadExperimentalFlags();
+  // are available. Defaults to false until this resolves. Re-sync the
+  // globe button once the cached flag is populated.
+  void manager
+    .loadExperimentalFlags()
+    .then(() => applyInternalBrowserFlag(manager.isInternalBrowserEnabled()));
 
   // ⌘⇧O Operator Picker (Plan 3 Task 5)
   const operatorPicker = new OperatorPicker(document.body);
@@ -1539,6 +1566,20 @@ async function boot(): Promise<void> {
     if (e.metaKey && !e.shiftKey && e.key === "k") {
       e.preventDefault();
       agent.toggle();
+      return;
+    }
+    // ⌘B / Ctrl+B → open an internal browser tab (gated by the
+    // experimental flag; reads the cached in-memory value).
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.key.toLowerCase() === "b"
+    ) {
+      if (manager.isInternalBrowserEnabled()) {
+        e.preventDefault();
+        void manager.openBrowserTab("", true);
+      }
       return;
     }
     // ⌘O → operator decisions page. Shares the workspace cell with

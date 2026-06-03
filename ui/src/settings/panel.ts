@@ -98,6 +98,7 @@ interface RouteEntry {
 interface ExperimentalConfig {
   split_panes?: boolean;
   statusbar_two_row?: boolean;
+  internal_browser?: boolean;
 }
 
 interface Settings {
@@ -260,7 +261,7 @@ export class SettingsPanel {
         ui_font_family: null,
         familiars_enabled: false,
         is_premium: false,
-        experimental: { split_panes: false },
+        experimental: { split_panes: false, internal_browser: false },
       };
     }
     if (generation !== this.openGeneration) return;
@@ -584,6 +585,10 @@ export class SettingsPanel {
               layout.
             </small>
           </label>
+          <label class="settings-checkbox">
+            <input type="checkbox" name="experimental_internal_browser" />
+            Internal browser (open links &amp; quick-search inside Covenant)
+          </label>
         </section>
         <section class="settings-section" id="sec-operators">
           <h3 class="settings-section-title">Operators</h3>
@@ -827,6 +832,9 @@ export class SettingsPanel {
     const statusbarTwoRowInput = form.querySelector<HTMLInputElement>(
       'input[name="experimental_statusbar_two_row"]',
     )!;
+    const internalBrowserInput = form.querySelector<HTMLInputElement>(
+      'input[name="experimental_internal_browser"]',
+    );
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
@@ -920,6 +928,7 @@ export class SettingsPanel {
     splitPanesInput.checked = !!this.current.experimental?.split_panes;
     statusbarTwoRowInput.checked =
       this.current.experimental?.statusbar_two_row ?? true;
+    if (internalBrowserInput) internalBrowserInput.checked = !!this.current.experimental?.internal_browser;
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
       r.checked = r.value === currentBg;
@@ -1352,6 +1361,7 @@ export class SettingsPanel {
         experimental: {
           split_panes: splitPanesInput.checked,
           statusbar_two_row: statusbarTwoRowInput.checked,
+          internal_browser: internalBrowserInput?.checked ?? false,
         },
       };
       try {
