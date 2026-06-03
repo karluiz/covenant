@@ -741,8 +741,18 @@ export class TabManager {
   async loadExperimentalFlags(): Promise<void> {
     const f = await getExperimentalFlags();
     this.splitPanesEnabled = f.split_panes;
+    const wasOn = this.experimentalInternalBrowser;
     this.experimentalInternalBrowser = f.internal_browser;
+    if (wasOn && !this.experimentalInternalBrowser) {
+      this.closeAllBrowserTabs();
+    }
     this.setStatusbarTwoRow(f.statusbar_two_row);
+  }
+
+  private closeAllBrowserTabs(): void {
+    for (const tab of [...this.tabs]) {
+      if (tab.kind === "browser") this.closeTab(tab.id);
+    }
   }
 
   setSplitPanesEnabled(v: boolean): void {
