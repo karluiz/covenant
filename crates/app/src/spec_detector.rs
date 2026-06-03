@@ -119,19 +119,24 @@ pub fn resolve_detector_root(start: &Path) -> PathBuf {
 
 /// Resolve all detector roots that should be active for a tab cwd.
 ///
-/// For git repositories this includes non-bare sibling worktrees that already
-/// expose spec directories, not only the main checkout. That keeps suggestions
-/// alive when an executor writes a spec in a sibling worktree without creating
-/// empty `docs/` folders in unrelated worktrees.
+/// For git repositories this includes every non-bare sibling worktree, not only
+/// the main checkout — and crucially, *regardless* of whether the worktree's
+/// spec dirs exist yet. An executor often writes the spec to a worktree mid-
+/// session, creating `docs/superpowers/specs/<spec>.md` only at that moment;
+/// gating on pre-existing dirs meant such worktrees were never watched and the
+/// spec went undetected. `SpecDetector::start` create_dir_all's the spec dirs
+/// for each root, so adding a worktree here arms its watcher even if empty.
+///
+/// This does not litter: a worktree is a full checkout, so the tracked
+/// `docs/specs/` already exists in it; only the gitignored
+/// `docs/superpowers/specs/` is created when absent.
 pub fn resolve_detector_roots(start: &Path) -> Vec<PathBuf> {
     let primary = resolve_detector_root(start);
     let mut roots = Vec::new();
     roots.push(primary.clone());
 
     for wt in git_worktree_roots(&primary) {
-        let has_spec_dirs = wt.join("docs/specs").is_dir()
-            || wt.join("docs/superpowers/specs").is_dir();
-        if has_spec_dirs && !roots.iter().any(|p| p == &wt) {
+        if !roots.iter().any(|p| p == &wt) {
             roots.push(wt);
         }
     }
@@ -598,6 +603,66 @@ mod tests {
         let roots = resolve_detector_roots(&main);
         assert!(roots.contains(&main.canonicalize().unwrap()));
         assert!(roots.contains(&worktree.canonicalize().unwrap()));
+    }
+
+    #[test]
+    fn resolve_detector_roots_include_worktrees_without_spec_dirs() {
+        // A worktree whose spec dirs do not yet exist must still be watched:
+        // an executor may create `docs/superpowers/specs/<spec>.md` mid-session,
+        // and the detector that owns the worktree root is the one that watches
+        // (and create_dir_all's) those dirs. Gating on pre-existing dirs missed
+        // exactly that case (spec written to a worktree after the session began).
+        use std::fs;
+        use std::process::Command;
+        use tempfile::TempDir;
+
+        if Command::new("git").arg("--version").output().is_err() {
+            return;
+        }
+
+        let tmp = TempDir::new().unwrap();
+        let main = tmp.path().join("repo");
+        let worktree = tmp.path().join("repo-internal-browser");
+        fs::create_dir_all(&main).unwrap();
+
+        let run = |cwd: &std::path::Path, args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(cwd)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+
+        run(&main, &["init"]);
+        run(&main, &["config", "user.email", "covenant@example.test"]);
+        run(&main, &["config", "user.name", "Covenant Tests"]);
+        fs::write(main.join("README.md"), "# repo\n").unwrap();
+        run(&main, &["add", "README.md"]);
+        run(&main, &["commit", "-m", "init"]);
+        run(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "feature/internal-browser",
+                worktree.to_str().unwrap(),
+            ],
+        );
+        // Note: no docs/ dirs created in the worktree.
+
+        let roots = resolve_detector_roots(&main);
+        assert!(
+            roots.contains(&worktree.canonicalize().unwrap()),
+            "worktree without spec dirs must still be a detector root"
+        );
     }
 
     #[test]
