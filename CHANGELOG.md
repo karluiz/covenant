@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.49 — Browser favorites sidebar (folders + drag)
+
+### Added
+
+- **Browser favorites sidebar**: the previously-empty rail next to the
+  internal browser (grid column 4 of browser panes) now holds a shared
+  favorites tree — arbitrary-depth folders, a star button in the browser
+  chrome to bookmark the current page, and click-to-open in a new browser
+  tab. Backed by a new `crates/store` SQLite store (adjacency-list tree
+  with fractional `position` indexing for single-row reorders, cascade
+  delete for folders). Real favicons via the DuckDuckGo proxy with a
+  colored-monogram fallback. Drag to reorder and re-nest is pointer-based
+  (HTML5 drag is swallowed in the webview). New files under
+  `ui/src/browser/favorites/`, commands in
+  `crates/app/src/favorites_commands.rs`.
+
+### Changed
+
+- **Universal macOS build**: `release-macos.yml` now compiles a universal
+  binary (Intel + Apple Silicon) instead of `aarch64`-only, so the `.dmg`
+  runs on both architectures.
+
+- **Landing page**: redesigned the DeepDive bento grid, added a
+  `PerspectiveGrid` to the footer, and added icons in the Companion and
+  Footer sections (`landing/src/components/`).
+
 ## v0.8.48 — Experimental internal browser + Retina drag-drop fix
 
 ### Added
