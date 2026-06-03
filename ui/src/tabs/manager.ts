@@ -764,6 +764,13 @@ export class TabManager {
     return this.splitPanesEnabled;
   }
 
+  /// Public read of `experimental.internal_browser` for the titlebar
+  /// globe button + ⌘B shortcut gating. Mirrors the cached in-memory
+  /// flag refreshed via `loadExperimentalFlags()` on settings save.
+  isInternalBrowserEnabled(): boolean {
+    return this.experimentalInternalBrowser;
+  }
+
   // D12 — split-pane public API -----------------------------------------------
 
   canSplit(): boolean {
