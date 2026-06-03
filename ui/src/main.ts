@@ -18,6 +18,7 @@ import { dismissBootSplash } from "./boot-splash";
 import { attachTooltip } from "./tooltip/tooltip";
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
+import { startPeriodicUpdateCheck } from "./updater/periodical";
 import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
@@ -1895,6 +1896,9 @@ async function startupUpdateCheck(): Promise<void> {
     showUpdateBanner(result.update);
   }
   // "uptodate" and "error" are silent on boot.
+  
+  // Start the periodic (hourly) background update checker
+  void startPeriodicUpdateCheck(currentVersion);
 }
 
 void boot()

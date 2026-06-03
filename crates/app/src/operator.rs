@@ -3123,7 +3123,7 @@ async fn run_tick(
             if let Some(msg) = escalation_msg.as_deref() {
                 let body = msg.lines().next().unwrap_or(msg);
                 let body = truncate(body, 200);
-                let title = format!("[{}] paused", op.name);
+                let title = "🟢 Covenant".to_string();
                 crate::notifications::dispatch(
                     notifier,
                     email,
