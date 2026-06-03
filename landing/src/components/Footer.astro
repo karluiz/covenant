@@ -1,13 +1,58 @@
 ---
+import PerspectiveGrid from './PerspectiveGrid.astro';
 const year = new Date().getFullYear();
+const githubUrl = "https://github.com/karluiz/covenant";
 ---
-<footer class="border-t border-mist/10 mt-10">
-  <div class="mx-auto max-w-content px-6 py-10 flex flex-wrap items-center justify-between gap-4 text-sm text-mist/60 fade-in-up">
-    <div>© {year} Covenant — MIT + Apache 2.0</div>
-    <nav class="flex gap-6">
-      <a href="https://github.com/karluiz/covenant" class="hover:text-mist">GitHub</a>
-      <a href="https://github.com/karluiz/covenant/blob/main/CHANGELOG.md" class="hover:text-mist">Changelog</a>
-      <a href="https://github.com/karluiz/covenant#readme" class="hover:text-mist">Docs</a>
-    </nav>
+<footer class="relative mt-10 overflow-hidden">
+  <PerspectiveGrid />
+  
+  <!-- Open Source Banner -->
+  <div class="relative z-10 mx-auto max-w-content px-6 pt-16 pb-10 mb-36">
+    <div class="rounded-2xl border border-moss-500/30 bg-moss-500/[0.05] p-10 md:p-14 flex flex-col md:flex-row items-start md:items-center justify-between gap-8 fade-in-up">
+      <div class="max-w-xl">
+        <p class="eyebrow">Open source</p>
+        <h2 class="mt-3 text-3xl md:text-4xl font-semibold tracking-tight">
+          Read the covenant. Read the code.
+        </h2>
+        <p class="mt-4 text-mist/70">
+          MIT + Apache 2.0. Every safety guarantee is a function you can grep.
+          No telemetry. No SaaS lock-in.
+        </p>
+      </div>
+      <a href={githubUrl} class="rounded-md bg-mist text-ink px-6 py-3 font-medium hover:bg-moss-400 transition">
+        ★ Star on GitHub
+      </a>
+    </div>
   </div>
+
+<!-- Footer links -->
+  <div class="relative z-10 mx-auto max-w-content px-6 py-10  text-sm text-mist/60 fade-in-up">
+    <div class="flex items-center justify-between gap-4">
+      <!-- Logo izquierdo -->
+      <div class="flex items-center flex-1">
+        <img src="/favicon.svg" alt="Covenant" class="w-12 h-12" />
+      </div>
+      
+      <!-- Copyright centro (absoluto para centrado real) -->
+      <div class="absolute left-1/2 -translate-x-1/2">© {year} Covenant — MIT + Apache 2.0</div>
+      
+      <!-- Links derecha -->
+      <nav class="flex gap-6 flex-1 justify-end">
+        <a href="https://github.com/karluiz/covenant" class="hover:text-mist flex items-center gap-2">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          GitHub
+        </a>
+        <a href="https://github.com/karluiz/covenant/blob/main/CHANGELOG.md" class="hover:text-mist flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+          Changelog
+        </a>
+        <a href="https://github.com/karluiz/covenant#readme" class="hover:text-mist flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+          Docs
+        </a>
+      </nav>
+    </div>
+  </div>
+    
+  
 </footer>

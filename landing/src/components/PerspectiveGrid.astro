@@ -1,0 +1,58 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className = "" } = Astro.props;
+---
+
+<div class={`perspective-grid-container ${className}`}>
+  <div class="perspective-grid">
+    <div class="grid-plane"></div>
+  </div>
+</div>
+
+<style>
+  .perspective-grid-container {
+    position: absolute;
+    inset: -50%;
+    overflow: hidden;
+    pointer-events: none;
+    transform: scale(3);
+    bottom: 60%;
+    opacity: 0.4;
+  }
+
+  .perspective-grid {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 70%;
+    perspective: 100px;
+    perspective-origin: 50% 50%;
+  }
+
+  .grid-plane {
+    position: absolute;
+    inset: 0;
+    transform: rotateX(60deg);
+    transform-origin: 50% 100%;
+    background-image: 
+      linear-gradient(to right, rgba(74, 222, 128, 0.3) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(74, 222, 128, 0.3) 1px, transparent 1px);
+    background-size: 60px 40px;
+    animation: gridMove 3s linear infinite;
+    mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+  }
+
+  @keyframes gridMove {
+    0% {
+      background-position: 0 0;
+    }
+    100% {
+      background-position: 0 80px;
+    }
+  }
+</style>
