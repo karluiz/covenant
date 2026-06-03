@@ -24,6 +24,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { BrowserPane } from "../browser/pane";
 
 import { closeSessionCheck } from "../api";
 import {
@@ -216,7 +217,10 @@ interface Tab {
   /// editor pipeline. "pi" hosts a PiChatView in `pane` instead — all
   /// xterm-specific fields below are undefined for "pi" tabs and every
   /// xterm-touching method early-returns on `kind === "pi"`.
-  kind: "shell" | "pi";
+  /// "browser" hosts a BrowserPane (native webview chrome) in `pane`;
+  /// like "pi" it leaves every xterm-specific field undefined and every
+  /// terminal-touching method early-returns / guards on it.
+  kind: "shell" | "pi" | "browser";
   /// Default name from the spawn sequence ("zsh 1"). Always present.
   defaultTitle: string;
   /// User-set name. When set, takes precedence over defaultTitle.
@@ -255,6 +259,9 @@ interface Tab {
   /// Pi-specific — set when `kind === "pi"`. Subscribes to the Pi RPC
   /// event stream and renders the chat panel inside `pane`.
   piView?: PiChatView;
+  /// Browser-specific — set when `kind === "browser"`. Owns the native
+  /// webview chrome mounted inside `pane`.
+  browser?: BrowserPane;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure" | "recall";
@@ -482,7 +489,7 @@ function tabDisplayName(t: Tab): string {
 
 export function shouldForwardRename(args: {
   executor: string | null;
-  kind: "shell" | "pi";
+  kind: "shell" | "pi" | "browser";
   previousCustomName: string | null;
   newCustomName: string | null;
 }): boolean {
@@ -725,9 +732,16 @@ export class TabManager {
   /// `setSplitPanesEnabled()` when the user saves the settings panel.
   private splitPanesEnabled = false;
 
+  /// Whether `experimental.internal_browser` is on. When true, link
+  /// clicks (WebLinks addon + bare host:port provider) open an in-app
+  /// browser tab instead of the system browser. Loaded at boot and
+  /// refreshed via `loadExperimentalFlags()` on settings save.
+  private experimentalInternalBrowser = false;
+
   async loadExperimentalFlags(): Promise<void> {
     const f = await getExperimentalFlags();
     this.splitPanesEnabled = f.split_panes;
+    this.experimentalInternalBrowser = f.internal_browser;
     this.setStatusbarTwoRow(f.statusbar_two_row);
   }
 
@@ -2524,7 +2538,7 @@ export class TabManager {
   /// Kind of the active tab. Pi tabs do not have the terminal-owned
   /// Blocks/Files rail; callers use this to avoid selecting a per-shell
   /// sidebar that cannot render for the current pane.
-  activeKind(): "shell" | "pi" | null {
+  activeKind(): "shell" | "pi" | "browser" | null {
     const tab = this.tabs.find((t) => t.id === this.activeId);
     return tab?.kind ?? null;
   }
@@ -2722,7 +2736,11 @@ export class TabManager {
     term.loadAddon(fit);
     const handleLinkClick = (uri: string): void => {
       const target = /^[a-z][a-z0-9+.-]*:\/\//i.test(uri) ? uri : `http://${uri}`;
-      void openUrl(target).catch((err) => console.error("openUrl failed", err));
+      if (this.experimentalInternalBrowser) {
+        void this.openBrowserTab(target);
+      } else {
+        void openUrl(target).catch((err) => console.error("openUrl failed", err));
+      }
     };
     term.loadAddon(new WebLinksAddon((_e, uri) => handleLinkClick(uri)));
     // Cmd+F search — addon paints decorations for every match; the
@@ -3932,6 +3950,87 @@ export class TabManager {
     return tab;
   }
 
+  /// Open a new in-app browser tab hosting a native webview. Mirrors the
+  /// "pi" tab shape: every xterm field is left undefined and a single
+  /// inert stub pane satisfies the `panes`/`activePane` invariants so the
+  /// generic iterate-all-tabs methods stay safe.
+  async openBrowserTab(url = "", focusAddress = false): Promise<void> {
+    const id = crypto.randomUUID();
+    const replayKey = id.replace(/-/g, "").slice(0, 26);
+    const seq = this.nextSeq++;
+
+    const pane = document.createElement("div");
+    pane.className = "tab-pane tab-pane-browser";
+    pane.dataset.tabId = id;
+    pane.hidden = true;
+    this.hideAllPanes();
+    this.workspace.appendChild(pane);
+
+    const browserPane = new BrowserPane(id, url, (label) => this.setTabLabel(id, label));
+    pane.appendChild(browserPane.host);
+
+    const browserBlock = document.createElement("div");
+    browserBlock.className = "terminal-block";
+    browserBlock.dataset.layout = "single";
+
+    const stubPane: Pane = {
+      id: `p-${id}`,
+      kind: "terminal",
+      sessionId: null,
+      cwd: "",
+      mission: null,
+      operator: null,
+      blocks: [],
+      xterm: null,
+      piView: null,
+      executor: null,
+      operatorEnabled: false,
+      operatorLive: false,
+      aomExcluded: true,
+      observer_ids: [],
+      spawn_id: null,
+      idleAgent: null,
+      busyProc: null,
+      replayKey,
+      el: null,
+    };
+
+    const tab: Tab = {
+      id,
+      kind: "browser",
+      defaultTitle: `browser ${seq}`,
+      customName: null,
+      color: null,
+      groupId: null,
+      pane,
+      browser: browserPane,
+      sidebarView: "blocks",
+      disposers: [],
+      specBadge: null,
+      panes: [stubPane],
+      layout: { kind: "single", activePaneIdx: 0 },
+      terminalBlock: browserBlock,
+    };
+    assertLayoutValid(tab);
+
+    this.tabs.push(tab);
+    this.renderTabbar();
+    this.activate(id, { skipIfSame: false });
+    browserPane.mounted();
+    if (focusAddress) browserPane.focusAddress();
+    this.scheduleSave();
+  }
+
+  /// Update a tab's displayed label. Used by BrowserPane to surface the
+  /// loaded page's <title>. Sets the default title (preserving any
+  /// user-set custom name) and re-renders the strip.
+  setTabLabel(id: string, label: string): void {
+    const tab = this.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    tab.defaultTitle = label && label.trim().length > 0 ? label : tab.defaultTitle;
+    this.renderTabbar();
+  }
+
   /// Flip the per-session live flag. M-OP3: when on AND operator is
   /// enabled, the Operator's REPLY actions actually inject keystrokes
   /// into the PTY (after passing the safety blocklist).
@@ -4520,7 +4619,11 @@ export class TabManager {
             this.tabs.findIndex((t) => t.id === this.activeId),
           )
         : 0,
-      tabs: this.tabs.map(serializeTab),
+      // Browser tabs are ephemeral (native webview, no PTY/session) and
+      // the manifest schema only models "shell" | "pi" — skip them.
+      tabs: this.tabs
+        .filter((t): t is typeof t & { kind: "shell" | "pi" } => t.kind !== "browser")
+        .map(serializeTab),
       groups: Array.from(this.groups.values()).map((g) => ({
         id: g.id,
         name: g.name,
@@ -4851,6 +4954,34 @@ export class TabManager {
     tab.specBadge?.destroy();
     tab.specBadge = null;
     for (const d of tab.disposers) d.dispose();
+    // Browser tabs own a native webview, not a PTY. Tear it down and
+    // skip the terminal/pane disposal path entirely.
+    if (tab.kind === "browser") {
+      tab.browser?.destroy();
+      if (tab.pane.parentElement === this.workspace) {
+        this.workspace.removeChild(tab.pane);
+      }
+      this.tabs.splice(idx, 1);
+      if (this.tabs.length === 0) {
+        this.activeId = null;
+        this.renderTabbar();
+        this.emitActiveTab();
+        if (!this.inReplace) {
+          this.scheduleSave();
+          this.onAllTabsClosed();
+        }
+        return;
+      }
+      if (this.activeId === id) {
+        const next = this.tabs[idx] ?? this.tabs[idx - 1];
+        this.activeId = null;
+        this.activate(next.id);
+      } else {
+        this.renderTabbar();
+      }
+      this.scheduleSave();
+      return;
+    }
     // Close EVERY pane's PTY and drop its scrollback log. Split tabs have
     // 2 panes; pre-split tabs have 1. Iterating here ensures the non-active
     // pane's PTY is not orphaned (bug #3) and its scrollback is deleted (bug #10).
@@ -4936,6 +5067,13 @@ export class TabManager {
     const activatorExecutor = activePane(tab).executor;
     this.statusBar?.setExecutor(activatorExecutor);
     this.onActiveExecutorChange?.(activatorExecutor);
+
+    if (tab.kind === "browser") {
+      // Browser tabs have no xterm. Reveal the native webview (which
+      // floats above the DOM and was hidden by hideAllPanes).
+      tab.browser?.show();
+      return;
+    }
 
     if (tab.kind === "pi") {
       // Pi tabs have no xterm to fit/resize; just hand focus to the
@@ -5359,6 +5497,9 @@ export class TabManager {
   private hideAllPanes(): void {
     for (const t of this.tabs) {
       t.pane.hidden = true;
+      // Native webviews float above the DOM and ignore `hidden`, so they
+      // must be explicitly hidden when their tab is no longer in front.
+      if (t.kind === "browser") t.browser?.hide();
     }
   }
 
