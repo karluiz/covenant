@@ -32,12 +32,12 @@ export function attachFileDrop(tree: StructureTree): () => void {
     highlighted = el;
   };
 
-  // Tauri reports the pointer in physical pixels; elementFromPoint wants
-  // CSS pixels, so divide by the device pixel ratio.
+  // Tauri 2's onDragDropEvent already reports the pointer in logical (CSS)
+  // pixels, which is exactly what elementFromPoint expects — do NOT divide
+  // by devicePixelRatio (that mis-hits on Retina/dpr>1 displays).
   const targetAt = (position: { x: number; y: number }) => {
     if (!tree.isVisible()) return null;
-    const dpr = window.devicePixelRatio || 1;
-    const el = document.elementFromPoint(position.x / dpr, position.y / dpr);
+    const el = document.elementFromPoint(position.x, position.y);
     return tree.resolveDropTarget(el);
   };
 
