@@ -2216,3 +2216,32 @@ export const browser = {
       }),
     ),
 };
+
+/** A node in the browser favorites tree. Mirrors `store::FavNode` (Rust). */
+export interface FavNode {
+  id: string;
+  parent_id: string | null;
+  kind: "folder" | "link";
+  title: string;
+  url: string | null;
+  position: number;
+  collapsed: boolean;
+  created_at: number;
+  children: FavNode[];
+}
+
+export const favorites = {
+  tree: () => invoke<FavNode[]>("favorites_tree"),
+  add: (parentId: string | null, kind: "folder" | "link", title: string, url: string | null) =>
+    invoke<FavNode>("favorites_add", { parentId, kind, title, url }),
+  rename: (id: string, title: string) => invoke<void>("favorites_rename", { id, title }),
+  move: (
+    id: string,
+    newParentId: string | null,
+    afterId: string | null,
+    beforeId: string | null,
+  ) => invoke<void>("favorites_move", { id, newParentId, afterId, beforeId }),
+  delete: (id: string) => invoke<void>("favorites_delete", { id }),
+  setCollapsed: (id: string, collapsed: boolean) =>
+    invoke<void>("favorites_set_collapsed", { id, collapsed }),
+};

@@ -25,6 +25,7 @@ import { TerminalFinder } from "../terminal/finder";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BrowserPane } from "../browser/pane";
+import { FavoritesRail } from "../browser/favorites/rail";
 
 import { closeSessionCheck } from "../api";
 import {
@@ -3986,6 +3987,11 @@ export class TabManager {
     const browserPane = new BrowserPane(id, url, (label) => this.setTabLabel(id, label));
     pane.appendChild(browserPane.host);
 
+    // Shared favorites rail in the otherwise-empty grid column 4.
+    const favRail = new FavoritesRail({ onOpen: (u) => void this.openBrowserTab(u) });
+    pane.appendChild(favRail.el);
+    favRail.mount();
+
     const browserBlock = document.createElement("div");
     browserBlock.className = "terminal-block";
     browserBlock.dataset.layout = "single";
@@ -4022,7 +4028,7 @@ export class TabManager {
       pane,
       browser: browserPane,
       sidebarView: "blocks",
-      disposers: [],
+      disposers: [{ dispose: () => favRail.destroy() }],
       specBadge: null,
       panes: [stubPane],
       layout: { kind: "single", activePaneIdx: 0 },

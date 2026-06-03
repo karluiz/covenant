@@ -1,6 +1,8 @@
 import { browser, type BrowserBounds } from "../api";
 import { normalizeAddress } from "./url";
 import { initialNavState, applyNav, type NavState } from "./nav-state";
+import { favoritesStore } from "./favorites/store";
+import { attachTooltip } from "../tooltip/tooltip";
 
 export class BrowserPane {
   readonly host: HTMLElement;
@@ -28,6 +30,7 @@ export class BrowserPane {
         <button class="browser-btn" data-act="reload" aria-label="Reload">⟳</button>
         <input class="browser-address" type="text" spellcheck="false"
                placeholder="Search DuckDuckGo or enter URL" />
+        <button class="browser-btn" data-act="star" aria-label="Add to favorites">☆</button>
       </div>
       <div class="browser-progress" hidden></div>
       <div class="browser-viewport"></div>`;
@@ -40,6 +43,14 @@ export class BrowserPane {
     this.backBtn.addEventListener("click", () => void browser.back(this.tabId));
     this.fwdBtn.addEventListener("click", () => void browser.forward(this.tabId));
     this.reloadBtn.addEventListener("click", () => void browser.reload(this.tabId));
+    const starBtn = this.host.querySelector('[data-act="star"]') as HTMLButtonElement;
+    attachTooltip(starBtn, "Add to favorites");
+    starBtn.addEventListener("click", () => {
+      const url = this.state.url || normalizeAddress(this.addr.value);
+      if (!url) return;
+      void favoritesStore.addLink(null, this.state.label || url, url);
+      starBtn.textContent = "★";
+    });
     this.addr.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         const url = normalizeAddress(this.addr.value);

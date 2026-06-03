@@ -51,6 +51,7 @@ mod score_commands;
 mod score_sync_commands;
 mod scrollback;
 pub mod settings;
+mod favorites_commands;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
@@ -3293,6 +3294,13 @@ pub fn run() {
             app.manage(spawns_commands::SpawnsState(spawns_store));
             app.manage(browser::BrowserState::default());
 
+            // Browser favorites store — shared bookmarks tree.
+            let favorites = store::Favorites::open(&data_dir.join("favorites.db"))
+                .expect("open favorites store");
+            app.manage(favorites_commands::FavoritesState(std::sync::Mutex::new(
+                favorites,
+            )));
+
             // Periodic commit scanner — every 5 minutes scan the process
             // cwd for new commits by the local git user. CS-1 keeps this
             // narrow; multi-repo scan is CS-1b.
@@ -3447,6 +3455,12 @@ pub fn run() {
             browser::browser_show,
             browser::browser_hide,
             browser::browser_close,
+            favorites_commands::favorites_tree,
+            favorites_commands::favorites_add,
+            favorites_commands::favorites_rename,
+            favorites_commands::favorites_move,
+            favorites_commands::favorites_delete,
+            favorites_commands::favorites_set_collapsed,
             search_session_files,
             score_commands::score_summary,
             score_commands::score_heatmap,
