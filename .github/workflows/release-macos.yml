@@ -18,7 +18,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -45,7 +45,7 @@ jobs:
           echo "$APPLE_API_KEY_CONTENT" > ~/private_keys/AuthKey.p8
           echo "APPLE_API_KEY_PATH=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
 
-      - name: Build + sign + notarize Tauri (aarch64 — Apple Silicon)
+      - name: Build + sign + notarize Tauri (universal — Intel + Apple Silicon)
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -55,7 +55,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        run: npm run tauri build -- --target aarch64-apple-darwin
+        run: npm run tauri build -- --target universal-apple-darwin
 
       - name: Locate updater artifacts
         id: artifacts
@@ -91,11 +91,18 @@ jobs:
           mkdir -p manifest-fragments
           SIG_CONTENT=$(cat "${{ steps.artifacts.outputs.sig }}")
           TGZ_NAME=$(basename "${{ steps.artifacts.outputs.tgz }}")
-          cat > "manifest-fragments/darwin-aarch64.json" <<EOF
+          URL="https://github.com/karluiz/covenant/releases/download/${{ github.ref_name }}/${TGZ_NAME}"
+          # Universal bundle runs natively on both arches → both keys point at the
+          # same tgz + signature so Intel and Apple Silicon users both get updates.
+          cat > "manifest-fragments/darwin-universal.json" <<EOF
           {
             "darwin-aarch64": {
               "signature": "${SIG_CONTENT}",
-              "url": "https://github.com/karluiz/covenant/releases/download/${{ github.ref_name }}/${TGZ_NAME}"
+              "url": "${URL}"
+            },
+            "darwin-x86_64": {
+              "signature": "${SIG_CONTENT}",
+              "url": "${URL}"
             }
           }
           EOF
@@ -104,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: manifest-darwin
-          path: manifest-fragments/darwin-aarch64.json
+          path: manifest-fragments/darwin-universal.json
 
       - name: Update Homebrew tap (karluiz/homebrew-covenant)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -126,13 +133,12 @@ jobs:
             version "${VERSION}"
             sha256 "${DMG_SHA256}"
 
-            url "https://github.com/karluiz/covenant/releases/download/v#{version}/Covenant_#{version}_aarch64.dmg"
+            url "https://github.com/karluiz/covenant/releases/download/v#{version}/Covenant_#{version}_universal.dmg"
             name "Covenant"
             desc "AI-native terminal for macOS"
             homepage "https://covenant.uno"
 
             depends_on macos: ">= :ventura"
-            depends_on arch: :arm64
 
             app "Covenant.app"
 
