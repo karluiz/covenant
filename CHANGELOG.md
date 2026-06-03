@@ -6,6 +6,36 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.47 — File-tree drag-and-drop: Finder import + folder moves
+
+### Added
+
+- **Drag files from Finder into the file tree**: drop OS files/folders onto
+  the structure sidebar to copy them in. Folder-aware target (drop on a
+  folder → into it; on a file → into its parent; on empty space → into the
+  cwd), recursive directory copy, and collision auto-rename (`name (2).ext`).
+  Uses Tauri's native `onDragDropEvent` (`ui/src/structure/file-drop.ts`,
+  `structure::copy_into` in `crates/app/src/structure.rs`).
+
+- **Drag-to-move files between folders in the tree**: press-drag a row onto
+  another folder to move it there, with a floating ghost label and live
+  target highlight. Moving the open file reroutes the editor; the destination
+  auto-expands. Backed by `structure::move_into` (rename, with a copy+delete
+  fallback across filesystems; no-op into the folder it already lives in).
+  Implemented with pointer events rather than HTML5 DnD, which the webview
+  swallows while `dragDropEnabled` is on for the native Finder drop.
+
+### Fixed
+
+- **CRT tab style: single-tab grab ghost was invisible**: the picked-up drag
+  card cloned the `.tab-btn`, so CRT's `background/border: transparent`
+  overrides erased it. The ghost is now a wrapper element, so its card chrome
+  survives every tab theme (`ui/src/tabs/manager.ts`).
+
+- **Release CI: Homebrew cask-update guard**: the `if`-guard couldn't read the
+  step env, so the cask auto-update could be skipped on tagged releases
+  (`.github/workflows/`).
+
 ## v0.8.46 — Real Homebrew install command on landing
 
 ### Changed
