@@ -6,6 +6,46 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.48 — Experimental internal browser + Retina drag-drop fix
+
+### Added
+
+- **Experimental internal browser**: open web pages in a Covenant tab via a
+  real native child webview (Tauri multi-webview, `unstable` feature), so any
+  site loads — `localhost:PORT` dev servers and general browsing alike. Gated
+  behind a new **Experimental → Internal browser** setting
+  (`experimental.internal_browser`, off by default). When enabled, a globe
+  icon appears in the top bar and **⌘B** opens a browser tab focused on the
+  address bar; the address bar navigates URLs / `localhost:PORT` or falls back
+  to a DuckDuckGo search, and clicking a terminal link opens it in-app instead
+  of the system browser. New `crates/app/src/browser.rs` (webview lifecycle +
+  nav commands + per-tab history), `ui/src/browser/` (`url.ts`, `nav-state.ts`,
+  `pane.ts`), and a `"browser"` tab kind in `ui/src/tabs/manager.ts`. v1 shows
+  the page host as the tab label and does not track in-page back/forward.
+
+- **Hourly background update check**: after startup, Covenant silently checks
+  for updates every hour and surfaces the existing update banner when one is
+  found; failures stay silent (`ui/src/updater/periodical.ts`).
+
+### Changed
+
+- **Operator notification title**: paused-operator notifications now use a
+  cleaner `🟢 Covenant` title (`crates/app/src/operator.rs`).
+
+### Fixed
+
+- **Finder drop ignored on Retina displays**: the file-tree drop hit-test
+  divided the pointer position by `devicePixelRatio`, but Tauri's
+  `onDragDropEvent` already reports logical (CSS) pixels — so on `dpr>1`
+  displays every drop landed in the wrong element and was silently ignored.
+  Now uses the position directly (`ui/src/structure/file-drop.ts`).
+
+- **Spec-detector watches worktrees without pre-existing spec dirs**: the
+  watcher now registers worktree spec directories even when they don't exist
+  yet.
+
+- **Landing DeepDive images**: render real images in the DeepDive section.
+
 ## v0.8.47 — File-tree drag-and-drop: Finder import + folder moves
 
 ### Added
