@@ -17733,3 +17733,23 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
   word-break: break-word;
 }
 
+
+.browser-host { display: flex; flex-direction: column; height: 100%; width: 100%; }
+.browser-chrome {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #2a2a3a);
+}
+.browser-btn {
+  background: transparent; border: 0; color: var(--text, #e0e0f0);
+  font-size: 16px; width: 28px; height: 28px; border-radius: 6px; cursor: pointer;
+}
+.browser-btn:disabled { opacity: 0.35; cursor: default; }
+.browser-btn:not(:disabled):hover { background: var(--bg-elevated, #1c1c28); }
+.browser-address {
+  flex: 1; height: 28px; border-radius: 8px; border: 1px solid var(--border, #2a2a3a);
+  background: var(--bg-elevated, #1c1c28); color: var(--text, #e0e0f0);
+  padding: 0 10px; font: 13px var(--font-mono, monospace); outline: none;
+}
+.browser-progress { height: 2px; background: var(--accent, #6aa9ff); animation: browser-load 1s linear infinite; }
+@keyframes browser-load { 0% { opacity: 0.3 } 50% { opacity: 1 } 100% { opacity: 0.3 } }
+.browser-viewport { flex: 1; min-height: 0; }
