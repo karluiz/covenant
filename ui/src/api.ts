@@ -6,6 +6,7 @@
 // attached before any byte / event can be produced — no race.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export type SessionId = string;
 export type BlockId = string;
@@ -1026,6 +1027,7 @@ export interface Settings {
   experimental?: {
     split_panes?: boolean;
     statusbar_two_row?: boolean;
+    internal_browser?: boolean;
   };
 }
 
@@ -1100,6 +1102,7 @@ export async function getSettings(): Promise<Settings> {
 export interface ExperimentalFlags {
   split_panes: boolean;
   statusbar_two_row: boolean;
+  internal_browser: boolean;
 }
 
 export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
@@ -1107,6 +1110,7 @@ export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
   return {
     split_panes: settings.experimental?.split_panes ?? false,
     statusbar_two_row: settings.experimental?.statusbar_two_row ?? true,
+    internal_browser: settings.experimental?.internal_browser ?? false,
   };
 }
 
@@ -2180,3 +2184,35 @@ export async function setPaneOrientationCmd(
 export async function setPaneRatioCmd(tabId: string, ratio: number): Promise<void> {
   return invoke<void>("set_pane_ratio", { tabId, ratio });
 }
+
+// ---------------------------------------------------------------------------
+// Internal browser API (experimental.internal_browser flag)
+// ---------------------------------------------------------------------------
+
+export interface BrowserBounds { x: number; y: number; width: number; height: number; }
+export interface BrowserNav {
+  url: string; title: string;
+  canGoBack: boolean; canGoForward: boolean; loading: boolean;
+}
+
+export const browser = {
+  open: (tabId: string, url: string, bounds: BrowserBounds) =>
+    invoke<void>("browser_open", { tabId, url, bounds }),
+  navigate: (tabId: string, url: string) => invoke<void>("browser_navigate", { tabId, url }),
+  back: (tabId: string) => invoke<void>("browser_back", { tabId }),
+  forward: (tabId: string) => invoke<void>("browser_forward", { tabId }),
+  reload: (tabId: string) => invoke<void>("browser_reload", { tabId }),
+  setBounds: (tabId: string, bounds: BrowserBounds) => invoke<void>("browser_set_bounds", { tabId, bounds }),
+  show: (tabId: string) => invoke<void>("browser_show", { tabId }),
+  hide: (tabId: string) => invoke<void>("browser_hide", { tabId }),
+  close: (tabId: string) => invoke<void>("browser_close", { tabId }),
+  onNav: (tabId: string, cb: (n: BrowserNav) => void) =>
+    listen<{ url: string; title: string; can_go_back: boolean; can_go_forward: boolean; loading: boolean }>(
+      `browser://${tabId}/nav`,
+      (e) => cb({
+        url: e.payload.url, title: e.payload.title,
+        canGoBack: e.payload.can_go_back, canGoForward: e.payload.can_go_forward,
+        loading: e.payload.loading,
+      }),
+    ),
+};
