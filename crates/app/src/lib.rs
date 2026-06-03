@@ -10,6 +10,7 @@
 //! the user's behalf.
 
 mod aom;
+mod browser;
 mod capabilities_commands;
 mod connectivity;
 mod context;
@@ -3290,6 +3291,7 @@ pub fn run() {
                     .expect("open spawns store"),
             );
             app.manage(spawns_commands::SpawnsState(spawns_store));
+            app.manage(browser::BrowserState::default());
 
             // Periodic commit scanner — every 5 minutes scan the process
             // cwd for new commits by the local git user. CS-1 keeps this
@@ -3436,6 +3438,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            browser::browser_open,
+            browser::browser_navigate,
+            browser::browser_back,
+            browser::browser_forward,
+            browser::browser_reload,
+            browser::browser_set_bounds,
+            browser::browser_show,
+            browser::browser_hide,
+            browser::browser_close,
             search_session_files,
             score_commands::score_summary,
             score_commands::score_heatmap,
