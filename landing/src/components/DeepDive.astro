@@ -1,9 +1,9 @@
 ---
 const shots = [
-  { caption: "Multi-session orchestration", path: "/screenshots/tabs.png" },
-  { caption: "Super-agent panel", path: "/screenshots/agent.png" },
-  { caption: "Covenant Score dashboard", path: "/screenshots/score.png" },
-  { caption: "Operator-attributed PRs", path: "/screenshots/prs.png" },
+  { caption: "Multi-session orchestration", path: "/images/hero/laptop1.png" },
+  { caption: "Super-agent panel", path: "/images/hero/laptop2.png" },
+  { caption: "Covenant Score dashboard", path: "/images/hero/laptop3.png" },
+  { caption: "Operator-attributed PRs", path: "/images/hero/laptop1.png" },
 ];
 ---
 <section class="section">
@@ -14,9 +14,8 @@ const shots = [
   <div class="mt-14 grid md:grid-cols-2 gap-6">
     {shots.map((s, i) => (
       <figure class={`rounded-xl border border-mist/10 overflow-hidden bg-mist/[0.02] fade-in-up delay-${(i + 2) * 100}`}>
-        <div class="aspect-video grid place-items-center text-mist/40 text-sm">
-          [ {s.path} ]
-        </div>
+        <img src={s.path} alt={s.caption} loading="lazy" class="aspect-video w-full object-cover" />
+
         <figcaption class="px-4 py-3 text-sm text-mist/70">{s.caption}</figcaption>
       </figure>
     ))}
