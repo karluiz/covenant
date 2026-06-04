@@ -1,7 +1,8 @@
-import type { ScoreFilter, Summary, DailyCell } from "./api";
+import type { ScoreFilter, Summary, DailyCell, GroupCell } from "./api";
 import * as api from "./api";
 import type { ModelSource } from "./api";
 import { displayGroupName, renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
+import { DEFAULT_GROUP_VIEW, type GroupView } from "./leaderboard";
 import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
 import { getCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
@@ -12,6 +13,11 @@ interface State {
   filter: ScoreFilter;
   mounted: boolean;
   modelSource?: ModelSource;
+  /// Last-fetched group rows + the card-local view (sort/topN/search). Kept on
+  /// State so the leaderboard's sort/filter survive page refreshes and re-render
+  /// without refetching when only the view changes.
+  groups: GroupCell[];
+  groupView: GroupView;
 }
 
 const TEMPLATE = /* html */ `
@@ -70,7 +76,12 @@ export function mountCovenantPage(host: HTMLElement): void {
   }
   host.innerHTML = TEMPLATE;
   host.dataset.mounted = "true";
-  const state: State = { filter: { range: "all" }, mounted: true };
+  const state: State = {
+    filter: { range: "all" },
+    mounted: true,
+    groups: [],
+    groupView: { ...DEFAULT_GROUP_VIEW },
+  };
   (host as unknown as { __cov: State }).__cov = state;
   void refresh(host, state);
 }
@@ -124,7 +135,25 @@ async function refresh(host: HTMLElement, state: State): Promise<void> {
     branchesHost.innerHTML = `<div class="cov-empty">Pick a repo to see top branches</div>`;
   }
 
-  renderGroupBars(groupsHost, groups);
+  // Cache the fetched rows; the leaderboard re-renders itself on sort/topN/
+  // search changes (no refetch), and drills the whole page on row click.
+  state.groups = groups;
+  const renderGroups = (): void => {
+    renderGroupBars(
+      groupsHost,
+      state.groups,
+      state.groupView,
+      (groupName) => {
+        state.filter.group_name = groupName;
+        void refresh(host, state);
+      },
+      (next) => {
+        state.groupView = next;
+        renderGroups();
+      },
+    );
+  };
+  renderGroups();
   renderAgentBars(agentsHost, agents, (agent) => {
     state.filter.agent = agent;
     void refresh(host, state);
