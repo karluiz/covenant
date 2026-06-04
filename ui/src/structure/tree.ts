@@ -141,6 +141,21 @@ export class StructureTree {
     this.root.appendChild(this.emptyEl);
 
     this.host.appendChild(this.root);
+
+    // Right-click on the list background / empty area / header (anywhere
+    // not on a row). The per-row handler in makeNode() owns right-clicks
+    // on a node; here we catch everything else so (a) the native WebView
+    // menu (Reload / AutoFill) never appears inside the tree, and (b) the
+    // user can create entries at the tree root from empty space.
+    this.root.addEventListener("contextmenu", (ev) => {
+      if ((ev.target as HTMLElement).closest(".structure-node")) return;
+      ev.preventDefault();
+      if (!this.cwd) return;
+      // Counter the <html> CSS zoom — same reasoning as the per-row
+      // handler below (position:fixed left/top live in zoomed space).
+      const z = zoom.level() || 1;
+      this.openRootContextMenu(ev.clientX / z, ev.clientY / z);
+    });
   }
 
   /// Pointer-based drag-to-move. We can't use HTML5 DnD here: the Tauri
@@ -592,6 +607,69 @@ export class StructureTree {
     del.classList.add("danger");
     menu.appendChild(del);
 
+    this.finalizeContextMenu(menu, x, y);
+  }
+
+  /// Context menu for the empty list background / header — i.e. the tree
+  /// root, with no node under the cursor. Offers creating entries at the
+  /// root and revealing the root in Finder.
+  private openRootContextMenu(x: number, y: number): void {
+    if (!this.cwd) return;
+    closeAnyContextMenu();
+
+    const menu = document.createElement("div");
+    menu.className = "structure-context-menu";
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.dataset.kind = "structure-context-menu";
+
+    menu.appendChild(
+      makeMenuItem("New File", () => {
+        closeAnyContextMenu();
+        this.startCreateInRoot("file");
+      }),
+    );
+    menu.appendChild(
+      makeMenuItem("New Folder", () => {
+        closeAnyContextMenu();
+        this.startCreateInRoot("dir");
+      }),
+    );
+    menu.appendChild(
+      makeMenuItem("Reveal in Finder", () => {
+        closeAnyContextMenu();
+        const dir = this.cwd;
+        if (!dir) return;
+        void (async () => {
+          try {
+            const { revealItemInDir } = await import(
+              "@tauri-apps/plugin-opener"
+            );
+            await revealItemInDir(dir);
+          } catch (err) {
+            this.showError(`Reveal failed: ${err}`);
+          }
+        })();
+      }),
+    );
+
+    this.finalizeContextMenu(menu, x, y);
+  }
+
+  /// Begin an inline "new file/folder" row at the tree root (this.cwd).
+  private startCreateInRoot(kind: "file" | "dir"): void {
+    if (!this.cwd) return;
+    this.startInlineCreate(this.cwd, kind, this.listEl, 0, null);
+  }
+
+  /// Append a built menu to the body, flip it away from the nearest
+  /// viewport edge it would overflow, and wire outside-click / Escape
+  /// dismissal. Shared by the node and root context menus.
+  private finalizeContextMenu(
+    menu: HTMLElement,
+    x: number,
+    y: number,
+  ): void {
     document.body.appendChild(menu);
 
     // Flip the menu so it opens away from the nearest viewport edge it
