@@ -1459,6 +1459,23 @@ body.tabbar-left .group-chip-has-members {
     min-width: 0;
 }
 
+/* Leading globe glyph on browser tabs — marks them as web pages, not
+   shell sessions. Sits just before the label, muted to match chrome. */
+.tab-browser-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    margin-right: 5px;
+    opacity: 0.7;
+}
+
+.tab-browser-glyph svg {
+    width: 12px;
+    height: 12px;
+    display: block;
+}
+
 .tab-close {
     display: inline-flex;
     align-items: center;
@@ -9637,6 +9654,28 @@ body.tabbar-left.tabbar-left-collapsed #tabbar-rail {
         0 0 8px var(--rail-color);
 }
 
+/* Browser tabs aren't shell sessions — render a small hollow ring
+   instead of the solid terminal bar so they read as "web" at a glance
+   in the collapsed rail. */
+.tabbar-rail-cell-browser {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--rail-color);
+}
+
+.tabbar-rail-cell-browser:hover {
+    transform: scale(1.2);
+}
+
+.tabbar-rail-cell-browser.active {
+    background: var(--rail-color);
+    box-shadow:
+        inset 0 0 0 1px rgba(var(--ink-rgb), 0.95),
+        0 0 8px var(--rail-color);
+}
+
 .tabbar-rail-loose {
     position: relative;
     display: flex;
@@ -17508,6 +17547,14 @@ body.theme-light .task-item.is-open {
 .docs-sidebar,
 .capabilities-nav {
   border-color: transparent !important;
+}
+
+/* Keep the left divider that separates the right-rail panels from the
+   terminal area — same treatment as the folder tree (.tab-blocks). The
+   flat-chrome rule above zeroes border-color, so re-assert it here. */
+#activity-sidebar,
+#teammate-panel {
+  border-left: 1px solid var(--border, #232831) !important;
 }
 
 .blocks-header,

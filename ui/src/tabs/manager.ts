@@ -458,6 +458,9 @@ export interface RailTabView {
   name: string;
   color: string | null;
   active: boolean;
+  /// Tab kind, so the rail can mark non-terminal (browser) tabs with a
+  /// distinct glyph instead of rendering them like a shell cell.
+  kind: Tab["kind"];
 }
 
 export interface RailGroupView {
@@ -5653,6 +5656,7 @@ export class TabManager {
         name: tabDisplayName(tab),
         color: tab.color,
         active: tab.id === this.activeId,
+        kind: tab.kind,
       };
 
       if (!tab.groupId) {
@@ -5933,6 +5937,16 @@ export class TabManager {
         input.select();
       });
     } else {
+      // Browser tabs get a leading globe glyph + a marker class so they
+      // read as web pages, not shell sessions, in the tab strip.
+      if (tab.kind === "browser") {
+        pill.classList.add("tab-btn-browser");
+        const glyph = document.createElement("span");
+        glyph.className = "tab-browser-glyph";
+        glyph.setAttribute("aria-hidden", "true");
+        glyph.innerHTML = Icons.globe({ size: 12 });
+        pill.appendChild(glyph);
+      }
       const label = document.createElement("span");
       label.className = "tab-label";
       label.textContent = tabDisplayName(tab);
@@ -6082,6 +6096,10 @@ export class TabManager {
       });
     }
 
+    // Mission + Operator are terminal-only — a browser tab has no PTY
+    // session (sessionId is null), so these would silently no-op. Skip
+    // the whole block for kind:"browser" instead of showing dead items.
+    if (tab.kind !== "browser") {
     items.push({ divider: true });
     if (ctxPane.mission) {
       items.push({
@@ -6152,6 +6170,7 @@ export class TabManager {
         });
       }
     }
+    } // end terminal-only (mission + operator) block
     // Saved commands (per-group) and prompts (global) as submenus, targeting
     // this tab's active-pane session. Best-effort: a fetch failure or empty
     // list just omits that entry. Capped so a big library stays usable.

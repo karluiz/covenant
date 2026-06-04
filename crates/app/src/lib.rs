@@ -3471,28 +3471,50 @@ pub fn run() {
             // rack in its own dead-space. Restore the overlay on exit.
             if let Some(main_win) = app.get_webview_window("main") {
                 let handle = app.handle().clone();
+                // Last fullscreen state we acted on, shared across Resized
+                // events so we can detect transitions in both directions
+                // (the per-event poll below can't, on its own, tell enter
+                // from exit without a baseline).
+                let last_fs = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 main_win.on_window_event(move |ev| {
                     if let tauri::WindowEvent::Resized(_) = ev {
                         let h = handle.clone();
+                        let last_fs = last_fs.clone();
                         tauri::async_runtime::spawn(async move {
-                            let fullscreen = h
-                                .get_webview_window("main")
-                                .and_then(|w| w.is_fullscreen().ok())
-                                .unwrap_or(false);
-                            if let Some(notch) = h.get_webview_window("notch") {
-                                if fullscreen {
-                                    let _ = notch.hide();
-                                } else if notch.is_visible().unwrap_or(false) {
-                                    // already shown
-                                } else {
-                                    // overlay was hidden — let the bridge
-                                    // re-show on the next event naturally
+                            // macOS reports is_fullscreen() a beat late: the
+                            // Resized event fires during the transition before
+                            // the flag flips. Re-poll a few times so we catch
+                            // the settled state and reliably hide the overlay
+                            // (otherwise it lingers on top of the fullscreen
+                            // Space and "won't go away").
+                            use std::sync::atomic::Ordering;
+                            for delay_ms in [0u64, 250, 500, 800] {
+                                if delay_ms > 0 {
+                                    tokio::time::sleep(
+                                        std::time::Duration::from_millis(delay_ms),
+                                    )
+                                    .await;
                                 }
+                                let fs = h
+                                    .get_webview_window("main")
+                                    .and_then(|w| w.is_fullscreen().ok())
+                                    .unwrap_or(false);
+                                if fs == last_fs.swap(fs, Ordering::Relaxed) {
+                                    continue; // no transition this poll
+                                }
+                                if let Some(notch) = h.get_webview_window("notch") {
+                                    if fs {
+                                        let _ = notch.hide();
+                                    }
+                                    // On exit we leave the overlay hidden; the
+                                    // bridge re-shows it on the next executor
+                                    // event naturally.
+                                }
+                                let _ = h.emit(
+                                    "notch:inline-mode",
+                                    serde_json::json!({ "enabled": fs }),
+                                );
                             }
-                            let _ = h.emit(
-                                "notch:inline-mode",
-                                serde_json::json!({ "enabled": fullscreen }),
-                            );
                         });
                     }
                 });

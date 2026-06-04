@@ -118,6 +118,10 @@ export class CollapsedRail {
     cell.type = "button";
     cell.className = "tabbar-rail-cell";
     if (tab.active) cell.classList.add("active");
+    // Browser tabs aren't shells — flag them so CSS can render a globe
+    // glyph instead of the terminal-style cell, and so they don't read
+    // as a terminal session in the rail.
+    if (tab.kind === "browser") cell.classList.add("tabbar-rail-cell-browser");
     cell.style.setProperty("--rail-color", color);
     cell.setAttribute("aria-label", tab.name);
     cell.addEventListener("click", (e) => {

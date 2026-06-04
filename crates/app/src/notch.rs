@@ -410,6 +410,13 @@ pub fn spawn_bridge(
                         if !visible && !main_fullscreen {
                             let corner = settings.lock().await.notch_corner;
                             show_notch(&win, corner);
+                        } else if visible && main_fullscreen {
+                            // Entered fullscreen while the overlay was up.
+                            // The Resized hook may have missed the transition
+                            // (macOS flips is_fullscreen a beat late), so the
+                            // overlay can linger on top of the fullscreen
+                            // Space. Take it down here on the next event.
+                            let _ = win.hide();
                         }
                         // Emit via the AppHandle (global) instead of the
                         // webview — Tauri v2's WebviewWindow::emit targets
