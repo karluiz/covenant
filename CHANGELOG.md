@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.52 — Browser tabs no longer read as terminals; notch hides in fullscreen
+
+### Fixed
+
+- **Browser tabs disguised as terminals**: internal-browser tabs share the
+  `tabs[]` array with terminal sessions and were rendered identically, so
+  they looked like shells and the operator/mission context-menu items
+  silently no-op'd on them (a browser tab has no PTY `sessionId`). The
+  terminal-only mission + operator block is now skipped for `kind:"browser"`
+  tabs, browser pills carry a leading globe glyph (`tab-btn-browser`), and
+  the collapsed rail draws them as a hollow ring instead of the solid
+  terminal bar. `ui/src/tabs/manager.ts`, `ui/src/tabs/collapsed-rail.ts`,
+  `ui/src/styles.css`.
+
+- **Notch overlay lingering in fullscreen**: the floating notch could stay
+  pinned on top of a fullscreen Space and "wouldn't go away". The only hide
+  path read `is_fullscreen()` synchronously inside the `Resized` handler,
+  but macOS flips that flag a beat late during the transition, so it usually
+  read `false` and never hid. The handler now re-polls fullscreen state at
+  0/250/500/800ms against a shared baseline (catching both enter and exit),
+  and the notch bridge hides an already-visible overlay on the next executor
+  event while the main window is fullscreen. `crates/app/src/lib.rs`,
+  `crates/app/src/notch.rs`.
+
 ## v0.8.51 — x86_64 macOS release build fix
 
 ### Fixed
