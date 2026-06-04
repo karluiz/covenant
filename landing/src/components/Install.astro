@@ -16,7 +16,27 @@
     <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full flash-effect pointer-events-none"></div>
   </button>
   <p id="copy-feedback" class="mt-3 text-sm text-moss-400 opacity-0 transition-opacity duration-300">Copied to clipboard!</p>
-  <p class="mt-3 text-sm text-mist/60 fade-in-up delay-300">macOS today · Windows soon · Linux community</p>
+
+  <div class="mt-6 flex items-center justify-center gap-3 fade-in-up delay-300">
+    <span class="text-mist/30 text-sm">or</span>
+  </div>
+  <div class="mt-4 fade-in-up delay-300">
+    <a
+      id="win-download"
+      href="https://github.com/karluiz/covenant/releases/latest"
+      target="_blank"
+      rel="noopener"
+      class="inline-flex items-center gap-3 rounded-lg border border-mist/15 bg-mist/[0.04] px-5 py-4 text-mist cursor-pointer hover:border-sky-500/40 hover:bg-mist/[0.08] transition-all"
+    >
+      <svg class="w-5 h-5 text-sky-400" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-13.051-1.801"/>
+      </svg>
+      <span class="font-medium">Download for Windows</span>
+      <span class="text-mist/50 text-sm">.msi</span>
+    </a>
+  </div>
+
+  <p class="mt-5 text-sm text-mist/60 fade-in-up delay-300">macOS &amp; Windows today · Linux community</p>
 </section>
 
 <style>
@@ -58,4 +78,25 @@
       console.error('Failed to copy:', err);
     }
   });
+
+  // Resolve the latest Windows .msi asset so the button is a true one-click
+  // download. The MSI filename embeds the version (Covenant_<ver>_x64_en-US.msi),
+  // so a static "latest/download/<name>" link would 404 after each release —
+  // instead query the GitHub Releases API at runtime. The href already points
+  // at the releases page, so if the API is rate-limited/unreachable the button
+  // still works (just one extra click).
+  const winButton = document.getElementById('win-download') as HTMLAnchorElement | null;
+  if (winButton) {
+    fetch('https://api.github.com/repos/karluiz/covenant/releases/latest', {
+      headers: { Accept: 'application/vnd.github+json' },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('release fetch failed'))))
+      .then((release: { assets?: Array<{ name: string; browser_download_url: string }> }) => {
+        const msi = release.assets?.find((a) => a.name.toLowerCase().endsWith('.msi'));
+        if (msi) winButton.href = msi.browser_download_url;
+      })
+      .catch(() => {
+        /* keep the releases-page fallback href */
+      });
+  }
 </script>
