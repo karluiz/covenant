@@ -39,7 +39,7 @@ rusqlite = { workspace = true }
 store = { path = "../store" }
 sqlite-vec = "0.1"
 zerocopy = "0.7"
-fastembed = "5"
+fastembed = { version = "5", optional = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 strip-ansi-escapes = { workspace = true }
@@ -58,6 +58,16 @@ karl-familiar = { path = "../familiar" }
 karl-capabilities = { path = "../capabilities" }
 karl-score = { path = "../score" }
 dirs = { workspace = true }
+
+[features]
+default = ["embeddings"]
+# Local semantic-search / operator-memory embeddings via `fastembed`
+# (ONNX Runtime through `ort`). Optional because `ort` ships no
+# `x86_64-apple-darwin` prebuilt, so the Intel macOS release is built with
+# `--no-default-features` to drop `ort`/ONNX from the dependency graph.
+# With this feature off, `Embedder` becomes a stub whose `new()` errors and
+# every embedding call site degrades gracefully (it already warns + skips).
+embeddings = ["dep:fastembed"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

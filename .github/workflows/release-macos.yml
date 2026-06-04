@@ -7,10 +7,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── Build BOTH macOS arches as separate targets ───────────────────────────
+  # `universal-apple-darwin` cannot be used: it lipo's an aarch64 + x86_64 fat
+  # binary, but `ort`/ONNX Runtime (via fastembed) ships no x86_64-apple-darwin
+  # prebuilt, so the Intel slice fails to build. Instead we build two SEPARATE
+  # targets on the (Apple Silicon) runner — aarch64 cross-compiles x86_64 — and
+  # the Intel leg drops embeddings with --no-default-features so `ort` leaves
+  # the graph entirely. Each arch ships its own DMG + updater bundle + key.
   build:
     runs-on: macos-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-apple-darwin
+            cargo_args: ""            # default features → embeddings ON
+          - arch: x64
+            target: x86_64-apple-darwin
+            cargo_args: "--no-default-features"   # embeddings OFF (no ort for x86_64-darwin)
 
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +35,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -27,7 +44,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: macos-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -45,7 +62,7 @@ jobs:
           echo "$APPLE_API_KEY_CONTENT" > ~/private_keys/AuthKey.p8
           echo "APPLE_API_KEY_PATH=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
 
-      - name: Build + sign + notarize Tauri (universal — Intel + Apple Silicon)
+      - name: Build + sign + notarize Tauri (${{ matrix.arch }})
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -55,30 +72,42 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        run: npm run tauri build -- --target universal-apple-darwin
+        run: npm run tauri build -- --target ${{ matrix.target }} ${{ matrix.cargo_args }}
 
-      - name: Locate updater artifacts
+      - name: Locate + rename per-arch artifacts
         id: artifacts
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
-          TGZ=$(find target -name '*.app.tar.gz' | head -n1)
-          SIG=$(find target -name '*.app.tar.gz.sig' | head -n1)
-          DMG=$(find target -name '*.dmg' | head -n1)
-          if [ -z "$TGZ" ] || [ -z "$SIG" ]; then
-            echo "missing tar.gz or .sig"; exit 1
-          fi
-          if [ -z "$DMG" ]; then
-            echo "missing .dmg (codesign likely failed)"; exit 1
-          fi
-          echo "tgz=$TGZ" >> "$GITHUB_OUTPUT"
-          echo "sig=$SIG" >> "$GITHUB_OUTPUT"
-          echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
-          echo "dmg_sha256=$(shasum -a 256 "$DMG" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          BUNDLE="target/${{ matrix.target }}/release/bundle"
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          TGZ=$(find "$BUNDLE" -name '*.app.tar.gz' | head -n1)
+          SIG=$(find "$BUNDLE" -name '*.app.tar.gz.sig' | head -n1)
+          DMG=$(find "$BUNDLE" -name '*.dmg' | head -n1)
+          if [ -z "$TGZ" ] || [ -z "$SIG" ]; then echo "missing tar.gz or .sig"; exit 1; fi
+          if [ -z "$DMG" ]; then echo "missing .dmg (codesign likely failed)"; exit 1; fi
+
+          # The updater tgz is named "Covenant.app.tar.gz" for BOTH arches, so
+          # rename per-arch to avoid clobbering each other on the release. The
+          # DMG is already arch-named by Tauri (_aarch64.dmg / _x64.dmg).
+          OUT="artifacts-$ARCH"; mkdir -p "$OUT"
+          TGZ_NAME="Covenant_${VERSION}_${ARCH}.app.tar.gz"
+          cp "$TGZ" "$OUT/$TGZ_NAME"
+          cp "$SIG" "$OUT/$TGZ_NAME.sig"
+          cp "$DMG" "$OUT/$(basename "$DMG")"
+
+          echo "tgz=$OUT/$TGZ_NAME" >> "$GITHUB_OUTPUT"
+          echo "sig=$OUT/$TGZ_NAME.sig" >> "$GITHUB_OUTPUT"
+          echo "dmg=$OUT/$(basename "$DMG")" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           TAG="${{ github.ref_name }}"
           gh release view "$TAG" >/dev/null 2>&1 || \
             gh release create "$TAG" --title "$TAG" --notes "Automated release. See CHANGELOG for details."
@@ -86,54 +115,47 @@ jobs:
           gh release upload "$TAG" "${{ steps.artifacts.outputs.sig }}" --clobber
           gh release upload "$TAG" "${{ steps.artifacts.outputs.dmg }}" --clobber
 
-      - name: Emit per-platform manifest fragment
-        run: |
-          mkdir -p manifest-fragments
-          SIG_CONTENT=$(cat "${{ steps.artifacts.outputs.sig }}")
-          TGZ_NAME=$(basename "${{ steps.artifacts.outputs.tgz }}")
-          URL="https://github.com/karluiz/covenant/releases/download/${{ github.ref_name }}/${TGZ_NAME}"
-          # Universal bundle runs natively on both arches → both keys point at the
-          # same tgz + signature so Intel and Apple Silicon users both get updates.
-          cat > "manifest-fragments/darwin-universal.json" <<EOF
-          {
-            "darwin-aarch64": {
-              "signature": "${SIG_CONTENT}",
-              "url": "${URL}"
-            },
-            "darwin-x86_64": {
-              "signature": "${SIG_CONTENT}",
-              "url": "${URL}"
-            }
-          }
-          EOF
-
-      - name: Upload manifest fragment artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: manifest-darwin
-          path: manifest-fragments/darwin-universal.json
-
-      - name: Update Homebrew tap (karluiz/homebrew-covenant)
-        if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
+  # ── Update the Homebrew cask once, after BOTH arches are on the release ───
+  cask:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Update Homebrew tap (two-installer cask)
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          DMG_SHA256: ${{ steps.artifacts.outputs.dmg_sha256 }}
         run: |
           set -euo pipefail
           if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
-            echo "HOMEBREW_TAP_TOKEN secret not set; skipping cask update"
-            exit 0
+            echo "HOMEBREW_TAP_TOKEN not set; skipping cask update"; exit 0
           fi
-          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          BASE="https://github.com/karluiz/covenant/releases/download/${TAG}"
+
+          # Pull both per-arch DMGs from the release and hash them.
+          gh release download "$TAG" --repo karluiz/covenant \
+            -p "Covenant_${VERSION}_aarch64.dmg" -p "Covenant_${VERSION}_x64.dmg" -D dmgs
+          ARM_SHA=$(shasum -a 256 "dmgs/Covenant_${VERSION}_aarch64.dmg" | awk '{print $1}')
+          INTEL_SHA=$(shasum -a 256 "dmgs/Covenant_${VERSION}_x64.dmg" | awk '{print $1}')
+
           TAP_DIR="$RUNNER_TEMP/homebrew-covenant"
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/karluiz/homebrew-covenant.git" "$TAP_DIR"
           cat > "$TAP_DIR/Casks/covenant.rb" <<EOF
           cask "covenant" do
             version "${VERSION}"
-            sha256 "${DMG_SHA256}"
 
-            url "https://github.com/karluiz/covenant/releases/download/v#{version}/Covenant_#{version}_universal.dmg"
+            on_arm do
+              sha256 "${ARM_SHA}"
+              url "${BASE}/Covenant_#{version}_aarch64.dmg"
+            end
+            on_intel do
+              sha256 "${INTEL_SHA}"
+              url "${BASE}/Covenant_#{version}_x64.dmg"
+            end
+
             name "Covenant"
             desc "AI-native terminal for macOS"
             homepage "https://covenant.uno"

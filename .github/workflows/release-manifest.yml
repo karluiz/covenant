@@ -1,5 +1,18 @@
 name: Release Manifest
 
+# Assembles the auto-updater manifest (latest.json) from the per-platform
+# artifacts that the macOS + Windows release workflows upload to the GitHub
+# Release. It is HARD-GATED: it only publishes once every required platform
+# (darwin-aarch64, darwin-x86_64, windows-x86_64) is present on the release.
+# If a platform's build failed, latest.json is NOT touched, so the updater
+# keeps serving the previous good release instead of a broken partial manifest.
+#
+# Cross-workflow state is the RELEASE ASSETS themselves (uploaded even when the
+# manifest isn't), not a carried-forward latest.json — that avoids the deadlock
+# where "don't publish until complete" + "read state from the published
+# manifest" can never converge. Whichever workflow finishes last finds the full
+# asset set and publishes.
+
 on:
   workflow_run:
     workflows: ["Release macOS", "Release Windows"]
@@ -7,70 +20,76 @@ on:
 
 jobs:
   aggregate:
-    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download macOS fragment
-        uses: actions/download-artifact@v4
-        with:
-          name: manifest-darwin
-          path: fragments
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-        continue-on-error: true
-
-      - name: Download Windows fragment
-        uses: actions/download-artifact@v4
-        with:
-          name: manifest-windows
-          path: fragments
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-        continue-on-error: true
-
-      - name: Build aggregated latest.json
-        id: merge
+      - name: Assemble + publish latest.json (gated on all platforms)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           TAG="${{ github.event.workflow_run.head_branch }}"
           VERSION="${TAG#v}"
+          REPO="karluiz/covenant"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Start from a previously-uploaded latest.json (carries the
-          # other platform's signature when this run only built one).
-          EXISTING="{}"
-          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -q '^latest.json$'; then
-            gh release download "$TAG" -p latest.json -D /tmp
-            EXISTING="$(cat /tmp/latest.json)"
+          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+          find_one() { echo "$ASSETS" | grep -E "$1" | head -n1 || true; }
+
+          ARM_TGZ=$(find_one '_aarch64\.app\.tar\.gz$')
+          ARM_SIG=$(find_one '_aarch64\.app\.tar\.gz\.sig$')
+          X64_TGZ=$(find_one '_x64\.app\.tar\.gz$')
+          X64_SIG=$(find_one '_x64\.app\.tar\.gz\.sig$')
+          WIN_MSI=$(find_one '\.msi$')
+          WIN_SIG=$(find_one '\.msi\.sig$')
+
+          missing=""
+          for v in ARM_TGZ ARM_SIG X64_TGZ X64_SIG WIN_MSI WIN_SIG; do
+            [ -z "${!v}" ] && missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "Not all platforms uploaded yet (missing:$missing)."
+            echo "Skipping — the workflow run that completes the asset set will publish."
+            exit 0
           fi
 
-          if ls fragments/*.json >/dev/null 2>&1; then
-            MERGED_PLATFORMS=$(jq -s 'reduce .[] as $f ({}; . * $f)' fragments/*.json)
-          else
-            MERGED_PLATFORMS='{}'
-          fi
+          # Signature contents go inline into the manifest.
+          gh release download "$TAG" --repo "$REPO" -D sigs \
+            -p "$ARM_SIG" -p "$X64_SIG" -p "$WIN_SIG"
+          ARM_SIGV=$(cat "sigs/$ARM_SIG")
+          X64_SIGV=$(cat "sigs/$X64_SIG")
+          WIN_SIGV=$(cat "sigs/$WIN_SIG")
 
           jq -n \
-            --arg v "$VERSION" \
-            --arg d "$DATE" \
-            --arg notes "See https://github.com/karluiz/covenant/releases/tag/$TAG" \
-            --argjson existing "$EXISTING" \
-            --argjson merged "$MERGED_PLATFORMS" \
-            '{version: $v, notes: $notes, pub_date: $d, platforms: (($existing.platforms // {}) * $merged)}' \
-            > latest.json
+            --arg v "$VERSION" --arg d "$DATE" \
+            --arg notes "See https://github.com/${REPO}/releases/tag/${TAG}" \
+            --arg armurl "${BASE}/${ARM_TGZ}" --arg armsig "$ARM_SIGV" \
+            --arg x64url "${BASE}/${X64_TGZ}" --arg x64sig "$X64_SIGV" \
+            --arg winurl "${BASE}/${WIN_MSI}" --arg winsig "$WIN_SIGV" \
+            '{
+              version: $v, notes: $notes, pub_date: $d,
+              platforms: {
+                "darwin-aarch64": { signature: $armsig, url: $armurl },
+                "darwin-x86_64":  { signature: $x64sig, url: $x64url },
+                "windows-x86_64": { signature: $winsig, url: $winurl }
+              }
+            }' > latest.json
 
+          # Hard gate: every required platform key must carry a url + signature.
+          for key in darwin-aarch64 darwin-x86_64 windows-x86_64; do
+            u=$(jq -r --arg k "$key" '.platforms[$k].url // ""' latest.json)
+            s=$(jq -r --arg k "$key" '.platforms[$k].signature // ""' latest.json)
+            if [ -z "$u" ] || [ -z "$s" ]; then
+              echo "Refusing to publish: $key missing url/signature"; exit 1
+            fi
+          done
+
+          echo "All platforms present — publishing latest.json:"
           cat latest.json
-
-      - name: Upload latest.json to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.event.workflow_run.head_branch }}"
           gh release upload "$TAG" latest.json --clobber
