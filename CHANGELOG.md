@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.50 — Intel macOS builds + updater fix, ⌘W, By-group leaderboard
+
+### Added
+
+- **Intel + Apple Silicon macOS builds**: the release now ships separate
+  `aarch64` and `x86_64` macOS bundles instead of a universal binary that
+  could not build — `ort`/ONNX Runtime (via `fastembed`) has no
+  `x86_64-apple-darwin` prebuilt. `fastembed` is now an optional `embeddings`
+  feature: Apple Silicon builds with it; the Intel slice builds
+  `--no-default-features` so `ort` leaves the dependency graph (Intel loses
+  semantic search only — `Embedder` is stubbed and every call site already
+  degrades gracefully). `crates/app/Cargo.toml`, `crates/app/src/embedder.rs`,
+  `.github/workflows/release-macos.yml`; the Homebrew cask is now a
+  two-installer `on_arm`/`on_intel`.
+- **Ranked Leaderboard for the "By group" stats card**: bars encode
+  share-of-total scaled to the leader, with an average reference line, explicit
+  rank, and a cumulative Pareto %. Client-side sort / Top-N / search; clicking a
+  row drills the page into that group. The workspace moved to a fixed swatch
+  column + legend so it can no longer overflow the name into the bar.
+  `ui/src/score/leaderboard.ts`, `ui/src/score/breakdowns.ts`,
+  `ui/src/score/page.ts`.
+- **Spec Creator launcher in Set mission**: the mission picker can open the AI
+  Spec Creator directly (`ui/src/mission/page.ts`).
+- **Root context menu for the file tree**: New File / New Folder / Reveal in
+  Finder from empty space (`ui/src/structure/tree.ts`).
+- **Windows download buttons on the landing site**
+  (`landing/src/components/Hero.astro`, `Install.astro`).
+
+### Changed
+
+- **Updater manifest is hard-gated**: `latest.json` is now assembled from the
+  release assets and published only when all three platform keys
+  (`darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`) are present, so a failed
+  platform can never ship a partial manifest that breaks auto-update (the bug
+  that left v0.8.49 Windows-only). `.github/workflows/release-manifest.yml`.
+
+### Fixed
+
+- **⌘W closes the active tab/pane, not the whole app**: a custom macOS app menu
+  routes ⌘W to tab close instead of the default Close Window accelerator (which
+  quit the app). `crates/app/src/lib.rs`, `ui/src/main.ts`.
+- **Spec Creator was unstyled in light mode**: added `body.theme-light`
+  overrides for the chooser/panel — header text was dark-on-dark and the buttons
+  were borderless white with an invisible hover. `ui/src/styles.css`.
+
 ## v0.8.49 — Browser favorites sidebar (folders + drag)
 
 ### Added
