@@ -27,7 +27,10 @@ jobs:
             cargo_args: ""            # default features → embeddings ON
           - arch: x64
             target: x86_64-apple-darwin
-            cargo_args: "--no-default-features"   # embeddings OFF (no ort for x86_64-darwin)
+            # Cargo args go after a SECOND `--` — the tauri CLI forwards them to
+            # cargo; passed directly it errors `unexpected argument`. Drops
+            # embeddings so `ort` (no x86_64-darwin prebuilt) leaves the graph.
+            cargo_args: "-- --no-default-features"
 
     steps:
       - uses: actions/checkout@v4
