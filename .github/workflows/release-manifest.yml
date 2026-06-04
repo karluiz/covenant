@@ -92,4 +92,7 @@ jobs:
 
           echo "All platforms present — publishing latest.json:"
           cat latest.json
-          gh release upload "$TAG" latest.json --clobber
+          # --repo is required: this job has no actions/checkout, so without it
+          # gh tries to infer the repo from a (nonexistent) local git checkout
+          # and dies with "not a git repository".
+          gh release upload "$TAG" latest.json --clobber --repo "$REPO"
