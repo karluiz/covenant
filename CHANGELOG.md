@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.51 — x86_64 macOS release build fix
+
+### Fixed
+
+- **Intel macOS release build**: v0.8.50's `x86_64` leg failed because the
+  Tauri CLI rejects `--no-default-features` passed as its own flag — cargo
+  args must follow a second `--`. Forward them correctly (`-- --no-default-features`)
+  so the Intel bundle builds, the cask gets both arches, and the hard-gated
+  updater manifest can publish all three platform keys.
+  `.github/workflows/release-macos.yml`.
+
 ## v0.8.50 — Intel macOS builds + updater fix, ⌘W, By-group leaderboard
 
 ### Added

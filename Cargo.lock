@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "covenant"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "karl-agent"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2951,7 +2951,7 @@ dependencies = [
 
 [[package]]
 name = "karl-blocks"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "bytes",
  "karl-pty",
@@ -2968,7 +2968,7 @@ dependencies = [
 
 [[package]]
 name = "karl-capabilities"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "notify",
  "serde",
@@ -2982,7 +2982,7 @@ dependencies = [
 
 [[package]]
 name = "karl-familiar"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3005,7 +3005,7 @@ dependencies = [
 
 [[package]]
 name = "karl-pty"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3020,7 +3020,7 @@ dependencies = [
 
 [[package]]
 name = "karl-score"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "karl-session"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "bytes",
  "karl-blocks",
@@ -5736,7 +5736,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.8.50"
+version = "0.8.51"
 dependencies = [
  "rusqlite",
  "serde",
