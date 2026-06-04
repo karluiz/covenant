@@ -336,9 +336,14 @@ export class MissionPage {
     }
     if (s.specs.length === 0) {
       return `<section class="mission-page-section">
-        <h4>Published (0)</h4>
+        <div class="mission-page-section-head">
+          <h4>Published (0)</h4>
+          <button type="button" class="mission-page-sp-new" data-action="spec-new">✦ Spec Creator</button>
+        </div>
         <div class="mission-page-empty">
-          No published specs yet. Write one in
+          No published specs yet. Start the
+          <button type="button" class="mission-page-link" data-action="spec-new">Spec Creator (⌘N)</button>,
+          or write one in
           <button type="button" class="mission-page-link" data-action="open-drafts">Drafts (⌘⇧D)</button>.
         </div>
       </section>`;
@@ -365,7 +370,10 @@ export class MissionPage {
       `;
     }).join("");
     return `<section class="mission-page-section">
-      <h4>Published (${visible.length}${visible.length !== s.specs.length ? `/${s.specs.length}` : ""})</h4>
+      <div class="mission-page-section-head">
+        <h4>Published (${visible.length}${visible.length !== s.specs.length ? `/${s.specs.length}` : ""})</h4>
+        <button type="button" class="mission-page-sp-new" data-action="spec-new">✦ Spec Creator</button>
+      </div>
       <div class="mission-page-list">${cards}</div>
     </section>`;
   }
@@ -591,6 +599,17 @@ export class MissionPage {
     host.querySelector('[data-action="open-drafts"]')?.addEventListener("click", () => {
       this.finish(null);
       window.dispatchEvent(new CustomEvent("drafts:toggle"));
+    });
+
+    // Launch the AI Spec Creator (spec-chat). Mirrors the open-drafts pattern:
+    // close the picker, then open the overlay. There can be two of these
+    // (the section-head button + the inline empty-state link), so bind all.
+    host.querySelectorAll<HTMLButtonElement>('[data-action="spec-new"]').forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.finish(null);
+        window.dispatchEvent(new CustomEvent("spec-chat:open"));
+      });
     });
 
     if (this.keyHandler) window.removeEventListener("keydown", this.keyHandler);

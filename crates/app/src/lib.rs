@@ -2771,6 +2771,74 @@ fn install_crash_logger() {
     }));
 }
 
+/// Build the macOS application menu.
+///
+/// Tauri installs a default menu when none is supplied, and that default
+/// binds `⌘W` to a predefined "Close Window" item which tears down the
+/// focused window natively — before our JS `keydown` handler can run. The
+/// result: `⌘W` quits Covenant instead of closing the active tab/pane.
+///
+/// We rebuild the menu here so we keep the items a terminal needs (Edit's
+/// Copy/Paste/Select-All, Quit, Minimize, Fullscreen) but replace the
+/// window-closing `⌘W` with a custom "Close Tab" item. Its action is routed
+/// to the frontend via the `menu://close-tab` event, where the existing
+/// tab/pane close logic lives (including "quit on last tab").
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let app_menu = Submenu::with_items(
+        app,
+        "Covenant",
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+
+    // Custom Close Tab item — bound to ⌘W. The native accelerator fires this
+    // menu item (routed through `on_menu_event`) instead of closing the
+    // window, so the frontend owns what ⌘W actually does.
+    let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
+    let new_tab = MenuItem::with_id(app, "new-tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
+    let file_menu = Submenu::with_items(app, "File", true, &[&new_tab, &close_tab])?;
+
+    let edit_menu = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+
+    let window_menu = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+        ],
+    )?;
+
+    Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &window_menu])
+}
+
 pub fn run() {
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
@@ -2782,6 +2850,20 @@ pub fn run() {
     tracing::info!("covenant starting");
 
     tauri::Builder::default()
+        .menu(|handle| build_app_menu(handle))
+        .on_menu_event(|app, event| {
+            // ⌘W / ⌘T accelerators land here (the native menu consumes the
+            // keystroke). Forward to the frontend, which owns tab/pane state.
+            match event.id().as_ref() {
+                "close-tab" => {
+                    let _ = app.emit("menu://close-tab", ());
+                }
+                "new-tab" => {
+                    let _ = app.emit("menu://new-tab", ());
+                }
+                _ => {}
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())

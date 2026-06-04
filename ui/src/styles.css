@@ -1612,7 +1612,13 @@ body:not(.tabbar-left) #new-group {
     height: 100%;
     padding: 8px;
     box-sizing: border-box;
-    border-right: 1px solid var(--border);
+    /* No border-right: .tab-terminal used to be the grid child that
+       separated the terminal from the Blocks sidebar, but it now lives
+       INSIDE .pane-host. A border-right here renders a stray gray line
+       just inside the active pane's accent border on the right edge
+       only — making that side look different from the other three.
+       The real separators are .tab-blocks' border-left and the pane
+       splitter, so this border is vestigial. */
     overflow: hidden;
 }
 
@@ -12819,6 +12825,32 @@ body[data-aom-phase="triaging"]
   font-size: 12px;
 }
 
+/* Spec Creator — light theme. The chooser + panel were authored for the dark
+   scrim (light text on a dark backdrop, dark surfaces). In light mode
+   --text-primary flips to near-black while the scrim stays dark, so the header
+   text went dark-on-dark and the white buttons lost their border/hover. These
+   overrides restore contrast: light header text over the scrim, and buttons
+   that read as real cards with a visible hover. */
+body.theme-light .spec-chat-chooser-brand,
+body.theme-light .spec-chat-chooser-title { color: #f4f6fa; }
+body.theme-light .spec-chat-chooser-lead { color: rgba(244, 246, 250, 0.72); }
+body.theme-light .spec-chat-chooser-btn {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #1a1d22;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+body.theme-light .spec-chat-chooser-btn:hover {
+  background: #f3f5f8;
+  border-color: var(--accent);
+}
+body.theme-light .spec-chat-chooser-btn--blank { color: var(--muted); }
+/* The chat panel itself is a white card in light mode; give it a crisp edge
+   and lift the box-shadow off pure black so it isn't muddy on the scrim. */
+body.theme-light .spec-chat-panel {
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.28);
+}
+
 /* Spec 3.20 OperatorMind — MindLossModal + panel mind section */
 .modal-overlay {
   position: fixed;
@@ -15211,21 +15243,28 @@ body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-blocks {
 body.sidebar-view-teammate .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
-/* Project Notes uses the same right rail as Activity. Its panel is fixed,
-   but the layout still reserves a 240px rail so it does not cover the
-   terminal, and the active tab's Blocks/Files column is removed underneath. */
-body.project-notes-open:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
-  grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
+/* Project Notes is a position:fixed overlay (right:0, width:240) — NOT an
+   in-grid rail like Activity/Teammate. So it must NOT reserve a #layout
+   column. Two failure modes that reserving caused:
+     1. #layout reserved 240 → #workspace shrinks to viewport-240, and the
+        active pane's right border lands exactly on #workspace's
+        overflow:hidden clip edge → border clipped/invisible (the bug).
+     2. A lingering sidebar-view-* class ALSO reserves #layout; combined
+        with any tab-pane offset that double-counted to ~480px (visible
+        gap, image 7).
+   Fix: FORCE #layout to a single content column (!important beats the
+   no-!important sidebar-view reservations, killing any lingering one),
+   keeping #workspace FULL WIDTH. The terminal is then shrunk via the
+   tab-pane `right` offset below, so its right border sits INTERIOR to the
+   full-width #workspace and is never clipped — exactly how the in-grid
+   Blocks/Files sidebar renders it correctly (image 9). The fixed panel
+   overlays the vacated strip. The activity/teammate panels are display:none
+   while Project Notes is open, so collapsing their column orphans nothing. */
+body.project-notes-open:not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) !important;
 }
-body.project-notes-open:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
-body.project-notes-open:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
-  grid-column: 1 / -1;
-}
-body.project-notes-open.tabbar-left:not(.blocks-globally-collapsed) #layout {
-  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) var(--right-sidebar-w);
-}
-body.project-notes-open.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
-  grid-column: 1 / -1;
+body.project-notes-open.tabbar-left #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important;
 }
 body.project-notes-open #activity-sidebar {
   display: none;
@@ -15241,12 +15280,23 @@ body.project-notes-open:has(#operator-page:not([hidden])) .pn-panel,
 body.project-notes-open:has(#capabilities-page:not([hidden])) .pn-panel {
   display: none !important;
 }
-body.project-notes-open:not(.blocks-globally-collapsed) .tab-pane {
+/* #layout is forced to full width above, so shrink the terminal HERE by
+   insetting the tab-pane's absolute box from #workspace's right edge by the
+   panel's FULL rendered width. The panel is content-box with a 1px
+   border-left, so its box is (--right-sidebar-w + 1px); insetting by only
+   --right-sidebar-w leaves the panel 1px left of the terminal's right edge,
+   covering the entire 1px active border. The +1px lands the terminal's
+   right edge exactly at the panel's left edge, exposing the border (matches
+   the in-grid Blocks/Files sidebar). `right` is a plain property (no
+   specificity war); col 4 = 0 so the terminal block fills the inset box. */
+body.project-notes-open .tab-pane {
+  right: calc(var(--right-sidebar-w) + 1px) !important;
   grid-template-columns: 1fr 0 0 0 !important;
 }
-body.project-notes-open:not(.blocks-globally-collapsed) .tab-blocks {
+body.project-notes-open .tab-blocks {
   display: none !important;
 }
+/* Editor overlay tracks the same inset edge as the terminal. */
 body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }

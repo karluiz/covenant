@@ -804,6 +804,22 @@ async function boot(): Promise<void> {
   tabsManager = manager;
   installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
 
+  // ⌘W / ⌘T are bound to native macOS menu items (File → Close Tab / New
+  // Tab). The native menu consumes the keystroke before our document
+  // keydown handler sees it, so the menu forwards the intent here. Without
+  // this, ⌘W would fall through to the default "Close Window" item and quit
+  // the whole app instead of closing the active tab/pane.
+  void listen("menu://close-tab", () => {
+    if (manager.canSplitPanes()) {
+      void manager.closeActivePaneOrTab();
+    } else {
+      manager.closeActiveTab();
+    }
+  });
+  void listen("menu://new-tab", () => {
+    void manager.createTab();
+  });
+
   // Now that `manager` exists, wire the globe launcher's click + initial
   // visibility. The cached flag is populated by `loadExperimentalFlags()`
   // (boot, re-synced below) and on every settings save.
