@@ -896,12 +896,42 @@ async fn is_operator_enabled(
 /// to take effect — both must be on for any byte to be injected.
 #[tauri::command]
 async fn set_operator_live(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     live: bool,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
-    state.operator.set_live(id, live).await;
+    state.operator.set_live_and_emit(&app, id, live).await;
+    Ok(())
+}
+
+/// Pin/unpin a session's operator AND emit `operator-status` so the strip
+/// + status bar reflect the new identity immediately. Wraps the registry
+/// command with the watcher emit; the registry is double-managed (watcher
+/// field + Tauri State), so we pin through the State handle and emit
+/// through the watcher.
+#[tauri::command]
+async fn session_set_operator_and_emit(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    registry: State<'_, Arc<crate::operator_registry::OperatorRegistry>>,
+    session_id: String,
+    operator_id: Option<String>,
+) -> Result<(), String> {
+    let sid = parse_id(&session_id)?;
+    match operator_id {
+        Some(s) => {
+            let oid: crate::operator_registry::OperatorId =
+                s.parse().map_err(|e: ulid::DecodeError| e.to_string())?;
+            registry.pin_session(sid, oid);
+        }
+        None => registry.unpin_session(sid),
+    }
+    state
+        .operator
+        .emit_status_after_identity_change(&app, sid)
+        .await;
     Ok(())
 }
 
@@ -3588,6 +3618,7 @@ pub fn run() {
             is_operator_enabled,
             list_operator_decisions,
             set_operator_live,
+            session_set_operator_and_emit,
             is_operator_live,
             set_aom_excluded,
             set_tab_title,
