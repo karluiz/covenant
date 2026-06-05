@@ -129,6 +129,12 @@ pub async fn teammate_send_text_message(
         .as_deref()
         .and_then(|s| s.parse::<karl_session::SessionId>().ok());
 
+    // Operator awareness projection. The sessions lock (above) is dropped;
+    // per_session_status takes the operator inner lock — never held together
+    // (lock order, spec §10). Computed before the spawn so the map can move into
+    // the dispatch task (State<AppState> cannot cross into it).
+    let operator_status = state.operator.per_session_status().await;
+
     let storage_bg = storage.inner().clone();
     let registry_bg = registry.inner().clone();
     let settings_bg = state.settings.clone();
@@ -193,8 +199,9 @@ pub async fn teammate_send_text_message(
         for (sid, world_arc, _screen) in &session_data {
             let w = world_arc.lock().await;
             let is_active = Some(*sid) == active_session_id_parsed;
+            let op = operator_status.get(sid).cloned();
             snapshots.push(crate::teammate::world_snapshot::project(
-                *sid, &*w, is_active, now_ms(),
+                *sid, &*w, is_active, now_ms(), op,
             ));
         }
         let world_context_str = crate::teammate::world_snapshot::render(&snapshots);
