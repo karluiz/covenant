@@ -393,6 +393,7 @@ pub(crate) async fn confirm_task_inner(
         updated_at_unix_ms: now_ms,
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
+        ambient: false,
     };
     storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
     storage.teammate_mark_message_confirmed(message_id, Some(task.id), now_ms).await
