@@ -359,6 +359,13 @@ pub struct OperatorWatcher {
     /// the watcher rather than re-deriving from app_handle each call.
     mission_store: PathBuf,
     registry: Arc<OperatorRegistry>,
+    /// History DB handle (cheap Arc clone). Used by `per_session_status`
+    /// for the per-session `last_decision` read. `spawn` also moves a clone
+    /// into `tick_loop`, so we keep our own.
+    storage: Storage,
+    /// Global AOM status handle (cheap Arc clone). Read by
+    /// `per_session_status` to build `AomBrief`.
+    aom: AomHandle,
     /// Sender side of the convergence resolution channel. The receiver
     /// is held internally by `tick_loop` and drained each tick.
     resolution_tx: mpsc::UnboundedSender<ConvergenceResolution>,
@@ -635,6 +642,222 @@ pub struct MissionDoc {
     pub plan: Option<crate::mission_pair::PlanDoc>,
 }
 
+/// Capped, masked snapshot of `OperatorMind` for a brief. All free-text is
+/// pre-masked by the projection (see `build_per_session_status`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperatorMindBrief {
+    pub goal: Option<String>,
+    pub belief: Option<String>,
+    pub next_intent: Option<String>,
+    pub open_questions: Vec<String>,
+    pub tried_failed: Vec<String>,
+}
+
+/// The operator's most recent persisted decision for a session.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionBrief {
+    pub action: String,
+    pub text: Option<String>,
+    pub at_unix_ms: u64,
+}
+
+/// Global AOM scope, identical across sessions when AOM is on.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AomBrief {
+    pub enabled: bool,
+    pub elapsed_ms: u64,
+    pub decisions_count: u64,
+    pub cost_usd: f64,
+    pub budget_usd: f64,
+    pub cost_cap_hit: bool,
+}
+
+/// Per-session mission scope. `tasks_done`/`tasks_total` are always `None`
+/// in Phase 1 (plan-progress extraction is deferred to Phase 3).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissionBrief {
+    pub kind: String,
+    pub name: String,
+    pub tasks_done: Option<u32>,
+    pub tasks_total: Option<u32>,
+}
+
+/// Single per-session read-projection of operator state, consumed by the
+/// teammate chat (Phase 1), the `operator-status` event (Phase 2), and
+/// ambient tasks (Phase 3). Computed on read — no stored awareness state.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperatorAwareness {
+    pub session_id: SessionId,
+    pub operator_id: String,
+    pub operator_name: String,
+    pub operator_emoji: String,
+    pub enabled: bool,
+    pub live: bool,
+    pub phase: OperatorPhase,
+    pub phase_since_unix_ms: u64,
+    pub mind: Option<OperatorMindBrief>,
+    pub last_decision: Option<DecisionBrief>,
+    pub aom: Option<AomBrief>,
+    pub mission: Option<MissionBrief>,
+}
+
+/// Truncate a free-text field for a brief: trim, mask, cap to `max` chars on a
+/// char boundary (append `…` when cut). Returns `None` for empty input.
+fn brief_text(raw: &str, max: usize) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let masked = crate::secrets::mask_secrets(trimmed);
+    if masked.chars().count() <= max {
+        Some(masked)
+    } else {
+        let cut: String = masked.chars().take(max).collect();
+        Some(format!("{cut}…"))
+    }
+}
+
+/// Keep only the last 3 items of a mind list, mask + trim each, drop empties.
+fn brief_list<'a, I: IntoIterator<Item = &'a String>>(items: I) -> Vec<String> {
+    let all: Vec<&String> = items.into_iter().collect();
+    let start = all.len().saturating_sub(3);
+    all[start..]
+        .iter()
+        .filter_map(|s| {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(crate::secrets::mask_secrets(t))
+            }
+        })
+        .collect()
+}
+
+/// Owned snapshot of the per-session fields read under `inner.lock()`, so the
+/// lock can drop before any `.await` (AOM read, storage read).
+struct AttachedSnapshot {
+    session_id: SessionId,
+    enabled: bool,
+    live: bool,
+    phase: OperatorPhase,
+    phase_since_unix_ms: u64,
+    mind: Option<crate::operator_mind::OperatorMind>,
+    mission: Option<MissionDoc>,
+}
+
+/// Per-session awareness projection. Free function so Phase 2's tick-loop emit
+/// can reuse it without `&self`. Snapshots `Attached` under `inner.lock()`,
+/// DROPS the lock, then performs the async AOM + storage reads and masking.
+/// NEVER holds `inner.lock()` across an await.
+pub(crate) async fn build_per_session_status(
+    inner: &Arc<AsyncMutex<Inner>>,
+    storage: &Storage,
+    aom: &AomHandle,
+    registry: &Arc<OperatorRegistry>,
+) -> HashMap<SessionId, OperatorAwareness> {
+    // 1) Snapshot every attached session under the lock, then drop it.
+    let snaps: Vec<AttachedSnapshot> = {
+        let g = inner.lock().await;
+        g.sessions
+            .iter()
+            .map(|(sid, att)| {
+                let elapsed = att.phase_started_at.elapsed().as_millis() as u64;
+                AttachedSnapshot {
+                    session_id: *sid,
+                    enabled: att.enabled,
+                    live: att.live,
+                    phase: att.current_phase,
+                    phase_since_unix_ms: now_unix_ms().saturating_sub(elapsed),
+                    mind: att.mind.clone(),
+                    mission: att.mission.clone(),
+                }
+            })
+            .collect()
+    }; // <- inner lock dropped here
+
+    // 2) AOM is global: read once.
+    let aom_brief = {
+        let a = aom.read().await;
+        AomBrief {
+            enabled: a.enabled,
+            elapsed_ms: now_unix_ms().saturating_sub(a.started_at_unix_ms),
+            decisions_count: a.decisions_count,
+            cost_usd: a.accumulated_cost_usd,
+            budget_usd: a.budget_usd,
+            cost_cap_hit: a.cost_cap_hit_at_unix_ms.is_some(),
+        }
+    };
+
+    // 3) Per session: identity (sync) + last_decision (async storage read).
+    let mut out = HashMap::with_capacity(snaps.len());
+    for s in snaps {
+        let op = registry.effective_for(s.session_id);
+
+        let mind = s.mind.as_ref().map(|m| OperatorMindBrief {
+            goal: brief_text(&m.goal, 280),
+            belief: brief_text(&m.belief, 280),
+            next_intent: brief_text(&m.next_intent, 280),
+            open_questions: brief_list(m.open_questions.iter()),
+            tried_failed: brief_list(m.tried_failed.iter()),
+        });
+
+        let last_decision = match storage
+            .list_operator_decisions_for_session(s.session_id.to_string(), 1)
+            .await
+        {
+            Ok(rows) => rows.into_iter().next().map(|r| DecisionBrief {
+                action: r.action,
+                text: r.reply_text.as_deref().and_then(|t| brief_text(t, 280)),
+                at_unix_ms: r.timestamp_unix_ms,
+            }),
+            Err(_) => None,
+        };
+
+        let mission = s.mission.as_ref().map(|m| {
+            let name = m
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            MissionBrief {
+                kind: format!("{:?}", m.kind).to_lowercase(),
+                name: crate::secrets::mask_secrets(&name),
+                tasks_done: None,
+                tasks_total: None,
+            }
+        });
+
+        out.insert(
+            s.session_id,
+            OperatorAwareness {
+                session_id: s.session_id,
+                operator_id: op.id.to_string(),
+                operator_name: op.name.clone(),
+                operator_emoji: op.emoji.clone(),
+                enabled: s.enabled,
+                live: s.live,
+                phase: s.phase,
+                phase_since_unix_ms: s.phase_since_unix_ms,
+                mind,
+                last_decision,
+                aom: if aom_brief.enabled {
+                    Some(aom_brief.clone())
+                } else {
+                    None
+                },
+                mission,
+            },
+        );
+    }
+    out
+}
+
 /// Status payload returned to the UI for `get_session_mission`.
 /// `content_preview` is the first ~240 chars of the spec — enough for
 /// a tooltip / sidebar header without sending the whole file across
@@ -703,6 +926,9 @@ impl OperatorWatcher {
             sessions: HashMap::new(),
         }));
         let (resolution_tx, resolution_rx) = mpsc::unbounded_channel::<ConvergenceResolution>();
+        // Clone for `Self` BEFORE the originals are moved into `tick_loop`.
+        let storage_for_self = storage.clone();
+        let aom_for_self = aom.clone();
         tauri::async_runtime::spawn(tick_loop(
             inner.clone(),
             settings,
@@ -722,6 +948,8 @@ impl OperatorWatcher {
             inner,
             mission_store,
             registry,
+            storage: storage_for_self,
+            aom: aom_for_self,
             resolution_tx,
             tab_titles: Arc::new(AsyncMutex::new(HashMap::new())),
         }
@@ -847,6 +1075,14 @@ impl OperatorWatcher {
     /// async lock + a value-typed iteration over a tiny HashMap).
     pub async fn phase_overview(&self) -> OperatorPhaseSnapshot {
         self.inner.lock().await.phase_overview()
+    }
+
+    /// Per-session operator awareness projection. See `build_per_session_status`.
+    /// Async: snapshots `Inner` under the lock, drops it, then reads AOM + the
+    /// most-recent persisted decision per session. Call from an async context
+    /// with no other AppState lock held (lock order, spec §10).
+    pub async fn per_session_status(&self) -> HashMap<SessionId, OperatorAwareness> {
+        build_per_session_status(&self.inner, &self.storage, &self.aom, &self.registry).await
     }
 
     /// Disable the operator on `session_id` from an external lifecycle
@@ -6133,5 +6369,125 @@ What would you like to do?
             "triage block must be guarded against an already-set triage_short_circuit; \
              the pre-triage cost gate depends on this — see operator.rs::run_tick"
         );
+    }
+
+    // ---- Phase 1: per-session awareness projection ----
+
+    fn fresh_storage() -> (crate::storage::Storage, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let s = crate::storage::Storage::open(&path).expect("open");
+        (s, dir)
+    }
+
+    /// An `Attached` with a given mind, enabled+live, phase Deciding, no mission.
+    /// Built on `test_attached()` so it stays correct if `Attached` gains fields.
+    fn attached_with_mind(mind: Option<crate::operator_mind::OperatorMind>) -> Attached {
+        let mut att = test_attached();
+        att.enabled = true;
+        att.live = true;
+        att.current_phase = OperatorPhase::Deciding;
+        att.mind = mind;
+        att
+    }
+
+    #[tokio::test]
+    async fn projection_masks_mind_caps_lists_and_reads_last_decision() {
+        let (storage, _g) = fresh_storage();
+        let registry = OperatorRegistry::for_tests("Zeta");
+        let aom = crate::aom::new_handle();
+
+        let session = SessionId::new();
+        storage.save_session(session, 1_000).await.unwrap();
+        // Seed a decision whose reply_text carries a secret.
+        storage
+            .save_operator_decision(
+                session,
+                42,                                            // timestamp_unix_ms
+                Some("claude --resume".to_string()),           // in_flight_command
+                "out".to_string(),                             // output_excerpt
+                "reply".to_string(),                           // action
+                Some("use sk-ABCDEFGHIJKLMNOPqrst now".into()), // reply_text
+                Some("because".to_string()),                   // rationale
+                true,                                          // executed
+                0.001,                                         // cost_usd
+                None,                                          // mission_path
+                None,                                          // executor_name
+                None,                                          // operator_id
+                None,                                          // operator_name
+                None,                                          // applied_memory_id
+            )
+            .await
+            .unwrap();
+
+        let mut mind = crate::operator_mind::OperatorMind::default();
+        mind.goal = "ship feature; token sk-ABCDEFGHIJKLMNOPqrst".into();
+        mind.belief = "build is green".into();
+        mind.next_intent = "run tests".into();
+        mind.open_questions =
+            vec!["q1".into(), "q2".into(), "q3".into(), "q4".into(), "q5".into()];
+
+        let inner = Arc::new(AsyncMutex::new(Inner {
+            sessions: HashMap::new(),
+        }));
+        inner
+            .lock()
+            .await
+            .sessions
+            .insert(session, attached_with_mind(Some(mind)));
+
+        let map = build_per_session_status(&inner, &storage, &aom, &registry).await;
+        let a = map.get(&session).expect("session present");
+
+        // Identity from the registry default.
+        assert_eq!(a.operator_name, "Zeta");
+        assert!(!a.operator_emoji.is_empty());
+        assert!(a.enabled && a.live);
+        assert_eq!(a.phase, OperatorPhase::Deciding);
+
+        // Mind masked + capped.
+        let mind = a.mind.as_ref().expect("mind present");
+        let goal = mind.goal.as_ref().expect("goal");
+        assert!(!goal.contains("sk-ABCDEFGHIJKLMNOP"), "goal must be masked: {goal}");
+        assert!(goal.contains("[REDACTED:"), "goal: {goal}");
+        assert_eq!(mind.open_questions.len(), 3, "capped to last 3");
+        assert_eq!(mind.open_questions, vec!["q3", "q4", "q5"]);
+
+        // last_decision sourced from storage + masked.
+        let d = a.last_decision.as_ref().expect("last_decision present");
+        assert_eq!(d.action, "reply");
+        assert_eq!(d.at_unix_ms, 42);
+        let txt = d.text.as_ref().expect("reply text");
+        assert!(!txt.contains("sk-ABCDEFGHIJKLMNOP"));
+        assert!(txt.contains("[REDACTED:"));
+
+        // AOM off → None; mission absent → None.
+        assert!(a.aom.is_none(), "AOM off ⇒ no AomBrief");
+        assert!(a.mission.is_none());
+    }
+
+    #[tokio::test]
+    async fn projection_omits_mind_and_decision_when_absent() {
+        let (storage, _g) = fresh_storage();
+        let registry = OperatorRegistry::for_tests("Zeta");
+        let aom = crate::aom::new_handle();
+
+        let session = SessionId::new();
+        storage.save_session(session, 1).await.unwrap(); // no decisions seeded
+
+        let inner = Arc::new(AsyncMutex::new(Inner {
+            sessions: HashMap::new(),
+        }));
+        inner
+            .lock()
+            .await
+            .sessions
+            .insert(session, attached_with_mind(None));
+
+        let map = build_per_session_status(&inner, &storage, &aom, &registry).await;
+        let a = map.get(&session).expect("session present");
+        assert!(a.mind.is_none(), "no mind ⇒ None");
+        assert!(a.last_decision.is_none(), "no decisions ⇒ None");
+        assert!(a.aom.is_none());
     }
 }

@@ -113,8 +113,8 @@ pub(crate) struct AppState {
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,
-    operator: OperatorWatcher,
-    storage: Storage,
+    pub(crate) operator: OperatorWatcher,
+    pub(crate) storage: Storage,
     /// Autonomous Operator Mode global toggle. Read by the operator
     /// tick on every poll; flipped by `aom_start` / `aom_stop`.
     aom: AomHandle,
