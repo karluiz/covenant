@@ -416,6 +416,86 @@ pub(crate) async fn confirm_task_inner(
     Ok(task)
 }
 
+/// Testable core of `ensure_ambient_task` (no Tauri emit). Resolves the
+/// session's operator, dedups against storage (restart-safe), inserts an
+/// ambient `Watch` task on a miss, and registers it with the supervisor.
+/// Returns `(task_id, created)` — `created=false` when an existing ambient
+/// task was reused.
+pub(crate) async fn ensure_ambient_task_inner(
+    storage: &Arc<Storage>,
+    registry: &Arc<crate::operator_registry::OperatorRegistry>,
+    supervisor: &Arc<crate::teammate::task_supervisor::TaskSupervisor>,
+    session: karl_session::SessionId,
+) -> Result<(crate::teammate::TaskId, bool), String> {
+    // Resolve the operator that owns this session (pin → default).
+    let op = registry.effective_for(session);
+
+    // Restart-safe dedup: never create a second active ambient task for
+    // the same (operator, session).
+    if let Some(existing) = storage
+        .teammate_find_active_ambient_task(op.id, session)
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        // Make sure the supervisor knows about the (possibly restart-
+        // recovered) task so its lifecycle still runs.
+        supervisor.register_task(session, existing, op.id);
+        return Ok((existing, false));
+    }
+
+    let now = now_unix_ms();
+    let task = crate::teammate::Task {
+        id: crate::teammate::TaskId::new(),
+        operator_id: op.id,
+        archetype: crate::teammate::TaskArchetype::Watch,
+        title: format!("Watching {}", op.name),
+        body: String::new(),
+        deliverable: String::new(),
+        status: crate::teammate::TaskStatus::Active,
+        scope: crate::teammate::TaskScope::default(), // NULL watch_predicate
+        spawned_session: Some(session),
+        created_at_unix_ms: now,
+        updated_at_unix_ms: now,
+        completed_at_unix_ms: None,
+        cost_usd_cents: 0,
+        ambient: true,
+    };
+    storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
+
+    // Blocker fix: register immediately so the supervisor's
+    // observe_block_finished doesn't early-return for this session.
+    supervisor.register_task(session, task.id, op.id);
+    Ok((task.id, true))
+}
+
+/// Ensure exactly one ambient operator "watch" task exists for the live
+/// session. Delegates to `ensure_ambient_task_inner` then emits
+/// `teammate-task` on creation so the Tasks tab fills. Idempotent: a
+/// second call for the same live (operator, session) reuses the existing
+/// task and emits nothing.
+///
+/// Ambient tasks carry a NULL `watch_predicate` (TaskScope::default) and
+/// render in the Tasks/Activity tabs only — never the chat thread.
+pub(crate) async fn ensure_ambient_task(
+    app: &tauri::AppHandle,
+    storage: &Arc<Storage>,
+    registry: &Arc<crate::operator_registry::OperatorRegistry>,
+    supervisor: &Arc<crate::teammate::task_supervisor::TaskSupervisor>,
+    session: karl_session::SessionId,
+) -> Result<crate::teammate::TaskId, String> {
+    use tauri::Emitter;
+    let (task_id, created) =
+        ensure_ambient_task_inner(storage, registry, supervisor, session).await?;
+    if created {
+        if let Some(task) = storage.teammate_get_task(task_id).await.map_err(|e| e.to_string())? {
+            // Ambient tasks NEVER post to the chat thread — we emit only
+            // the task event, no teammate-message.
+            let _ = app.emit("teammate-task", &task);
+        }
+    }
+    Ok(task_id)
+}
+
 pub(crate) async fn cancel_task_proposal_inner(
     storage: &Arc<Storage>,
     message_id: MessageId,
@@ -722,5 +802,115 @@ mod task_lifecycle_tests {
         cancel_task_proposal_inner(&storage, msg_id, 1_700_000_000_999).await.unwrap();
         let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
         assert_eq!(fetched.dismissed_at_unix_ms, Some(1_700_000_000_999));
+    }
+}
+
+#[cfg(test)]
+mod ambient_tests {
+    use super::*;
+    use std::sync::Arc;
+    use crate::operator_registry::OperatorRegistry;
+    use crate::teammate::task_supervisor::{MessageEmitter, TaskSupervisor};
+    use crate::teammate::types::TaskMessage;
+
+    struct NoopEmitter;
+    impl MessageEmitter for NoopEmitter {
+        fn emit_message(&self, _msg: &TaskMessage) {}
+    }
+
+    fn fresh_storage() -> (Arc<Storage>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let s = Storage::open(&path).expect("open");
+        (Arc::new(s), dir)
+    }
+
+    fn supervisor_for(storage: Arc<Storage>) -> Arc<TaskSupervisor> {
+        let runtime = Arc::new(crate::teammate::TeammateRuntime::new());
+        Arc::new(TaskSupervisor::new(
+            storage,
+            runtime,
+            Arc::new(NoopEmitter) as Arc<dyn MessageEmitter>,
+        ))
+    }
+
+    /// The registry's for_tests() default operator must exist as an
+    /// operators row before inserting a task (FK). Persist it.
+    async fn persist_default_operator(storage: &Arc<Storage>, registry: &Arc<OperatorRegistry>) {
+        let session = karl_session::SessionId::new();
+        let op = registry.effective_for(session);
+        storage.operator_insert(crate::operator_registry::Operator {
+            id: op.id, name: op.name.clone(), emoji: op.emoji.clone(), color: op.color.clone(),
+            tags: op.tags.clone(), persona: op.persona.clone(),
+            escalate_threshold: op.escalate_threshold, model: op.model.clone(),
+            hard_constraints: op.hard_constraints.clone(), voice: op.voice,
+            is_default: op.is_default,
+            created_at_unix_ms: op.created_at_unix_ms, updated_at_unix_ms: op.updated_at_unix_ms,
+            xp: op.xp, soul_path: op.soul_path.clone(), soul_mtime_unix_ms: op.soul_mtime_unix_ms,
+        }).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn double_live_creates_exactly_one_ambient_task() {
+        let (storage, _g) = fresh_storage();
+        let registry = OperatorRegistry::for_tests("Pi");
+        persist_default_operator(&storage, &registry).await;
+        let supervisor = supervisor_for(storage.clone());
+        let session = karl_session::SessionId::new();
+
+        let (id1, created1) =
+            ensure_ambient_task_inner(&storage, &registry, &supervisor, session).await.unwrap();
+        assert!(created1, "first call creates the task");
+        let (id2, created2) =
+            ensure_ambient_task_inner(&storage, &registry, &supervisor, session).await.unwrap();
+        assert!(!created2, "second call dedups");
+        assert_eq!(id1, id2, "same task id returned");
+
+        let op = registry.effective_for(session);
+        let tasks = storage.teammate_list_tasks_for_operator(op.id).await.unwrap();
+        let ambient_count = tasks.iter().filter(|t| t.ambient && t.spawned_session == Some(session)).count();
+        assert_eq!(ambient_count, 1, "exactly one ambient task for the session");
+    }
+
+    #[tokio::test]
+    async fn restart_with_existing_active_row_does_not_duplicate() {
+        let (storage, _g) = fresh_storage();
+        let registry = OperatorRegistry::for_tests("Pi");
+        persist_default_operator(&storage, &registry).await;
+        let session = karl_session::SessionId::new();
+        let op = registry.effective_for(session);
+
+        // Simulate a row left over from a prior run.
+        let pre = crate::teammate::Task {
+            id: crate::teammate::TaskId::new(),
+            operator_id: op.id,
+            archetype: crate::teammate::TaskArchetype::Watch,
+            title: "Watching Pi".into(),
+            body: String::new(),
+            deliverable: String::new(),
+            status: crate::teammate::TaskStatus::Active,
+            scope: crate::teammate::TaskScope::default(),
+            spawned_session: Some(session),
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 1,
+            completed_at_unix_ms: None,
+            cost_usd_cents: 0,
+            ambient: true,
+        };
+        let pre_id = pre.id;
+        storage.teammate_insert_task(&pre).await.unwrap();
+
+        // Fresh supervisor (as after a restart) → ensure must reuse the row.
+        let supervisor = supervisor_for(storage.clone());
+        let (id, created) =
+            ensure_ambient_task_inner(&storage, &registry, &supervisor, session).await.unwrap();
+        assert!(!created, "existing active row is reused, not recreated");
+        assert_eq!(id, pre_id);
+
+        let tasks = storage.teammate_list_tasks_for_operator(op.id).await.unwrap();
+        assert_eq!(
+            tasks.iter().filter(|t| t.ambient && t.spawned_session == Some(session)).count(),
+            1,
+        );
     }
 }

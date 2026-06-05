@@ -894,15 +894,40 @@ async fn is_operator_enabled(
 /// types replies into the PTY (after passing the safety blocklist),
 /// instead of just logging proposed decisions. Requires `enabled=true`
 /// to take effect — both must be on for any byte to be injected.
+///
+/// Phase 2: emits `operator-status` immediately on the flip (via
+/// `set_live_and_emit`) so the strip/status bar don't wait for the tick.
+/// Phase 3: on a `live=true` transition, ensures exactly one ambient
+/// operator "watch" task exists for the session (dedup + register).
 #[tauri::command]
 async fn set_operator_live(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    storage: State<'_, std::sync::Arc<Storage>>,
+    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    supervisor: State<'_, std::sync::Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     session_id: String,
     live: bool,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
+    // Phase 2: flip + change-only operator-status emit.
     state.operator.set_live_and_emit(&app, id, live).await;
+    // Phase 3: a session going live gets one ambient watch task. We only
+    // create on the rising edge; turning live off leaves the task for its
+    // own lifecycle (BlockFinished updates, MissionCompleted → Done).
+    if live {
+        if let Err(e) = crate::teammate::commands::ensure_ambient_task(
+            &app,
+            storage.inner(),
+            registry.inner(),
+            supervisor.inner(),
+            id,
+        )
+        .await
+        {
+            tracing::warn!(error = %e, session = %id, "ensure_ambient_task failed");
+        }
+    }
     Ok(())
 }
 
@@ -1387,7 +1412,13 @@ async fn operator_phase_overview(
 }
 
 #[tauri::command]
-async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
+async fn aom_start(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    storage: State<'_, std::sync::Arc<Storage>>,
+    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    supervisor: State<'_, std::sync::Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
+) -> Result<AomStatus, String> {
     // Read budget from settings ONCE at start time so a mid-session
     // settings change doesn't shift the cap underneath the user.
     let budget = state.settings.lock().await.aom.default_budget_usd;
@@ -1401,7 +1432,7 @@ async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // which tabs we touched so `aom_stop` reverts exactly them
     // (manually enabled tabs keep their user choice). The frontend
     // refreshes per-tab state after the toggle resolves.
-    let _auto_enabled = state.operator.enable_all_for_aom().await;
+    let auto_enabled = state.operator.enable_all_for_aom().await;
     // Queue proactive startup actions: claude /rename, bypass-exit,
     // etc. These fire later in run_tick when conditions are met.
     state.operator.queue_aom_startup_actions().await;
@@ -1418,15 +1449,36 @@ async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
         }
     };
 
-    let mut s = state.aom.write().await;
-    s.enabled = true;
-    s.started_at_unix_ms = started_at;
-    s.decisions_count = 0;
-    s.budget_usd = budget;
-    s.accumulated_cost_usd = 0.0;
-    s.cost_cap_hit_at_unix_ms = None;
-    s.current_session_row_id = row_id;
-    tracing::info!(budget_usd = budget, row_id = ?row_id, "AOM started");
+    {
+        let mut s = state.aom.write().await;
+        s.enabled = true;
+        s.started_at_unix_ms = started_at;
+        s.decisions_count = 0;
+        s.budget_usd = budget;
+        s.accumulated_cost_usd = 0.0;
+        s.cost_cap_hit_at_unix_ms = None;
+        s.current_session_row_id = row_id;
+        tracing::info!(budget_usd = budget, row_id = ?row_id, "AOM started");
+    } // drop the aom write lock before the ambient sweep (lock order)
+
+    // Phase 3: one ambient watch task per session AOM just made live.
+    // Dedup in ensure_ambient_task means a manually-live tab that already
+    // has one is reused, not duplicated.
+    for session in auto_enabled {
+        if let Err(e) = crate::teammate::commands::ensure_ambient_task(
+            &app,
+            storage.inner(),
+            registry.inner(),
+            supervisor.inner(),
+            session,
+        )
+        .await
+        {
+            tracing::warn!(error = %e, session = %session, "aom ambient task failed");
+        }
+    }
+
+    let s = state.aom.read().await;
     Ok(AomStatus::from(&*s))
 }
 
