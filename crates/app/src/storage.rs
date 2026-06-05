@@ -1106,7 +1106,12 @@ impl Storage {
             let mut recent = Vec::new();
             for row in rows {
                 let (command, exit_code, output_text) = row?;
-                recent.push(RecentBlockDto { command, exit_code, tail: tail_4kb(&output_text) });
+                // Mask credentials before this excerpt reaches an LLM (CLAUDE.md rule #7).
+                recent.push(RecentBlockDto {
+                    command: crate::secrets::mask_secrets(&command),
+                    exit_code,
+                    tail: crate::secrets::mask_secrets(&tail_4kb(&output_text)),
+                });
             }
             // Surface oldest-first so the reader sees chronological order.
             recent.reverse();
@@ -3023,6 +3028,36 @@ mod tests {
 
         let (sessions, blocks) = s.counts().await.unwrap();
         assert_eq!((sessions, blocks), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn read_session_excerpt_masks_secrets() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1).await.unwrap();
+        s.save_block(
+            BlockId::new(),
+            session,
+            "curl -H 'Authorization: Bearer ghp_abcdefghijklmnopqrstuvwx1234' x".to_string(),
+            Some("/tmp".to_string()),
+            Some(0),
+            10,
+            100,
+            "leaked sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA in output\n".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let dto = s.read_session_excerpt(session.to_string(), 10).await.unwrap();
+        let block = &dto.recent[0];
+        assert!(
+            !block.command.contains("ghp_abcdefghijklmnopqrstuvwx1234"),
+            "command secret leaked: {}",
+            block.command
+        );
+        assert!(block.command.contains("[REDACTED:github]"), "cmd: {}", block.command);
+        assert!(!block.tail.contains("sk-ant-api03"), "tail secret leaked: {}", block.tail);
+        assert!(block.tail.contains("[REDACTED:anthropic]"), "tail: {}", block.tail);
     }
 
     async fn insert_finished_block(s: &Storage, session: SessionId, cmd: &str, finished: u64) {

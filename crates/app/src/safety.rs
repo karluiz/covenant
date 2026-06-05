@@ -273,41 +273,14 @@ fn check_credential_shape(text: &str) -> Option<BlockedReason> {
     None
 }
 
-/// Replace anything that looks like a credential with `[REDACTED:kind]`.
-/// Uses the same patterns as `check_credential_shape`. Idempotent
-/// (already-redacted strings won't match again).
+/// Replace anything that looks like a credential with `[REDACTED:<kind>]`.
+///
+/// Delegates to the canonical [`crate::secrets::mask_secrets`] so the two
+/// maskers never diverge. Kept as a thin alias because existing call sites
+/// (`teammate::tools::read_terminal_screen`, operator-mind masking) reference
+/// `safety::mask_secrets`.
 pub fn mask_secrets(text: &str) -> String {
-    static REGEXES: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
-    let regexes = REGEXES.get_or_init(|| {
-        vec![
-            (
-                Regex::new(r"sk-ant-[A-Za-z0-9_\-]{16,}").unwrap(),
-                "anthropic",
-            ),
-            (
-                Regex::new(r"sk-(proj-)?[A-Za-z0-9_\-]{20,}").unwrap(),
-                "openai",
-            ),
-            (Regex::new(r"gh[pousr]_[A-Za-z0-9]{20,}").unwrap(), "github"),
-            (Regex::new(r"\b(AKIA|ASIA)[0-9A-Z]{16}\b").unwrap(), "aws"),
-            (
-                Regex::new(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\b")
-                    .unwrap(),
-                "jwt",
-            ),
-            (
-                Regex::new(r"-----BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY-----").unwrap(),
-                "pem",
-            ),
-        ]
-    });
-    let mut out = text.to_string();
-    for (re, kind) in regexes.iter() {
-        out = re
-            .replace_all(&out, format!("[REDACTED:{kind}]"))
-            .into_owned();
-    }
-    out
+    crate::secrets::mask_secrets(text)
 }
 
 #[cfg(test)]

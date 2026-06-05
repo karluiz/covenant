@@ -106,7 +106,10 @@ pub fn render(snapshots: &[SessionSnapshot]) -> String {
             render_session_brief(&mut out, s);
         }
     }
-    out
+    // Mask credential-shaped runs before any of this reaches the LLM (CLAUDE.md
+    // rule #7). Applied to the whole assembled context so summaries, commands,
+    // cwds and block tails are all covered in one place.
+    crate::secrets::mask_secrets(&out)
 }
 
 fn render_session_full(out: &mut String, s: &SessionSnapshot) {
@@ -262,6 +265,25 @@ mod tests {
         assert!(out.contains("currently running"));
         assert!(out.contains("npm run dev"));
         assert!(out.contains("elapsed 5s"));
+    }
+
+    #[test]
+    fn masks_secrets_in_rendered_context() {
+        let id = SessionId::new();
+        let w = world_with(
+            "/tmp/x",
+            Some("user pasted sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA into the prompt"),
+            vec![("echo ghp_abcdefghijklmnopqrst1234", 0)],
+        );
+        let snap = project(id, &w, true, 0);
+        let out = render(&[snap]);
+        assert!(!out.contains("sk-ant-api03"), "summary secret leaked: {out}");
+        assert!(
+            !out.contains("ghp_abcdefghijklmnopqrst1234"),
+            "command secret leaked: {out}"
+        );
+        assert!(out.contains("[REDACTED:anthropic]"), "got: {out}");
+        assert!(out.contains("[REDACTED:github]"), "got: {out}");
     }
 
     #[test]

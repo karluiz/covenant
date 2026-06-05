@@ -50,6 +50,7 @@ mod score_auth_commands;
 mod score_commands;
 mod score_sync_commands;
 mod scrollback;
+mod secrets;
 pub mod settings;
 mod favorites_commands;
 mod spawns_commands;
