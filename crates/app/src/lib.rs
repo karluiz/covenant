@@ -3247,6 +3247,28 @@ pub fn run() {
                 });
             }
 
+            // Phase 3 bridge: MissionCompleted is published only on the
+            // escalation bus (operator.rs), but the TaskSupervisor listens on
+            // supervisor_bus_tx. Forward MissionCompleted across so the
+            // supervisor's Done arm fires for ambient operator tasks.
+            {
+                let mut rx = escalation_bus_tx.subscribe();
+                let to_supervisor = supervisor_bus_tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    use karl_session::SessionEvent;
+                    loop {
+                        match rx.recv().await {
+                            Ok(ev @ SessionEvent::MissionCompleted { .. }) => {
+                                let _ = to_supervisor.send(ev);
+                            }
+                            Ok(_) => {}
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        }
+                    }
+                });
+            }
+
             // Telegram inbound: long-poll loop emits InboundEvent into a
             // channel; the drain task republishes Resolved as
             // EscalationResolved on the bus and, for FreeText, types the

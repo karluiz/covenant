@@ -154,6 +154,23 @@ impl Inner {
         }
         out
     }
+
+    /// Pure: a mission finished for `session`. If a registered (ambient or
+    /// otherwise) task is attached, transition it to Done and unregister
+    /// the session — its work is over, so further `BlockFinished` on that
+    /// session must not re-block a completed task. Returns the decision the
+    /// bus loop should persist + emit, or None when no task is attached.
+    pub fn mission_completed(&mut self, session: SessionId) -> Option<(TaskCtx, Decision)> {
+        let ctx = self.by_session.remove(&session)?;
+        Some((
+            ctx,
+            Decision::Transition {
+                new_status: TaskStatus::Done,
+                kind: UpdateKind::Completed,
+                sentiment: Sentiment::Feliz,
+            },
+        ))
+    }
 }
 
 /// Sink for synth `TaskMessage`s the supervisor produces. Production
@@ -232,6 +249,19 @@ impl TaskSupervisor {
                     let decision = {
                         let mut g = self.inner.lock();
                         g.observe_block_finished(session, &command, exit_code, Instant::now())
+                    };
+                    if let Some((ctx, d)) = decision {
+                        self.apply_decision(ctx, d).await;
+                    }
+                }
+                Ok(karl_session::SessionEvent::MissionCompleted { session, .. }) => {
+                    // Phase 3: a finished mission closes the session's ambient
+                    // task. Bridged in from escalation_bus_tx (see lib.rs
+                    // forwarder) since MissionCompleted is published there, not
+                    // on the supervisor bus.
+                    let decision = {
+                        let mut g = self.inner.lock();
+                        g.mission_completed(session)
                     };
                     if let Some((ctx, d)) = decision {
                         self.apply_decision(ctx, d).await;
@@ -426,5 +456,29 @@ mod tests {
         let _ = inner.tick(t + Duration::from_secs(5 * 60 + 1));
         let again = inner.tick(t + Duration::from_secs(5 * 60 + 30));
         assert!(again.is_empty());
+    }
+
+    #[test]
+    fn mission_completed_transitions_registered_task_to_done() {
+        let mut inner = Inner::new(Duration::from_secs(60));
+        let (o, task) = (op(), TaskId::new());
+        let s = SessionId::new();
+        inner.register(s, ctx(o, task));
+        let (c, d) = inner.mission_completed(s).expect("registered task → decision");
+        assert_eq!(c.task_id, task);
+        assert_eq!(d, Decision::Transition {
+            new_status: TaskStatus::Done,
+            kind: UpdateKind::Completed,
+            sentiment: Sentiment::Feliz,
+        });
+        // Session is now unregistered: a later BlockFinished must not re-block.
+        assert!(inner.observe_block_finished(s, "cargo test", Some(1), Instant::now()).is_none());
+    }
+
+    #[test]
+    fn mission_completed_unknown_session_is_none() {
+        let mut inner = Inner::new(Duration::from_secs(60));
+        let s = SessionId::new();
+        assert!(inner.mission_completed(s).is_none());
     }
 }
