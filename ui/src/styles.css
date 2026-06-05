@@ -5789,6 +5789,18 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     color: var(--text-primary);
 }
 
+/* Operator attribution chip (Phase 3) — who fired this decision. */
+.aom-feed-op {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.82em;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--accent-soft, rgba(111, 123, 255, 0.16));
+    color: var(--accent, #6f7bff);
+}
+
 .aom-feed-title {
     text-transform: uppercase;
     font-weight: 600;
@@ -17208,6 +17220,18 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
   font-size: 10.5px;
   color: var(--text-dim, #8b8d94);
   letter-spacing: 0.02em;
+}
+/* Operator attribution chip (Phase 3) — NULL-safe (omitted when absent). */
+.tp-act-row .tp-act-op {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent-soft, rgba(111, 123, 255, 0.16));
+  color: var(--accent, #6f7bff);
+  white-space: nowrap;
 }
 .tp-act-row .tp-act-body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

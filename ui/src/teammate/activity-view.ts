@@ -50,6 +50,9 @@ interface ActEvent {
   body: string;
   cost: number;
   sessionShort: string;
+  // Operator display name at decision time (Phase 3 attribution).
+  // Null for pre-attribution rows / sessions with no operator.
+  operatorName: string | null;
 }
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -248,6 +251,7 @@ export class ActivityView {
             body: e.action,
             cost: 0,
             sessionShort: shortSession(e.session_id),
+            operatorName: null,
           });
           this.sortAndCap();
           this.scheduleRender();
@@ -301,6 +305,7 @@ export class ActivityView {
       body,
       cost: (r as { cost_usd?: number }).cost_usd ?? 0,
       sessionShort: shortSession(r.session_id_short ?? ""),
+      operatorName: r.operator_name ?? null,
     });
   }
 
@@ -314,6 +319,7 @@ export class ActivityView {
       body,
       cost: d.cost_usd ?? 0,
       sessionShort: shortSession(d.session_id),
+      operatorName: d.operator_name ?? null,
     });
   }
 
@@ -556,6 +562,13 @@ export class ActivityView {
 
 /* ── row renderers (module-scope, no class state needed) ─────────── */
 
+/** NULL-safe operator chip for an activity row. Empty string when no
+ *  operator name (pre-attribution rows / sessions with no operator). */
+export function operatorChipHtml(name: string | null): string {
+  if (!name) return "";
+  return `<span class="tp-act-op">${escapeHtml(name)}</span>`;
+}
+
 function renderSingle(e: ActEvent, now: number, outlierThreshold: number): string {
   const cls = `tp-act-row tp-act-row--${e.kind}`;
   const time = relativeTime(e.ts, now);
@@ -573,6 +586,7 @@ function renderSingle(e: ActEvent, now: number, outlierThreshold: number): strin
       <span class="tp-act-time">${escapeHtml(time)}</span>
       <span class="tp-act-ico" aria-hidden="true">${iconFor(e.kind)}</span>
       <span class="tp-act-kind">${labelFor(e.kind)}</span>
+      ${operatorChipHtml(e.operatorName)}
       <span class="tp-act-body">${bodyHtml}</span>
       ${costHtml}
     </div>
@@ -602,6 +616,7 @@ function renderRun(events: ActEvent[], now: number, outlierThreshold: number): s
       <span class="tp-act-time">${escapeHtml(time)}</span>
       <span class="tp-act-ico" aria-hidden="true">${iconFor(head.kind)}</span>
       <span class="tp-act-kind">${labelFor(head.kind)}</span>
+      ${operatorChipHtml(head.operatorName)}
       <span class="tp-act-body">
         ${bodyHtml}
         <span class="tp-act-runpill">× ${events.length}</span>
