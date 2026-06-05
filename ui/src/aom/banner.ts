@@ -356,6 +356,15 @@ export class AomBanner {
   getPhase(): OperatorPhaseSnapshot {
     return this.phase;
   }
+
+  /// Phase 2: nudge the phase ticker from a per-session `operator-status`
+  /// event so the banner doesn't wait up to 1s for its own poll. The poll
+  /// stays as the source of truth for the *global* rollup; this just
+  /// repaints sooner. No-op while AOM is off (banner hidden).
+  nudgePhase(): void {
+    if (!this.status.enabled) return;
+    void this.tickPhase();
+  }
 }
 
 /// Render `phase + elapsed` for the AOM banner. The elapsed counter is

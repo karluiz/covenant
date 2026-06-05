@@ -39,6 +39,21 @@ export interface Pane {
   spawn_id: string | null;
   idleAgent: IdleAgentState | null;
   busyProc: string | null;
+  /// Live operator phase for the strip / status bar, fed by the
+  /// `operator-status` event (Phase 2). Null until the first event for
+  /// this pane's session.
+  operatorPhase: import("../api").OperatorPhase | null;
+  /// `phaseSinceUnixMs` from the last `operator-status` event — drives the
+  /// "deciding 12s" elapsed counter.
+  phaseSince: number | null;
+  operatorName: string | null;
+  operatorEmoji: string | null;
+  /// Most recent command seen on this pane's session (from `block_started`).
+  /// Feeds `listOpenSessions().last_command`. Null until the first command.
+  lastCommand: string | null;
+  /// Count of finished blocks on this pane's session. Feeds
+  /// `listOpenSessions().block_count`.
+  blockCount: number;
   replayKey: string;
   /// DOM container for this pane (the .pane-host div).
   /// Null only briefly during construction before mounting.

@@ -25,6 +25,8 @@ import { renderCardSegments } from "./card";
 import { renderTaskCard, type TaskLifecycleEvent } from "./task-card";
 import { ActivityView } from "./activity-view";
 import { AomActivityFeed } from "../aom/activity-feed";
+import { OperatorStrip } from "./operator-strip";
+import type { OperatorStatus } from "../api";
 import { listSpawns } from "../spawns/api";
 
 const CHEVRON_DOWN_SVG =
@@ -301,6 +303,7 @@ export class TeammatePanel {
   private mentionPopup: MentionPopup | null = null;
   private activityView: ActivityView | null = null;
   private activityEl: HTMLElement | null = null;
+  private operatorStrip: OperatorStrip | null = null;
 
   constructor(host: HTMLElement, deps: TeammatePanelDeps = DEFAULT_DEPS) {
     this.host = host;
@@ -308,6 +311,18 @@ export class TeammatePanel {
   }
 
   isOpen(): boolean { return this.operator !== null; }
+
+  /// Push one `operator-status` event into the per-pane strip. Called by
+  /// main.ts's `operator-status` listener. Safe before the header mounts
+  /// (no-op until the strip exists).
+  setOperatorStatus(s: OperatorStatus): void {
+    this.operatorStrip?.apply(s);
+  }
+
+  /// Drop a closed session's row from the strip.
+  removeOperatorStatus(sessionId: string): void {
+    this.operatorStrip?.remove(sessionId);
+  }
 
   /// Resolve the executor command of the spawn marked `default` in
   /// spawns.json and cache it for buildTaskInjection(). Non-fatal: on any
@@ -717,6 +732,18 @@ export class TeammatePanel {
       ${CHEVRON_DOWN_SVG}
     `;
     h.addEventListener("click", () => this.toggleSwitcher());
+    // Per-pane operator status strip (Phase 2). Lives under the header so
+    // it's always visible above the thread, fed by `operator-status`. It
+    // wraps onto its own full-width row via flex-wrap + order:99, so it
+    // renders below the avatar cluster regardless of DOM order. Inserted
+    // BEFORE the trailing chevron to keep the chevron the last element
+    // child (a header invariant asserted in panel.test.ts).
+    const stripHost = document.createElement("div");
+    stripHost.className = "teammate-panel-operator-strip-host";
+    const chevron = h.querySelector(".teammate-panel-header-chevron");
+    if (chevron) h.insertBefore(stripHost, chevron);
+    else h.appendChild(stripHost);
+    this.operatorStrip = new OperatorStrip(stripHost);
     this.headerEl = h;
     return h;
   }
