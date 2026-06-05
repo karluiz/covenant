@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.53 — File explorer colored per-type icons + browser WIP
+
+### Added
+
+- **VSCode-style colored file/folder icons**: the structure tree no longer
+  renders a single generic page glyph for every file. A new pure, data-driven
+  resolver maps a filename (or folder name + open state) to `{ svg, color }`
+  with muted/desaturated tints per type — TS/JS/Rust/JSON/CSS/Markdown/Python
+  and more, plus special glyphs for `package.json`, lockfiles, dotfile config
+  (`.gitignore`, `.eslintignore`, …), and well-known folders (`.github`,
+  `src`, `public`, `docs`, `node_modules`). Folders swap to an open-folder
+  glyph on expand. Icon-only tinting via `el.style.color` leaves label and
+  active-row styling untouched. New `ui/src/structure/file-icons.ts` (with
+  unit tests), 11 new glyphs in `ui/src/icons/index.ts`, wired at all three
+  call sites in `ui/src/structure/tree.ts`.
+
+- **Internal browser pane (in progress)**: additional plumbing for the
+  native-webview browser pane and its tab/context-menu integration.
+  `crates/app/src/browser.rs`, `crates/app/src/lib.rs`, `ui/src/browser/pane.ts`,
+  `ui/src/menu/context-menu.ts`, `ui/src/tabs/manager.ts`, `ui/src/api.ts`,
+  plus Telegram outbound additions in `crates/app/src/telegram/outbound.rs`.
+
 ## v0.8.52 — Browser tabs no longer read as terminals; notch hides in fullscreen
 
 ### Fixed
