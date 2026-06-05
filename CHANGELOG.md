@@ -6,6 +6,39 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.55 — Operator awareness: the teammate sees live operator state
+
+### Added
+
+- **Operator awareness in chat**: the teammate (Zeta) now reads a per-session
+  projection of each tab's operator — who it is, its phase
+  (observing/deciding/triaging/yielded), goal/belief/next-intent, last decision,
+  AOM cost, and attached mission — so it can answer "what is the operator doing?"
+  instead of saying nothing. Built as a single
+  `OperatorWatcher::per_session_status` projection (`crates/app/src/operator.rs`)
+  injected into the teammate context (`crates/app/src/teammate/world_snapshot.rs`,
+  `commands.rs`) behind a cache-stable system directive (`teammate/llm.rs`).
+
+- **Live per-pane operator status strip**: a change-only `operator-status` Tauri
+  event (emitted from the operator tick, the live toggle, and operator swap)
+  drives a per-pane strip in the teammate panel and a phase suffix in the status
+  bar, updated without polling (`crates/app/src/operator.rs`,
+  `ui/src/teammate/operator-strip.ts`, `ui/src/tabs/pane.ts`, `ui/src/main.ts`,
+  `ui/src/status/bar.ts`).
+
+- **Secret-mask sanitizer**: a canonical `secrets::mask_secrets`
+  (`crates/app/src/secrets.rs`) now scrubs credential-shaped text (`sk-…`,
+  `ghp_…`, JWTs, `Bearer …`, PEM) from every operator/terminal seam that reaches
+  an LLM — world-model render, session excerpts, and the live screen tool;
+  `safety::mask_secrets` delegates to it.
+
+- **Auto Activity + ambient tasks**: operator decisions now carry operator
+  identity so the Activity feed renders an operator chip, and going live (or AOM
+  start) auto-creates one deduped ambient watch-task per operator/session (new
+  `ambient` column on `teammate_tasks`), with `MissionCompleted` bridged into the
+  task supervisor to drive it to Done (`crates/app/src/teammate/commands.rs`,
+  `teammate/task_supervisor.rs`, `storage.rs`).
+
 ## v0.8.54 — Pane context-menu position fix under UI zoom
 
 ### Fixed
