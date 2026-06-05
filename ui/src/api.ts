@@ -399,6 +399,10 @@ export interface Task {
   updated_at_unix_ms: number;
   completed_at_unix_ms: number | null;
   cost_usd_cents: number;
+  // True for auto-spawned ambient operator watch tasks (Phase 3).
+  // Renders in the Tasks/Activity tabs only, never the chat thread.
+  // Optional keeps any cached/older teammate-task payloads valid.
+  ambient?: boolean;
 }
 
 export type TeammateContent =

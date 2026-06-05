@@ -14,11 +14,6 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { Icons } from "../icons";
 
-// TODO(task-17): once `operator-decision` events carry `operator_id`
-// (the AFK overlay already opts-in via the typed field), prepend
-// `renderOperatorChip(operator, 'sm')` to each card. Today the
-// activity-feed event shape doesn't include the operator entity, so
-// we can't render the chip without fabricating types.
 interface DecisionEvent {
   id: number | null;
   session_id: string;
@@ -29,6 +24,10 @@ interface DecisionEvent {
   executed: boolean;
   cost_usd: number;
   timestamp_unix_ms: number;
+  // Operator that fired this decision (Phase 3 attribution). Null on
+  // sessions with no operator attached or pre-attribution events.
+  operator_id?: string | null;
+  operator_name?: string | null;
 }
 
 interface StartupActionEvent {
@@ -146,7 +145,7 @@ export class AomActivityFeed {
     }
     const tabSlug = shortSession(d.session_id);
     const cost = d.cost_usd > 0 ? `$${d.cost_usd.toFixed(3)}` : "";
-    this.pushCard({ cls, icon, title, body, tabSlug, cost });
+    this.pushCard({ cls, icon, title, body, tabSlug, cost, operatorName: d.operator_name });
   }
 
   private pushStartup(e: StartupActionEvent): void {
@@ -167,6 +166,7 @@ export class AomActivityFeed {
     body: string;
     tabSlug: string;
     cost: string;
+    operatorName?: string | null;
   }): void {
     // When the Activity tab in the teammate panel is handling decisions,
     // suppress the floating toast so notifications aren't duplicated.
@@ -174,9 +174,13 @@ export class AomActivityFeed {
 
     const card = document.createElement("div");
     card.className = `aom-feed-card aom-feed-${opts.cls}`;
+    const opChip = opts.operatorName
+      ? `<span class="aom-feed-op">${escapeHtml(opts.operatorName)}</span>`
+      : "";
     card.innerHTML = `
       <span class="aom-feed-icon">${opts.icon}</span>
       <span class="aom-feed-meta">
+        ${opChip}
         <span class="aom-feed-tab">…${escapeHtml(opts.tabSlug)}</span>
         <span class="aom-feed-title">${escapeHtml(opts.title)}</span>
         ${opts.cost ? `<span class="aom-feed-cost">${escapeHtml(opts.cost)}</span>` : ""}

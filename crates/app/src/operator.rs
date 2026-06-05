@@ -3511,6 +3511,8 @@ async fn run_tick(
                 "executed": executed,
                 "cost_usd": call_cost_usd,
                 "timestamp_unix_ms": now_unix_ms(),
+                "operator_id": op.id.to_string(),
+                "operator_name": op.name.clone(),
             }),
         );
 
