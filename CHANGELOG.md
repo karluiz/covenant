@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.54 — Pane context-menu position fix under UI zoom
+
+### Fixed
+
+- **Pane right-click menu drifted under UI zoom**: the pane context menu
+  set its fixed `left`/`top` from raw `clientX`/`clientY`, but the app's CSS
+  `zoom` on `<html>` scales those local coordinates by the zoom factor, so
+  the menu appeared `clientX × zoom` to the right/down of the cursor when
+  zoomed in. It now divides by `zoom.level()` for both initial placement and
+  the viewport clamp, matching the correction the shared `ContextMenu`
+  already applied (`ui/src/tabs/manager.ts`).
+
 ## v0.8.53 — File explorer colored per-type icons + browser WIP
 
 ### Added
