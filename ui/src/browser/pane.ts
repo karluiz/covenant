@@ -15,6 +15,9 @@ export class BrowserPane {
   private ro: ResizeObserver;
   private unlistenNav?: () => void;
   private opened = false;
+  private frozen = false;
+  private freezeGen = 0;
+  private freezeImg: HTMLImageElement | null = null;
 
   constructor(
     private readonly tabId: string,
@@ -104,6 +107,43 @@ export class BrowserPane {
 
   show(): void {
     if (this.opened) { void browser.show(this.tabId); this.syncBounds(); }
+  }
+  /// Freeze the page: snapshot the native webview into a DOM <img> stand-in
+  /// and hide the real webview, so DOM overlays (context menus) can paint
+  /// over the frozen frame — the OS compositor always paints a live
+  /// webview above all DOM, so this is the only way a menu can sit on top
+  /// while the page stays visible. Restored by unfreeze(). If the snapshot
+  /// fails (non-macOS, error), we still hide so the menu stays usable.
+  async freeze(): Promise<void> {
+    if (!this.opened || this.frozen) return;
+    this.frozen = true;
+    const gen = ++this.freezeGen;
+    let dataUrl: string | null = null;
+    try {
+      dataUrl = await browser.snapshot(this.tabId);
+    } catch {
+      dataUrl = null;
+    }
+    // Unfrozen (menu closed) while the snapshot was in flight — abort
+    // without hiding so the live page is never disturbed.
+    if (gen !== this.freezeGen) return;
+    if (dataUrl) {
+      const img = document.createElement("img");
+      img.className = "browser-freeze";
+      img.src = dataUrl;
+      this.freezeImg = img;
+      this.viewport().appendChild(img);
+    }
+    void browser.hide(this.tabId);
+  }
+  unfreeze(): void {
+    if (!this.frozen) return;
+    this.frozen = false;
+    this.freezeGen++; // invalidate any in-flight freeze()
+    this.freezeImg?.remove();
+    this.freezeImg = null;
+    void browser.show(this.tabId);
+    this.syncBounds();
   }
   hide(): void {
     if (this.opened) void browser.hide(this.tabId);

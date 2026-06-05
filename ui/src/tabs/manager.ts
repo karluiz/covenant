@@ -1511,6 +1511,20 @@ export class TabManager {
     private readonly onAllTabsClosed: () => void,
   ) {
     this.menu = new ContextMenu(document.body);
+
+    // A context menu is plain DOM; the internal browser is a native
+    // webview that the OS compositor paints above all DOM regardless of
+    // z-index. The webview can't be covered by DOM, so while a menu is
+    // open we freeze the active browser into a snapshot <img> and hide
+    // the real webview — the menu then renders over the frozen page.
+    // Restored on dismiss.
+    ContextMenu.onMenusChanged = (bounds): void => {
+      const active = this.tabs.find((t) => t.id === this.activeId);
+      if (active?.kind !== "browser") return;
+      if (bounds) void active.browser?.freeze();
+      else active.browser?.unfreeze();
+    };
+
     newTabBtn.addEventListener("click", () => {
       void this.createTab();
     });

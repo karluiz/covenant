@@ -2205,6 +2205,8 @@ export const browser = {
   setBounds: (tabId: string, bounds: BrowserBounds) => invoke<void>("browser_set_bounds", { tabId, bounds }),
   show: (tabId: string) => invoke<void>("browser_show", { tabId }),
   hide: (tabId: string) => invoke<void>("browser_hide", { tabId }),
+  /// PNG data URL of the webview's current frame (macOS only; rejects elsewhere).
+  snapshot: (tabId: string) => invoke<string>("browser_snapshot", { tabId }),
   close: (tabId: string) => invoke<void>("browser_close", { tabId }),
   onNav: (tabId: string, cb: (n: BrowserNav) => void) =>
     listen<{ url: string; title: string; can_go_back: boolean; can_go_forward: boolean; loading: boolean }>(
