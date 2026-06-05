@@ -1259,8 +1259,13 @@ export class TabManager {
     const menu = document.createElement("div");
     menu.className = "pane-context-menu";
     menu.style.position = "fixed";
-    menu.style.top = `${y}px`;
-    menu.style.left = `${x}px`;
+    // The app applies CSS `zoom` to <html>. WebKit reports MouseEvent
+    // client coords in visual (zoomed) px, but a fixed element's left/top
+    // are local px scaled by zoom — so we must divide the click position by
+    // the zoom level, else the menu lands `x * zoom` to the right/down.
+    const z = zoom.level();
+    menu.style.top = `${y / z}px`;
+    menu.style.left = `${x / z}px`;
 
     const dismiss = () => {
       menu.remove();
@@ -1347,13 +1352,16 @@ export class TabManager {
     document.body.appendChild(menu);
 
     // Clamp into the viewport — sections can make the menu tall/wide.
+    // getBoundingClientRect() and window.inner* are both in visual px, so the
+    // comparisons hold; the corrective left/top we write are local px, hence
+    // the `/ z` (see the positioning note above).
     const rect = menu.getBoundingClientRect();
     const margin = 8;
     if (rect.bottom > window.innerHeight - margin) {
-      menu.style.top = `${Math.max(margin, window.innerHeight - margin - rect.height)}px`;
+      menu.style.top = `${Math.max(margin, window.innerHeight - margin - rect.height) / z}px`;
     }
     if (rect.right > window.innerWidth - margin) {
-      menu.style.left = `${Math.max(margin, window.innerWidth - margin - rect.width)}px`;
+      menu.style.left = `${Math.max(margin, window.innerWidth - margin - rect.width) / z}px`;
     }
 
     // Dismiss on outside click or Escape.
