@@ -5789,18 +5789,6 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     color: var(--text-primary);
 }
 
-/* Operator attribution chip (Phase 3) — who fired this decision. */
-.aom-feed-op {
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.82em;
-    padding: 0 5px;
-    border-radius: 4px;
-    background: var(--accent-soft, rgba(111, 123, 255, 0.16));
-    color: var(--accent, #6f7bff);
-}
-
 .aom-feed-title {
     text-transform: uppercase;
     font-weight: 600;
@@ -10704,20 +10692,6 @@ body.tabbar-left .tab-btn.active .tab-op-chip-leading .tab-op-avatar-wrap::befor
 .status-chip-operator__name {
   font-weight: 500;
   letter-spacing: 0.01em;
-}
-/* Live operator phase suffix ("· deciding") fed by the operator-status
-   event. Muted, lowercase, with a leading middot so it reads as a
-   secondary detail attached to the name. */
-.status-chip-operator__phase {
-  font-size: 11px;
-  font-weight: 400;
-  opacity: 0.62;
-  letter-spacing: 0.01em;
-}
-.status-chip-operator__phase::before {
-  content: "·";
-  margin: 0 4px 0 2px;
-  opacity: 0.7;
 }
 /* Operator pinned but disabled — dim so it reads as "configured, not
    running" without competing with active chips. */
@@ -15832,40 +15806,6 @@ body.theme-light .inline-notch-picker-drop .inline-notch-av-dot {
 .teammate-panel-header:hover {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
-/* The per-pane operator strip wraps onto its own full-width row beneath
-   the avatar/title cluster. flex-wrap lets it sit "under" the header
-   without a separate container. Hidden (and so not occupying a row)
-   when no operator is attached. */
-.teammate-panel-header { flex-wrap: wrap; }
-.teammate-panel-operator-strip-host {
-  flex: 0 0 100%;
-  order: 99;
-}
-/* Collapse the full-width row entirely while the strip has no rows
-   (its inner .operator-strip is [hidden]) so an attached-operator-free
-   header keeps its original single-row height. */
-.teammate-panel-operator-strip-host:has(.operator-strip[hidden]) {
-  display: none;
-}
-.operator-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 6px;
-}
-.operator-strip[hidden] { display: none; }
-.operator-strip__row {
-  font-size: 11px;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--fg) 62%, transparent);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: 0.01em;
-}
-.operator-strip__row.is-live {
-  color: color-mix(in srgb, var(--fg) 88%, transparent);
-}
 .teammate-panel-header:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
@@ -17220,18 +17160,6 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
   font-size: 10.5px;
   color: var(--text-dim, #8b8d94);
   letter-spacing: 0.02em;
-}
-/* Operator attribution chip (Phase 3) — NULL-safe (omitted when absent). */
-.tp-act-row .tp-act-op {
-  font-size: 9.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: var(--accent-soft, rgba(111, 123, 255, 0.16));
-  color: var(--accent, #6f7bff);
-  white-space: nowrap;
 }
 .tp-act-row .tp-act-body {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

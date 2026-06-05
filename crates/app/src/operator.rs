@@ -359,20 +359,6 @@ pub struct OperatorWatcher {
     /// the watcher rather than re-deriving from app_handle each call.
     mission_store: PathBuf,
     registry: Arc<OperatorRegistry>,
-    /// History DB handle (cheap Arc clone). Used by `per_session_status`
-    /// for the per-session `last_decision` read. `spawn` also moves a clone
-    /// into `tick_loop`, so we keep our own.
-    storage: Storage,
-    /// Global AOM status handle (cheap Arc clone). Read by
-    /// `per_session_status` to build `AomBrief`.
-    aom: AomHandle,
-    /// Last-emitted awareness per session for the `operator-status` event
-    /// (Phase 2). Compared against a freshly-built `OperatorAwareness` so
-    /// the 500ms Observing↔Deciding flips don't thrash the UI: we emit
-    /// only when a *meaningful* field changes (see `status_changed`).
-    /// Shared (Arc) so the tick loop and the command-path emitters read
-    /// the same map.
-    last_status: Arc<AsyncMutex<HashMap<SessionId, OperatorAwareness>>>,
     /// Sender side of the convergence resolution channel. The receiver
     /// is held internally by `tick_loop` and drained each tick.
     resolution_tx: mpsc::UnboundedSender<ConvergenceResolution>,
@@ -649,319 +635,6 @@ pub struct MissionDoc {
     pub plan: Option<crate::mission_pair::PlanDoc>,
 }
 
-/// Capped, masked snapshot of `OperatorMind` for a brief. All free-text is
-/// pre-masked by the projection (see `build_per_session_status`).
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OperatorMindBrief {
-    pub goal: Option<String>,
-    pub belief: Option<String>,
-    pub next_intent: Option<String>,
-    pub open_questions: Vec<String>,
-    pub tried_failed: Vec<String>,
-}
-
-/// The operator's most recent persisted decision for a session.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DecisionBrief {
-    pub action: String,
-    pub text: Option<String>,
-    pub at_unix_ms: u64,
-}
-
-/// Global AOM scope, identical across sessions when AOM is on.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AomBrief {
-    pub enabled: bool,
-    pub elapsed_ms: u64,
-    pub decisions_count: u64,
-    pub cost_usd: f64,
-    pub budget_usd: f64,
-    pub cost_cap_hit: bool,
-}
-
-/// Per-session mission scope. `tasks_done`/`tasks_total` are always `None`
-/// in Phase 1 (plan-progress extraction is deferred to Phase 3).
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MissionBrief {
-    pub kind: String,
-    pub name: String,
-    pub tasks_done: Option<u32>,
-    pub tasks_total: Option<u32>,
-}
-
-/// Single per-session read-projection of operator state, consumed by the
-/// teammate chat (Phase 1), the `operator-status` event (Phase 2), and
-/// ambient tasks (Phase 3). Computed on read — no stored awareness state.
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OperatorAwareness {
-    pub session_id: SessionId,
-    pub operator_id: String,
-    pub operator_name: String,
-    pub operator_emoji: String,
-    pub enabled: bool,
-    pub live: bool,
-    pub phase: OperatorPhase,
-    pub phase_since_unix_ms: u64,
-    pub mind: Option<OperatorMindBrief>,
-    pub last_decision: Option<DecisionBrief>,
-    pub aom: Option<AomBrief>,
-    pub mission: Option<MissionBrief>,
-}
-
-/// Truncate a free-text field for a brief: trim, mask, cap to `max` chars on a
-/// char boundary (append `…` when cut). Returns `None` for empty input.
-fn brief_text(raw: &str, max: usize) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let masked = crate::secrets::mask_secrets(trimmed);
-    if masked.chars().count() <= max {
-        Some(masked)
-    } else {
-        let cut: String = masked.chars().take(max).collect();
-        Some(format!("{cut}…"))
-    }
-}
-
-/// Keep only the last 3 items of a mind list, mask + trim each, drop empties.
-fn brief_list<'a, I: IntoIterator<Item = &'a String>>(items: I) -> Vec<String> {
-    let all: Vec<&String> = items.into_iter().collect();
-    let start = all.len().saturating_sub(3);
-    all[start..]
-        .iter()
-        .filter_map(|s| {
-            let t = s.trim();
-            if t.is_empty() {
-                None
-            } else {
-                Some(crate::secrets::mask_secrets(t))
-            }
-        })
-        .collect()
-}
-
-/// Owned snapshot of the per-session fields read under `inner.lock()`, so the
-/// lock can drop before any `.await` (AOM read, storage read).
-struct AttachedSnapshot {
-    session_id: SessionId,
-    enabled: bool,
-    live: bool,
-    phase: OperatorPhase,
-    phase_since_unix_ms: u64,
-    mind: Option<crate::operator_mind::OperatorMind>,
-    mission: Option<MissionDoc>,
-}
-
-/// Per-session awareness projection. Free function so Phase 2's tick-loop emit
-/// can reuse it without `&self`. Snapshots `Attached` under `inner.lock()`,
-/// DROPS the lock, then performs the async AOM + storage reads and masking.
-/// NEVER holds `inner.lock()` across an await.
-pub(crate) async fn build_per_session_status(
-    inner: &Arc<AsyncMutex<Inner>>,
-    storage: &Storage,
-    aom: &AomHandle,
-    registry: &Arc<OperatorRegistry>,
-) -> HashMap<SessionId, OperatorAwareness> {
-    // 1) Snapshot every attached session under the lock, then drop it.
-    let snaps: Vec<AttachedSnapshot> = {
-        let g = inner.lock().await;
-        g.sessions
-            .iter()
-            .map(|(sid, att)| {
-                let elapsed = att.phase_started_at.elapsed().as_millis() as u64;
-                AttachedSnapshot {
-                    session_id: *sid,
-                    enabled: att.enabled,
-                    live: att.live,
-                    phase: att.current_phase,
-                    phase_since_unix_ms: now_unix_ms().saturating_sub(elapsed),
-                    mind: att.mind.clone(),
-                    mission: att.mission.clone(),
-                }
-            })
-            .collect()
-    }; // <- inner lock dropped here
-
-    // 2) AOM is global: read once.
-    let aom_brief = {
-        let a = aom.read().await;
-        AomBrief {
-            enabled: a.enabled,
-            elapsed_ms: now_unix_ms().saturating_sub(a.started_at_unix_ms),
-            decisions_count: a.decisions_count,
-            cost_usd: a.accumulated_cost_usd,
-            budget_usd: a.budget_usd,
-            cost_cap_hit: a.cost_cap_hit_at_unix_ms.is_some(),
-        }
-    };
-
-    // 3) Per session: identity (sync) + last_decision (async storage read).
-    let mut out = HashMap::with_capacity(snaps.len());
-    for s in snaps {
-        let op = registry.effective_for(s.session_id);
-
-        let mind = s.mind.as_ref().map(|m| OperatorMindBrief {
-            goal: brief_text(&m.goal, 280),
-            belief: brief_text(&m.belief, 280),
-            next_intent: brief_text(&m.next_intent, 280),
-            open_questions: brief_list(m.open_questions.iter()),
-            tried_failed: brief_list(m.tried_failed.iter()),
-        });
-
-        let last_decision = match storage
-            .list_operator_decisions_for_session(s.session_id.to_string(), 1)
-            .await
-        {
-            Ok(rows) => rows.into_iter().next().map(|r| DecisionBrief {
-                action: r.action,
-                text: r.reply_text.as_deref().and_then(|t| brief_text(t, 280)),
-                at_unix_ms: r.timestamp_unix_ms,
-            }),
-            Err(_) => None,
-        };
-
-        let mission = s.mission.as_ref().map(|m| {
-            let name = m
-                .path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            MissionBrief {
-                kind: format!("{:?}", m.kind).to_lowercase(),
-                name: crate::secrets::mask_secrets(&name),
-                tasks_done: None,
-                tasks_total: None,
-            }
-        });
-
-        out.insert(
-            s.session_id,
-            OperatorAwareness {
-                session_id: s.session_id,
-                operator_id: op.id.to_string(),
-                operator_name: op.name.clone(),
-                operator_emoji: op.emoji.clone(),
-                enabled: s.enabled,
-                live: s.live,
-                phase: s.phase,
-                phase_since_unix_ms: s.phase_since_unix_ms,
-                mind,
-                last_decision,
-                aom: if aom_brief.enabled {
-                    Some(aom_brief.clone())
-                } else {
-                    None
-                },
-                mission,
-            },
-        );
-    }
-    out
-}
-
-/// True when `next` differs from `prev` in a way the UI should react to.
-/// Deliberately ignores monotonic time/cost drift (`phase_since_unix_ms`,
-/// AOM `elapsed_ms`, sub-cent cost) so the 500ms tick doesn't thrash the
-/// `operator-status` channel. `prev = None` (first sight) always counts as
-/// a change.
-fn status_changed(prev: Option<&OperatorAwareness>, next: &OperatorAwareness) -> bool {
-    let Some(p) = prev else {
-        return true;
-    };
-    if p.enabled != next.enabled
-        || p.live != next.live
-        || p.phase != next.phase
-        || p.operator_id != next.operator_id
-    {
-        return true;
-    }
-    // Mind: compare the masked text fields + list contents (not lengths).
-    let mind_changed = match (&p.mind, &next.mind) {
-        (None, None) => false,
-        (Some(a), Some(b)) => {
-            a.goal != b.goal
-                || a.belief != b.belief
-                || a.next_intent != b.next_intent
-                || a.open_questions != b.open_questions
-                || a.tried_failed != b.tried_failed
-        }
-        _ => true,
-    };
-    if mind_changed {
-        return true;
-    }
-    // Last decision: action + text + timestamp identify a new decision.
-    let decision_changed = match (&p.last_decision, &next.last_decision) {
-        (None, None) => false,
-        (Some(a), Some(b)) => {
-            a.action != b.action || a.text != b.text || a.at_unix_ms != b.at_unix_ms
-        }
-        _ => true,
-    };
-    if decision_changed {
-        return true;
-    }
-    // AOM: only on/off + cost-cap flip + decisions count (not elapsed/cost).
-    let aom_changed = match (&p.aom, &next.aom) {
-        (None, None) => false,
-        (Some(a), Some(b)) => {
-            a.enabled != b.enabled
-                || a.cost_cap_hit != b.cost_cap_hit
-                || a.decisions_count != b.decisions_count
-        }
-        _ => true,
-    };
-    if aom_changed {
-        return true;
-    }
-    // Mission: kind/name identity (progress is None until Phase 3).
-    match (&p.mission, &next.mission) {
-        (None, None) => false,
-        (Some(a), Some(b)) => a.kind != b.kind || a.name != b.name,
-        _ => true,
-    }
-}
-
-/// Build the full per-session projection, diff against `last_status`, and
-/// emit `operator-status` for each session whose awareness meaningfully
-/// changed (see `status_changed`). Mirrors the `operator-decision` emit
-/// shape: one event per changed session, payload is the serialized
-/// `OperatorAwareness`. Holds ONLY the `last_status` lock while emitting —
-/// never `inner.lock()` (the projection already dropped it).
-pub(crate) async fn emit_changed_status(
-    app: &AppHandle,
-    inner: &Arc<AsyncMutex<Inner>>,
-    storage: &Storage,
-    aom: &AomHandle,
-    registry: &Arc<OperatorRegistry>,
-    last_status: &Arc<AsyncMutex<HashMap<SessionId, OperatorAwareness>>>,
-) {
-    let fresh = build_per_session_status(inner, storage, aom, registry).await;
-    // Collect changed (session, awareness) under the last_status lock, then
-    // update the cache. Emit AFTER dropping the lock.
-    let mut to_emit: Vec<OperatorAwareness> = Vec::new();
-    {
-        let mut last = last_status.lock().await;
-        for (sid, aware) in fresh.iter() {
-            if status_changed(last.get(sid), aware) {
-                to_emit.push(aware.clone());
-            }
-        }
-        // Replace the whole cache with the fresh snapshot (also drops
-        // entries for detached sessions, so a re-attach re-emits).
-        *last = fresh;
-    }
-    for aware in to_emit {
-        let _ = app.emit("operator-status", &aware);
-    }
-}
-
 /// Status payload returned to the UI for `get_session_mission`.
 /// `content_preview` is the first ~240 chars of the spec — enough for
 /// a tooltip / sidebar header without sending the whole file across
@@ -1030,14 +703,6 @@ impl OperatorWatcher {
             sessions: HashMap::new(),
         }));
         let (resolution_tx, resolution_rx) = mpsc::unbounded_channel::<ConvergenceResolution>();
-        // Clone for `Self` BEFORE the originals are moved into `tick_loop`.
-        let storage_for_self = storage.clone();
-        let aom_for_self = aom.clone();
-        // Phase 2: shared per-session last-emitted awareness for change-only
-        // `operator-status` emit. Cloned into tick_loop and kept on Self.
-        let last_status: Arc<AsyncMutex<HashMap<SessionId, OperatorAwareness>>> =
-            Arc::new(AsyncMutex::new(HashMap::new()));
-        let last_status_for_tick = last_status.clone();
         tauri::async_runtime::spawn(tick_loop(
             inner.clone(),
             settings,
@@ -1052,15 +717,11 @@ impl OperatorWatcher {
             connectivity,
             escalation_tx,
             vitals,
-            last_status_for_tick,
         ));
         Self {
             inner,
             mission_store,
             registry,
-            storage: storage_for_self,
-            aom: aom_for_self,
-            last_status,
             resolution_tx,
             tab_titles: Arc::new(AsyncMutex::new(HashMap::new())),
         }
@@ -1188,14 +849,6 @@ impl OperatorWatcher {
         self.inner.lock().await.phase_overview()
     }
 
-    /// Per-session operator awareness projection. See `build_per_session_status`.
-    /// Async: snapshots `Inner` under the lock, drops it, then reads AOM + the
-    /// most-recent persisted decision per session. Call from an async context
-    /// with no other AppState lock held (lock order, spec §10).
-    pub async fn per_session_status(&self) -> HashMap<SessionId, OperatorAwareness> {
-        build_per_session_status(&self.inner, &self.storage, &self.aom, &self.registry).await
-    }
-
     /// Disable the operator on `session_id` from an external lifecycle
     /// event (e.g. the teammate task that owns this session transitioned
     /// to Done/Cancelled). Idempotent: no-op if the session isn't
@@ -1247,55 +900,6 @@ impl OperatorWatcher {
         if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
             att.live = live;
         }
-    }
-
-    /// `set_live` + an immediate `operator-status` emit so the UI strip /
-    /// status bar reflect a live toggle without waiting for the next tick.
-    /// Emits only when the session is attached and the value actually
-    /// changed. Emits OUTSIDE `inner.lock()`.
-    pub async fn set_live_and_emit(&self, app: &AppHandle, session_id: SessionId, live: bool) {
-        let changed = {
-            let mut g = self.inner.lock().await;
-            match g.sessions.get_mut(&session_id) {
-                Some(att) if att.live != live => {
-                    att.live = live;
-                    true
-                }
-                _ => false,
-            }
-        }; // <- inner lock dropped
-        if changed {
-            emit_changed_status(
-                app,
-                &self.inner,
-                &self.storage,
-                &self.aom,
-                &self.registry,
-                &self.last_status,
-            )
-            .await;
-        }
-    }
-
-    /// Force an `operator-status` re-emit for `session_id` after an
-    /// out-of-band identity change (operator pin/unpin). Re-runs the
-    /// change-only emit over all sessions; the swapped session's
-    /// `operator_id` differs from the cached one so it always emits.
-    /// No-op when the session isn't attached.
-    pub async fn emit_status_after_identity_change(&self, app: &AppHandle, session_id: SessionId) {
-        let attached = self.inner.lock().await.sessions.contains_key(&session_id);
-        if !attached {
-            return;
-        }
-        emit_changed_status(
-            app,
-            &self.inner,
-            &self.storage,
-            &self.aom,
-            &self.registry,
-            &self.last_status,
-        )
-        .await;
     }
 
     pub async fn is_live(&self, session_id: SessionId) -> bool {
@@ -1783,7 +1387,6 @@ async fn tick_loop(
     connectivity: crate::connectivity::ConnectivityHandle,
     escalation_tx: broadcast::Sender<SessionEvent>,
     vitals: crate::vitals::VitalsHandle,
-    last_status: Arc<AsyncMutex<HashMap<SessionId, OperatorAwareness>>>,
 ) {
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1842,7 +1445,6 @@ async fn tick_loop(
             &connectivity,
             &escalation_tx,
             &vitals,
-            &last_status,
         )
         .await
         {
@@ -2121,7 +1723,6 @@ async fn run_tick(
     connectivity: &crate::connectivity::ConnectivityHandle,
     escalation_tx: &broadcast::Sender<SessionEvent>,
     vitals: &crate::vitals::VitalsHandle,
-    last_status: &Arc<AsyncMutex<HashMap<SessionId, OperatorAwareness>>>,
 ) -> Result<(), String> {
     // Offline gate (Task 4 / AOM liveness). If the OS reports we're
     // offline (forwarded by the frontend `online`/`offline` listener
@@ -3511,8 +3112,6 @@ async fn run_tick(
                 "executed": executed,
                 "cost_usd": call_cost_usd,
                 "timestamp_unix_ms": now_unix_ms(),
-                "operator_id": op.id.to_string(),
-                "operator_name": op.name.clone(),
             }),
         );
 
@@ -3777,13 +3376,6 @@ async fn run_tick(
             let _ = app.emit("operator-mind-updated", payload);
         }
     }
-
-    // Phase 2: change-only operator-status emit. Runs once per tick, AFTER
-    // the mind flush so a fresh mind is included. Builds the projection
-    // (drops inner.lock before its storage await), diffs vs last_status,
-    // emits per changed session. Cheap: one snapshot + one bounded storage
-    // read per session.
-    emit_changed_status(app, inner, storage, aom, registry, last_status).await;
 
     Ok(())
 }
@@ -6541,215 +6133,5 @@ What would you like to do?
             "triage block must be guarded against an already-set triage_short_circuit; \
              the pre-triage cost gate depends on this — see operator.rs::run_tick"
         );
-    }
-
-    // ---- Phase 1: per-session awareness projection ----
-
-    fn fresh_storage() -> (crate::storage::Storage, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("history.db");
-        let s = crate::storage::Storage::open(&path).expect("open");
-        (s, dir)
-    }
-
-    /// An `Attached` with a given mind, enabled+live, phase Deciding, no mission.
-    /// Built on `test_attached()` so it stays correct if `Attached` gains fields.
-    fn attached_with_mind(mind: Option<crate::operator_mind::OperatorMind>) -> Attached {
-        let mut att = test_attached();
-        att.enabled = true;
-        att.live = true;
-        att.current_phase = OperatorPhase::Deciding;
-        att.mind = mind;
-        att
-    }
-
-    #[tokio::test]
-    async fn projection_masks_mind_caps_lists_and_reads_last_decision() {
-        let (storage, _g) = fresh_storage();
-        let registry = OperatorRegistry::for_tests("Zeta");
-        let aom = crate::aom::new_handle();
-
-        let session = SessionId::new();
-        storage.save_session(session, 1_000).await.unwrap();
-        // Seed a decision whose reply_text carries a secret.
-        storage
-            .save_operator_decision(
-                session,
-                42,                                            // timestamp_unix_ms
-                Some("claude --resume".to_string()),           // in_flight_command
-                "out".to_string(),                             // output_excerpt
-                "reply".to_string(),                           // action
-                Some("use sk-ABCDEFGHIJKLMNOPqrst now".into()), // reply_text
-                Some("because".to_string()),                   // rationale
-                true,                                          // executed
-                0.001,                                         // cost_usd
-                None,                                          // mission_path
-                None,                                          // executor_name
-                None,                                          // operator_id
-                None,                                          // operator_name
-                None,                                          // applied_memory_id
-            )
-            .await
-            .unwrap();
-
-        let mut mind = crate::operator_mind::OperatorMind::default();
-        mind.goal = "ship feature; token sk-ABCDEFGHIJKLMNOPqrst".into();
-        mind.belief = "build is green".into();
-        mind.next_intent = "run tests".into();
-        mind.open_questions =
-            vec!["q1".into(), "q2".into(), "q3".into(), "q4".into(), "q5".into()];
-
-        let inner = Arc::new(AsyncMutex::new(Inner {
-            sessions: HashMap::new(),
-        }));
-        inner
-            .lock()
-            .await
-            .sessions
-            .insert(session, attached_with_mind(Some(mind)));
-
-        let map = build_per_session_status(&inner, &storage, &aom, &registry).await;
-        let a = map.get(&session).expect("session present");
-
-        // Identity from the registry default.
-        assert_eq!(a.operator_name, "Zeta");
-        assert!(!a.operator_emoji.is_empty());
-        assert!(a.enabled && a.live);
-        assert_eq!(a.phase, OperatorPhase::Deciding);
-
-        // Mind masked + capped.
-        let mind = a.mind.as_ref().expect("mind present");
-        let goal = mind.goal.as_ref().expect("goal");
-        assert!(!goal.contains("sk-ABCDEFGHIJKLMNOP"), "goal must be masked: {goal}");
-        assert!(goal.contains("[REDACTED:"), "goal: {goal}");
-        assert_eq!(mind.open_questions.len(), 3, "capped to last 3");
-        assert_eq!(mind.open_questions, vec!["q3", "q4", "q5"]);
-
-        // last_decision sourced from storage + masked.
-        let d = a.last_decision.as_ref().expect("last_decision present");
-        assert_eq!(d.action, "reply");
-        assert_eq!(d.at_unix_ms, 42);
-        let txt = d.text.as_ref().expect("reply text");
-        assert!(!txt.contains("sk-ABCDEFGHIJKLMNOP"));
-        assert!(txt.contains("[REDACTED:"));
-
-        // AOM off → None; mission absent → None.
-        assert!(a.aom.is_none(), "AOM off ⇒ no AomBrief");
-        assert!(a.mission.is_none());
-    }
-
-    #[tokio::test]
-    async fn projection_omits_mind_and_decision_when_absent() {
-        let (storage, _g) = fresh_storage();
-        let registry = OperatorRegistry::for_tests("Zeta");
-        let aom = crate::aom::new_handle();
-
-        let session = SessionId::new();
-        storage.save_session(session, 1).await.unwrap(); // no decisions seeded
-
-        let inner = Arc::new(AsyncMutex::new(Inner {
-            sessions: HashMap::new(),
-        }));
-        inner
-            .lock()
-            .await
-            .sessions
-            .insert(session, attached_with_mind(None));
-
-        let map = build_per_session_status(&inner, &storage, &aom, &registry).await;
-        let a = map.get(&session).expect("session present");
-        assert!(a.mind.is_none(), "no mind ⇒ None");
-        assert!(a.last_decision.is_none(), "no decisions ⇒ None");
-        assert!(a.aom.is_none());
-    }
-
-    // ---- Phase 2: operator-status change detection ----
-
-    fn awareness_fixture(phase: OperatorPhase) -> OperatorAwareness {
-        OperatorAwareness {
-            session_id: SessionId::new(),
-            operator_id: "op1".into(),
-            operator_name: "Pi".into(),
-            operator_emoji: "🟣".into(),
-            enabled: true,
-            live: true,
-            phase,
-            phase_since_unix_ms: 1_000,
-            mind: None,
-            last_decision: None,
-            aom: None,
-            mission: None,
-        }
-    }
-
-    #[test]
-    fn status_changed_true_on_first_sight() {
-        let next = awareness_fixture(OperatorPhase::Observing);
-        assert!(status_changed(None, &next));
-    }
-
-    #[test]
-    fn status_changed_true_on_phase_flip() {
-        let prev = awareness_fixture(OperatorPhase::Observing);
-        let next = awareness_fixture(OperatorPhase::Deciding);
-        assert!(status_changed(Some(&prev), &next));
-    }
-
-    #[test]
-    fn status_changed_false_on_only_time_drift() {
-        let prev = awareness_fixture(OperatorPhase::Observing);
-        let mut next = awareness_fixture(OperatorPhase::Observing);
-        // Same phase, only the timestamp moved — must NOT count as a change.
-        next.phase_since_unix_ms = 9_999;
-        assert!(!status_changed(Some(&prev), &next));
-    }
-
-    #[test]
-    fn status_changed_true_on_mind_appear() {
-        let prev = awareness_fixture(OperatorPhase::Observing);
-        let mut next = awareness_fixture(OperatorPhase::Observing);
-        next.mind = Some(OperatorMindBrief {
-            goal: Some("ship".into()),
-            belief: None,
-            next_intent: None,
-            open_questions: vec![],
-            tried_failed: vec![],
-        });
-        assert!(status_changed(Some(&prev), &next));
-    }
-
-    #[test]
-    fn status_changed_true_on_new_decision() {
-        let prev = awareness_fixture(OperatorPhase::Deciding);
-        let mut next = awareness_fixture(OperatorPhase::Deciding);
-        next.last_decision = Some(DecisionBrief {
-            action: "reply".into(),
-            text: Some("y".into()),
-            at_unix_ms: 42,
-        });
-        assert!(status_changed(Some(&prev), &next));
-    }
-
-    #[test]
-    fn status_changed_false_on_aom_cost_drift_only() {
-        let mut prev = awareness_fixture(OperatorPhase::Observing);
-        let mut next = awareness_fixture(OperatorPhase::Observing);
-        prev.aom = Some(AomBrief {
-            enabled: true,
-            elapsed_ms: 1_000,
-            decisions_count: 5,
-            cost_usd: 1.20,
-            budget_usd: 5.0,
-            cost_cap_hit: false,
-        });
-        next.aom = Some(AomBrief {
-            enabled: true,
-            elapsed_ms: 2_000, // moved
-            decisions_count: 5, // same
-            cost_usd: 1.21,     // sub-cent drift
-            budget_usd: 5.0,
-            cost_cap_hit: false,
-        });
-        assert!(!status_changed(Some(&prev), &next));
     }
 }

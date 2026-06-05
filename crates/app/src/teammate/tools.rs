@@ -914,23 +914,6 @@ mod tests {
     }
 
     #[test]
-    fn read_terminal_screen_masks_new_patterns() {
-        use std::sync::{Arc, Mutex};
-        // A generic `sk-` key (too short for the openai pattern) and a `Bearer`
-        // token — shapes the legacy safety masker lacked. They reach this seam
-        // only because `safety::mask_secrets` now delegates to `secrets`.
-        let screen = Arc::new(Mutex::new(
-            "$ curl -H 'Authorization: Bearer mF9aQ2pLk8vR3nT0wZ' ; echo sk-abcd1234efgh5678"
-                .to_string(),
-        ));
-        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024).with_screen(Some(screen));
-        let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
-        assert!(!out.contains("mF9aQ2pLk8vR3nT0wZ"), "bearer leaked: {out}");
-        assert!(!out.contains("sk-abcd1234efgh5678"), "generic sk leaked: {out}");
-        assert!(out.contains("[REDACTED:"), "got: {out}");
-    }
-
-    #[test]
     fn propose_task_tool_def_has_required_shape() {
         let def = propose_task_tool_def();
         assert_eq!(def["name"], "propose_task");

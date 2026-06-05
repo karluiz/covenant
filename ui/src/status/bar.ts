@@ -26,7 +26,6 @@ import type {
   MissionPlanInfo,
   MissionSaveResult,
   Operator,
-  OperatorPhase,
   SessionId,
   Vitals,
 } from "../api";
@@ -105,10 +104,6 @@ export class StatusBar {
   /// active tab has Operator off — collapses the chip in either case.
   /// `live` is meaningful only when `enabled: true` (backend invariant).
   private currentOperator: { enabled: boolean; live: boolean } | null = null;
-  /// Phase of the active tab's operator, pushed by TabManager from the
-  /// `operator-status` event. Rendered as a suffix on the operator chip.
-  /// Null collapses the suffix (no phase known yet).
-  private currentOperatorPhase: OperatorPhase | null = null;
   private currentAom: AomStatus | null = null;
   private branchPopover: HTMLElement | null = null;
   private branchPopoverTicket = 0;
@@ -317,15 +312,6 @@ export class StatusBar {
     if (this.currentSessionId === null && sessionId !== null) {
       this.currentSessionId = sessionId;
     }
-    this.render(this.lastDirCtx);
-  }
-
-  /// Pushed by TabManager from the `operator-status` event for the active
-  /// tab. Stores the phase and re-renders so the operator chip shows
-  /// "<name> · deciding". No-op when the phase is unchanged.
-  setOperatorPhase(phase: OperatorPhase | null): void {
-    if (this.currentOperatorPhase === phase) return;
-    this.currentOperatorPhase = phase;
     this.render(this.lastDirCtx);
   }
 
@@ -625,15 +611,9 @@ export class StatusBar {
             : `Operator: ${opEntity.name} — off. Click to switch.`,
       );
       const liveBadge = live ? `<span class="status-chip-operator__live">LIVE</span>` : "";
-      const phase = this.currentOperatorPhase;
-      const phaseLabel =
-        enabled && phase && phase !== "idle" && phase !== "offline"
-          ? `<span class="status-chip-operator__phase">${escapeHtml(phase)}</span>`
-          : "";
       btn.innerHTML =
         `<span class="status-chip-operator__dot" style="background:${opEntity.color}"></span>` +
         `<span class="status-chip-operator__name">${escapeHtml(opEntity.name)}</span>` +
-        phaseLabel +
         liveBadge;
       btn.addEventListener("click", () => {
         if (sid) this.onOperatorChipClick?.(sid);

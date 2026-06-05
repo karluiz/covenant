@@ -32,7 +32,7 @@ import {
   getSpecPromptState,
 } from "./aom/spec-prompt";
 import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
-import type { OperatorStatus, SessionId, SpecCandidate } from "./api";
+import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
@@ -1433,17 +1433,6 @@ async function boot(): Promise<void> {
       manager.applyOperatorXpUpdate(operator_id, xp);
     },
   );
-
-  // Phase 2: per-session operator status. Change-only emit from the
-  // backend (run_tick / set_operator_live / operator swap). Fans out to
-  // the tab manager (pane phase fields + status-bar chip suffix), the
-  // teammate panel's per-pane strip, and the AOM banner (immediate phase
-  // repaint so it doesn't lag up to 1s behind its own poll). No polling.
-  void listen<OperatorStatus>("operator-status", (event) => {
-    manager.applyOperatorStatus(event.payload);
-    teammatePanel.setOperatorStatus(event.payload);
-    aomBanner.nudgePhase();
-  });
 
   // Mission file watcher fires this when a spec file changes on disk
   // and the backend hot-reloads the content. Refresh tab tooltips so

@@ -173,15 +173,6 @@ pub fn extract_sentiment(text: &str) -> (String, Option<Sentiment>) {
 
 /// Build the system prompt for `operator`. The string is stable across
 /// calls so Anthropic's prompt cache can hit on it.
-const OPERATOR_DIRECTIVE: &str = "\n\n# Operator status\n\
-    A session in `# Terminal context` may include an `operator:` block — that is \
-    a live per-tab super-agent (e.g. Pi, Claude Code) driving that terminal. It \
-    is machine context: read it, never echo it verbatim. When the user asks what \
-    is happening on a tab, speak about the operator as a NAMED PEER and synthesize \
-    — e.g. \"Pi is mid-decision on the active tab; its goal is X, it last replied \
-    to Y.\" Use the phase, goal, belief, next intent, last decision, AOM scope, and \
-    mission when present. If a tab has no operator block, do not invent one.";
-
 pub fn build_system_prompt(operator: &Operator) -> String {
     let persona = operator.persona.trim();
     let voice = format!("{:?}", operator.voice).to_lowercase();
@@ -298,9 +289,9 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         voice = voice,
     );
     if persona.is_empty() {
-        format!("{header}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}{OPERATOR_DIRECTIVE}")
+        format!("{header}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
     } else {
-        format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}{OPERATOR_DIRECTIVE}")
+        format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
     }
 }
 
@@ -1040,14 +1031,6 @@ mod tests {
         assert!(p.contains("SENTIMENT:"));
         assert!(p.contains("feliz"));
         assert!(p.contains("vergüenza"));
-    }
-
-    #[test]
-    fn system_prompt_contains_operator_directive() {
-        let op = sample_op("Mibli", "");
-        let p = build_system_prompt(&op);
-        assert!(p.contains("# Operator status"), "missing operator directive header");
-        assert!(p.contains("NAMED PEER"));
     }
 
     #[test]

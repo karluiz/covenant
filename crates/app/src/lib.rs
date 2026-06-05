@@ -50,7 +50,6 @@ mod score_auth_commands;
 mod score_commands;
 mod score_sync_commands;
 mod scrollback;
-mod secrets;
 pub mod settings;
 mod favorites_commands;
 mod spawns_commands;
@@ -113,8 +112,8 @@ pub(crate) struct AppState {
     settings_path: PathBuf,
     rate: Mutex<RateLimiter>,
     cross_session: CrossSessionWatcher,
-    pub(crate) operator: OperatorWatcher,
-    pub(crate) storage: Storage,
+    operator: OperatorWatcher,
+    storage: Storage,
     /// Autonomous Operator Mode global toggle. Read by the operator
     /// tick on every poll; flipped by `aom_start` / `aom_stop`.
     aom: AomHandle,
@@ -894,69 +893,14 @@ async fn is_operator_enabled(
 /// types replies into the PTY (after passing the safety blocklist),
 /// instead of just logging proposed decisions. Requires `enabled=true`
 /// to take effect — both must be on for any byte to be injected.
-///
-/// Phase 2: emits `operator-status` immediately on the flip (via
-/// `set_live_and_emit`) so the strip/status bar don't wait for the tick.
-/// Phase 3: on a `live=true` transition, ensures exactly one ambient
-/// operator "watch" task exists for the session (dedup + register).
 #[tauri::command]
 async fn set_operator_live(
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
-    storage: State<'_, std::sync::Arc<Storage>>,
-    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
-    supervisor: State<'_, std::sync::Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     session_id: String,
     live: bool,
 ) -> Result<(), String> {
     let id = parse_id(&session_id)?;
-    // Phase 2: flip + change-only operator-status emit.
-    state.operator.set_live_and_emit(&app, id, live).await;
-    // Phase 3: a session going live gets one ambient watch task. We only
-    // create on the rising edge; turning live off leaves the task for its
-    // own lifecycle (BlockFinished updates, MissionCompleted → Done).
-    if live {
-        if let Err(e) = crate::teammate::commands::ensure_ambient_task(
-            &app,
-            storage.inner(),
-            registry.inner(),
-            supervisor.inner(),
-            id,
-        )
-        .await
-        {
-            tracing::warn!(error = %e, session = %id, "ensure_ambient_task failed");
-        }
-    }
-    Ok(())
-}
-
-/// Pin/unpin a session's operator AND emit `operator-status` so the strip
-/// + status bar reflect the new identity immediately. Wraps the registry
-/// command with the watcher emit; the registry is double-managed (watcher
-/// field + Tauri State), so we pin through the State handle and emit
-/// through the watcher.
-#[tauri::command]
-async fn session_set_operator_and_emit(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    registry: State<'_, Arc<crate::operator_registry::OperatorRegistry>>,
-    session_id: String,
-    operator_id: Option<String>,
-) -> Result<(), String> {
-    let sid = parse_id(&session_id)?;
-    match operator_id {
-        Some(s) => {
-            let oid: crate::operator_registry::OperatorId =
-                s.parse().map_err(|e: ulid::DecodeError| e.to_string())?;
-            registry.pin_session(sid, oid);
-        }
-        None => registry.unpin_session(sid),
-    }
-    state
-        .operator
-        .emit_status_after_identity_change(&app, sid)
-        .await;
+    state.operator.set_live(id, live).await;
     Ok(())
 }
 
@@ -1412,13 +1356,7 @@ async fn operator_phase_overview(
 }
 
 #[tauri::command]
-async fn aom_start(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    storage: State<'_, std::sync::Arc<Storage>>,
-    registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
-    supervisor: State<'_, std::sync::Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
-) -> Result<AomStatus, String> {
+async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // Read budget from settings ONCE at start time so a mid-session
     // settings change doesn't shift the cap underneath the user.
     let budget = state.settings.lock().await.aom.default_budget_usd;
@@ -1432,7 +1370,7 @@ async fn aom_start(
     // which tabs we touched so `aom_stop` reverts exactly them
     // (manually enabled tabs keep their user choice). The frontend
     // refreshes per-tab state after the toggle resolves.
-    let auto_enabled = state.operator.enable_all_for_aom().await;
+    let _auto_enabled = state.operator.enable_all_for_aom().await;
     // Queue proactive startup actions: claude /rename, bypass-exit,
     // etc. These fire later in run_tick when conditions are met.
     state.operator.queue_aom_startup_actions().await;
@@ -1449,36 +1387,15 @@ async fn aom_start(
         }
     };
 
-    {
-        let mut s = state.aom.write().await;
-        s.enabled = true;
-        s.started_at_unix_ms = started_at;
-        s.decisions_count = 0;
-        s.budget_usd = budget;
-        s.accumulated_cost_usd = 0.0;
-        s.cost_cap_hit_at_unix_ms = None;
-        s.current_session_row_id = row_id;
-        tracing::info!(budget_usd = budget, row_id = ?row_id, "AOM started");
-    } // drop the aom write lock before the ambient sweep (lock order)
-
-    // Phase 3: one ambient watch task per session AOM just made live.
-    // Dedup in ensure_ambient_task means a manually-live tab that already
-    // has one is reused, not duplicated.
-    for session in auto_enabled {
-        if let Err(e) = crate::teammate::commands::ensure_ambient_task(
-            &app,
-            storage.inner(),
-            registry.inner(),
-            supervisor.inner(),
-            session,
-        )
-        .await
-        {
-            tracing::warn!(error = %e, session = %session, "aom ambient task failed");
-        }
-    }
-
-    let s = state.aom.read().await;
+    let mut s = state.aom.write().await;
+    s.enabled = true;
+    s.started_at_unix_ms = started_at;
+    s.decisions_count = 0;
+    s.budget_usd = budget;
+    s.accumulated_cost_usd = 0.0;
+    s.cost_cap_hit_at_unix_ms = None;
+    s.current_session_row_id = row_id;
+    tracing::info!(budget_usd = budget, row_id = ?row_id, "AOM started");
     Ok(AomStatus::from(&*s))
 }
 
@@ -3299,28 +3216,6 @@ pub fn run() {
                 });
             }
 
-            // Phase 3 bridge: MissionCompleted is published only on the
-            // escalation bus (operator.rs), but the TaskSupervisor listens on
-            // supervisor_bus_tx. Forward MissionCompleted across so the
-            // supervisor's Done arm fires for ambient operator tasks.
-            {
-                let mut rx = escalation_bus_tx.subscribe();
-                let to_supervisor = supervisor_bus_tx.clone();
-                tauri::async_runtime::spawn(async move {
-                    use karl_session::SessionEvent;
-                    loop {
-                        match rx.recv().await {
-                            Ok(ev @ SessionEvent::MissionCompleted { .. }) => {
-                                let _ = to_supervisor.send(ev);
-                            }
-                            Ok(_) => {}
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                        }
-                    }
-                });
-            }
-
             // Telegram inbound: long-poll loop emits InboundEvent into a
             // channel; the drain task republishes Resolved as
             // EscalationResolved on the bus and, for FreeText, types the
@@ -3693,7 +3588,6 @@ pub fn run() {
             is_operator_enabled,
             list_operator_decisions,
             set_operator_live,
-            session_set_operator_and_emit,
             is_operator_live,
             set_aom_excluded,
             set_tab_title,

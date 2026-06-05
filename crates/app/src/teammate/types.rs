@@ -95,11 +95,6 @@ pub struct Task {
     pub updated_at_unix_ms: u64,
     pub completed_at_unix_ms: Option<u64>,
     pub cost_usd_cents: u32,
-    /// True for auto-spawned ambient operator watch tasks (Phase 3).
-    /// Default false for user-proposed tasks. Backed by
-    /// `teammate_tasks.ambient` (0/1).
-    #[serde(default)]
-    pub ambient: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

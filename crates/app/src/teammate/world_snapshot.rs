@@ -11,7 +11,6 @@
 
 use karl_session::SessionId;
 
-use crate::operator::OperatorAwareness;
 use crate::world::{InFlightBlock, SessionWorldModel};
 
 #[derive(Debug, Clone)]
@@ -22,7 +21,6 @@ pub struct SessionSnapshot {
     pub summary: Option<String>,
     pub last_blocks: Vec<BlockBrief>,
     pub in_flight: Option<InFlightBrief>,
-    pub operator: Option<OperatorAwareness>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +43,6 @@ pub fn project(
     world: &SessionWorldModel,
     is_active: bool,
     now_unix_ms: u64,
-    operator: Option<OperatorAwareness>,
 ) -> SessionSnapshot {
     let last_blocks: Vec<BlockBrief> = world
         .blocks
@@ -75,7 +72,6 @@ pub fn project(
         summary: world.summary.clone(),
         last_blocks,
         in_flight,
-        operator,
     }
 }
 
@@ -110,10 +106,7 @@ pub fn render(snapshots: &[SessionSnapshot]) -> String {
             render_session_brief(&mut out, s);
         }
     }
-    // Mask credential-shaped runs before any of this reaches the LLM (CLAUDE.md
-    // rule #7). Applied to the whole assembled context so summaries, commands,
-    // cwds and block tails are all covered in one place.
-    crate::secrets::mask_secrets(&out)
+    out
 }
 
 fn render_session_full(out: &mut String, s: &SessionSnapshot) {
@@ -150,11 +143,6 @@ fn render_session_full(out: &mut String, s: &SessionSnapshot) {
             ));
         }
     }
-    if let Some(ref op) = s.operator {
-        if op.enabled {
-            render_operator_full(out, op);
-        }
-    }
 }
 
 fn render_session_brief(out: &mut String, s: &SessionSnapshot) {
@@ -178,99 +166,6 @@ fn render_session_brief(out: &mut String, s: &SessionSnapshot) {
         });
     out.push_str(&format!(
         "- session [id `{short}` — machine-only] · cwd `{cwd}` · {summary_line}\n"
-    ));
-    if let Some(ref op) = s.operator {
-        if op.enabled {
-            render_operator_brief(out, op);
-        }
-    }
-}
-
-fn phase_label(p: crate::operator::OperatorPhase) -> &'static str {
-    use crate::operator::OperatorPhase::*;
-    match p {
-        Idle => "idle",
-        Observing => "observing",
-        Triaging => "triaging",
-        Deciding => "deciding",
-        Yielded => "yielded",
-        Offline => "offline",
-    }
-}
-
-fn render_operator_full(out: &mut String, op: &OperatorAwareness) {
-    out.push_str(&format!(
-        "- operator: **{}** {} · phase: {} · live: {}\n",
-        op.operator_name,
-        op.operator_emoji,
-        phase_label(op.phase),
-        if op.live { "yes" } else { "no" },
-    ));
-    if let Some(ref m) = op.mind {
-        if let Some(ref g) = m.goal {
-            out.push_str(&format!("  - goal: {g}\n"));
-        }
-        if let Some(ref b) = m.belief {
-            out.push_str(&format!("  - belief: {b}\n"));
-        }
-        if let Some(ref n) = m.next_intent {
-            out.push_str(&format!("  - next intent: {n}\n"));
-        }
-        if !m.open_questions.is_empty() {
-            out.push_str("  - open questions:\n");
-            for q in &m.open_questions {
-                out.push_str(&format!("    - {q}\n"));
-            }
-        }
-        if !m.tried_failed.is_empty() {
-            out.push_str("  - tried & failed:\n");
-            for t in &m.tried_failed {
-                out.push_str(&format!("    - {t}\n"));
-            }
-        }
-    }
-    if let Some(ref d) = op.last_decision {
-        let txt = d.text.as_deref().unwrap_or("");
-        out.push_str(&format!("  - last decision: {} {}\n", d.action, txt));
-    }
-    if let Some(ref a) = op.aom {
-        if a.enabled {
-            out.push_str(&format!(
-                "  - AOM: on · {} decisions · ${:.3}/${:.2}{}\n",
-                a.decisions_count,
-                a.cost_usd,
-                a.budget_usd,
-                if a.cost_cap_hit { " · CAP HIT" } else { "" },
-            ));
-        }
-    }
-    if let Some(ref m) = op.mission {
-        out.push_str(&format!("  - mission: {} ({})\n", m.name, m.kind));
-    }
-}
-
-fn render_operator_brief(out: &mut String, op: &OperatorAwareness) {
-    let action = op
-        .last_decision
-        .as_ref()
-        .map(|d| d.action.as_str())
-        .unwrap_or("—");
-    let mission = op
-        .mission
-        .as_ref()
-        .map(|m| m.name.clone())
-        .unwrap_or_default();
-    let mission_suffix = if mission.is_empty() {
-        String::new()
-    } else {
-        format!(" · {mission}")
-    };
-    out.push_str(&format!(
-        "  - operator: {} · {} · last {}{}\n",
-        op.operator_name,
-        phase_label(op.phase),
-        action,
-        mission_suffix,
     ));
 }
 
@@ -324,7 +219,7 @@ mod tests {
             Some("user is debugging cargo build"),
             vec![("cargo build", 1), ("cargo check", 0)],
         );
-        let snap = project(id, &w, true, 0, None);
+        let snap = project(id, &w, true, 0);
         let out = render(&[snap]);
         assert!(out.contains("## Active session"));
         assert!(out.contains("/tmp/x"));
@@ -337,8 +232,8 @@ mod tests {
     fn renders_other_sessions_brief() {
         let a = SessionId::new();
         let b = SessionId::new();
-        let snap_a = project(a, &world_with("/a", None, vec![("ls", 0)]), true, 0, None);
-        let snap_b = project(b, &world_with("/b", None, vec![("rm bad", 1)]), false, 0, None);
+        let snap_a = project(a, &world_with("/a", None, vec![("ls", 0)]), true, 0);
+        let snap_b = project(b, &world_with("/b", None, vec![("rm bad", 1)]), false, 0);
         let out = render(&[snap_a, snap_b]);
         assert!(out.contains("## Active session"));
         assert!(out.contains("/a"));
@@ -362,7 +257,7 @@ mod tests {
             cwd: PathBuf::from("/x"),
             started_at_unix_ms: 1_000,
         });
-        let snap = project(id, &w, true, 6_000, None);
+        let snap = project(id, &w, true, 6_000);
         let out = render(&[snap]);
         assert!(out.contains("currently running"));
         assert!(out.contains("npm run dev"));
@@ -370,125 +265,13 @@ mod tests {
     }
 
     #[test]
-    fn masks_secrets_in_rendered_context() {
-        let id = SessionId::new();
-        let w = world_with(
-            "/tmp/x",
-            Some("user pasted sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA into the prompt"),
-            vec![("echo ghp_abcdefghijklmnopqrst1234", 0)],
-        );
-        let snap = project(id, &w, true, 0, None);
-        let out = render(&[snap]);
-        assert!(!out.contains("sk-ant-api03"), "summary secret leaked: {out}");
-        assert!(
-            !out.contains("ghp_abcdefghijklmnopqrst1234"),
-            "command secret leaked: {out}"
-        );
-        assert!(out.contains("[REDACTED:anthropic]"), "got: {out}");
-        assert!(out.contains("[REDACTED:github]"), "got: {out}");
-    }
-
-    #[test]
     fn handles_no_active_session() {
         let id = SessionId::new();
         let w = world_with("/x", None, vec![("ls", 0)]);
-        let snap = project(id, &w, false, 0, None);
+        let snap = project(id, &w, false, 0);
         let out = render(&[snap]);
         assert!(out.contains("no session is marked active"));
         assert!(out.contains("## Other open sessions"));
         assert!(out.contains("/x"));
-    }
-
-    // ---- Phase 1: operator awareness rendering ----
-
-    use crate::operator::{
-        AomBrief, DecisionBrief, MissionBrief, OperatorAwareness, OperatorMindBrief, OperatorPhase,
-    };
-
-    fn awareness(name: &str, active: bool) -> OperatorAwareness {
-        OperatorAwareness {
-            session_id: SessionId::new(),
-            operator_id: "op1".into(),
-            operator_name: name.into(),
-            operator_emoji: "🟣".into(),
-            enabled: true,
-            live: true,
-            phase: OperatorPhase::Deciding,
-            phase_since_unix_ms: 0,
-            mind: Some(OperatorMindBrief {
-                goal: Some("ship the projection".into()),
-                belief: Some("tests pass".into()),
-                next_intent: Some("write render".into()),
-                open_questions: vec!["q3".into()],
-                tried_failed: vec!["bad approach".into()],
-            }),
-            last_decision: Some(DecisionBrief {
-                action: "reply".into(),
-                text: Some("y".into()),
-                at_unix_ms: 1,
-            }),
-            aom: if active {
-                Some(AomBrief {
-                    enabled: true,
-                    elapsed_ms: 60_000,
-                    decisions_count: 7,
-                    cost_usd: 1.285,
-                    budget_usd: 5.0,
-                    cost_cap_hit: false,
-                })
-            } else {
-                None
-            },
-            mission: Some(MissionBrief {
-                kind: "covenant".into(),
-                name: "feat-foo.md".into(),
-                tasks_done: None,
-                tasks_total: None,
-            }),
-        }
-    }
-
-    #[test]
-    fn renders_operator_full_for_active_pane() {
-        let id = SessionId::new();
-        let w = world_with("/x", None, vec![("ls", 0)]);
-        let mut snap = project(id, &w, true, 0, None);
-        snap.operator = Some(awareness("Pi", true));
-        let out = render(&[snap]);
-        assert!(out.contains("operator: **Pi**"), "got: {out}");
-        assert!(out.contains("phase: deciding"), "got: {out}");
-        assert!(out.contains("goal: ship the projection"), "got: {out}");
-        assert!(out.contains("open questions"), "got: {out}");
-        assert!(out.contains("AOM: on"), "got: {out}");
-        assert!(out.contains("mission: feat-foo.md"), "got: {out}");
-    }
-
-    #[test]
-    fn renders_operator_brief_for_inactive_pane() {
-        let active = SessionId::new();
-        let other = SessionId::new();
-        let mut a = project(active, &world_with("/a", None, vec![("ls", 0)]), true, 0, None);
-        a.operator = Some(awareness("Pi", true));
-        let mut b = project(other, &world_with("/b", None, vec![("ls", 0)]), false, 0, None);
-        b.operator = Some(awareness("Zeta", false));
-        let out = render(&[a, b]);
-        let other_section = out.split("## Other open sessions").nth(1).unwrap_or("");
-        assert!(
-            other_section.contains("operator: Zeta · deciding · last reply"),
-            "got: {other_section}"
-        );
-        // Brief must NOT expand the full mind block.
-        assert!(!other_section.contains("open questions"), "got: {other_section}");
-    }
-
-    #[test]
-    fn omits_operator_when_disabled() {
-        let id = SessionId::new();
-        let mut snap = project(id, &world_with("/x", None, vec![("ls", 0)]), true, 0, None);
-        let mut aw = awareness("Pi", true);
-        aw.enabled = false;
-        snap.operator = Some(aw);
-        let out = render(&[snap]);
-        assert!(!out.contains("operator: **Pi**"), "got: {out}");
     }
 }

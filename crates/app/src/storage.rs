@@ -208,13 +208,10 @@ CREATE TABLE IF NOT EXISTS teammate_tasks (
     created_at_unix_ms  INTEGER NOT NULL,
     updated_at_unix_ms  INTEGER NOT NULL,
     completed_at_unix_ms INTEGER,
-    cost_usd_cents      INTEGER NOT NULL DEFAULT 0,
-    ambient             INTEGER NOT NULL DEFAULT 0  -- 1 = auto-spawned operator watch task
+    cost_usd_cents      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_operator ON teammate_tasks(operator_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status   ON teammate_tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_ambient
-    ON teammate_tasks(operator_id, ambient, status);
 
 CREATE TABLE IF NOT EXISTS teammate_threads (
     id                      TEXT PRIMARY KEY,
@@ -604,20 +601,6 @@ impl Storage {
         let _ = conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_messages_thread \
              ON teammate_messages(thread_id, created_at_unix_ms)",
-            [],
-        );
-        // Operator awareness Phase 3: ambient flag marks auto-spawned
-        // operator "watch" tasks (one per live operator/session). NOT NULL
-        // DEFAULT 0 backfills every legacy row to non-ambient. The index
-        // backs the restart-safe dedup lookup in
-        // `teammate_find_active_ambient_task`.
-        let _ = conn.execute(
-            "ALTER TABLE teammate_tasks ADD COLUMN ambient INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_ambient \
-             ON teammate_tasks(operator_id, ambient, status)",
             [],
         );
         // Backfill: every operator with orphaned (thread_id IS NULL) messages
@@ -1123,12 +1106,7 @@ impl Storage {
             let mut recent = Vec::new();
             for row in rows {
                 let (command, exit_code, output_text) = row?;
-                // Mask credentials before this excerpt reaches an LLM (CLAUDE.md rule #7).
-                recent.push(RecentBlockDto {
-                    command: crate::secrets::mask_secrets(&command),
-                    exit_code,
-                    tail: crate::secrets::mask_secrets(&tail_4kb(&output_text)),
-                });
+                recent.push(RecentBlockDto { command, exit_code, tail: tail_4kb(&output_text) });
             }
             // Surface oldest-first so the reader sees chronological order.
             recent.reverse();
@@ -2590,8 +2568,8 @@ impl Storage {
                 "INSERT INTO teammate_tasks \
                  (id, operator_id, archetype, title, body, deliverable, status, \
                   scope_json, spawned_session, created_at_unix_ms, updated_at_unix_ms, \
-                  completed_at_unix_ms, cost_usd_cents, ambient) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                  completed_at_unix_ms, cost_usd_cents) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     task.id.0.to_string(),
                     task.operator_id.0.to_string(),
@@ -2606,42 +2584,9 @@ impl Storage {
                     task.updated_at_unix_ms as i64,
                     task.completed_at_unix_ms.map(|t| t as i64),
                     task.cost_usd_cents as i64,
-                    task.ambient as i64,
                 ],
             )?;
             Ok(())
-        })
-        .await
-        .map_err(|e| StorageError::Join(e.to_string()))?
-    }
-
-    /// Restart-safe dedup for ambient operator tasks. Returns the id of an
-    /// existing ambient task for `(operator, session)` that is still
-    /// active/blocked, or None. Backed by `idx_tasks_ambient`. Used before
-    /// inserting a new ambient task so a double-`live` (or a restart that
-    /// re-runs the spawn path) never accumulates duplicates.
-    pub async fn teammate_find_active_ambient_task(
-        &self,
-        operator_id: crate::operator_registry::OperatorId,
-        spawned_session: karl_session::SessionId,
-    ) -> Result<Option<crate::teammate::TaskId>, StorageError> {
-        let inner = self.inner.clone();
-        let op_s = operator_id.0.to_string();
-        let sess_s = spawned_session.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Option<crate::teammate::TaskId>, StorageError> {
-            let c = inner.blocking_lock();
-            let mut stmt = c.prepare(
-                "SELECT id FROM teammate_tasks \
-                 WHERE operator_id = ?1 AND spawned_session = ?2 AND ambient = 1 \
-                   AND status IN ('active','blocked') \
-                 LIMIT 1",
-            )?;
-            let mut rows = stmt.query(params![op_s, sess_s])?;
-            let Some(row) = rows.next()? else { return Ok(None); };
-            let id_s: String = row.get(0)?;
-            let id = ulid::Ulid::from_string(&id_s)
-                .map_err(|e| StorageError::Other(e.to_string()))?;
-            Ok(Some(crate::teammate::TaskId(id)))
         })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
@@ -2785,7 +2730,7 @@ impl Storage {
             let mut stmt = c.prepare(
                 "SELECT id, operator_id, archetype, title, body, deliverable, status, \
                         scope_json, spawned_session, created_at_unix_ms, updated_at_unix_ms, \
-                        completed_at_unix_ms, cost_usd_cents, ambient \
+                        completed_at_unix_ms, cost_usd_cents \
                  FROM teammate_tasks WHERE operator_id = ?1 \
                  ORDER BY created_at_unix_ms DESC LIMIT 200",
             )?;
@@ -2803,12 +2748,11 @@ impl Storage {
                 let updated: i64 = row.get(10)?;
                 let completed: Option<i64> = row.get(11)?;
                 let cost: i64 = row.get(12)?;
-                let ambient: i64 = row.get(13)?;
-                Ok((id_s, op_s, archetype_s, title, body, deliverable, status_s, scope_json, spawned, created, updated, completed, cost, ambient))
+                Ok((id_s, op_s, archetype_s, title, body, deliverable, status_s, scope_json, spawned, created, updated, completed, cost))
             })?;
             let mut out = Vec::new();
             for r in rows {
-                let (id_s, op_s, archetype_s, title, body, deliverable, status_s, scope_json, spawned, created, updated, completed, cost, ambient) = r?;
+                let (id_s, op_s, archetype_s, title, body, deliverable, status_s, scope_json, spawned, created, updated, completed, cost) = r?;
                 let id = ulid::Ulid::from_string(&id_s).map_err(|e| StorageError::Other(e.to_string()))?;
                 let op = ulid::Ulid::from_string(&op_s).map_err(|e| StorageError::Other(e.to_string()))?;
                 let archetype = match archetype_s.as_str() {
@@ -2838,7 +2782,6 @@ impl Storage {
                     updated_at_unix_ms: updated as u64,
                     completed_at_unix_ms: completed.map(|v| v as u64),
                     cost_usd_cents: cost as u32,
-                    ambient: ambient != 0,
                 });
             }
             Ok(out)
@@ -2857,7 +2800,7 @@ impl Storage {
             let mut stmt = c.prepare(
                 "SELECT id, operator_id, archetype, title, body, deliverable, status, \
                         scope_json, spawned_session, created_at_unix_ms, updated_at_unix_ms, \
-                        completed_at_unix_ms, cost_usd_cents, ambient \
+                        completed_at_unix_ms, cost_usd_cents \
                  FROM teammate_tasks WHERE id = ?1",
             )?;
             let mut rows = stmt.query(params![id.0.to_string()])?;
@@ -2875,7 +2818,6 @@ impl Storage {
             let updated: i64 = row.get(10)?;
             let completed: Option<i64> = row.get(11)?;
             let cost: i64 = row.get(12)?;
-            let ambient: i64 = row.get(13)?;
             let id_u = ulid::Ulid::from_string(&id_s).map_err(|e| StorageError::Other(e.to_string()))?;
             let op_u = ulid::Ulid::from_string(&op_s).map_err(|e| StorageError::Other(e.to_string()))?;
             let archetype = match archetype_s.as_str() {
@@ -2905,7 +2847,6 @@ impl Storage {
                 updated_at_unix_ms: updated as u64,
                 completed_at_unix_ms: completed.map(|v| v as u64),
                 cost_usd_cents: cost as u32,
-                ambient: ambient != 0,
             }))
         })
         .await
@@ -3082,36 +3023,6 @@ mod tests {
 
         let (sessions, blocks) = s.counts().await.unwrap();
         assert_eq!((sessions, blocks), (1, 1));
-    }
-
-    #[tokio::test]
-    async fn read_session_excerpt_masks_secrets() {
-        let (s, _g) = fresh();
-        let session = SessionId::new();
-        s.save_session(session, 1).await.unwrap();
-        s.save_block(
-            BlockId::new(),
-            session,
-            "curl -H 'Authorization: Bearer ghp_abcdefghijklmnopqrstuvwx1234' x".to_string(),
-            Some("/tmp".to_string()),
-            Some(0),
-            10,
-            100,
-            "leaked sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA in output\n".to_string(),
-        )
-        .await
-        .unwrap();
-
-        let dto = s.read_session_excerpt(session.to_string(), 10).await.unwrap();
-        let block = &dto.recent[0];
-        assert!(
-            !block.command.contains("ghp_abcdefghijklmnopqrstuvwx1234"),
-            "command secret leaked: {}",
-            block.command
-        );
-        assert!(block.command.contains("[REDACTED:github]"), "cmd: {}", block.command);
-        assert!(!block.tail.contains("sk-ant-api03"), "tail secret leaked: {}", block.tail);
-        assert!(block.tail.contains("[REDACTED:anthropic]"), "tail: {}", block.tail);
     }
 
     async fn insert_finished_block(s: &Storage, session: SessionId, cmd: &str, finished: u64) {
@@ -4265,82 +4176,5 @@ mod task_card_storage_tests {
         let after = store.teammate_list_threads(op).await.unwrap();
         assert_eq!(after.len(), 1, "archived excluded");
         assert_eq!(after[0].title, "Renamed");
-    }
-
-    async fn seed_operator(s: &Storage, op: OperatorId) {
-        s.operator_insert(crate::operator_registry::Operator {
-            id: op, name: "Pi".into(), emoji: "🟣".into(), color: "#a855f7".into(),
-            tags: vec![], persona: "".into(), escalate_threshold: 0.6,
-            model: "x".into(), hard_constraints: "".into(),
-            voice: crate::operator_registry::VoiceTone::Terse,
-            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
-            soul_path: None, soul_mtime_unix_ms: 0,
-        }).await.unwrap();
-    }
-
-    fn ambient_task(op: OperatorId, session: karl_session::SessionId, status: crate::teammate::TaskStatus) -> crate::teammate::Task {
-        crate::teammate::Task {
-            id: crate::teammate::TaskId::new(),
-            operator_id: op,
-            archetype: TaskArchetype::Watch,
-            title: "Watching Pi".into(),
-            body: "".into(),
-            deliverable: "".into(),
-            status,
-            scope: TaskScope::default(),
-            spawned_session: Some(session),
-            created_at_unix_ms: 1_700_000_000_000,
-            updated_at_unix_ms: 1_700_000_000_000,
-            completed_at_unix_ms: None,
-            cost_usd_cents: 0,
-            ambient: true,
-        }
-    }
-
-    #[tokio::test]
-    async fn ambient_flag_round_trips_via_get_and_list() {
-        let s = tmp_storage();
-        let op = sample_op_id();
-        seed_operator(&s, op).await;
-        let session = karl_session::SessionId::new();
-        let t = ambient_task(op, session, crate::teammate::TaskStatus::Active);
-        let tid = t.id;
-        s.teammate_insert_task(&t).await.unwrap();
-
-        let got = s.teammate_get_task(tid).await.unwrap().expect("task present");
-        assert!(got.ambient, "ambient must persist through get");
-        assert_eq!(got.archetype, TaskArchetype::Watch);
-
-        let list = s.teammate_list_tasks_for_operator(op).await.unwrap();
-        assert!(list.iter().any(|x| x.id == tid && x.ambient));
-    }
-
-    #[tokio::test]
-    async fn find_active_ambient_dedups_only_active_or_blocked() {
-        let s = tmp_storage();
-        let op = sample_op_id();
-        seed_operator(&s, op).await;
-        let session = karl_session::SessionId::new();
-
-        // No ambient task yet → None.
-        assert!(s.teammate_find_active_ambient_task(op, session).await.unwrap().is_none());
-
-        // Active ambient task → found.
-        let active = ambient_task(op, session, crate::teammate::TaskStatus::Active);
-        let active_id = active.id;
-        s.teammate_insert_task(&active).await.unwrap();
-        assert_eq!(
-            s.teammate_find_active_ambient_task(op, session).await.unwrap(),
-            Some(active_id),
-        );
-
-        // A DONE ambient task on a DIFFERENT session must not be matched.
-        let other_session = karl_session::SessionId::new();
-        let done = ambient_task(op, other_session, crate::teammate::TaskStatus::Done);
-        s.teammate_insert_task(&done).await.unwrap();
-        assert!(
-            s.teammate_find_active_ambient_task(op, other_session).await.unwrap().is_none(),
-            "done ambient task is not a live dedup target",
-        );
     }
 }

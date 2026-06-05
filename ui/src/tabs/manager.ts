@@ -881,9 +881,6 @@ export class TabManager {
     const sessionId = await spawnSession(
       {
         onOutput: (chunk) => { xtermRef?.write(chunk); },
-        // FOLLOW-UP (Phase 2 drive-by): split-pane sessions drop their
-        // block events here, so their Pane.lastCommand/blockCount stay at
-        // the null/0 defaults until D13 wires full event handling.
         onSessionEvent: (_event) => { /* TODO: D13 — full event wiring */ },
       },
       { initialCwd: cwd, paneId },
@@ -1131,15 +1128,6 @@ export class TabManager {
       spawn_id: persistedPane.spawn_id ?? null,
       idleAgent: null,
       busyProc: null,
-      operatorPhase: null,
-      phaseSince: null,
-      operatorName: null,
-      operatorEmoji: null,
-      // FOLLOW-UP (Phase 2 drive-by): restored panes start with
-      // lastCommand=null / blockCount=0 — no storage-backed replay of
-      // historical blocks yet. They self-heal on the next live command.
-      lastCommand: null,
-      blockCount: 0,
       replayKey,
       el: null,
     };
@@ -1763,28 +1751,6 @@ export class TabManager {
     this.renderTabbar();
   }
 
-  /// Apply one `operator-status` event: update the matching pane's phase
-  /// fields (split-pane aware — scans BOTH panes), and when that pane is
-  /// the active pane of the active tab, push the phase to the status bar.
-  applyOperatorStatus(s: import("../api").OperatorStatus): void {
-    for (const tab of this.tabs) {
-      for (let i = 0; i < tab.panes.length; i++) {
-        const pane = tab.panes[i]!;
-        if (pane.sessionId !== s.sessionId) continue;
-        pane.operatorPhase = s.enabled ? s.phase : null;
-        pane.phaseSince = s.enabled ? s.phaseSinceUnixMs : null;
-        pane.operatorName = s.enabled ? s.operatorName : null;
-        pane.operatorEmoji = s.enabled ? s.operatorEmoji : null;
-        const isActivePane =
-          tab.id === this.activeId && tab.layout.activePaneIdx === i;
-        if (isActivePane) {
-          this.statusBar?.setOperatorPhase(s.enabled ? s.phase : null);
-        }
-        return;
-      }
-    }
-  }
-
   /// Pointer-event-based drag implementation.
   ///
   /// We don't use HTML5 drag-and-drop because Tauri's WebKit on macOS
@@ -2231,8 +2197,6 @@ export class TabManager {
     );
     const opEntity = pane.operator ? (this.operatorCache.get(pane.operator) ?? null) : null;
     this.onActiveOperatorEntityChange?.(opEntity);
-    // Phase 2: keep the chip's phase suffix in sync on tab/pane switch.
-    this.statusBar?.setOperatorPhase(pane.operatorPhase);
   }
 
   /// Emit the active tab's bound spawn_id to whoever is listening.
@@ -2595,28 +2559,21 @@ export class TabManager {
 
   /// Snapshot of every open shell tab — feeds the multi-source mention
   /// picker's "Sessions" tab. Pi tabs are skipped (no PTY blocks).
-  /// `last_command`/`block_count` come from the per-pane tracking wired in
-  /// the block_started/block_finished handlers; the `shell` label carries
-  /// the pinned operator's name when present (a free-text label the picker
-  /// renders), falling back to "zsh".
+  /// `shell` and `block_count` aren't tracked in TabManager yet, so we
+  /// emit safe placeholders the picker can render around.
   listOpenSessions(): import("../teammate/mention-sources").OpenSessionInfo[] {
-    const cache: Map<string, Operator> = this.operatorCache;
     return this.tabs
       .filter((t) => t.kind === "shell")
       .map((t, idx) => {
         const pane = activePane(t);
-        // Operator binding: resolve the pinned entity name when present so
-        // the mention picker can show "session — Pi". Falls back to "zsh".
-        // (Default-operator panes have null pane.operator.)
-        const op = pane.operator ? (cache.get(pane.operator) ?? null) : null;
         return {
           session_id: (pane.sessionId ?? "").toString(),
           short_id:   (pane.sessionId ?? "").toString().slice(-6),
           cwd:        pane.cwd,
           tab_index:  idx + 1,
-          shell:      op ? op.name : "zsh",
-          last_command: pane.lastCommand,
-          block_count:  pane.blockCount,
+          shell:      "zsh",
+          last_command: null,
+          block_count:  0,
         };
       });
   }
@@ -2950,10 +2907,6 @@ export class TabManager {
               const next = detectExecutor(event.command);
               if (tabRef.current) {
                 const p = tabRef.current.panes[0];
-                // Phase 2: feed listOpenSessions().last_command. This
-                // per-session listener covers pane[0]; split panes get
-                // their own session listener.
-                p.lastCommand = event.command;
                 if (p.executor !== next) {
                   p.executor = next;
                   if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
@@ -2976,8 +2929,6 @@ export class TabManager {
             } else if (event.kind === "block_finished") {
               if (tabRef.current) {
                 const p = tabRef.current.panes[0];
-                // Phase 2: feed listOpenSessions().block_count.
-                p.blockCount += 1;
                 if (p.executor !== null) {
                   p.executor = null;
                   if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
@@ -3725,12 +3676,6 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
-      operatorPhase: null,
-      phaseSince: null,
-      operatorName: null,
-      operatorEmoji: null,
-      lastCommand: null,
-      blockCount: 0,
       replayKey,
       el: paneHost0,
     };
@@ -4005,12 +3950,6 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
-      operatorPhase: null,
-      phaseSince: null,
-      operatorName: null,
-      operatorEmoji: null,
-      lastCommand: null,
-      blockCount: 0,
       replayKey,
       el: piPaneHost0,
     };
@@ -4100,12 +4039,6 @@ export class TabManager {
       spawn_id: null,
       idleAgent: null,
       busyProc: null,
-      operatorPhase: null,
-      phaseSince: null,
-      operatorName: null,
-      operatorEmoji: null,
-      lastCommand: null,
-      blockCount: 0,
       replayKey,
       el: null,
     };

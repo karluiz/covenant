@@ -399,10 +399,6 @@ export interface Task {
   updated_at_unix_ms: number;
   completed_at_unix_ms: number | null;
   cost_usd_cents: number;
-  // True for auto-spawned ambient operator watch tasks (Phase 3).
-  // Renders in the Tasks/Activity tabs only, never the chat thread.
-  // Optional keeps any cached/older teammate-task payloads valid.
-  ambient?: boolean;
 }
 
 export type TeammateContent =
@@ -774,53 +770,6 @@ export interface OperatorPhaseSnapshot {
 
 export async function operatorPhaseOverview(): Promise<OperatorPhaseSnapshot> {
   return invoke<OperatorPhaseSnapshot>("operator_phase_overview");
-}
-
-export interface OperatorMindBrief {
-  goal: string | null;
-  belief: string | null;
-  nextIntent: string | null;
-  openQuestions: string[];
-  triedFailed: string[];
-}
-
-export interface DecisionBrief {
-  action: string;
-  text: string | null;
-  atUnixMs: number;
-}
-
-export interface AomBrief {
-  enabled: boolean;
-  elapsedMs: number;
-  decisionsCount: number;
-  costUsd: number;
-  budgetUsd: number;
-  costCapHit: boolean;
-}
-
-export interface MissionBrief {
-  kind: string;
-  name: string;
-  tasksDone: number | null;
-  tasksTotal: number | null;
-}
-
-/// Payload of the `operator-status` event (one per changed session).
-/// camelCase mirrors the Rust `OperatorAwareness` serde rename.
-export interface OperatorStatus {
-  sessionId: string;
-  operatorId: string;
-  operatorName: string;
-  operatorEmoji: string;
-  enabled: boolean;
-  live: boolean;
-  phase: OperatorPhase;
-  phaseSinceUnixMs: number;
-  mind: OperatorMindBrief | null;
-  lastDecision: DecisionBrief | null;
-  aom: AomBrief | null;
-  mission: MissionBrief | null;
 }
 
 export interface ActionBreakdown {
@@ -1572,12 +1521,7 @@ export async function sessionSetOperator(
   sessionId: SessionId,
   operatorId: string | null,
 ): Promise<void> {
-  // Phase 2: route the pin/unpin through `session_set_operator_and_emit`,
-  // which performs the same registry pin/unpin AND emits `operator-status`
-  // so the per-pane strip + status-bar chip reflect the new identity
-  // immediately (no wait for the next tick). Same `{ sessionId, operatorId }`
-  // args — Tauri maps them to the command's snake_case params.
-  return invoke<void>("session_set_operator_and_emit", { sessionId, operatorId });
+  return invoke<void>("session_set_operator", { sessionId, operatorId });
 }
 
 export async function sessionGetOperator(sessionId: SessionId): Promise<Operator> {
