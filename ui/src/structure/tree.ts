@@ -6,6 +6,7 @@
 // entries at all). Manual refresh button re-lists from root.
 
 import { Icons } from "../icons";
+import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
 import { zoom } from "../zoom";
 import {
   structureCopyInto,
@@ -491,10 +492,12 @@ export class StructureTree {
 
     const icon = document.createElement("span");
     icon.className = "structure-icon";
-    icon.innerHTML =
+    const resolved =
       entry.kind === "dir"
-        ? Icons.folder({ size: 13 })
-        : Icons.fileText({ size: 13 });
+        ? resolveFolderIcon(entry.name, false)
+        : resolveFileIcon(entry.name);
+    icon.innerHTML = resolved.svg;
+    icon.style.color = resolved.color;
     row.appendChild(icon);
 
     const name = document.createElement("span");
@@ -831,10 +834,10 @@ export class StructureTree {
 
     const icon = document.createElement("span");
     icon.className = "structure-icon";
-    icon.innerHTML =
-      kind === "dir"
-        ? Icons.folder({ size: 13 })
-        : Icons.fileText({ size: 13 });
+    const draftResolved =
+      kind === "dir" ? resolveFolderIcon("", false) : resolveFileIcon("");
+    icon.innerHTML = draftResolved.svg;
+    icon.style.color = draftResolved.color;
     row.appendChild(icon);
 
     const input = document.createElement("input");
@@ -908,11 +911,21 @@ export class StructureTree {
     await this.refresh();
   }
 
+  private refreshFolderIcon(node: NodeState): void {
+    if (node.entry.kind !== "dir") return;
+    const iconEl = node.el.querySelector<HTMLElement>(".structure-icon");
+    if (!iconEl) return;
+    const r = resolveFolderIcon(node.entry.name, node.expanded);
+    iconEl.innerHTML = r.svg;
+    iconEl.style.color = r.color;
+  }
+
   private async expand(node: NodeState): Promise<void> {
     if (node.expanded) return;
     if (node.entry.kind !== "dir") return;
     node.expanded = true;
     node.el.classList.add("structure-node-expanded");
+    this.refreshFolderIcon(node);
     if (this.cwd) {
       this.expandedPaths.add(node.entry.path);
       saveExpanded(this.cwd, this.expandedPaths);
@@ -951,6 +964,7 @@ export class StructureTree {
     if (!node.expanded) return;
     node.expanded = false;
     node.el.classList.remove("structure-node-expanded");
+    this.refreshFolderIcon(node);
     const childList = node.el.querySelector(".structure-children");
     if (childList instanceof HTMLElement) childList.hidden = true;
     if (this.cwd) {
