@@ -45,6 +45,39 @@ export class ContextMenu {
   private outsideClickHandler: ((e: MouseEvent) => void) | null = null;
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
 
+  /// Set of currently-open menu instances. A native webview (the internal
+  /// browser) is an OS-compositor layer that paints above ALL DOM and
+  /// ignores z-index, so a context menu rendered over it is invisible.
+  /// We report the union bounds of every open menu+submenu to a single
+  /// app-level listener whenever they change, so it can carve the menu's
+  /// rectangle out of the active browser overlay (rather than hide it
+  /// wholesale). Passing null means no menus are open. Covers every
+  /// ContextMenu surface for free.
+  private static openInstances = new Set<ContextMenu>();
+  static onMenusChanged: ((bounds: DOMRect | null) => void) | null = null;
+
+  private static notify(): void {
+    const cb = ContextMenu.onMenusChanged;
+    if (!cb) return;
+    let union: DOMRect | null = null;
+    for (const inst of ContextMenu.openInstances) {
+      for (const el of [inst.el, inst.submenuEl]) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (!union) {
+          union = r;
+        } else {
+          const left = Math.min(union.left, r.left);
+          const top = Math.min(union.top, r.top);
+          const right = Math.max(union.right, r.right);
+          const bottom = Math.max(union.bottom, r.bottom);
+          union = new DOMRect(left, top, right - left, bottom - top);
+        }
+      }
+    }
+    cb(union);
+  }
+
   constructor(private readonly host: HTMLElement) {}
 
   show(x: number, y: number, items: MenuItem[]): void {
@@ -92,6 +125,8 @@ export class ContextMenu {
     menu.style.top = `${top / z}px`;
 
     this.el = menu;
+    ContextMenu.openInstances.add(this);
+    ContextMenu.notify();
 
     // Defer outside-click registration so the originating right-click
     // doesn't dismiss us immediately.
@@ -133,6 +168,8 @@ export class ContextMenu {
       document.removeEventListener("keydown", this.escHandler);
       this.escHandler = null;
     }
+    ContextMenu.openInstances.delete(this);
+    ContextMenu.notify();
   }
 
   isOpen(): boolean {
@@ -185,6 +222,7 @@ export class ContextMenu {
     sub.style.left = `${left / z}px`;
     sub.style.top = `${top / z}px`;
     this.submenuEl = sub;
+    ContextMenu.notify();
   }
 
   private renderItem(item: MenuItem, parentMenu?: HTMLElement): HTMLElement {

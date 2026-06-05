@@ -17921,7 +17921,18 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
 }
 .browser-progress { height: 2px; background: var(--accent, #6aa9ff); animation: browser-load 1s linear infinite; }
 @keyframes browser-load { 0% { opacity: 0.3 } 50% { opacity: 1 } 100% { opacity: 0.3 } }
-.browser-viewport { flex: 1; min-height: 0; }
+.browser-viewport { flex: 1; min-height: 0; position: relative; }
+/* Frozen-page snapshot shown while a context menu is open over the browser
+   (the native webview is hidden so the DOM menu can paint on top). */
+.browser-freeze {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+  pointer-events: none;
+}
 
 /* ---- Browser favorites rail (browser pane grid column 4) ---- */
 .tab-pane > .fav-rail { grid-column: 4; }

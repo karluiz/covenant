@@ -3663,6 +3663,7 @@ pub fn run() {
             browser::browser_set_bounds,
             browser::browser_show,
             browser::browser_hide,
+            browser::browser_snapshot,
             browser::browser_close,
             favorites_commands::favorites_tree,
             favorites_commands::favorites_add,

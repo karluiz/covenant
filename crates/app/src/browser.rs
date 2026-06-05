@@ -195,6 +195,92 @@ pub fn browser_hide(app: tauri::AppHandle, tab_id: String) -> Result<(), String>
     wv.hide().map_err(|e| e.to_string())
 }
 
+/// Capture the current visible frame of a browser tab's native webview as
+/// a PNG data URL. Used to "freeze" the page into a DOM <img> while a
+/// context menu is open: the native webview is hidden (DOM can't paint
+/// over it), the snapshot stands in, and the menu renders on top. macOS
+/// only — returns an error elsewhere so the caller falls back to hide.
+#[tauri::command]
+pub async fn browser_snapshot(app: tauri::AppHandle, tab_id: String) -> Result<String, String> {
+    let wv = app.get_webview(&label_for(&tab_id)).ok_or("no webview")?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<Vec<u8>>>();
+    wv.with_webview(move |_pw| {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            use block2::RcBlock;
+            use objc2::runtime::AnyObject;
+            use std::cell::Cell;
+
+            let webview = _pw.inner() as *mut AnyObject;
+            // takeSnapshot's completion handler fires once, later, on the
+            // main thread. Move the oneshot sender into a Cell so the
+            // (Fn) block can take it on first invocation.
+            let slot = Cell::new(Some(tx));
+            let handler = RcBlock::new(move |image: *mut AnyObject, _err: *mut AnyObject| {
+                let bytes = png_from_nsimage(image);
+                if let Some(tx) = slot.take() {
+                    let _ = tx.send(bytes);
+                }
+            });
+            let nil = std::ptr::null::<AnyObject>();
+            let _: () = objc2::msg_send![
+                webview,
+                takeSnapshotWithConfiguration: nil,
+                completionHandler: &*handler,
+            ];
+            // Keep the block alive until the completion handler runs.
+            std::mem::forget(handler);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = tx.send(None);
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    let bytes = rx
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("snapshot unavailable")?;
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+/// Convert an `NSImage*` to PNG bytes via NSBitmapImageRep. Returns None on
+/// any null/failure along the chain.
+#[cfg(target_os = "macos")]
+unsafe fn png_from_nsimage(image: *mut objc2::runtime::AnyObject) -> Option<Vec<u8>> {
+    use objc2::runtime::AnyObject;
+    if image.is_null() {
+        return None;
+    }
+    let tiff: *mut AnyObject = objc2::msg_send![image, TIFFRepresentation];
+    if tiff.is_null() {
+        return None;
+    }
+    let cls = objc2::class!(NSBitmapImageRep);
+    let rep: *mut AnyObject = objc2::msg_send![cls, imageRepWithData: tiff];
+    if rep.is_null() {
+        return None;
+    }
+    // NSBitmapImageFileTypePNG = 4; nil properties is accepted.
+    let nil = std::ptr::null::<AnyObject>();
+    let png: *mut AnyObject =
+        objc2::msg_send![rep, representationUsingType: 4usize, properties: nil];
+    if png.is_null() {
+        return None;
+    }
+    let len: usize = objc2::msg_send![png, length];
+    // -[NSData bytes] returns `const void*` (encoding `^v`); declaring it as
+    // `*const u8` trips objc2's debug type-encoding check, so take c_void.
+    let ptr: *const std::ffi::c_void = objc2::msg_send![png, bytes];
+    if ptr.is_null() || len == 0 {
+        return None;
+    }
+    Some(std::slice::from_raw_parts(ptr as *const u8, len).to_vec())
+}
+
 #[tauri::command]
 pub fn browser_close(
     app: tauri::AppHandle,

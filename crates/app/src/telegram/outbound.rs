@@ -40,11 +40,72 @@ pub fn format_message(ctx: &OutboundContext) -> String {
     };
     format!(
         "{emoji} {name} · {repo} ({branch})\n{trimmed}",
-        emoji = ctx.operator.emoji,
+        emoji = display_emoji(&ctx.operator.emoji, &ctx.operator.color),
         name = ctx.operator.name,
         repo = ctx.project.repo,
         branch = ctx.project.branch,
     )
+}
+
+/// Resolve the glyph shown before the operator name in a Telegram message.
+///
+/// Custom avatar packs (e.g. `pack2:junior`) are app-internal references
+/// Telegram cannot render — dumping them raw shows literal text like
+/// "pack2:junior". When `emoji` isn't a real emoji we fall back to the
+/// colored circle nearest the operator's `#RRGGBB` color, so the header
+/// still reads as a small colored marker.
+fn display_emoji(emoji: &str, color: &str) -> String {
+    if is_renderable_emoji(emoji) {
+        return emoji.to_string();
+    }
+    nearest_circle(color).to_string()
+}
+
+/// True when `s` is a single real emoji we can pass through to Telegram.
+/// Avatar-pack refs are ASCII (`pack2:junior`); genuine emoji are
+/// non-ASCII and short. We treat any all-ASCII or empty value as "not an
+/// emoji" so it gets the colored-circle fallback.
+fn is_renderable_emoji(s: &str) -> bool {
+    let s = s.trim();
+    !s.is_empty() && !s.is_ascii()
+}
+
+/// Map a `#RRGGBB` color to the nearest Telegram colored-circle emoji.
+fn nearest_circle(color: &str) -> &'static str {
+    // (emoji, r, g, b) — the standard Unicode color circles.
+    const CIRCLES: &[(&str, i32, i32, i32)] = &[
+        ("🔴", 220, 40, 40),
+        ("🟠", 240, 150, 40),
+        ("🟡", 240, 210, 60),
+        ("🟢", 70, 180, 80),
+        ("🔵", 60, 120, 220),
+        ("🟣", 150, 90, 200),
+        ("🟤", 140, 90, 60),
+        ("⚫", 30, 30, 30),
+        ("⚪", 235, 235, 235),
+    ];
+    let Some((r, g, b)) = parse_hex(color) else {
+        return "🔵";
+    };
+    CIRCLES
+        .iter()
+        .min_by_key(|(_, cr, cg, cb)| {
+            (cr - r).pow(2) + (cg - g).pow(2) + (cb - b).pow(2)
+        })
+        .map(|(e, ..)| *e)
+        .unwrap_or("🔵")
+}
+
+/// Parse `#RRGGBB` (or `RRGGBB`) into `(r, g, b)` as i32s.
+fn parse_hex(color: &str) -> Option<(i32, i32, i32)> {
+    let h = color.trim().strip_prefix('#').unwrap_or(color.trim());
+    if h.len() != 6 {
+        return None;
+    }
+    let r = i32::from_str_radix(&h[0..2], 16).ok()?;
+    let g = i32::from_str_radix(&h[2..4], 16).ok()?;
+    let b = i32::from_str_radix(&h[4..6], 16).ok()?;
+    Some((r, g, b))
 }
 
 pub fn keyboard_for(ctx: &OutboundContext, escalation_id: &str) -> InlineKeyboardMarkup {
@@ -104,6 +165,26 @@ mod tests {
             !out.contains("[tab: session:"),
             "legacy prefix leaked: {out}"
         );
+    }
+
+    #[test]
+    fn avatar_pack_ref_falls_back_to_colored_circle() {
+        let mut op = maya();
+        op.emoji = "pack2:junior".into(); // app-internal avatar ref
+        op.color = "#a855f7".into(); // purple
+        let pr = proj();
+        let actions: Vec<OperatorAction> = vec![];
+        let ctx = OutboundContext {
+            operator: &op,
+            project: &pr,
+            session_short: "ab12",
+            kind: &EscalationKind::Blocked,
+            summary: "s",
+            actions: &actions,
+        };
+        let out = format_message(&ctx);
+        assert!(!out.contains("pack2:junior"), "raw pack ref leaked: {out}");
+        assert!(out.contains("🟣 Maya"), "expected purple circle: {out}");
     }
 
     #[test]
