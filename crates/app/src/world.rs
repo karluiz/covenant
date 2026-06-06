@@ -33,6 +33,9 @@ pub struct SessionWorldModel {
     /// `None` means "no summary yet" — render falls back to dumping
     /// blocks raw so the agent still has context.
     pub summary: Option<String>,
+    /// Short (≤2 word) AI-generated activity label for the session's tab.
+    /// `None` until the summarizer produces one.
+    pub title: Option<String>,
     /// Currently-executing block, if any. Set on BlockSubmitted, cleared
     /// on BlockFinished. The Operator (M-OP) reads this to decide
     /// whether the active command is an executor agent worth watching.
