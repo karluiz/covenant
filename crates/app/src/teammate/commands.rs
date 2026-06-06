@@ -554,6 +554,17 @@ pub async fn teammate_clear_for_operator(
     Ok(())
 }
 
+/// Delete finished tasks (done | cancelled) for `operator_id`, leaving active,
+/// blocked, and draft tasks intact. Returns the number of tasks removed.
+#[tauri::command]
+pub async fn teammate_clear_finished_tasks(
+    storage: State<'_, Arc<Storage>>,
+    operator_id: OperatorId,
+) -> Result<usize, String> {
+    storage.teammate_clear_finished_tasks(operator_id).await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn teammate_attach_session_to_task(
     app: tauri::AppHandle,

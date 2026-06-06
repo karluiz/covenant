@@ -2872,6 +2872,27 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Delete every finished task (done | cancelled) for an operator. Active,
+    /// blocked, and draft tasks are left untouched. Artifacts cascade via the FK
+    /// on teammate_artifacts.task_id. Backs the Tasks panel's "clean" affordance.
+    pub async fn teammate_clear_finished_tasks(
+        &self,
+        op: crate::operator_registry::OperatorId,
+    ) -> Result<usize, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<usize, StorageError> {
+            let c = inner.blocking_lock();
+            let op_s = op.0.to_string();
+            let n = c.execute(
+                "DELETE FROM teammate_tasks WHERE operator_id = ?1 AND status IN ('done','cancelled')",
+                params![op_s],
+            )?;
+            Ok(n)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn teammate_update_task_spawned_session(
         &self,
         id: crate::teammate::TaskId,

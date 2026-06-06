@@ -3668,6 +3668,7 @@ pub fn run() {
             teammate::commands::teammate_edit_task_proposal,
             teammate::commands::teammate_attach_session_to_task,
             teammate::commands::teammate_clear_for_operator,
+            teammate::commands::teammate_clear_finished_tasks,
             teammate::commands::teammate_create_thread,
             teammate::commands::teammate_list_threads,
             teammate::commands::teammate_rename_thread,

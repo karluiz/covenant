@@ -530,6 +530,12 @@ export async function teammateClearForOperator(operatorId: string): Promise<void
   return invoke<void>("teammate_clear_for_operator", { operatorId });
 }
 
+/// Delete finished tasks (done | cancelled) for an operator, leaving active,
+/// blocked, and draft tasks intact. Returns the number of tasks removed.
+export async function teammateClearFinishedTasks(operatorId: string): Promise<number> {
+  return invoke<number>("teammate_clear_finished_tasks", { operatorId });
+}
+
 /// A single operator decision row, as returned by the teammate task-details
 /// view's decisions feed. Mirrors `crate::storage::OperatorDecisionRow`.
 export interface OperatorDecisionRow {

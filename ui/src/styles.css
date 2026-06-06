@@ -16784,6 +16784,19 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
   border-color: color-mix(in srgb, var(--operator-color, #6f7bff) 45%, transparent);
   color: inherit;
 }
+.task-clean-btn {
+  margin-left: auto;
+  font-size: 11px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border-soft, rgba(255,255,255,0.10));
+  background: transparent; color: var(--text-dim, #8b8d94);
+  cursor: pointer;
+}
+.task-clean-btn:hover:not(:disabled) {
+  color: #ff8b8b;
+  border-color: color-mix(in srgb, #ff5a5a 45%, transparent);
+  background: color-mix(in srgb, #ff5a5a 12%, transparent);
+}
+.task-clean-btn:disabled { opacity: 0.5; cursor: default; }
 .teammate-panel-tab {
   display: inline-flex; align-items: center; gap: 6px;
   background: transparent; border: none; color: var(--text-dim, #8b8d94);

@@ -8,6 +8,7 @@ import {
   structureFindFiles, structureReadFile,
   teammateAttachSessionToTask, teammateArchiveThread, teammateCancelActiveTask, teammateCancelTaskProposal,
   teammateConfirmTask, teammateCreateThread, teammateEditTaskProposal,
+  teammateClearFinishedTasks,
   teammateListDecisionsForSession, teammateListMessages, teammateListTasks, teammateListThreads,
   teammateRenameThread, teammateSendText,
   type BlockExcerpt, type SessionExcerpt,
@@ -96,6 +97,9 @@ export interface TeammatePanelDeps {
   ) => Promise<{ sessionId: string; cwd: string | null; groupId: string | null; color: string | null }>;
   /// Fetch all tasks for the operator (proposed/active/done). Powers the Tasks tab.
   listTasks?:       (operatorId: string) => Promise<Task[]>;
+  /// Delete finished tasks (done | cancelled) for the operator. Returns the
+  /// number removed. Backs the Tasks tab's "Clean" affordance.
+  clearFinishedTasks?: (operatorId: string) => Promise<number>;
   /// Activate the tab whose backing SessionId matches. Returns true if found.
   focusTabBySessionId?: (sessionId: string) => boolean;
   /// Pin the operator to the target tab, enable it, flip live (single-tab
@@ -151,6 +155,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   editTaskProposal:    teammateEditTaskProposal,
   attachSessionToTask: teammateAttachSessionToTask,
   listTasks:           teammateListTasks,
+  clearFinishedTasks:  teammateClearFinishedTasks,
   cancelActiveTask:    teammateCancelActiveTask,
   mentionSources: {
     findFiles:          structureFindFiles,
@@ -1074,7 +1079,32 @@ export class TeammatePanel {
       });
       row.append(b);
     }
+
+    const finishedCount = this.tasksCache.filter(
+      (t) => t.status === "done" || t.status === "cancelled",
+    ).length;
+    if (finishedCount > 0 && this.deps.clearFinishedTasks) {
+      const clean = document.createElement("button");
+      clean.type = "button";
+      clean.className = "task-clean-btn";
+      clean.textContent = `Clean (${finishedCount})`;
+      attachTooltip(clean, "Remove finished tasks (done & cancelled)");
+      clean.addEventListener("click", () => void this.handleCleanTasks(clean));
+      row.append(clean);
+    }
     return row;
+  }
+
+  private async handleCleanTasks(btn: HTMLButtonElement): Promise<void> {
+    if (!this.operator || !this.deps.clearFinishedTasks) return;
+    btn.disabled = true;
+    try {
+      await this.deps.clearFinishedTasks(this.operator.id);
+      await this.refreshTasks();
+    } catch (e) {
+      console.error("clearFinishedTasks failed", e);
+      btn.disabled = false;
+    }
   }
 
   private renderTaskItem(task: Task): HTMLElement {
