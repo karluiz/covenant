@@ -482,6 +482,12 @@ struct Attached {
     /// the per-tab badge, ⌘⇧E, the right-click menu, or "Include all"
     /// in the AOM popover.
     aom_excluded: bool,
+    /// Ephemeral per-tab "solo autonomous" flag. When true, this tab
+    /// gets full AOM posture (directive, proactive startup, auto-exec)
+    /// without the global AOM banner being on — see `effective_aom`.
+    /// NOT persisted to the tab manifest: a reload/restart clears it so
+    /// an autonomous operator never silently resumes acting unattended.
+    solo_aom: bool,
     /// True when this tab's `enabled` was flipped on by the AOM
     /// auto-enable path (vs the user manually right-clicking Enable
     /// operator). Lets `aom_stop` revert exactly the tabs AOM touched
@@ -768,6 +774,7 @@ impl OperatorWatcher {
                 enabled,
                 live: false,
                 aom_excluded,
+                solo_aom: false,
                 enabled_by_aom: false,
                 mission: None,
                 task_archetype: None,
@@ -910,6 +917,32 @@ impl OperatorWatcher {
             .get(&session_id)
             .map(|a| a.enabled && a.live)
             .unwrap_or(false)
+    }
+
+    /// Flip the ephemeral per-tab solo-autonomous flag. Solo requires
+    /// `enabled` to do anything — `run_tick` still no-ops on a
+    /// not-yet-enabled session.
+    pub async fn set_solo(&self, session_id: SessionId, solo: bool) {
+        if let Some(att) = self.inner.lock().await.sessions.get_mut(&session_id) {
+            att.solo_aom = solo;
+        }
+    }
+
+    pub async fn is_solo(&self, session_id: SessionId) -> bool {
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .get(&session_id)
+            .map(|a| a.solo_aom)
+            .unwrap_or(false)
+    }
+
+    /// True if ANY attached session is currently solo-armed. Used by
+    /// `ensure_autonomy_pot` to decide whether the budget pot is
+    /// already live before opening a fresh one.
+    pub async fn any_solo_active(&self) -> bool {
+        self.inner.lock().await.sessions.values().any(|a| a.solo_aom)
     }
 
     /// Per-tab AOM opt-out. When true, this tab is invisible to the
@@ -1761,6 +1794,7 @@ async fn run_tick(
         Arc<AsyncMutex<SessionWorldModel>>,
         bool,
         bool,
+        bool,
         Option<MissionDoc>,
         Arc<AtomicBool>,
         Option<crate::operator_mind::OperatorMind>,
@@ -1825,6 +1859,7 @@ async fn run_tick(
                 att.world.clone(),
                 att.live,
                 att.aom_excluded,
+                att.solo_aom,
                 att.mission.clone(),
                 att.thinking.clone(),
                 att.mind.clone(),
@@ -1880,6 +1915,7 @@ async fn run_tick(
         world_arc,
         per_tab_live,
         aom_excluded,
+        solo_aom,
         mission,
         thinking_flag,
         existing_mind,
@@ -4861,6 +4897,7 @@ mod tests {
             enabled: true,
             live: true,
             aom_excluded: false,
+            solo_aom: false,
             enabled_by_aom: false,
             mission: None,
             task_archetype: None,
