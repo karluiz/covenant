@@ -283,7 +283,7 @@ impl TelegramNotifier {
     pub async fn test_connection(&self) -> Result<(), String> {
         let s = self.settings.lock().await;
         if s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
-            return Err("token y chat_id requeridos".into());
+            return Err("bot token and chat_id are required".into());
         }
         let token = s.telegram.bot_token.clone();
         let chat = s.telegram.chat_id.clone();
