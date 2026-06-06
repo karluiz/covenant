@@ -1906,7 +1906,7 @@ async fn run_tick(
         // effectively off for it (falls back to per-tab live behavior +
         // normal persona). The global AOM banner stays on for everyone
         // else.
-        let effective_aom = aom_active && !aom_excluded;
+        let effective_aom = effective_aom(aom_active, solo_aom, aom_excluded);
         let live = per_tab_live || effective_aom;
         // Spec 3.20 §6.1: tie mind_v2 strictly to live for v1.
         let mind_v2_on = mind_v2_setting && live;
@@ -3546,6 +3546,15 @@ async fn inject_operator_reply(
     Ok(())
 }
 
+/// Per-session autonomy gate. A tab is in autonomous posture when the
+/// global AOM banner is on OR the tab is individually armed (solo),
+/// AND the tab has not opted out via `aom_excluded`. Exclusion always
+/// wins. This single value drives directive injection, decisions_count,
+/// cost accounting, and `live` (auto-execute) downstream.
+fn effective_aom(aom_active: bool, solo_aom: bool, aom_excluded: bool) -> bool {
+    (aom_active || solo_aom) && !aom_excluded
+}
+
 fn build_system_prompt(
     persona: &str,
     aom_active: bool,
@@ -4878,6 +4887,14 @@ mod tests {
             parse_quarantined_until: None,
             thinking_budget_override: None,
         }
+    }
+
+    #[test]
+    fn effective_aom_gate_logic() {
+        assert!(effective_aom(true, false, false));
+        assert!(effective_aom(false, true, false));
+        assert!(!effective_aom(true, true, true));
+        assert!(!effective_aom(false, false, false));
     }
 
     /// Task 9: the load-bearing contract. Parse failures must NEVER
