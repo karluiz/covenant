@@ -3178,16 +3178,30 @@ async fn run_tick(
                         let w = world_arc.lock().await;
                         crate::project_ref::project_ref_from_cwd(&w.cwd)
                     };
+                    // Contextual buttons per kind. A safety `Blocklist` is an
+                    // approve/reject decision (we refused to run something);
+                    // a stuck/idle/budget escalation only offers dismiss +
+                    // snooze (there's nothing to "approve" running). Computed
+                    // here because `kind` is moved into the event below.
+                    let actions = match kind {
+                        EscalationKind::Blocklist => vec![
+                            SessionOperatorAction::PushAndPR,
+                            SessionOperatorAction::Reply,
+                            SessionOperatorAction::Snooze { minutes: 10 },
+                        ],
+                        EscalationKind::Loop
+                        | EscalationKind::Blocked
+                        | EscalationKind::BudgetExhausted => vec![
+                            SessionOperatorAction::Reply,
+                            SessionOperatorAction::Snooze { minutes: 10 },
+                        ],
+                    };
                     let _ = escalation_tx.send(SessionEvent::EscalationRequested {
                         session: session_id,
                         escalation_id,
                         kind,
                         summary: strip_ansi_escapes::strip_str(msg),
-                        actions: vec![
-                            SessionOperatorAction::PushAndPR,
-                            SessionOperatorAction::Reply,
-                            SessionOperatorAction::Snooze { minutes: 10 },
-                        ],
+                        actions,
                         operator: op.to_session_ref(),
                         project: project_ref,
                     });

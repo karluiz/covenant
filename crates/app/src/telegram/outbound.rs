@@ -47,6 +47,20 @@ pub struct OutboundContext<'a> {
     pub actions: &'a [OperatorAction],
 }
 
+/// A short, human-readable trigger label for the message header so the user
+/// instantly sees *why* they were pinged. Maps each `EscalationKind` to one
+/// of two user-facing classes: a safety `blocked` (we refused to run
+/// something) vs. a generic `needs you` (the executor is stuck / out of
+/// budget / waiting).
+fn trigger_label(kind: &EscalationKind) -> &'static str {
+    match kind {
+        EscalationKind::Blocklist => "blocked",
+        EscalationKind::Loop | EscalationKind::Blocked | EscalationKind::BudgetExhausted => {
+            "needs you"
+        }
+    }
+}
+
 pub fn format_message(ctx: &OutboundContext) -> String {
     let trimmed = if ctx.summary.chars().count() > 500 {
         let mut s: String = ctx.summary.chars().take(499).collect();
@@ -56,11 +70,12 @@ pub fn format_message(ctx: &OutboundContext) -> String {
         ctx.summary.to_string()
     };
     format!(
-        "{emoji} {name} · {repo} ({branch})\n{trimmed}",
+        "{emoji} {name} · {repo} ({branch})  —  {label}\n{trimmed}",
         emoji = display_emoji(&ctx.operator.emoji, &ctx.operator.color),
         name = ctx.operator.name,
         repo = ctx.project.repo,
         branch = ctx.project.branch,
+        label = trigger_label(ctx.kind),
     )
 }
 
@@ -226,6 +241,38 @@ mod tests {
         assert!(row[1].text.contains("Snooze 10m"), "got: {}", row[1].text);
         assert_eq!(row[0].callback_data, "esc:esc-1:push_pr");
         assert_eq!(row[1].callback_data, "esc:esc-1:snooze");
+    }
+
+    #[test]
+    fn format_message_has_trigger_header_and_body() {
+        let op = maya();
+        let pr = proj();
+        let actions = vec![OperatorAction::PushAndPR];
+        let ctx = OutboundContext {
+            operator: &op,
+            project: &pr,
+            session_short: "abcd",
+            kind: &EscalationKind::Blocklist,
+            summary: "blocked: git push --force to main",
+            actions: &actions,
+        };
+        let m = format_message(&ctx);
+        assert!(m.contains("blocked: git push"), "kept the summary: {m}");
+        // Trigger label present in the header for a Blocklist kind.
+        assert!(m.contains("blocked"), "label present: {m}");
+        // Repo/branch line preserved.
+        assert!(m.contains(&pr.repo), "repo preserved: {m}");
+        // Loop maps to "needs you".
+        let loop_ctx = OutboundContext {
+            operator: &op,
+            project: &pr,
+            session_short: "abcd",
+            kind: &EscalationKind::Loop,
+            summary: "executor not accepting input",
+            actions: &actions,
+        };
+        let lm = format_message(&loop_ctx);
+        assert!(lm.contains("needs you"), "loop label: {lm}");
     }
 
     #[test]
