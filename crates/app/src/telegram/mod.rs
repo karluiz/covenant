@@ -1,6 +1,7 @@
 pub mod client;
 pub mod inbound;
 pub mod outbound;
+pub mod status;
 pub mod types;
 
 pub use inbound::{InboundEvent, ResolutionFromTelegram};
