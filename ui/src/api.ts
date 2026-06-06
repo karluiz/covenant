@@ -756,6 +756,26 @@ export async function aomStop(): Promise<AomStatus> {
   return invoke<AomStatus>("aom_stop");
 }
 
+/// Arm solo autonomous mode on one session (full AOM posture, no global
+/// banner). Ephemeral — cleared on reload. Returns the new solo state.
+export async function operatorSoloStart(
+  sessionId: SessionId,
+): Promise<boolean> {
+  return invoke<boolean>("operator_solo_start", { sessionId });
+}
+
+export async function operatorSoloStop(
+  sessionId: SessionId,
+): Promise<boolean> {
+  return invoke<boolean>("operator_solo_stop", { sessionId });
+}
+
+export async function operatorSoloStatus(
+  sessionId: SessionId,
+): Promise<boolean> {
+  return invoke<boolean>("operator_solo_status", { sessionId });
+}
+
 /// Liveness phase exposed by the operator (Task 3). The banner polls
 /// this every ~1s while AOM is on so the badge never sits frozen for
 /// >2s. The aggregate is "the most-active phase any attached session
