@@ -238,14 +238,14 @@ pub fn format_cached_summary(
     costs_usd: f64,
 ) -> String {
     let scope_label = match scope {
-        SummaryScope::Session => "Sesión actual",
-        SummaryScope::Mission => "Misión activa",
-        SummaryScope::Today => "Últimas 24h",
+        SummaryScope::Session => "Current session",
+        SummaryScope::Mission => "Active mission",
+        SummaryScope::Today => "Last 24h",
     };
-    let mut out = format!("# Resumen — {scope_label}\n\n");
+    let mut out = format!("# Summary — {scope_label}\n\n");
 
     if !directives.is_empty() {
-        out.push_str("## Decisiones autónomas\n");
+        out.push_str("## Autonomous decisions\n");
         for d in directives {
             out.push_str(&format!(
                 "- [{}] **{}** — {} _({})_\n",
@@ -255,17 +255,15 @@ pub fn format_cached_summary(
         out.push('\n');
     }
 
-    out.push_str(&format!(
-        "## Costos\n${costs_usd:.4} USD en la ventana.\n\n"
-    ));
+    out.push_str(&format!("## Costs\n${costs_usd:.4} USD in this window.\n\n"));
 
     if !missions.is_empty() {
-        out.push_str("## Misiones\n");
+        out.push_str("## Missions\n");
         for m in missions {
             let status = if m.finished_ms.is_some() {
-                "cerrada"
+                "closed"
             } else {
-                "abierta"
+                "open"
             };
             let digest = if m.digest.is_empty() {
                 "—"
@@ -281,7 +279,7 @@ pub fn format_cached_summary(
     }
 
     if !rolling_summary.is_empty() {
-        out.push_str("## Contexto reciente\n");
+        out.push_str("## Recent context\n");
         out.push_str(rolling_summary);
         out.push_str("\n");
     }

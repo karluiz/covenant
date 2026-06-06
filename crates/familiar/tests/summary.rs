@@ -216,7 +216,7 @@ async fn summary_cache_hit_skips_llm_when_few_events() {
     assert_eq!(llm.call_count(), 0, "cache-hit must NOT call LLM");
     assert!(turn.proposed_directive.is_none());
     assert!(turn.safety_block_reason.is_none());
-    assert!(turn.assistant_text.contains("Resumen"));
+    assert!(turn.assistant_text.contains("Summary"));
     assert!(turn.assistant_text.contains("operator built feature X"));
 }
 
@@ -321,7 +321,7 @@ async fn summary_persists_user_and_assistant_chat() {
     assert_eq!(hist[0].role, "user");
     assert_eq!(hist[0].content, "/summary");
     assert_eq!(hist[1].role, "assistant");
-    assert!(hist[1].content.contains("Resumen"));
+    assert!(hist[1].content.contains("Summary"));
 }
 
 #[tokio::test]
