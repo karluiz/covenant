@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.58 — AI-generated tab titles
+
+### Added
+
+- **AI-generated tab titles**: shell tabs now name themselves with a ≤2-word activity label (e.g. `release prep`, `debugging auth`) instead of the meaningless `zsh N` counter. The label is produced for free by the existing per-session summarizer — it returns a `TITLE:` sentinel line alongside the rolling summary (`crates/app/src/summarizer.rs`), which is persisted in the `summaries` table (`crates/app/src/storage.rs`) and published as a new `SessionEvent::TitleSuggested` on the bus (`crates/session/src/lib.rs`). The frontend applies it to a tab's auto-title, never overriding a manual rename (`ui/src/tabs/manager.ts`, `ui/src/api.ts`).
+
+- **CWD-basename cold start**: a brand-new tab is born named after its working directory (e.g. `covenant`) and upgrades to an activity label once work begins, killing `zsh N` immediately (`crates/app/src/world.rs`, `ui/src/tabs/manager.ts`).
+
+### Fixed
+
+- **Summary preservation on title-only responses**: a degenerate `TITLE:`-only model response no longer clobbers the stored rolling summary with an empty string (`crates/app/src/summarizer.rs`).
+
 ## v0.8.57 — Operator conversational comms + solo AOM + Mission Control
 
 ### Added
