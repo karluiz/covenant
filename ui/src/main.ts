@@ -1754,6 +1754,17 @@ async function boot(): Promise<void> {
       }
       return;
     }
+    // ⌘⇧S — toggle SOLO autonomous mode on the active tab. Unlike ⌘⇧A
+    // (global AOM), this arms only the focused operator into full AOM
+    // posture; the global banner stays off. Ephemeral: reload clears it.
+    if (e.metaKey && e.shiftKey && (e.key === "S" || e.key === "s")) {
+      e.preventDefault();
+      const active = manager.activeTabSnapshot();
+      if (active?.id) {
+        void manager.toggleOperatorSolo(active.id);
+      }
+      return;
+    }
     // ⌘⇧E — toggle AOM exclusion for the active tab. Silent no-op
     // when AOM is off; the badge is the discoverable affordance and
     // the shortcut just shaves a click for users who know it exists.
