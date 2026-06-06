@@ -567,6 +567,7 @@ mod tests {
             operator_name: None,
             cost_usd: c,
             applied_memory_id: None,
+            escalation: None,
         };
         let rows = vec![
             r("aaaaaa", 1000, 0.10),

@@ -554,6 +554,11 @@ export interface OperatorDecisionRow {
   operator_name: string | null;
   cost_usd: number;
   applied_memory_id: number | null;
+  /// Escalation notification text (only for action === "escalate").
+  escalation: string | null;
+  /// Trigger class tag for coalescing/grouping. Optional: the backend
+  /// persists the column but does not yet emit it (always absent for now).
+  trigger_class?: string | null;
 }
 
 export async function teammateListDecisionsForSession(
@@ -890,6 +895,11 @@ export interface OperatorDecisionRow {
   operator_id: string | null;
   /// Snapshot of the operator's display name at decision time.
   operator_name: string | null;
+  /// Escalation notification text (only for action === "escalate").
+  escalation: string | null;
+  /// Trigger class tag for coalescing/grouping. Optional: the backend
+  /// persists the column but does not yet emit it (always absent for now).
+  trigger_class?: string | null;
 }
 
 export async function listOperatorDecisions(

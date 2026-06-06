@@ -1,11 +1,13 @@
 pub mod client;
 pub mod inbound;
 pub mod outbound;
+pub mod status;
 pub mod types;
 
 pub use inbound::{InboundEvent, ResolutionFromTelegram};
 
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::operator_registry::OperatorRegistry;
@@ -114,11 +116,39 @@ impl TelegramNotifier {
             summary: args.summary,
             actions: args.actions,
         };
+
+        // Coalesce: if an unresolved ping of the same (session, kind) exists
+        // within the window, edit the live message in place instead of
+        // posting a duplicate. Keep its keyboard so the user can still act.
+        const COALESCE_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
+        let key = (args.session_id.to_string(), outbound::kind_key(args.kind));
+        // Compute the coalesce target under the lock, then release the guard
+        // before awaiting (the MutexGuard isn't Send across `.await`).
+        let coalesce: Option<(i64, u32)> = {
+            let mut active = self.state.active.lock().unwrap();
+            match active.get_mut(&key) {
+                Some(p) if p.last_sent.elapsed() < COALESCE_WINDOW => {
+                    p.count += 1;
+                    p.last_sent = Instant::now();
+                    Some((p.message_id, p.count))
+                }
+                _ => None,
+            }
+        };
+        if let Some((mid, count)) = coalesce {
+            let text = format!("{}\n\n(updated ×{count})", format_message(&ctx));
+            self.client
+                .edit_message_text(&token, &chat, mid, text, false)
+                .await?;
+            return Ok(());
+        }
+
         let req = SendMessageReq {
             chat_id: chat,
             text: format_message(&ctx),
             reply_markup: Some(keyboard_for(&ctx, args.escalation_id)),
             parse_mode: None,
+            reply_to_message_id: None,
         };
         let result = self.client.send_message(&token, req).await?;
         self.state
@@ -131,6 +161,15 @@ impl TelegramNotifier {
             .lock()
             .unwrap()
             .insert(args.escalation_id.to_string(), args.session_id.to_string());
+        self.state.active.lock().unwrap().insert(
+            key,
+            outbound::ActivePing {
+                message_id: result.message_id,
+                escalation_id: args.escalation_id.to_string(),
+                last_sent: Instant::now(),
+                count: 1,
+            },
+        );
         Ok(())
     }
 
@@ -171,6 +210,7 @@ impl TelegramNotifier {
             parse_mode: None,
             reply_markup: None,
             text: format!("[tab: {tab}] {prefix}\n{body}"),
+            reply_to_message_id: None,
         };
         self.client.send_message(&token, req).await?;
         Ok(())
@@ -181,6 +221,15 @@ impl TelegramNotifier {
         escalation_id: &str,
         action_kind: crate::telegram::inbound::ActionKind,
     ) -> anyhow::Result<()> {
+        // Remove any coalescer entry pointing at this escalation so the next
+        // escalation of the same kind posts a fresh message instead of editing
+        // a resolved one.
+        self.state
+            .active
+            .lock()
+            .unwrap()
+            .retain(|_, p| p.escalation_id != escalation_id);
+
         let entry = {
             let mut map = self.state.map.lock().unwrap();
             let key = map
@@ -234,7 +283,7 @@ impl TelegramNotifier {
     pub async fn test_connection(&self) -> Result<(), String> {
         let s = self.settings.lock().await;
         if s.telegram.bot_token.is_empty() || s.telegram.chat_id.is_empty() {
-            return Err("token y chat_id requeridos".into());
+            return Err("bot token and chat_id are required".into());
         }
         let token = s.telegram.bot_token.clone();
         let chat = s.telegram.chat_id.clone();
@@ -251,6 +300,7 @@ impl TelegramNotifier {
                     text: "✓ Covenant connected".into(),
                     reply_markup: None,
                     parse_mode: None,
+                    reply_to_message_id: None,
                 },
             )
             .await
@@ -362,6 +412,64 @@ mod tests {
         assert_eq!(fake.sent.lock().unwrap().len(), 1);
         let map = n.state.map.lock().unwrap();
         assert_eq!(map.get(&101).map(String::as_str), Some("esc-1"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_escalation_edits_instead_of_resending() {
+        let fake = Arc::new(FakeTelegramClient::default());
+        *fake.next_message_id.lock().unwrap() = 100;
+        let n = TelegramNotifier::new(
+            fake.clone(),
+            settings_with_telegram(true, "42"),
+            crate::operator_registry::OperatorRegistry::for_tests("Maya"),
+        );
+        let operator = op();
+        let project = pr();
+        let kind = EscalationKind::Loop;
+        let actions = vec![OperatorAction::Reply];
+        // First escalation: sends a new message + records the active ping.
+        n.send_escalation(&args(
+            &operator,
+            &project,
+            &kind,
+            &actions,
+            "e1",
+            "sess-coalesce",
+            "executor not accepting input",
+        ))
+        .await
+        .unwrap();
+        // Second identical (same session + kind) within the window: edits.
+        n.send_escalation(&args(
+            &operator,
+            &project,
+            &kind,
+            &actions,
+            "e2",
+            "sess-coalesce",
+            "executor not accepting input",
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            fake.sent.lock().unwrap().len(),
+            1,
+            "second identical escalation must not re-send"
+        );
+        assert!(
+            !fake.edits.lock().unwrap().is_empty(),
+            "second escalation must edit the live message"
+        );
+        // The edit kept the keyboard (remove_keyboard == false) and is an
+        // update of the original message id.
+        let edits = fake.edits.lock().unwrap();
+        assert_eq!(edits[0].1, 101, "edited the original message id");
+        assert!(!edits[0].3, "coalesce edit keeps the inline keyboard");
+        assert!(
+            edits[0].2.contains("updated ×2"),
+            "coalesced text marks the repeat: {}",
+            edits[0].2
+        );
     }
 
     #[tokio::test]

@@ -81,11 +81,11 @@ Output: plain GitHub-flavored markdown. No collapsible blocks, no HTML, no \
 code fences around the whole reply. Use these section headers, in this exact \
 order, omitting any section that has no data:
 
-## Decisiones autónomas
-## Costos
-## Bloqueos resueltos
-## Misiones
-## Open items pendientes
+## Autonomous decisions
+## Costs
+## Blockers resolved
+## Missions
+## Open items
 
 Rules:
 - Be specific. Cite mission ids and timestamps when available.

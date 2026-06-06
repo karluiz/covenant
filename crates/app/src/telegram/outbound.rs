@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU8;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use karl_session::{EscalationKind, OperatorAction, OperatorRef, ProjectRef};
 
@@ -10,6 +11,15 @@ pub const STATUS_DISABLED: u8 = 0;
 pub const STATUS_OK: u8 = 1;
 pub const STATUS_ERROR: u8 = 2;
 
+/// One live (unresolved) escalation we may coalesce onto instead of posting
+/// a duplicate. Keyed by (session_id, escalation-kind) in `OutboundState`.
+pub struct ActivePing {
+    pub message_id: i64,
+    pub escalation_id: String,
+    pub last_sent: Instant,
+    pub count: u32,
+}
+
 #[derive(Default)]
 pub struct OutboundState {
     pub map: Mutex<HashMap<i64, String>>, // message_id -> escalation_id
@@ -17,6 +27,13 @@ pub struct OutboundState {
     /// Last inbound long-poll outcome. Drives the statusbar Telegram pill.
     /// `STATUS_DISABLED` while no inbound loop is running (token/chat empty).
     pub status: AtomicU8,
+    /// (session_id, kind_key) -> live ping, for coalescing repeats.
+    pub active: Mutex<HashMap<(String, String), ActivePing>>,
+}
+
+/// Stable string key for an EscalationKind so we can map without Hash derive.
+pub fn kind_key(kind: &EscalationKind) -> String {
+    format!("{kind:?}")
 }
 
 /// Inputs to render an outbound escalation message + keyboard. Built once
@@ -30,6 +47,20 @@ pub struct OutboundContext<'a> {
     pub actions: &'a [OperatorAction],
 }
 
+/// A short, human-readable trigger label for the message header so the user
+/// instantly sees *why* they were pinged. Maps each `EscalationKind` to one
+/// of two user-facing classes: a safety `blocked` (we refused to run
+/// something) vs. a generic `needs you` (the executor is stuck / out of
+/// budget / waiting).
+fn trigger_label(kind: &EscalationKind) -> &'static str {
+    match kind {
+        EscalationKind::Blocklist => "blocked",
+        EscalationKind::Loop | EscalationKind::Blocked | EscalationKind::BudgetExhausted => {
+            "needs you"
+        }
+    }
+}
+
 pub fn format_message(ctx: &OutboundContext) -> String {
     let trimmed = if ctx.summary.chars().count() > 500 {
         let mut s: String = ctx.summary.chars().take(499).collect();
@@ -39,11 +70,12 @@ pub fn format_message(ctx: &OutboundContext) -> String {
         ctx.summary.to_string()
     };
     format!(
-        "{emoji} {name} · {repo} ({branch})\n{trimmed}",
+        "{emoji} {name} · {repo} ({branch})  —  {label}\n{trimmed}",
         emoji = display_emoji(&ctx.operator.emoji, &ctx.operator.color),
         name = ctx.operator.name,
         repo = ctx.project.repo,
         branch = ctx.project.branch,
+        label = trigger_label(ctx.kind),
     )
 }
 
@@ -209,6 +241,38 @@ mod tests {
         assert!(row[1].text.contains("Snooze 10m"), "got: {}", row[1].text);
         assert_eq!(row[0].callback_data, "esc:esc-1:push_pr");
         assert_eq!(row[1].callback_data, "esc:esc-1:snooze");
+    }
+
+    #[test]
+    fn format_message_has_trigger_header_and_body() {
+        let op = maya();
+        let pr = proj();
+        let actions = vec![OperatorAction::PushAndPR];
+        let ctx = OutboundContext {
+            operator: &op,
+            project: &pr,
+            session_short: "abcd",
+            kind: &EscalationKind::Blocklist,
+            summary: "blocked: git push --force to main",
+            actions: &actions,
+        };
+        let m = format_message(&ctx);
+        assert!(m.contains("blocked: git push"), "kept the summary: {m}");
+        // Trigger label present in the header for a Blocklist kind.
+        assert!(m.contains("blocked"), "label present: {m}");
+        // Repo/branch line preserved.
+        assert!(m.contains(&pr.repo), "repo preserved: {m}");
+        // Loop maps to "needs you".
+        let loop_ctx = OutboundContext {
+            operator: &op,
+            project: &pr,
+            session_short: "abcd",
+            kind: &EscalationKind::Loop,
+            summary: "executor not accepting input",
+            actions: &actions,
+        };
+        let lm = format_message(&loop_ctx);
+        assert!(lm.contains("needs you"), "loop label: {lm}");
     }
 
     #[test]

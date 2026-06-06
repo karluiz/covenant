@@ -12,9 +12,13 @@ pub enum InboundEvent {
         escalation_id: String,
         resolution: ResolutionFromTelegram,
     },
-    UnknownReply {
+    /// A free-text message that is NOT an answer to an open escalation:
+    /// a non-reply message, or a reply to an already-closed/unknown
+    /// escalation. Routed to the cross-tab status responder.
+    Question {
         chat_id: i64,
         message_id: i64,
+        text: String,
     },
 }
 
@@ -95,31 +99,44 @@ pub fn spawn(
                     let Some(text) = msg.text else {
                         continue;
                     };
-                    if let Some(reply) = msg.reply_to_message {
-                        let map = state.map.lock().unwrap();
-                        if let Some(eid) = map.get(&reply.message_id).cloned() {
-                            drop(map);
-                            let _ = tx.send(InboundEvent::Resolved {
-                                escalation_id: eid,
-                                resolution: ResolutionFromTelegram::FreeText(text),
-                            });
-                        } else {
-                            drop(map);
-                            let _ = tx.send(InboundEvent::UnknownReply {
-                                chat_id: msg.chat.id,
-                                message_id: reply.message_id,
-                            });
-                        }
-                    } else {
-                        let _ = tx.send(InboundEvent::UnknownReply {
-                            chat_id: msg.chat.id,
-                            message_id: msg.message_id,
-                        });
-                    }
+                    // Resolve the reply target (if any) to an open escalation
+                    // under the lock, then route purely.
+                    let known = msg.reply_to_message.as_ref().and_then(|reply| {
+                        state.map.lock().unwrap().get(&reply.message_id).cloned()
+                    });
+                    let _ = tx.send(route_message(msg.chat.id, msg.message_id, text, known));
                 }
             }
         }
     })
+}
+
+/// Route an inbound text message to an [`InboundEvent`].
+///
+/// `known` is the escalation id this message replies to, resolved from the
+/// outbound message map (`Some` only for a reply to a still-open escalation).
+/// - reply → open escalation  ⇒ `Resolved { FreeText }` (the answer).
+/// - reply → unknown/closed escalation, or a plain non-reply message
+///   ⇒ `Question` (routed to the cross-tab status responder).
+///
+/// Pure so it can be unit-tested without the real long-poll loop.
+pub fn route_message(
+    chat_id: i64,
+    message_id: i64,
+    text: String,
+    known: Option<String>,
+) -> InboundEvent {
+    match known {
+        Some(escalation_id) => InboundEvent::Resolved {
+            escalation_id,
+            resolution: ResolutionFromTelegram::FreeText(text),
+        },
+        None => InboundEvent::Question {
+            chat_id,
+            message_id,
+            text,
+        },
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,5 +215,45 @@ mod confirmation_tests {
         assert!(s.contains("Maya"));
         assert!(s.to_lowercase().contains("pushed"));
         assert!(s.contains("PR #42"));
+    }
+
+    #[test]
+    fn plain_message_publishes_question() {
+        // No reply target → not an answer to any escalation → Question.
+        let evt = route_message(42, 7, "what's going on?".into(), None);
+        match evt {
+            InboundEvent::Question {
+                chat_id,
+                message_id,
+                text,
+            } => {
+                assert_eq!(chat_id, 42);
+                assert_eq!(message_id, 7);
+                assert_eq!(text, "what's going on?");
+            }
+            _ => panic!("plain message must route to Question"),
+        }
+    }
+
+    #[test]
+    fn reply_to_open_escalation_resolves_freetext() {
+        let evt = route_message(42, 8, "usa --force".into(), Some("esc-7".into()));
+        match evt {
+            InboundEvent::Resolved {
+                escalation_id,
+                resolution,
+            } => {
+                assert_eq!(escalation_id, "esc-7");
+                assert!(matches!(resolution, ResolutionFromTelegram::FreeText(t) if t == "usa --force"));
+            }
+            _ => panic!("reply to open escalation must resolve as free text"),
+        }
+    }
+
+    #[test]
+    fn reply_to_closed_escalation_publishes_question() {
+        // Reply target not in the open-escalation map → Question.
+        let evt = route_message(42, 9, "ping".into(), None);
+        assert!(matches!(evt, InboundEvent::Question { .. }));
     }
 }

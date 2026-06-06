@@ -439,6 +439,10 @@ pub struct OperatorDecisionRow {
     /// 3.13: Memory row that informed this decision (NULL when no
     /// memory was retrieved or applied).
     pub applied_memory_id: Option<i64>,
+    /// Operator comms redesign (Part F): the escalation notification
+    /// text shown to the user. Only populated for `escalate` actions;
+    /// NULL for reply/wait rows and rows predating the column.
+    pub escalation: Option<String>,
 }
 
 /// 3.13 Operator Learning: a persisted operator memory.
@@ -555,6 +559,18 @@ impl Storage {
         // that informed it (NULL when no memory was applied).
         let _ = conn.execute(
             "ALTER TABLE operator_decisions ADD COLUMN applied_memory_id INTEGER",
+            [],
+        );
+        // Operator comms redesign (Part F): persist the escalation
+        // notification text + trigger class the activity feed currently
+        // discards. NULL for rows predating these columns and for
+        // non-escalate decisions.
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN escalation TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE operator_decisions ADD COLUMN trigger_class TEXT",
             [],
         );
         // Operator identity: voice tone for outbound messages.
@@ -1232,6 +1248,7 @@ impl Storage {
         operator_id: Option<String>,
         operator_name: Option<String>,
         applied_memory_id: Option<i64>,
+        escalation: Option<String>,
     ) -> Result<i64, StorageError> {
         let conn = self.inner.clone();
         let session_str = session_id.to_string();
@@ -1242,8 +1259,8 @@ impl Storage {
                  (session_id, timestamp_unix_ms, in_flight_command,
                   output_excerpt, action, reply_text, rationale, executed,
                   cost_usd, mission_path, executor_name, operator_id, operator_name,
-                  applied_memory_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                  applied_memory_id, escalation)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     session_str,
                     timestamp_unix_ms as i64,
@@ -1259,6 +1276,7 @@ impl Storage {
                     operator_id,
                     operator_name,
                     applied_memory_id,
+                    escalation,
                 ],
             )?;
             Ok(c.last_insert_rowid())
@@ -1522,7 +1540,7 @@ impl Storage {
                 "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
                             mission_path, executor_name, operator_id, operator_name,
-                            cost_usd, applied_memory_id
+                            cost_usd, applied_memory_id, escalation
                      FROM operator_decisions
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -1544,6 +1562,7 @@ impl Storage {
                     operator_name: r.get(12)?,
                     cost_usd: r.get::<_, f64>(13)?,
                     applied_memory_id: r.get::<_, Option<i64>>(14)?,
+                    escalation: r.get::<_, Option<String>>(15)?,
                 })
             })?;
             let mut out = Vec::new();
@@ -1571,7 +1590,7 @@ impl Storage {
                 "SELECT id, session_id, timestamp_unix_ms, in_flight_command,
                             output_excerpt, action, reply_text, rationale, executed,
                             mission_path, executor_name, operator_id, operator_name,
-                            cost_usd, applied_memory_id
+                            cost_usd, applied_memory_id, escalation
                      FROM operator_decisions
                      WHERE session_id = ?1
                      ORDER BY id DESC
@@ -1594,6 +1613,7 @@ impl Storage {
                     operator_name: r.get(12)?,
                     cost_usd: r.get::<_, f64>(13)?,
                     applied_memory_id: r.get::<_, Option<i64>>(14)?,
+                    escalation: r.get::<_, Option<String>>(15)?,
                 })
             })?;
             let mut out = Vec::new();
@@ -3023,6 +3043,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn persists_and_reads_escalation_text() {
+        let (s, _g) = fresh();
+        let sid = SessionId::new();
+        let id = s
+            .save_operator_decision(
+                sid,
+                1,
+                Some("claude".into()),
+                "out".into(),
+                "escalate".into(),
+                None,
+                Some("rat".into()),
+                false,
+                0.0,
+                None,
+                Some("claude".into()),
+                None,
+                None,
+                None,
+                Some("Your executor isn't accepting input".into()), // new: escalation
+            )
+            .await
+            .unwrap();
+        let rows = s.list_operator_decisions(10).await.unwrap();
+        let row = rows.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(
+            row.escalation.as_deref(),
+            Some("Your executor isn't accepting input")
+        );
+    }
+
+    #[tokio::test]
     async fn round_trip_session_and_block() {
         let (s, _g) = fresh();
         let session = SessionId::new();
@@ -3492,6 +3544,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3506,6 +3559,7 @@ mod tests {
             Some("ALWAYS-YES tests".to_string()),
             true,
             0.012,
+            None,
             None,
             None,
             None,
@@ -3530,6 +3584,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -3544,6 +3599,7 @@ mod tests {
             Some("ALWAYS-YES commit".to_string()),
             true,
             0.015,
+            None,
             None,
             None,
             None,
@@ -3569,6 +3625,7 @@ mod tests {
             Some("post-aom".to_string()),
             true,
             0.005,
+            None,
             None,
             None,
             None,
@@ -3781,6 +3838,7 @@ mod tests {
                 None,
                 None,
                 Some(42),
+                None,
             )
             .await
             .unwrap();
@@ -3796,6 +3854,7 @@ mod tests {
             None,
             false,
             0.0,
+            None,
             None,
             None,
             None,

@@ -32,6 +32,11 @@ interface DecisionEvent {
   timestamp_unix_ms: number;
   operator_id?: string | null;
   operator_name?: string | null;
+  /// In-flight command + chrome-stripped output tail at decision time.
+  /// Present on rows seeded from `listOperatorDecisions`; the live
+  /// `operator-decision` IPC event may omit them.
+  in_flight_command?: string | null;
+  output_excerpt?: string | null;
 }
 
 interface StartupActionEvent {
@@ -50,6 +55,9 @@ interface ActEvent {
   body: string;
   cost: number;
   sessionShort: string;
+  /// Full expandable detail (in-flight command + escalation/rationale +
+  /// reply + output tail). Empty string when there is nothing to expand.
+  detail?: string;
 }
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -109,6 +117,28 @@ function bodyForDecision(
     default:
       return (rationale ?? "").replace(/\n/g, " ").trim();
   }
+}
+
+/// Build the full expandable detail string for a decision row. Surfaces
+/// the context the collapsed feed truncates away: the in-flight command,
+/// the full escalation text (escalate rows), the rationale, the typed
+/// reply, and a tail of the chrome-stripped executor output. Returns the
+/// empty string when there is nothing worth expanding.
+export function detailForDecision(d: {
+  kind: string;
+  inFlightCommand?: string | null;
+  escalation?: string | null;
+  rationale?: string | null;
+  replyText?: string | null;
+  outputExcerpt?: string | null;
+}): string {
+  const parts: string[] = [];
+  if (d.inFlightCommand) parts.push(`$ ${d.inFlightCommand}`);
+  if (d.kind === "escalated" && d.escalation) parts.push(d.escalation);
+  if (d.rationale) parts.push(d.rationale);
+  if (d.replyText) parts.push(`reply: ${d.replyText}`);
+  if (d.outputExcerpt) parts.push(d.outputExcerpt.slice(-400));
+  return parts.join("\n");
 }
 
 function truncate(s: string, max: number): { text: string; truncated: boolean } {
@@ -182,7 +212,9 @@ export class ActivityView {
 
     this.listEl.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
-      const expand = target.closest<HTMLElement>("[data-action='expand-run']");
+      const expand = target.closest<HTMLElement>(
+        "[data-action='expand-run'],[data-action='expand-detail']",
+      );
       if (expand) {
         const row = expand.closest<HTMLElement>(".tp-act-row");
         row?.classList.toggle("tp-act-row--expanded");
@@ -288,11 +320,12 @@ export class ActivityView {
 
   private absorbDecisionRow(r: OperatorDecisionRow): void {
     const kind = classifyKind(r.action, r.executed);
+    const escalation = r.escalation ?? null;
     const body = bodyForDecision(
       kind,
       r.reply_text ?? null,
       r.rationale ?? null,
-      null,
+      escalation,
     );
     this.events.push({
       ts: r.timestamp_unix_ms ?? 0,
@@ -301,6 +334,14 @@ export class ActivityView {
       body,
       cost: (r as { cost_usd?: number }).cost_usd ?? 0,
       sessionShort: shortSession(r.session_id_short ?? ""),
+      detail: detailForDecision({
+        kind,
+        inFlightCommand: r.in_flight_command ?? null,
+        escalation,
+        rationale: r.rationale ?? null,
+        replyText: r.reply_text ?? null,
+        outputExcerpt: r.output_excerpt ?? null,
+      }),
     });
   }
 
@@ -314,6 +355,14 @@ export class ActivityView {
       body,
       cost: d.cost_usd ?? 0,
       sessionShort: shortSession(d.session_id),
+      detail: detailForDecision({
+        kind,
+        inFlightCommand: d.in_flight_command ?? null,
+        escalation: d.escalation,
+        rationale: d.rationale,
+        replyText: d.reply_text,
+        outputExcerpt: d.output_excerpt ?? null,
+      }),
     });
   }
 
@@ -568,13 +617,25 @@ function renderSingle(e: ActEvent, now: number, outlierThreshold: number): strin
     ? `<span class="tp-act-cost${costShow ? " is-outlier" : ""}" title="$${e.cost.toFixed(4)}">$${e.cost.toFixed(3)}</span>`
     : `<span class="tp-act-cost"></span>`;
   const titleAttr = truncated ? ` title="${escapeHtml(e.body)}"` : "";
+  const detail = e.detail ?? "";
+  const hasDetail = detail.trim().length > 0;
+  // Mirror renderRun's expand affordance: a button toggles
+  // tp-act-row--expanded on the row; the hidden detail div carries the
+  // full text in the DOM (not just title=) so it survives re-render.
+  const expandBtn = hasDetail
+    ? `<button class="tp-act-expand" data-action="expand-detail" type="button">expand</button>`
+    : "";
+  const detailDiv = hasDetail
+    ? `<div class="tp-act-detail">${escapeHtml(detail)}</div>`
+    : "";
   return `
     <div class="${cls}"${titleAttr}>
       <span class="tp-act-time">${escapeHtml(time)}</span>
       <span class="tp-act-ico" aria-hidden="true">${iconFor(e.kind)}</span>
       <span class="tp-act-kind">${labelFor(e.kind)}</span>
-      <span class="tp-act-body">${bodyHtml}</span>
+      <span class="tp-act-body">${bodyHtml}${expandBtn}</span>
       ${costHtml}
+      ${detailDiv}
     </div>
   `;
 }

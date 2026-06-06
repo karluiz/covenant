@@ -2078,6 +2078,23 @@ async fn run_tick(
             continue;
         }
 
+        // PHASE GATE (spine): never engage while the executor agent is
+        // actively working. Reading/Writing/Running/Thinking are busy; only
+        // Waiting/Idle/Done are at-rest states where we may type or escalate.
+        // Reads the live phase the notch hub already computes for the UI.
+        // This prevents typing into a busy executor (the double-type loop)
+        // and authoring "stuck/Whirlpooling" escalations during long work.
+        if let Some(app_state) = app.try_state::<crate::AppState>() {
+            let snap = app_state.notch_hub.phase_snapshot(session_id).await;
+            if should_suppress_for_phase(snap.as_ref()) {
+                tracing::debug!(
+                    session = %session_id,
+                    "operator gate: executor working — observing only"
+                );
+                continue;
+            }
+        }
+
         // Check that the in-flight command matches an executor pattern.
         let in_flight_command = {
             let w = world_arc.lock().await;
@@ -2499,6 +2516,10 @@ async fn run_tick(
                         Some(op.id.to_string()),
                         Some(op.name.clone()),
                         None,
+                        // This row is persisted as an `escalate` — surface the
+                        // API error body as its escalation text so the activity
+                        // feed can show the full diagnostic.
+                        Some(escalation_msg.clone()),
                     )
                     .await
                 {
@@ -2869,34 +2890,32 @@ async fn run_tick(
             }
         };
 
-        let action = if looped {
+        let action = if looped && loop_should_escalate(loop_kind) {
             tracing::warn!(
                 session = %session_id,
                 cooldown_secs = LOOP_COOLDOWN.as_secs(),
                 kind = loop_kind.unwrap_or("?"),
-                "operator loop detected — forcing escalate, parking tab"
+                "operator repeat-reply loop — escalating (executor not accepting input)"
             );
-            let why = match loop_kind {
-                Some("repeat-reply") => format!(
-                    "Operator typed the same reply {REPLY_REPEAT_THRESHOLD}x in a row — the executor is likely not accepting input (try pressing Enter manually) or the submit key is wrong for this TUI. Tab paused for {}s.",
-                    LOOP_COOLDOWN.as_secs()
-                ),
-                Some("idle-wait") => format!(
-                    "Executor has been idle ({IDLE_WAIT_ESCALATE_THRESHOLD} consecutive WAITs with no new output). Mission likely done or stuck — your call. Tab paused for {}s; will resume polling automatically once it expires.",
-                    LOOP_COOLDOWN.as_secs()
-                ),
-                _ => format!(
-                    "Operator loop detected — same decision {LOOP_THRESHOLD}x in a row. Tab paused for {}s. Likely cause: executor stuck or model misreading state. Manual intervention required.",
-                    LOOP_COOLDOWN.as_secs()
-                ),
-            };
             OperatorAction::Escalate {
-                notification: why,
+                notification: format!(
+                    "Your executor isn't accepting input — I typed the same reply twice and it didn't take. It may need Enter pressed manually, or the submit key is wrong for this TUI. Paused {}s.",
+                    LOOP_COOLDOWN.as_secs()
+                ),
                 rationale: format!(
-                    "loop guard ({}): action={} parked to avoid runaway cost",
-                    loop_kind.unwrap_or("?"),
+                    "loop guard (repeat-reply): action={} parked to avoid runaway cost",
                     parsed_action.kind()
                 ),
+            }
+        } else if looped {
+            // general / idle-wait: cool the tab silently. Not a ping trigger.
+            tracing::info!(
+                session = %session_id,
+                kind = loop_kind.unwrap_or("?"),
+                "operator loop cooled silently (not a ping trigger)"
+            );
+            OperatorAction::Wait {
+                rationale: format!("loop guard ({}): cooled silently", loop_kind.unwrap_or("?")),
             }
         } else {
             parsed_action
@@ -3120,6 +3139,9 @@ async fn run_tick(
                 Some(op.id.to_string()),
                 Some(op.name.clone()),
                 applied_memory_id,
+                // Escalation notification text (Some for Escalate actions,
+                // None for reply/wait) — surfaced in the activity feed.
+                escalation_msg.clone(),
             )
             .await
         {
@@ -3235,16 +3257,30 @@ async fn run_tick(
                         let w = world_arc.lock().await;
                         crate::project_ref::project_ref_from_cwd(&w.cwd)
                     };
+                    // Contextual buttons per kind. A safety `Blocklist` is an
+                    // approve/reject decision (we refused to run something);
+                    // a stuck/idle/budget escalation only offers dismiss +
+                    // snooze (there's nothing to "approve" running). Computed
+                    // here because `kind` is moved into the event below.
+                    let actions = match kind {
+                        EscalationKind::Blocklist => vec![
+                            SessionOperatorAction::PushAndPR,
+                            SessionOperatorAction::Reply,
+                            SessionOperatorAction::Snooze { minutes: 10 },
+                        ],
+                        EscalationKind::Loop
+                        | EscalationKind::Blocked
+                        | EscalationKind::BudgetExhausted => vec![
+                            SessionOperatorAction::Reply,
+                            SessionOperatorAction::Snooze { minutes: 10 },
+                        ],
+                    };
                     let _ = escalation_tx.send(SessionEvent::EscalationRequested {
                         session: session_id,
                         escalation_id,
                         kind,
                         summary: strip_ansi_escapes::strip_str(msg),
-                        actions: vec![
-                            SessionOperatorAction::PushAndPR,
-                            SessionOperatorAction::Reply,
-                            SessionOperatorAction::Snooze { minutes: 10 },
-                        ],
+                        actions,
                         operator: op.to_session_ref(),
                         project: project_ref,
                     });
@@ -3941,21 +3977,21 @@ fn render_user_message(cmd: &str, cwd: &str, idle_for: Duration, tail: &[u8]) ->
     // prompt) without flooding the model with minutes-old spinner
     // spam from much earlier in the session.
     let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
-    let excerpt = take_last_chars(&stripped, MODEL_EXCERPT_CHARS);
+    let cleaned = normalize_executor_chrome(&stripped);
+    let excerpt = take_last_chars(&cleaned, MODEL_EXCERPT_CHARS);
     format!(
         "Executor command: {cmd}\n\
          Session cwd: {cwd}\n\
          Bytes idle: {idle}s\n\n\
          CRITICAL READING NOTE — the <executor_output> below is the \
          BOTTOM of the executor's terminal buffer (≈ last screen the \
-         user can see). Many TUIs (Claude Code, aider, opencode) \
-         redraw the screen continuously, so any \"Imagining…\", \
-         \"Gusting…\", spinners or progress indicators appearing in \
-         this excerpt represent the CURRENT state — they are NOT \
-         stale history. If the LAST few lines show a finished task \
-         with a question / numbered menu / `›` `❯` `>` prompt \
-         glyph, the executor IS waiting on you, regardless of what \
-         appears earlier in the excerpt.\n\n\
+         user can see), with spinner/timer/token status chrome already \
+         removed. The executor is only handed to you when it is at REST \
+         (waiting, idle, or just finished) — it is NOT actively working. \
+         Decide based on whether the last lines show a question / numbered \
+         menu / prompt glyph (`›` `❯` `>`): if so, the executor is waiting \
+         on input. Never escalate merely because something looks slow or \
+         long-running.\n\n\
          <executor_output>\n{excerpt}\n</executor_output>\n\n\
          What's your decision?",
         cmd = cmd,
@@ -3976,6 +4012,37 @@ fn render_user_message(cmd: &str, cwd: &str, idle_for: Duration, tail: &[u8]) ->
 /// False positives are tolerable — they cost one extra model call. False
 /// negatives delay the operator's reaction by `idle_threshold_secs` —
 /// not a correctness problem, just less responsive.
+/// True when the executor is actively working and the operator must NOT
+/// engage (no typing, no escalation). `Thinking`/`Running`/`Reading`/`Writing`
+/// are busy; only `Waiting`/`Idle`/`Done` are at-rest states where the
+/// operator may act.
+fn executor_is_working(phase: &karl_session::ExecutorPhase) -> bool {
+    use karl_session::ExecutorPhase::*;
+    matches!(phase, Thinking | Running { .. } | Reading { .. } | Writing { .. })
+}
+
+/// Suppress this operator tick when an executor agent is in foreground AND it
+/// is in a working phase. `snapshot` is the result of
+/// `NotchHub::phase_snapshot`: `None` (session not registered / no agent) →
+/// do NOT suppress (fall through to legacy idle/decision-point logic).
+fn should_suppress_for_phase(
+    snapshot: Option<&(karl_session::ExecutorPhase, Option<String>)>,
+) -> bool {
+    match snapshot {
+        Some((phase, Some(_agent))) => executor_is_working(phase),
+        _ => false,
+    }
+}
+
+/// Which loop-detector outcomes still warrant a user ping. With the phase
+/// gate in place, `general` and `idle-wait` loops indicate a working or
+/// merely-idle executor — neither is one of the four ping triggers, so they
+/// only cool the tab + note the world model. `repeat-reply` means the
+/// executor is genuinely not accepting our input → a real "needs you".
+fn loop_should_escalate(kind: Option<&str>) -> bool {
+    matches!(kind, Some("repeat-reply"))
+}
+
 pub fn detect_decision_point(tail: &[u8]) -> bool {
     use std::sync::OnceLock;
     static YES_NO: OnceLock<Regex> = OnceLock::new();
@@ -4195,6 +4262,47 @@ fn strip_spinner_churn(s: &str) -> String {
         })
         .collect();
     timer.replace_all(&despun, "").into_owned()
+}
+
+/// Strip Claude Code / agent TUI chrome from an already-ANSI-stripped excerpt
+/// before it reaches the operator LLM. Removes whole lines that are spinner
+/// gerunds, elapsed/token status, interrupt/expand hints, "Tip:" lines, and
+/// ghost `Try "..."` input placeholders — none of which are executor state.
+/// Real output, tool results, prompts, and errors are kept. Complements
+/// `strip_spinner_churn` (which only removes inline glyph/timer churn for
+/// hashing); this operates line-wise for the model excerpt.
+fn normalize_executor_chrome(s: &str) -> String {
+    use std::sync::OnceLock;
+    static GERUND: OnceLock<Regex> = OnceLock::new();
+    static GHOST_TRY: OnceLock<Regex> = OnceLock::new();
+    // A spinner status line: optional leading glyph, a capitalized gerund with
+    // ellipsis, optionally followed by a parenthesized timer/token recap.
+    let gerund = GERUND.get_or_init(|| {
+        Regex::new(r"^\s*[✱✲✳✴✵✶✷✸✹✺✻✦★☆◐◓◑◒*•∶∴]?\s*[A-Z][A-Za-z-]+ing(?:…|\.{3}).*$").unwrap()
+    });
+    let ghost_try = GHOST_TRY.get_or_init(|| Regex::new(r#"^\s*Try\s+".*"\s*$"#).unwrap());
+    s.lines()
+        .filter(|line| {
+            let t = line.trim();
+            if t.is_empty() {
+                return true; // keep blank lines (cheap, preserves shape)
+            }
+            if gerund.is_match(t) || ghost_try.is_match(t) {
+                return false;
+            }
+            let lower = t.to_lowercase();
+            if lower.contains("esc to interrupt")
+                || lower.contains("ctrl+o to expand")
+                || lower.contains("ctrl+b to run in background")
+                || lower.starts_with("tip:")
+            {
+                return false;
+            }
+            true
+        })
+        .map(strip_spinner_churn) // also remove inline timer/glyph churn per kept line
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Hash a REPLY text alone — no rationale, no screen state. Used by
@@ -4743,6 +4851,78 @@ fn handle_parse_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn working_phases_suppress_engage() {
+        use karl_session::ExecutorPhase::*;
+        for p in [
+            Thinking,
+            Running { cmd: "cargo test".into() },
+            Reading { file: "x".into() },
+            Writing { file: "y".into() },
+        ] {
+            let snap = (p, Some("claude".to_string()));
+            assert!(should_suppress_for_phase(Some(&snap)), "{snap:?} must suppress");
+        }
+    }
+
+    #[test]
+    fn at_rest_phases_do_not_suppress() {
+        use karl_session::ExecutorPhase::*;
+        for p in [Idle, Waiting { reason: "y/n".into() }, Done { summary: None }] {
+            let snap = (p, Some("claude".to_string()));
+            assert!(!should_suppress_for_phase(Some(&snap)));
+        }
+    }
+
+    #[test]
+    fn no_agent_or_unregistered_does_not_suppress() {
+        use karl_session::ExecutorPhase::*;
+        assert!(!should_suppress_for_phase(None));
+        // working phase but no foreground agent → not our concern, don't suppress
+        let snap = (Running { cmd: "x".into() }, None);
+        assert!(!should_suppress_for_phase(Some(&snap)));
+    }
+
+    #[test]
+    fn only_repeat_reply_loop_escalates() {
+        assert!(loop_should_escalate(Some("repeat-reply")));
+        assert!(!loop_should_escalate(Some("general")));
+        assert!(!loop_should_escalate(Some("idle-wait")));
+        assert!(!loop_should_escalate(None));
+    }
+
+    #[test]
+    fn chrome_normalizer_strips_cc_status_lines() {
+        let raw = "\
+building project\n\
+✱ Whirlpooling… (27m 51s · ↓ 19.6k tokens)\n\
+  Tip: Use /permissions to pre-approve\n\
+esc to interrupt · ctrl+o to expand\n\
+error[E0382]: borrow of moved value\n";
+        let out = normalize_executor_chrome(raw);
+        assert!(!out.contains("Whirlpooling"), "spinner line leaked: {out:?}");
+        assert!(!out.to_lowercase().contains("esc to interrupt"));
+        assert!(!out.contains("ctrl+o"));
+        assert!(!out.contains("Tip:"));
+        // Real signal survives:
+        assert!(out.contains("error[E0382]"));
+        assert!(out.contains("building project"));
+    }
+
+    #[test]
+    fn chrome_normalizer_strips_ghost_try_placeholder() {
+        let raw = "Try \"refactor the parser\"\n> \n";
+        let out = normalize_executor_chrome(raw);
+        assert!(!out.contains("Try \""), "ghost placeholder leaked: {out:?}");
+    }
+
+    #[test]
+    fn chrome_normalizer_keeps_real_prompt() {
+        let raw = "Apply 3 migrations to prod? [y/N]\n";
+        let out = normalize_executor_chrome(raw);
+        assert!(out.contains("[y/N]"));
+    }
 
     #[test]
     fn parses_reply() {

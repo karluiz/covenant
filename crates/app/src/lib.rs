@@ -187,8 +187,10 @@ pub(crate) struct AppState {
     /// so every `pi_*` Tauri command can address sessions by id.
     pub(crate) pi_sessions: pi_commands::PiRegistry,
     /// Notch overlay: per-session executor phase detector, bridged to each
-    /// session's broadcast bus as ExecutorStateChanged events.
-    notch_hub: Arc<notch::NotchHub>,
+    /// session's broadcast bus as ExecutorStateChanged events. `pub(crate)`
+    /// so the operator tick loop can read the live phase via `phase_snapshot`
+    /// for its engage gate (see `operator::run_tick`).
+    pub(crate) notch_hub: Arc<notch::NotchHub>,
     /// Status-bar vitals aggregator handle. Spawned once at app setup;
     /// exposes CPU / memory / network snapshots to the frontend via
     /// the `get_vitals` Tauri command.
@@ -3365,10 +3367,22 @@ pub fn run() {
                                     }
                                 }
                             }
-                            crate::telegram::InboundEvent::UnknownReply {
+                            crate::telegram::InboundEvent::Question {
                                 chat_id,
-                                message_id: _,
+                                message_id,
+                                text: _,
                             } => {
+                                // Deterministic English cross-tab status reply,
+                                // threaded onto the question. Reads the notch
+                                // hub's live per-session phases (no LLM call).
+                                let snap = if let Some(state) =
+                                    app_handle_for_drain.try_state::<AppState>()
+                                {
+                                    state.notch_hub.snapshot().await
+                                } else {
+                                    Vec::new()
+                                };
+                                let body = crate::telegram::status::format_status(&snap);
                                 let s = tg_for_drain.settings.lock().await;
                                 let token = s.telegram.bot_token.clone();
                                 drop(s);
@@ -3379,9 +3393,10 @@ pub fn run() {
                                             &token,
                                             crate::telegram::types::SendMessageReq {
                                                 chat_id: chat_id.to_string(),
-                                                text: "Responde al mensaje original de la tab a la que te refieres, o esa escalación ya cerró.".into(),
+                                                text: body,
                                                 reply_markup: None,
                                                 parse_mode: None,
+                                                reply_to_message_id: Some(message_id),
                                             },
                                         )
                                         .await;

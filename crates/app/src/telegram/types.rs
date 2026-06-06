@@ -8,6 +8,8 @@ pub struct SendMessageReq {
     pub reply_markup: Option<InlineKeyboardMarkup>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parse_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to_message_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
