@@ -3895,6 +3895,28 @@ fn render_user_message(cmd: &str, cwd: &str, idle_for: Duration, tail: &[u8]) ->
 /// False positives are tolerable — they cost one extra model call. False
 /// negatives delay the operator's reaction by `idle_threshold_secs` —
 /// not a correctness problem, just less responsive.
+/// True when the executor is actively working and the operator must NOT
+/// engage (no typing, no escalation). `Thinking`/`Running`/`Reading`/`Writing`
+/// are busy; only `Waiting`/`Idle`/`Done` are at-rest states where the
+/// operator may act.
+fn executor_is_working(phase: &karl_session::ExecutorPhase) -> bool {
+    use karl_session::ExecutorPhase::*;
+    matches!(phase, Thinking | Running { .. } | Reading { .. } | Writing { .. })
+}
+
+/// Suppress this operator tick when an executor agent is in foreground AND it
+/// is in a working phase. `snapshot` is the result of
+/// `NotchHub::phase_snapshot`: `None` (session not registered / no agent) →
+/// do NOT suppress (fall through to legacy idle/decision-point logic).
+fn should_suppress_for_phase(
+    snapshot: Option<&(karl_session::ExecutorPhase, Option<String>)>,
+) -> bool {
+    match snapshot {
+        Some((phase, Some(_agent))) => executor_is_working(phase),
+        _ => false,
+    }
+}
+
 pub fn detect_decision_point(tail: &[u8]) -> bool {
     use std::sync::OnceLock;
     static YES_NO: OnceLock<Regex> = OnceLock::new();
@@ -4662,6 +4684,38 @@ fn handle_parse_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn working_phases_suppress_engage() {
+        use karl_session::ExecutorPhase::*;
+        for p in [
+            Thinking,
+            Running { cmd: "cargo test".into() },
+            Reading { file: "x".into() },
+            Writing { file: "y".into() },
+        ] {
+            let snap = (p, Some("claude".to_string()));
+            assert!(should_suppress_for_phase(Some(&snap)), "{snap:?} must suppress");
+        }
+    }
+
+    #[test]
+    fn at_rest_phases_do_not_suppress() {
+        use karl_session::ExecutorPhase::*;
+        for p in [Idle, Waiting { reason: "y/n".into() }, Done { summary: None }] {
+            let snap = (p, Some("claude".to_string()));
+            assert!(!should_suppress_for_phase(Some(&snap)));
+        }
+    }
+
+    #[test]
+    fn no_agent_or_unregistered_does_not_suppress() {
+        use karl_session::ExecutorPhase::*;
+        assert!(!should_suppress_for_phase(None));
+        // working phase but no foreground agent → not our concern, don't suppress
+        let snap = (Running { cmd: "x".into() }, None);
+        assert!(!should_suppress_for_phase(Some(&snap)));
+    }
 
     #[test]
     fn parses_reply() {
