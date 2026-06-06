@@ -106,6 +106,7 @@ import {
 } from "./split-actions";
 import { installPaneSplitter } from "./pane-splitter";
 import { positionGlassIndicator } from "./glass-indicator";
+import { sessionHintsFromTabs, type SessionHint } from "../convergence/hints";
 
 /// Ensure a Familiar exists for the given session. If one is already
 /// registered backend-side (e.g. survived a relaunch), reuse it;
@@ -2678,6 +2679,15 @@ export class TabManager {
     if (!tab) return false;
     this.activate(tab.id);
     return true;
+  }
+
+  /// Per-session hints for the Convergence snapshot — one per live pane,
+  /// across every tab (split tabs contribute both panes). Public + typed
+  /// so the convergence bridge never reaches into private fields through
+  /// an unchecked cast; that cast silently broke when Phase C moved
+  /// `sessionId` from `Tab` onto `Pane`. See spec 2026-06-06.
+  listSessionHints(): SessionHint[] {
+    return sessionHintsFromTabs(this.tabs);
   }
 
   activateRelative(delta: number): void {
