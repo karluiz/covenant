@@ -4155,6 +4155,47 @@ fn strip_spinner_churn(s: &str) -> String {
     timer.replace_all(&despun, "").into_owned()
 }
 
+/// Strip Claude Code / agent TUI chrome from an already-ANSI-stripped excerpt
+/// before it reaches the operator LLM. Removes whole lines that are spinner
+/// gerunds, elapsed/token status, interrupt/expand hints, "Tip:" lines, and
+/// ghost `Try "..."` input placeholders — none of which are executor state.
+/// Real output, tool results, prompts, and errors are kept. Complements
+/// `strip_spinner_churn` (which only removes inline glyph/timer churn for
+/// hashing); this operates line-wise for the model excerpt.
+fn normalize_executor_chrome(s: &str) -> String {
+    use std::sync::OnceLock;
+    static GERUND: OnceLock<Regex> = OnceLock::new();
+    static GHOST_TRY: OnceLock<Regex> = OnceLock::new();
+    // A spinner status line: optional leading glyph, a capitalized gerund with
+    // ellipsis, optionally followed by a parenthesized timer/token recap.
+    let gerund = GERUND.get_or_init(|| {
+        Regex::new(r"^\s*[✱✲✳✴✵✶✷✸✹✺✻✦★☆◐◓◑◒*•∶∴]?\s*[A-Z][A-Za-z-]+ing(?:…|\.{3}).*$").unwrap()
+    });
+    let ghost_try = GHOST_TRY.get_or_init(|| Regex::new(r#"^\s*Try\s+".*"\s*$"#).unwrap());
+    s.lines()
+        .filter(|line| {
+            let t = line.trim();
+            if t.is_empty() {
+                return true; // keep blank lines (cheap, preserves shape)
+            }
+            if gerund.is_match(t) || ghost_try.is_match(t) {
+                return false;
+            }
+            let lower = t.to_lowercase();
+            if lower.contains("esc to interrupt")
+                || lower.contains("ctrl+o to expand")
+                || lower.contains("ctrl+b to run in background")
+                || lower.starts_with("tip:")
+            {
+                return false;
+            }
+            true
+        })
+        .map(strip_spinner_churn) // also remove inline timer/glyph churn per kept line
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Hash a REPLY text alone — no rationale, no screen state. Used by
 /// the repeat-REPLY loop detector. Strips trailing CR/LF the auto-
 /// submit code would have added/stripped anyway, so "x", "x\n",
@@ -4732,6 +4773,38 @@ mod tests {
         // working phase but no foreground agent → not our concern, don't suppress
         let snap = (Running { cmd: "x".into() }, None);
         assert!(!should_suppress_for_phase(Some(&snap)));
+    }
+
+    #[test]
+    fn chrome_normalizer_strips_cc_status_lines() {
+        let raw = "\
+building project\n\
+✱ Whirlpooling… (27m 51s · ↓ 19.6k tokens)\n\
+  Tip: Use /permissions to pre-approve\n\
+esc to interrupt · ctrl+o to expand\n\
+error[E0382]: borrow of moved value\n";
+        let out = normalize_executor_chrome(raw);
+        assert!(!out.contains("Whirlpooling"), "spinner line leaked: {out:?}");
+        assert!(!out.to_lowercase().contains("esc to interrupt"));
+        assert!(!out.contains("ctrl+o"));
+        assert!(!out.contains("Tip:"));
+        // Real signal survives:
+        assert!(out.contains("error[E0382]"));
+        assert!(out.contains("building project"));
+    }
+
+    #[test]
+    fn chrome_normalizer_strips_ghost_try_placeholder() {
+        let raw = "Try \"refactor the parser\"\n> \n";
+        let out = normalize_executor_chrome(raw);
+        assert!(!out.contains("Try \""), "ghost placeholder leaked: {out:?}");
+    }
+
+    #[test]
+    fn chrome_normalizer_keeps_real_prompt() {
+        let raw = "Apply 3 migrations to prod? [y/N]\n";
+        let out = normalize_executor_chrome(raw);
+        assert!(out.contains("[y/N]"));
     }
 
     #[test]
