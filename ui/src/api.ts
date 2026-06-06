@@ -55,7 +55,8 @@ export type SessionUiEvent =
       session: SessionId;
       name: string | null;
       busy: boolean;
-    };
+    }
+  | { kind: "title_suggested"; session: SessionId; title: string };
 
 export interface SpawnHandlers {
   onOutput: OutputHandler;
