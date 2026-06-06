@@ -2814,34 +2814,32 @@ async fn run_tick(
             }
         };
 
-        let action = if looped {
+        let action = if looped && loop_should_escalate(loop_kind) {
             tracing::warn!(
                 session = %session_id,
                 cooldown_secs = LOOP_COOLDOWN.as_secs(),
                 kind = loop_kind.unwrap_or("?"),
-                "operator loop detected — forcing escalate, parking tab"
+                "operator repeat-reply loop — escalating (executor not accepting input)"
             );
-            let why = match loop_kind {
-                Some("repeat-reply") => format!(
-                    "Operator typed the same reply {REPLY_REPEAT_THRESHOLD}x in a row — the executor is likely not accepting input (try pressing Enter manually) or the submit key is wrong for this TUI. Tab paused for {}s.",
-                    LOOP_COOLDOWN.as_secs()
-                ),
-                Some("idle-wait") => format!(
-                    "Executor has been idle ({IDLE_WAIT_ESCALATE_THRESHOLD} consecutive WAITs with no new output). Mission likely done or stuck — your call. Tab paused for {}s; will resume polling automatically once it expires.",
-                    LOOP_COOLDOWN.as_secs()
-                ),
-                _ => format!(
-                    "Operator loop detected — same decision {LOOP_THRESHOLD}x in a row. Tab paused for {}s. Likely cause: executor stuck or model misreading state. Manual intervention required.",
-                    LOOP_COOLDOWN.as_secs()
-                ),
-            };
             OperatorAction::Escalate {
-                notification: why,
+                notification: format!(
+                    "Your executor isn't accepting input — I typed the same reply twice and it didn't take. It may need Enter pressed manually, or the submit key is wrong for this TUI. Paused {}s.",
+                    LOOP_COOLDOWN.as_secs()
+                ),
                 rationale: format!(
-                    "loop guard ({}): action={} parked to avoid runaway cost",
-                    loop_kind.unwrap_or("?"),
+                    "loop guard (repeat-reply): action={} parked to avoid runaway cost",
                     parsed_action.kind()
                 ),
+            }
+        } else if looped {
+            // general / idle-wait: cool the tab silently. Not a ping trigger.
+            tracing::info!(
+                session = %session_id,
+                kind = loop_kind.unwrap_or("?"),
+                "operator loop cooled silently (not a ping trigger)"
+            );
+            OperatorAction::Wait {
+                rationale: format!("loop guard ({}): cooled silently", loop_kind.unwrap_or("?")),
             }
         } else {
             parsed_action
@@ -3934,6 +3932,15 @@ fn should_suppress_for_phase(
     }
 }
 
+/// Which loop-detector outcomes still warrant a user ping. With the phase
+/// gate in place, `general` and `idle-wait` loops indicate a working or
+/// merely-idle executor — neither is one of the four ping triggers, so they
+/// only cool the tab + note the world model. `repeat-reply` means the
+/// executor is genuinely not accepting our input → a real "needs you".
+fn loop_should_escalate(kind: Option<&str>) -> bool {
+    matches!(kind, Some("repeat-reply"))
+}
+
 pub fn detect_decision_point(tail: &[u8]) -> bool {
     use std::sync::OnceLock;
     static YES_NO: OnceLock<Regex> = OnceLock::new();
@@ -4773,6 +4780,14 @@ mod tests {
         // working phase but no foreground agent → not our concern, don't suppress
         let snap = (Running { cmd: "x".into() }, None);
         assert!(!should_suppress_for_phase(Some(&snap)));
+    }
+
+    #[test]
+    fn only_repeat_reply_loop_escalates() {
+        assert!(loop_should_escalate(Some("repeat-reply")));
+        assert!(!loop_should_escalate(Some("general")));
+        assert!(!loop_should_escalate(Some("idle-wait")));
+        assert!(!loop_should_escalate(None));
     }
 
     #[test]
