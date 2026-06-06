@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.57 — Operator conversational comms + solo AOM + Mission Control
+
+### Added
+
+- **Operator conversational Telegram comms**: the channel is now quiet and conversational. The operator gates on the executor's live phase (`crates/app/src/operator.rs` reading `notch.rs`) so it never types into or escalates a *working* executor — killing the false "stuck/Whirlpooling" escalation floods. Duplicate escalations of the same `(session, kind)` coalesce into one edited message instead of spamming, and an inbound "what's going on?" now gets an English, threaded, cross-tab status reply (`crates/app/src/telegram/{mod,inbound,status,outbound,types}.rs`).
+
+- **Solo autonomous mode**: run AOM scoped to a single tab via a per-session ephemeral `solo_aom` flag, surfaced through `Cmd+Shift+S` and an operator chip menu item (`crates/app/src/operator.rs`, `ui/src/api.ts`). `effective_aom` gates global vs solo; `queue_aom_startup_actions_for(session)` scopes startup; `ensure_autonomy_pot` is shared by both paths.
+
+- **Convergence Mission Control**: a card-grid view of operator state across panes — pure view model (status priority, sort, escalation join), single/multi/blocked card renderers, header strip, and resilient refresh (`ui/src/convergence/*`).
+
+- **Richer Activity feed**: escalation text + in-flight command are persisted (`crates/app/src/storage.rs`) and surfaced as expandable rows (`ui/src/teammate/activity-view.ts`).
+
+### Changed
+
+- **Operator excerpt hygiene**: TUI spinner/timer/token chrome (e.g. `✱ Whirlpooling… (27m · ↓19k tokens)`, `esc to interrupt`, `Tip:` lines, ghost `Try "…"` placeholders) is stripped from the LLM excerpt and the spinner-framing prompt corrected, so the model reads executor state correctly (`crates/app/src/operator.rs`). Only repeat-reply loops escalate; generic/idle loops now cool the tab silently.
+
+### Fixed
+
+- **Notch fullscreen overlay**: an authoritative `inline_mode` flag set by the Resized hook (re-polled to defeat macOS's late flag flip) keeps the notch overlay from popping over a fullscreen Space when a phase event arrives mid-transition (`crates/app/src/notch.rs`, `crates/app/src/lib.rs`). Browser favorites rail re-asserts its grid column 4 against the global collapse rules (`ui/src/styles.css`).
+
+- **Convergence robustness**: recover a poisoned operator-state lock instead of panicking, and send valid per-pane session ids to the snapshot (`crates/app/src/convergence.rs`).
+
+- **English-first copy**: removed the hardcoded Spanish inbound reply and the Spanish familiar summary headers (`crates/app/src/lib.rs`, `crates/familiar/src/{prompts,agent}.rs`).
+
 ## v0.8.56 — Revert v0.8.55 (operator-awareness startup crash)
 
 ### Fixed
