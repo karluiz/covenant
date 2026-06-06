@@ -1355,11 +1355,40 @@ async fn operator_phase_overview(
     Ok(state.operator.phase_overview().await)
 }
 
+/// Idempotently open the shared autonomy budget pot. Called by both
+/// `aom_start` (global) and `operator_solo_start` (single tab). When no
+/// autonomy is currently active, initializes `budget_usd` from settings,
+/// resets cost/decisions, stamps `started_at`, and opens an `aom_session`
+/// storage row. When a pot is already live (global AOM on OR another solo
+/// tab armed), it's a no-op so the cap/counter carry.
+///
+/// `already_active` MUST be evaluated by the caller BEFORE arming its own
+/// flag, so the "first to arm" caller opens the pot.
+async fn ensure_autonomy_pot(state: &State<'_, AppState>, already_active: bool) {
+    if already_active {
+        return;
+    }
+    let budget = state.settings.lock().await.aom.default_budget_usd;
+    let started_at = now_unix_ms();
+    let row_id = match state.storage.aom_session_start(started_at, budget).await {
+        Ok(id) => Some(id),
+        Err(e) => {
+            tracing::warn!(error = %e, "aom_session_start: persistence failed");
+            None
+        }
+    };
+    let mut s = state.aom.write().await;
+    s.started_at_unix_ms = started_at;
+    s.decisions_count = 0;
+    s.budget_usd = budget;
+    s.accumulated_cost_usd = 0.0;
+    s.cost_cap_hit_at_unix_ms = None;
+    s.current_session_row_id = row_id;
+    tracing::info!(budget_usd = budget, row_id = ?row_id, "autonomy pot opened");
+}
+
 #[tauri::command]
 async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
-    // Read budget from settings ONCE at start time so a mid-session
-    // settings change doesn't shift the cap underneath the user.
-    let budget = state.settings.lock().await.aom.default_budget_usd;
     // M-OP5+: per-tab `aom_excluded` is persistent across AOM cycles.
     // The user opts tabs IN/OUT explicitly via the tab badge, ⌘⇧E, the
     // tab context menu, or the "Include all" action in the AOM popover.
@@ -1374,29 +1403,20 @@ async fn aom_start(state: State<'_, AppState>) -> Result<AomStatus, String> {
     // Queue proactive startup actions: claude /rename, bypass-exit,
     // etc. These fire later in run_tick when conditions are met.
     state.operator.queue_aom_startup_actions().await;
-    let started_at = now_unix_ms();
 
-    // Persist the AOM session row so the morning report has a window
-    // boundary to filter operator_decisions against. Failure here
-    // doesn't block AOM — it just means no report row for this run.
-    let row_id = match state.storage.aom_session_start(started_at, budget).await {
-        Ok(id) => Some(id),
-        Err(e) => {
-            tracing::warn!(error = %e, "aom_session_start: persistence failed");
-            None
-        }
-    };
-
-    let mut s = state.aom.write().await;
-    s.enabled = true;
-    s.started_at_unix_ms = started_at;
-    s.decisions_count = 0;
-    s.budget_usd = budget;
-    s.accumulated_cost_usd = 0.0;
-    s.cost_cap_hit_at_unix_ms = None;
-    s.current_session_row_id = row_id;
-    tracing::info!(budget_usd = budget, row_id = ?row_id, "AOM started");
-    Ok(AomStatus::from(&*s))
+    // Open the shared budget pot only if no autonomy is already active
+    // (another solo tab may have opened it first). If a solo tab is
+    // running, aom_start piggybacks on the existing pot — no reset.
+    let already_active =
+        { state.aom.read().await.enabled } || state.operator.any_solo_active().await;
+    ensure_autonomy_pot(&state, already_active).await;
+    {
+        let mut s = state.aom.write().await;
+        s.enabled = true;
+    }
+    let status = { AomStatus::from(&*state.aom.read().await) };
+    tracing::info!("AOM started");
+    Ok(status)
 }
 
 /// Morning report — aggregate digest of the most recent AOM session.
@@ -1751,6 +1771,50 @@ async fn aom_stop(state: State<'_, AppState>) -> Result<AomStatus, String> {
 
     tracing::info!(decisions, "AOM stopped");
     Ok(status)
+}
+
+/// Arm a single tab into full AOM posture without the global banner.
+/// Ephemeral: not persisted; cleared on reload. Opens the shared budget
+/// pot if this is the first autonomy to arm.
+#[tauri::command]
+async fn operator_solo_start(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    let already_active =
+        { state.aom.read().await.enabled } || state.operator.any_solo_active().await;
+    if !state.operator.is_enabled(id).await {
+        state.operator.set_enabled(id, true).await;
+    }
+    state.operator.set_solo(id, true).await;
+    ensure_autonomy_pot(&state, already_active).await;
+    state.operator.queue_aom_startup_actions_for(id).await;
+    tracing::info!(session = %id, "solo autonomous armed");
+    Ok(true)
+}
+
+/// Disarm solo on a single tab. Leaves the shared pot alone if global AOM
+/// or any other solo tab is still active.
+#[tauri::command]
+async fn operator_solo_stop(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    state.operator.set_solo(id, false).await;
+    tracing::info!(session = %id, "solo autonomous disarmed");
+    Ok(false)
+}
+
+/// Current solo state for a tab — drives the chip menu label + accent.
+#[tauri::command]
+async fn operator_solo_status(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    Ok(state.operator.is_solo(id).await)
 }
 
 /// Recent blocks that ran in `cwd` across sessions. Used by the
@@ -3609,6 +3673,9 @@ pub fn run() {
             aom_start,
             aom_stop,
             aom_report,
+            operator_solo_start,
+            operator_solo_stop,
+            operator_solo_status,
             get_convergence_snapshot,
             get_blocked_session_ids,
             submit_convergence_reply,
