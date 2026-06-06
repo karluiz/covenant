@@ -202,27 +202,58 @@ async fn regenerate(
     let usage = resp.usage;
 
     let (title, summary) = split_title(&resp.text);
-    let trimmed = summary; // already trimmed by split_title
-    let tokens_estimate = trimmed.len() / 4;
+    // `summary` is already trimmed by split_title
 
     let updated_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    if let Err(e) = storage
-        .save_summary(session_id, trimmed.clone(), title.clone(), updated_at)
-        .await
-    {
-        tracing::warn!(error = %e, "failed to persist summary");
+
+    if !summary.is_empty() {
+        // Full response: persist both summary + title, update world.
+        let tokens_estimate = summary.len() / 4;
+        if let Err(e) = storage
+            .save_summary(session_id, summary.clone(), title.clone(), updated_at)
+            .await
+        {
+            tracing::warn!(error = %e, "failed to persist summary");
+        }
+        {
+            let mut w = world.lock().await;
+            w.summary = Some(summary.clone());
+            if !title.is_empty() {
+                w.title = Some(title.clone());
+            }
+        }
+        let _ = tokens_estimate; // used implicitly via tracing below
+        tracing::debug!(session = %session_id, tokens_estimate, "summary body persisted");
+    } else {
+        // Degenerate title-only response: save title without clobbering the
+        // existing stored summary. Load what we have, re-save with new title.
+        let existing_summary = storage
+            .load_summary(session_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|(s, _)| s)
+            .unwrap_or_default();
+        if let Err(e) = storage
+            .save_summary(session_id, existing_summary, title.clone(), updated_at)
+            .await
+        {
+            tracing::warn!(error = %e, "failed to persist title (summary preserved)");
+        }
+        {
+            let mut w = world.lock().await;
+            if !title.is_empty() {
+                w.title = Some(title.clone());
+            }
+            // Do NOT touch w.summary — keep the previous good summary.
+        }
+        tracing::debug!(session = %session_id, "title-only response; summary preserved");
     }
 
-    {
-        let mut w = world.lock().await;
-        w.summary = Some(trimmed);
-        if !title.is_empty() {
-            w.title = Some(title.clone());
-        }
-    }
+    let tokens_estimate = summary.len() / 4;
 
     if !title.is_empty() && last_title.as_deref() != Some(title.as_str()) {
         let _ = bus_tx.send(SessionEvent::TitleSuggested {
