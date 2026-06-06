@@ -1404,6 +1404,42 @@ impl OperatorWatcher {
             }
         }
     }
+
+    /// Queue one-shot AOM startup actions for a SINGLE session (solo
+    /// mode). Same per-session body as `queue_aom_startup_actions` but
+    /// scoped — only this tab gets the proactive rename.
+    pub async fn queue_aom_startup_actions_for(&self, session_id: SessionId) {
+        let snap = {
+            let inner = self.inner.lock().await;
+            inner.sessions.get(&session_id).filter(|a| a.enabled).map(|att| {
+                (att.mission.as_ref().map(|m| m.path.clone()), att.world.clone())
+            })
+        };
+        let Some((mission_path, world_arc)) = snap else { return };
+
+        let titles = self.tab_titles.lock().await.clone();
+        let slug = if let Some(p) = mission_path.as_ref() {
+            let s = slug_from_mission_path(p);
+            if s.is_empty() {
+                let cwd = world_arc.lock().await.cwd.clone();
+                slug_fallback_covenant(titles.get(&session_id).map(String::as_str), &cwd, session_id)
+            } else {
+                s
+            }
+        } else {
+            let cwd = world_arc.lock().await.cwd.clone();
+            slug_fallback_covenant(titles.get(&session_id).map(String::as_str), &cwd, session_id)
+        };
+
+        if !slug.is_empty() {
+            let mut inner = self.inner.lock().await;
+            if let Some(att) = inner.sessions.get_mut(&session_id) {
+                if att.enabled {
+                    att.aom_startup.rename_to = Some(slug);
+                }
+            }
+        }
+    }
 }
 
 async fn tick_loop(
