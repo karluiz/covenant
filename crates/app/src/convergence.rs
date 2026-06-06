@@ -309,6 +309,14 @@ pub fn assemble_snapshot(built: Vec<BuiltRow>) -> ConvergenceSnapshot {
     }
 }
 
+/// Lock a `std::sync::Mutex`, recovering from poisoning instead of
+/// panicking. A panic elsewhere while holding `op_state` must not
+/// permanently brick the snapshot (which blanks the whole overlay). See
+/// spec 2026-06-06 §8.
+fn lock_recover<T>(m: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 pub async fn build_convergence_snapshot(
     sessions: Vec<SessionInput>,
     operator: &OperatorWatcher,
@@ -341,7 +349,7 @@ pub async fn build_convergence_snapshot(
         let short = shorten6(&id_str);
 
         let (last_byte_at, bytes_total, last_decision_at_bytes_total, tail_bytes) = {
-            let st = s.op_state.lock().expect("op_state poisoned");
+            let st = lock_recover(&s.op_state);
             (
                 st.last_byte_at,
                 st.bytes_total,
@@ -674,6 +682,18 @@ mod tests {
         ]);
         assert_eq!(snap.escalations.len(), 1);
         assert_eq!(snap.escalations[0].session_id, "s2");
+    }
+
+    #[test]
+    fn lock_recover_survives_poison() {
+        let m = std::sync::Mutex::new(7i32);
+        // Poison the mutex: panic while holding the guard.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _g = m.lock().unwrap();
+            panic!("poison it");
+        }));
+        assert!(m.lock().is_err(), "mutex should be poisoned");
+        assert_eq!(*lock_recover(&m), 7);
     }
 
     #[test]
