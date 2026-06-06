@@ -200,7 +200,7 @@ async fn regenerate(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     if let Err(e) = storage
-        .save_summary(session_id, trimmed.clone(), updated_at)
+        .save_summary(session_id, trimmed.clone(), String::new(), updated_at)
         .await
     {
         tracing::warn!(error = %e, "failed to persist summary");
