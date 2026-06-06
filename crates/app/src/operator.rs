@@ -2444,6 +2444,10 @@ async fn run_tick(
                         Some(op.id.to_string()),
                         Some(op.name.clone()),
                         None,
+                        // This row is persisted as an `escalate` — surface the
+                        // API error body as its escalation text so the activity
+                        // feed can show the full diagnostic.
+                        Some(escalation_msg.clone()),
                     )
                     .await
                 {
@@ -3063,6 +3067,9 @@ async fn run_tick(
                 Some(op.id.to_string()),
                 Some(op.name.clone()),
                 applied_memory_id,
+                // Escalation notification text (Some for Escalate actions,
+                // None for reply/wait) — surfaced in the activity feed.
+                escalation_msg.clone(),
             )
             .await
         {
