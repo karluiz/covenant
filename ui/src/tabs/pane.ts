@@ -34,6 +34,9 @@ export interface Pane {
   executor: string | null;
   operatorEnabled: boolean;
   operatorLive: boolean;
+  /// Ephemeral solo-autonomous flag (full AOM on this tab only). Runtime
+  /// only — never written to the tab manifest, so it clears on reload.
+  operatorSolo?: boolean;
   aomExcluded: boolean;
   observer_ids: string[];
   spawn_id: string | null;

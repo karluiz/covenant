@@ -58,6 +58,8 @@ import {
   sessionSetOperator,
   setOperatorEnabled,
   setOperatorLive,
+  operatorSoloStart,
+  operatorSoloStop,
   setSessionMission,
   setTabTitle,
   teammateListTasks,
@@ -1124,6 +1126,7 @@ export class TabManager {
       executor: null,
       operatorEnabled: false,
       operatorLive: false,
+      operatorSolo: false,
       aomExcluded: persistedPane.aom_excluded ?? false,
       observer_ids: Array.isArray(persistedPane.observer_ids) ? [...persistedPane.observer_ids] : [],
       spawn_id: persistedPane.spawn_id ?? null,
@@ -3681,6 +3684,7 @@ export class TabManager {
       executor: null,
       operatorEnabled,
       operatorLive,
+      operatorSolo: false,
       aomExcluded,
       observer_ids: [],
       spawn_id: null,
@@ -3955,6 +3959,7 @@ export class TabManager {
       executor: "pi",
       operatorEnabled: false,
       operatorLive: false,
+      operatorSolo: false,
       aomExcluded: true, // Pi sessions never enter AOM (no shell to drive)
       observer_ids: [],
       spawn_id: null,
@@ -4044,6 +4049,7 @@ export class TabManager {
       executor: null,
       operatorEnabled: false,
       operatorLive: false,
+      operatorSolo: false,
       aomExcluded: true,
       observer_ids: [],
       spawn_id: null,
@@ -4107,6 +4113,29 @@ export class TabManager {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("set_operator_live failed", err);
+    }
+  }
+
+  public async toggleOperatorSolo(tabId: string): Promise<void> {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    const pane = activePane(tab);
+    const sessionId = pane.sessionId;
+    if (!sessionId) return;
+    const next = !pane.operatorSolo;
+    try {
+      if (next) {
+        await operatorSoloStart(sessionId as SessionId);
+        pane.operatorEnabled = true;
+      } else {
+        await operatorSoloStop(sessionId as SessionId);
+      }
+      pane.operatorSolo = next;
+      this.renderTabbar();
+      if (tab.id === this.activeId) this.emitActiveOperator();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("operator_solo toggle failed", err);
     }
   }
 
@@ -5853,7 +5882,8 @@ export class TabManager {
       // "AOM driving here" even when the global banner is off — that's
       // how teammate-confirmed tasks light up without forcing the global
       // toggle on every other tab.
-      const drivingHere = (aomOn && !excluded) || pillPane.operatorLive;
+      const drivingHere =
+        (aomOn && !excluded) || pillPane.operatorLive || pillPane.operatorSolo === true;
       if (drivingHere) pill.classList.add("tab-aom-active");
       else if (aomOn && excluded) pill.classList.add("tab-aom-excluded");
     }
@@ -6199,6 +6229,14 @@ export class TabManager {
           icon: Icons.headphones(),
           danger: !ctxPane.operatorLive,
           onClick: () => this.toggleOperatorLive(tab.id),
+        });
+        items.push({
+          label: ctxPane.operatorSolo
+            ? "Operator: stop autonomous (this tab)"
+            : "Operator: go autonomous (this tab) — solo AOM",
+          icon: Icons.headphones(),
+          danger: !ctxPane.operatorSolo,
+          onClick: () => this.toggleOperatorSolo(tab.id),
         });
       }
     }
