@@ -218,6 +218,15 @@ impl TelegramNotifier {
         escalation_id: &str,
         action_kind: crate::telegram::inbound::ActionKind,
     ) -> anyhow::Result<()> {
+        // Remove any coalescer entry pointing at this escalation so the next
+        // escalation of the same kind posts a fresh message instead of editing
+        // a resolved one.
+        self.state
+            .active
+            .lock()
+            .unwrap()
+            .retain(|_, p| p.escalation_id != escalation_id);
+
         let entry = {
             let mut map = self.state.map.lock().unwrap();
             let key = map
