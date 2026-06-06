@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU8;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use karl_session::{EscalationKind, OperatorAction, OperatorRef, ProjectRef};
 
@@ -10,6 +11,15 @@ pub const STATUS_DISABLED: u8 = 0;
 pub const STATUS_OK: u8 = 1;
 pub const STATUS_ERROR: u8 = 2;
 
+/// One live (unresolved) escalation we may coalesce onto instead of posting
+/// a duplicate. Keyed by (session_id, escalation-kind) in `OutboundState`.
+pub struct ActivePing {
+    pub message_id: i64,
+    pub escalation_id: String,
+    pub last_sent: Instant,
+    pub count: u32,
+}
+
 #[derive(Default)]
 pub struct OutboundState {
     pub map: Mutex<HashMap<i64, String>>, // message_id -> escalation_id
@@ -17,6 +27,13 @@ pub struct OutboundState {
     /// Last inbound long-poll outcome. Drives the statusbar Telegram pill.
     /// `STATUS_DISABLED` while no inbound loop is running (token/chat empty).
     pub status: AtomicU8,
+    /// (session_id, kind_key) -> live ping, for coalescing repeats.
+    pub active: Mutex<HashMap<(String, String), ActivePing>>,
+}
+
+/// Stable string key for an EscalationKind so we can map without Hash derive.
+pub fn kind_key(kind: &EscalationKind) -> String {
+    format!("{kind:?}")
 }
 
 /// Inputs to render an outbound escalation message + keyboard. Built once
