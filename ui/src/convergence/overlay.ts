@@ -4,7 +4,8 @@ import {
   type ConvergenceSnapshot,
 } from "../api";
 import { Icons } from "../icons";
-import { renderInboxCard, renderRosterRow } from "./tile";
+import { escalationIndex, sortOperators } from "./model";
+import { renderOperatorCard, type ReplyScope } from "./tile";
 
 export interface TabMeta {
   sessionId: string;
@@ -17,26 +18,26 @@ export interface ConvergenceTabBridge {
   activateBySessionId(sessionId: string, opts?: { keepOverlayOpen?: boolean }): boolean;
 }
 
+type Filter = "all" | "needs you" | "working" | "idle";
 const POLL_MS = 1000;
 
 export class ConvergenceOverlay {
   private root: HTMLElement | null = null;
   private gridEl: HTMLElement | null = null;
-  private inboxEl: HTMLElement | null = null;
-  private rosterEl: HTMLElement | null = null;
+  private summaryEl: HTMLElement | null = null;
   private empty: HTMLElement | null = null;
+  private reconnectEl: HTMLElement | null = null;
   private pollHandle: number | null = null;
   private visible = false;
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
-  private snap: ConvergenceSnapshot | null = null;
-  private activeEscalationId: string | null = null;
-  private filter: "all" | "escalated" | "working" | "idle" = "all";
+  private snap: ConvergenceSnapshot | null = null; // last-good
+  private filter: Filter = "all";
   private expanded = new Set<string>();
+  private activeOperatorId: string | null = null;
 
   constructor(private bridge: ConvergenceTabBridge) {}
 
   isVisible(): boolean { return this.visible; }
-
   toggle(): void { if (this.visible) this.close(); else this.open(); }
 
   open(): void {
@@ -50,24 +51,17 @@ export class ConvergenceOverlay {
   close(): void {
     if (!this.visible) return;
     this.visible = false;
-    if (this.pollHandle !== null) {
-      window.clearInterval(this.pollHandle);
-      this.pollHandle = null;
-    }
+    if (this.pollHandle !== null) { window.clearInterval(this.pollHandle); this.pollHandle = null; }
     if (this.escHandler !== null) {
       document.removeEventListener("keydown", this.escHandler, { capture: true });
       this.escHandler = null;
     }
     this.root?.remove();
-    this.root = null;
-    this.gridEl = null;
-    this.inboxEl = null;
-    this.rosterEl = null;
-    this.empty = null;
+    this.root = this.gridEl = this.summaryEl = this.empty = this.reconnectEl = null;
     this.snap = null;
-    this.activeEscalationId = null;
     this.filter = "all";
     this.expanded.clear();
+    this.activeOperatorId = null;
   }
 
   private mount(): void {
@@ -84,18 +78,33 @@ export class ConvergenceOverlay {
     const exit = document.createElement("button");
     exit.type = "button";
     exit.className = "modal-cancel-btn";
-    exit.title = "Close (Esc)";
     exit.innerHTML = `<span>Exit</span><kbd class="modal-kbd">Esc</kbd>`;
     exit.addEventListener("click", () => this.close());
     header.append(title, exit);
 
+    const strip = document.createElement("div");
+    strip.className = "mc-strip";
+    const summary = document.createElement("div");
+    summary.className = "mc-strip__summary";
+    const reconnect = document.createElement("span");
+    reconnect.className = "mc-reconnecting";
+    reconnect.textContent = "reconnecting…";
+    reconnect.hidden = true;
+    const filters = document.createElement("div");
+    filters.className = "mc-strip__filters";
+    for (const f of ["all", "needs you", "working", "idle"] as const) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "mc-fchip" + (this.filter === f ? " mc-fchip--on" : "");
+      chip.textContent = f;
+      chip.dataset.filter = f;
+      chip.addEventListener("click", () => { this.filter = f; this.render(); });
+      filters.append(chip);
+    }
+    strip.append(summary, reconnect, filters);
+
     const grid = document.createElement("div");
-    grid.className = "cv-grid";
-    const inbox = document.createElement("section");
-    inbox.className = "cv-inbox";
-    const roster = document.createElement("section");
-    roster.className = "cv-roster";
-    grid.append(inbox, roster);
+    grid.className = "mc-grid";
 
     const empty = document.createElement("div");
     empty.className = "convergence-overlay__empty";
@@ -104,197 +113,161 @@ export class ConvergenceOverlay {
       <div class="convergence-overlay__empty-icon">${Icons.link2({ size: 56 })}</div>
       <div class="convergence-overlay__empty-title">Nothing to converge</div>
       <div class="convergence-overlay__empty-body">
-        Convergence aggregates escalations and operator status across every tab.<br/>
+        Mission Control shows every operator across your tabs.<br/>
         Enable an operator on a tab (⌘O) to populate this view.
       </div>
-      <kbd class="convergence-overlay__empty-hint">⌘⇧M to toggle convergence</kbd>
-    `;
+      <kbd class="convergence-overlay__empty-hint">⌘⇧M to toggle convergence</kbd>`;
 
-    root.append(header, grid, empty);
+    root.append(header, strip, grid, empty);
     document.body.append(root);
 
     this.root = root;
     this.gridEl = grid;
-    this.inboxEl = inbox;
-    this.rosterEl = roster;
+    this.summaryEl = summary;
     this.empty = empty;
+    this.reconnectEl = reconnect;
 
     this.escHandler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         const active = document.activeElement as HTMLElement | null;
-        if (active?.closest(".cv-reply")) {
-          e.preventDefault();
-          e.stopPropagation();
-          active.blur();
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        this.close();
-        return;
+        if (active?.closest(".mc-reply")) { e.preventDefault(); e.stopPropagation(); active.blur(); return; }
+        e.preventDefault(); e.stopPropagation(); this.close(); return;
       }
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         const active = document.activeElement as HTMLElement | null;
-        if (active?.tagName === "TEXTAREA") {
-          const ta = active as HTMLTextAreaElement;
-          if (ta.value.length > 0) return; // let caret movement happen
-        }
+        if (active?.tagName === "TEXTAREA" && (active as HTMLTextAreaElement).value.length > 0) return;
         e.preventDefault();
         this.moveActive(e.key === "ArrowDown" ? 1 : -1);
+      }
+      if (e.key === "Enter" && this.activeOperatorId) {
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.closest(".mc-reply") || active?.closest("button, input, select, textarea")) return;
+        const op = this.visibleOperators().find((o) => o.operator_id === this.activeOperatorId);
+        const first = op?.sessions[0];
+        if (first) { this.bridge.activateBySessionId(first.session_id); this.close(); }
       }
     };
     document.addEventListener("keydown", this.escHandler, { capture: true });
   }
 
-  private moveActive(delta: number): void {
-    const list = this.snap?.escalations ?? [];
-    if (list.length === 0) return;
-    const idx = list.findIndex((e) => e.session_id === this.activeEscalationId);
-    const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
-    this.activeEscalationId = list[next].session_id;
-    this.renderInbox();
-  }
+  /// Test seam — drives one refresh and resolves when render is done.
+  refreshForTest(): Promise<void> { return this.refresh(); }
 
   private async refresh(): Promise<void> {
-    if (!this.visible || !this.inboxEl || !this.rosterEl || !this.empty) return;
+    if (!this.visible) return;
     const tabs = this.bridge.listTabs().map((t) => ({
-      session_id: t.sessionId,
-      title: t.title,
-      color: t.color,
+      session_id: t.sessionId, title: t.title, color: t.color,
     }));
     try {
-      this.snap = await getConvergenceSnapshot(tabs);
+      const next = await getConvergenceSnapshot(tabs);
+      if (!this.visible) return; // close() raced during the await — discard
+      this.snap = next;
+      if (this.reconnectEl) this.reconnectEl.hidden = true;
     } catch (err) {
       console.warn("convergence snapshot failed", err);
+      if (this.reconnectEl) this.reconnectEl.hidden = false;
+      if (!this.snap) this.renderEmptyError();
       return;
     }
-    if (this.snap.roster.length === 0 && this.snap.escalations.length === 0) {
-      this.inboxEl.replaceChildren();
-      this.rosterEl.replaceChildren();
+    this.render();
+  }
+
+  private visibleOperators() {
+    if (!this.snap) return [];
+    const sorted = sortOperators(this.snap.roster, this.snap.escalations);
+    return sorted.filter((entry) => {
+      switch (this.filter) {
+        case "all": return true;
+        case "needs you": return entry.has_escalation;
+        case "working": return entry.sessions.some((s) => s.status === "working");
+        case "idle": return entry.sessions.every((s) => s.status === "idle");
+      }
+    });
+  }
+
+  private render(): void {
+    if (!this.gridEl || !this.empty || !this.summaryEl || !this.snap) return;
+    const roster = this.snap.roster;
+    if (roster.length === 0) {
+      this.gridEl.replaceChildren();
+      this.gridEl.hidden = true;
       this.empty.hidden = false;
-      if (this.gridEl) this.gridEl.hidden = true;
+      this.summaryEl.textContent = "";
       return;
     }
     this.empty.hidden = true;
-    if (this.gridEl) this.gridEl.hidden = false;
-    this.renderInbox();
-    this.renderRoster();
-  }
+    this.gridEl.hidden = false;
 
-  private renderInbox(): void {
-    if (!this.inboxEl || !this.snap) return;
-    const list = this.snap.escalations;
-    this.inboxEl.replaceChildren();
+    const sessions = roster.flatMap((r) => r.sessions);
+    const needs = roster.filter((r) => r.has_escalation).length;
+    const working = sessions.filter((s) => s.status === "working").length;
+    const idle = sessions.filter((s) => s.status === "idle").length;
+    const cost = sessions.reduce((a, s) => a + (s.cost_usd ?? 0), 0);
+    this.summaryEl.innerHTML =
+      `<b>${roster.length}</b> operators · ` +
+      (needs ? `<b class="mc-strip__alert">${needs} needs you</b> · ` : "") +
+      `${working} working · ${idle} idle` +
+      (cost >= 0.005 ? ` · <b>$${cost.toFixed(2)}</b>` : "");
 
-    const headerRow = document.createElement("div");
-    headerRow.className = "cv-inbox__header";
-    headerRow.textContent =
-      list.length > 0 ? `Inbox · ${list.length} awaiting you` : "Inbox";
-    this.inboxEl.append(headerRow);
-
-    if (list.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "cv-inbox__empty";
-      empty.innerHTML = `
-        <div class="cv-inbox__empty-icon">${Icons.bot({ size: 32 })}</div>
-        <div class="cv-inbox__empty-title">All clear</div>
-        <div class="cv-inbox__empty-body">No operators are awaiting your input.</div>
-      `;
-      this.inboxEl.append(empty);
-      this.activeEscalationId = null;
-      return;
-    }
-
-    if (
-      !this.activeEscalationId ||
-      !list.some((e) => e.session_id === this.activeEscalationId)
-    ) {
-      this.activeEscalationId = list[0].session_id;
-    }
-
-    for (const card of list) {
-      this.inboxEl.append(
-        renderInboxCard(card, card.session_id === this.activeEscalationId, {
-          onActivate: (sid) => {
-            this.activeEscalationId = sid;
-            this.renderInbox();
-          },
-          onSubmit: this.submitReply.bind(this),
-        }),
-      );
-    }
-  }
-
-  private renderRoster(): void {
-    if (!this.rosterEl || !this.snap) return;
-    this.rosterEl.replaceChildren();
-
-    const header = document.createElement("div");
-    header.className = "cv-roster__header";
-    const label = document.createElement("span");
-    label.className = "cv-roster__label";
-    label.textContent = `Roster · ${this.snap.roster.length} operators`;
-    const chips = document.createElement("div");
-    chips.className = "cv-roster__chips";
-    for (const v of ["all", "escalated", "working", "idle"] as const) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "cv-chip" + (this.filter === v ? " cv-chip--active" : "");
-      chip.textContent = v;
-      chip.addEventListener("click", () => {
-        this.filter = v;
-        this.renderRoster();
-      });
-      chips.append(chip);
-    }
-    header.append(label, chips);
-    this.rosterEl.append(header);
-
-    const filtered = this.snap.roster.filter((entry) => {
-      if (this.filter === "all") return true;
-      if (this.filter === "escalated") return entry.has_escalation;
-      return entry.sessions.some((s) => s.status === this.filter);
+    this.root?.querySelectorAll<HTMLElement>(".mc-fchip").forEach((c) => {
+      c.classList.toggle("mc-fchip--on", c.dataset.filter === this.filter);
     });
 
-    if (filtered.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "cv-roster__empty";
-      empty.innerHTML = `
-        No operators match <code>${this.filter}</code>.
-        <button type="button" class="cv-roster__empty-reset">Show all</button>
-      `;
-      const resetBtn = empty.querySelector<HTMLButtonElement>(".cv-roster__empty-reset");
-      resetBtn?.addEventListener("click", () => {
-        this.filter = "all";
-        this.renderRoster();
-      });
-      this.rosterEl.append(empty);
+    const esc = escalationIndex(this.snap.escalations);
+    const list = this.visibleOperators();
+    if (!this.activeOperatorId || !list.some((o) => o.operator_id === this.activeOperatorId)) {
+      this.activeOperatorId = list[0]?.operator_id ?? null;
+    }
+    this.gridEl.replaceChildren();
+    if (list.length === 0) {
+      const none = document.createElement("div");
+      none.className = "mc-grid__empty";
+      none.innerHTML = `No operators match <code>${this.filter}</code>. <button type="button" class="mc-grid__reset">Show all</button>`;
+      none.querySelector(".mc-grid__reset")?.addEventListener("click", () => { this.filter = "all"; this.render(); });
+      this.gridEl.append(none);
       return;
     }
-
-    for (const entry of filtered) {
-      const expanded = entry.has_escalation || this.expanded.has(entry.operator_id);
-      this.rosterEl.append(
-        renderRosterRow(entry, expanded, {
-          onFocus: (sid, keepOpen) => {
-            const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
-            if (ok && !keepOpen) this.close();
-          },
-          onToggleExpand: (opId) => {
-            if (this.expanded.has(opId)) this.expanded.delete(opId);
-            else this.expanded.add(opId);
-            this.renderRoster();
-          },
-        }),
-      );
+    for (const entry of list) {
+      const card = renderOperatorCard(entry, esc, {
+        onFocus: (sid, keepOpen) => {
+          const ok = this.bridge.activateBySessionId(sid, { keepOverlayOpen: keepOpen });
+          if (ok && !keepOpen) this.close();
+        },
+        onToggleExpand: (opId) => {
+          if (this.expanded.has(opId)) this.expanded.delete(opId);
+          else this.expanded.add(opId);
+          this.render();
+        },
+        onSubmit: this.submitReply.bind(this),
+      }, this.expanded);
+      if (entry.operator_id === this.activeOperatorId) card.classList.add("mc-card--active");
+      this.gridEl.append(card);
     }
   }
 
-  async submitReply(
-    sessionId: string,
-    text: string,
-    scope: "one-shot" | "mission" | "global",
-  ): Promise<void> {
+  private renderEmptyError(): void {
+    if (!this.gridEl || !this.empty || !this.summaryEl) return;
+    this.empty.hidden = true;
+    this.gridEl.hidden = false;
+    this.summaryEl.textContent = "";
+    this.gridEl.replaceChildren();
+    const err = document.createElement("div");
+    err.className = "mc-grid__empty";
+    err.innerHTML = `Couldn't load operator status. <button type="button" class="mc-grid__reset">Retry</button>`;
+    err.querySelector(".mc-grid__reset")?.addEventListener("click", () => void this.refresh());
+    this.gridEl.append(err);
+  }
+
+  private moveActive(delta: number): void {
+    const list = this.visibleOperators();
+    if (list.length === 0) return;
+    const idx = list.findIndex((o) => o.operator_id === this.activeOperatorId);
+    const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
+    this.activeOperatorId = list[next].operator_id;
+    this.render();
+  }
+
+  async submitReply(sessionId: string, text: string, scope: ReplyScope): Promise<void> {
     try {
       await submitConvergenceReply(sessionId, text, scope);
     } catch (err) {
