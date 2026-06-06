@@ -359,6 +359,17 @@ impl NotchHub {
         self.labels.lock().await.remove(session);
     }
 
+    /// Snapshot the current display phase + foreground agent for one session.
+    /// The operator's decision loop reads this to gate on real executor state.
+    /// `None` when the session isn't registered (no agent detected here).
+    pub async fn phase_snapshot(
+        &self,
+        session: SessionId,
+    ) -> Option<(karl_session::ExecutorPhase, Option<String>)> {
+        let map = self.sessions.lock().await;
+        map.get(&session).map(|e| (e.display.clone(), e.agent.clone()))
+    }
+
     /// Snapshot every session's current phase + tab label. Used to seed
     /// the notch webview on boot — `win.emit` fires into the void if
     /// the JS listener isn't attached yet, so events emitted during
@@ -577,6 +588,25 @@ pub async fn notch_ready(
 mod tests {
     use super::*;
     use karl_session::ExecutorPhase;
+
+    #[tokio::test]
+    async fn phase_snapshot_reports_display_and_agent() {
+        let (tx, _rx) = broadcast::channel(16);
+        let hub = NotchHub::new();
+        let sid = SessionId::new();
+        hub.register(sid, tx).await;
+        hub.set_foreground_agent(sid, Some("claude".into())).await;
+        hub.ingest(sid, b"$ cargo test\n").await;
+        let (phase, agent) = hub.phase_snapshot(sid).await.expect("snapshot");
+        assert!(matches!(phase, ExecutorPhase::Running { .. }));
+        assert_eq!(agent.as_deref(), Some("claude"));
+    }
+
+    #[tokio::test]
+    async fn phase_snapshot_none_for_unregistered() {
+        let hub = NotchHub::new();
+        assert!(hub.phase_snapshot(SessionId::new()).await.is_none());
+    }
 
     #[tokio::test]
     async fn ingest_emits_event_on_phase_change() {
