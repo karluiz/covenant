@@ -34,6 +34,11 @@ super-agent. You will be given the previous summary plus the current \
 block history and must output a fresh summary that supersedes both.
 
 Rules:
+- Your FIRST line must be exactly `TITLE: <label>` where <label> is at \
+  most 2 lowercase words naming the current activity (e.g. `release prep`, \
+  `debugging auth`, `tab titles`). If nothing meaningful has happened, \
+  leave it empty: `TITLE:`. Then a blank line, then the summary body \
+  following the rules below.
 - Output the new summary text only. No preamble, no markdown headings, \
   no code fences, no bullet titles like 'Summary:'.
 - Stay under ~400 tokens. Drop redundant detail. Compress chronological \
@@ -50,9 +55,10 @@ pub fn spawn_loop(
     settings: Arc<Mutex<Settings>>,
     storage: Storage,
     bus: broadcast::Receiver<SessionEvent>,
+    bus_tx: broadcast::Sender<SessionEvent>,
     vitals: crate::vitals::VitalsHandle,
 ) {
-    tauri::async_runtime::spawn(run_loop(session_id, world, settings, storage, bus, vitals));
+    tauri::async_runtime::spawn(run_loop(session_id, world, settings, storage, bus, bus_tx, vitals));
 }
 
 async fn run_loop(
@@ -61,9 +67,11 @@ async fn run_loop(
     settings: Arc<Mutex<Settings>>,
     storage: Storage,
     mut bus: broadcast::Receiver<SessionEvent>,
+    bus_tx: broadcast::Sender<SessionEvent>,
     vitals: crate::vitals::VitalsHandle,
 ) {
     let mut last_block_at: Option<Instant> = None;
+    let mut last_title: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -87,7 +95,7 @@ async fn run_loop(
 
             _ = wait_until_debounce(last_block_at) => {
                 last_block_at = None;
-                if let Err(e) = regenerate(session_id, &world, &settings, &storage, &vitals).await {
+                if let Err(e) = regenerate(session_id, &world, &settings, &storage, &bus_tx, &mut last_title, &vitals).await {
                     tracing::warn!(
                         session = %session_id,
                         error = %e,
@@ -118,6 +126,8 @@ async fn regenerate(
     world: &Arc<Mutex<SessionWorldModel>>,
     settings: &Arc<Mutex<Settings>>,
     storage: &Storage,
+    bus_tx: &broadcast::Sender<SessionEvent>,
+    last_title: &mut Option<String>,
     vitals: &crate::vitals::VitalsHandle,
 ) -> Result<(), String> {
     // Snapshot inputs without holding any locks across the http call.
@@ -190,9 +200,9 @@ async fn regenerate(
         .await
         .map_err(|e| e.to_string())?;
     let usage = resp.usage;
-    let summary = resp.text;
 
-    let trimmed = summary.trim().to_string();
+    let (title, summary) = split_title(&resp.text);
+    let trimmed = summary; // already trimmed by split_title
     let tokens_estimate = trimmed.len() / 4;
 
     let updated_at = SystemTime::now()
@@ -200,13 +210,28 @@ async fn regenerate(
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     if let Err(e) = storage
-        .save_summary(session_id, trimmed.clone(), String::new(), updated_at)
+        .save_summary(session_id, trimmed.clone(), title.clone(), updated_at)
         .await
     {
         tracing::warn!(error = %e, "failed to persist summary");
     }
 
-    world.lock().await.summary = Some(trimmed);
+    {
+        let mut w = world.lock().await;
+        w.summary = Some(trimmed);
+        if !title.is_empty() {
+            w.title = Some(title.clone());
+        }
+    }
+
+    if !title.is_empty() && last_title.as_deref() != Some(title.as_str()) {
+        let _ = bus_tx.send(SessionEvent::TitleSuggested {
+            session: session_id,
+            title: title.clone(),
+        });
+        *last_title = Some(title);
+    }
+
     let latency_ms = started.elapsed().as_millis();
     tracing::info!(
         session = %session_id,
@@ -217,4 +242,38 @@ async fn regenerate(
     vitals.record_complete(session_id, model_for_vitals, usage, latency_ms as u32);
 
     Ok(())
+}
+
+/// Split a summarizer response into (title, summary). The model is asked
+/// to make its first line `TITLE: <label>`. If absent, title is empty and
+/// the whole text is the summary (back-compat).
+fn split_title(raw: &str) -> (String, String) {
+    let raw = raw.trim_start();
+    if let Some(rest) = raw.strip_prefix("TITLE:") {
+        let mut lines = rest.splitn(2, '\n');
+        let title = lines.next().unwrap_or("").trim().to_string();
+        let summary = lines.next().unwrap_or("").trim().to_string();
+        (title, summary)
+    } else {
+        (String::new(), raw.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_title;
+
+    #[test]
+    fn parses_title_sentinel() {
+        let (t, s) = split_title("TITLE: release prep\n\nUser cut a release.");
+        assert_eq!(t, "release prep");
+        assert_eq!(s, "User cut a release.");
+    }
+
+    #[test]
+    fn missing_sentinel_yields_empty_title() {
+        let (t, s) = split_title("Just a summary, no title line.");
+        assert_eq!(t, "");
+        assert_eq!(s, "Just a summary, no title line.");
+    }
 }
