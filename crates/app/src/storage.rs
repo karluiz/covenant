@@ -69,6 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_blocks_failures   ON blocks(exit_code) WHERE exit
 CREATE TABLE IF NOT EXISTS summaries (
     session_id          TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
     summary             TEXT NOT NULL,
+    title               TEXT NOT NULL DEFAULT '',
     updated_at_unix_ms  INTEGER NOT NULL
 );
 
@@ -587,6 +588,11 @@ impl Storage {
             "ALTER TABLE operators ADD COLUMN rolling_summary TEXT NOT NULL DEFAULT ''",
             [],
         );
+        // AI tab titles: persist generated title alongside session summary.
+        let _ = conn.execute(
+            "ALTER TABLE summaries ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         // 5.x Teammate task cards: track whether a Propose message has been
         // confirmed (turned into a Task) or dismissed (user cancelled the
         // proposal). Both NULL for older rows.
@@ -751,11 +757,12 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
-    /// Upsert the rolling summary for a session.
+    /// Upsert the rolling summary (and AI-generated title) for a session.
     pub async fn save_summary(
         &self,
         session_id: SessionId,
         summary: String,
+        title: String,
         updated_at_unix_ms: u64,
     ) -> Result<(), StorageError> {
         let conn = self.inner.clone();
@@ -763,14 +770,37 @@ impl Storage {
         tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
             let c = conn.blocking_lock();
             c.execute(
-                "INSERT INTO summaries (session_id, summary, updated_at_unix_ms)
-                 VALUES (?1, ?2, ?3)
+                "INSERT INTO summaries (session_id, summary, title, updated_at_unix_ms)
+                 VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(session_id) DO UPDATE SET
                      summary = excluded.summary,
+                     title = excluded.title,
                      updated_at_unix_ms = excluded.updated_at_unix_ms",
-                params![session_str, summary, updated_at_unix_ms as i64],
+                params![session_str, summary, title, updated_at_unix_ms as i64],
             )?;
             Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    /// Load the rolling summary and AI-generated title for a session.
+    pub async fn load_summary(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<(String, String)>, StorageError> {
+        let conn = self.inner.clone();
+        let session_str = session_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<(String, String)>, StorageError> {
+            let c = conn.blocking_lock();
+            let result = c
+                .query_row(
+                    "SELECT summary, title FROM summaries WHERE session_id = ?1",
+                    params![session_str],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            Ok(result)
         })
         .await
         .map_err(|e| StorageError::Join(e.to_string()))?
@@ -3169,10 +3199,10 @@ mod tests {
         let (s, _g) = fresh();
         let session = SessionId::new();
         s.save_session(session, 1_000_000).await.unwrap();
-        s.save_summary(session, "first".to_string(), 1)
+        s.save_summary(session, "first".to_string(), String::new(), 1)
             .await
             .unwrap();
-        s.save_summary(session, "second".to_string(), 2)
+        s.save_summary(session, "second".to_string(), String::new(), 2)
             .await
             .unwrap();
 
@@ -3185,6 +3215,19 @@ mod tests {
             )
             .unwrap();
         assert_eq!(row, ("second".to_string(), 2));
+    }
+
+    #[tokio::test]
+    async fn summary_roundtrips_title() {
+        let (s, _g) = fresh();
+        let session = SessionId::new();
+        s.save_session(session, 1_000_000).await.unwrap();
+        s.save_summary(session, "did stuff".to_string(), "release prep".to_string(), 100)
+            .await
+            .unwrap();
+        let (summary, title) = s.load_summary(session).await.unwrap().unwrap();
+        assert_eq!(summary, "did stuff");
+        assert_eq!(title, "release prep");
     }
 
     #[tokio::test]

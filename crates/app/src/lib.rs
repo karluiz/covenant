@@ -582,6 +582,7 @@ async fn spawn_session(
         state.settings.clone(),
         state.storage.clone(),
         session.subscribe(),
+        session.event_sender(),
         state.vitals.clone(),
     );
 

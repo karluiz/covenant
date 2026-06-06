@@ -490,6 +490,13 @@ type DragSource =
   | { kind: "group"; id: string }
   | null;
 
+/// Last path segment of a cwd, for the cold-start tab title. Empty/unknown
+/// cwd falls back to "shell".
+function cwdBasename(cwd: string | null | undefined): string {
+  const seg = (cwd ?? "").split("/").filter(Boolean).pop();
+  return seg && seg.length > 0 ? seg : "shell";
+}
+
 function tabDisplayName(t: Tab): string {
   return t.customName?.trim() || t.defaultTitle;
 }
@@ -2726,7 +2733,9 @@ export class TabManager {
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const replayKey = opts?.replayKey ?? id.replace(/-/g, "").slice(0, 26);
-    const seq = this.nextSeq++;
+    // Keep the shared spawn counter advancing (pi/browser tabs share it),
+    // even though shell tabs now title themselves from the cwd basename.
+    this.nextSeq++;
 
     const pane = document.createElement("div");
     pane.className = "tab-pane";
@@ -2994,6 +3003,13 @@ export class TabManager {
                 const isAgent = !!pFg.executor;
                 pFg.busyProc = event.busy && !isAgent ? event.name : null;
                 this.renderTabBusyDot(tabRef.current);
+              }
+            } else if (event.kind === "title_suggested") {
+              // AI-generated activity label. Only update the auto title;
+              // a user-set customName always wins (see tabDisplayName).
+              if (tabRef.current && event.title.trim().length > 0) {
+                tabRef.current.defaultTitle = event.title.trim();
+                this.renderTabbar();
               }
             } else if (event.kind === "cwd_changed") {
               if (tabRef.current) {
@@ -3645,7 +3661,7 @@ export class TabManager {
     const tab: Tab = {
       id,
       kind: "shell",
-      defaultTitle: `zsh ${seq}`,
+      defaultTitle: cwdBasename(initialCwd),
       customName: opts?.customName ?? null,
       color: opts?.color ?? null,
       groupId: opts?.groupId ?? null,

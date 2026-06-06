@@ -184,6 +184,12 @@ pub enum SessionEvent {
         session: SessionId,
         name: Option<String>,
     },
+    /// A fresh AI-generated tab title for the session, produced by the
+    /// summarizer. Emitted only when the title changed from the last one.
+    TitleSuggested {
+        session: SessionId,
+        title: String,
+    },
     ExecutorStateChanged {
         session: SessionId,
         phase: ExecutorPhase,
@@ -277,6 +283,10 @@ pub enum SessionUiEvent {
         name: Option<String>,
         busy: bool,
     },
+    TitleSuggested {
+        session: SessionId,
+        title: String,
+    },
 }
 
 impl SessionEvent {
@@ -351,6 +361,12 @@ impl SessionEvent {
                 rationale: rationale.clone(),
             }),
             SessionEvent::ExecutorStateChanged { .. } => None,
+            SessionEvent::TitleSuggested { session, title } => {
+                Some(SessionUiEvent::TitleSuggested {
+                    session: *session,
+                    title: title.clone(),
+                })
+            }
             SessionEvent::ForegroundChanged { session, name } => {
                 Some(SessionUiEvent::ForegroundChanged {
                     session: *session,
@@ -849,6 +865,22 @@ mod event_serde_tests {
         let ev = SessionEvent::AgentResumed { session: id };
         let ui = ev.to_ui().expect("should produce SessionUiEvent");
         assert!(matches!(ui, SessionUiEvent::AgentResumed { session } if session == id));
+    }
+
+    #[test]
+    fn title_suggested_maps_to_ui() {
+        let sid = SessionId::new();
+        let ev = SessionEvent::TitleSuggested {
+            session: sid,
+            title: "release prep".to_string(),
+        };
+        match ev.to_ui() {
+            Some(SessionUiEvent::TitleSuggested { session, title }) => {
+                assert_eq!(session, sid);
+                assert_eq!(title, "release prep");
+            }
+            other => panic!("expected TitleSuggested ui event, got {other:?}"),
+        }
     }
 }
 
