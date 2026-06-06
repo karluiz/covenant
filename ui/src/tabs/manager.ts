@@ -2733,7 +2733,9 @@ export class TabManager {
   }): Promise<Tab | null> {
     const id = crypto.randomUUID();
     const replayKey = opts?.replayKey ?? id.replace(/-/g, "").slice(0, 26);
-    const seq = this.nextSeq++;
+    // Keep the shared spawn counter advancing (pi/browser tabs share it),
+    // even though shell tabs now title themselves from the cwd basename.
+    this.nextSeq++;
 
     const pane = document.createElement("div");
     pane.className = "tab-pane";
