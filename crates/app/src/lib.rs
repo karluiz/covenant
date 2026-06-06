@@ -3320,6 +3320,7 @@ pub fn run() {
                                                 text: "Responde al mensaje original de la tab a la que te refieres, o esa escalación ya cerró.".into(),
                                                 reply_markup: None,
                                                 parse_mode: None,
+                                                reply_to_message_id: None,
                                             },
                                         )
                                         .await;

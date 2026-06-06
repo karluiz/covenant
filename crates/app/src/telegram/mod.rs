@@ -147,6 +147,7 @@ impl TelegramNotifier {
             text: format_message(&ctx),
             reply_markup: Some(keyboard_for(&ctx, args.escalation_id)),
             parse_mode: None,
+            reply_to_message_id: None,
         };
         let result = self.client.send_message(&token, req).await?;
         self.state
@@ -208,6 +209,7 @@ impl TelegramNotifier {
             parse_mode: None,
             reply_markup: None,
             text: format!("[tab: {tab}] {prefix}\n{body}"),
+            reply_to_message_id: None,
         };
         self.client.send_message(&token, req).await?;
         Ok(())
@@ -297,6 +299,7 @@ impl TelegramNotifier {
                     text: "✓ Covenant connected".into(),
                     reply_markup: None,
                     parse_mode: None,
+                    reply_to_message_id: None,
                 },
             )
             .await
