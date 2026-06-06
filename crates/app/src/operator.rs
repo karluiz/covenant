@@ -2006,6 +2006,23 @@ async fn run_tick(
             continue;
         }
 
+        // PHASE GATE (spine): never engage while the executor agent is
+        // actively working. Reading/Writing/Running/Thinking are busy; only
+        // Waiting/Idle/Done are at-rest states where we may type or escalate.
+        // Reads the live phase the notch hub already computes for the UI.
+        // This prevents typing into a busy executor (the double-type loop)
+        // and authoring "stuck/Whirlpooling" escalations during long work.
+        if let Some(app_state) = app.try_state::<crate::AppState>() {
+            let snap = app_state.notch_hub.phase_snapshot(session_id).await;
+            if should_suppress_for_phase(snap.as_ref()) {
+                tracing::debug!(
+                    session = %session_id,
+                    "operator gate: executor working — observing only"
+                );
+                continue;
+            }
+        }
+
         // Check that the in-flight command matches an executor pattern.
         let in_flight_command = {
             let w = world_arc.lock().await;

@@ -187,8 +187,10 @@ pub(crate) struct AppState {
     /// so every `pi_*` Tauri command can address sessions by id.
     pub(crate) pi_sessions: pi_commands::PiRegistry,
     /// Notch overlay: per-session executor phase detector, bridged to each
-    /// session's broadcast bus as ExecutorStateChanged events.
-    notch_hub: Arc<notch::NotchHub>,
+    /// session's broadcast bus as ExecutorStateChanged events. `pub(crate)`
+    /// so the operator tick loop can read the live phase via `phase_snapshot`
+    /// for its engage gate (see `operator::run_tick`).
+    pub(crate) notch_hub: Arc<notch::NotchHub>,
     /// Status-bar vitals aggregator handle. Spawned once at app setup;
     /// exposes CPU / memory / network snapshots to the frontend via
     /// the `get_vitals` Tauri command.
