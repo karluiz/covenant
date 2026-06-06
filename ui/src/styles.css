@@ -17695,6 +17695,19 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
 
 /* ---- Browser favorites rail (browser pane grid column 4) ---- */
 .tab-pane > .fav-rail { grid-column: 4; }
+
+/* The favorites rail shares grid column 4 with the per-tab Blocks sidebar,
+   but browser panes have no Blocks column to relocate. The global rules that
+   collapse col 4 to 0 (blocks-globally-collapsed / sidebar-view-activity /
+   sidebar-view-teammate) therefore wrongly kill the rail in every common
+   state. Re-assert the favorites column for browser panes, matching each of
+   those rules' specificity (+ .tab-pane-browser) so the !important wins. */
+.tab-pane.tab-pane-browser,
+body.blocks-globally-collapsed .tab-pane.tab-pane-browser,
+body.sidebar-view-activity:not(.blocks-globally-collapsed) .tab-pane.tab-pane-browser,
+body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-pane.tab-pane-browser {
+  grid-template-columns: 1fr 0 0 var(--right-sidebar-w) !important;
+}
 .fav-rail {
   display: flex;
   flex-direction: column;

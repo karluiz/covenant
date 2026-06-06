@@ -57,6 +57,13 @@ pub struct NotchHub {
     /// touching the detector, and `set_enabled(false)` clears any pills
     /// already on screen. Mirrors `settings.notch_enabled`.
     enabled: AtomicBool,
+    /// True while the main window is in macOS fullscreen. Authoritative
+    /// source of truth set by the Resized hook in `lib.rs`, which re-polls
+    /// `is_fullscreen()` with retries to defeat macOS's late flag flip.
+    /// The bridge reads this instead of polling `is_fullscreen()` per event
+    /// — otherwise a "Thinking" event arriving mid-transition (flag still
+    /// reads false) re-shows the overlay on top of the fullscreen Space.
+    inline_mode: AtomicBool,
 }
 
 impl NotchHub {
@@ -67,7 +74,20 @@ impl NotchHub {
             labels: Mutex::new(HashMap::new()),
             notch_tx,
             enabled: AtomicBool::new(true),
+            inline_mode: AtomicBool::new(false),
         })
+    }
+
+    /// Set/clear the fullscreen flag. Called by the Resized hook once the
+    /// macOS fullscreen state has settled. When entering fullscreen this
+    /// guarantees the bridge keeps the overlay hidden regardless of how
+    /// `is_fullscreen()` races on subsequent executor events.
+    pub fn set_inline_mode(&self, on: bool) {
+        self.inline_mode.store(on, Ordering::Relaxed);
+    }
+
+    pub fn inline_mode(&self) -> bool {
+        self.inline_mode.load(Ordering::Relaxed)
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -397,6 +417,7 @@ impl NotchHub {
 pub fn spawn_bridge(
     app: AppHandle,
     settings: std::sync::Arc<tokio::sync::Mutex<crate::settings::Settings>>,
+    hub: Arc<NotchHub>,
     mut rx: broadcast::Receiver<SessionEvent>,
 ) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
@@ -412,10 +433,17 @@ pub fn spawn_bridge(
                     // When Covenant is in fullscreen the main UI renders
                     // inline pills — keep the overlay hidden but still
                     // fan the event out so the inline rack updates.
-                    let main_fullscreen = app
-                        .get_webview_window("main")
-                        .and_then(|w| w.is_fullscreen().ok())
-                        .unwrap_or(false);
+                    // Authoritative fullscreen flag (set by the Resized hook
+                    // after macOS settles) OR'd with a live poll as a
+                    // belt-and-suspenders fallback for the launch-in-fullscreen
+                    // case before any Resized fires. Never show the overlay
+                    // when either says fullscreen — in fullscreen the notch
+                    // must not exist; the inline rack carries the load.
+                    let main_fullscreen = hub.inline_mode()
+                        || app
+                            .get_webview_window("main")
+                            .and_then(|w| w.is_fullscreen().ok())
+                            .unwrap_or(false);
                     if let Some(win) = app.get_webview_window("notch") {
                         let visible = win.is_visible().unwrap_or(false);
                         if !visible && !main_fullscreen {

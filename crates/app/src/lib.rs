@@ -3578,6 +3578,12 @@ pub fn run() {
                                     .get_webview_window("main")
                                     .and_then(|w| w.is_fullscreen().ok())
                                     .unwrap_or(false);
+                                // Publish the settled state every poll (not just
+                                // on transitions) so the bridge's authoritative
+                                // flag can never drift from reality.
+                                if let Some(state) = h.try_state::<AppState>() {
+                                    state.notch_hub.set_inline_mode(fs);
+                                }
                                 if fs == last_fs.swap(fs, Ordering::Relaxed) {
                                     continue; // no transition this poll
                                 }
@@ -3604,7 +3610,12 @@ pub fn run() {
             {
                 let state: tauri::State<AppState> = app.state();
                 let rx = state.notch_hub.subscribe();
-                notch::spawn_bridge(app.handle().clone(), state.settings.clone(), rx);
+                notch::spawn_bridge(
+                    app.handle().clone(),
+                    state.settings.clone(),
+                    state.notch_hub.clone(),
+                    rx,
+                );
                 // Seed the hub's enabled flag from persisted settings so
                 // a user who turned the notch off on the previous run
                 // doesn't see pills for one boot before the toggle is
