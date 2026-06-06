@@ -3877,21 +3877,21 @@ fn render_user_message(cmd: &str, cwd: &str, idle_for: Duration, tail: &[u8]) ->
     // prompt) without flooding the model with minutes-old spinner
     // spam from much earlier in the session.
     let stripped = strip_ansi_escapes::strip_str(String::from_utf8_lossy(tail).as_ref());
-    let excerpt = take_last_chars(&stripped, MODEL_EXCERPT_CHARS);
+    let cleaned = normalize_executor_chrome(&stripped);
+    let excerpt = take_last_chars(&cleaned, MODEL_EXCERPT_CHARS);
     format!(
         "Executor command: {cmd}\n\
          Session cwd: {cwd}\n\
          Bytes idle: {idle}s\n\n\
          CRITICAL READING NOTE — the <executor_output> below is the \
          BOTTOM of the executor's terminal buffer (≈ last screen the \
-         user can see). Many TUIs (Claude Code, aider, opencode) \
-         redraw the screen continuously, so any \"Imagining…\", \
-         \"Gusting…\", spinners or progress indicators appearing in \
-         this excerpt represent the CURRENT state — they are NOT \
-         stale history. If the LAST few lines show a finished task \
-         with a question / numbered menu / `›` `❯` `>` prompt \
-         glyph, the executor IS waiting on you, regardless of what \
-         appears earlier in the excerpt.\n\n\
+         user can see), with spinner/timer/token status chrome already \
+         removed. The executor is only handed to you when it is at REST \
+         (waiting, idle, or just finished) — it is NOT actively working. \
+         Decide based on whether the last lines show a question / numbered \
+         menu / prompt glyph (`›` `❯` `>`): if so, the executor is waiting \
+         on input. Never escalate merely because something looks slow or \
+         long-running.\n\n\
          <executor_output>\n{excerpt}\n</executor_output>\n\n\
          What's your decision?",
         cmd = cmd,
