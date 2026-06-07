@@ -120,7 +120,7 @@ export class OperatorsPane {
                 console.warn("operator_set_default failed", e);
               }
             }
-            handle.el.remove();
+            closeCreator(handle.el);
             await this.refresh();
             pushInfoToast({
               message: `${handle.state.mode === "edit" ? "Saved" : "Created"} operator: ${saved.name}`,
@@ -137,7 +137,7 @@ export class OperatorsPane {
         if (!existing) return;
         (async () => {
           await this.deleteOperator(existing);
-          handle.el.remove();
+          closeCreator(handle.el);
         })();
       }
     }, true);
@@ -151,10 +151,18 @@ export class OperatorsPane {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape" && document.body.contains(handle.el)) {
         closeCreator(handle.el);
-        document.removeEventListener("keydown", onKey);
       }
     };
     document.addEventListener("keydown", onKey);
+    // Tear down the keydown listener once the modal element is removed,
+    // no matter which close path (scrim/Cancel/esc-pill/Save/Delete) fired.
+    const teardownObserver = new MutationObserver(() => {
+      if (!document.body.contains(handle.el)) {
+        document.removeEventListener("keydown", onKey);
+        teardownObserver.disconnect();
+      }
+    });
+    teardownObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   private startCreate(): void {
