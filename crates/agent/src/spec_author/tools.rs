@@ -18,6 +18,12 @@ pub enum ToolError {
 /// Secret directory fragments that are always rejected regardless of root.
 const SECRET_FRAGMENTS: &[&str] = &[".ssh", ".aws", ".gnupg", ".config/gh"];
 
+/// Filename patterns that are always rejected (secret-bearing files).
+const SECRET_FILENAMES: &[&str] = &[
+    ".env", ".envrc", ".npmrc", ".netrc", "id_rsa", "id_ed25519", "id_dsa",
+    ".pem", ".key", "credentials", ".pgpass", ".htpasswd",
+];
+
 /// Resolve `rel` against canonical `root`, rejecting escapes and secret paths.
 pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, ToolError> {
     use std::path::Component;
@@ -25,6 +31,16 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, ToolError> {
     let rel_norm = rel.replace('\\', "/");
     if SECRET_FRAGMENTS.iter().any(|f| rel_norm.contains(f)) {
         return Err(ToolError::Secret);
+    }
+
+    if let Some(fname) = Path::new(&rel_norm).file_name().and_then(|f| f.to_str()) {
+        let lower = fname.to_ascii_lowercase();
+        let blocked = SECRET_FILENAMES.iter().any(|s| {
+            lower == *s || (s.starts_with('.') && lower.ends_with(s))
+        });
+        if blocked {
+            return Err(ToolError::Secret);
+        }
     }
 
     // Absolute paths are always outside the root (root is never `/`).
@@ -209,7 +225,11 @@ mod tests {
     use super::*;
 
     fn root() -> PathBuf {
-        let d = std::env::temp_dir().join("spec-tools-test-root");
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let unique = format!("spec-tools-test-{}-{}",
+            std::process::id(), N.fetch_add(1, Ordering::Relaxed));
+        let d = std::env::temp_dir().join(unique);
         std::fs::create_dir_all(d.join("src")).unwrap();
         std::fs::write(d.join("src/a.rs"), "fn main() {}").unwrap();
         std::fs::canonicalize(&d).unwrap()
@@ -297,5 +317,20 @@ mod tests {
     fn tool_specs_lists_three_tools() {
         let specs = tool_specs();
         assert_eq!(specs.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn read_file_rejects_dotenv() {
+        let r = root();
+        std::fs::write(r.join(".env"), "API_KEY=sk-secret").unwrap();
+        assert_eq!(read_file(&r, ".env", None).unwrap_err(), ToolError::Secret);
+    }
+
+    #[test]
+    fn safe_join_rejects_pem_and_key() {
+        let r = root();
+        std::fs::write(r.join("server.pem"), "x").unwrap();
+        assert_eq!(safe_join(&r, "server.pem").unwrap_err(), ToolError::Secret);
+        assert_eq!(safe_join(&r, "app.key").unwrap_err(), ToolError::Secret);
     }
 }

@@ -53,7 +53,10 @@ pub async fn step_streaming<D: StreamingDispatcher>(
                 role: MessageRole::Assistant, content: turn.text.clone() });
         }
 
+        const KNOWN_SECTIONS: &[&str] = &["goal", "out_of_scope", "acceptance",
+            "file_boundaries", "complexity", "open_questions"];
         for (key, md) in parse_section_markers(&turn.text) {
+            if !KNOWN_SECTIONS.contains(&key.as_str()) { continue; }
             sink.emit(SpecStreamEvent::Phase { section: key.clone() });
             sink.emit(SpecStreamEvent::SectionUpdate {
                 section: key, markdown: md, status: "done".into() });
@@ -86,9 +89,10 @@ pub async fn step_streaming<D: StreamingDispatcher>(
             sink.emit(SpecStreamEvent::ToolStart {
                 id: call.id.clone(), tool: call.name.clone(), arg });
             let (result, summary) = tools::run_tool(repo_root, &call.name, &call.input);
+            let ok = summary != "error";
             sink.emit(SpecStreamEvent::ToolResult {
-                id: call.id.clone(), summary, ok: !result.starts_with("error") });
-            feedback.push_str(&format!("[tool {} → {}]\n{}\n\n", call.name, call.id, result));
+                id: call.id.clone(), summary, ok });
+            feedback.push_str(&format!("[tool {} → {}]\n{}\n\n", call.name, call.id, mask_secrets(&result)));
         }
         draft.messages.push(DraftMessage { role: MessageRole::User, content: feedback });
     }
@@ -126,6 +130,48 @@ pub(crate) fn parse_section_markers(text: &str) -> Vec<(String, String)> {
         rest = &body[end + "<!--/section-->".len()..];
     }
     out
+}
+
+/// Replace common secret token shapes with a placeholder before any text is
+/// persisted into a draft or replayed to the model. CLAUDE.md pitfall #7.
+pub(crate) fn mask_secrets(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for token in input.split_inclusive(|c: char| c.is_whitespace()) {
+        let trimmed = token.trim_end();
+        let ws = &token[trimmed.len()..];
+        // Handle key=value pairs: preserve the key, redact only the value.
+        if let Some(eq) = trimmed.find('=') {
+            let key = &trimmed[..eq + 1]; // includes '='
+            let val = &trimmed[eq + 1..];
+            if looks_secret(val) {
+                out.push_str(key);
+                out.push_str("«redacted»");
+                out.push_str(ws);
+                continue;
+            }
+        }
+        if looks_secret(trimmed) {
+            out.push_str("«redacted»");
+            out.push_str(ws);
+        } else {
+            out.push_str(token);
+        }
+    }
+    out
+}
+
+fn looks_secret(t: &str) -> bool {
+    let prefixes = ["sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "AKIA", "AIza", "xoxb-", "xoxp-", "xoxa-", "xoxr-"];
+    if prefixes.iter().any(|p| t.starts_with(p)) && t.len() >= 16 {
+        return true;
+    }
+    // JWT-ish: three base64url segments separated by dots, each reasonably long
+    let parts: Vec<&str> = t.split('.').collect();
+    if parts.len() == 3 && parts.iter().all(|p| p.len() >= 8
+        && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+        return true;
+    }
+    false
 }
 
 use futures_util::StreamExt;
@@ -340,5 +386,15 @@ mod tests {
         let sink = VecSink(Mutex::new(vec![]));
         sink.emit(SpecStreamEvent::TurnDone { awaiting_user: true });
         assert_eq!(sink.0.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn mask_secrets_redacts_common_tokens() {
+        let masked = super::mask_secrets("key=sk-ant-abc123def456ghi789 and jwt aaaaaaaa.bbbbbbbb.cccccccc end");
+        assert!(!masked.contains("sk-ant-abc123def456ghi789"));
+        assert!(!masked.contains("aaaaaaaa.bbbbbbbb.cccccccc"));
+        assert!(masked.contains("«redacted»"));
+        assert!(masked.contains("key=")); // surrounding text preserved
+        assert!(masked.contains("end"));
     }
 }
