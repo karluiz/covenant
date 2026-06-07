@@ -584,6 +584,7 @@ async fn spawn_session(
         session.subscribe(),
         session.event_sender(),
         state.vitals.clone(),
+        session.screen_handle(),
     );
 
     // Fix-proposer: on every non-zero BlockFinished, asks Sonnet for a

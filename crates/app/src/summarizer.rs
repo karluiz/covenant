@@ -14,7 +14,7 @@
 //!   - bus lag → log warn, keep going; blocks we missed are still in
 //!     the world model since the world's own subscriber populated them.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use karl_session::{SessionEvent, SessionId};
@@ -27,6 +27,24 @@ use crate::world::SessionWorldModel;
 
 const DEBOUNCE: Duration = Duration::from_millis(500);
 const SUMMARY_MAX_TOKENS: u32 = 700;
+
+/// How often to re-title a tab whose PTY foreground is held by a known
+/// interactive agent (claude/codex/pi/…). These sessions never emit
+/// `BlockFinished` until the agent exits, so the block-driven summarizer
+/// never fires — we title them off the live screen instead.
+const AGENT_TITLE_INTERVAL: Duration = Duration::from_secs(20);
+const AGENT_TITLE_MAX_TOKENS: u32 = 32;
+
+const AGENT_TITLE_SYSTEM_PROMPT: &str = "\
+You name terminal tabs. You are given the live screen of a terminal tab in \
+which an interactive AI coding agent is running. Output exactly one line:
+
+TITLE: <label>
+
+where <label> is at most 2 lowercase words naming what the user is working \
+on right now (e.g. `tab titles`, `auth bug`, `release prep`). Infer the topic \
+from the conversation/diffs/files visible on screen. If you genuinely cannot \
+tell, output `TITLE:` with no label. Output nothing else.";
 
 const SUMMARY_SYSTEM_PROMPT: &str = "\
 You maintain a rolling summary of a single shell session for an AI \
@@ -57,10 +75,14 @@ pub fn spawn_loop(
     bus: broadcast::Receiver<SessionEvent>,
     bus_tx: broadcast::Sender<SessionEvent>,
     vitals: crate::vitals::VitalsHandle,
+    screen: Arc<StdMutex<String>>,
 ) {
-    tauri::async_runtime::spawn(run_loop(session_id, world, settings, storage, bus, bus_tx, vitals));
+    tauri::async_runtime::spawn(run_loop(
+        session_id, world, settings, storage, bus, bus_tx, vitals, screen,
+    ));
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_loop(
     session_id: SessionId,
     world: Arc<Mutex<SessionWorldModel>>,
@@ -69,9 +91,17 @@ async fn run_loop(
     mut bus: broadcast::Receiver<SessionEvent>,
     bus_tx: broadcast::Sender<SessionEvent>,
     vitals: crate::vitals::VitalsHandle,
+    screen: Arc<StdMutex<String>>,
 ) {
     let mut last_block_at: Option<Instant> = None;
     let mut last_title: Option<String> = None;
+    // Set while a known interactive agent holds the PTY foreground. While
+    // Some, the interval tick re-titles the tab off the live screen since
+    // no BlockFinished will fire until the agent exits.
+    let mut fg_agent: Option<String> = None;
+    let mut last_screen_titled: Option<String> = None;
+    let mut agent_tick = tokio::time::interval(AGENT_TITLE_INTERVAL);
+    agent_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
@@ -81,6 +111,11 @@ async fn run_loop(
                 match event {
                     Ok(SessionEvent::BlockFinished { .. }) => {
                         last_block_at = Some(Instant::now());
+                    }
+                    Ok(SessionEvent::ForegroundChanged { name, .. }) => {
+                        fg_agent = name.filter(|n| {
+                            karl_session::idle::KNOWN_AGENTS.contains(&n.as_str())
+                        });
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Closed) => {
@@ -103,8 +138,95 @@ async fn run_loop(
                     );
                 }
             }
+
+            _ = agent_tick.tick() => {
+                if fg_agent.is_some() {
+                    if let Err(e) = regenerate_agent_title(
+                        session_id, &settings, &screen, &bus_tx,
+                        &mut last_title, &mut last_screen_titled, &vitals,
+                    ).await {
+                        tracing::warn!(
+                            session = %session_id,
+                            error = %e,
+                            "agent-tab title regen failed"
+                        );
+                    }
+                }
+            }
         }
     }
+}
+
+/// Title an agent-occupied tab from its live screen contents. Unlike
+/// [`regenerate`], this needs no completed blocks and never touches the
+/// rolling summary — it only proposes a tab title. Skips the LLM call
+/// entirely when the screen hasn't changed since the last titling.
+#[allow(clippy::too_many_arguments)]
+async fn regenerate_agent_title(
+    session_id: SessionId,
+    settings: &Arc<Mutex<Settings>>,
+    screen: &Arc<StdMutex<String>>,
+    bus_tx: &broadcast::Sender<SessionEvent>,
+    last_title: &mut Option<String>,
+    last_screen_titled: &mut Option<String>,
+    vitals: &crate::vitals::VitalsHandle,
+) -> Result<(), String> {
+    let screen_text = screen.lock().map(|g| g.clone()).unwrap_or_default();
+    let screen_text = screen_text.trim();
+    if screen_text.is_empty() {
+        return Ok(());
+    }
+    // Skip the LLM call when nothing changed on screen since last titling.
+    if last_screen_titled.as_deref() == Some(screen_text) {
+        return Ok(());
+    }
+
+    let resolved = {
+        let s = settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => return Ok(()), // no route → silently skip
+            Err(e) => {
+                tracing::warn!(?e, "agent-title: provider unavailable, skipping");
+                return Ok(());
+            }
+        }
+    };
+
+    let started = Instant::now();
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: AGENT_TITLE_SYSTEM_PROMPT.to_string(),
+        user_message: format!("# Live terminal screen\n{screen_text}"),
+        max_tokens: AGENT_TITLE_MAX_TOKENS,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let model_for_vitals = req.model.clone();
+    let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?;
+    let usage = resp.usage;
+
+    *last_screen_titled = Some(screen_text.to_string());
+
+    let (title, _) = split_title(&resp.text);
+    let latency_ms = started.elapsed().as_millis();
+    vitals.record_complete(session_id, model_for_vitals, usage, latency_ms as u32);
+
+    if !title.is_empty() && last_title.as_deref() != Some(title.as_str()) {
+        {
+            let _ = bus_tx.send(SessionEvent::TitleSuggested {
+                session: session_id,
+                title: title.clone(),
+            });
+        }
+        tracing::debug!(session = %session_id, %title, "agent-tab title suggested");
+        *last_title = Some(title);
+    }
+
+    Ok(())
 }
 
 /// Sleeps until DEBOUNCE has elapsed since `last`. If `last` is None,
