@@ -300,6 +300,14 @@ export class WorkspaceManager {
     out.groups = body.groups;
 
     this.suspendPersist = true;
+    // Always show the switch overlay so the transition feels deliberate, even
+    // when the target workspace is already warm (PTYs survived). We enforce a
+    // minimum on-screen duration so a near-instant restore still animates.
+    const MIN_OVERLAY_MS = 420;
+    const label = document.getElementById("workspace-switch-name");
+    if (label) label.textContent = target.name;
+    document.body.classList.add("workspace-switching");
+    const overlayStart = nowMs();
     try {
       // Detach the outgoing workspace's tabs without killing PTYs.
       this.tabManager.hibernate(outgoingId);
@@ -312,21 +320,18 @@ export class WorkspaceManager {
       if (this.tabManager.unhibernate(id)) {
         // restored — done.
       } else {
-        // First time visiting this workspace this session: spawn from
-        // manifest. Show the loader since this can take a beat.
-        const label = document.getElementById("workspace-switch-name");
-        if (label) label.textContent = target.name;
-        document.body.classList.add("workspace-switching");
-        try {
-          await this.tabManager.restoreFromManifest(workspaceAsV1Body(target));
-          if (this.tabManager.activeSessionId() === null) {
-            await this.tabManager.createTab();
-          }
-        } finally {
-          document.body.classList.remove("workspace-switching");
+        // First time visiting this workspace this session: spawn from manifest.
+        await this.tabManager.restoreFromManifest(workspaceAsV1Body(target));
+        if (this.tabManager.activeSessionId() === null) {
+          await this.tabManager.createTab();
         }
       }
     } finally {
+      const elapsed = nowMs() - overlayStart;
+      if (elapsed < MIN_OVERLAY_MS) {
+        await new Promise((r) => setTimeout(r, MIN_OVERLAY_MS - elapsed));
+      }
+      document.body.classList.remove("workspace-switching");
       this.suspendPersist = false;
     }
     await this.saveAll();

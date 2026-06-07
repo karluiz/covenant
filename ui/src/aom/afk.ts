@@ -53,6 +53,17 @@ export class AfkOverlay {
   private autoScroll = true;
   private activeOperatorIds = new Set<string>();
   private opCache: Map<string, Operator> = new Map();
+  // Capture-phase ESC: the global window-level handler runs in bubble
+  // phase, but xterm.js swallows ESC when the terminal has focus, so it
+  // never reaches window. Capturing on document while open guarantees
+  // ESC exits the overlay regardless of focus.
+  private onEscKeydown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  };
 
   constructor(
     private readonly mountHost: HTMLElement,
@@ -101,6 +112,7 @@ export class AfkOverlay {
     `;
     this.mountHost.appendChild(root);
     this.root = root;
+    document.addEventListener("keydown", this.onEscKeydown, true);
     root
       .querySelector<HTMLButtonElement>(".afk-wakeup")!
       .addEventListener("click", () => this.close());
@@ -162,6 +174,7 @@ export class AfkOverlay {
 
   close(): void {
     if (!this.root) return;
+    document.removeEventListener("keydown", this.onEscKeydown, true);
     if (this.poll !== null) {
       window.clearInterval(this.poll);
       this.poll = null;

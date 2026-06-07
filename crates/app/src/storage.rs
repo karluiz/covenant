@@ -2943,6 +2943,26 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Delete a single task by id. Artifacts cascade via the FK on
+    /// teammate_artifacts.task_id. Backs the per-task trash affordance on a
+    /// finished task row in the Tasks panel. Returns true if a row was removed.
+    pub async fn teammate_delete_task(
+        &self,
+        id: crate::teammate::TaskId,
+    ) -> Result<bool, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<bool, StorageError> {
+            let c = inner.blocking_lock();
+            let n = c.execute(
+                "DELETE FROM teammate_tasks WHERE id = ?1",
+                params![id.0.to_string()],
+            )?;
+            Ok(n > 0)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn teammate_update_task_spawned_session(
         &self,
         id: crate::teammate::TaskId,

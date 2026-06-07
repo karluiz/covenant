@@ -9,6 +9,17 @@ import { CATEGORY_ORDER, SHORTCUTS, type ShortcutEntry } from "./registry";
 
 export class ShortcutsPanel {
   private modal: HTMLElement | null = null;
+  // Capture-phase ESC handler. The global window-level handler runs in the
+  // bubble phase, but xterm.js's textarea swallows ESC (stopPropagation) when
+  // the terminal has focus, so it never reaches window. Capturing on document
+  // while the modal is open guarantees ESC closes it regardless of focus.
+  private onKeydown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  };
 
   constructor(private readonly mountHost: HTMLElement) {}
 
@@ -81,10 +92,12 @@ export class ShortcutsPanel {
 
     this.mountHost.appendChild(overlay);
     this.modal = overlay;
+    document.addEventListener("keydown", this.onKeydown, true);
   }
 
   close(): void {
     if (this.modal) {
+      document.removeEventListener("keydown", this.onKeydown, true);
       this.modal.remove();
       this.modal = null;
     }

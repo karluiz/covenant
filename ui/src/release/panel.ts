@@ -13,6 +13,17 @@ const LAST_SEEN_KEY = "covenant.release.last-seen-version";
 
 export class ReleasePanel {
   private modal: HTMLElement | null = null;
+  // Capture-phase ESC: the global window-level handler runs in bubble
+  // phase, but xterm.js swallows ESC when the terminal has focus, so it
+  // never reaches window. Capturing on document while open guarantees
+  // ESC closes the panel regardless of focus.
+  private onEscKeydown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  };
 
   constructor(private readonly mountHost: HTMLElement) {}
 
@@ -85,6 +96,7 @@ export class ReleasePanel {
 
     this.mountHost.appendChild(overlay);
     this.modal = overlay;
+    document.addEventListener("keydown", this.onEscKeydown, true);
   }
 
   /// Convenience for the auto-show path. Opens with the "What's new"
@@ -96,6 +108,7 @@ export class ReleasePanel {
 
   close(): void {
     if (this.modal) {
+      document.removeEventListener("keydown", this.onEscKeydown, true);
       this.modal.remove();
       this.modal = null;
       // Always stamp on close — manual or auto. The user has now

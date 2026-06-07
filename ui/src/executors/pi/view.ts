@@ -144,6 +144,14 @@ export class PiChatView {
   /// false as soon as they scroll up so streaming output stops yanking the
   /// viewport; flipped back true when they scroll near the bottom again.
   private stickToBottom = true;
+  /// The reader's chosen scroll offset while scrolled up. Streaming deltas
+  /// call replaceChildren() (see setLinkifiedText), and WKWebView responds by
+  /// snapping the container's scrollTop toward 0 — yanking the view to the
+  /// top. We restore this offset after each render to defeat that snap.
+  private pinnedScrollTop = 0;
+  /// Set while we move scrollTop ourselves, so the scroll listener doesn't
+  /// mistake a programmatic restore/follow for a user gesture.
+  private programmaticScroll = false;
 
   constructor(opts: PiChatViewOptions) {
     this.host = opts.host;
@@ -264,6 +272,9 @@ export class PiChatView {
       () => {
         const el = this.messagesEl;
         this.stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        // Remember where a real user gesture parked the viewport so we can
+        // put it back when the webview snaps scrollTop to 0 mid-stream.
+        if (!this.programmaticScroll) this.pinnedScrollTop = el.scrollTop;
       },
       { passive: true },
     );
@@ -871,13 +882,20 @@ export class PiChatView {
   }
 
   private scrollToBottom(): void {
-    // Respect a user who has scrolled up to read earlier output — only the
-    // bottom-parked reader gets followed.
-    if (!this.stickToBottom) return;
     // requestAnimationFrame so the layout settles before we measure.
     requestAnimationFrame(() => {
-      if (!this.stickToBottom) return;
-      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      const el = this.messagesEl;
+      this.programmaticScroll = true;
+      if (this.stickToBottom) {
+        // Bottom-parked reader: follow the live tail.
+        el.scrollTop = el.scrollHeight;
+      } else if (el.scrollTop !== this.pinnedScrollTop) {
+        // Reader scrolled up. A streamed replaceChildren() makes WKWebView
+        // snap scrollTop toward 0; restore their parked offset instead of
+        // letting the view jump to the top on every delta.
+        el.scrollTop = this.pinnedScrollTop;
+      }
+      this.programmaticScroll = false;
     });
   }
 }
