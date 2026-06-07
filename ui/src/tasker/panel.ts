@@ -85,6 +85,8 @@ export class TaskerPanel {
   private selectedTask: { projectId: string; taskId: string } | null = null;
   private openMenu: { kind: "status" | "priority" | "date"; taskId: string } | null = null;
   private dateView: { year: number; month: number } | null = null;
+  private dateMenuEl: HTMLElement | null = null;
+  private datePickerRepaint: (() => void) | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private composingList = false;
 
@@ -125,6 +127,7 @@ export class TaskerPanel {
   }
 
   render(): void {
+    if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
     this.host.classList.remove("hidden");
     this.isOpen = true;
     const projects = this.storage.getProjects();
@@ -254,7 +257,6 @@ export class TaskerPanel {
     const open = this.openMenu;
     const isStatusOpen = open?.kind === "status" && open.taskId === task.id;
     const isPriorityOpen = open?.kind === "priority" && open.taskId === task.id;
-    const isDateOpen = open?.kind === "date" && open.taskId === task.id;
 
     return `
       <div class="tasker-edit" data-project-id="${projectId}" data-task-id="${task.id}">
@@ -274,7 +276,6 @@ export class TaskerPanel {
           </div>
           <div class="tasker-chip-wrap">
             <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
-            ${isDateOpen ? this.renderDateMenu(task) : ""}
           </div>
           <button class="tasker-chip tasker-chip-delete" type="button" aria-label="Delete task">${Icons.trash({ size: 12 })}</button>
         </div>
@@ -307,38 +308,101 @@ export class TaskerPanel {
     `;
   }
 
-  private renderDateMenu(task: Task): string {
+  private closeDatePicker(): void {
+    this.dateMenuEl?.remove();
+    this.dateMenuEl = null;
+    this.dateView = null;
+    this.openMenu = null;
+  }
+
+  private openDatePicker(projectId: string, taskId: string, anchor: HTMLElement): void {
+    if (this.dateMenuEl) { this.closeDatePicker(); return; }
+    const task = this.storage.getTask(projectId, taskId);
+    if (!task) return;
+    const base = task.dueDate ? new Date(task.dueDate) : new Date();
+    this.dateView = { year: base.getFullYear(), month: base.getMonth() };
+    this.openMenu = { kind: "date", taskId };
+
+    const el = document.createElement("div");
+    el.className = "tasker-menu tasker-date-menu";
+    document.body.appendChild(el);
+    this.dateMenuEl = el;
+
+    const paint = (): void => {
+      const t = this.storage.getTask(projectId, taskId);
+      if (!t) { this.closeDatePicker(); return; }
+      el.innerHTML = this.dateCalendarHtml(t);
+      this.bindDateCalendar(el, projectId, taskId);
+      this.positionDateMenu(anchor, el);
+    };
+    this.datePickerRepaint = paint;
+    paint();
+
+    const onOutside = (ev: MouseEvent): void => {
+      const target = ev.target as HTMLElement;
+      if (el.contains(target) || anchor.contains(target)) return;
+      document.removeEventListener("mousedown", onOutside, true);
+      this.closeDatePicker();
+    };
+    queueMicrotask(() => document.addEventListener("mousedown", onOutside, true));
+  }
+
+  private dateCalendarHtml(task: Task): string {
     const base = task.dueDate ? new Date(task.dueDate) : new Date();
     const view = this.dateView ?? { year: base.getFullYear(), month: base.getMonth() };
     const selected = task.dueDate ? ymd(new Date(task.dueDate)) : "";
     const today = ymd(new Date());
     const cells = calendarCells(view.year, view.month);
-
     return `
-      <div class="tasker-menu tasker-date-menu" role="dialog">
-        <div class="tasker-cal-head">
-          <span class="tasker-cal-title">${MONTHS[view.month]} ${view.year}</span>
-          <div class="tasker-cal-nav">
-            <button class="tasker-cal-prev" type="button" aria-label="Previous month">‹</button>
-            <button class="tasker-cal-today" type="button">Today</button>
-            <button class="tasker-cal-next" type="button" aria-label="Next month">›</button>
-          </div>
+      <div class="tasker-cal-head">
+        <span class="tasker-cal-title">${MONTHS[view.month]} ${view.year}</span>
+        <div class="tasker-cal-nav">
+          <button class="tasker-cal-prev" type="button" aria-label="Previous month">‹</button>
+          <button class="tasker-cal-today" type="button">Today</button>
+          <button class="tasker-cal-next" type="button" aria-label="Next month">›</button>
         </div>
-        <div class="tasker-cal-grid">
-          ${WEEKDAYS.map((w) => `<span class="tasker-cal-wd">${w}</span>`).join("")}
-          ${cells.map((c) => {
-            const cls = [
-              "tasker-cal-day",
-              c.outside ? "tasker-cal-out" : "",
-              c.date === today ? "tasker-cal-is-today" : "",
-              c.date === selected ? "tasker-cal-sel" : "",
-            ].filter(Boolean).join(" ");
-            return `<button class="${cls}" type="button" data-date="${c.date}">${c.day}</button>`;
-          }).join("")}
-        </div>
-        ${task.dueDate ? `<button class="tasker-cal-clear" type="button">Clear date</button>` : ""}
       </div>
+      <div class="tasker-cal-grid">
+        ${WEEKDAYS.map((w) => `<span class="tasker-cal-wd">${w}</span>`).join("")}
+        ${cells.map((c) => {
+          const cls = ["tasker-cal-day", c.outside ? "tasker-cal-out" : "",
+            c.date === today ? "tasker-cal-is-today" : "", c.date === selected ? "tasker-cal-sel" : ""]
+            .filter(Boolean).join(" ");
+          return `<button class="${cls}" type="button" data-date="${c.date}">${c.day}</button>`;
+        }).join("")}
+      </div>
+      ${task.dueDate ? `<button class="tasker-cal-clear" type="button">Clear date</button>` : ""}
     `;
+  }
+
+  private bindDateCalendar(el: HTMLElement, projectId: string, taskId: string): void {
+    const shift = (delta: number): void => {
+      const v = this.dateView ?? { year: new Date().getFullYear(), month: new Date().getMonth() };
+      const d = new Date(v.year, v.month + delta, 1);
+      this.dateView = { year: d.getFullYear(), month: d.getMonth() };
+      this.datePickerRepaint?.();
+    };
+    el.querySelector<HTMLButtonElement>(".tasker-cal-prev")?.addEventListener("click", () => shift(-1));
+    el.querySelector<HTMLButtonElement>(".tasker-cal-next")?.addEventListener("click", () => shift(1));
+    el.querySelector<HTMLButtonElement>(".tasker-cal-today")?.addEventListener("click", () => {
+      const n = new Date();
+      this.dateView = { year: n.getFullYear(), month: n.getMonth() };
+      this.datePickerRepaint?.();
+    });
+    el.querySelector<HTMLButtonElement>(".tasker-cal-clear")?.addEventListener("click", () => {
+      this.storage.updateTask(projectId, taskId, { dueDate: undefined });
+      this.closeDatePicker();
+      this.render();
+    });
+    el.querySelectorAll<HTMLButtonElement>(".tasker-cal-day").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const value = btn.dataset.date;
+        if (!value) return;
+        this.storage.updateTask(projectId, taskId, { dueDate: new Date(`${value}T00:00:00`).getTime() });
+        this.closeDatePicker();
+        this.render();
+      });
+    });
   }
 
   private getStats(): string {
@@ -584,51 +648,10 @@ export class TaskerPanel {
       edit.querySelector<HTMLButtonElement>(".tasker-chip-priority")?.addEventListener("click", () => {
         this.toggleMenu("priority", taskId);
       });
-      edit.querySelector<HTMLButtonElement>(".tasker-chip-due")?.addEventListener("click", () => {
-        const willOpen = !(this.openMenu?.kind === "date" && this.openMenu.taskId === taskId);
-        if (willOpen) {
-          const task = this.storage.getTask(projectId, taskId);
-          const base = task?.dueDate ? new Date(task.dueDate) : new Date();
-          this.dateView = { year: base.getFullYear(), month: base.getMonth() };
-        }
-        this.toggleMenu("date", taskId);
+      edit.querySelector<HTMLButtonElement>(".tasker-chip-due")?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openDatePicker(projectId, taskId, e.currentTarget as HTMLElement);
       });
-
-      const cal = edit.querySelector<HTMLElement>(".tasker-date-menu");
-      if (cal) {
-        this.positionDateMenu(edit, cal);
-        const shift = (delta: number): void => {
-          const v = this.dateView ?? { year: new Date().getFullYear(), month: new Date().getMonth() };
-          const d = new Date(v.year, v.month + delta, 1);
-          this.dateView = { year: d.getFullYear(), month: d.getMonth() };
-          this.render();
-        };
-        cal.querySelector<HTMLButtonElement>(".tasker-cal-prev")?.addEventListener("click", () => shift(-1));
-        cal.querySelector<HTMLButtonElement>(".tasker-cal-next")?.addEventListener("click", () => shift(1));
-        cal.querySelector<HTMLButtonElement>(".tasker-cal-today")?.addEventListener("click", () => {
-          const n = new Date();
-          this.dateView = { year: n.getFullYear(), month: n.getMonth() };
-          this.render();
-        });
-        cal.querySelector<HTMLButtonElement>(".tasker-cal-clear")?.addEventListener("click", () => {
-          this.storage.updateTask(projectId, taskId, { dueDate: undefined });
-          this.openMenu = null;
-          this.dateView = null;
-          this.render();
-        });
-        cal.querySelectorAll<HTMLButtonElement>(".tasker-cal-day").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const value = btn.dataset.date;
-            if (!value) return;
-            this.storage.updateTask(projectId, taskId, {
-              dueDate: new Date(`${value}T00:00:00`).getTime(),
-            });
-            this.openMenu = null;
-            this.dateView = null;
-            this.render();
-          });
-        });
-      }
 
       edit.querySelectorAll<HTMLButtonElement>(".tasker-status-menu .tasker-menu-item").forEach((mi) => {
         mi.addEventListener("click", () => {
@@ -662,23 +685,15 @@ export class TaskerPanel {
     });
   }
 
-  private positionDateMenu(edit: HTMLElement, cal: HTMLElement): void {
-    const chip = edit.querySelector<HTMLElement>(".tasker-chip-due");
-    if (!chip) return;
-    const r = chip.getBoundingClientRect();
+  private positionDateMenu(anchor: HTMLElement, cal: HTMLElement): void {
+    const r = anchor.getBoundingClientRect();
     const margin = 8;
     const calW = cal.offsetWidth || 232;
     const calH = cal.offsetHeight || 280;
-
     let left = r.left;
-    if (left + calW > window.innerWidth - margin) {
-      left = Math.max(margin, window.innerWidth - margin - calW);
-    }
-    // Prefer below the chip; flip above if it would overflow the viewport bottom.
+    if (left + calW > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - calW);
     let top = r.bottom + 4;
-    if (top + calH > window.innerHeight - margin) {
-      top = Math.max(margin, r.top - 4 - calH);
-    }
+    if (top + calH > window.innerHeight - margin) top = Math.max(margin, r.top - 4 - calH);
     cal.style.left = `${Math.round(left)}px`;
     cal.style.top = `${Math.round(top)}px`;
   }

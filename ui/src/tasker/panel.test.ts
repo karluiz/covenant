@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskerPanel } from "./panel";
 
 function mount(): { panel: TaskerPanel; host: HTMLElement } {
@@ -149,6 +149,10 @@ describe("TaskerPanel inline edit", () => {
     expect(storageOf(panel).getTask(pid, tid).priority).toBe("high");
   });
 
+  afterEach(() => {
+    document.querySelectorAll(".tasker-date-menu").forEach((n) => n.remove());
+  });
+
   it("calendar sets and clears dueDate", () => {
     const { panel, host } = mount();
     const pid = inbox(panel);
@@ -156,16 +160,14 @@ describe("TaskerPanel inline edit", () => {
     panel.render();
     openTask(host, tid);
 
-    // Open the calendar and pick a day.
     host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
-    const day = host.querySelector<HTMLButtonElement>('.tasker-cal-day[data-date="2026-06-09"]')!;
+    const day = document.querySelector<HTMLButtonElement>('.tasker-date-menu .tasker-cal-day[data-date="2026-06-09"]')!;
     expect(day).toBeTruthy();
     day.click();
     expect(typeof storageOf(panel).getTask(pid, tid).dueDate).toBe("number");
 
-    // Re-open and clear.
     host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
-    host.querySelector<HTMLButtonElement>(".tasker-cal-clear")!.click();
+    document.querySelector<HTMLButtonElement>(".tasker-date-menu .tasker-cal-clear")!.click();
     expect(storageOf(panel).getTask(pid, tid).dueDate).toBeUndefined();
   });
 
