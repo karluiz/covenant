@@ -126,6 +126,11 @@ impl NotchHub {
         self.labels.lock().await.insert(session, label);
     }
 
+    /// Current user-facing tab label for a session, if one was set.
+    pub async fn tab_label(&self, session: SessionId) -> Option<String> {
+        self.labels.lock().await.get(&session).cloned()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
         self.notch_tx.subscribe()
     }
