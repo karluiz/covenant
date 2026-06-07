@@ -1,6 +1,92 @@
 //! Streaming tool-loop for the premium spec author.
 
 use serde::Serialize;
+use crate::spec_author::{tools, DraftMessage, MessageRole, SpecDraft, DraftStatus};
+use async_trait::async_trait;
+use std::path::Path;
+
+/// One model turn's parsed output from a streaming response.
+pub struct ModelTurn {
+    /// Tool calls the model requested this turn (empty = it answered).
+    pub tool_calls: Vec<ToolCall>,
+    /// Assistant prose accumulated this turn.
+    pub text: String,
+    /// True if the text contained a closed <spec>…</spec>.
+    pub emitted_spec: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct ToolCall { pub id: String, pub name: String, pub input: serde_json::Value }
+
+/// Streams one model turn, pushing thinking/text/tool events into `sink` as they
+/// arrive, and returns the parsed turn.
+#[async_trait]
+pub trait StreamingDispatcher: Send + Sync {
+    async fn stream_turn(
+        &self,
+        system: &str,
+        messages: &[DraftMessage],
+        sink: &dyn StreamSink,
+    ) -> Result<ModelTurn, String>;
+}
+
+/// Run the agentic tool-loop for one user message: repeatedly stream a turn,
+/// execute any tool calls (emitting tool_start/tool_result), feed results back,
+/// until the model answers or emits a spec. Enforces `max_tool_calls`.
+pub async fn step_streaming<D: StreamingDispatcher>(
+    dispatcher: &D,
+    draft: &mut SpecDraft,
+    user_msg: String,
+    repo_root: &Path,
+    system: &str,
+    sink: &dyn StreamSink,
+    max_tool_calls: usize,
+) -> Result<(), String> {
+    draft.messages.push(DraftMessage { role: MessageRole::User, content: user_msg });
+    let mut tool_budget = max_tool_calls;
+
+    loop {
+        let turn = dispatcher.stream_turn(system, &draft.messages, sink).await?;
+
+        if !turn.text.is_empty() {
+            draft.messages.push(DraftMessage {
+                role: MessageRole::Assistant, content: turn.text.clone() });
+        }
+
+        if let Some(md) = turn.emitted_spec {
+            if crate::spec_author::validate_spec_markdown(&md).is_ok() {
+                draft.partial_md = Some(md.clone());
+                draft.status = DraftStatus::Ready;
+                sink.emit(SpecStreamEvent::Final { markdown: md });
+                return Ok(());
+            }
+        }
+
+        if turn.tool_calls.is_empty() {
+            sink.emit(SpecStreamEvent::TurnDone { awaiting_user: true });
+            return Ok(());
+        }
+
+        let mut feedback = String::new();
+        for call in turn.tool_calls {
+            if tool_budget == 0 {
+                sink.emit(SpecStreamEvent::Error {
+                    message: "tool-call budget exhausted".into() });
+                sink.emit(SpecStreamEvent::TurnDone { awaiting_user: true });
+                return Ok(());
+            }
+            tool_budget -= 1;
+            let arg = call.input.to_string();
+            sink.emit(SpecStreamEvent::ToolStart {
+                id: call.id.clone(), tool: call.name.clone(), arg });
+            let (result, summary) = tools::run_tool(repo_root, &call.name, &call.input);
+            sink.emit(SpecStreamEvent::ToolResult {
+                id: call.id.clone(), summary, ok: !result.starts_with("error") });
+            feedback.push_str(&format!("[tool {} → {}]\n{}\n\n", call.name, call.id, result));
+        }
+        draft.messages.push(DraftMessage { role: MessageRole::User, content: feedback });
+    }
+}
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -29,6 +115,72 @@ mod tests {
     struct VecSink(Mutex<Vec<SpecStreamEvent>>);
     impl StreamSink for VecSink {
         fn emit(&self, e: SpecStreamEvent) { self.0.lock().unwrap().push(e); }
+    }
+
+    use crate::spec_author::{SpecDraft, DraftStatus, Phase};
+    use ulid::Ulid;
+
+    // Mock: first turn requests one list_dir; second turn answers with text.
+    struct ScriptedDispatcher { calls: Mutex<usize> }
+    #[async_trait]
+    impl StreamingDispatcher for ScriptedDispatcher {
+        async fn stream_turn(&self, _sys: &str, _msgs: &[DraftMessage], sink: &dyn StreamSink)
+            -> Result<ModelTurn, String> {
+            let mut n = self.calls.lock().unwrap();
+            *n += 1;
+            if *n == 1 {
+                sink.emit(SpecStreamEvent::ThinkingDelta { text: "looking".into() });
+                Ok(ModelTurn {
+                    tool_calls: vec![ToolCall { id: "t1".into(), name: "list_dir".into(),
+                        input: serde_json::json!({"path":"."}) }],
+                    text: String::new(), emitted_spec: None })
+            } else {
+                sink.emit(SpecStreamEvent::TextDelta { text: "What's the goal?".into() });
+                Ok(ModelTurn { tool_calls: vec![], text: "What's the goal?".into(),
+                    emitted_spec: None })
+            }
+        }
+    }
+
+    fn fresh_draft() -> SpecDraft {
+        SpecDraft { id: Ulid::new(), messages: vec![], partial_md: None,
+            last_updated: chrono::Utc::now(),
+            status: DraftStatus::InProgress { phase: Phase::Goal } }
+    }
+
+    #[tokio::test]
+    async fn loop_executes_tool_then_answers() {
+        let root = std::env::temp_dir();
+        let sink = VecSink(Mutex::new(vec![]));
+        let mut draft = fresh_draft();
+        let disp = ScriptedDispatcher { calls: Mutex::new(0) };
+        step_streaming(&disp, &mut draft, "hi".into(), &root, "sys", &sink, 40).await.unwrap();
+        let events = sink.0.lock().unwrap();
+        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::ToolStart { .. })));
+        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::ToolResult { .. })));
+        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::TurnDone { awaiting_user: true })));
+        assert!(draft.messages.len() >= 2);
+    }
+
+    struct AlwaysToolDispatcher;
+    #[async_trait]
+    impl StreamingDispatcher for AlwaysToolDispatcher {
+        async fn stream_turn(&self, _s: &str, _m: &[DraftMessage], _sink: &dyn StreamSink)
+            -> Result<ModelTurn, String> {
+            Ok(ModelTurn { tool_calls: vec![ToolCall { id: "x".into(),
+                name: "list_dir".into(), input: serde_json::json!({"path":"."}) }],
+                text: String::new(), emitted_spec: None })
+        }
+    }
+
+    #[tokio::test]
+    async fn budget_exhaustion_terminates() {
+        let sink = VecSink(Mutex::new(vec![]));
+        let mut draft = fresh_draft();
+        step_streaming(&AlwaysToolDispatcher, &mut draft, "hi".into(),
+            &std::env::temp_dir(), "sys", &sink, 2).await.unwrap();
+        let events = sink.0.lock().unwrap();
+        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::Error { .. })));
     }
 
     #[test]
