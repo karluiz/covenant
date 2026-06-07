@@ -64,7 +64,7 @@ body.sidebar-view-tasker #tasker-panel {
   border-bottom: 1px solid var(--border);
   gap: 8px;
   flex-shrink: 0;
-  color: var(--text, #d5d9de);
+  color: var(--text-primary);
   background: transparent;
 }
 
@@ -89,7 +89,7 @@ body.sidebar-view-tasker #tasker-panel {
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface-0);
-  color: var(--text, #d5d9de);
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 12px;
   display: flex;
@@ -100,8 +100,8 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-btn-icon:hover {
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-  border-color: var(--border-hover, #3a4350);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
 }
 
 .tasker-btn-icon:active {
@@ -127,7 +127,7 @@ body.sidebar-view-tasker #tasker-panel {
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--surface-0);
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -137,15 +137,15 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-filter-btn:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  border-color: var(--border-hover, #3a4350);
-  color: var(--text, #d5d9de);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
+  color: var(--text-primary);
 }
 
 .tasker-filter-btn.active {
-  background: var(--accent, #3b82f6);
-  color: white;
-  border-color: var(--accent, #3b82f6);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
 }
 
 .tasker-task-add-quick {
@@ -154,8 +154,8 @@ body.sidebar-view-tasker #tasker-panel {
   align-items: center;
   gap: 8px;
   background: transparent;
-  border: 1px dashed var(--border, #2a2d35);
-  color: var(--text-secondary, #9199a3);
+  border: 1px dashed var(--border);
+  color: var(--text-secondary);
   border-radius: 6px;
   padding: 8px 12px;
   font-family: var(--font-mono, var(--ui-font));
@@ -166,20 +166,20 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-task-add-quick:hover {
-  border-color: var(--accent, #6aa9ff);
-  color: var(--text, #e6e8eb);
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 6%, transparent);
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .tasker-projects {
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
-  color: var(--text, #d5d9de);
+  color: var(--text-primary);
 }
 
 .tasker-project {
-  border-bottom: 1px solid var(--border-subtle, #2a2f38);
+  border-bottom: 1px solid var(--border);
 }
 
 .tasker-project-header {
@@ -199,7 +199,7 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-project-header:hover {
-  background: color-mix(in srgb, var(--text) 4%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
 
 .tasker-project-toggle {
@@ -209,7 +209,7 @@ body.sidebar-view-tasker #tasker-panel {
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
   flex-shrink: 0;
 }
 
@@ -219,6 +219,8 @@ body.sidebar-view-tasker #tasker-panel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 
 .tasker-project-count {
@@ -229,8 +231,8 @@ body.sidebar-view-tasker #tasker-panel {
   height: 18px;
   padding: 0 4px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-  color: var(--text-secondary, #9199a3);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
   font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
@@ -241,7 +243,7 @@ body.sidebar-view-tasker #tasker-panel {
   flex-direction: column;
   gap: 1px;
   padding: 4px 8px;
-  background: color-mix(in srgb, var(--text) 2%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 2%, transparent);
 }
 
 .tasker-empty {
@@ -251,7 +253,7 @@ body.sidebar-view-tasker #tasker-panel {
   justify-content: center;
   gap: 8px;
   padding: 36px 12px 28px;
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -262,21 +264,21 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-empty-title {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text, #e6e8eb);
+  color: var(--text-primary);
   opacity: 0.65;
 }
 
 .tasker-empty-hint {
   font-size: 11px;
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
   line-height: 1.35;
 }
 
 .tasker-empty-action {
   margin-top: 6px;
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 16%, transparent);
-  color: var(--text, #e6e8eb);
-  border: 1px solid color-mix(in srgb, var(--accent, #6aa9ff) 42%, var(--border, #2a2d35));
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
   border-radius: 6px;
   padding: 6px 10px;
   font-family: var(--font-mono, var(--ui-font));
@@ -285,8 +287,8 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-empty-action:hover {
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 24%, transparent);
-  border-color: var(--accent, #6aa9ff);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-color: var(--accent);
 }
 
 .tasker-composer {
@@ -297,18 +299,18 @@ body.sidebar-view-tasker #tasker-panel {
   min-width: 0;
   padding: 10px;
   margin-bottom: 6px;
-  border: 1px solid var(--border, #2a2d35);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--text) 3%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
   overflow: hidden;
 }
 
 .tasker-composer-input {
   width: 100%;
   min-width: 0;
-  background: color-mix(in srgb, var(--text) 3%, transparent);
-  color: var(--text, #e6e8eb);
-  border: 1px solid var(--border, #2a2d35);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
   font-family: var(--ui-font);
@@ -317,7 +319,7 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-composer-input:focus {
-  border-color: var(--accent, #6aa9ff);
+  border-color: var(--accent);
 }
 
 .tasker-composer-actions {
@@ -338,40 +340,54 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-composer-submit {
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 18%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent, #6aa9ff) 48%, var(--border, #2a2d35));
-  color: var(--text, #e6e8eb);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border));
+  color: var(--text-primary);
 }
 
 .tasker-composer-submit:hover {
-  border-color: var(--accent, #6aa9ff);
+  border-color: var(--accent);
 }
 
 .tasker-composer-cancel {
   background: transparent;
-  border: 1px solid var(--border, #2a2d35);
-  color: var(--text-secondary, #9199a3);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
 }
 
 .tasker-composer-cancel:hover {
-  color: var(--text, #e6e8eb);
+  color: var(--text-primary);
 }
 
 .tasker-task {
   display: flex;
   flex-direction: column;
-  border-radius: 6px;
-  background: var(--pn-subtle-1, rgb(var(--ink-rgb, 255 255 255) / 0.02));
-  border: 1px solid var(--border, #2a2d35);
-  color: var(--text, #d5d9de);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
   overflow: hidden;
-  transition: border-color 120ms, background 120ms;
+  transition: background 120ms;
 }
 
-.tasker-task:hover,
+.tasker-task:hover {
+  background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
+}
 .tasker-task-selected {
-  border-color: color-mix(in srgb, var(--accent, #6aa9ff) 40%, var(--border, #2a2d35));
-  background: color-mix(in srgb, var(--text) 4%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.tasker-task-status-active {
+  position: relative;
+}
+.tasker-task-status-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 
 .tasker-task-main {
@@ -386,7 +402,7 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-task-main:focus-visible {
-  outline: 2px solid var(--accent, #6aa9ff);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -396,17 +412,17 @@ body.sidebar-view-tasker #tasker-panel {
 
 .tasker-task-status-done .tasker-task-title {
   text-decoration: line-through;
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
 }
 
 .tasker-task-checkbox {
   width: 18px;
   height: 18px;
   padding: 0;
-  border: 1px solid var(--border, #2a2d35);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: transparent;
-  color: var(--text, #d5d9de);
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -417,13 +433,13 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-task-checkbox:hover {
-  border-color: var(--accent, #6aa9ff);
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 10%, transparent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .tasker-task-status-done .tasker-task-checkbox {
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 28%, transparent);
-  border-color: var(--accent, #6aa9ff);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: var(--accent);
 }
 
 .tasker-priority {
@@ -458,14 +474,14 @@ body.sidebar-view-tasker #tasker-panel {
   align-items: center;
   justify-content: center;
   flex: 0 0 14px;
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
   opacity: 0.65;
 }
 
 .tasker-task-chevron {
   width: 14px;
   flex: 0 0 14px;
-  color: var(--text-secondary, #9199a3);
+  color: var(--text-secondary);
   font-family: var(--font-mono, var(--ui-font));
   font-size: 11px;
   opacity: 0.7;
@@ -475,8 +491,8 @@ body.sidebar-view-tasker #tasker-panel {
   flex-shrink: 0;
   padding: 2px 5px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-  color: var(--text-secondary, #9199a3);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
   font-family: var(--font-mono, var(--ui-font));
   font-size: 10px;
 }
@@ -491,103 +507,161 @@ body.sidebar-view-tasker #tasker-panel {
   justify-content: flex-start;
 }
 
-.tasker-details {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border-top: 1px solid var(--border, #2a2d35);
-  background: color-mix(in srgb, var(--text) 2%, transparent);
-}
-
-.tasker-detail-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.tasker-detail-field > span {
+.tasker-task-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
   font-family: var(--font-mono, var(--ui-font));
   font-size: 10px;
-  color: var(--text-secondary, #9199a3);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms, color 120ms;
+}
+.tasker-task:hover .tasker-task-start {
+  opacity: 1;
+}
+.tasker-task-start:hover {
+  color: var(--accent);
 }
 
-.tasker-detail-title,
-.tasker-detail-date,
-.tasker-detail-description {
+.tasker-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 12px 12px 38px;
+}
+.tasker-edit-note {
   width: 100%;
-  min-width: 0;
-  background: color-mix(in srgb, var(--text) 3%, transparent);
-  color: var(--text, #e6e8eb);
-  border: 1px solid var(--border, #2a2d35);
+  min-height: 24px;
+  resize: vertical;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 0 9px;
+  color: var(--text-primary);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+}
+.tasker-edit-note::placeholder { color: var(--text-tertiary); }
+
+.tasker-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.tasker-chip-wrap { position: relative; }
+.tasker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 4px 8px;
+  font-family: var(--font-mono, var(--ui-font));
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 120ms;
+}
+.tasker-chip:hover {
+  border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
+}
+.tasker-chip-delete {
+  margin-left: auto;
+  color: #f87171;
+  border-color: color-mix(in srgb, #f87171 30%, var(--border));
+}
+.tasker-chip-delete:hover { background: color-mix(in srgb, #f87171 10%, transparent); }
+
+.tasker-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.tasker-status-pending { background: var(--text-tertiary); }
+.tasker-status-active { background: var(--accent); }
+.tasker-status-done { background: #22c55e; }
+
+.tasker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 130px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--sidebar-bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.tasker-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: none;
   border-radius: 6px;
-  padding: 8px 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono, var(--ui-font));
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.tasker-menu-item:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.tasker-date-menu { padding: 6px; }
+.tasker-edit-date {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text-primary);
   font-family: var(--ui-font);
   font-size: 12px;
   outline: none;
 }
 
-.tasker-detail-description {
-  resize: vertical;
-  min-height: 86px;
-  line-height: 1.45;
+.tasker-newlist { padding: 0 12px 8px; }
+.tasker-newlist-input {
+  width: 100%;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: var(--text-primary);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  outline: none;
 }
+.tasker-newlist-input:focus { border-color: var(--accent); }
 
-.tasker-detail-title:focus,
-.tasker-detail-date:focus,
-.tasker-detail-description:focus {
-  border-color: var(--accent, #6aa9ff);
-}
-
-.tasker-priority-options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.tasker-priority-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--border, #2a2d35);
-  border-radius: 6px;
+.tasker-title-input {
+  flex: 1;
+  min-width: 0;
   background: transparent;
-  color: var(--text-secondary, #9199a3);
-  padding: 6px 8px;
-  font-family: var(--font-mono, var(--ui-font));
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.tasker-priority-option:hover,
-.tasker-priority-option.active {
-  color: var(--text, #e6e8eb);
-  border-color: color-mix(in srgb, var(--accent, #6aa9ff) 45%, var(--border, #2a2d35));
-  background: color-mix(in srgb, var(--accent, #6aa9ff) 10%, transparent);
-}
-
-.tasker-detail-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.tasker-detail-delete {
-  background: transparent;
-  border: 1px solid rgba(248, 113, 113, 0.32);
-  border-radius: 6px;
-  color: #f87171;
-  padding: 6px 10px;
-  font-family: var(--font-mono, var(--ui-font));
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.tasker-detail-delete:hover {
-  background: rgba(248, 113, 113, 0.1);
-  border-color: #f87171;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  border-radius: 0;
+  padding: 0 0 2px;
+  color: var(--text-primary);
+  font-family: var(--ui-font);
+  font-size: 12px;
+  font-weight: 500;
+  outline: none;
 }
 
 .tasker-footer {
@@ -602,7 +676,7 @@ body.sidebar-view-tasker #tasker-panel {
 
 .tasker-stats {
   font-size: 10px;
-  color: var(--text-tertiary, #6b7280);
+  color: var(--text-tertiary);
 }
 
 /* Scrollbar styling to match Covenant theme */
@@ -615,10 +689,10 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-projects::-webkit-scrollbar-thumb {
-  background: var(--border, #3a4350);
+  background: var(--border);
   border-radius: 3px;
 }
 
 .tasker-projects::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text) 20%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 20%, transparent);
 }
