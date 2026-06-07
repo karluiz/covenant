@@ -145,10 +145,6 @@ export class TaskerPanel {
     this.setupEventListeners();
     queueMicrotask(() => {
       this.host.querySelector<HTMLInputElement>(".tasker-composer-input")?.focus();
-      const detailTitle = this.host.querySelector<HTMLInputElement>(".tasker-detail-title");
-      if (detailTitle && document.activeElement?.closest(".tasker-details") === null) {
-        // Do not steal focus when user is interacting with details.
-      }
     });
   }
 
@@ -479,6 +475,17 @@ export class TaskerPanel {
     });
 
     this.bindDetailsEvents();
+
+    if (this.openMenu) {
+      const onOutside = (e: MouseEvent): void => {
+        if (!this.isOpen) return;
+        if (!(e.target as HTMLElement).closest(".tasker-menu, .tasker-chip")) {
+          this.openMenu = null;
+          this.render();
+        }
+      };
+      document.addEventListener("mousedown", onOutside, { capture: true, once: true });
+    }
   }
 
   private bindDetailsEvents(): void {

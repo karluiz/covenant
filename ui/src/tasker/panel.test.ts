@@ -199,6 +199,43 @@ describe("TaskerPanel inline edit", () => {
 
     expect(storageOf(panel).getTask(pid, tid).title).toBe("Deploy API to Pulzen");
   });
+
+  it("Escape cancels a title edit without changing the stored title", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+
+    host
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-title`)!
+      .click();
+    const input = host.querySelector<HTMLInputElement>(
+      `.tasker-task[data-task-id="${tid}"] .tasker-title-input`,
+    )!;
+    expect(input).toBeTruthy();
+    input.value = "Should not persist";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(storageOf(panel).getTask(pid, tid).title).toBe("Deploy API");
+    expect(
+      host.querySelector(`.tasker-task[data-task-id="${tid}"] .tasker-title-input`),
+    ).toBeNull();
+  });
+
+  it("clicking outside an open status popover closes it", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+    openTask(host, tid);
+
+    host.querySelector<HTMLButtonElement>(".tasker-chip-status")!.click();
+    expect(host.querySelector(".tasker-status-menu")).toBeTruthy();
+
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+
+    expect(host.querySelector(".tasker-status-menu")).toBeNull();
+  });
 });
 
 describe("TaskerPanel new-list composer", () => {
