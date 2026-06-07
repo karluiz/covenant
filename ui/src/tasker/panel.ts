@@ -232,10 +232,9 @@ export class TaskerPanel {
       : "";
 
     return `
-      <div class="tasker-task ${statusClass}${selected ? " tasker-task-selected" : ""}" data-project-id="${projectId}" data-task-id="${task.id}">
+      <div class="tasker-task ${statusClass} ${priorityClass}${selected ? " tasker-task-selected" : ""}" data-project-id="${projectId}" data-task-id="${task.id}">
         <div class="tasker-task-main" role="button" tabindex="0" aria-expanded="${selected}">
           <button class="tasker-task-checkbox" type="button" title="Toggle task">${checkboxIcon}</button>
-          <span class="tasker-priority ${priorityClass}" title="${task.priority}"></span>
           ${this.editingTitle?.taskId === task.id && this.editingTitle.projectId === projectId
             ? `<input class="tasker-title-input" type="text" value="${escapeAttr(task.title)}" autocomplete="off" />`
             : `<span class="tasker-task-title" role="button" tabindex="0">${escapeHtml(task.title)}</span>`}

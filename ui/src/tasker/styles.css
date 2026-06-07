@@ -154,21 +154,20 @@ body.sidebar-view-tasker #tasker-panel {
   align-items: center;
   gap: 8px;
   background: transparent;
-  border: 1px dashed var(--border);
+  border: none;
   color: var(--text-secondary);
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 8px 6px;
   font-family: var(--font-mono, var(--ui-font));
   font-size: 11px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 120ms, color 120ms, background 120ms;
+  transition: color 120ms, background 120ms;
 }
 
 .tasker-task-add-quick:hover {
-  border-color: var(--accent);
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 
 .tasker-projects {
@@ -343,6 +342,7 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-task {
+  position: relative;
   display: flex;
   flex-direction: column;
   border-radius: 8px;
@@ -351,6 +351,18 @@ body.sidebar-view-tasker #tasker-panel {
   overflow: hidden;
   transition: background 120ms;
 }
+.tasker-task::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--border);
+  border-radius: 2px;
+}
+.tasker-task.tasker-priority-urgent::before { background: #ef4444; }
+.tasker-task.tasker-priority-high::before { background: #f97316; }
+.tasker-task.tasker-priority-normal::before { background: #eab308; }
+.tasker-task.tasker-priority-low::before { background: #22c55e; }
 
 .tasker-task:hover {
   background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
@@ -380,6 +392,7 @@ body.sidebar-view-tasker #tasker-panel {
   min-width: 0;
   width: 100%;
   padding: 10px 12px;
+  padding-left: 6px;
   cursor: pointer;
   outline: none;
 }
@@ -485,10 +498,6 @@ body.sidebar-view-tasker #tasker-panel {
   color: #f87171;
 }
 
-.tasker-task-add-quick {
-  margin-top: 5px;
-  justify-content: flex-start;
-}
 
 .tasker-task-start {
   display: inline-flex;
@@ -506,7 +515,8 @@ body.sidebar-view-tasker #tasker-panel {
   opacity: 0;
   transition: opacity 120ms, color 120ms;
 }
-.tasker-task:hover .tasker-task-start {
+.tasker-task:hover .tasker-task-start,
+.tasker-task-selected .tasker-task-start {
   opacity: 1;
 }
 .tasker-task-start:hover {
