@@ -210,6 +210,9 @@ export class TaskerPanel {
           <span class="tasker-task-title">${escapeHtml(task.title)}</span>
           ${task.description?.trim() ? `<span class="tasker-note-indicator" title="Has description">${Icons.noteText({ size: 12 })}</span>` : ""}
           ${dueDateHtml}
+          ${task.status === "pending"
+            ? `<button class="tasker-task-start" type="button" data-project-id="${projectId}" data-task-id="${task.id}" aria-label="Start task">${Icons.play({ size: 12 })}<span>start</span></button>`
+            : ""}
           <span class="tasker-task-chevron" aria-hidden="true">${selected ? "⌃" : "⌄"}</span>
         </div>
         ${selected ? this.renderTaskDetails(projectId, task) : ""}
@@ -299,6 +302,17 @@ export class TaskerPanel {
           status,
           completedAt: status === "done" ? Date.now() : undefined,
         });
+        this.render();
+      });
+    });
+
+    this.host.querySelectorAll<HTMLButtonElement>(".tasker-task-start").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const projectId = btn.dataset.projectId;
+        const taskId = btn.dataset.taskId;
+        if (!projectId || !taskId) return;
+        this.storage.updateTask(projectId, taskId, { status: "active" });
         this.render();
       });
     });
