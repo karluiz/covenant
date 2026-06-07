@@ -123,19 +123,20 @@ describe("TaskerPanel inline edit", () => {
       .click();
   }
 
-  it("status chip popover sets the task to active", () => {
+  it("status segmented switch updates status", () => {
     const { panel, host } = mount();
     const pid = inbox(panel);
-    const tid = addTask(panel, pid, "Deploy API");
+    const tid = addTask(panel, pid, "Ship it");
     panel.render();
     openTask(host, tid);
 
-    host.querySelector<HTMLButtonElement>(".tasker-chip-status")!.click();
-    host
-      .querySelector<HTMLButtonElement>('.tasker-menu-item[data-status="active"]')!
-      .click();
-
+    host.querySelector<HTMLButtonElement>('.tasker-seg-status [data-status="active"]')!.click();
     expect(storageOf(panel).getTask(pid, tid).status).toBe("active");
+
+    openTask(host, tid); openTask(host, tid); // collapse then re-open
+    host.querySelector<HTMLButtonElement>('.tasker-seg-status [data-status="done"]')!.click();
+    expect(storageOf(panel).getTask(pid, tid).status).toBe("done");
+    expect(typeof storageOf(panel).getTask(pid, tid).completedAt).toBe("number");
   });
 
   it("priority popover updates the task priority", () => {
@@ -222,20 +223,6 @@ describe("TaskerPanel inline edit", () => {
     ).toBeNull();
   });
 
-  it("clicking outside an open status popover closes it", () => {
-    const { panel, host } = mount();
-    const pid = inbox(panel);
-    const tid = addTask(panel, pid, "Deploy API");
-    panel.render();
-    openTask(host, tid);
-
-    host.querySelector<HTMLButtonElement>(".tasker-chip-status")!.click();
-    expect(host.querySelector(".tasker-status-menu")).toBeTruthy();
-
-    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-
-    expect(host.querySelector(".tasker-status-menu")).toBeNull();
-  });
 });
 
 describe("TaskerPanel new-list composer", () => {

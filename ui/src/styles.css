@@ -15341,8 +15341,8 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   display: flex; align-items: center; gap: 8px;
   width: 100%;
   padding: 6px 8px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(var(--ink-rgb, 255 255 255),0.04);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255),0.08);
   border-radius: 8px;
   color: var(--muted, #8a93a0);
   font: inherit;
@@ -15350,7 +15350,7 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   text-align: left;
 }
 .inline-notch .inline-notch-picker-btn:hover {
-  background: rgba(255,255,255,0.07);
+  background: rgba(var(--ink-rgb, 255 255 255),0.07);
   color: var(--text, #d5d9de);
 }
 .inline-notch .inline-notch-picker-stack {
@@ -15383,8 +15383,8 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
 .inline-notch-picker-drop {
   position: fixed;
   z-index: 1000;
-  background: var(--bg-panel-2, #14161b);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--bg-overlay, #14161b);
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
   border-radius: 10px;
   padding: 6px 0;
   box-shadow: 0 30px 60px -28px rgba(0,0,0,0.9);
@@ -15396,7 +15396,7 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   text-transform: uppercase; letter-spacing: 0.08em;
 }
 .inline-notch-picker-drop-sep {
-  height: 1px; background: rgba(255,255,255,0.06); margin: 4px 0;
+  height: 1px; background: rgba(var(--ink-rgb, 255 255 255),0.06); margin: 4px 0;
 }
 .inline-notch-picker-opt {
   display: flex; align-items: center; gap: 8px;
@@ -15404,7 +15404,7 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   color: var(--muted, #8a93a0);
   cursor: pointer;
 }
-.inline-notch-picker-opt:hover { background: rgba(255,255,255,0.04); color: var(--text, #d5d9de); }
+.inline-notch-picker-opt:hover { background: rgba(var(--ink-rgb, 255 255 255),0.04); color: var(--text, #d5d9de); }
 .inline-notch-picker-check { width: 12px; color: #6ee7a8; opacity: 0; font-size: 11px; }
 .inline-notch-picker-opt.is-selected .inline-notch-picker-check { opacity: 1; }
 .inline-notch-picker-opt.is-selected .inline-notch-picker-name { color: var(--text, #d5d9de); }
