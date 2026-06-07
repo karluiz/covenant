@@ -625,6 +625,8 @@ function escapeHtml(s: string): string {
 // Public surface: openOperatorModal, canProceedFromStep1, saveOperator.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type SectionKey = "start" | "identity" | "behaviour" | "soul";
+
 export interface ModalDraft extends OperatorDraft {
   id?: string;
 }
@@ -640,6 +642,8 @@ export interface ModalState {
   setAsDefault: boolean;
   /// Present in edit/duplicate mode; needed for Delete + default flow.
   existing?: Operator;
+  /// Active section in the immersive shell UI.
+  activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
   /// source for create/update (routed through the from-soul commands).
   soulRaw: string;
@@ -661,6 +665,7 @@ export interface ModalHandle {
   setHardConstraints(s: string): void;
   setAsDefault(b: boolean): void;
   applyPreset(key: PresetKey): void;
+  setSection(s: SectionKey): void;
 }
 
 export function canSave(m: ModalHandle): boolean {
@@ -723,6 +728,7 @@ export function openOperatorModal(opts: {
     isDefault,
     setAsDefault: isDefault,
     existing: opts.existing,
+    activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
     // (or from a picked archetype).
@@ -768,6 +774,7 @@ export function openOperatorModal(opts: {
     setPersona(s) { state.draft.persona = s; render(); },
     setHardConstraints(s) { state.draft.hard_constraints = s; render(); },
     setAsDefault(b) { state.setAsDefault = b; render(); },
+    setSection(s) { state.activeSection = s; render(); },
     applyPreset(key) {
       const preset = PRESETS.find((p) => p.key === key);
       if (!preset) return;
