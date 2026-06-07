@@ -1642,6 +1642,14 @@ export async function specAuthorMarkPublished(id: string): Promise<void> {
   return invoke<void>("spec_author_mark_published", { id });
 }
 
+export async function specAuthorStreamStep(
+  draftId: string | null,
+  userMsg: string,
+  cwd: string | null,
+): Promise<string> {
+  return invoke<string>("spec_author_stream_step", { draftId, userMsg, cwd });
+}
+
 export async function telegramTestConnection(): Promise<void> {
   return invoke<void>("telegram_test_connection");
 }
