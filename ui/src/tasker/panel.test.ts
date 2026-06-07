@@ -76,3 +76,42 @@ describe("TaskerPanel status lifecycle", () => {
     expect(t.completedAt).toBeUndefined();
   });
 });
+
+describe("TaskerPanel filters", () => {
+  function setupThree(panel: TaskerPanel): string {
+    const pid = inbox(panel);
+    const a = addTask(panel, pid, "pending one");
+    const b = addTask(panel, pid, "active one");
+    const c = addTask(panel, pid, "done one");
+    storageOf(panel).updateTask(pid, b, { status: "active" });
+    storageOf(panel).updateTask(pid, c, { status: "done", completedAt: Date.now() });
+    return pid;
+  }
+
+  function visibleTitles(host: HTMLElement): string[] {
+    return Array.from(host.querySelectorAll(".tasker-task-title")).map(
+      (el) => el.textContent ?? "",
+    );
+  }
+
+  it("Active filter shows only active tasks", () => {
+    const { panel, host } = mount();
+    setupThree(panel);
+    host.querySelector<HTMLButtonElement>('.tasker-filter-btn[data-filter="active"]')!.click();
+    expect(visibleTitles(host)).toEqual(["active one"]);
+  });
+
+  it("Pending filter shows only pending tasks", () => {
+    const { panel, host } = mount();
+    setupThree(panel);
+    host.querySelector<HTMLButtonElement>('.tasker-filter-btn[data-filter="pending"]')!.click();
+    expect(visibleTitles(host)).toEqual(["pending one"]);
+  });
+
+  it("All filter shows every task", () => {
+    const { panel, host } = mount();
+    setupThree(panel);
+    host.querySelector<HTMLButtonElement>('.tasker-filter-btn[data-filter="all"]')!.click();
+    expect(visibleTitles(host).sort()).toEqual(["active one", "done one", "pending one"]);
+  });
+});
