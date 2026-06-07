@@ -2,6 +2,7 @@
 //! confined to a canonicalized repo root.
 
 use std::path::{Path, PathBuf};
+use serde_json::Value;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -153,6 +154,56 @@ fn walk(base: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// JSON tool schemas for the Anthropic `tools` request field.
+pub fn tool_specs() -> Value {
+    serde_json::json!([
+        {
+            "name": "grep",
+            "description": "Literal substring search across repo files. Returns up to 50 path:line hits.",
+            "input_schema": { "type": "object",
+                "properties": { "needle": {"type":"string"}, "dir": {"type":"string"} },
+                "required": ["needle"] }
+        },
+        {
+            "name": "read_file",
+            "description": "Read a repo file. Optional 1-based line range 'start-end'. Capped at 32KiB.",
+            "input_schema": { "type": "object",
+                "properties": { "path": {"type":"string"}, "range": {"type":"string"} },
+                "required": ["path"] }
+        },
+        {
+            "name": "list_dir",
+            "description": "List immediate entries of a repo directory.",
+            "input_schema": { "type": "object",
+                "properties": { "path": {"type":"string"} }, "required": ["path"] }
+        }
+    ])
+}
+
+fn pluralize(n: usize, noun: &str) -> String {
+    format!("{} {}{}", n, noun, if n == 1 { "" } else { "s" })
+}
+
+/// Execute a tool call by name with JSON `input`; returns (result_text, summary).
+pub fn run_tool(root: &Path, name: &str, input: &Value) -> (String, String) {
+    let s = |k: &str| input.get(k).and_then(|v| v.as_str());
+    match name {
+        "grep" => match grep(root, s("needle").unwrap_or(""), s("dir")) {
+            Ok(hits) => (hits.join("\n"), pluralize(hits.len(), "match")),
+            Err(e) => (format!("error: {e}"), "error".into()),
+        },
+        "read_file" => match read_file(root, s("path").unwrap_or(""), s("range")) {
+            Ok(text) => (text, "read".into()),
+            Err(e) => (format!("error: {e}"), "error".into()),
+        },
+        "list_dir" => match list_dir(root, s("path").unwrap_or("")) {
+            Ok(entries) => (entries.join("\n"), pluralize(entries.len(), "entry")),
+            Err(e) => (format!("error: {e}"), "error".into()),
+        },
+        other => (format!("unknown tool: {other}"), "error".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +274,28 @@ mod tests {
         let r = root();
         let entries = list_dir(&r, "src").unwrap();
         assert!(entries.iter().any(|e| e.ends_with("a.rs")));
+    }
+
+    #[test]
+    fn run_tool_grep_summarizes() {
+        let r = root();
+        let (text, summary) = run_tool(&r, "grep",
+            &serde_json::json!({"needle":"fn main","dir":"src"}));
+        assert!(text.contains("a.rs"));
+        assert_eq!(summary, "1 match");
+    }
+
+    #[test]
+    fn run_tool_unknown_is_error() {
+        let r = root();
+        let (text, summary) = run_tool(&r, "rm", &serde_json::json!({}));
+        assert_eq!(summary, "error");
+        assert!(text.contains("unknown tool"));
+    }
+
+    #[test]
+    fn tool_specs_lists_three_tools() {
+        let specs = tool_specs();
+        assert_eq!(specs.as_array().unwrap().len(), 3);
     }
 }
