@@ -22,6 +22,20 @@ const DRAG_THRESHOLD = 4;
 const INDENT_BASE = 8;
 const INDENT_STEP = 14;
 
+// Collapse state is global (shared across every browser pane) and persisted, so
+// hiding the rail in one tab hides it everywhere and survives restarts. A single
+// `body.fav-rail-collapsed` class drives the CSS for all mounted rails at once.
+const FAV_COLLAPSE_KEY = "covenant.fav-rail.collapsed";
+
+function favRailCollapsed(): boolean {
+  return localStorage.getItem(FAV_COLLAPSE_KEY) === "1";
+}
+
+function setFavRailCollapsed(collapsed: boolean): void {
+  localStorage.setItem(FAV_COLLAPSE_KEY, collapsed ? "1" : "0");
+  document.body.classList.toggle("fav-rail-collapsed", collapsed);
+}
+
 export class FavoritesRail {
   readonly el: HTMLElement;
   private readonly body: HTMLElement;
@@ -41,15 +55,27 @@ export class FavoritesRail {
     this.el.innerHTML = `
       <div class="fav-rail-header">
         <span class="fav-rail-title">Favorites</span>
-        <button class="fav-rail-add" type="button" aria-label="New folder">+</button>
+        <div class="fav-rail-actions">
+          <button class="fav-rail-add" type="button" aria-label="New folder">+</button>
+          <button class="fav-rail-collapse" type="button" aria-label="Hide favorites">»</button>
+        </div>
       </div>
-      <div class="fav-rail-body"></div>`;
+      <div class="fav-rail-body"></div>
+      <button class="fav-rail-expand" type="button" aria-label="Show favorites">★</button>`;
     this.body = this.el.querySelector(".fav-rail-body") as HTMLElement;
     this.menu = new ContextMenu(this.el);
 
     const addBtn = this.el.querySelector(".fav-rail-add") as HTMLButtonElement;
     attachTooltip(addBtn, "New folder");
     addBtn.addEventListener("click", () => void this.promptNewFolder(null));
+
+    const collapseBtn = this.el.querySelector(".fav-rail-collapse") as HTMLButtonElement;
+    attachTooltip(collapseBtn, "Hide favorites");
+    collapseBtn.addEventListener("click", () => setFavRailCollapsed(true));
+
+    const expandBtn = this.el.querySelector(".fav-rail-expand") as HTMLButtonElement;
+    attachTooltip(expandBtn, "Show favorites");
+    expandBtn.addEventListener("click", () => setFavRailCollapsed(false));
 
     // Right-click empty space → new folder at root.
     this.body.addEventListener("contextmenu", (e) => {
@@ -63,6 +89,9 @@ export class FavoritesRail {
   }
 
   mount(): void {
+    // Reflect the persisted collapse state on the shared body class. Idempotent,
+    // so it's safe for each pane to assert it on mount.
+    document.body.classList.toggle("fav-rail-collapsed", favRailCollapsed());
     this.unsubscribe = favoritesStore.subscribe(() => this.render());
   }
 

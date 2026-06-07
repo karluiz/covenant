@@ -27,6 +27,7 @@ pub enum Role {
     Chat,
     Operator,
     Triage,
+    SpecCreator,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -372,6 +373,13 @@ fn default_model_routes() -> HashMap<Role, RouteEntry> {
             model: karl_agent::DEFAULT_TRIAGE_MODEL.into(),
         },
     );
+    m.insert(
+        Role::SpecCreator,
+        RouteEntry {
+            provider_id: "anthropic".into(),
+            model: "claude-opus-4-8".into(),
+        },
+    );
     m
 }
 
@@ -400,6 +408,12 @@ fn migrate_legacy(mut s: Settings) -> Settings {
     }
     if s.model_routes.is_empty() {
         s.model_routes = default_model_routes();
+    } else {
+        // Backfill any role added after this config was first written (e.g.
+        // SpecCreator) so existing users get a working default route.
+        for (role, entry) in default_model_routes() {
+            s.model_routes.entry(role).or_insert(entry);
+        }
     }
     s
 }

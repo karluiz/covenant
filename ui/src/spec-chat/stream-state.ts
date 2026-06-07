@@ -2,11 +2,17 @@ import type { SpecStreamEvent, SpecSectionKey } from './events';
 
 export interface ToolActivity { id: string; tool: string; arg: string; summary?: string; ok?: boolean; }
 export interface SectionView { markdown: string; status: 'filling' | 'done'; }
+export interface ConvMessage { role: 'user' | 'assistant'; content: string; }
 
 export interface StreamState {
   apply(e: SpecStreamEvent): void;
+  /** Record the user's submitted message and reset live activity for the new turn. */
+  addUserMessage(text: string): void;
+  /** Committed conversation turns (user + assistant), oldest first. */
+  messages(): readonly ConvMessage[];
   activePhase(): SpecSectionKey | null;
   thinking(): string;
+  /** Assistant prose streaming in the current turn (uncommitted). */
   text(): string;
   tools(): readonly ToolActivity[];
   section(k: SpecSectionKey): SectionView | null;
@@ -26,8 +32,17 @@ export function createStreamState(): StreamState {
   let awaiting = false;
   let finalMd: string | null = null;
   let err: string | null = null;
+  const messages: ConvMessage[] = [];
   const subs = new Set<() => void>();
   const fire = () => subs.forEach((cb) => cb());
+
+  // Commit any streamed assistant prose as a conversation turn. The live `text`
+  // accumulator is cleared so the committed bubble isn't duplicated; thinking
+  // and tools stay visible until the user sends the next message.
+  const commitAssistant = () => {
+    if (text.trim()) messages.push({ role: 'assistant', content: text });
+    text = '';
+  };
 
   return {
     apply(e) {
@@ -42,12 +57,23 @@ export function createStreamState(): StreamState {
           break;
         }
         case 'section_update': sections.set(e.section, { markdown: e.markdown, status: e.status }); break;
-        case 'turn_done': awaiting = e.awaiting_user; break;
-        case 'final': finalMd = e.markdown; break;
+        case 'turn_done': awaiting = e.awaiting_user; commitAssistant(); break;
+        case 'final': finalMd = e.markdown; commitAssistant(); break;
         case 'error': err = e.message; break;
       }
       fire();
     },
+    addUserMessage(t: string) {
+      messages.push({ role: 'user', content: t });
+      // Fresh activity for the new turn.
+      text = '';
+      thinking = '';
+      tools.length = 0;
+      err = null;
+      awaiting = false;
+      fire();
+    },
+    messages: () => messages,
     activePhase: () => phase,
     thinking: () => thinking,
     text: () => text,

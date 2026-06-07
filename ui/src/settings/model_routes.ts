@@ -2,20 +2,37 @@ import type { Settings } from "../api";
 import { listModelsAnthropic, listModelsAzureFoundry, listModelsOpenAiCompat } from "../api";
 import { CustomSelect, type SelectOption } from "../ui/select";
 
-type Role = "summary" | "chat" | "operator" | "triage";
+type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator";
 
 const ROLE_LABEL: Record<Role, string> = {
-  summary:  "Summary",
-  chat:     "Chat (⌘K)",
-  operator: "Operator",
-  triage:   "Triage (cheap classifier)",
+  summary:      "Summary",
+  chat:         "Chat (⌘K)",
+  operator:     "Operator",
+  triage:       "Triage (cheap classifier)",
+  spec_creator: "Spec Creator",
 };
 
+/** One-line tagline shown under each role title. */
+const ROLE_TAGLINE: Record<Role, string> = {
+  summary:      "Rolling world-model summaries, per session",
+  chat:         "Answers when you ⌘K the agent",
+  operator:     "Autonomous agent that runs tools across your sessions",
+  triage:       "Cheap gate before an expensive operator call",
+  spec_creator: "The immersive Spec Creator's research agent",
+};
+
+/** Longer explanation shown as the default footer hint for each role. */
 const ROLE_HINT: Record<Role, string> = {
-  summary:  "Used for per-session rolling summaries (frequent, cheap).",
-  chat:     "Used when you ask the agent a question.",
-  operator: "Tool use required — provider must support it.",
-  triage:   "Used to gate expensive operator calls. Tiny model is fine.",
+  summary:
+    "Runs after every command to keep a short rolling summary of each session. Fires often, so favour a cheap, fast model.",
+  chat:
+    "Powers the ⌘K agent panel — one-shot questions about what's going on. Mid-tier model is plenty.",
+  operator:
+    "Drives the autonomous operator that observes sessions and runs commands. Requires a tool-use-capable provider (Anthropic, Azure gpt-4o, …).",
+  triage:
+    "A tiny classifier that decides whether the operator should wake up at all. The smallest model you have is fine.",
+  spec_creator:
+    "The streaming agent behind the immersive Spec Creator: it greps/reads your repo and drafts the spec. Needs tool use. Opus 4.8 explores deepest; Azure gpt-4o is faster/cheaper but shallower on long tool loops.",
 };
 
 export function renderModelsTab(
@@ -24,7 +41,14 @@ export function renderModelsTab(
   onChange: (next: Settings) => void,
 ): void {
   root.innerHTML = "";
-  for (const role of ["summary", "chat", "operator", "triage"] as Role[]) {
+
+  const intro = document.createElement("p");
+  intro.className = "settings-section-intro";
+  intro.textContent =
+    "Covenant routes each kind of LLM work to its own provider + model, so you can mix a cheap model for frequent jobs with a powerful one where it counts. Pick a provider, then a model it actually serves — the status line confirms it's reachable.";
+  root.appendChild(intro);
+
+  for (const role of ["summary", "chat", "operator", "triage", "spec_creator"] as Role[]) {
     root.appendChild(renderRoleRow(role, settings, onChange));
   }
 }
@@ -42,6 +66,11 @@ function renderRoleRow(
   title.className = "settings-card-title";
   title.textContent = ROLE_LABEL[role];
   wrap.appendChild(title);
+
+  const tagline = document.createElement("p");
+  tagline.className = "settings-card-tagline";
+  tagline.textContent = ROLE_TAGLINE[role];
+  wrap.appendChild(tagline);
 
   const providerSel = new CustomSelect({
     className: "model-route-select",

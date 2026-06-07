@@ -33,8 +33,8 @@ pub trait StreamingDispatcher: Send + Sync {
 /// Run the agentic tool-loop for one user message: repeatedly stream a turn,
 /// execute any tool calls (emitting tool_start/tool_result), feed results back,
 /// until the model answers or emits a spec. Enforces `max_tool_calls`.
-pub async fn step_streaming<D: StreamingDispatcher>(
-    dispatcher: &D,
+pub async fn step_streaming(
+    dispatcher: &dyn StreamingDispatcher,
     draft: &mut SpecDraft,
     user_msg: String,
     repo_root: &Path,
@@ -195,11 +195,15 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
             serde_json::json!({ "role": role, "content": m.content })
         }).collect();
 
+        // Opus 4.8 supports adaptive thinking only (`{type:"enabled", budget_tokens}`
+        // 400s). `display:"summarized"` opts back into streamed thinking text (the
+        // default is "omitted"). Thinking depth is controlled via output_config.effort.
         let body = serde_json::json!({
             "model": self.model,
             "max_tokens": 8192,
             "stream": true,
-            "thinking": { "type": "enabled", "budget_tokens": 4000 },
+            "thinking": { "type": "adaptive", "display": "summarized" },
+            "output_config": { "effort": "xhigh" },
             "system": [{ "type": "text", "text": system,
                 "cache_control": { "type": "ephemeral" } }],
             "tools": tools::tool_specs(),
@@ -286,6 +290,127 @@ fn parse_sse_event(
             }
         }
         _ => {}
+    }
+}
+
+// ── OpenAI / Azure Foundry streaming dispatcher ───────────────────────────────
+
+/// How to authenticate against an OpenAI-shaped chat-completions endpoint.
+#[derive(Clone, Copy, PartialEq)]
+pub enum OpenAiAuth {
+    /// `api-key: <key>` header (Azure).
+    ApiKeyHeader,
+    /// `Authorization: Bearer <key>` (OpenAI / openai-compat).
+    Bearer,
+}
+
+/// Streaming dispatcher for OpenAI Chat Completions–shaped endpoints
+/// (Azure Foundry `gpt-4o`, Ollama/openai-compat, etc.). Speaks the same
+/// multi-turn tool-loop contract as the Anthropic dispatcher via
+/// [`StreamingDispatcher`], so the Spec Creator works on either provider.
+pub struct OpenAiStreamingDispatcher {
+    /// Full chat/completions URL (Azure includes deployment + api-version).
+    pub url: String,
+    pub api_key: String,
+    pub auth: OpenAiAuth,
+    /// `None` for Azure OpenAI mode (deployment is in the URL); `Some` otherwise.
+    pub model: Option<String>,
+}
+
+#[async_trait]
+impl StreamingDispatcher for OpenAiStreamingDispatcher {
+    async fn stream_turn(
+        &self,
+        system: &str,
+        messages: &[DraftMessage],
+        sink: &dyn StreamSink,
+    ) -> Result<ModelTurn, String> {
+        let client = reqwest::Client::new();
+
+        let mut api_messages: Vec<serde_json::Value> =
+            vec![serde_json::json!({ "role": "system", "content": system })];
+        for m in messages {
+            let role = match m.role { MessageRole::User => "user", MessageRole::Assistant => "assistant" };
+            api_messages.push(serde_json::json!({ "role": role, "content": m.content }));
+        }
+
+        let mut body = serde_json::json!({
+            "max_tokens": 4096,
+            "stream": true,
+            "stream_options": { "include_usage": true },
+            "tools": tools::tool_specs_openai(),
+            "tool_choice": "auto",
+            "messages": api_messages,
+        });
+        if let Some(model) = &self.model {
+            body.as_object_mut().unwrap()
+                .insert("model".into(), serde_json::Value::String(model.clone()));
+        }
+
+        let mut rb = client.post(&self.url).header("content-type", "application/json");
+        rb = match self.auth {
+            OpenAiAuth::ApiKeyHeader => rb.header("api-key", &self.api_key),
+            OpenAiAuth::Bearer => rb.bearer_auth(&self.api_key),
+        };
+        let resp = rb.json(&body).send().await.map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("openai {}: {}", resp.status(),
+                resp.text().await.unwrap_or_default()));
+        }
+
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        let mut text = String::new();
+        // tool-call accumulation keyed by the delta `index`: (id, name, args).
+        let mut tool_acc: std::collections::BTreeMap<usize, (String, String, String)> =
+            std::collections::BTreeMap::new();
+
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.map_err(|e| e.to_string())?;
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(pos) = buf.find('\n') {
+                let line = buf[..pos].trim().to_string();
+                buf.drain(..pos + 1);
+                let Some(data) = line.strip_prefix("data: ") else { continue };
+                if data == "[DONE]" { continue; }
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                parse_openai_chunk(&v, sink, &mut text, &mut tool_acc);
+            }
+        }
+
+        let tool_calls: Vec<ToolCall> = tool_acc.into_values().map(|(id, name, args)| {
+            let input = serde_json::from_str(&args).unwrap_or(serde_json::json!({}));
+            ToolCall { id, name, input }
+        }).collect();
+        let emitted_spec = crate::spec_author::extract_spec_pub(&text);
+        Ok(ModelTurn { tool_calls, text, emitted_spec })
+    }
+}
+
+fn parse_openai_chunk(
+    v: &serde_json::Value,
+    sink: &dyn StreamSink,
+    text: &mut String,
+    tool_acc: &mut std::collections::BTreeMap<usize, (String, String, String)>,
+) {
+    let Some(delta) = v["choices"].get(0).and_then(|c| c.get("delta")) else { return };
+    if let Some(content) = delta["content"].as_str() {
+        if !content.is_empty() {
+            text.push_str(content);
+            sink.emit(SpecStreamEvent::TextDelta { text: content.to_string() });
+        }
+    }
+    if let Some(calls) = delta["tool_calls"].as_array() {
+        for call in calls {
+            let idx = call["index"].as_u64().unwrap_or(0) as usize;
+            let entry = tool_acc.entry(idx).or_default();
+            if let Some(id) = call["id"].as_str() { if !id.is_empty() { entry.0 = id.to_string(); } }
+            if let Some(name) = call["function"]["name"].as_str() {
+                if !name.is_empty() { entry.1 = name.to_string(); }
+            }
+            if let Some(args) = call["function"]["arguments"].as_str() { entry.2.push_str(args); }
+        }
     }
 }
 

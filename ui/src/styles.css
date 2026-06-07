@@ -3524,6 +3524,21 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     color: var(--fg);
 }
 
+.settings-section-intro {
+    margin: 0 0 16px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-muted, #8a93a0);
+    max-width: 640px;
+}
+
+.settings-card-tagline {
+    margin: -2px 0 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted, #8a93a0);
+}
+
 .settings-field-label {
     display: block;
     margin: 0 0 4px;
@@ -13532,7 +13547,9 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
   display: none;
   align-items: center; justify-content: center;
   background: var(--bg, #0c0f14);
-  z-index: 9999;
+  /* Sit above every panel/sidebar (some use z-index 10000+) so an open
+     sidebar does not bleed through the opaque switch overlay. */
+  z-index: 2147483000;
   pointer-events: none;
 }
 #workspace-switch-overlay #workspace-switch-name {
@@ -17858,6 +17875,14 @@ body.sidebar-view-activity:not(.blocks-globally-collapsed) .tab-pane.tab-pane-br
 body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-pane.tab-pane-browser {
   grid-template-columns: 1fr 0 0 var(--right-sidebar-w) !important;
 }
+/* Collapsed: shrink the favorites column to a thin handle. Higher specificity
+   than (and ordered after) the reassert rules above so it wins everywhere. */
+body.fav-rail-collapsed .tab-pane.tab-pane-browser,
+body.fav-rail-collapsed.blocks-globally-collapsed .tab-pane.tab-pane-browser,
+body.fav-rail-collapsed.sidebar-view-activity .tab-pane.tab-pane-browser,
+body.fav-rail-collapsed.sidebar-view-teammate .tab-pane.tab-pane-browser {
+  grid-template-columns: 1fr 0 0 var(--fav-rail-collapsed-w, 28px) !important;
+}
 .fav-rail {
   display: flex;
   flex-direction: column;
@@ -17892,6 +17917,35 @@ body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-pane.tab-pane-br
   cursor: pointer;
 }
 .fav-rail-add:hover { background: var(--bg-elevated, #1c1c28); color: var(--text, #e0e0f0); }
+.fav-rail-actions { display: flex; align-items: center; gap: 2px; }
+.fav-rail-collapse {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim, #8a8aa0);
+  font-size: 13px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.fav-rail-collapse:hover { background: var(--bg-elevated, #1c1c28); color: var(--text, #e0e0f0); }
+/* Expand handle: only visible while collapsed. */
+.fav-rail-expand {
+  display: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim, #8a8aa0);
+  font-size: 14px;
+  line-height: 1;
+  width: 100%;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.fav-rail-expand:hover { background: var(--bg-elevated, #1c1c28); color: var(--text, #e0e0f0); }
+body.fav-rail-collapsed .fav-rail-header,
+body.fav-rail-collapsed .fav-rail-body { display: none; }
+body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .fav-rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
 .fav-empty {
   padding: 14px 12px;

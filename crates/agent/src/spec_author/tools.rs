@@ -196,6 +196,28 @@ pub fn tool_specs() -> Value {
     ])
 }
 
+/// Same tools in OpenAI Chat Completions `tools` shape
+/// (`{type:"function", function:{name, description, parameters}}`). Used by the
+/// Azure / OpenAI-compat streaming dispatcher.
+pub fn tool_specs_openai() -> Value {
+    let anthropic = tool_specs();
+    let arr = anthropic.as_array().cloned().unwrap_or_default();
+    let converted: Vec<Value> = arr
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["input_schema"],
+                }
+            })
+        })
+        .collect();
+    Value::Array(converted)
+}
+
 fn pluralize(n: usize, noun: &str) -> String {
     format!("{} {}{}", n, noun, if n == 1 { "" } else { "s" })
 }

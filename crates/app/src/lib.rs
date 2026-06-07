@@ -2753,10 +2753,6 @@ async fn spec_author_stream_step(
     cwd: Option<String>,
 ) -> Result<String, String> {
     use karl_agent::spec_author as sa;
-    let api_key = {
-        let s = state.settings.lock().await;
-        s.anthropic_api_key.clone().ok_or("no api key configured — open Settings (⌘,)")?
-    };
     let base_dir = sa::home_covenant_dir().map_err(|e| e.to_string())?;
 
     let mut draft = match draft_id {
@@ -2789,12 +2785,66 @@ async fn spec_author_stream_step(
     } else { sa::SYSTEM_PROMPT_PUB.to_string() };
 
     let sink = TauriSink { app: app.clone(), topic: topic.clone() };
-    let dispatcher = sa::stream::AnthropicStreamingDispatcher {
-        api_key, model: "claude-opus-4-8".into(),
+
+    // Resolve the Spec Creator role to a provider + model from settings, and
+    // build the matching streaming dispatcher (Anthropic vs OpenAI/Azure).
+    let dispatcher: Box<dyn sa::stream::StreamingDispatcher> = {
+        use karl_agent::provider::{azure_foundry::default_api_version, azure_foundry::AzureMode, ProviderKind};
+        let s = state.settings.lock().await;
+        let route = s.model_routes.get(&crate::settings::Role::SpecCreator)
+            .ok_or("no Spec Creator model route configured — open Settings → Models")?;
+        let entry = s.providers.get(&route.provider_id)
+            .ok_or_else(|| format!("provider `{}` not configured", route.provider_id))?;
+        let model = route.model.clone();
+        match entry.kind {
+            ProviderKind::Anthropic => {
+                let api_key = entry.api_key.clone()
+                    .or_else(|| s.anthropic_api_key.clone())
+                    .ok_or("Anthropic api key not configured — open Settings (⌘,)")?;
+                Box::new(sa::stream::AnthropicStreamingDispatcher { api_key, model })
+            }
+            ProviderKind::OpenAiCompat => {
+                let base = entry.base_url.clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+                let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+                Box::new(sa::stream::OpenAiStreamingDispatcher {
+                    url, api_key: entry.api_key.clone().unwrap_or_default(),
+                    auth: sa::stream::OpenAiAuth::Bearer, model: Some(model),
+                })
+            }
+            ProviderKind::AzureFoundry => {
+                let mode = entry.azure_mode.ok_or("Azure provider missing azure_mode")?;
+                let endpoint = entry.base_url.clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or("Azure provider missing endpoint")?;
+                let api_key = entry.api_key.clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or("Azure provider missing api_key")?;
+                let api_version = entry.azure_api_version.clone()
+                    .unwrap_or_else(|| default_api_version(mode).to_string());
+                let base = endpoint.trim_end_matches('/');
+                let (url, body_model) = match mode {
+                    AzureMode::AzureOpenAi => {
+                        let dep = entry.azure_deployment.clone()
+                            .ok_or("Azure OpenAI mode requires a deployment name")?;
+                        (format!("{}/openai/deployments/{}/chat/completions?api-version={}",
+                            base, dep, api_version), None)
+                    }
+                    AzureMode::AiInference => (
+                        format!("{}/models/chat/completions?api-version={}", base, api_version),
+                        Some(model),
+                    ),
+                };
+                Box::new(sa::stream::OpenAiStreamingDispatcher {
+                    url, api_key, auth: sa::stream::OpenAiAuth::ApiKeyHeader, model: body_model,
+                })
+            }
+        }
     };
 
     let result = sa::stream::step_streaming(
-        &dispatcher, &mut draft, user_msg, &repo_root, &system, &sink, 40).await;
+        &*dispatcher, &mut draft, user_msg, &repo_root, &system, &sink, 40).await;
 
     draft.last_updated = chrono::Utc::now();
     let _ = sa::save_draft(&base_dir, &draft);
