@@ -17,6 +17,7 @@ import {
   listOperatorDecisions,
   type OperatorDecisionRow,
 } from "../api";
+import { EventDetailDrawer } from "./event-detail-drawer";
 
 /* ── wire shapes (mirrors activity-feed.ts) ──────────────────────── */
 
@@ -61,6 +62,16 @@ interface ActEvent {
   /// (always open tabs) resolve a real tab name and don't need these.
   mission?: string | null;
   executor?: string | null;
+  /// Raw fields surfaced in the detail drawer. Captured at absorb time so
+  /// the drawer renders from structured data, not the flattened `body`.
+  executed?: boolean;
+  inFlightCommand?: string | null;
+  outputExcerpt?: string | null;
+  replyText?: string | null;
+  rationale?: string | null;
+  escalation?: string | null;
+  operatorName?: string | null;
+  operatorId?: string | null;
   /// Full expandable detail (in-flight command + escalation/rationale +
   /// reply + output tail). Empty string when there is nothing to expand.
   detail?: string;
@@ -213,6 +224,10 @@ export class ActivityView {
   /// — i.e. no live tab and no cached name). Lets the user collapse the
   /// historical ledger down to only what's happening on live tabs.
   private hideClosed = false;
+  private drawer: EventDetailDrawer | null = null;
+  /// Representative event per rendered item, indexed by data-act-idx — so a
+  /// row click can recover the full event to open the detail drawer.
+  private rendered: ActEvent[] = [];
 
   constructor() {
     this.el = document.createElement("div");
@@ -259,20 +274,24 @@ export class ActivityView {
         if (short) this.bridge?.focusSessionShort(short);
         return;
       }
-      const expand = target.closest<HTMLElement>(
-        "[data-action='expand-run'],[data-action='expand-detail']",
-      );
-      if (expand) {
-        const row = expand.closest<HTMLElement>(".tp-act-row");
-        row?.classList.toggle("tp-act-row--expanded");
+      // Inline sub-list expanders (run ×N timeline / loop-incident cycles)
+      // toggle in place — they don't open the drawer.
+      const runExpand = target.closest<HTMLElement>("[data-action='expand-run']");
+      if (runExpand) {
+        runExpand.closest<HTMLElement>(".tp-act-row")?.classList.toggle("tp-act-row--expanded");
         return;
       }
-      const incidentAction = target.closest<HTMLElement>("[data-action]");
-      if (incidentAction) {
-        const action = incidentAction.dataset["action"];
-        if (action === "incident-expand") {
-          incidentAction.closest<HTMLElement>(".tp-act-incident")?.classList.toggle("tp-act-incident--expanded");
-        }
+      const incidentExpand = target.closest<HTMLElement>("[data-action='incident-expand']");
+      if (incidentExpand) {
+        incidentExpand.closest<HTMLElement>(".tp-act-incident")?.classList.toggle("tp-act-incident--expanded");
+        return;
+      }
+      // Otherwise, a click anywhere on the row opens its detail drawer.
+      const rowEl = target.closest<HTMLElement>("[data-act-idx]");
+      if (rowEl) {
+        const idx = Number(rowEl.dataset["actIdx"]);
+        const ev = this.rendered[idx];
+        if (ev) this.openDetail(ev);
       }
     });
   }
@@ -289,6 +308,11 @@ export class ActivityView {
     this.operatorId = operatorId;
     this.onBadge = onBadge;
     this.bridge = bridge ?? null;
+    // Drawer mounts over the workspace (document.body), jumps via the bridge.
+    this.drawer = new EventDetailDrawer(
+      document.body,
+      (short) => this.bridge?.focusSessionShort(short) ?? false,
+    );
     this.unseenCount = 0;
     this.events = [];
 
@@ -354,10 +378,39 @@ export class ActivityView {
     this.unlistenDecision = undefined;
     this.unlistenStartup?.();
     this.unlistenStartup = undefined;
+    this.drawer?.close();
     if (this.renderTimer !== null) {
       window.clearInterval(this.renderTimer);
       this.renderTimer = null;
     }
+  }
+
+  /// Open the detail drawer for one event. Maps the normalized ActEvent into
+  /// the drawer's structured input and resolves its origin chip + jump.
+  private openDetail(e: ActEvent): void {
+    const origin = this.resolveOrigin(e);
+    this.drawer?.open(
+      {
+        ts: e.ts,
+        kindLabel: labelFor(e.kind),
+        kindClass: e.kind,
+        cost: e.cost,
+        executed: e.executed,
+        action: e.rawAction,
+        replyText: e.replyText ?? null,
+        rationale: e.rationale ?? null,
+        escalation: e.escalation ?? null,
+        inFlightCommand: e.inFlightCommand ?? null,
+        outputExcerpt: e.outputExcerpt ?? null,
+        operatorName: e.operatorName ?? null,
+        operatorId: e.operatorId ?? null,
+      },
+      {
+        label: origin?.name ?? null,
+        open: origin?.open ?? false,
+        sessionShort: e.sessionShort,
+      },
+    );
   }
 
   setVisible(v: boolean): void {
@@ -388,6 +441,14 @@ export class ActivityView {
       sessionShort: shortSession(r.session_id_short ?? ""),
       mission: r.mission_path ?? null,
       executor: r.executor_name ?? null,
+      executed: r.executed,
+      inFlightCommand: r.in_flight_command ?? null,
+      outputExcerpt: r.output_excerpt ?? null,
+      replyText: r.reply_text ?? null,
+      rationale: r.rationale ?? null,
+      escalation,
+      operatorName: r.operator_name ?? null,
+      operatorId: r.operator_id ?? null,
       detail: detailForDecision({
         kind,
         inFlightCommand: r.in_flight_command ?? null,
@@ -409,6 +470,14 @@ export class ActivityView {
       body,
       cost: d.cost_usd ?? 0,
       sessionShort: shortSession(d.session_id),
+      executed: d.executed,
+      inFlightCommand: d.in_flight_command ?? null,
+      outputExcerpt: d.output_excerpt ?? null,
+      replyText: d.reply_text,
+      rationale: d.rationale,
+      escalation: d.escalation,
+      operatorName: d.operator_name ?? null,
+      operatorId: d.operator_id ?? null,
       detail: detailForDecision({
         kind,
         inFlightCommand: d.in_flight_command ?? null,
@@ -676,9 +745,11 @@ export class ActivityView {
       }
     }
 
-    // Emit with sticky time buckets.
+    // Emit with sticky time buckets. Each item is stamped with its index
+    // into `this.rendered` so a row click can recover the full event.
     const out: string[] = [];
     let lastBucket = "";
+    this.rendered = [];
     for (const item of items) {
       const ts = item.kind === "incident" ? item.last
         : item.kind === "run" ? item.events[0]!.ts
@@ -691,10 +762,12 @@ export class ActivityView {
       const rep = item.kind === "incident" ? item.cycles[0]!
         : item.kind === "run" ? item.events[0]!
         : item.event;
+      const idx = this.rendered.length;
+      this.rendered.push(rep);
       const origin = this.resolveOrigin(rep);
-      if (item.kind === "incident") out.push(renderIncident(item.cycles, item.first, item.last, item.cost, now, origin));
-      else if (item.kind === "run") out.push(renderRun(item.events, now, outlierThreshold, origin));
-      else out.push(renderSingle(item.event, now, outlierThreshold, origin));
+      if (item.kind === "incident") out.push(renderIncident(item.cycles, item.first, item.last, item.cost, now, origin, idx));
+      else if (item.kind === "run") out.push(renderRun(item.events, now, outlierThreshold, origin, idx));
+      else out.push(renderSingle(item.event, now, outlierThreshold, origin, idx));
     }
     this.listEl.innerHTML = out.join("");
   }
@@ -714,8 +787,8 @@ export function tabChipHtml(origin: OriginTab): string {
   return `<span class="tp-act-tab tp-act-tab--closed">${escapeHtml(origin.name)}<span class="tp-act-tab-closed">closed</span></span>`;
 }
 
-function renderSingle(e: ActEvent, now: number, outlierThreshold: number, origin: OriginTab): string {
-  const cls = `tp-act-row tp-act-row--${e.kind}`;
+function renderSingle(e: ActEvent, now: number, outlierThreshold: number, origin: OriginTab, idx: number): string {
+  const cls = `tp-act-row tp-act-row--${e.kind} tp-act-row--clickable`;
   const time = relativeTime(e.ts, now);
   const { text, truncated } = truncate(e.body, 90);
   const bodyHtml = (e.kind === "typed" || e.kind === "dry-run")
@@ -723,36 +796,25 @@ function renderSingle(e: ActEvent, now: number, outlierThreshold: number, origin
     : escapeHtml(text);
   const costShow = e.cost > 0 && e.cost >= outlierThreshold;
   const costHtml = e.cost > 0
-    ? `<span class="tp-act-cost${costShow ? " is-outlier" : ""}" title="$${e.cost.toFixed(4)}">$${e.cost.toFixed(3)}</span>`
+    ? `<span class="tp-act-cost${costShow ? " is-outlier" : ""}">$${e.cost.toFixed(3)}</span>`
     : `<span class="tp-act-cost"></span>`;
   const titleAttr = truncated ? ` title="${escapeHtml(e.body)}"` : "";
-  const detail = e.detail ?? "";
-  const hasDetail = detail.trim().length > 0;
-  // Mirror renderRun's expand affordance: a button toggles
-  // tp-act-row--expanded on the row; the hidden detail div carries the
-  // full text in the DOM (not just title=) so it survives re-render.
-  const expandBtn = hasDetail
-    ? `<button class="tp-act-expand" data-action="expand-detail" type="button">expand</button>`
-    : "";
-  const detailDiv = hasDetail
-    ? `<div class="tp-act-detail">${escapeHtml(detail)}</div>`
-    : "";
+  // The full detail now lives in the click-to-open drawer, not an inline blob.
   return `
-    <div class="${cls}"${titleAttr}>
+    <div class="${cls}"${titleAttr} data-act-idx="${idx}">
       <span class="tp-act-time">${escapeHtml(time)}</span>
       <span class="tp-act-ico" aria-hidden="true">${iconFor(e.kind)}</span>
       <span class="tp-act-kind">${labelFor(e.kind)}</span>
-      <span class="tp-act-body">${bodyHtml}${expandBtn}</span>
+      <span class="tp-act-body">${bodyHtml}</span>
       ${tabChipHtml(origin)}
       ${costHtml}
-      ${detailDiv}
     </div>
   `;
 }
 
-function renderRun(events: ActEvent[], now: number, outlierThreshold: number, origin: OriginTab): string {
+function renderRun(events: ActEvent[], now: number, outlierThreshold: number, origin: OriginTab, idx: number): string {
   const head = events[0]!;
-  const cls = `tp-act-row tp-act-row--${head.kind} tp-act-row--run`;
+  const cls = `tp-act-row tp-act-row--${head.kind} tp-act-row--run tp-act-row--clickable`;
   const time = relativeTime(head.ts, now);
   const totalCost = events.reduce((s, e) => s + e.cost, 0);
   const { text, truncated } = truncate(head.body, 80);
@@ -769,7 +831,7 @@ function renderRun(events: ActEvent[], now: number, outlierThreshold: number, or
     .map((e) => `<div class="tp-act-run-item">${escapeHtml(relativeTime(e.ts, now))}${e.cost > 0 ? ` · $${e.cost.toFixed(3)}` : ""}</div>`)
     .join("");
   return `
-    <div class="${cls}"${titleAttr}>
+    <div class="${cls}"${titleAttr} data-act-idx="${idx}">
       <span class="tp-act-time">${escapeHtml(time)}</span>
       <span class="tp-act-ico" aria-hidden="true">${iconFor(head.kind)}</span>
       <span class="tp-act-kind">${labelFor(head.kind)}</span>
@@ -785,7 +847,7 @@ function renderRun(events: ActEvent[], now: number, outlierThreshold: number, or
   `;
 }
 
-function renderIncident(cycles: ActEvent[], first: number, last: number, cost: number, now: number, origin: OriginTab): string {
+function renderIncident(cycles: ActEvent[], first: number, last: number, cost: number, now: number, origin: OriginTab, idx: number): string {
   const escCount = cycles.filter((c) => c.kind === "escalated").length;
   const typedReply = cycles.find((c) => c.kind === "typed" || c.kind === "dry-run");
   const replyBody = typedReply?.body ?? "(no reply)";
@@ -800,7 +862,7 @@ function renderIncident(cycles: ActEvent[], first: number, last: number, cost: n
     </div>`)
     .join("");
   return `
-    <div class="tp-act-incident">
+    <div class="tp-act-incident tp-act-row--clickable" data-act-idx="${idx}">
       <div class="tp-act-incident-head">
         <span class="tp-act-incident-badge">loop</span>
         <span class="tp-act-incident-summary">Operator replied <strong>“${escapeHtml(replyShort)}”</strong> ${escCount}× — executor rejected each time</span>
