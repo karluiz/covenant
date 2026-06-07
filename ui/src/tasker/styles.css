@@ -513,21 +513,24 @@ body.sidebar-view-tasker #tasker-panel {
   color: var(--accent);
 }
 
-.tasker-edit {
+.tasker-sheet {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 2px 12px 12px 38px;
+  padding: 6px 12px 12px 35px;
 }
+.tasker-kv-notes { align-items: flex-start; }
+.tasker-kv-notes .tasker-kv-key { margin-top: 6px; }
 .tasker-edit-note {
-  width: 100%;
-  min-height: 24px;
+  flex: 1;
+  min-width: 0;
+  min-height: 22px;
   resize: vertical;
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
-  padding: 6px 0 9px;
+  padding: 4px 0 6px;
   color: var(--text-primary);
   font-family: var(--ui-font);
   font-size: 12px;
@@ -535,14 +538,20 @@ body.sidebar-view-tasker #tasker-panel {
   outline: none;
 }
 .tasker-edit-note::placeholder { color: var(--text-tertiary); }
-
-.tasker-chip-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
+.tasker-sheet-delete {
+  align-self: flex-end;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono, var(--ui-font));
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms;
 }
-.tasker-chip-wrap { position: relative; }
+.tasker-sheet-delete:hover { color: #f87171; }
+
 .tasker-chip {
   display: inline-flex;
   align-items: center;
@@ -560,12 +569,6 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-chip:hover {
   border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
 }
-.tasker-chip-delete {
-  margin-left: auto;
-  color: #f87171;
-  border-color: color-mix(in srgb, #f87171 30%, var(--border));
-}
-.tasker-chip-delete:hover { background: color-mix(in srgb, #f87171 10%, transparent); }
 
 .tasker-status-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
@@ -588,23 +591,6 @@ body.sidebar-view-tasker #tasker-panel {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-.tasker-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: var(--font-mono, var(--ui-font));
-  font-size: 11px;
-  cursor: pointer;
-  text-align: left;
-}
-.tasker-menu-item:hover {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 /* Custom calendar popover (replaces the native date picker).
    Fixed-positioned (coords set in JS) so it escapes the .tasker-task /

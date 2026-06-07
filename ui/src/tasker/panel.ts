@@ -253,32 +253,31 @@ export class TaskerPanel {
 
   private renderTaskDetails(projectId: string, task: Task): string {
     const dueLabel = task.dueDate ? formatDueDate(task.dueDate) : "Add date";
-
     return `
-      <div class="tasker-edit" data-project-id="${projectId}" data-task-id="${task.id}">
-        <textarea class="tasker-edit-note" rows="1" placeholder="Add notes, links, acceptance criteria…">${escapeHtml(task.description ?? "")}</textarea>
-        <div class="tasker-chip-row">
-          <div class="tasker-kv">
-            <span class="tasker-kv-key">Status</span>
-            <div class="tasker-seg tasker-seg-status" role="group">
-              ${(["pending","active","done"] as TaskStatus[]).map((s) =>
-                `<button class="tasker-seg-btn${task.status === s ? " on" : ""}" type="button" data-status="${s}">${titleCase(s)}</button>`
-              ).join("")}
-            </div>
+      <div class="tasker-edit tasker-sheet" data-project-id="${projectId}" data-task-id="${task.id}">
+        <div class="tasker-kv">
+          <span class="tasker-kv-key">Status</span>
+          <div class="tasker-seg tasker-seg-status" role="group">
+            ${(["pending","active","done"] as TaskStatus[]).map((s) =>
+              `<button class="tasker-seg-btn${task.status === s ? " on" : ""}" type="button" data-status="${s}">${titleCase(s)}</button>`).join("")}
           </div>
-          <div class="tasker-kv">
-            <span class="tasker-kv-key">Priority</span>
-            <div class="tasker-prio-dots" role="group">
-              ${PRIORITIES.map((p) =>
-                `<button class="tasker-prio-dot ${getPriorityClass(p)}${task.priority === p ? " on" : ""}" type="button" data-priority="${p}" aria-label="${titleCase(p)}"></button>`
-              ).join("")}
-            </div>
-          </div>
-          <div class="tasker-chip-wrap">
-            <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
-          </div>
-          <button class="tasker-chip tasker-chip-delete" type="button" aria-label="Delete task">${Icons.trash({ size: 12 })}</button>
         </div>
+        <div class="tasker-kv">
+          <span class="tasker-kv-key">Priority</span>
+          <div class="tasker-prio-dots" role="group">
+            ${PRIORITIES.map((p) =>
+              `<button class="tasker-prio-dot ${getPriorityClass(p)}${task.priority === p ? " on" : ""}" type="button" data-priority="${p}" aria-label="${titleCase(p)}"></button>`).join("")}
+          </div>
+        </div>
+        <div class="tasker-kv">
+          <span class="tasker-kv-key">Due</span>
+          <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
+        </div>
+        <div class="tasker-kv tasker-kv-notes">
+          <span class="tasker-kv-key">Notes</span>
+          <textarea class="tasker-edit-note" rows="1" placeholder="Add notes…">${escapeHtml(task.description ?? "")}</textarea>
+        </div>
+        <button class="tasker-sheet-delete" type="button">Delete task</button>
       </div>
     `;
   }
@@ -652,7 +651,7 @@ export class TaskerPanel {
         this.openDatePicker(projectId, taskId, e.currentTarget as HTMLElement);
       });
 
-      edit.querySelector<HTMLButtonElement>(".tasker-chip-delete")?.addEventListener("click", () => {
+      edit.querySelector<HTMLButtonElement>(".tasker-sheet-delete")?.addEventListener("click", () => {
         this.storage.deleteTask(projectId, taskId);
         this.selectedTask = null;
         this.openMenu = null;

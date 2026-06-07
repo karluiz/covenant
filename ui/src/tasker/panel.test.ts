@@ -171,13 +171,13 @@ describe("TaskerPanel inline edit", () => {
     expect(storageOf(panel).getTask(pid, tid).dueDate).toBeUndefined();
   });
 
-  it("delete chip removes the task", () => {
+  it("delete action removes the task", () => {
     const { panel, host } = mount();
     const pid = inbox(panel);
     const tid = addTask(panel, pid, "Deploy API");
     panel.render();
     openTask(host, tid);
-    host.querySelector<HTMLButtonElement>(".tasker-chip-delete")!.click();
+    host.querySelector<HTMLButtonElement>(".tasker-sheet-delete")!.click();
     expect(storageOf(panel).getTask(pid, tid)).toBeNull();
   });
 
