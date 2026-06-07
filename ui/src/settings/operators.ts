@@ -792,6 +792,9 @@ export function openOperatorModal(opts: {
     // back to the top).
     const prevScroll = el.querySelector<HTMLElement>(".op-section")?.scrollTop ?? 0;
     el.innerHTML = "";
+    // Reset the per-render soul-editor instance so this full render builds a
+    // fresh one (seeded from the current soulRaw) shared by header/section/live.
+    (el as HTMLElement & { __soulEditor?: SoulEditor | null }).__soulEditor = null;
     el.append(renderForm(h));
     const section = el.querySelector<HTMLElement>(".op-section");
     if (section) section.scrollTop = prevScroll;
@@ -821,9 +824,8 @@ const RAIL: { key: SectionKey; label: string; createOnly?: boolean }[] = [
   { key: "soul", label: "The Soul" },
 ];
 
-function renderForm(h: ModalHandle): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "op-modal-step op-modal-form";
+function renderForm(h: ModalHandle): DocumentFragment {
+  const frag = document.createDocumentFragment();
 
   const scrim = document.createElement("div");
   scrim.className = "scrim";
@@ -843,8 +845,8 @@ function renderForm(h: ModalHandle): HTMLElement {
 
   creator.append(renderFooter(h));
 
-  wrap.append(scrim, creator);
-  return wrap;
+  frag.append(scrim, creator);
+  return frag;
 }
 
 function renderHeader(h: ModalHandle): HTMLElement {
@@ -860,6 +862,7 @@ function renderHeader(h: ModalHandle): HTMLElement {
   kbd.textContent = "esc";
   kbd.addEventListener("click", () => h.el.remove());
   header.append(brand, chipHost, kbd);
+  getSoulEditor(h).mountChip(chipHost);
   return header;
 }
 
@@ -882,27 +885,26 @@ function renderRail(h: ModalHandle): HTMLElement {
 function renderSectionHost(h: ModalHandle): HTMLElement {
   const host = document.createElement("div");
   host.className = "op-section";
-  // Create mode: an archetype gallery seeds the editor. The gallery stays
-  // above the editor so the user can re-pick. Picking a soul replaces
-  // `soulRaw` and triggers a full modal re-render so the textarea +
-  // preview pick up the new source.
-  if (h.state.mode === "create") {
-    host.append(
-      renderArchetypeGallery((raw) => {
-        h.state.soulRaw = raw;
-        rerenderModal(h);
-      }),
-    );
-  }
-  // Temporary: mount the legacy split editor here until Task 3 splits it.
-  host.append(renderSoulEditor(h));
+  getSoulEditor(h).mountSection(host, h.state.activeSection);
   return host;
 }
 
-function renderSoulLive(_h: ModalHandle): HTMLElement {
+function renderSoulLive(h: ModalHandle): HTMLElement {
   const live = document.createElement("div");
   live.className = "op-soul-live";
+  getSoulEditor(h).mountLive(live);
   return live;
+}
+
+/// Shared per-render soul-editor instance. `render()` clears the stamp at the
+/// top of each full rebuild, so header/section/live all share ONE editor
+/// (seeded from the current soulRaw) within a single render pass; the next
+/// render builds a fresh one. This is lossless because `commit()` keeps
+/// `soulRaw` continuously in sync, so re-seeding from it is a no-op.
+function getSoulEditor(h: ModalHandle): SoulEditor {
+  const stamped = h.el as HTMLElement & { __soulEditor?: SoulEditor | null };
+  if (!stamped.__soulEditor) stamped.__soulEditor = buildSoulEditor(h);
+  return stamped.__soulEditor;
 }
 
 /// Force a full modal re-render. `openOperatorModal` owns the actual
@@ -1006,10 +1008,13 @@ function soulSection(title: string): HTMLElement {
   return s;
 }
 
-function renderSoulEditor(h: ModalHandle): HTMLElement {
-  const split = document.createElement("div");
-  split.className = "op-soul-split";
+interface SoulEditor {
+  mountSection(host: HTMLElement, section: SectionKey): void;
+  mountLive(host: HTMLElement): void;
+  mountChip(host: HTMLElement): void;
+}
 
+function buildSoulEditor(h: ModalHandle): SoulEditor {
   // Working structured view. Controls mutate this and regenerate the raw
   // SOUL.md; seeded from the modal's current soulRaw on first parse.
   let view: SoulView = {
@@ -1018,26 +1023,14 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
     validation_error: null,
   };
 
-  // Left — structured controls.
-  const controls = document.createElement("div");
-  controls.className = "op-soul-controls";
-
-  // Right — hero, the soul prose, live preview, raw source.
-  const right = document.createElement("div");
-  right.className = "op-soul-right";
-
-  const heroWrap = document.createElement("div");
-  heroWrap.className = "op-soul-hero";
-
-  const bodyLabel = document.createElement("div");
-  bodyLabel.className = "op-soul-section-title";
-  bodyLabel.textContent = "The soul";
+  // The soul prose textarea (lives in the `soul` section).
   const body = document.createElement("textarea");
   body.className = "op-soul-body";
   body.spellcheck = true;
   body.placeholder =
     "Write this operator's soul — who it is, how it judges, what it will never do without you.";
 
+  // Live pane: rendered preview + raw source + error — always visible on right.
   const preview = document.createElement("div");
   preview.className = "op-soul-preview";
 
@@ -1053,18 +1046,16 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
   const errLine = document.createElement("div");
   errLine.className = "op-soul-error";
 
-  right.append(heroWrap, bodyLabel, body, preview, rawDetails, errLine);
-  split.append(controls, right);
-
   let markedFn: typeof import("marked").marked | null = null;
   async function renderPreview(): Promise<void> {
     if (!markedFn) markedFn = (await import("marked")).marked;
     preview.innerHTML = markedFn.parse(view.body ?? "", { async: false }) as string;
   }
 
-  function renderHero(): void {
-    heroWrap.innerHTML = "";
-    heroWrap.append(
+  // Mount the live operator chip into whatever host currently holds it.
+  function mountChipInner(host: HTMLElement): void {
+    host.innerHTML = "";
+    host.append(
       renderOperatorChip(
         { name: view.name || "New Operator", emoji: view.avatar || "🟣", color: view.color || "#6B7280" },
         "lg",
@@ -1072,16 +1063,23 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
     );
   }
 
-  // Funnel a control change into the raw text + state. `repaintControls`
-  // is skipped while a text field is focused so the caret survives.
+  // Funnel a control change into the raw text + state, refresh the header
+  // chip + live preview, and (when `repaintControls`) re-mount the active
+  // section. `repaintControls` is skipped while a text field is focused so
+  // the caret survives.
   function commit(repaintControls: boolean): void {
     h.state.soulRaw = soulRawFromView(view);
     src.value = h.state.soulRaw;
-    renderHero();
-    if (repaintControls) paintControls();
+    const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
+    if (chipHost) mountChipInner(chipHost);
+    void renderPreview();
+    if (repaintControls) {
+      const sectionHost = h.el.querySelector<HTMLElement>(".op-section");
+      if (sectionHost) mountSectionInner(sectionHost, h.state.activeSection);
+    }
   }
 
-  function paintControls(): void {
+  function paintIdentity(controls: HTMLElement): void {
     controls.innerHTML = "";
 
     // ── Identity ──────────────────────────────────────────────────────
@@ -1172,6 +1170,10 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
     });
     identity.append(labeled("Tags", tags));
     controls.append(identity);
+  }
+
+  function paintBehaviour(controls: HTMLElement): void {
+    controls.innerHTML = "";
 
     // ── Behaviour ─────────────────────────────────────────────────────
     const behaviour = soulSection("Behaviour");
@@ -1238,6 +1240,28 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
     controls.append(adv);
   }
 
+  // Inner section mount — shared by `commit` and the returned `mountSection`.
+  function mountSectionInner(host: HTMLElement, section: SectionKey): void {
+    host.innerHTML = "";
+    if (section === "start") {
+      host.append(
+        renderArchetypeGallery((raw) => {
+          h.state.soulRaw = raw;
+          rerenderModal(h);
+        }),
+      );
+      return;
+    }
+    if (section === "identity") { paintIdentity(host); return; }
+    if (section === "behaviour") { paintBehaviour(host); return; }
+    if (section === "soul") {
+      const label = document.createElement("div");
+      label.className = "op-soul-section-title";
+      label.textContent = "The soul";
+      host.append(label, body);
+    }
+  }
+
   // Body prose drives the soul; debounced preview.
   let bodyDebounce: number | undefined;
   body.addEventListener("input", () => {
@@ -1256,6 +1280,14 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
     rawDebounce = window.setTimeout(() => void syncFromRaw(), 200);
   });
 
+  // Re-mount the chip + active section after an authoritative re-parse.
+  function repaintAll(): void {
+    const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
+    if (chipHost) mountChipInner(chipHost);
+    const sectionHost = h.el.querySelector<HTMLElement>(".op-section");
+    if (sectionHost) mountSectionInner(sectionHost, h.state.activeSection);
+  }
+
   async function syncFromRaw(): Promise<void> {
     try {
       const v = await operatorSoulParse(h.state.soulRaw);
@@ -1263,8 +1295,7 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
       view = v;
       errLine.textContent = v.validation_error ?? "";
       if (document.activeElement !== body) body.value = view.body ?? "";
-      renderHero();
-      paintControls();
+      repaintAll();
       void renderPreview();
     } catch (e) {
       errLine.textContent = `Parse failed: ${e}`;
@@ -1281,12 +1312,19 @@ function renderSoulEditor(h: ModalHandle): HTMLElement {
     }
     src.value = h.state.soulRaw;
     body.value = view.body ?? "";
-    renderHero();
-    paintControls();
+    repaintAll();
     void renderPreview();
   })();
 
-  return split;
+  return {
+    mountSection(host, section) { mountSectionInner(host, section); },
+    mountLive(host) {
+      host.innerHTML = "";
+      host.append(preview, rawDetails, errLine);
+      void renderPreview();
+    },
+    mountChip(host) { mountChipInner(host); },
+  };
 }
 
 // ── Footer: default toggle (left), delete + cancel + save (right) ───────────

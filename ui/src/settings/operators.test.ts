@@ -84,6 +84,29 @@ describe('operator modal', () => {
     const labels = [...c.el.querySelectorAll('.op-rail-item')].map((n) => n.textContent);
     expect(labels.some((l) => /Start/i.test(l ?? ''))).toBe(true);
   });
+
+  it('middle shows only the active section; right always shows live soul', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('identity');
+    const section = m.el.querySelector('.op-section')!;
+    expect(section.querySelector('input.op-modal-input')).toBeTruthy();
+    const live = m.el.querySelector('.op-soul-live')!;
+    expect(live.querySelector('.op-soul-preview')).toBeTruthy();
+    expect(live.querySelector('.op-soul-rawwrap')).toBeTruthy();
+  });
+
+  it('soul section shows the prose textarea in the middle', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('soul');
+    expect(m.el.querySelector('.op-section .op-soul-body')).toBeTruthy();
+  });
+
+  it('live operator chip renders in the header', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setName('Nova');
+    const host = m.el.querySelector('header .op-hero-chip');
+    expect(host && host.childElementCount > 0).toBeTruthy();
+  });
 });
 
 describe('operator list grid', () => {
