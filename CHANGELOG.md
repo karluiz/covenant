@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.60 — Immersive Spec Creator + Tasker redesign
+
+### Added
+
+- **Immersive streaming Spec Creator**: the spec chat routes into a full immersive surface (entrance, composer, publish, Esc) backed by a real Anthropic SSE streaming dispatcher. An agentic, exploration-first tool-loop (grep / read_file / list_dir, repo-jailed and read-only) drives `spec://` events with live per-section fills, surfacing thinking and tool calls as they happen (`crates/agent/src/spec_author/{stream,tools}.rs`, `crates/app/src/lib.rs`, `ui/src/spec-chat/*`). Secrets are masked, secret files denied, and tool tests isolated.
+- **Tasker inline editing**: tasks edit in place — title, status, priority, and due date via popovers — with an inline list composer replacing the native `prompt()`. Checkboxes complete any state, reopening clears `completedAt`, and the start affordance flips pending tasks to active.
+
+### Changed
+
+- **Tasker Covenant styling**: flat rows, Covenant tokens, popovers, and uppercase lists for a homogeneous panel; popovers close on outside click.
+
+### Fixed
+
+- **Activity event drawer**: clicking an event opens an opaque detail drawer (no longer bleeds the list through), shows a human origin (executor/mission) instead of a raw ULID short, and traces operator decisions to their source tab with a race-guard for disabled operators (`ui/src/spec-chat/activity-stream.ts`).
+- **Spec chat listener leak**: the Tauri event listener is disposed on immersive close (`ui/src/spec-chat/immersive.ts`).
+
 ## v0.8.59 — Per-operator Stop in Mission Control + Pi scroll fix
 
 ### Added
