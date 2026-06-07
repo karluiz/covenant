@@ -65,6 +65,7 @@ export class TaskerPanel {
   private currentFilter: TaskStatus | "all" = "all";
   private composingProjectId: string | null = null;
   private selectedTask: { projectId: string; taskId: string } | null = null;
+  private openMenu: { kind: "status" | "priority" | "date"; taskId: string } | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -221,38 +222,61 @@ export class TaskerPanel {
   }
 
   private renderTaskDetails(projectId: string, task: Task): string {
+    const statusLabel = titleCase(task.status);
+    const statusDot = `tasker-status-${task.status}`;
+    const dueLabel = task.dueDate ? formatDueDate(task.dueDate) : "Add date";
+    const open = this.openMenu;
+    const isStatusOpen = open?.kind === "status" && open.taskId === task.id;
+    const isPriorityOpen = open?.kind === "priority" && open.taskId === task.id;
+    const isDateOpen = open?.kind === "date" && open.taskId === task.id;
+
     return `
-      <div class="tasker-details" data-project-id="${projectId}" data-task-id="${task.id}">
-        <label class="tasker-detail-field">
-          <span>Title</span>
-          <input class="tasker-detail-title" type="text" value="${escapeAttr(task.title)}" autocomplete="off" />
-        </label>
-
-        <label class="tasker-detail-field">
-          <span>Description</span>
-          <textarea class="tasker-detail-description" rows="4" placeholder="Add notes, links, acceptance criteria…">${escapeHtml(task.description ?? "")}</textarea>
-        </label>
-
-        <div class="tasker-detail-field">
-          <span>Priority</span>
-          <div class="tasker-priority-options" role="group" aria-label="Priority">
-            ${PRIORITIES.map((p) => `
-              <button class="tasker-priority-option${task.priority === p ? " active" : ""}" data-priority="${p}" type="button">
-                <span class="tasker-priority ${getPriorityClass(p)}"></span>
-                <span>${titleCase(p)}</span>
-              </button>
-            `).join("")}
+      <div class="tasker-edit" data-project-id="${projectId}" data-task-id="${task.id}">
+        <textarea class="tasker-edit-note" rows="1" placeholder="Add notes, links, acceptance criteria…">${escapeHtml(task.description ?? "")}</textarea>
+        <div class="tasker-chip-row">
+          <div class="tasker-chip-wrap">
+            <button class="tasker-chip tasker-chip-status" type="button">
+              <span class="tasker-status-dot ${statusDot}"></span>${statusLabel}
+            </button>
+            ${isStatusOpen ? this.renderStatusMenu() : ""}
           </div>
+          <div class="tasker-chip-wrap">
+            <button class="tasker-chip tasker-chip-priority" type="button">
+              <span class="tasker-priority ${getPriorityClass(task.priority)}"></span>${titleCase(task.priority)}
+            </button>
+            ${isPriorityOpen ? this.renderPriorityMenu() : ""}
+          </div>
+          <div class="tasker-chip-wrap">
+            <button class="tasker-chip tasker-chip-due" type="button">${escapeHtml(dueLabel)}</button>
+            ${isDateOpen ? `<div class="tasker-menu tasker-date-menu"><input class="tasker-edit-date" type="date" value="${dateInputValue(task.dueDate)}" /></div>` : ""}
+          </div>
+          <button class="tasker-chip tasker-chip-delete" type="button" aria-label="Delete task">${Icons.trash({ size: 12 })}</button>
         </div>
+      </div>
+    `;
+  }
 
-        <label class="tasker-detail-field">
-          <span>Due date</span>
-          <input class="tasker-detail-date" type="date" value="${dateInputValue(task.dueDate)}" />
-        </label>
+  private renderStatusMenu(): string {
+    const statuses: TaskStatus[] = ["pending", "active", "done"];
+    return `
+      <div class="tasker-menu tasker-status-menu" role="menu">
+        ${statuses.map((s) => `
+          <button class="tasker-menu-item" type="button" data-status="${s}" role="menuitem">
+            <span class="tasker-status-dot tasker-status-${s}"></span>${titleCase(s)}
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
 
-        <div class="tasker-detail-actions">
-          <button class="tasker-detail-delete" type="button">Delete task</button>
-        </div>
+  private renderPriorityMenu(): string {
+    return `
+      <div class="tasker-menu tasker-priority-menu" role="menu">
+        ${PRIORITIES.map((p) => `
+          <button class="tasker-menu-item" type="button" data-priority="${p}" role="menuitem">
+            <span class="tasker-priority ${getPriorityClass(p)}"></span>${titleCase(p)}
+          </button>
+        `).join("")}
       </div>
     `;
   }
@@ -325,6 +349,7 @@ export class TaskerPanel {
         if (!projectId || !taskId) return;
         const isSame = this.selectedTask?.projectId === projectId && this.selectedTask.taskId === taskId;
         this.selectedTask = isSame ? null : { projectId, taskId };
+        this.openMenu = null;
         this.render();
       };
       row.addEventListener("click", toggle);
@@ -379,62 +404,81 @@ export class TaskerPanel {
   }
 
   private bindDetailsEvents(): void {
-    this.host.querySelectorAll<HTMLElement>(".tasker-details").forEach((details) => {
-      const projectId = details.dataset.projectId;
-      const taskId = details.dataset.taskId;
+    this.host.querySelectorAll<HTMLElement>(".tasker-edit").forEach((edit) => {
+      const projectId = edit.dataset.projectId;
+      const taskId = edit.dataset.taskId;
       if (!projectId || !taskId) return;
 
-      details.querySelector<HTMLInputElement>(".tasker-detail-title")?.addEventListener("change", (e) => {
-        const title = (e.target as HTMLInputElement).value.trim();
-        if (!title) return;
-        this.storage.updateTask(projectId, taskId, { title });
-        this.render();
-      });
-
-      details.querySelector<HTMLInputElement>(".tasker-detail-title")?.addEventListener("keydown", (e) => {
-        if (e.key !== "Enter") return;
-        e.preventDefault();
-        (e.target as HTMLInputElement).blur();
-      });
-
-      details.querySelector<HTMLTextAreaElement>(".tasker-detail-description")?.addEventListener("change", (e) => {
+      const note = edit.querySelector<HTMLTextAreaElement>(".tasker-edit-note");
+      note?.addEventListener("change", (e) => {
         const description = (e.target as HTMLTextAreaElement).value.trim();
         this.storage.updateTask(projectId, taskId, {
           description: description.length > 0 ? description : undefined,
         });
         this.render();
       });
-
-      details.querySelector<HTMLTextAreaElement>(".tasker-detail-description")?.addEventListener("keydown", (e) => {
+      note?.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
           e.preventDefault();
           (e.target as HTMLTextAreaElement).blur();
         }
       });
 
-      details.querySelector<HTMLInputElement>(".tasker-detail-date")?.addEventListener("change", (e) => {
-        const value = (e.target as HTMLInputElement).value;
-        this.storage.updateTask(projectId, taskId, {
-          dueDate: value ? new Date(`${value}T00:00:00`).getTime() : undefined,
-        });
-        this.render();
+      edit.querySelector<HTMLButtonElement>(".tasker-chip-status")?.addEventListener("click", () => {
+        this.toggleMenu("status", taskId);
+      });
+      edit.querySelector<HTMLButtonElement>(".tasker-chip-priority")?.addEventListener("click", () => {
+        this.toggleMenu("priority", taskId);
+      });
+      edit.querySelector<HTMLButtonElement>(".tasker-chip-due")?.addEventListener("click", () => {
+        this.toggleMenu("date", taskId);
       });
 
-      details.querySelectorAll<HTMLButtonElement>(".tasker-priority-option").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const priority = btn.dataset.priority as TaskPriority | undefined;
-          if (!priority) return;
-          this.storage.updateTask(projectId, taskId, { priority });
+      edit.querySelectorAll<HTMLButtonElement>(".tasker-status-menu .tasker-menu-item").forEach((mi) => {
+        mi.addEventListener("click", () => {
+          const status = mi.dataset.status as TaskStatus | undefined;
+          if (!status) return;
+          this.storage.updateTask(projectId, taskId, {
+            status,
+            completedAt: status === "done" ? Date.now() : undefined,
+          });
+          this.openMenu = null;
           this.render();
         });
       });
 
-      details.querySelector<HTMLButtonElement>(".tasker-detail-delete")?.addEventListener("click", () => {
+      edit.querySelectorAll<HTMLButtonElement>(".tasker-priority-menu .tasker-menu-item").forEach((mi) => {
+        mi.addEventListener("click", () => {
+          const priority = mi.dataset.priority as TaskPriority | undefined;
+          if (!priority) return;
+          this.storage.updateTask(projectId, taskId, { priority });
+          this.openMenu = null;
+          this.render();
+        });
+      });
+
+      edit.querySelector<HTMLInputElement>(".tasker-edit-date")?.addEventListener("change", (e) => {
+        const value = (e.target as HTMLInputElement).value;
+        this.storage.updateTask(projectId, taskId, {
+          dueDate: value ? new Date(`${value}T00:00:00`).getTime() : undefined,
+        });
+        this.openMenu = null;
+        this.render();
+      });
+
+      edit.querySelector<HTMLButtonElement>(".tasker-chip-delete")?.addEventListener("click", () => {
         this.storage.deleteTask(projectId, taskId);
         this.selectedTask = null;
+        this.openMenu = null;
         this.render();
       });
     });
+  }
+
+  private toggleMenu(kind: "status" | "priority" | "date", taskId: string): void {
+    const same = this.openMenu?.kind === kind && this.openMenu.taskId === taskId;
+    this.openMenu = same ? null : { kind, taskId };
+    this.render();
   }
 
   private showNewProjectDialog(): void {

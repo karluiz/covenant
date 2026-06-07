@@ -115,3 +115,26 @@ describe("TaskerPanel filters", () => {
     expect(visibleTitles(host).sort()).toEqual(["active one", "done one", "pending one"]);
   });
 });
+
+describe("TaskerPanel inline edit", () => {
+  function openTask(host: HTMLElement, tid: string): void {
+    host
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-main`)!
+      .click();
+  }
+
+  it("status chip popover sets the task to active", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+    openTask(host, tid);
+
+    host.querySelector<HTMLButtonElement>(".tasker-chip-status")!.click();
+    host
+      .querySelector<HTMLButtonElement>('.tasker-menu-item[data-status="active"]')!
+      .click();
+
+    expect(storageOf(panel).getTask(pid, tid).status).toBe("active");
+  });
+});
