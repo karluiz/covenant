@@ -796,3 +796,25 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-projects::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--text-primary) 20%, transparent);
 }
+
+.tasker-kv { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.tasker-kv-key { width: 66px; flex-shrink: 0; color: var(--text-tertiary); }
+.tasker-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.tasker-seg-btn {
+  padding: 3px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, var(--ui-font));
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.tasker-seg-btn + .tasker-seg-btn { border-left: 1px solid var(--border); }
+.tasker-seg-btn:hover { color: var(--text-primary); }
+.tasker-seg-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text-primary); }

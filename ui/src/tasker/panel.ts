@@ -252,22 +252,21 @@ export class TaskerPanel {
   }
 
   private renderTaskDetails(projectId: string, task: Task): string {
-    const statusLabel = titleCase(task.status);
-    const statusDot = `tasker-status-${task.status}`;
     const dueLabel = task.dueDate ? formatDueDate(task.dueDate) : "Add date";
     const open = this.openMenu;
-    const isStatusOpen = open?.kind === "status" && open.taskId === task.id;
     const isPriorityOpen = open?.kind === "priority" && open.taskId === task.id;
 
     return `
       <div class="tasker-edit" data-project-id="${projectId}" data-task-id="${task.id}">
         <textarea class="tasker-edit-note" rows="1" placeholder="Add notes, links, acceptance criteria…">${escapeHtml(task.description ?? "")}</textarea>
         <div class="tasker-chip-row">
-          <div class="tasker-chip-wrap">
-            <button class="tasker-chip tasker-chip-status" type="button">
-              <span class="tasker-status-dot ${statusDot}"></span>${statusLabel}
-            </button>
-            ${isStatusOpen ? this.renderStatusMenu() : ""}
+          <div class="tasker-kv">
+            <span class="tasker-kv-key">Status</span>
+            <div class="tasker-seg tasker-seg-status" role="group">
+              ${(["pending","active","done"] as TaskStatus[]).map((s) =>
+                `<button class="tasker-seg-btn${task.status === s ? " on" : ""}" type="button" data-status="${s}">${titleCase(s)}</button>`
+              ).join("")}
+            </div>
           </div>
           <div class="tasker-chip-wrap">
             <button class="tasker-chip tasker-chip-priority" type="button">
@@ -280,19 +279,6 @@ export class TaskerPanel {
           </div>
           <button class="tasker-chip tasker-chip-delete" type="button" aria-label="Delete task">${Icons.trash({ size: 12 })}</button>
         </div>
-      </div>
-    `;
-  }
-
-  private renderStatusMenu(): string {
-    const statuses: TaskStatus[] = ["pending", "active", "done"];
-    return `
-      <div class="tasker-menu tasker-status-menu" role="menu">
-        ${statuses.map((s) => `
-          <button class="tasker-menu-item" type="button" data-status="${s}" role="menuitem">
-            <span class="tasker-status-dot tasker-status-${s}"></span>${titleCase(s)}
-          </button>
-        `).join("")}
       </div>
     `;
   }
@@ -652,28 +638,24 @@ export class TaskerPanel {
         }
       });
 
-      edit.querySelector<HTMLButtonElement>(".tasker-chip-status")?.addEventListener("click", () => {
-        this.toggleMenu("status", taskId);
+      edit.querySelectorAll<HTMLButtonElement>(".tasker-seg-status .tasker-seg-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const status = btn.dataset.status as TaskStatus | undefined;
+          if (!status) return;
+          this.storage.updateTask(projectId, taskId, {
+            status,
+            completedAt: status === "done" ? Date.now() : undefined,
+          });
+          this.render();
+        });
       });
+
       edit.querySelector<HTMLButtonElement>(".tasker-chip-priority")?.addEventListener("click", () => {
         this.toggleMenu("priority", taskId);
       });
       edit.querySelector<HTMLButtonElement>(".tasker-chip-due")?.addEventListener("click", (e) => {
         e.stopPropagation();
         this.openDatePicker(projectId, taskId, e.currentTarget as HTMLElement);
-      });
-
-      edit.querySelectorAll<HTMLButtonElement>(".tasker-status-menu .tasker-menu-item").forEach((mi) => {
-        mi.addEventListener("click", () => {
-          const status = mi.dataset.status as TaskStatus | undefined;
-          if (!status) return;
-          this.storage.updateTask(projectId, taskId, {
-            status,
-            completedAt: status === "done" ? Date.now() : undefined,
-          });
-          this.openMenu = null;
-          this.render();
-        });
       });
 
       edit.querySelectorAll<HTMLButtonElement>(".tasker-priority-menu .tasker-menu-item").forEach((mi) => {
