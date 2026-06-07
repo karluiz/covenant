@@ -489,6 +489,11 @@ pub fn mark_published_default(id: Ulid) -> Result<()> {
     mark_published(id, &base)
 }
 
+/// Public re-export of the `<spec>` extractor for the streaming module.
+pub fn extract_spec_pub(text: &str) -> Option<String> {
+    extract_spec(text)
+}
+
 /// Extract the markdown between `<spec>` and `</spec>` tags.
 fn extract_spec(text: &str) -> Option<String> {
     let start_tag = "<spec>";

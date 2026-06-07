@@ -107,6 +107,121 @@ pub trait StreamSink: Send + Sync {
     fn emit(&self, event: SpecStreamEvent);
 }
 
+use futures_util::StreamExt;
+
+pub struct AnthropicStreamingDispatcher {
+    pub api_key: String,
+    pub model: String,
+}
+
+#[async_trait]
+impl StreamingDispatcher for AnthropicStreamingDispatcher {
+    async fn stream_turn(
+        &self,
+        system: &str,
+        messages: &[DraftMessage],
+        sink: &dyn StreamSink,
+    ) -> Result<ModelTurn, String> {
+        let client = reqwest::Client::new();
+        let api_messages: Vec<serde_json::Value> = messages.iter().map(|m| {
+            let role = match m.role { MessageRole::User => "user", MessageRole::Assistant => "assistant" };
+            serde_json::json!({ "role": role, "content": m.content })
+        }).collect();
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": 8192,
+            "stream": true,
+            "thinking": { "type": "enabled", "budget_tokens": 4000 },
+            "system": [{ "type": "text", "text": system,
+                "cache_control": { "type": "ephemeral" } }],
+            "tools": tools::tool_specs(),
+            "messages": api_messages,
+        });
+
+        let resp = client.post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body).send().await.map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("anthropic {}: {}", resp.status(),
+                resp.text().await.unwrap_or_default()));
+        }
+
+        let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
+        let mut text = String::new();
+        let mut tool_json: std::collections::HashMap<usize, (String, String, String)> =
+            std::collections::HashMap::new(); // idx -> (id, name, partial_input)
+
+        while let Some(chunk) = stream.next().await {
+            let bytes = chunk.map_err(|e| e.to_string())?;
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(pos) = buf.find("\n\n") {
+                let frame = buf[..pos].to_string();
+                buf.drain(..pos + 2);
+                for line in frame.lines() {
+                    let Some(data) = line.strip_prefix("data: ") else { continue };
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                    parse_sse_event(&v, sink, &mut text, &mut tool_json);
+                }
+            }
+        }
+
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
+        for (_idx, (id, name, raw)) in tool_json.into_iter() {
+            let input = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            tool_calls.push(ToolCall { id, name, input });
+        }
+        let emitted_spec = crate::spec_author::extract_spec_pub(&text);
+        Ok(ModelTurn { tool_calls, text, emitted_spec })
+    }
+}
+
+fn parse_sse_event(
+    v: &serde_json::Value,
+    sink: &dyn StreamSink,
+    text: &mut String,
+    tool_json: &mut std::collections::HashMap<usize, (String, String, String)>,
+) {
+    match v["type"].as_str() {
+        Some("content_block_start") => {
+            let idx = v["index"].as_u64().unwrap_or(0) as usize;
+            if v["content_block"]["type"] == "tool_use" {
+                tool_json.insert(idx, (
+                    v["content_block"]["id"].as_str().unwrap_or("").to_string(),
+                    v["content_block"]["name"].as_str().unwrap_or("").to_string(),
+                    String::new()));
+            }
+        }
+        Some("content_block_delta") => {
+            let idx = v["index"].as_u64().unwrap_or(0) as usize;
+            match v["delta"]["type"].as_str() {
+                Some("thinking_delta") => {
+                    if let Some(t) = v["delta"]["thinking"].as_str() {
+                        sink.emit(SpecStreamEvent::ThinkingDelta { text: t.to_string() });
+                    }
+                }
+                Some("text_delta") => {
+                    if let Some(t) = v["delta"]["text"].as_str() {
+                        text.push_str(t);
+                        sink.emit(SpecStreamEvent::TextDelta { text: t.to_string() });
+                    }
+                }
+                Some("input_json_delta") => {
+                    if let Some(partial) = v["delta"]["partial_json"].as_str() {
+                        if let Some(entry) = tool_json.get_mut(&idx) { entry.2.push_str(partial); }
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
