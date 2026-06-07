@@ -45,6 +45,7 @@ mod prompts;
 mod project_ref;
 pub mod provider_resolve;
 mod providers_cmd;
+mod rc_agent;
 mod safety;
 mod score_auth_commands;
 mod score_commands;
@@ -3669,6 +3670,8 @@ pub fn run() {
                 exec_vitals,
                 file_search_cache: crate::file_search::FileSearchCache::new(),
             });
+
+            rc_agent::spawn(app.handle().clone());
 
             // Fullscreen-aware notch: when the main Covenant window
             // enters fullscreen the floating overlay is intrusive, so
