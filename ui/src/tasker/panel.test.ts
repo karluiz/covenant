@@ -137,4 +137,66 @@ describe("TaskerPanel inline edit", () => {
 
     expect(storageOf(panel).getTask(pid, tid).status).toBe("active");
   });
+
+  it("priority popover updates the task priority", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+    openTask(host, tid);
+    host.querySelector<HTMLButtonElement>(".tasker-chip-priority")!.click();
+    host.querySelector<HTMLButtonElement>('.tasker-menu-item[data-priority="high"]')!.click();
+    expect(storageOf(panel).getTask(pid, tid).priority).toBe("high");
+  });
+
+  it("due-date input sets and clears dueDate", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+    openTask(host, tid);
+
+    host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
+    const dateInput = host.querySelector<HTMLInputElement>(".tasker-edit-date")!;
+    dateInput.value = "2026-06-09";
+    dateInput.dispatchEvent(new Event("change"));
+    expect(typeof storageOf(panel).getTask(pid, tid).dueDate).toBe("number");
+
+    openTask(host, tid); // collapse
+    openTask(host, tid); // re-open (openMenu reset)
+    host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
+    const dateInput2 = host.querySelector<HTMLInputElement>(".tasker-edit-date")!;
+    dateInput2.value = "";
+    dateInput2.dispatchEvent(new Event("change"));
+    expect(storageOf(panel).getTask(pid, tid).dueDate).toBeUndefined();
+  });
+
+  it("delete chip removes the task", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+    openTask(host, tid);
+    host.querySelector<HTMLButtonElement>(".tasker-chip-delete")!.click();
+    expect(storageOf(panel).getTask(pid, tid)).toBeNull();
+  });
+
+  it("clicking the title turns it into an editable input that commits on change", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    panel.render();
+
+    host
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-title`)!
+      .click();
+    const input = host.querySelector<HTMLInputElement>(
+      `.tasker-task[data-task-id="${tid}"] .tasker-title-input`,
+    )!;
+    expect(input).toBeTruthy();
+    input.value = "Deploy API to Pulzen";
+    input.dispatchEvent(new Event("change"));
+
+    expect(storageOf(panel).getTask(pid, tid).title).toBe("Deploy API to Pulzen");
+  });
 });

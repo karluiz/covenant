@@ -66,6 +66,7 @@ export class TaskerPanel {
   private composingProjectId: string | null = null;
   private selectedTask: { projectId: string; taskId: string } | null = null;
   private openMenu: { kind: "status" | "priority" | "date"; taskId: string } | null = null;
+  private editingTitle: { projectId: string; taskId: string } | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -208,7 +209,9 @@ export class TaskerPanel {
         <div class="tasker-task-main" role="button" tabindex="0" aria-expanded="${selected}">
           <button class="tasker-task-checkbox" type="button" title="Toggle task">${checkboxIcon}</button>
           <span class="tasker-priority ${priorityClass}" title="${task.priority}"></span>
-          <span class="tasker-task-title">${escapeHtml(task.title)}</span>
+          ${this.editingTitle?.taskId === task.id && this.editingTitle.projectId === projectId
+            ? `<input class="tasker-title-input" type="text" value="${escapeAttr(task.title)}" autocomplete="off" />`
+            : `<span class="tasker-task-title" role="button" tabindex="0">${escapeHtml(task.title)}</span>`}
           ${task.description?.trim() ? `<span class="tasker-note-indicator" title="Has description">${Icons.noteText({ size: 12 })}</span>` : ""}
           ${dueDateHtml}
           ${task.status === "pending"
@@ -398,6 +401,48 @@ export class TaskerPanel {
         this.composingProjectId = null;
         this.render();
       });
+    });
+
+    this.host.querySelectorAll<HTMLElement>(".tasker-task-title").forEach((titleEl) => {
+      const enter = (e: Event): void => {
+        e.stopPropagation();
+        const taskEl = (e.currentTarget as HTMLElement).closest<HTMLElement>(".tasker-task");
+        const projectId = taskEl?.dataset.projectId;
+        const taskId = taskEl?.dataset.taskId;
+        if (!projectId || !taskId) return;
+        this.editingTitle = { projectId, taskId };
+        this.render();
+      };
+      titleEl.addEventListener("click", enter);
+      titleEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") enter(e);
+      });
+    });
+
+    this.host.querySelectorAll<HTMLInputElement>(".tasker-title-input").forEach((input) => {
+      const commit = (): void => {
+        const taskEl = input.closest<HTMLElement>(".tasker-task");
+        const projectId = taskEl?.dataset.projectId;
+        const taskId = taskEl?.dataset.taskId;
+        const title = input.value.trim();
+        this.editingTitle = null;
+        if (projectId && taskId && title.length > 0) {
+          this.storage.updateTask(projectId, taskId, { title });
+        }
+        this.render();
+      };
+      input.addEventListener("change", commit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          input.blur();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          this.editingTitle = null;
+          this.render();
+        }
+      });
+      queueMicrotask(() => input.focus());
     });
 
     this.bindDetailsEvents();
