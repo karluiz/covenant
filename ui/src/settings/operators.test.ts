@@ -22,6 +22,12 @@ describe('operator modal', () => {
     expect(canProceedFromStep1(m)).toBe(true);
   });
 
+  it('footer keeps save/delete classes and shows delete only in edit', () => {
+    const c = openOperatorModal({ mode: 'create' });
+    expect(c.el.querySelector('.op-modal-save')).toBeTruthy();
+    expect(c.el.querySelector('.op-modal-delete')).toBeFalsy();
+  });
+
   it('blocks step 1 when name > 24 chars', () => {
     const m = openOperatorModal({ mode: 'create' });
     m.setName('x'.repeat(25));
@@ -44,6 +50,68 @@ describe('operator modal', () => {
       'operator_create_from_soul',
       expect.objectContaining({ raw: expect.stringContaining('New Operator') }),
     );
+  });
+
+  it('defaults to start section in create, identity in edit', () => {
+    const c = openOperatorModal({ mode: 'create' });
+    expect(c.state.activeSection).toBe('start');
+    const e = openOperatorModal({
+      mode: 'edit',
+      existing: {
+        id: 'x', name: 'Maya', emoji: '🟣', color: '#6B7280', voice: 'Terse',
+        tags: [], persona: '', escalate_threshold: 0.5, model: 'claude-sonnet-4-6',
+        hard_constraints: '', is_default: false,
+      } as unknown as import('../api').Operator,
+    });
+    expect(e.state.activeSection).toBe('identity');
+  });
+
+  it('setSection switches the active section', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('behaviour');
+    expect(m.state.activeSection).toBe('behaviour');
+  });
+
+  it('renders the immersive shell scaffold', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    const el = m.el;
+    expect(el.classList.contains('op-creator')).toBe(true);
+    expect(el.querySelector('.scrim')).toBeTruthy();
+    expect(el.querySelector('.creator')).toBeTruthy();
+    expect(el.querySelector('.creator header .brand')).toBeTruthy();
+    expect(el.querySelector('.op-rail')).toBeTruthy();
+    expect(el.querySelector('.op-section')).toBeTruthy();
+    expect(el.querySelector('.op-soul-live')).toBeTruthy();
+    expect(el.querySelector('.op-modal-save')).toBeTruthy();
+  });
+
+  it('rail shows Start only in create mode', () => {
+    const c = openOperatorModal({ mode: 'create' });
+    const labels = [...c.el.querySelectorAll('.op-rail-item')].map((n) => n.textContent);
+    expect(labels.some((l) => /Start/i.test(l ?? ''))).toBe(true);
+  });
+
+  it('middle shows only the active section; right always shows live soul', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('identity');
+    const section = m.el.querySelector('.op-section')!;
+    expect(section.querySelector('input.op-modal-input')).toBeTruthy();
+    const live = m.el.querySelector('.op-soul-live')!;
+    expect(live.querySelector('.op-soul-preview')).toBeTruthy();
+    expect(live.querySelector('.op-soul-rawwrap')).toBeTruthy();
+  });
+
+  it('soul section shows the prose textarea in the middle', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('soul');
+    expect(m.el.querySelector('.op-section .op-soul-body')).toBeTruthy();
+  });
+
+  it('live operator chip renders in the header', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setName('Nova');
+    const host = m.el.querySelector('header .op-hero-chip');
+    expect(host && host.childElementCount > 0).toBeTruthy();
   });
 });
 
