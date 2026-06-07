@@ -43,4 +43,36 @@ describe("TaskerPanel status lifecycle", () => {
 
     expect(storageOf(panel).getTask(pid, tid).status).toBe("active");
   });
+
+  it("checkbox completes an active task and sets completedAt", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    storageOf(panel).updateTask(pid, tid, { status: "active" });
+    panel.render();
+
+    host
+      .querySelector<HTMLButtonElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-checkbox`)!
+      .click();
+
+    const t = storageOf(panel).getTask(pid, tid);
+    expect(t.status).toBe("done");
+    expect(typeof t.completedAt).toBe("number");
+  });
+
+  it("checkbox on a done task reopens it to pending and clears completedAt", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    const tid = addTask(panel, pid, "Deploy API");
+    storageOf(panel).updateTask(pid, tid, { status: "done", completedAt: Date.now() });
+    panel.render();
+
+    host
+      .querySelector<HTMLButtonElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-checkbox`)!
+      .click();
+
+    const t = storageOf(panel).getTask(pid, tid);
+    expect(t.status).toBe("pending");
+    expect(t.completedAt).toBeUndefined();
+  });
 });

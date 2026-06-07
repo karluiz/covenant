@@ -297,10 +297,10 @@ export class TaskerPanel {
         if (!projectId || !taskId) return;
         const task = this.storage.getTask(projectId, taskId);
         if (!task) return;
-        const status: TaskStatus = task.status === "done" ? "pending" : "done";
+        const done = task.status === "done";
         this.storage.updateTask(projectId, taskId, {
-          status,
-          completedAt: status === "done" ? Date.now() : undefined,
+          status: done ? "pending" : "done",
+          completedAt: done ? undefined : Date.now(),
         });
         this.render();
       });
