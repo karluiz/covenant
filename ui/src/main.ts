@@ -140,6 +140,7 @@ async function applyTheme(
   const body = document.body;
   body.classList.toggle("theme-light", resolved === "light");
   body.classList.toggle("theme-dark", resolved === "dark");
+  body.classList.toggle("theme-true-dark", mode === "true_dark");
 
   unwatchSystem?.();
   unwatchSystem = null;
@@ -438,6 +439,7 @@ async function boot(): Promise<void> {
   const initialResolvedTheme = resolveTheme(initialThemeMode);
   document.body.classList.toggle("theme-light", initialResolvedTheme === "light");
   document.body.classList.toggle("theme-dark", initialResolvedTheme === "dark");
+  document.body.classList.toggle("theme-true-dark", initialThemeMode === "true_dark");
   applyTabbarCollapsed(localStorage.getItem(TABBAR_LEFT_COLLAPSED_KEY) === "1");
   applyStoredSidebarWidths();
 

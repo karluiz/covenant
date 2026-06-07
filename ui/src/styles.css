@@ -258,6 +258,20 @@ body.bg-translucent {
     --surface-alpha: 0.45;
 }
 
+/* True Dark (OLED) — neutral pure-black, fully opaque. Overrides the
+   slightly blue-tinted dark tokens and forces --surface-alpha to 1 so no
+   wallpaper bleeds through regardless of the window-background setting. */
+body.theme-true-dark {
+    --surface-alpha: 1;
+    --bg: #000000;
+    --bg-panel: #060606;
+    --bg-tabbar: #050505;
+    --sidebar-bg: #0a0a0a;
+    --bg-overlay: #060606;
+    --border: #1a1a1a;
+    --tab-bg-active: #0e0e0e;
+}
+
 #layout {
     position: relative;
     display: grid;
@@ -14065,11 +14079,9 @@ body.app-fullscreen #app-titlebar-left { padding-left: 10px; }
     max-width: 340px;
     min-width: 0;
     padding: 10px 12px;
-    background: rgba(20, 24, 30, 0.85);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    background: var(--bg-overlay, rgba(20, 24, 30, 0.85));
     color: var(--text, #d5d9de);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
     border-radius: 8px;
     box-shadow:
         0 1px 0 rgba(var(--ink-rgb), 0.04) inset,

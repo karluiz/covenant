@@ -537,6 +537,12 @@ export async function teammateClearFinishedTasks(operatorId: string): Promise<nu
   return invoke<number>("teammate_clear_finished_tasks", { operatorId });
 }
 
+/// Delete a single task by id. Artifacts cascade via the FK on
+/// teammate_artifacts.task_id.
+export async function teammateDeleteTask(taskId: string): Promise<void> {
+  return invoke<void>("teammate_delete_task", { taskId });
+}
+
 /// A single operator decision row, as returned by the teammate task-details
 /// view's decisions feed. Mirrors `crate::storage::OperatorDecisionRow`.
 export interface OperatorDecisionRow {

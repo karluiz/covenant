@@ -1,5 +1,11 @@
 import { marked } from "marked";
 import { projectNotesApi } from "./api";
+import { attachTooltip } from "../tooltip/tooltip";
+
+const ICON_EDIT =
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+const ICON_PREVIEW =
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
 export interface DocsTabOpts {
   groupId: string;
@@ -26,13 +32,17 @@ export class DocsTab {
     this.modeBar.className = "pn-docs-modes";
     this.editBtn = document.createElement("button");
     this.editBtn.type = "button";
-    this.editBtn.textContent = "edit";
+    this.editBtn.innerHTML = ICON_EDIT;
     this.editBtn.className = "pn-docs-mode active";
+    this.editBtn.setAttribute("aria-label", "Edit");
+    attachTooltip(this.editBtn, "Edit");
     this.editBtn.addEventListener("click", () => this.setMode("edit"));
     this.previewBtn = document.createElement("button");
     this.previewBtn.type = "button";
-    this.previewBtn.textContent = "preview";
+    this.previewBtn.innerHTML = ICON_PREVIEW;
     this.previewBtn.className = "pn-docs-mode";
+    this.previewBtn.setAttribute("aria-label", "Preview");
+    attachTooltip(this.previewBtn, "Preview");
     this.previewBtn.addEventListener("click", () => this.setMode("preview"));
     this.modeBar.appendChild(this.editBtn);
     this.modeBar.appendChild(this.previewBtn);

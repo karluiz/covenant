@@ -149,25 +149,23 @@ describe("TaskerPanel inline edit", () => {
     expect(storageOf(panel).getTask(pid, tid).priority).toBe("high");
   });
 
-  it("due-date input sets and clears dueDate", () => {
+  it("calendar sets and clears dueDate", () => {
     const { panel, host } = mount();
     const pid = inbox(panel);
     const tid = addTask(panel, pid, "Deploy API");
     panel.render();
     openTask(host, tid);
 
+    // Open the calendar and pick a day.
     host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
-    const dateInput = host.querySelector<HTMLInputElement>(".tasker-edit-date")!;
-    dateInput.value = "2026-06-09";
-    dateInput.dispatchEvent(new Event("change"));
+    const day = host.querySelector<HTMLButtonElement>('.tasker-cal-day[data-date="2026-06-09"]')!;
+    expect(day).toBeTruthy();
+    day.click();
     expect(typeof storageOf(panel).getTask(pid, tid).dueDate).toBe("number");
 
-    openTask(host, tid); // collapse
-    openTask(host, tid); // re-open (openMenu reset)
+    // Re-open and clear.
     host.querySelector<HTMLButtonElement>(".tasker-chip-due")!.click();
-    const dateInput2 = host.querySelector<HTMLInputElement>(".tasker-edit-date")!;
-    dateInput2.value = "";
-    dateInput2.dispatchEvent(new Event("change"));
+    host.querySelector<HTMLButtonElement>(".tasker-cal-clear")!.click();
     expect(storageOf(panel).getTask(pid, tid).dueDate).toBeUndefined();
   });
 

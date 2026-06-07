@@ -5554,6 +5554,20 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Destroy a group AND every tab inside it. Unlike ungroup (which just
+  /// detaches the group wrapper and keeps the tabs), this closes each member
+  /// tab (killing its shell) before removing the group.
+  private destroyGroup(groupId: string): void {
+    const members = this.tabs.filter((t) => t.groupId === groupId);
+    for (const t of members) {
+      this.closeTab(t.id);
+    }
+    this.groups.delete(groupId);
+    this.renderTabbar();
+    this.flushTabbarLayout();
+    this.scheduleSave();
+  }
+
   /// Force a reflow on the tabbar scroll container after a structural
   /// change (ungroup / remove-from-group). Without this, ungrouped tabs
   /// can render with stale layout — they keep their previous height/
@@ -6422,6 +6436,16 @@ export class TabManager {
         danger: true,
         onClick: () => this.ungroup(group.id),
       },
+      ...(this.memberIndices(group.id).length > 0
+        ? [
+            {
+              label: "Destroy group",
+              icon: Icons.trash(),
+              danger: true,
+              onClick: () => this.destroyGroup(group.id),
+            },
+          ]
+        : []),
     ]);
   }
 

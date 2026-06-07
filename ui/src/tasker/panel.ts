@@ -46,15 +46,33 @@ function getPriorityClass(priority: TaskPriority): string {
   return `tasker-priority-${priority}`;
 }
 
-function dateInputValue(ms?: number): string {
-  if (!ms) return "";
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
-}
-
 function titleCase(s: string): string {
   return s.slice(0, 1).toUpperCase() + s.slice(1);
+}
+
+const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const MONTHS = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+function ymd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Build a Mon-first 6×7 day grid for the given month.
+function calendarCells(year: number, month: number): Array<{ date: string; day: number; outside: boolean }> {
+  const first = new Date(year, month, 1);
+  // JS: 0=Sun … 6=Sat → shift so Monday=0
+  const lead = (first.getDay() + 6) % 7;
+  const start = new Date(year, month, 1 - lead);
+  const cells: Array<{ date: string; day: number; outside: boolean }> = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    cells.push({ date: ymd(d), day: d.getDate(), outside: d.getMonth() !== month });
+  }
+  return cells;
 }
 
 export class TaskerPanel {
@@ -66,6 +84,7 @@ export class TaskerPanel {
   private composingProjectId: string | null = null;
   private selectedTask: { projectId: string; taskId: string } | null = null;
   private openMenu: { kind: "status" | "priority" | "date"; taskId: string } | null = null;
+  private dateView: { year: number; month: number } | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private composingList = false;
 
@@ -129,6 +148,7 @@ export class TaskerPanel {
         ${this.composingList ? `
           <form class="tasker-newlist">
             <input class="tasker-newlist-input" type="text" autocomplete="off" placeholder="New list name…" />
+            <button class="tasker-newlist-cancel" type="button" title="Cancel" aria-label="Cancel">${Icons.x({ size: 12 })}</button>
           </form>
         ` : ""}
 
@@ -161,7 +181,6 @@ export class TaskerPanel {
           ${Icons.checklist({ size: 26 })}
           <div class="tasker-empty-title">No tasks yet</div>
           <div class="tasker-empty-hint">Capture a task for ${escapeHtml(project.name)}.</div>
-          <button class="tasker-empty-action" data-project-id="${project.id}" type="button">New task</button>
         </div>
       `
       : "";
@@ -176,6 +195,7 @@ export class TaskerPanel {
         ${isExpanded ? `
           <div class="tasker-tasks">
             ${isComposing ? this.renderComposer(project.id) : ""}
+            ${!isComposing && tasks.length === 0 ? `<button class="tasker-task-add-quick" data-project-id="${project.id}" type="button">${Icons.plus({ size: 12 })}<span>New task</span></button>` : ""}
             ${emptyHtml}
             ${tasks.map((t) => this.renderTask(project.id, t)).join("")}
             ${!isComposing && tasks.length > 0 ? `<button class="tasker-task-add-quick" data-project-id="${project.id}" type="button">${Icons.plus({ size: 12 })}<span>Add task</span></button>` : ""}
@@ -253,8 +273,8 @@ export class TaskerPanel {
             ${isPriorityOpen ? this.renderPriorityMenu() : ""}
           </div>
           <div class="tasker-chip-wrap">
-            <button class="tasker-chip tasker-chip-due" type="button">${escapeHtml(dueLabel)}</button>
-            ${isDateOpen ? `<div class="tasker-menu tasker-date-menu"><input class="tasker-edit-date" type="date" value="${dateInputValue(task.dueDate)}" /></div>` : ""}
+            <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
+            ${isDateOpen ? this.renderDateMenu(task) : ""}
           </div>
           <button class="tasker-chip tasker-chip-delete" type="button" aria-label="Delete task">${Icons.trash({ size: 12 })}</button>
         </div>
@@ -283,6 +303,40 @@ export class TaskerPanel {
             <span class="tasker-priority ${getPriorityClass(p)}"></span>${titleCase(p)}
           </button>
         `).join("")}
+      </div>
+    `;
+  }
+
+  private renderDateMenu(task: Task): string {
+    const base = task.dueDate ? new Date(task.dueDate) : new Date();
+    const view = this.dateView ?? { year: base.getFullYear(), month: base.getMonth() };
+    const selected = task.dueDate ? ymd(new Date(task.dueDate)) : "";
+    const today = ymd(new Date());
+    const cells = calendarCells(view.year, view.month);
+
+    return `
+      <div class="tasker-menu tasker-date-menu" role="dialog">
+        <div class="tasker-cal-head">
+          <span class="tasker-cal-title">${MONTHS[view.month]} ${view.year}</span>
+          <div class="tasker-cal-nav">
+            <button class="tasker-cal-prev" type="button" aria-label="Previous month">‹</button>
+            <button class="tasker-cal-today" type="button">Today</button>
+            <button class="tasker-cal-next" type="button" aria-label="Next month">›</button>
+          </div>
+        </div>
+        <div class="tasker-cal-grid">
+          ${WEEKDAYS.map((w) => `<span class="tasker-cal-wd">${w}</span>`).join("")}
+          ${cells.map((c) => {
+            const cls = [
+              "tasker-cal-day",
+              c.outside ? "tasker-cal-out" : "",
+              c.date === today ? "tasker-cal-is-today" : "",
+              c.date === selected ? "tasker-cal-sel" : "",
+            ].filter(Boolean).join(" ");
+            return `<button class="${cls}" type="button" data-date="${c.date}">${c.day}</button>`;
+          }).join("")}
+        </div>
+        ${task.dueDate ? `<button class="tasker-cal-clear" type="button">Clear date</button>` : ""}
       </div>
     `;
   }
@@ -335,12 +389,27 @@ export class TaskerPanel {
       commitNewList();
     });
     newListInput?.addEventListener("change", commitNewList);
+    const cancelNewList = (): void => {
+      this.composingList = false;
+      this.render();
+    };
     newListInput?.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        this.composingList = false;
-        this.render();
+        cancelNewList();
       }
+    });
+    newListInput?.addEventListener("blur", () => {
+      // Cancel if dismissed without typing; commit happens via change/submit otherwise.
+      if ((newListInput.value.trim().length ?? 0) === 0) {
+        queueMicrotask(() => {
+          if (this.composingList) cancelNewList();
+        });
+      }
+    });
+    this.host.querySelector<HTMLButtonElement>(".tasker-newlist-cancel")?.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      cancelNewList();
     });
     if (newListInput) queueMicrotask(() => newListInput.focus());
 
@@ -392,7 +461,7 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelectorAll<HTMLButtonElement>(".tasker-task-add-quick, .tasker-empty-action").forEach((btn) => {
+    this.host.querySelectorAll<HTMLButtonElement>(".tasker-task-add-quick").forEach((btn) => {
       btn.addEventListener("click", () => {
         const projectId = btn.dataset.projectId;
         if (projectId) this.openComposer(projectId);
@@ -516,8 +585,50 @@ export class TaskerPanel {
         this.toggleMenu("priority", taskId);
       });
       edit.querySelector<HTMLButtonElement>(".tasker-chip-due")?.addEventListener("click", () => {
+        const willOpen = !(this.openMenu?.kind === "date" && this.openMenu.taskId === taskId);
+        if (willOpen) {
+          const task = this.storage.getTask(projectId, taskId);
+          const base = task?.dueDate ? new Date(task.dueDate) : new Date();
+          this.dateView = { year: base.getFullYear(), month: base.getMonth() };
+        }
         this.toggleMenu("date", taskId);
       });
+
+      const cal = edit.querySelector<HTMLElement>(".tasker-date-menu");
+      if (cal) {
+        this.positionDateMenu(edit, cal);
+        const shift = (delta: number): void => {
+          const v = this.dateView ?? { year: new Date().getFullYear(), month: new Date().getMonth() };
+          const d = new Date(v.year, v.month + delta, 1);
+          this.dateView = { year: d.getFullYear(), month: d.getMonth() };
+          this.render();
+        };
+        cal.querySelector<HTMLButtonElement>(".tasker-cal-prev")?.addEventListener("click", () => shift(-1));
+        cal.querySelector<HTMLButtonElement>(".tasker-cal-next")?.addEventListener("click", () => shift(1));
+        cal.querySelector<HTMLButtonElement>(".tasker-cal-today")?.addEventListener("click", () => {
+          const n = new Date();
+          this.dateView = { year: n.getFullYear(), month: n.getMonth() };
+          this.render();
+        });
+        cal.querySelector<HTMLButtonElement>(".tasker-cal-clear")?.addEventListener("click", () => {
+          this.storage.updateTask(projectId, taskId, { dueDate: undefined });
+          this.openMenu = null;
+          this.dateView = null;
+          this.render();
+        });
+        cal.querySelectorAll<HTMLButtonElement>(".tasker-cal-day").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const value = btn.dataset.date;
+            if (!value) return;
+            this.storage.updateTask(projectId, taskId, {
+              dueDate: new Date(`${value}T00:00:00`).getTime(),
+            });
+            this.openMenu = null;
+            this.dateView = null;
+            this.render();
+          });
+        });
+      }
 
       edit.querySelectorAll<HTMLButtonElement>(".tasker-status-menu .tasker-menu-item").forEach((mi) => {
         mi.addEventListener("click", () => {
@@ -542,15 +653,6 @@ export class TaskerPanel {
         });
       });
 
-      edit.querySelector<HTMLInputElement>(".tasker-edit-date")?.addEventListener("change", (e) => {
-        const value = (e.target as HTMLInputElement).value;
-        this.storage.updateTask(projectId, taskId, {
-          dueDate: value ? new Date(`${value}T00:00:00`).getTime() : undefined,
-        });
-        this.openMenu = null;
-        this.render();
-      });
-
       edit.querySelector<HTMLButtonElement>(".tasker-chip-delete")?.addEventListener("click", () => {
         this.storage.deleteTask(projectId, taskId);
         this.selectedTask = null;
@@ -558,6 +660,27 @@ export class TaskerPanel {
         this.render();
       });
     });
+  }
+
+  private positionDateMenu(edit: HTMLElement, cal: HTMLElement): void {
+    const chip = edit.querySelector<HTMLElement>(".tasker-chip-due");
+    if (!chip) return;
+    const r = chip.getBoundingClientRect();
+    const margin = 8;
+    const calW = cal.offsetWidth || 232;
+    const calH = cal.offsetHeight || 280;
+
+    let left = r.left;
+    if (left + calW > window.innerWidth - margin) {
+      left = Math.max(margin, window.innerWidth - margin - calW);
+    }
+    // Prefer below the chip; flip above if it would overflow the viewport bottom.
+    let top = r.bottom + 4;
+    if (top + calH > window.innerHeight - margin) {
+      top = Math.max(margin, r.top - 4 - calH);
+    }
+    cal.style.left = `${Math.round(left)}px`;
+    cal.style.top = `${Math.round(top)}px`;
   }
 
   private toggleMenu(kind: "status" | "priority" | "date", taskId: string): void {

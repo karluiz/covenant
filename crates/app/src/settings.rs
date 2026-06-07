@@ -479,6 +479,10 @@ pub enum ThemeMode {
     Dark,
     /// Force light chrome + GitHub Light xterm palette.
     Light,
+    /// Force a neutral pure-black (OLED) chrome — opaque, no blue tint,
+    /// vibrancy hidden. Resolves to the dark xterm palette.
+    #[serde(rename = "true_dark")]
+    TrueDark,
 }
 
 impl Default for ThemeMode {

@@ -8,7 +8,7 @@ import {
   structureFindFiles, structureReadFile,
   teammateAttachSessionToTask, teammateArchiveThread, teammateCancelActiveTask, teammateCancelTaskProposal,
   teammateConfirmTask, teammateCreateThread, teammateEditTaskProposal,
-  teammateClearFinishedTasks,
+  teammateClearFinishedTasks, teammateDeleteTask,
   teammateListDecisionsForSession, teammateListMessages, teammateListTasks, teammateListThreads,
   teammateRenameThread, teammateSendText,
   type BlockExcerpt, type SessionExcerpt,
@@ -100,6 +100,9 @@ export interface TeammatePanelDeps {
   /// Delete finished tasks (done | cancelled) for the operator. Returns the
   /// number removed. Backs the Tasks tab's "Clean" affordance.
   clearFinishedTasks?: (operatorId: string) => Promise<number>;
+  /// Delete a single finished (done | cancelled) task by id. Backs the
+  /// per-task trash button on a closed task row.
+  deleteTask?: (taskId: string) => Promise<void>;
   /// Activate the tab whose backing SessionId matches. Returns true if found.
   focusTabBySessionId?: (sessionId: string) => boolean;
   /// Resolve a 6-char session short (as persisted on operator decision rows)
@@ -162,6 +165,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   attachSessionToTask: teammateAttachSessionToTask,
   listTasks:           teammateListTasks,
   clearFinishedTasks:  teammateClearFinishedTasks,
+  deleteTask:          teammateDeleteTask,
   cancelActiveTask:    teammateCancelActiveTask,
   mentionSources: {
     findFiles:          structureFindFiles,
@@ -1354,6 +1358,29 @@ export class TeammatePanel {
     // A done/cancelled task has nothing to stop, so we omit the button
     // entirely rather than leaving a dead, disabled control on the card.
     if (closed) {
+      // A finished task is deletable — offer a per-task trash button so the
+      // user can remove this one row without nuking every finished task via
+      // the bulk "Clean" affordance.
+      if (this.deps.deleteTask) {
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "btn btn--danger";
+        del.textContent = "Delete";
+        del.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!this.deps.deleteTask) return;
+          del.disabled = true;
+          try {
+            await this.deps.deleteTask(task.id);
+            this.expandedTaskIds.delete(task.id);
+            await this.refreshTasks();
+          } catch (err) {
+            console.error("deleteTask failed", err);
+            del.disabled = false;
+          }
+        });
+        actions.append(del);
+      }
       // Collapse to a single column (or no row at all) so we don't leave
       // a lopsided/empty actions grid behind.
       if (actions.childElementCount === 0) actions.style.display = "none";

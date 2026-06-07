@@ -243,7 +243,7 @@ body.sidebar-view-tasker #tasker-panel {
   flex-direction: column;
   gap: 1px;
   padding: 4px 8px;
-  background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+  background: transparent;
 }
 
 .tasker-empty {
@@ -272,23 +272,6 @@ body.sidebar-view-tasker #tasker-panel {
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.35;
-}
-
-.tasker-empty-action {
-  margin-top: 6px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--text-primary);
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-family: var(--font-mono, var(--ui-font));
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tasker-empty-action:hover {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  border-color: var(--accent);
 }
 
 .tasker-composer {
@@ -623,21 +606,111 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-menu-item:hover {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
-.tasker-date-menu { padding: 6px; }
-.tasker-edit-date {
-  background: transparent;
-  border: 1px solid var(--border);
+/* Custom calendar popover (replaces the native date picker).
+   Fixed-positioned (coords set in JS) so it escapes the .tasker-task /
+   .tasker-projects overflow clipping. */
+.tasker-date-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  padding: 8px;
+  width: 232px;
+  gap: 8px;
+}
+.tasker-chip-due-set { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.tasker-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tasker-cal-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.tasker-cal-nav { display: flex; align-items: center; gap: 2px; }
+.tasker-cal-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 6px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  padding: 6px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--ui-font);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.tasker-cal-today { font-size: 10px !important; text-transform: uppercase; letter-spacing: 0.4px; }
+.tasker-cal-nav button:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+.tasker-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.tasker-cal-wd {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+.tasker-cal-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   color: var(--text-primary);
   font-family: var(--ui-font);
-  font-size: 12px;
-  outline: none;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
-
-.tasker-newlist { padding: 0 12px 8px; }
-.tasker-newlist-input {
+.tasker-cal-day:hover {
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+}
+.tasker-cal-out { color: var(--text-tertiary); opacity: 0.45; }
+.tasker-cal-is-today { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.tasker-cal-sel,
+.tasker-cal-sel:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.tasker-cal-clear {
   width: 100%;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, var(--ui-font));
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms;
+}
+.tasker-cal-clear:hover { border-color: #f87171; color: #f87171; }
+
+.tasker-newlist { padding: 0 12px 8px; display: flex; align-items: center; gap: 6px; }
+.tasker-newlist-input {
+  flex: 1;
+  min-width: 0;
   background: color-mix(in srgb, var(--text-primary) 4%, transparent);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -648,6 +721,25 @@ body.sidebar-view-tasker #tasker-panel {
   outline: none;
 }
 .tasker-newlist-input:focus { border-color: var(--accent); }
+.tasker-newlist-cancel {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-0);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.tasker-newlist-cancel:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
 
 .tasker-title-input {
   flex: 1;

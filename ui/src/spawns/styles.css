@@ -60,10 +60,8 @@
 .spawns-popover {
   position: fixed;
   width: 240px;
-  background: rgba(20, 24, 30, 0.85);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--bg-overlay, rgba(20, 24, 30, 0.85));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
   border-radius: 10px;
   padding: 6px;
   z-index: 2000;
@@ -85,7 +83,7 @@
   text-align: left;
 }
 .spawns-popover__item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.06);
 }
 .spawns-popover__item.is-active {
   background: rgba(183, 148, 244, 0.12);
@@ -108,7 +106,7 @@
 }
 .spawns-popover__sep {
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.08);
   margin: 4px 6px;
 }
 .spawns-popover__add {
@@ -125,7 +123,7 @@
   text-align: left;
 }
 .spawns-popover__add:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.04);
   color: var(--text, #d5d9de);
 }
 

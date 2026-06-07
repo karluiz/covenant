@@ -55,7 +55,7 @@ interface TerminalConfig {
 }
 
 type WindowBackground = "solid" | "vibrant" | "translucent";
-type ThemeMode = "dark" | "light" | "system";
+type ThemeMode = "dark" | "light" | "system" | "true_dark";
 type TabStyle = "classic" | "forge" | "glass" | "crt";
 
 interface WindowConfig {
@@ -383,6 +383,13 @@ export class SettingsPanel {
               <span class="settings-radio-body">
                 <span class="settings-radio-title">Dark</span>
                 <span class="settings-radio-hint">Force the dark chrome and dark xterm palette.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="theme" value="true_dark" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">True Dark <span class="settings-badge">OLED</span></span>
+                <span class="settings-radio-hint">Neutral pure-black chrome — opaque, no blue tint, no wallpaper bleed-through.</span>
               </span>
             </label>
             <label class="settings-radio">

@@ -679,4 +679,47 @@ describe("TeammatePanel task action row", () => {
       .filter((b) => b.disabled);
     expect(dead).toHaveLength(0);
   });
+
+  function deleteButton(host: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(host.querySelectorAll<HTMLButtonElement>(".task-actions .btn"))
+      .find((b) => b.textContent === "Delete");
+  }
+
+  async function mountWithDelete(
+    task: Task,
+    deleteTask: (taskId: string) => Promise<void>,
+  ): Promise<HTMLElement> {
+    const operator = makeOp({ id: "op1" });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages:  async () => [],
+      sendText:      vi.fn(),
+      listOperators: async () => [operator],
+      listTasks:     async () => [task],
+      cancelActiveTask: vi.fn().mockResolvedValue(undefined),
+      deleteTask,
+    });
+    await panel.openFor(operator);
+    (host.querySelector(".task-item__head") as HTMLElement).click();
+    return host;
+  }
+
+  it("renders a Delete button on a cancelled task when deleteTask is wired", async () => {
+    const host = await mountWithDelete(makeTask({ status: "cancelled" }), vi.fn());
+    expect(deleteButton(host)).toBeDefined();
+  });
+
+  it("renders no Delete button on an active task", async () => {
+    const host = await mountWithDelete(makeTask({ status: "active" }), vi.fn());
+    expect(deleteButton(host)).toBeUndefined();
+  });
+
+  it("invokes deleteTask with the task id when Delete is clicked", async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    const host = await mountWithDelete(makeTask({ id: "task-x", status: "done" }), del);
+    deleteButton(host)!.click();
+    expect(del).toHaveBeenCalledWith("task-x");
+  });
 });
