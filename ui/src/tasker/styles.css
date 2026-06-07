@@ -428,11 +428,6 @@ body.sidebar-view-tasker #tasker-panel {
   border-color: var(--accent);
 }
 
-.tasker-priority-urgent { background: #ef4444; }
-.tasker-priority-high { background: #f97316; }
-.tasker-priority-normal { background: #eab308; }
-.tasker-priority-low { background: #22c55e; }
-
 .tasker-task-title {
   flex: 1;
   min-width: 0;
