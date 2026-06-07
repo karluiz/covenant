@@ -867,7 +867,7 @@ function renderHeader(h: ModalHandle): HTMLElement {
   const kbd = document.createElement("div");
   kbd.className = "kbd";
   kbd.textContent = "esc";
-  kbd.addEventListener("click", () => h.el.remove());
+  kbd.addEventListener("click", () => closeCreator(h.el));
   header.append(brand, chipHost, kbd);
   getSoulEditor(h).mountChip(chipHost);
   return header;
@@ -1373,7 +1373,7 @@ function renderFooter(h: ModalHandle): HTMLElement {
   cancel.type = "button";
   cancel.className = "settings-cancel";
   cancel.textContent = "Cancel";
-  cancel.addEventListener("click", () => h.el.remove());
+  cancel.addEventListener("click", () => closeCreator(h.el));
   right.append(cancel);
 
   const save = document.createElement("button");
