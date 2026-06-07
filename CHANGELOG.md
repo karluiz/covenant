@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.62 — Tasker linear redesign + spec-prompt tab targeting
+
+### Added
+
+- **Tasker linear/dense redesign**: the expanded task is now a key:value sheet — an inline segmented **Status** switch, selectable **Priority** dots, a **Due** pill, a Notes field, and a muted Delete action — replacing the old chip+popover menus. Each row carries a priority-colored left spine and reveals its `start` action on hover (`ui/src/tasker/panel.ts`, `ui/src/tasker/styles.css`).
+- **Custom date picker**: the Due date opens a themed calendar (Mon-first grid, month nav, Today, Clear date) instead of the native control, portaled to `document.body` so it floats free of the panel's clipping (`ui/src/tasker/panel.ts`).
+
+### Changed
+
+- **Spec-prompt tab targeting**: when several open tabs share the deepest cwd matching a new spec's path (the common multi-tab-in-one-repo case), the toast now binds to the *active* tab rather than an arbitrary match (`ui/src/aom/spec-prompt.ts`, test in `spec-prompt.test.ts`).
+- **Tasker cleanup**: dropped the dead outside-click handler and orphaned menu/priority CSS; the row spine is the single priority indicator (`ui/src/tasker/`).
+
+### Fixed
+
+- **Tasker selected-card contrast**: the expanded task used an accent tint that read as a harsh jump on the True Dark theme; switched to a subtle neutral lift. Also removed bare `.tasker-priority-*` background rules that were painting the entire task card amber (`ui/src/tasker/styles.css`).
+
 ## v0.8.61 — True Dark theme + /remote dashboard
 
 ### Added
