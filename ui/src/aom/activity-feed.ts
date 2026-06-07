@@ -168,10 +168,18 @@ export class AomActivityFeed {
     tabSlug: string;
     cost: string;
   }): void {
-    // When the Activity tab in the teammate panel is handling decisions,
-    // suppress the floating toast so notifications aren't duplicated.
-    if (AomActivityFeed.suppress) return;
+    // Floating operator toasts are disabled. Anonymous `…WE6JN9 ESCALATED`
+    // cards floating over the workspace were noise — they couldn't be traced
+    // to a tab/group and weren't actionable. Operator decisions now surface
+    // only in pull-based UI: Mission Control (Convergence roster) and the
+    // teammate panel Activity tab, which consume the same events directly.
+    // We keep `start()`'s listeners and the `lastWait` dedup bookkeeping in
+    // pushDecision() intact so nothing else regresses; this sink just drops
+    // the card. See docs/superpowers/specs/2026-06-07-mission-control-stop-
+    // and-kill-toasts-design.md.
+    return;
 
+    // eslint-disable-next-line no-unreachable
     const card = document.createElement("div");
     card.className = `aom-feed-card aom-feed-${opts.cls}`;
     card.innerHTML = `

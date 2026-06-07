@@ -1,8 +1,10 @@
 import {
   getConvergenceSnapshot,
+  setOperatorEnabled,
   submitConvergenceReply,
   type ConvergenceSnapshot,
 } from "../api";
+import type { SessionId } from "../api";
 import { Icons } from "../icons";
 import { escalationIndex, sortOperators } from "./model";
 import { renderOperatorCard, type ReplyScope } from "./tile";
@@ -239,6 +241,7 @@ export class ConvergenceOverlay {
           this.render();
         },
         onSubmit: this.submitReply.bind(this),
+        onStop: this.stopOperator.bind(this),
       }, this.expanded);
       if (entry.operator_id === this.activeOperatorId) card.classList.add("mc-card--active");
       this.gridEl.append(card);
@@ -265,6 +268,18 @@ export class ConvergenceOverlay {
     const next = (idx === -1 ? 0 : idx + delta + list.length) % list.length;
     this.activeOperatorId = list[next].operator_id;
     this.render();
+  }
+
+  /// Disable the operator on every one of its sessions. Fire-and-forget per
+  /// session; the next 1s poll drops the now-inert sessions from the roster so
+  /// the card leaves on its own — no optimistic mutation needed.
+  private stopOperator(_operatorId: string, sessionIds: string[]): void {
+    for (const sid of sessionIds) {
+      void setOperatorEnabled(sid as SessionId, false).catch((err) =>
+        console.warn("[convergence] stopOperator failed", sid, err),
+      );
+    }
+    void this.refresh();
   }
 
   async submitReply(sessionId: string, text: string, scope: ReplyScope): Promise<void> {
