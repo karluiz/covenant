@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.59 — Per-operator Stop in Mission Control + Pi scroll fix
+
+### Added
+
+- **Per-operator Stop in Mission Control**: each operator tile now exposes its own Stop control so a single runaway operator can be halted without touching the others (`ui/src/convergence/tile.ts`, `ui/src/convergence/overlay.ts`, `ui/src/styles.css`).
+
+### Changed
+
+- **Killed floating operator toasts**: removed the free-floating operator toast notifications in favor of surfacing operator status inline in the activity feed (`ui/src/aom/activity-feed.ts`).
+
+### Fixed
+
+- **Pi chat no longer snaps to the top while scrolled up**: Pi's streaming renderer calls `replaceChildren()` on every `text_delta`, which makes WKWebView snap the scroll container's `scrollTop` to 0 — yanking the view to the top on each delta whenever the reader had scrolled up to read earlier output. The view now records the reader's parked offset and restores it after each render instead of bailing out (`ui/src/executors/pi/view.ts`).
+
 ## v0.8.58 — AI-generated tab titles
 
 ### Added
