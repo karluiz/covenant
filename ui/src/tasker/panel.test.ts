@@ -80,7 +80,7 @@ describe("TaskerPanel status lifecycle", () => {
 describe("TaskerPanel filters", () => {
   function setupThree(panel: TaskerPanel): string {
     const pid = inbox(panel);
-    const a = addTask(panel, pid, "pending one");
+    addTask(panel, pid, "pending one");
     const b = addTask(panel, pid, "active one");
     const c = addTask(panel, pid, "done one");
     storageOf(panel).updateTask(pid, b, { status: "active" });
@@ -198,5 +198,33 @@ describe("TaskerPanel inline edit", () => {
     input.dispatchEvent(new Event("change"));
 
     expect(storageOf(panel).getTask(pid, tid).title).toBe("Deploy API to Pulzen");
+  });
+});
+
+describe("TaskerPanel new-list composer", () => {
+  it("does not call window.prompt and creates a project from the inline composer", () => {
+    const promptSpy = vi.spyOn(window, "prompt");
+    const { panel, host } = mount();
+
+    host.querySelector<HTMLButtonElement>(".tasker-btn-new-project")!.click();
+    const input = host.querySelector<HTMLInputElement>(".tasker-newlist-input")!;
+    expect(input).toBeTruthy();
+    input.value = "Roadmap";
+    input.dispatchEvent(new Event("change"));
+
+    const names = storageOf(panel).getProjects().map((p: any) => p.name);
+    expect(names).toContain("Roadmap");
+    expect(promptSpy).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+  });
+
+  it("Escape cancels the composer without creating a project", () => {
+    const { panel, host } = mount();
+    const before = storageOf(panel).getProjects().length;
+    host.querySelector<HTMLButtonElement>(".tasker-btn-new-project")!.click();
+    const input = host.querySelector<HTMLInputElement>(".tasker-newlist-input")!;
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(host.querySelector(".tasker-newlist-input")).toBeNull();
+    expect(storageOf(panel).getProjects().length).toBe(before);
   });
 });

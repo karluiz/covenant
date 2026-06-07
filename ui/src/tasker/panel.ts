@@ -67,6 +67,7 @@ export class TaskerPanel {
   private selectedTask: { projectId: string; taskId: string } | null = null;
   private openMenu: { kind: "status" | "priority" | "date"; taskId: string } | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
+  private composingList = false;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -124,6 +125,12 @@ export class TaskerPanel {
           <button class="tasker-filter-btn${this.currentFilter === "pending" ? " active" : ""}" data-filter="pending">Pending</button>
           <button class="tasker-filter-btn${this.currentFilter === "done" ? " active" : ""}" data-filter="done">Done</button>
         </div>
+
+        ${this.composingList ? `
+          <form class="tasker-newlist">
+            <input class="tasker-newlist-input" type="text" autocomplete="off" placeholder="New list name…" />
+          </form>
+        ` : ""}
 
         <div class="tasker-projects">
           ${projects.map((p) => this.renderProject(p)).join("")}
@@ -314,6 +321,32 @@ export class TaskerPanel {
     this.host.querySelector<HTMLButtonElement>(".tasker-btn-new-project")?.addEventListener("click", () => {
       this.showNewProjectDialog();
     });
+
+    const newListForm = this.host.querySelector<HTMLFormElement>(".tasker-newlist");
+    const newListInput = this.host.querySelector<HTMLInputElement>(".tasker-newlist-input");
+    const commitNewList = (): void => {
+      const name = newListInput?.value.trim() ?? "";
+      this.composingList = false;
+      if (name.length > 0) {
+        const project = this.storage.createProject(name);
+        this.expandedProjects.add(project.id);
+        this.saveExpandedProjects();
+      }
+      this.render();
+    };
+    newListForm?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      commitNewList();
+    });
+    newListInput?.addEventListener("change", commitNewList);
+    newListInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this.composingList = false;
+        this.render();
+      }
+    });
+    if (newListInput) queueMicrotask(() => newListInput.focus());
 
     this.host.querySelectorAll<HTMLButtonElement>(".tasker-task-checkbox").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -527,11 +560,7 @@ export class TaskerPanel {
   }
 
   private showNewProjectDialog(): void {
-    const name = prompt("Project name:");
-    if (!name) return;
-    const project = this.storage.createProject(name);
-    this.expandedProjects.add(project.id);
-    this.saveExpandedProjects();
+    this.composingList = true;
     this.render();
   }
 
