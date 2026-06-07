@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.61 — True Dark theme + /remote dashboard
+
+### Added
+
+- **True Dark (OLED) theme**: a fourth Appearance mode rendering neutral pure-black, fully-opaque chrome — no blue tint, no wallpaper bleed-through regardless of the window-background setting. Wired end-to-end: `ThemeMode::TrueDark` in `crates/app/src/settings.rs`, `body.theme-true-dark` tokens in `ui/src/styles.css`, `resolveTheme` in `ui/src/theme/mode.ts`, applied on boot and in `applyTheme` (`ui/src/main.ts`), and a new radio in `ui/src/settings/panel.ts`.
+- **`/remote` web dashboard**: a remote tab-control dashboard island with a WebSocket client (reconnect, backoff, token persistence), a pure protocol module (parse/url/reducer) with unit tests, and a Playwright render test. The desktop RC agent spawns at startup, collects tabs, and connects over a github_id-keyed relay (`crates/.../rc_agent`).
+
+### Changed
+
+- **Theme-aware popovers, tooltips & dropdowns**: the spawns executor picker, `ck-tooltip`, and the notch activity-filter dropdown now derive their surfaces from theme tokens (`--bg-overlay` / `--border` / `--ink-rgb`) instead of hardcoded blue-tinted values, so they go truly black under True Dark and invert under Light (`ui/src/spawns/styles.css`, `ui/src/styles.css`). The notch dropdown previously fell back to a nonexistent `--bg-panel-2`.
+- **Project Notes docs toggle**: replaced the chunky pill edit/preview toggle with minimalist line icons (pencil / eye) carrying tooltips (`ui/src/project-notes/docs-tab.ts`, `ui/src/project-notes/styles.css`).
+- **Agent-occupied tab titles**: tabs running an agent are now titled off the live screen (`ui/src/tabs/manager.ts`).
+
+### Fixed
+
+- **Tasker date picker clipping**: the due-date picker is portaled to `<body>` so it isn't clipped by the panel, and its outside-click listener is torn down on close (`ui/src/tasker/panel.ts`).
+
 ## v0.8.60 — Immersive Spec Creator + Tasker redesign
 
 ### Added
