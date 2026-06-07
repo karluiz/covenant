@@ -357,8 +357,9 @@ export class MissionPage {
     const cards = visible.map((spec) => {
       const isSelected = s.selected?.source === "card" && s.selected.path === spec.path;
       const isCurrent = spec.path === (this.opts?.currentMissionPath ?? null);
+      const isNew = isRecentlyUpdated(spec.updated_at);
       return `
-        <button type="button" class="mission-page-spec ${isSelected ? "selected" : ""}"
+        <button type="button" class="mission-page-spec ${isSelected ? "selected" : ""} ${isNew ? "is-new" : ""}"
                 data-path="${escapeAttr(spec.path)}">
           <span class="mission-page-id">${escapeHtml(spec.id)}</span>
           <span class="mission-page-spec-body">
@@ -366,6 +367,7 @@ export class MissionPage {
             <span class="mission-page-spec-goal">${escapeHtml(spec.goal)}</span>
           </span>
           ${isCurrent ? `<span class="mission-page-badge">current</span>` : ""}
+          ${!isCurrent && isNew ? `<span class="mission-page-badge mission-page-badge-new">new</span>` : ""}
         </button>
       `;
     }).join("");
@@ -662,6 +664,15 @@ function escapeHtml(s: string): string {
 }
 
 function escapeAttr(s: string): string { return escapeHtml(s); }
+
+/** Spec was created/modified within the last 24h — flag it as "new". */
+const RECENT_SPEC_WINDOW_MS = 24 * 60 * 60 * 1000;
+function isRecentlyUpdated(updatedAt: string | undefined): boolean {
+  if (!updatedAt) return false;
+  const t = Date.parse(updatedAt);
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < RECENT_SPEC_WINDOW_MS;
+}
 
 function cleanGoalPreview(raw: string): string {
   let s = raw.trim();

@@ -11827,6 +11827,17 @@ body[data-aom-phase="triaging"]
 }
 .mission-page-badge--ok { color: rgb(140 220 160); border-color: rgb(140 220 160 / 0.3); }
 .mission-page-badge--missing { color: rgb(220 140 140); border-color: rgb(220 140 140 / 0.3); cursor: pointer; background: none; }
+.mission-page-badge-new {
+  color: var(--accent, #7aa2f7);
+  border-color: color-mix(in srgb, var(--accent, #7aa2f7) 45%, transparent);
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 14%, transparent);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mission-page-spec.is-new .mission-page-id {
+  color: var(--accent, #7aa2f7);
+}
 
 .mission-page-sp-new {
   background: none; border: 0; color: rgb(120 160 255);

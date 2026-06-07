@@ -82,8 +82,11 @@ function onCandidate(cand: SpecCandidate) {
 
   const activeId = host.getActiveTabId();
   // Prefer the eligible tab whose cwd is the deepest prefix of the spec
-  // path — that's the tab the spec was actually created in. Fall back to
-  // the active tab, then the first eligible.
+  // path — that's the closest match to where the spec lives. When several
+  // tabs share that deepest cwd (the common case: multiple tabs in the
+  // same repo root), prefer the *active* tab — that's the one the user is
+  // actually working in. Otherwise fall back to the active tab anywhere in
+  // the candidate set, then the first eligible.
   const norm = (p: string) => p.replace(/\/+$/, "");
   const path = norm(cand.path);
   const byCwdDepth = eligible
@@ -92,8 +95,15 @@ function onCandidate(cand: SpecCandidate) {
       return path === c || path.startsWith(c + "/");
     })
     .sort((a, b) => norm(b.cwd).length - norm(a.cwd).length);
+  const deepest =
+    byCwdDepth.length > 0
+      ? byCwdDepth.filter(
+          (t) => norm(t.cwd).length === norm(byCwdDepth[0]!.cwd).length,
+        )
+      : [];
   const target =
-    byCwdDepth[0] ??
+    deepest.find((t) => t.id === activeId) ??
+    deepest[0] ??
     eligible.find((t) => t.id === activeId) ??
     eligible[0];
 

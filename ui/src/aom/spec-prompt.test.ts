@@ -127,6 +127,72 @@ describe("spec-prompt toast rendering", () => {
     expect(toasts.length).toBe(1);
     expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t3");
   });
+
+  it("prefers active tab over a deeper-cwd sibling only when cwd depth ties", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts } = await import("./spec-prompt");
+    // t1 first in the list but t3 is active; all share the same deepest cwd.
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo", hasMission: false, hasOperator: true },
+      { id: "t2", cwd: "/repo", hasMission: false, hasOperator: true },
+      { id: "t3", cwd: "/repo", hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t3" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+
+    const toasts = document.querySelectorAll(".spec-prompt-toast");
+    expect(toasts.length).toBe(1);
+    expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t3");
+  });
+
+  it("a strictly deeper cwd wins even over the active tab", async () => {
+    vi.resetModules();
+    capturedCandidateHandler = null;
+    document.body.innerHTML = "";
+
+    vi.mock("../api", async (importOriginal) => {
+      const original = await importOriginal<typeof import("../api")>();
+      return {
+        ...original,
+        specDetectorApi: { start: vi.fn().mockResolvedValue(undefined) },
+        subscribeSpecCandidates: vi.fn().mockImplementation((handler: (c: SpecCandidate) => void) => {
+          capturedCandidateHandler = handler;
+          return Promise.resolve(() => { capturedCandidateHandler = null; });
+        }),
+      };
+    });
+
+    const { startSpecPrompts } = await import("./spec-prompt");
+    const tabs: TabSnapshot[] = [
+      { id: "t1", cwd: "/repo",     hasMission: false, hasOperator: true },
+      { id: "t2", cwd: "/repo/pkg", hasMission: false, hasOperator: true },
+    ];
+    const host = makeHost(tabs, { activeTabId: "t1" });
+    await startSpecPrompts(host);
+
+    emitCandidate({ path: "/repo/pkg/docs/specs/3.20.md", repo_root: "/repo", source: "covenant", goal_snippet: "..." });
+
+    const toasts = document.querySelectorAll(".spec-prompt-toast");
+    expect(toasts.length).toBe(1);
+    expect((toasts[0] as HTMLElement).dataset.tabId).toBe("t2");
+  });
 });
 
 const cand = (over: Partial<SpecCandidate> = {}): SpecCandidate => ({
