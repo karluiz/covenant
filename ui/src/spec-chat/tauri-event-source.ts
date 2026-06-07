@@ -33,6 +33,11 @@ export function tauriEventSource(initialDraftId: string | null): SpecEventSource
 
   return {
     subscribe(cb) { subs.add(cb); return () => subs.delete(cb); },
+    dispose() {
+      if (unlisten) { unlisten(); unlisten = null; }
+      listenedId = null;
+      subs.clear();
+    },
     async send(draftId, userMsg, cwd) {
       const id = draftId ?? currentId ?? mintUlid();
       currentId = id;

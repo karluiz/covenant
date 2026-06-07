@@ -18,6 +18,8 @@ export interface SpecEventSource {
    *  Resolves with the draft id once the turn completes. */
   send(draftId: string | null, userMsg: string, cwd: string | null): Promise<string>;
   subscribe(cb: (e: SpecStreamEvent) => void): () => void;
+  /** Tear down any underlying transport listeners. Optional for in-memory sources. */
+  dispose?(): void;
 }
 
 /** In-memory source that replays a scripted event list — for tests + manual preview. */

@@ -92,6 +92,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   const close = () => {
     document.removeEventListener('keydown', onKey, true);
     off();
+    opts.source.dispose?.();
     root.classList.remove('open');
     setTimeout(() => root.remove(), 420);
     opts.onClose?.();
