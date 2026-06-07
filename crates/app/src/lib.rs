@@ -2733,6 +2733,80 @@ async fn spec_author_step(
     })
 }
 
+struct TauriSink {
+    app: tauri::AppHandle,
+    topic: String,
+}
+impl karl_agent::spec_author::stream::StreamSink for TauriSink {
+    fn emit(&self, event: karl_agent::spec_author::stream::SpecStreamEvent) {
+        use tauri::Emitter;
+        let _ = self.app.emit(&self.topic, &event);
+    }
+}
+
+#[tauri::command]
+async fn spec_author_stream_step(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    draft_id: Option<String>,
+    user_msg: String,
+    cwd: Option<String>,
+) -> Result<String, String> {
+    use karl_agent::spec_author as sa;
+    let api_key = {
+        let s = state.settings.lock().await;
+        s.anthropic_api_key.clone().ok_or("no api key configured — open Settings (⌘,)")?
+    };
+    let base_dir = sa::home_covenant_dir().map_err(|e| e.to_string())?;
+
+    let mut draft = match draft_id {
+        Some(ref id) => {
+            let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
+            sa::load_draft_default(ulid).unwrap_or_else(|_| sa::SpecDraft {
+                id: ulid, messages: vec![], partial_md: None,
+                last_updated: chrono::Utc::now(),
+                status: sa::DraftStatus::InProgress { phase: sa::Phase::Goal },
+            })
+        }
+        None => sa::SpecDraft {
+            id: Ulid::new(), messages: vec![], partial_md: None,
+            last_updated: chrono::Utc::now(),
+            status: sa::DraftStatus::InProgress { phase: sa::Phase::Goal },
+        },
+    };
+    let draft_id_str = draft.id.to_string();
+    let topic = format!("spec://{}/event", draft_id_str);
+
+    let cwd_path = cwd.as_ref().map(std::path::PathBuf::from);
+    let repo_root = cwd_path.clone()
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .unwrap_or_else(|| base_dir.clone());
+    let system = if draft.messages.is_empty() {
+        match cwd_path.as_deref().and_then(sa::build_repo_context) {
+            Some(ctx) => format!("{}{}", sa::SYSTEM_PROMPT_PUB, ctx),
+            None => sa::SYSTEM_PROMPT_PUB.to_string(),
+        }
+    } else { sa::SYSTEM_PROMPT_PUB.to_string() };
+
+    let sink = TauriSink { app: app.clone(), topic: topic.clone() };
+    let dispatcher = sa::stream::AnthropicStreamingDispatcher {
+        api_key, model: "claude-opus-4-8".into(),
+    };
+
+    let result = sa::stream::step_streaming(
+        &dispatcher, &mut draft, user_msg, &repo_root, &system, &sink, 40).await;
+
+    draft.last_updated = chrono::Utc::now();
+    let _ = sa::save_draft(&base_dir, &draft);
+
+    if let Err(e) = result {
+        use tauri::Emitter;
+        let _ = app.emit(&topic, &sa::stream::SpecStreamEvent::Error { message: e.clone() });
+        return Err(e);
+    }
+    Ok(draft_id_str)
+}
+
 #[tauri::command]
 async fn spec_author_load_draft(id: String) -> Result<karl_agent::spec_author::SpecDraft, String> {
     let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
@@ -3781,6 +3855,7 @@ pub fn run() {
             familiar_commands::familiar_mark_executed,
             familiar_commands::familiar_has_recent_closed_mission,
             spec_author_step,
+            spec_author_stream_step,
             spec_author_load_draft,
             spec_author_list_drafts,
             spec_author_mark_published,

@@ -13,6 +13,9 @@ use ulid::Ulid;
 
 const SYSTEM_PROMPT: &str = include_str!("spec_author/prompt.md");
 
+/// Public re-export of the base system prompt for the app layer.
+pub const SYSTEM_PROMPT_PUB: &str = SYSTEM_PROMPT;
+
 pub mod tools;
 pub mod stream;
 
