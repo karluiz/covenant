@@ -134,80 +134,6 @@ body.theme-dark .op-card-summary {
  * same soft 1px border + glow. Theme tokens mean light/dark are auto-
  * covered — no separate light overrides for the surface beyond what
  * was already there. */
-.op-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 10200;
-  display: flex;
-  /* Right-anchored drawer: panel slides in from the edge, full height. */
-  align-items: stretch;
-  justify-content: flex-end;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  padding: 0;
-}
-@keyframes op-drawer-in {
-  from { transform: translateX(28px); opacity: 0.5; }
-  to { transform: translateX(0); opacity: 1; }
-}
-.op-modal-step {
-  width: 75vw;
-  min-width: min(100vw, 640px);
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0;
-  border-radius: 0;
-  animation: op-drawer-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
-  background: var(--bg-overlay, #1a1a1a);
-  color: var(--text-primary, #e6e6e6);
-  /* Accent-tinted hairline border so the card feels related to the
-   * accent (release-log shares this language). 1px keeps it tasteful. */
-  border: 1px solid color-mix(in srgb, var(--accent, #b794f4) 24%, var(--border, #2a2a2a));
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.5),
-    0 4px 12px rgba(0, 0, 0, 0.3),
-    /* Inner accent glow on the top edge — subtle, just enough to read
-     * as "this is the operator surface" not "this is a generic dialog". */
-    inset 0 1px 0 color-mix(in srgb, var(--accent, #b794f4) 12%, transparent);
-}
-.op-modal-topbar {
-  flex-shrink: 0;
-  padding: 14px 18px;
-  /* Release log uses a slightly stronger border below the header — the
-   * accent tint on the card already does the visual lift, so a plain
-   * --border line here is enough. */
-  border-bottom: 1px solid var(--border, #2a2a2a);
-  background: inherit;
-}
-.op-modal-body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 16px 22px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-height: 0;
-}
-.op-modal-footer {
-  flex-shrink: 0;
-  padding: 12px 18px;
-  border-top: 1px solid var(--border, #2a2a2a);
-  background: inherit;
-  margin-top: 0;
-}
-body.theme-light .op-modal-step {
-  background: #fff;
-  color: #111;
-  border-color: color-mix(in srgb, var(--accent, #6f7bff) 28%, rgba(0, 0, 0, 0.10));
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 color-mix(in srgb, var(--accent, #6f7bff) 14%, transparent);
-}
 .op-modal-field {
   display: flex;
   flex-direction: column;
@@ -352,23 +278,6 @@ body.theme-light .op-color-swatch.is-selected {
   border-bottom: 1px solid color-mix(in srgb, currentColor 8%, transparent);
   margin-bottom: 4px;
 }
-.op-modal-close {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: 4px;
-  opacity: 0.6;
-  flex-shrink: 0;
-}
-.op-modal-close:hover {
-  opacity: 1;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-}
 .op-modal-section {
   font-size: 10.5px;
   font-weight: 600;
@@ -447,20 +356,6 @@ body.theme-light .op-color-swatch.is-selected {
 }
 @media (max-width: 600px) {
   .op-avatar-grid { grid-template-columns: repeat(6, 1fr); }
-}
-
-/* ── Top bar (title + close) ───────────────────────────────────────────── */
-.op-modal-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.op-modal-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
 /* ── Hero (avatar card + live previews) ──────────────────────────────────
@@ -841,16 +736,6 @@ body.theme-light .op-tg-bubble {
 .op-archetype-name { font-weight: 600; font-size: 13px; }
 .op-archetype-tagline { font-size: 11px; opacity: .7; margin-top: 4px; }
 
-.op-soul-split {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr);
-  gap: 18px;
-  align-items: start;
-}
-@media (max-width: 860px) { .op-soul-split { grid-template-columns: 1fr; } }
-
-/* Left — structured controls */
-.op-soul-controls { display: flex; flex-direction: column; gap: 14px; }
 .op-soul-section {
   border: 1px solid var(--border, #2a2f37);
   border-radius: 12px;
@@ -916,20 +801,7 @@ body.theme-light .op-tg-bubble {
   cursor: pointer;
 }
 
-/* Right — hero, prose, preview, raw source */
-.op-soul-right { display: flex; flex-direction: column; gap: 12px; }
-.op-soul-hero {
-  display: flex;
-  align-items: center;
-  padding: 14px 16px;
-  border: 1px solid var(--border, #2a2f37);
-  border-radius: 12px;
-  background:
-    linear-gradient(120deg,
-      color-mix(in srgb, var(--operator-color, #7aa2ff) 16%, transparent),
-      transparent 70%),
-    var(--surface-1, rgba(255, 255, 255, 0.02));
-}
+/* Prose, preview, raw source */
 .op-soul-body {
   width: 100%;
   min-height: 190px;

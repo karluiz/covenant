@@ -150,7 +150,7 @@ export class OperatorsPane {
     // so add a global Escape listener tied to this modal instance.
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape" && document.body.contains(handle.el)) {
-        handle.el.remove();
+        closeCreator(handle.el);
         document.removeEventListener("keydown", onKey);
       }
     };
@@ -824,12 +824,19 @@ const RAIL: { key: SectionKey; label: string; createOnly?: boolean }[] = [
   { key: "soul", label: "The Soul" },
 ];
 
+/// Animated teardown: drop the `.open` class to trigger the exit transition,
+/// then remove the node once it completes.
+function closeCreator(el: HTMLElement): void {
+  el.classList.remove("open");
+  setTimeout(() => el.remove(), 420);
+}
+
 function renderForm(h: ModalHandle): DocumentFragment {
   const frag = document.createDocumentFragment();
 
   const scrim = document.createElement("div");
   scrim.className = "scrim";
-  scrim.addEventListener("click", () => h.el.remove());
+  scrim.addEventListener("click", () => closeCreator(h.el));
 
   const creator = document.createElement("div");
   creator.className = "creator";
@@ -1064,16 +1071,16 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   }
 
   // Funnel a control change into the raw text + state, refresh the header
-  // chip + live preview, and (when `repaintControls`) re-mount the active
-  // section. `repaintControls` is skipped while a text field is focused so
+  // chip + live preview, and (when `remountSection`) re-mount the active
+  // section. `remountSection` is skipped while a text field is focused so
   // the caret survives.
-  function commit(repaintControls: boolean): void {
+  function commit(remountSection: boolean): void {
     h.state.soulRaw = soulRawFromView(view);
     src.value = h.state.soulRaw;
     const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
     if (chipHost) mountChipInner(chipHost);
     void renderPreview();
-    if (repaintControls) {
+    if (remountSection) {
       const sectionHost = h.el.querySelector<HTMLElement>(".op-section");
       if (sectionHost) mountSectionInner(sectionHost, h.state.activeSection);
     }
@@ -1302,21 +1309,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     }
   }
 
-  // Initial hydrate from the modal's current soulRaw.
-  void (async () => {
-    try {
-      const v = await operatorSoulParse(h.state.soulRaw);
-      if (v) { view = v; errLine.textContent = v.validation_error ?? ""; }
-    } catch (e) {
-      errLine.textContent = `Parse failed: ${e}`;
-    }
-    src.value = h.state.soulRaw;
-    body.value = view.body ?? "";
-    repaintAll();
-    void renderPreview();
-  })();
-
-  return {
+  const self: SoulEditor = {
     mountSection(host, section) { mountSectionInner(host, section); },
     mountLive(host) {
       host.innerHTML = "";
@@ -1325,6 +1318,25 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     },
     mountChip(host) { mountChipInner(host); },
   };
+
+  // Initial hydrate from the modal's current soulRaw. Guard the post-await
+  // repaint so a stale (superseded) editor closure doesn't repaint over a
+  // newer render's nodes.
+  void (async () => {
+    try {
+      const v = await operatorSoulParse(h.state.soulRaw);
+      if (v) { view = v; errLine.textContent = v.validation_error ?? ""; }
+    } catch (e) {
+      errLine.textContent = `Parse failed: ${e}`;
+    }
+    if ((h.el as HTMLElement & { __soulEditor?: SoulEditor | null }).__soulEditor !== self) return;
+    src.value = h.state.soulRaw;
+    body.value = view.body ?? "";
+    repaintAll();
+    void renderPreview();
+  })();
+
+  return self;
 }
 
 // ── Footer: default toggle (left), delete + cancel + save (right) ───────────

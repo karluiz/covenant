@@ -22,6 +22,12 @@ describe('operator modal', () => {
     expect(canProceedFromStep1(m)).toBe(true);
   });
 
+  it('footer keeps save/delete classes and shows delete only in edit', () => {
+    const c = openOperatorModal({ mode: 'create' });
+    expect(c.el.querySelector('.op-modal-save')).toBeTruthy();
+    expect(c.el.querySelector('.op-modal-delete')).toBeFalsy();
+  });
+
   it('blocks step 1 when name > 24 chars', () => {
     const m = openOperatorModal({ mode: 'create' });
     m.setName('x'.repeat(25));
