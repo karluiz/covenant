@@ -87,6 +87,7 @@ export class TaskerPanel {
   private dateView: { year: number; month: number } | null = null;
   private dateMenuEl: HTMLElement | null = null;
   private datePickerRepaint: (() => void) | null = null;
+  private dateOutsideListener: ((ev: MouseEvent) => void) | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private composingList = false;
 
@@ -309,6 +310,11 @@ export class TaskerPanel {
   }
 
   private closeDatePicker(): void {
+    if (this.dateOutsideListener) {
+      document.removeEventListener("mousedown", this.dateOutsideListener, true);
+      this.dateOutsideListener = null;
+    }
+    this.datePickerRepaint = null;
     this.dateMenuEl?.remove();
     this.dateMenuEl = null;
     this.dateView = null;
@@ -341,10 +347,14 @@ export class TaskerPanel {
     const onOutside = (ev: MouseEvent): void => {
       const target = ev.target as HTMLElement;
       if (el.contains(target) || anchor.contains(target)) return;
-      document.removeEventListener("mousedown", onOutside, true);
       this.closeDatePicker();
     };
-    queueMicrotask(() => document.addEventListener("mousedown", onOutside, true));
+    this.dateOutsideListener = onOutside;
+    queueMicrotask(() => {
+      if (this.dateOutsideListener === onOutside) {
+        document.addEventListener("mousedown", onOutside, true);
+      }
+    });
   }
 
   private dateCalendarHtml(task: Task): string {
