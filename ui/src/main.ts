@@ -397,6 +397,30 @@ function formatBudgetDuration(ms: number): string {
 async function boot(): Promise<void> {
   await waitForTauri();
 
+  // Suppress the native WebKit context menu (Reload / Inspect Element /
+  // AutoFill) everywhere except editable fields, where the native copy/
+  // paste menu is still useful. Our own pane/tab/etc. menus run their own
+  // contextmenu handlers and build a custom menu, so they're unaffected —
+  // this only kills the fallback native menu on unhandled surfaces.
+  window.addEventListener(
+    "contextmenu",
+    (e) => {
+      const t = e.target as HTMLElement | null;
+      // xterm's hidden focus-proxy <textarea> reports as editable but is not
+      // a real text field — treat anything inside a terminal as non-editable
+      // so the native menu stays suppressed there.
+      const inTerminal = !!t?.closest(".xterm");
+      const editable =
+        !inTerminal &&
+        !!t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable);
+      if (!editable) e.preventDefault();
+    },
+    { capture: true },
+  );
+
   // Window title carries the running version — visible in the macOS
   // top bar + app switcher so it's clear which build is which when
   // multiple installs coexist (DMG vs `tauri dev`).
