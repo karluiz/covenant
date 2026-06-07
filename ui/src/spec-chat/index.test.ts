@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mountSpecChat } from "./index";
-import type { SpecChatPanel } from "./panel";
 import type { SpecDraftSummary, SpecDraftStatus } from "../api";
-import type { SpecChatState } from "./state";
+import type { ImmersiveOpts, ImmersiveInstance } from "./immersive";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,20 +31,39 @@ function makeDeps() {
   };
 }
 
-/** Creates a mock panel that records calls and exposes the onPublishRequest setter. */
-function makeMockPanel(): { panel: SpecChatPanel; opened: boolean } {
-  const record = { opened: false };
-  const panel: SpecChatPanel = {
-    onPublishRequest: null,
-    onClose: null,
-    isOpen: () => record.opened,
-    open() { record.opened = true; },
-    close() {
-      record.opened = false;
-      panel.onClose?.();
-    },
+/**
+ * Build a mock immersive factory and return both the factory fn and a ref to the
+ * latest captured opts (populated on first call).
+ */
+function makeMockImmersiveFactory(): {
+  factory: (opts: ImmersiveOpts) => ImmersiveInstance;
+  latestOpts: () => ImmersiveOpts | undefined;
+  latestInstance: () => ImmersiveInstance | undefined;
+} {
+  let capturedOpts: ImmersiveOpts | undefined;
+  let capturedInstance: ImmersiveInstance | undefined;
+
+  const factory = (opts: ImmersiveOpts): ImmersiveInstance => {
+    capturedOpts = opts;
+    let isOpen = true;
+    const inst: ImmersiveInstance = {
+      submit: vi.fn(),
+      close: () => {
+        isOpen = false;
+        opts.onClose?.();
+      },
+    };
+    // Expose isOpen via a non-standard property so tests can inspect it.
+    (inst as unknown as { isOpen: () => boolean }).isOpen = () => isOpen;
+    capturedInstance = inst;
+    return inst;
   };
-  return { panel, ...record };
+
+  return {
+    factory,
+    latestOpts: () => capturedOpts,
+    latestInstance: () => capturedInstance,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -59,33 +77,17 @@ describe("mountSpecChat — chooser logic", () => {
     host = makeHost();
   });
 
-  it("1. No in-progress drafts: open mounts chat panel directly, no chooser", async () => {
+  it("1. No in-progress drafts: open mounts immersive directly, no chooser", async () => {
     const listDrafts = vi.fn().mockResolvedValue([]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    let capturedPanel: SpecChatPanel | undefined;
-    const mountPanel = (_h: HTMLElement, _s: SpecChatState): SpecChatPanel => {
-      const { panel } = makeMockPanel();
-      capturedPanel = panel;
-      return panel;
-    };
-    const createState = (): SpecChatState => ({
-      draftId: () => null,
-      messages: () => [],
-      awaitingAnswer: () => false,
-      finalMarkdown: () => null,
-      phase: () => null,
-      submit: vi.fn().mockResolvedValue(undefined),
-      restoreDraft: vi.fn().mockResolvedValue(undefined),
-      reset: vi.fn(),
-      onChange: vi.fn().mockReturnValue(() => {}),
-    });
+    const { factory, latestInstance } = makeMockImmersiveFactory();
 
-    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountPanel, createState });
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
 
-    await vi.waitFor(() => expect(capturedPanel?.isOpen()).toBe(true));
+    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
     expect(host.querySelector(".spec-chat-chooser")).toBeNull();
     expect(ctrl.isOpen()).toBe(true);
   });
@@ -108,33 +110,15 @@ describe("mountSpecChat — chooser logic", () => {
     expect(texts.some((t) => t.includes("Beta project spec"))).toBe(true);
   });
 
-  it("3. Clicking 'Resume X' removes chooser and mounts the panel", async () => {
+  it("3. Clicking 'Resume X' removes chooser and mounts the immersive surface", async () => {
     const draft = makeDraft({ id: "resume-me" });
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    let capturedPanel: SpecChatPanel | undefined;
-    const mountPanel = (_h: HTMLElement, _s: SpecChatState): SpecChatPanel => {
-      const { panel } = makeMockPanel();
-      capturedPanel = panel;
-      return panel;
-    };
+    const { factory, latestOpts, latestInstance } = makeMockImmersiveFactory();
 
-    // Mock state with a restoreDraft that resolves immediately without calling invoke
-    const createState = (): SpecChatState => ({
-      draftId: () => "resume-me",
-      messages: () => [],
-      awaitingAnswer: () => false,
-      finalMarkdown: () => null,
-      phase: () => null,
-      submit: vi.fn().mockResolvedValue(undefined),
-      restoreDraft: vi.fn().mockResolvedValue(undefined),
-      reset: vi.fn(),
-      onChange: vi.fn().mockReturnValue(() => {}),
-    });
-
-    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountPanel, createState });
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
 
     await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
@@ -146,9 +130,10 @@ describe("mountSpecChat — chooser logic", () => {
     expect(resumeBtn).toBeDefined();
     resumeBtn!.click();
 
-    // Chooser disappears; panel opens (restoreDraft resolves then wirePanel is called)
+    // Chooser disappears; immersive is mounted with the correct draftId
     await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).toBeNull());
-    await vi.waitFor(() => expect(capturedPanel?.isOpen()).toBe(true));
+    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
+    expect(latestOpts()?.draftId).toBe("resume-me");
     expect(ctrl.isOpen()).toBe(true);
   });
 
@@ -174,40 +159,23 @@ describe("mountSpecChat — chooser logic", () => {
     expect(ctrl.isOpen()).toBe(false);
   });
 
-  it("5. onPublishRequest fires openWizardWithBody and specAuthorMarkPublished", async () => {
+  it("5. onPublish fires openWizardWithBody and specAuthorMarkPublished", async () => {
     const listDrafts = vi.fn().mockResolvedValue([]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    let capturedPanel: SpecChatPanel | undefined;
-    const mountPanel = (_h: HTMLElement, _s: SpecChatState): SpecChatPanel => {
-      const { panel } = makeMockPanel();
-      capturedPanel = panel;
-      return panel;
-    };
-    const createState = (): SpecChatState => ({
-      draftId: () => null,
-      messages: () => [],
-      awaitingAnswer: () => false,
-      finalMarkdown: () => null,
-      phase: () => null,
-      submit: vi.fn().mockResolvedValue(undefined),
-      restoreDraft: vi.fn().mockResolvedValue(undefined),
-      reset: vi.fn(),
-      onChange: vi.fn().mockReturnValue(() => {}),
-    });
+    const { factory, latestOpts, latestInstance } = makeMockImmersiveFactory();
 
-    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountPanel, createState });
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
 
-    await vi.waitFor(() => expect(capturedPanel).toBeDefined());
-    await vi.waitFor(() => expect(capturedPanel!.isOpen()).toBe(true));
+    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
 
-    // The controller should have set onPublishRequest on the panel
-    expect(capturedPanel!.onPublishRequest).not.toBeNull();
+    // The controller should have set onPublish on the immersive opts
+    expect(latestOpts()?.onPublish).toBeDefined();
 
-    // Fire the publish callback directly — simulates user clicking "Revisar y publicar"
-    capturedPanel!.onPublishRequest!("# My Spec\n", "test-draft-id");
+    // Fire the publish callback directly — simulates user clicking "Review & publish"
+    latestOpts()!.onPublish!("# My Spec\n", "test-draft-id");
 
     expect(deps.openWizardWithBody).toHaveBeenCalledWith("# My Spec\n");
     expect(markPublished).toHaveBeenCalledWith("test-draft-id");
@@ -248,42 +216,25 @@ describe("mountSpecChat — chooser logic", () => {
     expect(ctrl.isOpen()).toBe(false);
   });
 
-  it("6. Closing via the panel's own X resets controller state so it can reopen", async () => {
+  it("6. Closing via the immersive onClose resets controller state so it can reopen", async () => {
     const listDrafts = vi.fn().mockResolvedValue([]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
 
-    let capturedPanel: SpecChatPanel | undefined;
-    const mountPanel = (_h: HTMLElement, _s: SpecChatState): SpecChatPanel => {
-      const { panel } = makeMockPanel();
-      capturedPanel = panel;
-      return panel;
-    };
-    const createState = (): SpecChatState => ({
-      draftId: () => null,
-      messages: () => [],
-      awaitingAnswer: () => false,
-      finalMarkdown: () => null,
-      phase: () => null,
-      submit: vi.fn().mockResolvedValue(undefined),
-      restoreDraft: vi.fn().mockResolvedValue(undefined),
-      reset: vi.fn(),
-      onChange: vi.fn().mockReturnValue(() => {}),
-    });
+    const { factory, latestOpts, latestInstance } = makeMockImmersiveFactory();
 
-    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountPanel, createState });
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
     await vi.waitFor(() => expect(ctrl.isOpen()).toBe(true));
 
-    // User clicks the panel's own X — bypasses controller.close()
-    capturedPanel!.close();
+    // User closes the immersive surface via its own onClose
+    latestOpts()!.onClose!();
     expect(ctrl.isOpen()).toBe(false);
 
-    // Reopening must mount a fresh panel
-    capturedPanel = undefined;
+    // Reopening must mount a fresh immersive
+    const prevInstance = latestInstance();
     ctrl.open();
-    await vi.waitFor(() => expect(capturedPanel).toBeDefined());
-    expect(capturedPanel!.isOpen()).toBe(true);
+    await vi.waitFor(() => expect(latestInstance()).not.toBe(prevInstance));
     expect(ctrl.isOpen()).toBe(true);
   });
 });

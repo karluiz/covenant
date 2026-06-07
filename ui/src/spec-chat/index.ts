@@ -12,6 +12,8 @@ import {
 import { createSpecChatState } from "./state";
 import { mountSpecChatPanel } from "./panel";
 import { Icons } from "../icons";
+import { mountImmersiveSpecCreator } from "./immersive";
+import { tauriEventSource } from "./tauri-event-source";
 
 export interface SpecChatDeps {
   openWizardWithBody: (body: string) => void;
@@ -27,6 +29,7 @@ export interface SpecChatController {
 }
 
 import type { SpecChatPanel } from "./panel";
+import type { ImmersiveOpts, ImmersiveInstance } from "./immersive";
 
 /** Injectable API overrides (for tests). */
 export interface SpecChatApis {
@@ -36,6 +39,11 @@ export interface SpecChatApis {
   mountPanel?: (host: HTMLElement, state: ReturnType<typeof createSpecChatState>) => SpecChatPanel;
   /** Optional state factory — allows tests to inject pre-configured state. */
   createState?: () => ReturnType<typeof createSpecChatState>;
+  /**
+   * Optional immersive creator factory — allows tests to inject a mock surface
+   * instead of the real Tauri-backed one.
+   */
+  mountImmersive?: (opts: ImmersiveOpts) => ImmersiveInstance;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,30 +87,49 @@ export function mountSpecChat(
   const markPublished = apis?.markPublished ?? defaultMarkPublished;
   const panelFactory = apis?.mountPanel ?? mountSpecChatPanel;
   const stateFactory = apis?.createState ?? (() => createSpecChatState({ getCwd: deps.getCwd }));
+  const immersiveFactory = apis?.mountImmersive ?? mountImmersiveSpecCreator;
 
   let chooserEl: HTMLElement | null = null;
   let panelMounted = false;
-  let currentState = stateFactory();
-  let currentPanel = panelFactory(host, currentState);
+  // Sentinel panel — replaced by mountImmersive on first open.
+  let currentPanel: SpecChatPanel = panelFactory(host, stateFactory());
 
-  function wirePanel(state: ReturnType<typeof createSpecChatState>): void {
-    currentState = state;
-    currentPanel = panelFactory(host, currentState);
-    currentPanel.onPublishRequest = (markdown: string, draftId: string) => {
-      // v0: mark published immediately when user clicks "Revisar y publicar".
-      // The file on disk is the source of truth; if the user abandons the
-      // wizard without saving, the JSON status says Published but no file
-      // was written — acceptable for v0.
-      void markPublished(draftId).catch(() => {/* best-effort */});
-      deps.openWizardWithBody(markdown);
-      controller.close();
-    };
-    currentPanel.onClose = () => {
-      panelMounted = false;
-      host.hidden = true;
-    };
-    currentPanel.open();
+  /**
+   * Mount the immersive creator for the two AI-assisted options (new / resume).
+   * The publish sequence is intentionally identical to the old panel's onPublishRequest:
+   *   1. markPublished(draftId) — best-effort
+   *   2. deps.openWizardWithBody(markdown) — opens the draft wizard pre-filled
+   *   3. controller.close() — closes the immersive surface
+   */
+  function openImmersive(draftId: string | null): void {
+    const source = tauriEventSource(draftId);
+    const cwd = deps.getCwd?.() ?? null;
+    host.hidden = false;
     panelMounted = true;
+    const instance = immersiveFactory({
+      host,
+      source,
+      cwd,
+      draftId,
+      onPublish: (markdown: string, id: string) => {
+        // Exact same sequence as the old panel's onPublishRequest.
+        void markPublished(id).catch(() => {/* best-effort */});
+        deps.openWizardWithBody(markdown);
+        controller.close();
+      },
+      onClose: () => {
+        panelMounted = false;
+        host.hidden = true;
+      },
+    });
+    // Replace sentinel so controller.close() reaches the immersive instance.
+    currentPanel = {
+      open: () => { /* already open */ },
+      close: () => instance.close(),
+      isOpen: () => panelMounted,
+      onPublishRequest: null,
+      onClose: null,
+    };
   }
 
   let chooserKeyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -167,10 +194,7 @@ export function mountSpecChat(
       btn.textContent = `Resume "${shortSummary(draft)}" (last edited: ${relativeTime(draft.last_updated)})`;
       btn.addEventListener("click", () => {
         removeChooser();
-        const state = stateFactory();
-        void state.restoreDraft(draft.id).then(() => {
-          wirePanel(state);
-        });
+        openImmersive(draft.id);
       });
       el.appendChild(btn);
     }
@@ -182,8 +206,7 @@ export function mountSpecChat(
     newBtn.textContent = "Start a new one";
     newBtn.addEventListener("click", () => {
       removeChooser();
-      const state = stateFactory();
-      wirePanel(state);
+      openImmersive(null);
     });
     el.appendChild(newBtn);
 
@@ -214,13 +237,11 @@ export function mountSpecChat(
         if (inProgress.length > 0) {
           renderChooser(inProgress);
         } else {
-          const state = stateFactory();
-          wirePanel(state);
+          openImmersive(null);
         }
       }).catch(() => {
-        // On error, open fresh state
-        const state = stateFactory();
-        wirePanel(state);
+        // On error, open a fresh immersive session
+        openImmersive(null);
       });
     },
 
