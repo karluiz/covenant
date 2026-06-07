@@ -1960,6 +1960,25 @@ async fn run_tick(
         task_archetype,
     ) in candidates
     {
+        // Race guard (entry side): the candidate snapshot was taken under
+        // lock ~90 lines up, but the user can disable a tab (or AOM-off can
+        // revert an auto-enabled one) while this tick is mid-flight. Re-check
+        // enablement before doing any model work or emitting a decision —
+        // otherwise a just-disabled operator leaks a late escalation/dry-run
+        // that reads as a ghost toast from "nowhere". Skip silently if the
+        // session was disabled or closed since the snapshot.
+        {
+            let i = inner.lock().await;
+            if !i
+                .sessions
+                .get(&session_id)
+                .map(|a| a.enabled)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+        }
+
         // Resolve per-session operator from the registry. Falls back to
         // the Default operator if no assignment exists for this session.
         let op = registry.effective_for(session_id);
@@ -3187,6 +3206,25 @@ async fn run_tick(
                     );
                 }
                 Err(e) => tracing::warn!(error = %e, "operator_award_xp failed"),
+            }
+        }
+
+        // Race guard (emit side): the model call above can take seconds,
+        // during which the user may disable this operator (or AOM-off may
+        // revert it). Don't surface a decision for a now-disabled tab — that
+        // visible escalation / OS notification is exactly the "ghost toast"
+        // the user can't trace. Re-check before emitting and notifying; the
+        // decision row is already persisted (harmless history), we just stay
+        // silent in the UI.
+        {
+            let i = inner.lock().await;
+            if !i
+                .sessions
+                .get(&session_id)
+                .map(|a| a.enabled)
+                .unwrap_or(false)
+            {
+                continue;
             }
         }
 

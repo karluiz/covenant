@@ -161,7 +161,22 @@ function bucketLabel(ts: number, nowMs: number): string {
 
 export type ActivityBadgeCallback = (count: number) => void;
 
+/// Resolves a decision row's session back to its originating tab so each
+/// event can show where it came from and (when still live) jump there.
+/// Optional everywhere — in tests / headless there's no tab manager, so the
+/// view degrades to the old anonymous rows.
+export interface ActivityTabBridge {
+  /// `name` + whether the tab is still open. Null when the short id has
+  /// never been seen on this machine (no cached name).
+  resolveSession(short: string): { name: string; open: boolean } | null;
+  /// Focus the live tab for this session short. False if it's closed.
+  focusSessionShort(short: string): boolean;
+}
+
 type Filter = "all" | "typed" | "escalated" | "waited";
+
+/// Resolved origin for a render group, threaded into the row renderers.
+type OriginTab = { short: string; name: string; open: boolean } | null;
 
 export class ActivityView {
   private el: HTMLElement;
@@ -180,6 +195,11 @@ export class ActivityView {
 
   private events: ActEvent[] = []; // newest LAST (we sort on push)
   private filter: Filter = "all";
+  private bridge: ActivityTabBridge | null = null;
+  /// When true, drop events whose originating session is closed (or unknown
+  /// — i.e. no live tab and no cached name). Lets the user collapse the
+  /// historical ledger down to only what's happening on live tabs.
+  private hideClosed = false;
 
   constructor() {
     this.el = document.createElement("div");
@@ -202,7 +222,14 @@ export class ActivityView {
     this.el.appendChild(this.listEl);
 
     this.filtersEl.addEventListener("click", (e) => {
-      const chip = (e.target as HTMLElement)?.closest<HTMLElement>("[data-filter]");
+      const target = e.target as HTMLElement;
+      const toggle = target.closest<HTMLElement>("[data-action='toggle-hide-closed']");
+      if (toggle) {
+        this.hideClosed = !this.hideClosed;
+        this.scheduleRender();
+        return;
+      }
+      const chip = target.closest<HTMLElement>("[data-filter]");
       if (!chip) return;
       const f = chip.dataset["filter"] as Filter;
       if (!f) return;
@@ -212,6 +239,13 @@ export class ActivityView {
 
     this.listEl.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
+      // Jump to the originating tab when its chip is clicked (live tabs only).
+      const tabChip = target.closest<HTMLElement>("[data-session-short]");
+      if (tabChip) {
+        const short = tabChip.dataset["sessionShort"];
+        if (short) this.bridge?.focusSessionShort(short);
+        return;
+      }
       const expand = target.closest<HTMLElement>(
         "[data-action='expand-run'],[data-action='expand-detail']",
       );
@@ -234,9 +268,14 @@ export class ActivityView {
     return this.el;
   }
 
-  async start(operatorId: string, onBadge: ActivityBadgeCallback): Promise<void> {
+  async start(
+    operatorId: string,
+    onBadge: ActivityBadgeCallback,
+    bridge?: ActivityTabBridge,
+  ): Promise<void> {
     this.operatorId = operatorId;
     this.onBadge = onBadge;
+    this.bridge = bridge ?? null;
     this.unseenCount = 0;
     this.events = [];
 
@@ -485,11 +524,29 @@ export class ActivityView {
       `<button class="tp-act-chip${this.filter === f ? " is-active" : ""}" data-filter="${f}" type="button">
         ${swatch ? `<span class="sw sw-${swatch}"></span>` : ""}${label}<span class="n">${n}</span>
       </button>`;
+    // "Hide closed" toggle — only meaningful when we can resolve a session's
+    // liveness (bridge present). Lets the user strip the historical ledger of
+    // dead-tab events down to what's happening on live tabs right now.
+    const hideToggle = this.bridge
+      ? `<button class="tp-act-chip tp-act-chip--toggle${this.hideClosed ? " is-active" : ""}" data-action="toggle-hide-closed" type="button">
+          ${this.hideClosed ? "live tabs only" : "hide closed"}
+        </button>`
+      : "";
     this.filtersEl.innerHTML =
       chip("all", "all", "", counts.all) +
       chip("typed", "typed", "ok", counts.typed) +
       chip("escalated", "escalated", "warn", counts.escalated) +
-      chip("waited", "waited", "mute", counts.waited);
+      chip("waited", "waited", "mute", counts.waited) +
+      hideToggle;
+  }
+
+  /// Resolve an event's session short to its originating tab. Null when no
+  /// bridge (tests) or the short id is unknown.
+  private resolveOrigin(short: string): OriginTab {
+    if (!this.bridge || !short) return null;
+    const info = this.bridge.resolveSession(short);
+    if (!info) return { short, name: `…${short}`, open: false };
+    return { short, name: info.name, open: info.open };
   }
 
   private renderList(now: number): void {
@@ -503,12 +560,23 @@ export class ActivityView {
 
     // Filter
     const filtered = events.filter((e) => {
+      if (this.hideClosed && this.bridge) {
+        // Drop events from closed/unknown sessions — keep only live tabs.
+        if (!this.bridge.resolveSession(e.sessionShort)?.open) return false;
+      }
       if (this.filter === "all") return true;
       if (this.filter === "typed") return e.kind === "typed" || e.kind === "dry-run";
       if (this.filter === "escalated") return e.kind === "escalated";
       if (this.filter === "waited") return e.kind === "waited";
       return true;
     });
+
+    if (filtered.length === 0) {
+      this.listEl.innerHTML = this.hideClosed
+        ? `<div class="tp-activity-empty">No activity on live tabs.</div>`
+        : `<div class="tp-activity-empty">No activity yet.</div>`;
+      return;
+    }
 
     // Compute outlier cost threshold = ~p90 of nonzero costs, so only the
     // top tail surfaces in amber. With long-tail distributions, mean×2
@@ -595,9 +663,13 @@ export class ActivityView {
         out.push(`<div class="tp-act-bucket">${bucket}</div>`);
         lastBucket = bucket;
       }
-      if (item.kind === "incident") out.push(renderIncident(item.cycles, item.first, item.last, item.cost, now));
-      else if (item.kind === "run") out.push(renderRun(item.events, now, outlierThreshold));
-      else out.push(renderSingle(item.event, now, outlierThreshold));
+      const short = item.kind === "incident" ? item.cycles[0]!.sessionShort
+        : item.kind === "run" ? item.events[0]!.sessionShort
+        : item.event.sessionShort;
+      const origin = this.resolveOrigin(short);
+      if (item.kind === "incident") out.push(renderIncident(item.cycles, item.first, item.last, item.cost, now, origin));
+      else if (item.kind === "run") out.push(renderRun(item.events, now, outlierThreshold, origin));
+      else out.push(renderSingle(item.event, now, outlierThreshold, origin));
     }
     this.listEl.innerHTML = out.join("");
   }
@@ -605,7 +677,19 @@ export class ActivityView {
 
 /* ── row renderers (module-scope, no class state needed) ─────────── */
 
-function renderSingle(e: ActEvent, now: number, outlierThreshold: number): string {
+/// Origin-tab chip: the tab a decision came from. Live tabs are clickable
+/// (data-session-short drives focus); closed tabs render muted + non-clickable
+/// with a "closed" marker so the user can tell stale ledger from live work.
+/// No native `title=` (project rule) — liveness is conveyed visually.
+export function tabChipHtml(origin: OriginTab): string {
+  if (!origin) return "";
+  if (origin.open) {
+    return `<span class="tp-act-tab" role="button" tabindex="0" data-session-short="${escapeHtml(origin.short)}">${escapeHtml(origin.name)}</span>`;
+  }
+  return `<span class="tp-act-tab tp-act-tab--closed">${escapeHtml(origin.name)}<span class="tp-act-tab-closed">closed</span></span>`;
+}
+
+function renderSingle(e: ActEvent, now: number, outlierThreshold: number, origin: OriginTab): string {
   const cls = `tp-act-row tp-act-row--${e.kind}`;
   const time = relativeTime(e.ts, now);
   const { text, truncated } = truncate(e.body, 90);
@@ -634,13 +718,14 @@ function renderSingle(e: ActEvent, now: number, outlierThreshold: number): strin
       <span class="tp-act-ico" aria-hidden="true">${iconFor(e.kind)}</span>
       <span class="tp-act-kind">${labelFor(e.kind)}</span>
       <span class="tp-act-body">${bodyHtml}${expandBtn}</span>
+      ${tabChipHtml(origin)}
       ${costHtml}
       ${detailDiv}
     </div>
   `;
 }
 
-function renderRun(events: ActEvent[], now: number, outlierThreshold: number): string {
+function renderRun(events: ActEvent[], now: number, outlierThreshold: number, origin: OriginTab): string {
   const head = events[0]!;
   const cls = `tp-act-row tp-act-row--${head.kind} tp-act-row--run`;
   const time = relativeTime(head.ts, now);
@@ -668,13 +753,14 @@ function renderRun(events: ActEvent[], now: number, outlierThreshold: number): s
         <span class="tp-act-runpill">× ${events.length}</span>
         <button class="tp-act-expand" data-action="expand-run" type="button">expand</button>
       </span>
+      ${tabChipHtml(origin)}
       ${costHtml}
       <div class="tp-act-run-detail">${detail}</div>
     </div>
   `;
 }
 
-function renderIncident(cycles: ActEvent[], first: number, last: number, cost: number, now: number): string {
+function renderIncident(cycles: ActEvent[], first: number, last: number, cost: number, now: number, origin: OriginTab): string {
   const escCount = cycles.filter((c) => c.kind === "escalated").length;
   const typedReply = cycles.find((c) => c.kind === "typed" || c.kind === "dry-run");
   const replyBody = typedReply?.body ?? "(no reply)";
@@ -693,6 +779,7 @@ function renderIncident(cycles: ActEvent[], first: number, last: number, cost: n
       <div class="tp-act-incident-head">
         <span class="tp-act-incident-badge">loop</span>
         <span class="tp-act-incident-summary">Operator replied <strong>“${escapeHtml(replyShort)}”</strong> ${escCount}× — executor rejected each time</span>
+        ${tabChipHtml(origin)}
         <span class="tp-act-incident-span">${escapeHtml(span)}</span>
       </div>
       <div class="tp-act-incident-body">

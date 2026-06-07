@@ -2691,6 +2691,16 @@ export class TabManager {
     return true;
   }
 
+  /// Focus a tab by the last-6-chars session short used in operator
+  /// decision rows (which only persist `session_id_short`). Returns false
+  /// if no live tab matches — the originating session has been closed.
+  activateBySessionShort(short: string): boolean {
+    const tab = this.tabs.find((t) => activePane(t).sessionId?.slice(-6) === short);
+    if (!tab) return false;
+    this.activate(tab.id);
+    return true;
+  }
+
   /// Per-session hints for the Convergence snapshot — one per live pane,
   /// across every tab (split tabs contribute both panes). Public + typed
   /// so the convergence bridge never reaches into private fields through

@@ -102,6 +102,12 @@ export interface TeammatePanelDeps {
   clearFinishedTasks?: (operatorId: string) => Promise<number>;
   /// Activate the tab whose backing SessionId matches. Returns true if found.
   focusTabBySessionId?: (sessionId: string) => boolean;
+  /// Resolve a 6-char session short (as persisted on operator decision rows)
+  /// to its originating tab's display name + liveness. Powers the Activity
+  /// tab's origin chips. Null when the short id has never been seen.
+  resolveSessionTab?: (short: string) => { name: string; open: boolean } | null;
+  /// Focus the live tab for a 6-char session short. False if it's closed.
+  focusTabBySessionShort?: (short: string) => boolean;
   /// Pin the operator to the target tab, enable it, flip live (single-tab
   /// AOM), and refresh tab state so the operator ring + status bar update
   /// in the UI. Routed through TabsManager.setTabOperator under the hood.
@@ -895,9 +901,15 @@ export class TeammatePanel {
     this.activityEl = this.activityView.getElement();
     this.activityEl.classList.add("is-hidden");
     const opId = this.operator?.id ?? "";
+    // Build the tab bridge only when both deps are present (absent in tests).
+    const resolve = this.deps.resolveSessionTab;
+    const focus = this.deps.focusTabBySessionShort;
+    const bridge = resolve && focus
+      ? { resolveSession: resolve, focusSessionShort: focus }
+      : undefined;
     void this.activityView.start(opId, (count) => {
       this.updateActivityBadge(count);
-    });
+    }, bridge);
     // Suppress floating toasts — decisions now flow into the sidebar.
     AomActivityFeed.suppress = true;
     return this.activityEl;
