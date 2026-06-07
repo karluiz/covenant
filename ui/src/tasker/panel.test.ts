@@ -139,14 +139,13 @@ describe("TaskerPanel inline edit", () => {
     expect(typeof storageOf(panel).getTask(pid, tid).completedAt).toBe("number");
   });
 
-  it("priority popover updates the task priority", () => {
+  it("priority dots update priority", () => {
     const { panel, host } = mount();
     const pid = inbox(panel);
-    const tid = addTask(panel, pid, "Deploy API");
+    const tid = addTask(panel, pid, "Tune");
     panel.render();
     openTask(host, tid);
-    host.querySelector<HTMLButtonElement>(".tasker-chip-priority")!.click();
-    host.querySelector<HTMLButtonElement>('.tasker-menu-item[data-priority="high"]')!.click();
+    host.querySelector<HTMLButtonElement>('.tasker-prio-dots [data-priority="high"]')!.click();
     expect(storageOf(panel).getTask(pid, tid).priority).toBe("high");
   });
 

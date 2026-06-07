@@ -83,7 +83,7 @@ export class TaskerPanel {
   private currentFilter: TaskStatus | "all" = "all";
   private composingProjectId: string | null = null;
   private selectedTask: { projectId: string; taskId: string } | null = null;
-  private openMenu: { kind: "status" | "priority" | "date"; taskId: string } | null = null;
+  private openMenu: { kind: "date"; taskId: string } | null = null;
   private dateView: { year: number; month: number } | null = null;
   private dateMenuEl: HTMLElement | null = null;
   private datePickerRepaint: (() => void) | null = null;
@@ -253,8 +253,6 @@ export class TaskerPanel {
 
   private renderTaskDetails(projectId: string, task: Task): string {
     const dueLabel = task.dueDate ? formatDueDate(task.dueDate) : "Add date";
-    const open = this.openMenu;
-    const isPriorityOpen = open?.kind === "priority" && open.taskId === task.id;
 
     return `
       <div class="tasker-edit" data-project-id="${projectId}" data-task-id="${task.id}">
@@ -268,29 +266,19 @@ export class TaskerPanel {
               ).join("")}
             </div>
           </div>
-          <div class="tasker-chip-wrap">
-            <button class="tasker-chip tasker-chip-priority" type="button">
-              <span class="tasker-priority ${getPriorityClass(task.priority)}"></span>${titleCase(task.priority)}
-            </button>
-            ${isPriorityOpen ? this.renderPriorityMenu() : ""}
+          <div class="tasker-kv">
+            <span class="tasker-kv-key">Priority</span>
+            <div class="tasker-prio-dots" role="group">
+              ${PRIORITIES.map((p) =>
+                `<button class="tasker-prio-dot ${getPriorityClass(p)}${task.priority === p ? " on" : ""}" type="button" data-priority="${p}" aria-label="${titleCase(p)}"></button>`
+              ).join("")}
+            </div>
           </div>
           <div class="tasker-chip-wrap">
             <button class="tasker-chip tasker-chip-due${task.dueDate ? " tasker-chip-due-set" : ""}" type="button">${escapeHtml(dueLabel)}</button>
           </div>
           <button class="tasker-chip tasker-chip-delete" type="button" aria-label="Delete task">${Icons.trash({ size: 12 })}</button>
         </div>
-      </div>
-    `;
-  }
-
-  private renderPriorityMenu(): string {
-    return `
-      <div class="tasker-menu tasker-priority-menu" role="menu">
-        ${PRIORITIES.map((p) => `
-          <button class="tasker-menu-item" type="button" data-priority="${p}" role="menuitem">
-            <span class="tasker-priority ${getPriorityClass(p)}"></span>${titleCase(p)}
-          </button>
-        `).join("")}
       </div>
     `;
   }
@@ -650,22 +638,18 @@ export class TaskerPanel {
         });
       });
 
-      edit.querySelector<HTMLButtonElement>(".tasker-chip-priority")?.addEventListener("click", () => {
-        this.toggleMenu("priority", taskId);
+      edit.querySelectorAll<HTMLButtonElement>(".tasker-prio-dots .tasker-prio-dot").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const priority = btn.dataset.priority as TaskPriority | undefined;
+          if (!priority) return;
+          this.storage.updateTask(projectId, taskId, { priority });
+          this.render();
+        });
       });
+
       edit.querySelector<HTMLButtonElement>(".tasker-chip-due")?.addEventListener("click", (e) => {
         e.stopPropagation();
         this.openDatePicker(projectId, taskId, e.currentTarget as HTMLElement);
-      });
-
-      edit.querySelectorAll<HTMLButtonElement>(".tasker-priority-menu .tasker-menu-item").forEach((mi) => {
-        mi.addEventListener("click", () => {
-          const priority = mi.dataset.priority as TaskPriority | undefined;
-          if (!priority) return;
-          this.storage.updateTask(projectId, taskId, { priority });
-          this.openMenu = null;
-          this.render();
-        });
       });
 
       edit.querySelector<HTMLButtonElement>(".tasker-chip-delete")?.addEventListener("click", () => {
@@ -688,12 +672,6 @@ export class TaskerPanel {
     if (top + calH > window.innerHeight - margin) top = Math.max(margin, r.top - 4 - calH);
     cal.style.left = `${Math.round(left)}px`;
     cal.style.top = `${Math.round(top)}px`;
-  }
-
-  private toggleMenu(kind: "status" | "priority" | "date", taskId: string): void {
-    const same = this.openMenu?.kind === kind && this.openMenu.taskId === taskId;
-    this.openMenu = same ? null : { kind, taskId };
-    this.render();
   }
 
   private showNewProjectDialog(): void {

@@ -818,3 +818,22 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-seg-btn + .tasker-seg-btn { border-left: 1px solid var(--border); }
 .tasker-seg-btn:hover { color: var(--text-primary); }
 .tasker-seg-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text-primary); }
+
+.tasker-prio-dots { display: inline-flex; gap: 8px; }
+.tasker-prio-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 120ms, outline-color 120ms;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.tasker-prio-dot:hover { opacity: 0.85; }
+.tasker-prio-dot.on { opacity: 1; outline-color: color-mix(in srgb, currentColor 50%, transparent); }
+.tasker-prio-dot.tasker-priority-urgent { background: #ef4444; color: #ef4444; }
+.tasker-prio-dot.tasker-priority-high { background: #f97316; color: #f97316; }
+.tasker-prio-dot.tasker-priority-normal { background: #eab308; color: #eab308; }
+.tasker-prio-dot.tasker-priority-low { background: #22c55e; color: #22c55e; }
