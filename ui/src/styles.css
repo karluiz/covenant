@@ -17059,7 +17059,9 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 .tp-evd {
   position: absolute; top: 0; right: 0; bottom: 0;
   width: min(380px, 92vw);
-  background: var(--bg-panel, #12151b);
+  /* Opaque on purpose — --bg-panel is translucent (acrylic) and would let the
+     activity list bleed through. --bg-overlay is the solid surface. */
+  background: var(--bg-overlay, #11141a);
   border-left: 1px solid var(--border, #262b33);
   box-shadow: -12px 0 40px rgba(0,0,0,0.45);
   display: flex; flex-direction: column;
