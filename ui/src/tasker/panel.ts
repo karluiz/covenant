@@ -302,7 +302,7 @@ export class TaskerPanel {
     this.openMenu = { kind: "date", taskId };
 
     const el = document.createElement("div");
-    el.className = "tasker-menu tasker-date-menu";
+    el.className = "tasker-date-menu";
     document.body.appendChild(el);
     this.dateMenuEl = el;
 
@@ -591,16 +591,6 @@ export class TaskerPanel {
 
     this.bindDetailsEvents();
 
-    if (this.openMenu) {
-      const onOutside = (e: MouseEvent): void => {
-        if (!this.isOpen) return;
-        if (!(e.target as HTMLElement).closest(".tasker-menu, .tasker-chip")) {
-          this.openMenu = null;
-          this.render();
-        }
-      };
-      document.addEventListener("mousedown", onOutside, { capture: true, once: true });
-    }
   }
 
   private bindDetailsEvents(): void {
