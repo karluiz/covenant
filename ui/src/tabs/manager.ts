@@ -1318,6 +1318,21 @@ export class TabManager {
       if (rows.length > cap) addHint(`+${rows.length - cap} more in panel`);
     };
 
+    // Run-selection: when the clicked pane has highlighted text, offer to run
+    // it in a fresh tab (paste-and-execute via createTab's initialCommand). Pi
+    // panes have no xterm → getSelection() is unavailable → item absent.
+    const selection = pane?.xterm?.getSelection()?.trim() ?? "";
+    if (selection.length > 0) {
+      addItem("Run selection in new tab", () => {
+        void this.createTab({
+          cwd: pane?.cwd ?? null,
+          groupId,
+          color: tab.color,
+          initialCommand: selection,
+        });
+      });
+    }
+
     // Split actions (only when the feature is on / a split exists).
     if (flag && isSingle) {
       addItem("Split right", () => void this.splitActivePane("horizontal"));
