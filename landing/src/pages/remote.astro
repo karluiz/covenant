@@ -1,0 +1,21 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="Covenant · Remote" description="Remote tab dashboard">
+  <main class="mx-auto max-w-2xl px-4 py-10 font-mono">
+    <h1 class="text-emerald-400 text-lg mb-1">Covenant · Remote</h1>
+    <p class="text-zinc-500 text-sm mb-6">Paste your pairing token to view your desktop tabs. Read-only.</p>
+    <div class="flex gap-2 mb-3">
+      <input id="rc-token" type="password" placeholder="pairing token (JWT)"
+        class="flex-1 rounded border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-zinc-200" />
+      <button id="rc-connect"
+        class="rounded border border-emerald-700 bg-emerald-900/30 px-4 py-2 text-sm text-emerald-300 hover:bg-emerald-900/50">Connect</button>
+    </div>
+    <p id="rc-status" class="text-zinc-500 text-sm mb-4">○ desktop offline</p>
+    <div id="rc-tabs" class="space-y-2"></div>
+  </main>
+  <script>
+    import { mountRemoteDashboard } from "../islands/RemoteDashboard";
+    mountRemoteDashboard();
+  </script>
+</Base>
