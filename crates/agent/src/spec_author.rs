@@ -14,6 +14,7 @@ use ulid::Ulid;
 const SYSTEM_PROMPT: &str = include_str!("spec_author/prompt.md");
 
 pub mod tools;
+pub mod stream;
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
