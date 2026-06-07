@@ -4,7 +4,7 @@
 use futures_util::{SinkExt, StreamExt};
 use karl_blocks::executor_phase::ExecutorPhase;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio_tungstenite::tungstenite::Message;
@@ -64,7 +64,17 @@ fn backoff_next(current: Duration) -> Duration {
     current.saturating_mul(2).min(Duration::from_secs(30))
 }
 
-fn load_or_create_device_id(config_dir: &PathBuf) -> String {
+/// Collapse a leading home-dir prefix to `~` for privacy on the wire.
+fn tilde(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+            format!("~{}", &path[home.len()..])
+        }
+        _ => path.to_string(),
+    }
+}
+
+fn load_or_create_device_id(config_dir: &Path) -> String {
     let path = config_dir.join("rc_device_id");
     if let Ok(existing) = std::fs::read_to_string(&path) {
         let t = existing.trim();
@@ -120,7 +130,7 @@ async fn collect_tabs(app: &AppHandle) -> Vec<TabInfo> {
         out.push(TabInfo {
             session_id,
             title,
-            cwd,
+            cwd: tilde(&cwd),
             executor,
             phase,
             armed: false,
@@ -200,6 +210,15 @@ pub fn spawn(app: AppHandle) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn tilde_collapses_home() {
+        // Uses real $HOME; construct a path under it.
+        if let Ok(home) = std::env::var("HOME") {
+            let p = format!("{home}/proj/x");
+            assert_eq!(tilde(&p), "~/proj/x");
+        }
+        assert_eq!(tilde("/etc/hosts"), "/etc/hosts");
+    }
     #[test]
     fn list_tabs_frame_parses() {
         let f: InFrame = serde_json::from_str(r#"{"t":"list_tabs"}"#).unwrap();
