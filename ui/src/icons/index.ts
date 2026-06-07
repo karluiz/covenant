@@ -376,4 +376,39 @@ export const Icons = {
       `<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>`,
       o,
     ),
+
+  /** Checklist — tasks / todos. Lucide `list-checked`. */
+  checklist: (o?: IconOptions): string =>
+    svg(
+      `<path d="M10 6H3v12h14V9"/><path d="M10 3v7a2 2 0 0 0 2 2h8V5a2 2 0 0 0-2-2h-8Z"/><path d="m9 11 2 2 4-4"/>`,
+      o,
+    ),
+
+  /** Check mark — done / complete. Lucide `check`. */
+  check: (o?: IconOptions): string =>
+    svg(
+      `<polyline points="20 6 9 17 4 12"/>`,
+      o,
+    ),
+
+  /** Square (outline) — unchecked checkbox. Lucide `square`. */
+  square: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>`,
+      o,
+    ),
+
+  /** Vertical menu (three dots) — more options. Lucide `more-vertical`. */
+  moreVertical: (o?: IconOptions): string =>
+    svg(
+      `<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>`,
+      o,
+    ),
+
+  /** Note with text — description/notes. Lucide `note-text`. */
+  noteText: (o?: IconOptions): string =>
+    svg(
+      `<path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect width="8" height="1" x="8" y="11" rx="0.5"/><rect width="8" height="1" x="8" y="15" rx="0.5"/><path d="M8 9h4"/>`,
+      o,
+    ),
 };

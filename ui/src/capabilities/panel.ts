@@ -88,6 +88,18 @@ export class CapabilitiesPanel {
 
   public onClosed: (() => void) | null = null;
 
+  // Capture-phase ESC: the global window-level handler runs in bubble
+  // phase, but xterm.js swallows ESC when the terminal has focus, so it
+  // never reaches window. Capturing on document while open guarantees
+  // ESC closes the page regardless of focus.
+  private onEscKeydown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  };
+
   constructor(
     private readonly pageHost: HTMLElement,
     private readonly workspace: HTMLElement,
@@ -113,6 +125,7 @@ export class CapabilitiesPanel {
     this.workspace.hidden = true;
     this.pageHost.hidden = false;
     this.isOpenState = true;
+    document.addEventListener("keydown", this.onEscKeydown, true);
     this.render(); // initial shell while we fetch
     await this.refresh();
   }
@@ -123,6 +136,7 @@ export class CapabilitiesPanel {
       const ok = confirm("Discard unsaved changes?");
       if (!ok) return;
     }
+    document.removeEventListener("keydown", this.onEscKeydown, true);
     this.pageHost.innerHTML = "";
     this.pageHost.hidden = true;
     this.workspace.hidden = false;

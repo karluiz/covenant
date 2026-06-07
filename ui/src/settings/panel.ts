@@ -270,6 +270,17 @@ export class SettingsPanel {
     this.pageHost.hidden = false;
     this.isOpenState = true;
     await this.render(tab, generation);
+    if (generation !== this.openGeneration) return;
+    // Pull focus off the terminal so ESC reaches the bubble-phase
+    // handlers. Without this, xterm.js's textarea swallows ESC (it has
+    // focus when settings opens over it) and neither the sub-dialog ESC
+    // handlers nor main.ts's global Esc-to-close ever fire. Settings has
+    // its own layered sub-modals (operators/providers/avatar combobox)
+    // that own ESC, so we deliberately do NOT add a capture-phase
+    // handler here — that would close the whole page instead of the
+    // sub-dialog. Focusing the page host fixes the root cause cleanly.
+    this.pageHost.tabIndex = -1;
+    this.pageHost.focus({ preventScroll: true });
   }
 
   close(): void {

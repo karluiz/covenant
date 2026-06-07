@@ -27,6 +27,10 @@ export interface CardCallbacks {
   onToggleExpand: (operatorId: string) => void;
   /// Send a reply to a blocked session.
   onSubmit: (sessionId: string, text: string, scope: ReplyScope) => Promise<void>;
+  /// Disable the operator on the given session(s). Single-click, no confirm —
+  /// fully reversible (⌘O on the tab re-arms). Disabled sessions go inert and
+  /// drop out of the next roster poll, so the card leaves on its own.
+  onStop: (operatorId: string, sessionIds: string[]) => void;
 }
 
 /// One card per operator. Single-session operators render their session
@@ -115,6 +119,21 @@ function renderHeader(
       head.append(tab);
     }
   }
+
+  // Stop: disable the operator on all its sessions. Single-click, no confirm
+  // (reversible via ⌘O). For a multi-session operator this stops every session
+  // at once. The disabled sessions go inert and drop from the next roster poll.
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "mc-card__stop";
+  stop.textContent = "Stop";
+  stop.setAttribute("aria-label", "Stop operator");
+  stop.addEventListener("click", (e) => {
+    e.stopPropagation();
+    cb.onStop(entry.operator_id, entry.sessions.map((s) => s.session_id));
+  });
+  head.append(stop);
+
   return head;
 }
 

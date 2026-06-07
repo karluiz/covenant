@@ -67,6 +67,17 @@ export class OperatorPanel {
   /// Optional callback fired when the page closes (any reason). Used by
   /// main.ts to refit the active terminal once the workspace returns.
   public onClosed: (() => void) | null = null;
+  // Capture-phase ESC: the global window-level handler runs in bubble
+  // phase, but xterm.js swallows ESC when the terminal has focus, so it
+  // never reaches window. Capturing on document while open guarantees
+  // ESC closes the page regardless of focus.
+  private onEscKeydown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      this.close();
+    }
+  };
   private listEl: HTMLElement | null = null;
   private subtitleEl: HTMLElement | null = null;
   private countersEl: HTMLElement | null = null;
@@ -128,6 +139,7 @@ export class OperatorPanel {
   async open(): Promise<void> {
     if (this.isOpen()) return;
     this.render();
+    document.addEventListener("keydown", this.onEscKeydown, true);
     await Promise.all([this.refresh(), this.refreshSubtitle(), this.refreshOperatorCache()]);
 
     // Auto-refresh on new decisions while the panel is open. Also
@@ -162,6 +174,7 @@ export class OperatorPanel {
 
   close(): void {
     if (!this.isOpenState) return;
+    document.removeEventListener("keydown", this.onEscKeydown, true);
     if (this.unlisten) {
       this.unlisten();
       this.unlisten = null;

@@ -16,7 +16,7 @@ const op = (sessions: SessionSummary[], has_escalation = false): OperatorRosterE
   sessions, has_escalation,
 });
 
-const cb = () => ({ onFocus: vi.fn(), onToggleExpand: vi.fn(), onSubmit: vi.fn() });
+const cb = () => ({ onFocus: vi.fn(), onToggleExpand: vi.fn(), onSubmit: vi.fn(), onStop: vi.fn() });
 
 describe("renderOperatorCard", () => {
   it("renders a working single-session card with name, status, activity", () => {
@@ -56,6 +56,21 @@ describe("renderOperatorCard", () => {
     const el = renderOperatorCard(op([session({})]), escalationIndex([]), c, new Set());
     el.querySelector<HTMLElement>(".mc-card__tab")!.click();
     expect(c.onFocus).toHaveBeenCalledWith("s1", false);
+  });
+
+  it("clicking Stop disables the operator on its single session", () => {
+    const c = cb();
+    const el = renderOperatorCard(op([session({})]), escalationIndex([]), c, new Set());
+    el.querySelector<HTMLElement>(".mc-card__stop")!.click();
+    expect(c.onStop).toHaveBeenCalledWith("op-zeta", ["s1"]);
+  });
+
+  it("Stop on a multi-session operator disables every session at once", () => {
+    const c = cb();
+    const entry = op([session({ session_id: "s1" }), session({ session_id: "s2", tab_title: "api" })]);
+    const el = renderOperatorCard(entry, escalationIndex([]), c, new Set());
+    el.querySelector<HTMLElement>(".mc-card__stop")!.click();
+    expect(c.onStop).toHaveBeenCalledWith("op-zeta", ["s1", "s2"]);
   });
 
   it("multi-session operator shows an aggregate count and sub-rows when expanded", () => {

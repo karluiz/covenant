@@ -3308,7 +3308,13 @@ body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
 #layout:has(> #drafts-page:not([hidden])) #teammate-panel,
 #layout:has(> #mission-page:not([hidden])) #teammate-panel,
 #layout:has(> #operator-page:not([hidden])) #teammate-panel,
-#layout:has(> #capabilities-page:not([hidden])) #teammate-panel {
+#layout:has(> #capabilities-page:not([hidden])) #teammate-panel,
+#layout:has(> #settings-page:not([hidden])) #tasker-panel,
+#layout:has(> #docs-page:not([hidden])) #tasker-panel,
+#layout:has(> #drafts-page:not([hidden])) #tasker-panel,
+#layout:has(> #mission-page:not([hidden])) #tasker-panel,
+#layout:has(> #operator-page:not([hidden])) #tasker-panel,
+#layout:has(> #capabilities-page:not([hidden])) #tasker-panel {
     display: none !important;
 }
 
@@ -15084,6 +15090,34 @@ body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-blocks {
 body.sidebar-view-teammate .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
+
+/* Tasker sidebar — todo/task management (same layout as teammate) */
+body.sidebar-view-tasker:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-tasker:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
+body.sidebar-view-tasker:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-tasker.tabbar-left:not(.blocks-globally-collapsed) #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-tasker.tabbar-left:not(.blocks-globally-collapsed) #tasker-panel {
+  grid-row: 1 / 2;
+  grid-column: 3 / 4;
+}
+body.sidebar-view-tasker.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-tasker:not(.blocks-globally-collapsed) .tab-pane {
+  grid-template-columns: 1fr 0 0 0 !important;
+}
+body.sidebar-view-tasker:not(.blocks-globally-collapsed) .tab-blocks {
+  display: none !important;
+}
+body.sidebar-view-tasker .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+  right: 0 !important;
+}
 /* Project Notes is a position:fixed overlay (right:0, width:240) — NOT an
    in-grid rail like Activity/Teammate. So it must NOT reserve a #layout
    column. Two failure modes that reserving caused:
@@ -17896,6 +17930,15 @@ body.sidebar-view-teammate:not(.blocks-globally-collapsed) .tab-pane.tab-pane-br
 }
 .mc-card__count { margin-left: auto; color: var(--muted); font-size: 11px; }
 .mc-card__caret { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; }
+.mc-card__stop {
+  background: transparent; border: 1px solid var(--border, #3a434f); border-radius: 5px;
+  color: var(--muted); cursor: pointer; font: inherit; font-size: 11px; padding: 2px 9px;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.mc-card__stop:hover {
+  color: var(--danger, #ff6b6b); border-color: var(--danger, #ff6b6b);
+  background: color-mix(in srgb, var(--danger, #ff6b6b) 12%, transparent);
+}
 
 .mc-avatar {
   width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;

@@ -124,6 +124,41 @@ describe("PiChatView", () => {
     expect(text).toBe("Hello, world!");
   });
 
+  it("restores the reader's scroll offset instead of snapping to top while scrolled up", async () => {
+    const host = mountHost();
+    new PiChatView({ sessionId: "s1" as never, host });
+    await flush();
+    const messages = host.querySelector<HTMLElement>(".pi-chat-messages")!;
+    // jsdom reports 0 for layout metrics; fake a tall, scrolled-up viewport.
+    Object.defineProperty(messages, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(messages, "clientHeight", { configurable: true, value: 400 });
+
+    fireEvent({ type: "agent_start" });
+    fireEvent({
+      type: "message_update",
+      message: { role: "assistant", content: [] },
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "first chunk " },
+    });
+    await flush();
+
+    // Reader scrolls up to read earlier output.
+    messages.scrollTop = 200;
+    messages.dispatchEvent(new Event("scroll"));
+
+    // The webview yanks scrollTop to 0 when the next delta replaces children.
+    messages.scrollTop = 0;
+    fireEvent({
+      type: "message_update",
+      message: { role: "assistant", content: [] },
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "second chunk" },
+    });
+    await flush();
+
+    // Without the fix scrollTop stays at 0 (snapped to top); with it the
+    // reader's parked offset is restored.
+    expect(messages.scrollTop).toBe(200);
+  });
+
   it("falls back to turn_end message when no deltas streamed", async () => {
     const host = mountHost();
     new PiChatView({ sessionId: "s1" as never, host });

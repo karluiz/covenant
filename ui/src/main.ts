@@ -7,6 +7,7 @@ import "./styles/operator_chip.css";
 import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
 import "./styles/tab-themes/crt.css";
+import "./tasker/styles.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
@@ -48,6 +49,7 @@ import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
 import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
+import { TaskerPanel } from "./tasker/panel";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
@@ -718,6 +720,45 @@ async function boot(): Promise<void> {
       const g = manager.activeGroup();
       // openProjectNotes() closes competing right-rail panels.
       if (g) openProjectNotes(g.id, g.name, g.color ?? null);
+    });
+  }
+
+  // Tasker sidebar — todo list / task management.
+  const taskerPanelHost = requireEl<HTMLElement>("tasker-panel");
+  const taskerPanel = new TaskerPanel(taskerPanelHost);
+  const taskerBtn = document.getElementById("titlebar-tasker");
+
+  const closeTaskerIfOpen = (): void => {
+    if (!document.body.classList.contains("sidebar-view-tasker")) return;
+    document.body.classList.remove("sidebar-view-tasker");
+    taskerPanelHost.classList.add("hidden");
+    taskerPanel.close();
+    taskerBtn?.classList.remove("titlebar-view-active");
+  };
+
+  if (taskerBtn) {
+    taskerBtn.innerHTML = Icons.checklist({ size: 14 });
+    attachTooltip(taskerBtn, "Tasker (⌘⌥K)");
+    taskerBtn.addEventListener("click", () => {
+      const wasOpen = document.body.classList.contains("sidebar-view-tasker");
+
+      if (wasOpen) {
+        closeTaskerIfOpen();
+        return;
+      }
+
+      // Opening tasker claims a right-rail slot — close competing panels.
+      closeTeammateIfOpen();
+      window.dispatchEvent(new CustomEvent("project-notes:close"));
+      document.body.classList.remove("sidebar-view-activity");
+      document
+        .querySelectorAll("#app-titlebar-right .titlebar-view-active")
+        .forEach((b) => b.classList.remove("titlebar-view-active"));
+
+      document.body.classList.add("sidebar-view-tasker");
+      taskerBtn.classList.add("titlebar-view-active");
+      taskerPanelHost.classList.remove("hidden");
+      taskerPanel.render();
     });
   }
 
@@ -1663,6 +1704,12 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.shiftKey && (e.key === "M" || e.key === "m")) {
       e.preventDefault();
       convergence.toggle();
+      return;
+    }
+    // ⌘⌥K → Tasker sidebar (todo/task list).
+    if (e.metaKey && e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      taskerBtn?.click();
       return;
     }
     // ⌘⇧G → create a new empty tab group (no member tab needed).

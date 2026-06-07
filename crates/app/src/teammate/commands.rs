@@ -565,6 +565,18 @@ pub async fn teammate_clear_finished_tasks(
         .map_err(|e| e.to_string())
 }
 
+/// Delete a single task by id, leaving every other task intact. Used by the
+/// per-task trash button on a finished (done | cancelled) task row.
+#[tauri::command]
+pub async fn teammate_delete_task(
+    storage: State<'_, Arc<Storage>>,
+    task_id: crate::teammate::TaskId,
+) -> Result<(), String> {
+    storage.teammate_delete_task(task_id).await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn teammate_attach_session_to_task(
     app: tauri::AppHandle,

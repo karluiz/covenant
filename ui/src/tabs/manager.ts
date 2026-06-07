@@ -4139,6 +4139,13 @@ export class TabManager {
     const sessionId = pane.sessionId;
     if (!sessionId) return;
     const next = !pane.operatorSolo;
+    // Solo AOM has nothing to drive without an operator pinned to the tab.
+    // Mirror the teardown guard in setTabOperator: don't arm operatorEnabled
+    // (running border, fleet count) against an operator-less tab.
+    if (next && !pane.operator) {
+      pushInfoToast({ message: "Pin an operator to this tab first to start solo AOM." });
+      return;
+    }
     try {
       if (next) {
         await operatorSoloStart(sessionId as SessionId);
