@@ -22,6 +22,7 @@ import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
+import "./operator-creator.css";
 
 /// Blank SOUL.md template seeded into the editor when the user starts
 /// from scratch (or opens create-mode before picking an archetype).
@@ -756,11 +757,9 @@ export function openOperatorModal(opts: {
   }
 
   const el = document.createElement("div");
-  el.className = "op-modal";
-  el.addEventListener("click", (ev) => {
-    if (ev.target === el) el.remove();
-  });
+  el.className = "op-creator";
   document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("open"));
 
   const h: ModalHandle = {
     state,
@@ -791,11 +790,11 @@ export function openOperatorModal(opts: {
     // Preserve scroll across full-DOM rebuilds (voice/color/avatar/model
     // toggles all call render(), which would otherwise jump the modal
     // back to the top).
-    const prevScroll = el.querySelector<HTMLElement>(".op-modal-body")?.scrollTop ?? 0;
+    const prevScroll = el.querySelector<HTMLElement>(".op-section")?.scrollTop ?? 0;
     el.innerHTML = "";
     el.append(renderForm(h));
-    const body = el.querySelector<HTMLElement>(".op-modal-body");
-    if (body) body.scrollTop = prevScroll;
+    const section = el.querySelector<HTMLElement>(".op-section");
+    if (section) section.scrollTop = prevScroll;
   }
   // Stamp the render closure on the element so renderers (e.g. the
   // archetype gallery's onPick) can request a full re-render without the
@@ -815,32 +814,95 @@ function labeled(text: string, child: HTMLElement): HTMLElement {
   return w;
 }
 
+const RAIL: { key: SectionKey; label: string; createOnly?: boolean }[] = [
+  { key: "start", label: "Start", createOnly: true },
+  { key: "identity", label: "Identity" },
+  { key: "behaviour", label: "Behaviour" },
+  { key: "soul", label: "The Soul" },
+];
+
 function renderForm(h: ModalHandle): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "op-modal-step op-modal-form";
 
-  wrap.append(renderTopBar(h));
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.addEventListener("click", () => h.el.remove());
 
-  const body = document.createElement("div");
-  body.className = "op-modal-body";
+  const creator = document.createElement("div");
+  creator.className = "creator";
+  creator.setAttribute("role", "dialog");
+  creator.setAttribute("aria-label", h.state.mode === "edit" ? "Edit operator" : "New operator");
+
+  creator.append(renderHeader(h));
+
+  const stage = document.createElement("div");
+  stage.className = "stage";
+  stage.append(renderRail(h), renderSectionHost(h), renderSoulLive(h));
+  creator.append(stage);
+
+  creator.append(renderFooter(h));
+
+  wrap.append(scrim, creator);
+  return wrap;
+}
+
+function renderHeader(h: ModalHandle): HTMLElement {
+  const header = document.createElement("header");
+  const brand = document.createElement("div");
+  brand.className = "brand";
+  brand.textContent = `✦ ${h.state.mode === "edit" ? "Edit operator" : "New operator"}`;
+  const chipHost = document.createElement("div");
+  chipHost.className = "op-hero-chip";
+  chipHost.style.flex = "1";
+  const kbd = document.createElement("div");
+  kbd.className = "kbd";
+  kbd.textContent = "esc";
+  kbd.addEventListener("click", () => h.el.remove());
+  header.append(brand, chipHost, kbd);
+  return header;
+}
+
+function renderRail(h: ModalHandle): HTMLElement {
+  const rail = document.createElement("nav");
+  rail.className = "op-rail";
+  for (const item of RAIL) {
+    if (item.createOnly && h.state.mode !== "create") continue;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "op-rail-item";
+    if (h.state.activeSection === item.key) btn.classList.add("is-active");
+    btn.textContent = item.label;
+    btn.addEventListener("click", () => h.setSection(item.key));
+    rail.append(btn);
+  }
+  return rail;
+}
+
+function renderSectionHost(h: ModalHandle): HTMLElement {
+  const host = document.createElement("div");
+  host.className = "op-section";
   // Create mode: an archetype gallery seeds the editor. The gallery stays
   // above the editor so the user can re-pick. Picking a soul replaces
   // `soulRaw` and triggers a full modal re-render so the textarea +
   // preview pick up the new source.
   if (h.state.mode === "create") {
-    body.append(
+    host.append(
       renderArchetypeGallery((raw) => {
         h.state.soulRaw = raw;
         rerenderModal(h);
       }),
     );
   }
-  body.append(renderSoulEditor(h));
-  wrap.append(body);
+  // Temporary: mount the legacy split editor here until Task 3 splits it.
+  host.append(renderSoulEditor(h));
+  return host;
+}
 
-  wrap.append(renderFooter(h));
-
-  return wrap;
+function renderSoulLive(_h: ModalHandle): HTMLElement {
+  const live = document.createElement("div");
+  live.className = "op-soul-live";
+  return live;
 }
 
 /// Force a full modal re-render. `openOperatorModal` owns the actual
@@ -850,23 +912,6 @@ function renderForm(h: ModalHandle): HTMLElement {
 function rerenderModal(h: ModalHandle): void {
   const fn = (h.el as HTMLElement & { __rerender?: () => void }).__rerender;
   if (fn) fn();
-}
-
-function renderTopBar(h: ModalHandle): HTMLElement {
-  const bar = document.createElement("div");
-  bar.className = "op-modal-topbar";
-  const title = document.createElement("h3");
-  title.className = "op-modal-title";
-  title.textContent = h.state.mode === "edit" ? "Edit operator" : "New operator";
-  bar.append(title);
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "op-modal-close";
-  close.setAttribute("aria-label", "Close");
-  close.textContent = "×";
-  close.addEventListener("click", () => h.el.remove());
-  bar.append(close);
-  return bar;
 }
 
 // ── Archetype gallery (create mode): seeds the editor with a soul ───────────

@@ -65,6 +65,25 @@ describe('operator modal', () => {
     m.setSection('behaviour');
     expect(m.state.activeSection).toBe('behaviour');
   });
+
+  it('renders the immersive shell scaffold', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    const el = m.el;
+    expect(el.classList.contains('op-creator')).toBe(true);
+    expect(el.querySelector('.scrim')).toBeTruthy();
+    expect(el.querySelector('.creator')).toBeTruthy();
+    expect(el.querySelector('.creator header .brand')).toBeTruthy();
+    expect(el.querySelector('.op-rail')).toBeTruthy();
+    expect(el.querySelector('.op-section')).toBeTruthy();
+    expect(el.querySelector('.op-soul-live')).toBeTruthy();
+    expect(el.querySelector('.op-modal-save')).toBeTruthy();
+  });
+
+  it('rail shows Start only in create mode', () => {
+    const c = openOperatorModal({ mode: 'create' });
+    const labels = [...c.el.querySelectorAll('.op-rail-item')].map((n) => n.textContent);
+    expect(labels.some((l) => /Start/i.test(l ?? ''))).toBe(true);
+  });
 });
 
 describe('operator list grid', () => {
