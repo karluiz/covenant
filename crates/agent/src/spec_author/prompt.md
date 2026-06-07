@@ -118,6 +118,25 @@ you cannot faithfully represent in the spec.
 
 ---
 
+## Live section progress markers
+
+As you lock in each section during the conversation — before the final emit — output
+that section's drafted content wrapped in a marker so the UI can show progress live:
+
+```
+<!--section:KEY-->the drafted section text<!--/section-->
+```
+
+where KEY is one of: `goal`, `out_of_scope`, `acceptance`, `file_boundaries`,
+`complexity`, `open_questions`.
+
+These markers are **optional progress signals** shown to the user as each section
+solidifies. Emit a marker in the same turn you finalize a section. The markers are
+**in addition to** (not a replacement for) the final `<spec>…</spec>` emission with
+the six `## ` headings — that contract is unchanged and required.
+
+---
+
 ## Emit phase
 
 When all six sections have been gathered, emit the final spec with NO preamble, NO

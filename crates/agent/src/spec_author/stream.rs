@@ -53,6 +53,12 @@ pub async fn step_streaming<D: StreamingDispatcher>(
                 role: MessageRole::Assistant, content: turn.text.clone() });
         }
 
+        for (key, md) in parse_section_markers(&turn.text) {
+            sink.emit(SpecStreamEvent::Phase { section: key.clone() });
+            sink.emit(SpecStreamEvent::SectionUpdate {
+                section: key, markdown: md, status: "done".into() });
+        }
+
         if let Some(md) = turn.emitted_spec {
             if crate::spec_author::validate_spec_markdown(&md).is_ok() {
                 draft.partial_md = Some(md.clone());
@@ -105,6 +111,21 @@ pub enum SpecStreamEvent {
 /// Callback sink the dispatcher pushes events into.
 pub trait StreamSink: Send + Sync {
     fn emit(&self, event: SpecStreamEvent);
+}
+
+pub(crate) fn parse_section_markers(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("<!--section:") {
+        let after = &rest[start + "<!--section:".len()..];
+        let Some(key_end) = after.find("-->") else { break };
+        let key = after[..key_end].to_string();
+        let body = &after[key_end + 3..];
+        let Some(end) = body.find("<!--/section-->") else { break };
+        out.push((key, body[..end].trim().to_string()));
+        rest = &body[end + "<!--/section-->".len()..];
+    }
+    out
 }
 
 use futures_util::StreamExt;
@@ -305,6 +326,13 @@ mod tests {
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["kind"], "tool_start");
         assert_eq!(v["tool"], "grep");
+    }
+
+    #[test]
+    fn extracts_section_markers() {
+        let text = "Working on it.\n<!--section:goal-->Esc closes modals.<!--/section-->\nMore.";
+        let secs = super::parse_section_markers(text);
+        assert_eq!(secs, vec![("goal".to_string(), "Esc closes modals.".to_string())]);
     }
 
     #[test]
