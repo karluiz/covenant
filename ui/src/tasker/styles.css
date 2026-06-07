@@ -368,7 +368,9 @@ body.sidebar-view-tasker #tasker-panel {
   background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
 }
 .tasker-task-selected {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  /* Gentle neutral lift — accent tint reads as a harsh jump on True Dark.
+     The colored priority spine already marks the selection. */
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 
 .tasker-task-status-active {
