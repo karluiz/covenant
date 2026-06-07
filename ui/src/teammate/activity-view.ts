@@ -55,6 +55,12 @@ interface ActEvent {
   body: string;
   cost: number;
   sessionShort: string;
+  /// Human context for the origin chip when the tab is closed and its name
+  /// was never cached — so we show "claude" / the mission name instead of a
+  /// raw ULID short. Seeded from the persisted decision row; live events
+  /// (always open tabs) resolve a real tab name and don't need these.
+  mission?: string | null;
+  executor?: string | null;
   /// Full expandable detail (in-flight command + escalation/rationale +
   /// reply + output tail). Empty string when there is nothing to expand.
   detail?: string;
@@ -69,6 +75,13 @@ const INCIDENT_MIN_CYCLES = 2;       // ≥2 escalate+typed pairs
 
 function shortSession(id: string): string {
   return id.length > 6 ? id.slice(-6) : id;
+}
+
+/// Last path segment of a mission path, sans extension — "spec.md" → "spec",
+/// "/work/covenant/docs/x.md" → "x". The human label for a closed session.
+function missionBasename(path: string): string {
+  const base = path.split("/").filter(Boolean).pop() ?? path;
+  return base.replace(/\.[^.]+$/, "");
 }
 
 function escapeHtml(s: string): string {
@@ -373,6 +386,8 @@ export class ActivityView {
       body,
       cost: (r as { cost_usd?: number }).cost_usd ?? 0,
       sessionShort: shortSession(r.session_id_short ?? ""),
+      mission: r.mission_path ?? null,
+      executor: r.executor_name ?? null,
       detail: detailForDecision({
         kind,
         inFlightCommand: r.in_flight_command ?? null,
@@ -540,13 +555,23 @@ export class ActivityView {
       hideToggle;
   }
 
-  /// Resolve an event's session short to its originating tab. Null when no
-  /// bridge (tests) or the short id is unknown.
-  private resolveOrigin(short: string): OriginTab {
-    if (!this.bridge || !short) return null;
-    const info = this.bridge.resolveSession(short);
-    if (!info) return { short, name: `…${short}`, open: false };
-    return { short, name: info.name, open: info.open };
+  /// Resolve an event to a human-readable origin chip. Priority:
+  ///   1. live/cached tab name (clickable when the tab is still open)
+  ///   2. mission name (basename of the mission path)
+  ///   3. executor name ("claude", "codex", …)
+  /// Returns null when none of those exist — we omit the chip entirely
+  /// rather than surface a raw ULID short, which means nothing to a human.
+  private resolveOrigin(e: ActEvent): OriginTab {
+    const short = e.sessionShort;
+    const info = short ? (this.bridge?.resolveSession(short) ?? null) : null;
+    if (info?.open) return { short, name: info.name, open: true };
+    const human =
+      info?.name ??
+      (e.mission ? missionBasename(e.mission) : null) ??
+      e.executor ??
+      null;
+    if (!human) return null;
+    return { short, name: human, open: false };
   }
 
   private renderList(now: number): void {
@@ -663,10 +688,10 @@ export class ActivityView {
         out.push(`<div class="tp-act-bucket">${bucket}</div>`);
         lastBucket = bucket;
       }
-      const short = item.kind === "incident" ? item.cycles[0]!.sessionShort
-        : item.kind === "run" ? item.events[0]!.sessionShort
-        : item.event.sessionShort;
-      const origin = this.resolveOrigin(short);
+      const rep = item.kind === "incident" ? item.cycles[0]!
+        : item.kind === "run" ? item.events[0]!
+        : item.event;
+      const origin = this.resolveOrigin(rep);
       if (item.kind === "incident") out.push(renderIncident(item.cycles, item.first, item.last, item.cost, now, origin));
       else if (item.kind === "run") out.push(renderRun(item.events, now, outlierThreshold, origin));
       else out.push(renderSingle(item.event, now, outlierThreshold, origin));
