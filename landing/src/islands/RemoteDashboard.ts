@@ -2,6 +2,9 @@ import { parseFrame, wsUrl, reduce, initialState, type DashState } from "../remo
 
 const RELAY_BASE = "https://forge.covenant.uno";
 const TOKEN_KEY = "covenant_rc_token";
+const MAX_BACKOFF = 30000;
+
+type Conn = "idle" | "connecting" | "online" | "retrying";
 
 export function mountRemoteDashboard(doc: Document = document): void {
   const tokenInput = doc.getElementById("rc-token") as HTMLInputElement | null;
@@ -14,12 +17,23 @@ export function mountRemoteDashboard(doc: Document = document): void {
   if (saved) tokenInput.value = saved;
 
   let state: DashState = initialState();
+  let conn: Conn = "idle";
   let ws: WebSocket | null = null;
   let reconnectTimer: number | undefined;
+  let backoff = 3000;
+  let gen = 0; // epoch: increments every (re)connect; stale handlers no-op
 
   const render = () => {
-    statusEl.textContent = state.desktopOnline ? "● desktop online" : "○ desktop offline";
-    statusEl.className = state.desktopOnline ? "text-emerald-400 text-sm mb-4" : "text-zinc-500 text-sm mb-4";
+    const map: Record<Conn, [string, string]> = {
+      idle: ["○ not connected", "text-zinc-500 text-sm mb-4"],
+      connecting: ["… connecting", "text-amber-400 text-sm mb-4"],
+      online: ["● desktop online", "text-emerald-400 text-sm mb-4"],
+      retrying: ["○ disconnected — retrying", "text-zinc-500 text-sm mb-4"],
+    };
+    const online = conn === "online" && state.desktopOnline;
+    const [text, cls] = online ? map.online : map[conn];
+    statusEl.textContent = text;
+    statusEl.className = cls;
     if (state.tabs.length === 0) { tabsEl.innerHTML = `<p class="text-zinc-500">No tabs.</p>`; return; }
     tabsEl.innerHTML = state.tabs.map((t) => `
       <div class="rounded border border-emerald-900/50 bg-black/30 p-3">
@@ -31,19 +45,59 @@ export function mountRemoteDashboard(doc: Document = document): void {
       </div>`).join("");
   };
 
-  const connect = () => {
-    const token = tokenInput.value.trim();
-    if (!token) return;
-    localStorage.setItem(TOKEN_KEY, token);
-    if (ws) { ws.close(); ws = null; }
-    ws = new WebSocket(wsUrl(RELAY_BASE, token));
-    ws.onopen = () => { ws?.send(JSON.stringify({ t: "list_tabs" })); };
-    ws.onmessage = (e) => { const f = parseFrame(typeof e.data === "string" ? e.data : ""); if (f) { state = reduce(state, f); render(); } };
-    ws.onclose = () => { state = { ...state, desktopOnline: false }; render(); reconnectTimer = window.setTimeout(connect, 3000); };
-    ws.onerror = () => { ws?.close(); };
+  const teardown = (sock: WebSocket | null) => {
+    if (!sock) return;
+    sock.onopen = sock.onmessage = sock.onclose = sock.onerror = null;
+    try { sock.close(); } catch { /* ignore */ }
   };
 
-  connectBtn.addEventListener("click", () => { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; } connect(); });
+  const scheduleReconnect = () => {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    conn = "retrying";
+    render();
+    reconnectTimer = window.setTimeout(connect, backoff);
+    backoff = Math.min(backoff * 2, MAX_BACKOFF);
+  };
+
+  function connect() {
+    const token = tokenInput!.value.trim();
+    if (!token) return;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = undefined; }
+    teardown(ws);
+    ws = null;
+
+    const myGen = ++gen;            // claim this epoch
+    conn = "connecting";
+    render();
+
+    const sock = new WebSocket(wsUrl(RELAY_BASE, token));
+    ws = sock;
+    sock.onopen = () => {
+      if (myGen !== gen) return;     // superseded
+      localStorage.setItem(TOKEN_KEY, token); // persist only after a real open
+      backoff = 3000;                // reset backoff on success
+      conn = "online";
+      render();
+      sock.send(JSON.stringify({ t: "list_tabs" }));
+    };
+    sock.onmessage = (e) => {
+      if (myGen !== gen) return;
+      const f = parseFrame(typeof e.data === "string" ? e.data : "");
+      if (f) { state = reduce(state, f); render(); }
+    };
+    sock.onclose = () => {
+      if (myGen !== gen) return;     // a replaced socket: do nothing
+      state = { ...state, desktopOnline: false };
+      scheduleReconnect();
+    };
+    sock.onerror = () => {
+      if (myGen !== gen) return;
+      teardown(sock);                // routes to no handler (detached); we drive reconnect
+      scheduleReconnect();
+    };
+  }
+
+  connectBtn.addEventListener("click", () => connect());
   render();
   if (saved) connect();
 }
