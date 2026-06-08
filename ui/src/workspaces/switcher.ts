@@ -60,6 +60,11 @@ export class WorkspaceSwitcher {
       e.stopPropagation();
       this.palette.toggle();
     });
+    btn.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const active = this.ws.list().find((w) => w.active);
+      if (active) this.showRowMenu(btn, active.id);
+    });
     host.appendChild(btn);
     this.chip = btn;
     this.renderChip();
@@ -158,7 +163,7 @@ export class WorkspaceSwitcher {
   /// Per-workspace context menu (rename / duplicate / root dir / color /
   /// delete). Public so a host (e.g. the command palette) can wire it to
   /// a row affordance; the inline popover that used to call it is gone.
-  showRowMenu(row: HTMLElement, id: string): void {
+  private showRowMenu(row: HTMLElement, id: string): void {
     // Minimalist contextual menu — keeps the dependency footprint of
     // the switcher self-contained rather than reusing ContextMenu which
     // would couple us to the tab manager's larger menu plumbing.
