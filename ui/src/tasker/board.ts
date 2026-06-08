@@ -137,6 +137,31 @@ export class BoardView {
     this.host.querySelectorAll<HTMLElement>(".kb-card").forEach((card) => {
       card.addEventListener("pointerdown", (e) => this.beginDrag(e, projectId, card));
     });
+
+    // "+ Add task" reveals the inline input.
+    this.host.querySelectorAll<HTMLButtonElement>(".kb-add").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this.addingStatus = (btn.dataset.status as TaskStatus) ?? null;
+        if (this.host) this.render(this.host);
+        this.host?.querySelector<HTMLInputElement>(".kb-add-input")?.focus();
+      });
+    });
+
+    // Submit creates; Escape cancels.
+    this.host.querySelectorAll<HTMLFormElement>(".kb-add-form").forEach((form) => {
+      const status = form.dataset.status as TaskStatus | undefined;
+      const input = form.querySelector<HTMLInputElement>(".kb-add-input");
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (status && input) this.addTask(projectId, status, input.value);
+      });
+      input?.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          this.addingStatus = null;
+          if (this.host) this.render(this.host);
+        }
+      });
+    });
   }
 
   private beginDrag(e: PointerEvent, projectId: string, card: HTMLElement): void {

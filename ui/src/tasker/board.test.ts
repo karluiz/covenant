@@ -174,3 +174,28 @@ describe("board drag move", () => {
     expect(h.getChanges()).toBe(before);
   });
 });
+
+describe("board inline add", () => {
+  it("addTask creates a task with the column's status in the current project", () => {
+    const h = boardHarness();
+    h.view.render(h.host);
+    h.view.addTask(h.project.id, "active", "Wire it up");
+    const created = h.storage.getProject(h.project.id)!.tasks.find((t) => t.title === "Wire it up");
+    expect(created).toBeTruthy();
+    expect(created!.status).toBe("active");
+  });
+
+  it("clicking + Add task reveals an input that creates on submit", () => {
+    const h = boardHarness();
+    h.view.render(h.host);
+    const addBtn = h.host.querySelector<HTMLButtonElement>('.kb-col[data-status="pending"] .kb-add')!;
+    addBtn.click();
+    const input = h.host.querySelector<HTMLInputElement>('.kb-col[data-status="pending"] .kb-add-input')!;
+    expect(input).toBeTruthy();
+    input.value = "From the board";
+    input.closest("form")!.dispatchEvent(new Event("submit", { cancelable: true }));
+    const created = h.storage.getProject(h.project.id)!.tasks.find((t) => t.title === "From the board");
+    expect(created).toBeTruthy();
+    expect(created!.status).toBe("pending");
+  });
+});
