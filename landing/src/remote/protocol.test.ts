@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFrame, wsUrl, reduce, initialState } from "./protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame } from "./protocol";
 
 describe("parseFrame", () => {
   it("parses a tabs frame", () => {
@@ -26,10 +26,33 @@ describe("wsUrl", () => {
   });
 });
 describe("reduce", () => {
-  it("starts offline with no tabs", () => { expect(initialState()).toEqual({ desktopOnline: false, tabs: [] }); });
+  it("starts offline with no tabs", () => { expect(initialState()).toEqual({ desktopOnline: false, tabs: [], rejections: {} }); });
   it("applies presence", () => { expect(reduce(initialState(), { t: "presence", desktop_online: true }).desktopOnline).toBe(true); });
   it("replaces tabs on a tabs frame", () => {
     const tabs = [{ session_id: "s1", title: "x", cwd: "~/p", executor: null, phase: "idle", armed: false }];
     expect(reduce(initialState(), { t: "tabs", device_id: "d", tabs }).tabs).toEqual(tabs);
+  });
+});
+describe("rejected frame", () => {
+  it("parses a rejected frame", () => {
+    const f = parseFrame(JSON.stringify({ t: "rejected", session_id: "s1", reason: "tab_not_armed", message: "tab not armed" }));
+    expect(f).toEqual({ t: "rejected", session_id: "s1", reason: "tab_not_armed", message: "tab not armed" });
+  });
+  it("reduce records a rejection by session", () => {
+    const s = reduce(initialState(), { t: "rejected", session_id: "s1", reason: "blocklisted", message: "rm -rf blocked" });
+    expect(s.rejections["s1"]).toBe("rm -rf blocked");
+  });
+  it("a tabs frame clears stale rejections", () => {
+    let s = reduce(initialState(), { t: "rejected", session_id: "s1", reason: "blocklisted", message: "x" });
+    s = reduce(s, { t: "tabs", device_id: "d", tabs: [] });
+    expect(s.rejections).toEqual({});
+  });
+});
+describe("sendInputFrame", () => {
+  it("builds a send_input frame and appends a newline (submit)", () => {
+    expect(sendInputFrame("s1", "git status")).toBe(JSON.stringify({ t: "send_input", session_id: "s1", data: "git status\n" }));
+  });
+  it("does not double-append if the text already ends in newline", () => {
+    expect(sendInputFrame("s1", "echo hi\n")).toBe(JSON.stringify({ t: "send_input", session_id: "s1", data: "echo hi\n" }));
   });
 });

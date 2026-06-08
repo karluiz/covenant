@@ -1,5 +1,8 @@
 export interface TabInfo { session_id: string; title: string; cwd: string; executor: string | null; phase: string; armed: boolean; }
-export type Frame = { t: "tabs"; device_id: string; tabs: TabInfo[] } | { t: "presence"; desktop_online: boolean };
+export type Frame =
+  | { t: "tabs"; device_id: string; tabs: TabInfo[] }
+  | { t: "presence"; desktop_online: boolean }
+  | { t: "rejected"; session_id: string; reason: string; message: string };
 
 export function parseFrame(text: string): Frame | null {
   let v: unknown;
@@ -8,17 +11,24 @@ export function parseFrame(text: string): Frame | null {
   const o = v as Record<string, unknown>;
   if (o.t === "presence" && typeof o.desktop_online === "boolean") return { t: "presence", desktop_online: o.desktop_online };
   if (o.t === "tabs" && Array.isArray(o.tabs) && typeof o.device_id === "string") return { t: "tabs", device_id: o.device_id, tabs: o.tabs as TabInfo[] };
+  if (o.t === "rejected" && typeof o.session_id === "string" && typeof o.reason === "string" && typeof o.message === "string")
+    return { t: "rejected", session_id: o.session_id, reason: o.reason, message: o.message };
   return null;
 }
 export function wsUrl(base: string, token: string): string {
   const b = base.replace(/\/+$/, "").replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://");
   return `${b}/rc/web?token=${encodeURIComponent(token)}`;
 }
-export interface DashState { desktopOnline: boolean; tabs: TabInfo[]; }
-export function initialState(): DashState { return { desktopOnline: false, tabs: [] }; }
+export interface DashState { desktopOnline: boolean; tabs: TabInfo[]; rejections: Record<string, string>; }
+export function initialState(): DashState { return { desktopOnline: false, tabs: [], rejections: {} }; }
 export function reduce(state: DashState, frame: Frame): DashState {
   switch (frame.t) {
     case "presence": return { ...state, desktopOnline: frame.desktop_online };
-    case "tabs": return { ...state, tabs: frame.tabs };
+    case "tabs": return { ...state, tabs: frame.tabs, rejections: {} };
+    case "rejected": return { ...state, rejections: { ...state.rejections, [frame.session_id]: frame.message } };
   }
+}
+export function sendInputFrame(sessionId: string, text: string): string {
+  const data = text.endsWith("\n") ? text : text + "\n";
+  return JSON.stringify({ t: "send_input", session_id: sessionId, data });
 }
