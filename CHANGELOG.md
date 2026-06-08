@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.67 — Command palette + Tasker kanban board
+
+### Added
+
+- **Unified command palette**: a centered overlay that searches and acts across workspaces, tabs, and actions in one place, with grouped sections and a flat keyboard cursor. New `CommandPalette` built from a pure section builder plus an action registry (new/rename workspace, close tab); the workspace switcher now delegates to it instead of its old bespoke popover (command-palette module under `ui/src/`, switcher refactor, `ui/src/main.ts` keybinding).
+- **Tasker kanban Board view**: a `List | Board` toggle in the TASKER header; switching to Board expands the panel to fullscreen, mirroring Project Notes' `.pn-fullscreen` via a new `body.tasker-board` rule. Columns are task statuses (To Do / In Progress / Done) for one project at a time with a project switcher; drag a card between columns to change its status, add tasks inline per column, toggle done from the card checkbox, and click a card to open the existing details sheet docked on the right. New `ui/src/tasker/board.ts` + `ui/src/tasker/board.css`, integrated through `ui/src/tasker/panel.ts`. Frontend-only — no backend or storage migration.
+
+### Changed
+
+- **Switcher delegates to the palette**: the workspace switcher hands off to `CommandPalette`, dropping its old popover and tier-finder code; command-palette overlay styles were added and dead popover CSS removed (`ui/src/styles.css`).
+
+### Fixed
+
+- **Switcher chip right-click**: right-clicking a workspace chip now opens the workspace context menu for the active workspace.
+- **Board drag, theming, and stale project**: reset `suppressClick` at drag start so a card click immediately after a cross-column drop is no longer swallowed; board column/card surfaces use `var(--ink-rgb)` so they invert correctly under the light theme; and the board self-heals when its current project was deleted from the list view (`ui/src/tasker/board.ts`, `board.css`, `panel.ts`).
+
 ## v0.8.66 — Live tab mirror (RC-3) + pairing token
 
 ### Added
