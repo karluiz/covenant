@@ -984,7 +984,7 @@ export interface TerminalConfig {
 
 export type WindowBackground = "solid" | "vibrant" | "translucent";
 
-export type ThemeMode = "dark" | "light" | "system";
+export type ThemeMode = "dark" | "light" | "system" | "true_dark";
 export type ResolvedTheme = "dark" | "light";
 
 /// Cosmetic tab/group skin. Mirrors the Rust `TabStyle` enum. Applied by
