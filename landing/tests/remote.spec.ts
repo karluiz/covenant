@@ -274,3 +274,55 @@ test("preserves input focus and caret across an unsolicited frame", async ({ pag
   const caret = await page.evaluate(() => (document.activeElement as HTMLInputElement).selectionStart);
   expect(caret).toBe(3);
 });
+
+test("mirror: Mirror button starts stream, screen renders, Stop tears down", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true }] }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+    // @ts-ignore
+    window.__pushScreen = () => { FakeWS.last && FakeWS.last.onmessage && FakeWS.last.onmessage({
+      data: JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "HELLO-MIRROR" }) }); };
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+
+  await expect(page.locator('button.rc-mirror-btn[data-sid="s1"]')).toBeVisible();
+  await page.click('button.rc-mirror-btn[data-sid="s1"]');
+
+  const sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
+  await expect(page.locator("#rc-mirror")).not.toHaveClass(/hidden/);
+
+  await page.evaluate(() => (window as any).__pushScreen());
+  await expect(page.locator("#rc-mirror-term")).toContainText("HELLO", { timeout: 5000 });
+
+  await page.click("#rc-mirror-stop");
+  const sent2 = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent2).toContain(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
+  await expect(page.locator("#rc-mirror")).toHaveClass(/hidden/);
+});
