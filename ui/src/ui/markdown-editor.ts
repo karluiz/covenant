@@ -117,8 +117,9 @@ export class MarkdownEditor {
       this.getMd = () => (editorInstance as any).action(getMarkdown());
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.setMd = (markdown: string) => (editorInstance as any).action(replaceAll(markdown));
-    } catch {
-      // Boot failures surface in the app (dev console), not the test contract.
+    } catch (err) {
+      // Boot failures are non-fatal to the contract; log for diagnostics.
+      console.error("[MarkdownEditor] boot failed", err);
     }
   }
 }
