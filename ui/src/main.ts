@@ -893,6 +893,13 @@ async function boot(): Promise<void> {
   void listen("menu://new-tab", () => {
     void manager.createTab();
   });
+  void listen<string>("rc://tab/close", (e) => {
+    const tab = manager.tabForSession(e.payload as SessionId);
+    if (tab) manager.closeTab(tab.id);
+  });
+  void listen<string>("rc://tab/focus", (e) => {
+    manager.activateBySessionId(e.payload as SessionId);
+  });
 
   // Now that `manager` exists, wire the globe launcher's click + initial
   // visibility. The cached flag is populated by `loadExperimentalFlags()`
