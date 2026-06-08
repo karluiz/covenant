@@ -801,32 +801,7 @@ body.theme-light .op-tg-bubble {
   cursor: pointer;
 }
 
-/* Prose, preview, raw source */
-.op-soul-body {
-  width: 100%;
-  min-height: 190px;
-  resize: vertical;
-  border-radius: 10px;
-  border: 1px solid var(--border, #2a2f37);
-  background: var(--bg-overlay, rgba(0, 0, 0, 0.18));
-  color: var(--text-primary, #cdd6e3);
-  padding: 12px 14px;
-  font-size: 13.5px;
-  line-height: 1.6;
-}
-.op-soul-preview {
-  border: 1px solid var(--border, #2a2f37);
-  border-radius: 10px;
-  padding: 12px 14px;
-  overflow: auto;
-  max-height: 220px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-primary, #cdd6e3);
-}
-.op-soul-preview :first-child { margin-top: 0; }
-.op-soul-preview :last-child { margin-bottom: 0; }
-
+/* Raw source (body + preview now use the MarkdownEditor WYSIWYG surface) */
 .op-soul-rawwrap > summary,
 .op-soul-advanced > summary {
   cursor: pointer;

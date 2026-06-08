@@ -113,6 +113,14 @@ export class MarkdownEditor {
       if (this.destroyed) { editorInstance.destroy(); return; }
 
       this.editor = editorInstance;
+      // The placeholder pseudo-element reads `attr(data-placeholder)` from the
+      // .ProseMirror node it's attached to, so mirror the host's placeholder
+      // onto the ProseMirror root once it exists.
+      if (this.opts.placeholder) {
+        this.element
+          .querySelector<HTMLElement>(".ProseMirror")
+          ?.setAttribute("data-placeholder", this.opts.placeholder);
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.getMd = () => (editorInstance as any).action(getMarkdown());
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
