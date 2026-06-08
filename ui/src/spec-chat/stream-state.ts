@@ -8,6 +8,9 @@ export interface StreamState {
   apply(e: SpecStreamEvent): void;
   /** Record the user's submitted message and reset live activity for the new turn. */
   addUserMessage(text: string): void;
+  /** Restore a persisted draft: prior conversation turns and, if the draft was
+   *  already complete, its final markdown (so publish is immediately available). */
+  hydrate(data: { messages: readonly ConvMessage[]; finalMarkdown?: string | null }): void;
   /** Committed conversation turns (user + assistant), oldest first. */
   messages(): readonly ConvMessage[];
   activePhase(): SpecSectionKey | null;
@@ -71,6 +74,12 @@ export function createStreamState(): StreamState {
       tools.length = 0;
       err = null;
       awaiting = false;
+      fire();
+    },
+    hydrate(data) {
+      messages.length = 0;
+      for (const m of data.messages) messages.push({ role: m.role, content: m.content });
+      if (data.finalMarkdown != null) finalMd = data.finalMarkdown;
       fire();
     },
     messages: () => messages,

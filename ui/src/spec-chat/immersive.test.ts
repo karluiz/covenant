@@ -31,4 +31,34 @@ describe('mountImmersiveSpecCreator', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('resuming a draft rehydrates the chat from disk', async () => {
+    const loadDraft = vi.fn(async () => ({
+      id: 'd9',
+      messages: [
+        { role: 'User' as const, content: 'Quiero acceso a TASKER' },
+        { role: 'Assistant' as const, content: 'Entendido, confirma el acceso…' },
+      ],
+      partial_md: null,
+      last_updated: '2026-06-08T00:00:00Z',
+      status: { InProgress: { phase: 'goal' } } as const,
+    }));
+    mountImmersiveSpecCreator({
+      host, source: mockEventSource([]), cwd: null, draftId: 'd9', loadDraft,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(loadDraft).toHaveBeenCalledWith('d9');
+    const bubbles = host.querySelectorAll('.stream .bubble');
+    expect(bubbles).toHaveLength(2);
+    expect(bubbles[0].textContent).toContain('Quiero acceso a TASKER');
+    // Starter chips vanish once the restored conversation is present.
+    expect((host.querySelector('.starters') as HTMLElement).style.display).toBe('none');
+  });
+
+  it('does not load a draft for a fresh session', () => {
+    const loadDraft = vi.fn();
+    mountImmersiveSpecCreator({ host, source: mockEventSource([]), cwd: null, draftId: null, loadDraft });
+    expect(loadDraft).not.toHaveBeenCalled();
+  });
 });

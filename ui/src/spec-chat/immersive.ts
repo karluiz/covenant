@@ -4,12 +4,16 @@ import { createStreamState } from './stream-state';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
+import { specAuthorLoadDraft } from '../api';
+import type { SpecDraftSummary } from '../api';
 
 export interface ImmersiveOpts {
   host: HTMLElement;
   source: SpecEventSource;
   cwd: string | null;
   draftId?: string | null;
+  /** Loads a persisted draft for resume; injectable for tests. */
+  loadDraft?: (id: string) => Promise<SpecDraftSummary>;
   onClose?: () => void;
   onPublish?: (markdown: string, draftId: string) => void;
 }
@@ -63,6 +67,25 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   if (spec) (root.querySelector('.spec-host') as HTMLElement).appendChild(spec);
 
   const off = opts.source.subscribe((e) => state.apply(e));
+
+  // Resume: rehydrate prior conversation + completed spec from disk. The backend
+  // keeps the full transcript; without this the chat column starts blank.
+  if (draftId) {
+    const load = opts.loadDraft ?? specAuthorLoadDraft;
+    void load(draftId)
+      .then((draft) => {
+        state.hydrate({
+          messages: draft.messages.map((m) => ({
+            role: m.role === 'User' ? 'user' : 'assistant',
+            content: m.content,
+          })),
+          // A completed draft stores its final markdown in partial_md — surface
+          // it so Review & publish is available immediately on resume.
+          finalMarkdown: draft.status === 'Ready' ? draft.partial_md : null,
+        });
+      })
+      .catch(() => {/* fresh-start on load failure — non-fatal */});
+  }
 
   const pubBtn = root.querySelector('.btn.primary') as HTMLButtonElement;
   state.onChange(() => {

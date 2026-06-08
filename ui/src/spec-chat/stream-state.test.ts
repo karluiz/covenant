@@ -26,4 +26,33 @@ describe('createStreamState', () => {
     expect(s.finalMarkdown()).toContain('## Goal');
     expect(s.ready()).toBe(true);
   });
+
+  it('hydrate restores prior conversation turns', () => {
+    const s = createStreamState();
+    s.hydrate({
+      messages: [
+        { role: 'user', content: 'first ask' },
+        { role: 'assistant', content: 'reply' },
+      ],
+    });
+    expect(s.messages()).toEqual([
+      { role: 'user', content: 'first ask' },
+      { role: 'assistant', content: 'reply' },
+    ]);
+    expect(s.ready()).toBe(false);
+  });
+
+  it('hydrate with finalMarkdown makes a completed draft publishable', () => {
+    const s = createStreamState();
+    s.hydrate({ messages: [], finalMarkdown: '## Goal\ndone' });
+    expect(s.finalMarkdown()).toContain('## Goal');
+    expect(s.ready()).toBe(true);
+  });
+
+  it('hydrate replaces existing messages rather than appending', () => {
+    const s = createStreamState();
+    s.addUserMessage('stale');
+    s.hydrate({ messages: [{ role: 'user', content: 'fresh' }] });
+    expect(s.messages()).toEqual([{ role: 'user', content: 'fresh' }]);
+  });
 });
