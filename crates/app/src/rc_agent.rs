@@ -17,6 +17,7 @@ use crate::AppState;
 enum InFrame {
     ListTabs,
     SendInput { session_id: String, data: String },
+    WebPresence { web_count: u32 },
     #[serde(other)]
     Unknown,
 }
@@ -167,6 +168,12 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 Ok(InFrame::SendInput { session_id, data }) => {
                     if let Some(rej) = handle_send_input(app, &session_id, &data).await {
                         sink.send(Message::Text(serde_json::to_string(&rej)?)).await?;
+                    }
+                }
+                Ok(InFrame::WebPresence { web_count }) => {
+                    use tauri::Emitter;
+                    if let Err(e) = app.emit("rc://web-presence", web_count) {
+                        tracing::debug!(target: "rc_agent", error=%e, "emit web-presence failed");
                     }
                 }
                 Ok(InFrame::Unknown) => {}
@@ -364,6 +371,11 @@ mod tests {
     fn list_tabs_frame_parses() {
         let f: InFrame = serde_json::from_str(r#"{"t":"list_tabs"}"#).unwrap();
         assert!(matches!(f, InFrame::ListTabs));
+    }
+    #[test]
+    fn web_presence_frame_parses() {
+        let f: InFrame = serde_json::from_str(r#"{"t":"web_presence","web_count":2}"#).unwrap();
+        assert!(matches!(f, InFrame::WebPresence { web_count: 2 }));
     }
     #[test]
     fn unknown_frame_is_ignored_not_error() {
