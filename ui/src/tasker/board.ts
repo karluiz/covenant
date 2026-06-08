@@ -133,6 +133,72 @@ export class BoardView {
         if (taskId) this.deps.onSelect(projectId, taskId);
       });
     });
+
+    this.host.querySelectorAll<HTMLElement>(".kb-card").forEach((card) => {
+      card.addEventListener("pointerdown", (e) => this.beginDrag(e, projectId, card));
+    });
+  }
+
+  private beginDrag(e: PointerEvent, projectId: string, card: HTMLElement): void {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest(".kb-check")) return; // checkbox is not a drag handle
+    const taskId = card.dataset.taskId;
+    if (!taskId || !this.host) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rect = card.getBoundingClientRect();
+    let activated = false;
+    let ghost: HTMLElement | null = null;
+
+    const activate = (): void => {
+      activated = true;
+      this.suppressClick = true;
+      card.classList.add("kb-card-dragging");
+      const g = card.cloneNode(true) as HTMLElement;
+      g.classList.add("kb-card-ghost");
+      g.style.width = `${rect.width}px`;
+      document.body.appendChild(g);
+      ghost = g;
+    };
+
+    const clearDrop = (): void => {
+      this.host?.querySelectorAll(".kb-col--drop").forEach((c) => c.classList.remove("kb-col--drop"));
+    };
+
+    const onMove = (ev: PointerEvent): void => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!activated) {
+        if (dx * dx + dy * dy < 5 * 5) return;
+        activate();
+      }
+      if (ghost) {
+        ghost.style.transform = `translate(${rect.left + dx}px, ${rect.top + dy}px) rotate(2deg) scale(0.97)`;
+      }
+      clearDrop();
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      el?.closest<HTMLElement>(".kb-col")?.classList.add("kb-col--drop");
+    };
+
+    const onUp = (ev: PointerEvent): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      card.classList.remove("kb-card-dragging");
+      if (ghost) { ghost.remove(); ghost = null; }
+      if (activated) {
+        const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+        const col = el?.closest<HTMLElement>(".kb-col");
+        const status = col?.dataset.status as TaskStatus | undefined;
+        clearDrop();
+        if (status) this.moveTaskToStatus(projectId, taskId, status);
+      }
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   private toggleDone(projectId: string, taskId: string): void {

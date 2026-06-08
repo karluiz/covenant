@@ -143,3 +143,34 @@ describe("board selection + checkbox", () => {
     expect(h.getChanges()).toBeGreaterThan(0);
   });
 });
+
+describe("board drag move", () => {
+  it("moveTaskToStatus changes status and sets completedAt when done", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Ship", { status: "pending" })!;
+    h.view.render(h.host);
+    h.view.moveTaskToStatus(h.project.id, t.id, "done");
+    const after = h.storage.getTask(h.project.id, t.id)!;
+    expect(after.status).toBe("done");
+    expect(typeof after.completedAt).toBe("number");
+  });
+
+  it("moving out of done clears completedAt", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Reopen", { status: "done", completedAt: 123 })!;
+    h.view.render(h.host);
+    h.view.moveTaskToStatus(h.project.id, t.id, "active");
+    const after = h.storage.getTask(h.project.id, t.id)!;
+    expect(after.status).toBe("active");
+    expect(after.completedAt).toBeUndefined();
+  });
+
+  it("a no-op move (same status) does not call onChange", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Same", { status: "active" })!;
+    h.view.render(h.host);
+    const before = h.getChanges();
+    h.view.moveTaskToStatus(h.project.id, t.id, "active");
+    expect(h.getChanges()).toBe(before);
+  });
+});
