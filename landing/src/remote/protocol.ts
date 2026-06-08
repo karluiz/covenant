@@ -49,3 +49,20 @@ export function focusTabFrame(sessionId: string): string { return JSON.stringify
 export function openTabFrame(cwd?: string): string {
   return cwd ? JSON.stringify({ t: "open_tab", cwd }) : JSON.stringify({ t: "open_tab" });
 }
+
+export function mirrorStartFrame(sessionId: string): string { return JSON.stringify({ t: "mirror_start", session_id: sessionId }); }
+export function mirrorStopFrame(sessionId: string): string { return JSON.stringify({ t: "mirror_stop", session_id: sessionId }); }
+export type MirrorMsg = { kind: "screen"; sessionId: string; text: string } | { kind: "data"; sessionId: string; bytes: Uint8Array };
+export function parseMirrorFrame(text: string): MirrorMsg | null {
+  let v: unknown;
+  try { v = JSON.parse(text); } catch { return null; }
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (o.t === "mirror_screen" && typeof o.session_id === "string" && typeof o.screen === "string") return { kind: "screen", sessionId: o.session_id, text: o.screen };
+  if (o.t === "mirror_data" && typeof o.session_id === "string" && typeof o.b64 === "string") {
+    const bin = atob(o.b64); const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { kind: "data", sessionId: o.session_id, bytes };
+  }
+  return null;
+}

@@ -71,3 +71,23 @@ describe("open_tab frame", () => {
   it("builds open_tab with no cwd", () => { expect(openTabFrame()).toBe(JSON.stringify({ t: "open_tab" })); });
   it("builds open_tab with cwd", () => { expect(openTabFrame("~/p")).toBe(JSON.stringify({ t: "open_tab", cwd: "~/p" })); });
 });
+import { mirrorStartFrame, mirrorStopFrame, parseMirrorFrame } from "./protocol";
+describe("mirror frames", () => {
+  it("builds mirror_start/stop", () => {
+    expect(mirrorStartFrame("s1")).toBe(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
+    expect(mirrorStopFrame("s1")).toBe(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
+  });
+  it("parses a mirror_screen frame", () => {
+    expect(parseMirrorFrame(JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "hello" })))
+      .toEqual({ kind: "screen", sessionId: "s1", text: "hello" });
+  });
+  it("parses a mirror_data frame, decoding base64", () => {
+    const m = parseMirrorFrame(JSON.stringify({ t: "mirror_data", session_id: "s1", b64: btoa("hi") }));
+    expect(m?.kind).toBe("data");
+    if (m?.kind === "data") { expect(m.sessionId).toBe("s1"); expect(Array.from(m.bytes)).toEqual([104,105]); }
+  });
+  it("returns null for non-mirror frames", () => {
+    expect(parseMirrorFrame(JSON.stringify({ t: "presence", desktop_online: true }))).toBeNull();
+    expect(parseMirrorFrame("garbage")).toBeNull();
+  });
+});
