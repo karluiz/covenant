@@ -64,6 +64,6 @@ describe("NotesTab", () => {
     await tab.refresh();
     (host.querySelector(".pn-note-del") as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(host.querySelector(".pn-note-row")).toBeNull();
+    expect(host.querySelector(".pn-note-card")).toBeNull();
   });
 });

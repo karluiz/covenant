@@ -39,6 +39,12 @@
   --pn-subtle-3: rgb(var(--ink-rgb, 255 255 255) / 0.04);
   --pn-subtle-4: rgb(var(--ink-rgb, 255 255 255) / 0.05);
   --pn-subtle-5: rgb(var(--ink-rgb, 255 255 255) / 0.06);
+  /* Note/card surfaces. Default dark uses translucent white lifts; True
+   * Dark overrides below with opaque neutral grays so cards stay visible
+   * over pure black (a 3% white lift on #0a0a0a is invisible). */
+  --pn-card-bg: rgb(var(--ink-rgb, 255 255 255) / 0.03);
+  --pn-card-border: rgb(var(--ink-rgb, 255 255 255) / 0.08);
+  --pn-card-border-hover: rgb(var(--ink-rgb, 255 255 255) / 0.16);
   --pn-code-bg: rgb(0 0 0 / 0.3);
   background: var(--surface, #191c22);
   color: var(--text, #e6e8eb);
@@ -64,6 +70,19 @@ body.theme-light .pn-panel {
   border-top: 1px solid rgba(15, 23, 42, 0.14) !important;
   border-color: rgba(15, 23, 42, 0.14) !important;
   box-shadow: none !important;
+}
+/* True Dark (OLED): the translucent white lifts vanish over pure black, so
+ * swap in opaque neutral grays. Neutral (not accent-tinted) per the app's
+ * True Dark surface rule. */
+body.theme-true-dark .pn-panel {
+  --pn-subtle-1: #111113;
+  --pn-subtle-2: #141416;
+  --pn-subtle-3: #18181b;
+  --pn-subtle-4: #1c1c1f;
+  --pn-subtle-5: #202023;
+  --pn-card-bg: #141416;
+  --pn-card-border: #242427;
+  --pn-card-border-hover: #34343a;
 }
 body.tabbar-left .pn-panel {
   top: 38px;
@@ -319,7 +338,7 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   padding: 10px 12px;
   resize: vertical;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   transition: border-color 120ms;
 }
@@ -327,33 +346,49 @@ body.tabbar-left .pn-panel.pn-fullscreen {
   outline: none;
   border-color: var(--pn-accent, var(--accent, #6aa9ff));
 }
-.pn-note-list { list-style: none; padding: 0; margin: 0; }
-.pn-note-row {
-  display: grid;
-  grid-template-columns: 70px 1fr 24px;
-  gap: 10px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border, #2a2d35);
-  font-size: 12px;
-  align-items: start;
+.pn-note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+/* Each note is a self-contained card: timestamp label on top, full-width
+ * body below (no fixed timestamp column stealing rail width), delete tucked
+ * top-right and revealed on hover. */
+.pn-note-card {
+  position: relative;
+  background: var(--pn-card-bg);
+  border: 1px solid var(--pn-card-border);
+  border-radius: 8px;
+  padding: 9px 12px 11px;
+  transition: border-color 120ms ease, background 120ms ease;
 }
-.pn-note-row:last-child { border-bottom: 0; }
+.pn-note-card:hover { border-color: var(--pn-card-border-hover); }
 .pn-note-stamp {
+  display: block;
   color: var(--muted, #8a8aa8);
   font-family: var(--font-mono);
   font-size: 10px;
-  padding-top: 2px;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
 }
-.pn-note-body { color: var(--text, #e6e8eb); white-space: pre-wrap; line-height: 1.5; }
+.pn-note-body {
+  color: var(--text, #e6e8eb);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  font-size: 13px;
+}
 .pn-note-del {
+  position: absolute;
+  top: 6px;
+  right: 8px;
   background: transparent;
   border: 0;
   color: var(--muted, #8a8aa8);
   cursor: pointer;
-  visibility: hidden;
+  opacity: 0;
   font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  transition: opacity 120ms ease, color 120ms ease;
 }
-.pn-note-row:hover .pn-note-del { visibility: visible; }
+.pn-note-card:hover .pn-note-del { opacity: 1; }
 .pn-note-del:hover { color: #e07070; }
 
 /* ── Docs tab ────────────────────────────────────────────────────── */

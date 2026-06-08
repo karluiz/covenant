@@ -90,12 +90,12 @@ export class NotesTab {
     }
     for (const n of this.notes) {
       const li = document.createElement("li");
-      li.className = "pn-note-row";
+      li.className = "pn-note-card";
       li.dataset.id = n.id;
       const stamp = formatRelative(n.created_at_unix_ms);
       li.innerHTML = `
         <span class="pn-note-stamp"></span>
-        <span class="pn-note-body"></span>
+        <div class="pn-note-body"></div>
         <button class="pn-note-del" aria-label="Delete note">×</button>
       `;
       (li.querySelector(".pn-note-stamp") as HTMLElement).textContent = stamp;
