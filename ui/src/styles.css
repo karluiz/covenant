@@ -15193,6 +15193,28 @@ body.sidebar-view-tasker:not(.blocks-globally-collapsed) .tab-blocks {
 body.sidebar-view-tasker .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
+
+/* TASKER Board (kanban) fullscreen — mirrors .pn-fullscreen */
+body.tasker-board #tasker-panel {
+  position: fixed;
+  inset: 38px 0 0 0;
+  bottom: calc(var(--statusbar-h) + 1px);
+  width: 100vw;
+  height: auto;
+  max-width: none;
+  border: none;
+  z-index: 80;
+}
+body.tabbar-left.tasker-board #tasker-panel {
+  top: 38px;
+}
+body.tasker-board #tasker-panel .tasker-panel-board {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 /* Project Notes is a position:fixed overlay (right:0, width:240) — NOT an
    in-grid rail like Activity/Teammate. So it must NOT reserve a #layout
    column. Two failure modes that reserving caused:
