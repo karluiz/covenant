@@ -38,13 +38,11 @@ function fmtDue(ts: number): string {
 }
 
 export class BoardView {
-  private host: HTMLElement | null = null;
   private addingStatus: TaskStatus | null = null;
 
   constructor(private deps: BoardViewDeps) {}
 
   render(host: HTMLElement): void {
-    this.host = host;
     const projectId = this.deps.getProjectId();
     const project = projectId ? this.deps.storage.getProject(projectId) : null;
     if (!project) {
@@ -111,9 +109,7 @@ export class BoardView {
   }
 
   // wiring lands in Task 3 (select/checkbox) and Tasks 4-5 (drag/add).
-  private wire(_projectId: string): void {
-    if (!this.host) return;
-  }
+  private wire(_projectId: string): void {}
 
   /** Status mutation used by drag-drop. Mirrors the panel's completedAt convention. */
   moveTaskToStatus(projectId: string, taskId: string, status: TaskStatus): void {
