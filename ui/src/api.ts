@@ -169,6 +169,18 @@ export async function setOperatorEnabled(
   return invoke<void>("set_operator_enabled", { sessionId, enabled });
 }
 
+export async function setRemoteArmed(sessionId: SessionId, armed: boolean): Promise<void> {
+  return invoke<void>("rc_set_armed", { sessionId, armed });
+}
+
+export async function getRemoteArmed(sessionId: SessionId): Promise<boolean> {
+  return invoke<boolean>("rc_get_armed", { sessionId });
+}
+
+export async function disarmAllRemote(): Promise<void> {
+  return invoke<void>("rc_disarm_all");
+}
+
 export async function isOperatorEnabled(sessionId: SessionId): Promise<boolean> {
   return invoke<boolean>("is_operator_enabled", { sessionId });
 }
