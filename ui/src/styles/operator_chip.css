@@ -802,7 +802,6 @@ body.theme-light .op-tg-bubble {
 }
 
 /* Raw source (body + preview now use the MarkdownEditor WYSIWYG surface) */
-.op-soul-rawwrap > summary,
 .op-soul-advanced > summary {
   cursor: pointer;
   font-size: 12px;

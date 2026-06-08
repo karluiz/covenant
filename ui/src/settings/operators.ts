@@ -1078,15 +1078,17 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
 
   // Live pane: raw source + error — always visible on right.
 
-  const rawDetails = document.createElement("details");
+  // Always-visible, read-only mirror of the generated SOUL.md (front-matter +
+  // body). No collapsible chevron — the WYSIWYG body editor + structured
+  // controls are the source of truth; this just shows the file that gets saved.
+  const rawDetails = document.createElement("div");
   rawDetails.className = "op-soul-rawwrap";
-  const rawSummary = document.createElement("summary");
+  const rawSummary = document.createElement("div");
+  rawSummary.className = "op-soul-rawhead";
   rawSummary.textContent = "SOUL.md source";
   const src = document.createElement("textarea");
   src.className = "op-soul-source";
   src.spellcheck = false;
-  // Read-only: the WYSIWYG body editor + structured controls are the source of
-  // truth; this pane just mirrors the generated SOUL.md (front-matter + body).
   src.readOnly = true;
   rawDetails.append(rawSummary, src);
 
