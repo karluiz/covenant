@@ -1218,16 +1218,18 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     // ── Behaviour ─────────────────────────────────────────────────────
     const behaviour = soulSection("Behaviour");
 
-    const voice = document.createElement("select");
-    voice.className = "op-modal-select";
-    for (const v of ["terse", "warm", "formal"]) {
-      const o = document.createElement("option");
-      o.value = v; o.textContent = v;
-      if ((view.voice ?? "terse") === v) o.selected = true;
-      voice.append(o);
-    }
-    voice.addEventListener("change", () => { view.voice = voice.value; commit(true); });
-    behaviour.append(labeled("Voice", voice));
+    const voiceSelect = new CustomSelect({
+      className: "op-modal-select",
+      ariaLabel: "Operator voice",
+      value: view.voice ?? "terse",
+      options: [
+        { value: "terse", label: "terse" },
+        { value: "warm", label: "warm" },
+        { value: "formal", label: "formal" },
+      ],
+    });
+    voiceSelect.element.addEventListener("change", () => { view.voice = voiceSelect.value; commit(false); });
+    behaviour.append(labeled("Voice", voiceSelect.element));
 
     const modelField = document.createElement("label");
     modelField.className = "op-modal-field";
