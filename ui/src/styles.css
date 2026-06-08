@@ -3335,6 +3335,20 @@ body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
     display: none !important;
 }
 
+/* A full-page route hides the right sidebar (rule above), but the
+   sidebar-view-* body class still forces #layout into a 2-column grid,
+   leaving the route confined to the narrowed column 1. Collapse back to
+   a single column whenever a full-page route is open. Scoped to
+   :not(.tabbar-left) since that mode reserves its own columns. */
+body:not(.tabbar-left) #layout:has(> #settings-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #docs-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #drafts-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #mission-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #operator-page:not([hidden])),
+body:not(.tabbar-left) #layout:has(> #capabilities-page:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+
 /* In tabbar-left mode the layout reserves a 3rd column for the activity
    sidebar (see body.sidebar-view-activity.tabbar-left rule). When a
    full-page route is open the sidebar is hidden, but without collapsing
@@ -3358,7 +3372,13 @@ body.tabbar-left.project-notes-open #layout:has(> #docs-page:not([hidden])),
 body.tabbar-left.project-notes-open #layout:has(> #drafts-page:not([hidden])),
 body.tabbar-left.project-notes-open #layout:has(> #mission-page:not([hidden])),
 body.tabbar-left.project-notes-open #layout:has(> #operator-page:not([hidden])),
-body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden])) {
+body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden])),
+body.tabbar-left.sidebar-view-tasker #layout:has(> #settings-page:not([hidden])),
+body.tabbar-left.sidebar-view-tasker #layout:has(> #docs-page:not([hidden])),
+body.tabbar-left.sidebar-view-tasker #layout:has(> #drafts-page:not([hidden])),
+body.tabbar-left.sidebar-view-tasker #layout:has(> #mission-page:not([hidden])),
+body.tabbar-left.sidebar-view-tasker #layout:has(> #operator-page:not([hidden])),
+body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidden])) {
     grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important;
 }
 
@@ -3904,16 +3924,27 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     flex-shrink: 0;
 }
-.providers-md__pane-title-wrap { display: flex; flex-direction: column; min-width: 0; }
-.providers-md__pane-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.providers-md__pane-title-wrap { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.providers-md__pane-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .providers-md__pane-subid {
     font-size: 11px;
     color: var(--muted);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .providers-md__pane-status {
     margin-left: auto;
+    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -3921,6 +3952,7 @@ body.tabbar-left.project-notes-open #layout:has(> #capabilities-page:not([hidden
     padding: 4px 10px;
     border-radius: 999px;
     border: 1px solid transparent;
+    white-space: nowrap;
 }
 .providers-md__pane-status--ok {
     color: #4ade80;

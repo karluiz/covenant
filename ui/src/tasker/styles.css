@@ -149,25 +149,24 @@ body.sidebar-view-tasker #tasker-panel {
 }
 
 .tasker-task-add-quick {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
+  width: auto;
   background: transparent;
-  border: none;
-  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  color: var(--muted, var(--text-secondary));
   border-radius: 6px;
-  padding: 8px 6px;
+  padding: 8px 12px;
+  margin: 6px 8px 4px;
   font-family: var(--font-mono, var(--ui-font));
   font-size: 11px;
   cursor: pointer;
   text-align: left;
-  transition: color 120ms, background 120ms;
+  transition: color 120ms, border-color 120ms;
 }
 
 .tasker-task-add-quick:hover {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  border-color: var(--accent);
 }
 
 .tasker-projects {
@@ -179,6 +178,12 @@ body.sidebar-view-tasker #tasker-panel {
 
 .tasker-project {
   border-bottom: 1px solid var(--border);
+}
+
+.tasker-project-headrow {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .tasker-project-header {
@@ -201,15 +206,51 @@ body.sidebar-view-tasker #tasker-panel {
   background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
 
+.tasker-project-delete {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms, color 120ms, background 120ms;
+}
+.tasker-project-headrow:hover .tasker-project-delete {
+  opacity: 1;
+}
+.tasker-project-headrow:hover .tasker-project-count {
+  opacity: 0;
+}
+.tasker-project-count {
+  transition: opacity 120ms;
+}
+.tasker-project-delete:hover {
+  color: #f87171;
+  background: color-mix(in srgb, #f87171 12%, transparent);
+}
+
 .tasker-project-toggle {
   display: inline-flex;
   width: 16px;
   height: 16px;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
   color: var(--text-secondary);
   flex-shrink: 0;
+  transition: transform 140ms ease;
+}
+.tasker-project-toggle-open {
+  transform: rotate(90deg);
 }
 
 .tasker-project-name {
@@ -241,7 +282,7 @@ body.sidebar-view-tasker #tasker-panel {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 4px 8px;
+  padding: 4px 0;
   background: transparent;
 }
 
@@ -279,11 +320,11 @@ body.sidebar-view-tasker #tasker-panel {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 10px;
+  padding-left: 6px;
+  padding-right: 6px;
   margin-bottom: 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  border: none;
+  background: transparent;
   overflow: hidden;
 }
 
@@ -345,7 +386,7 @@ body.sidebar-view-tasker #tasker-panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-primary);
   overflow: hidden;
@@ -368,9 +409,18 @@ body.sidebar-view-tasker #tasker-panel {
   background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
 }
 .tasker-task-selected {
-  /* Gentle neutral lift — accent tint reads as a harsh jump on True Dark.
-     The colored priority spine already marks the selection. */
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  /* No fill — the expanded card is marked by a hairline outline + the
+     colored priority spine. Reads clean on True Dark / OLED. */
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+body.theme-true-dark .tasker-task:hover {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+body.theme-true-dark .tasker-task-selected {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #2e2a26;
 }
 
 .tasker-task-status-active {
@@ -505,25 +555,39 @@ body.sidebar-view-tasker #tasker-panel {
   gap: 10px;
   padding: 6px 12px 12px 35px;
 }
-.tasker-kv-notes { align-items: flex-start; }
-.tasker-kv-notes .tasker-kv-key { margin-top: 6px; }
+/* Notes spans the full sheet width: label on its own row, textarea below. */
+.tasker-kv-notes {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.tasker-notes-label { margin-top: 0; width: auto; align-self: flex-start; }
 .tasker-edit-note {
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  min-height: 22px;
-  resize: vertical;
+  min-height: 40px;
+  max-height: 320px;
+  resize: none;
+  overflow-y: auto;
+  box-sizing: border-box;
   background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  padding: 4px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
   color: var(--text-primary);
   font-family: var(--ui-font);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   outline: none;
+  transition: border-color 120ms, background 120ms;
+}
+.tasker-edit-note:focus {
+  border-color: var(--accent);
 }
 .tasker-edit-note::placeholder { color: var(--text-tertiary); }
+body.theme-true-dark .tasker-edit-note {
+  border-color: #2e2a26;
+}
 .tasker-sheet-delete {
   align-self: flex-end;
   margin-top: 2px;

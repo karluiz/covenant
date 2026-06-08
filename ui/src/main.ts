@@ -1098,6 +1098,7 @@ async function boot(): Promise<void> {
     // Project Notes claims the right rail — close any competing panel
     // first so two never render together.
     window.dispatchEvent(new CustomEvent("teammate:close"));
+    closeTaskerIfOpen();
     projectNotesReturnView = activeSidebarTitlebarView;
     document.body.classList.add("project-notes-open");
     document.body.classList.remove("sidebar-view-activity");
