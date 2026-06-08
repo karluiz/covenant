@@ -1,4 +1,4 @@
-import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, type DashState } from "../remote/protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, openTabFrame, type DashState } from "../remote/protocol";
 
 const RELAY_BASE = "https://forge.covenant.uno";
 const TOKEN_KEY = "covenant_rc_token";
@@ -11,6 +11,8 @@ export function mountRemoteDashboard(doc: Document = document): void {
   const connectBtn = doc.getElementById("rc-connect") as HTMLButtonElement | null;
   const statusEl = doc.getElementById("rc-status");
   const tabsEl = doc.getElementById("rc-tabs");
+  const newTabBtn = doc.getElementById("rc-new-tab") as HTMLButtonElement | null;
+  const openErrEl = doc.getElementById("rc-open-error");
   if (!tokenInput || !connectBtn || !statusEl || !tabsEl) return;
 
   const saved = localStorage.getItem(TOKEN_KEY);
@@ -40,6 +42,7 @@ export function mountRemoteDashboard(doc: Document = document): void {
     const [text, cls] = online ? map.online : map[conn];
     statusEl.textContent = text;
     statusEl.className = cls;
+    if (openErrEl) openErrEl.textContent = state.rejections[""] ?? "";
     if (state.tabs.length === 0) { tabsEl.innerHTML = `<p class="text-zinc-500">No tabs.</p>`; return; }
 
     // Focus preservation: capture the focused .rc-cmd input's identity + caret.
@@ -165,6 +168,17 @@ export function mountRemoteDashboard(doc: Document = document): void {
   }
 
   connectBtn.addEventListener("click", () => connect());
+
+  newTabBtn?.addEventListener("click", () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(openTabFrame());
+      if (state.rejections[""]) {
+        const { ["" as string]: _, ...rest } = state.rejections;
+        state = { ...state, rejections: rest };
+        render();
+      }
+    }
+  });
 
   // Event delegation, attached once.
   tabsEl.addEventListener("click", (e) => {
