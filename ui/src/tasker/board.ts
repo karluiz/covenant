@@ -170,6 +170,12 @@ export class BoardView {
     const taskId = card.dataset.taskId;
     if (!taskId || !this.host) return;
 
+    // A pointerdown always precedes a click, so reset here: a successful
+    // cross-column drop re-renders (detaching this card) before its synthetic
+    // click fires, which would otherwise leave suppressClick stuck true and
+    // swallow the next card's selection.
+    this.suppressClick = false;
+
     const startX = e.clientX;
     const startY = e.clientY;
     const rect = card.getBoundingClientRect();

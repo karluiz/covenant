@@ -239,6 +239,12 @@ export class TaskerPanel {
   private mountBoard(): void {
     const columnsHost = this.host.querySelector<HTMLElement>(".kb-columns-host");
     if (!columnsHost) return;
+    // Self-heal a stale board project (e.g. the current project was deleted from
+    // the list view) so the board falls back instead of showing "No project selected".
+    const projects = this.storage.getProjects();
+    if (!this.boardProjectId || !projects.some((p) => p.id === this.boardProjectId)) {
+      this.boardProjectId = projects[0]?.id ?? null;
+    }
     if (!this.board) {
       this.board = new BoardView({
         storage: this.storage,
