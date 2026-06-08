@@ -1,4 +1,4 @@
-import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, type DashState } from "../remote/protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, type DashState } from "../remote/protocol";
 
 const RELAY_BASE = "https://forge.covenant.uno";
 const TOKEN_KEY = "covenant_rc_token";
@@ -64,6 +64,8 @@ export function mountRemoteDashboard(doc: Document = document): void {
         ? `<div class="mt-2 flex gap-2">
             <input class="rc-cmd flex-1 rounded border border-emerald-900/50 bg-black/40 px-2 py-1 text-sm text-emerald-100" data-sid="${sid}" placeholder="command…" />
             <button class="rc-send rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-sm text-emerald-200" data-sid="${sid}">Send</button>
+            <button data-sid="${sid}" class="rc-focus rounded border border-zinc-700 bg-zinc-800/40 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700/50">Focus</button>
+            <button data-sid="${sid}" class="rc-close rounded border border-red-800 bg-red-900/20 px-2 py-1 text-xs text-red-300 hover:bg-red-900/40">Close</button>
           </div>`
         : `<div class="mt-2 text-xs text-zinc-500">Arm this tab on the desktop to control it.</div>`;
       const rejLine = rejection
@@ -166,10 +168,21 @@ export function mountRemoteDashboard(doc: Document = document): void {
 
   // Event delegation, attached once.
   tabsEl.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest("button.rc-send") as HTMLElement | null;
-    if (!btn) return;
-    const sid = btn.getAttribute("data-sid");
-    if (sid) sendFor(sid);
+    const target = e.target as HTMLElement;
+    const sendBtn = target.closest("button.rc-send") as HTMLElement | null;
+    if (sendBtn) { const sid = sendBtn.getAttribute("data-sid"); if (sid) sendFor(sid); return; }
+    const focusBtn = target.closest("button.rc-focus") as HTMLElement | null;
+    if (focusBtn) {
+      const sid = focusBtn.getAttribute("data-sid");
+      if (sid && ws && ws.readyState === WebSocket.OPEN) ws.send(focusTabFrame(sid));
+      return;
+    }
+    const closeBtn = target.closest("button.rc-close") as HTMLElement | null;
+    if (closeBtn) {
+      const sid = closeBtn.getAttribute("data-sid");
+      if (sid && ws && ws.readyState === WebSocket.OPEN) ws.send(closeTabFrame(sid));
+      return;
+    }
   });
   tabsEl.addEventListener("keydown", (e) => {
     const ev = e as KeyboardEvent;
