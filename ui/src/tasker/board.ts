@@ -38,11 +38,14 @@ function fmtDue(ts: number): string {
 }
 
 export class BoardView {
+  private host: HTMLElement | null = null;
   private addingStatus: TaskStatus | null = null;
+  private suppressClick = false;
 
   constructor(private deps: BoardViewDeps) {}
 
   render(host: HTMLElement): void {
+    this.host = host;
     const projectId = this.deps.getProjectId();
     const project = projectId ? this.deps.storage.getProject(projectId) : null;
     if (!project) {
@@ -108,8 +111,40 @@ export class BoardView {
     return `<button class="kb-add" type="button" data-status="${status}">+ Add task</button>`;
   }
 
-  // wiring lands in Task 3 (select/checkbox) and Tasks 4-5 (drag/add).
-  private wire(_projectId: string): void {}
+  private wire(projectId: string): void {
+    if (!this.host) return;
+
+    // Checkbox toggles done (stops the card click/select).
+    this.host.querySelectorAll<HTMLButtonElement>(".kb-check").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const card = btn.closest<HTMLElement>(".kb-card");
+        const taskId = card?.dataset.taskId;
+        if (!taskId) return;
+        this.toggleDone(projectId, taskId);
+      });
+    });
+
+    // Card click selects (drag in Task 4 sets suppressClick).
+    this.host.querySelectorAll<HTMLElement>(".kb-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        if (this.suppressClick) { this.suppressClick = false; return; }
+        const taskId = card.dataset.taskId;
+        if (taskId) this.deps.onSelect(projectId, taskId);
+      });
+    });
+  }
+
+  private toggleDone(projectId: string, taskId: string): void {
+    const task = this.deps.storage.getTask(projectId, taskId);
+    if (!task) return;
+    const next: TaskStatus = task.status === "done" ? "pending" : "done";
+    this.deps.storage.updateTask(projectId, taskId, {
+      status: next,
+      completedAt: next === "done" ? Date.now() : undefined,
+    });
+    this.deps.onChange();
+  }
 
   /** Status mutation used by drag-drop. Mirrors the panel's completedAt convention. */
   moveTaskToStatus(projectId: string, taskId: string, status: TaskStatus): void {

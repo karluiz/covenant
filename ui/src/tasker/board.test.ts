@@ -115,3 +115,31 @@ describe("BoardView columns", () => {
     expect(titles).toEqual(["urgent", "normal", "low-old"]);
   });
 });
+
+describe("board selection + checkbox", () => {
+  it("clicking a card opens the details dock with the task's status control", () => {
+    document.body.innerHTML = `<div id="tasker-panel"></div>`;
+    const host = document.getElementById("tasker-panel")!;
+    const panel = new TaskerPanel(host);
+    const storage = (panel as unknown as { storage: TaskStorage }).storage;
+    const pid = storage.getProjects()[0].id;
+    storage.createTask(pid, "Pick me", { status: "pending" });
+    (panel as unknown as { boardProjectId: string }).boardProjectId = pid;
+    panel.render();
+    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+
+    host.querySelector<HTMLElement>(".kb-card")!.click();
+    const dock = host.querySelector(".tasker-board-dock .tasker-edit");
+    expect(dock).toBeTruthy();
+    expect(dock!.querySelector('.tasker-seg-btn[data-status="pending"].on')).toBeTruthy();
+  });
+
+  it("checkbox toggles a task to done", () => {
+    const h = boardHarness();
+    const t = h.storage.createTask(h.project.id, "Finish", { status: "pending" })!;
+    h.view.render(h.host);
+    h.host.querySelector<HTMLButtonElement>(`.kb-card[data-task-id="${t.id}"] .kb-check`)!.click();
+    expect(h.storage.getTask(h.project.id, t.id)!.status).toBe("done");
+    expect(h.getChanges()).toBeGreaterThan(0);
+  });
+});

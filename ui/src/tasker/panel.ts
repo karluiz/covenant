@@ -207,11 +207,17 @@ export class TaskerPanel {
   }
 
   private renderBoardBody(): string {
+    const sel = this.selectedTask;
+    let dock = "";
+    if (sel) {
+      const task = this.storage.getTask(sel.projectId, sel.taskId);
+      if (task) dock = this.renderTaskDetails(sel.projectId, task);
+    }
     return `
     <div class="tasker-board-toolbar"></div>
     <div class="tasker-board-layout">
       <div class="kb-columns-host"></div>
-      <aside class="tasker-board-dock"></aside>
+      <aside class="tasker-board-dock${dock ? " tasker-board-dock-open" : ""}">${dock}</aside>
     </div>`;
   }
 
