@@ -21,6 +21,8 @@ enum InFrame {
     CloseTab { session_id: String },
     FocusTab { session_id: String },
     OpenTab { #[serde(default)] cwd: Option<String> },
+    MirrorStart { session_id: String },
+    MirrorStop { session_id: String },
     #[serde(other)]
     Unknown,
 }
@@ -46,6 +48,14 @@ enum OutFrame {
         session_id: String,
         reason: &'static str,
         message: String,
+    },
+    MirrorScreen {
+        session_id: String,
+        screen: String,
+    },
+    MirrorData {
+        session_id: String,
+        b64: String,
     },
 }
 
@@ -157,6 +167,20 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
     let (ws, _resp) = tokio_tungstenite::connect_async(url).await?;
     let (mut sink, mut stream) = ws.split();
     tracing::info!(target: "rc_agent", "relay connected");
+
+    // Outbound fan-in: all handlers (and per-mirror tasks) push frames here;
+    // a single write task owns the sink so concurrent senders don't race.
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let write = tokio::spawn(async move {
+        while let Some(m) = out_rx.recv().await {
+            if sink.send(m).await.is_err() {
+                break;
+            }
+        }
+    });
+    let mut mirrors: std::collections::HashMap<karl_session::SessionId, tokio::task::JoinHandle<()>> =
+        std::collections::HashMap::new();
+
     while let Some(msg) = stream.next().await {
         match msg? {
             Message::Text(text) => match serde_json::from_str::<InFrame>(&text) {
@@ -166,11 +190,11 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                         device_id: device_id.to_string(),
                         tabs,
                     })?;
-                    sink.send(Message::Text(json)).await?;
+                    let _ = out_tx.send(Message::Text(json));
                 }
                 Ok(InFrame::SendInput { session_id, data }) => {
                     if let Some(rej) = handle_send_input(app, &session_id, &data).await {
-                        sink.send(Message::Text(serde_json::to_string(&rej)?)).await?;
+                        let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?));
                     }
                 }
                 Ok(InFrame::WebPresence { web_count }) => {
@@ -182,28 +206,109 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 Ok(InFrame::CloseTab { session_id }) => {
                     match lifecycle_gate(app, &session_id).await {
                         Ok(id) => { use tauri::Emitter; let _ = app.emit("rc://tab/close", id.to_string()); }
-                        Err(rej) => { sink.send(Message::Text(serde_json::to_string(&rej)?)).await?; }
+                        Err(rej) => { let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?)); }
                     }
                 }
                 Ok(InFrame::FocusTab { session_id }) => {
                     match lifecycle_gate(app, &session_id).await {
                         Ok(id) => { use tauri::Emitter; let _ = app.emit("rc://tab/focus", id.to_string()); }
-                        Err(rej) => { sink.send(Message::Text(serde_json::to_string(&rej)?)).await?; }
+                        Err(rej) => { let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?)); }
                     }
                 }
                 Ok(InFrame::OpenTab { cwd }) => {
                     if let Some(rej) = handle_open_tab(app, cwd).await {
-                        sink.send(Message::Text(serde_json::to_string(&rej)?)).await?;
+                        let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?));
                     }
                 }
-                Ok(InFrame::Unknown) => {}
+                Ok(InFrame::MirrorStart { session_id }) => {
+                    start_mirror(app, &session_id, &out_tx, &mut mirrors).await;
+                }
+                Ok(InFrame::MirrorStop { session_id }) => {
+                    stop_mirror(&session_id, &mut mirrors);
+                }
+                Ok(InFrame::WebPresence { .. }) | Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
             Message::Close(_) => break,
             _ => {}
         }
     }
+    for (_, h) in mirrors.drain() {
+        h.abort();
+    }
+    write.abort();
     Ok(())
+}
+
+async fn start_mirror(
+    app: &AppHandle,
+    session_id: &str,
+    out_tx: &tokio::sync::mpsc::UnboundedSender<Message>,
+    mirrors: &mut std::collections::HashMap<karl_session::SessionId, tokio::task::JoinHandle<()>>,
+) {
+    let id = match lifecycle_gate(app, session_id).await {
+        Ok(id) => id,
+        Err(rej) => {
+            if let Ok(j) = serde_json::to_string(&rej) {
+                let _ = out_tx.send(Message::Text(j));
+            }
+            return;
+        }
+    };
+    if mirrors.contains_key(&id) {
+        return;
+    }
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        return;
+    };
+    let (mut rx, snapshot) = {
+        let sessions = state.sessions.lock().await;
+        let Some(m) = sessions.get(&id) else {
+            return;
+        };
+        (m.session.subscribe_raw_bytes(), m.session.screen_snapshot())
+    };
+    if let Ok(j) = serde_json::to_string(&OutFrame::MirrorScreen {
+        session_id: session_id.to_string(),
+        screen: snapshot,
+    }) {
+        let _ = out_tx.send(Message::Text(j));
+    }
+    let sid = session_id.to_string();
+    let tx = out_tx.clone();
+    let handle = tokio::spawn(async move {
+        use base64::Engine;
+        loop {
+            match rx.recv().await {
+                Ok(bytes) => {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    if let Ok(j) = serde_json::to_string(&OutFrame::MirrorData {
+                        session_id: sid.clone(),
+                        b64,
+                    }) {
+                        if tx.send(Message::Text(j)).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    mirrors.insert(id, handle);
+}
+
+fn stop_mirror(
+    session_id: &str,
+    mirrors: &mut std::collections::HashMap<karl_session::SessionId, tokio::task::JoinHandle<()>>,
+) {
+    use std::str::FromStr;
+    if let Ok(u) = ulid::Ulid::from_str(session_id) {
+        if let Some(h) = mirrors.remove(&karl_session::SessionId(u)) {
+            h.abort();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -462,6 +567,11 @@ mod tests {
         assert!(matches!(f, InFrame::OpenTab { .. }));
         let f2: InFrame = serde_json::from_str(r#"{"t":"open_tab"}"#).unwrap();
         assert!(matches!(f2, InFrame::OpenTab { cwd: None }));
+    }
+    #[test]
+    fn mirror_frames_parse() {
+        assert!(matches!(serde_json::from_str::<InFrame>(r#"{"t":"mirror_start","session_id":"s1"}"#).unwrap(), InFrame::MirrorStart { .. }));
+        assert!(matches!(serde_json::from_str::<InFrame>(r#"{"t":"mirror_stop","session_id":"s1"}"#).unwrap(), InFrame::MirrorStop { .. }));
     }
     #[test]
     fn lifecycle_decision_matches_armed() {
