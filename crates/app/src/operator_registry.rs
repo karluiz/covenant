@@ -76,6 +76,33 @@ pub fn voice_directive(tone: VoiceTone) -> &'static str {
     }
 }
 
+/// System-prompt directive calibrating how readily the operator escalates to
+/// the user (emits an Escalate action) versus acting on its own. Derived from
+/// the per-operator `escalate_threshold` (0.0..=1.0): LOWER = cautious, asks
+/// often; HIGHER = autonomous, only stops for risky/irreversible work. The
+/// hard denylist still blocks dangerous commands regardless of this band.
+pub fn escalate_directive(threshold: f32) -> String {
+    let t = threshold.clamp(0.0, 1.0);
+    let band = if t <= 0.25 {
+        "You are CAUTIOUS. Escalate to the user whenever a routine answer is even mildly \
+         ambiguous, under-specified, or could surprise them. When in doubt, escalate."
+    } else if t <= 0.55 {
+        "You are BALANCED. Handle clearly-routine prompts yourself; escalate anything ambiguous, \
+         risky, or outside the obvious happy path."
+    } else if t <= 0.8 {
+        "You are CONFIDENT. Proceed on most routine work without asking; reserve escalation for \
+         genuinely risky, costly, or ambiguous decisions."
+    } else {
+        "You are NEAR-AUTOPILOT. Keep moving on your own; escalate ONLY when an action would be \
+         irreversible, destructive, or clearly outside the charter."
+    };
+    format!(
+        "ESCALATION CALIBRATION (threshold {t:.2}). {band} This tunes how often you choose the \
+         Escalate action over Reply/Execute — it never overrides the hard safety denylist, which \
+         always blocks dangerous commands."
+    )
+}
+
 impl Operator {
     /// Project this `Operator` to the lightweight `karl_session::OperatorRef`
     /// used by session events and IPC. Keeps `ulid` / app-only types out of

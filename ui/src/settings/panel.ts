@@ -341,6 +341,7 @@ export class SettingsPanel {
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-covenant" data-target="sec-covenant">Metrics</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
+      <a href="#sec-experimental" data-target="sec-experimental">Experimental</a>
     `;
     body.appendChild(nav);
 
@@ -580,33 +581,6 @@ export class SettingsPanel {
               by default.
             </small>
           </label>
-          <h4 class="settings-subsection-title">Experimental</h4>
-          <label class="settings-field settings-field-row">
-            <input type="checkbox" name="experimental_split_panes" />
-            <span class="settings-label">Split panes</span>
-            <small class="settings-hint">
-              Allow splitting a tab into two panes side-by-side or stacked.
-              Each pane gets its own session, mission, and operator.
-              Shortcuts: <kbd>⌘D</kbd> split right,
-              <kbd>⌘\</kbd> split down,
-              <kbd>⌘[</kbd>/<kbd>⌘]</kbd> focus prev/next,
-              <kbd>⌘⇧]</kbd> swap.
-            </small>
-          </label>
-          <label class="settings-field settings-field-row">
-            <input type="checkbox" name="experimental_statusbar_two_row" />
-            <span class="settings-label">Two-row status bar</span>
-            <small class="settings-hint">
-              Split identity / telemetry across two rows of the status
-              bar so a long mission filename doesn't crowd the runtime
-              cluster off-screen. Uncheck for the original single-row
-              layout.
-            </small>
-          </label>
-          <label class="settings-checkbox">
-            <input type="checkbox" name="experimental_internal_browser" />
-            Internal browser (open links &amp; quick-search inside Covenant)
-          </label>
         </section>
         <section class="settings-section" id="sec-operators">
           <h3 class="settings-section-title">Operators</h3>
@@ -804,6 +778,47 @@ export class SettingsPanel {
               Saves all tabs, groups, and per-tab settings as a JSON file. Import replaces the current workspace.
             </small>
           </div>
+        </section>
+        <section class="settings-section" id="sec-experimental">
+          <h3 class="settings-section-title">Experimental</h3>
+          <p class="settings-section-desc">
+            Features still in active development. They work, but may change,
+            have rough edges, or carry a small performance cost. Toggle them
+            on to try them — each can be turned off independently.
+          </p>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="experimental_split_panes" />
+            <span class="settings-label">Split panes</span>
+            <small class="settings-hint">
+              Split a tab into two panes, side-by-side or stacked. Each pane
+              runs its own independent session, mission, and operator — useful
+              for watching a long build in one pane while you work in the other.
+              Shortcuts: <kbd>⌘D</kbd> split right,
+              <kbd>⌘\</kbd> split down,
+              <kbd>⌘[</kbd>/<kbd>⌘]</kbd> focus prev/next,
+              <kbd>⌘⇧]</kbd> swap panes.
+            </small>
+          </label>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="experimental_statusbar_two_row" />
+            <span class="settings-label">Two-row status bar</span>
+            <small class="settings-hint">
+              Lay the bottom status bar out over two rows — identity (mission
+              name, branch) on top, telemetry (runtime, token cluster) below —
+              so a long mission filename no longer pushes the runtime cluster
+              off-screen. Uncheck for the original compact single-row layout.
+            </small>
+          </label>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="experimental_internal_browser" />
+            <span class="settings-label">Internal browser</span>
+            <small class="settings-hint">
+              Open links and run quick web searches in a native webview pane
+              inside Covenant, instead of bouncing out to your default browser.
+              Early build — page occlusion and layout sync are still being
+              tuned, so expect occasional redraw glitches when resizing panes.
+            </small>
+          </label>
         </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>

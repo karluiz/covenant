@@ -11,8 +11,13 @@ import {
   operatorListArchetypes,
   operatorSoulRead,
   operatorSoulParse,
+  getSettings,
+  listModelsAnthropic,
+  listModelsAzureFoundry,
+  listModelsOpenAiCompat,
   type ArchetypeView,
   type SoulView,
+  type ModelInfo,
 } from "../api";
 import { PRESETS, type PresetKey } from "./operator_presets";
 import { setFrontmatterScalar } from "./soul_frontmatter";
@@ -444,21 +449,20 @@ export class LegacyOperatorsPane {
 
     const modelHost = root.querySelector<HTMLElement>('[data-role="model-select"]');
     if (modelHost) {
-      const modelOptions = [...MODELS];
-      if (!modelOptions.some((m) => m.value === this.editing.model)) {
-        modelOptions.push({ value: this.editing.model, label: `${this.editing.model} (custom)` });
-      }
       const modelSelect = new CustomSelect({
         className: "operators-pane__select",
         ariaLabel: "Operator model",
         value: this.editing.model,
-        options: modelOptions,
+        options: withCurrentModel([], this.editing.model),
       });
       modelSelect.element.addEventListener("change", () => {
         this.editing.model = modelSelect.value;
         this.dirty = true;
       });
       modelHost.replaceWith(modelSelect.element);
+      void operatorModelOptions(this.editing.model).then((opts) => {
+        modelSelect.setOptions(opts, this.editing.model);
+      });
     }
 
     // Wire avatar grid clicks + hover cycling. Each button stores its
@@ -826,6 +830,21 @@ export function openOperatorModal(opts: {
   (el as HTMLElement & { __rerender?: () => void }).__rerender = render;
   render();
   return h;
+}
+
+/// Human explanation of the escalate-threshold slider, with a band-specific
+/// tail so the value the user just dragged to actually means something.
+function thresholdHint(t: number): string {
+  const base =
+    "How much doubt the operator tolerates before it stops and asks you instead of acting on its own. " +
+    "Lower = cautious (pings you often); higher = autonomous (acts solo, only pausing for risky or irreversible steps). " +
+    "Truly dangerous commands are always blocked regardless of this setting. ";
+  let band: string;
+  if (t <= 0.25) band = `Now at ${t.toFixed(2)}: very cautious — asks before almost anything non-trivial.`;
+  else if (t <= 0.55) band = `Now at ${t.toFixed(2)}: balanced — asks on anything ambiguous or risky.`;
+  else if (t <= 0.8) band = `Now at ${t.toFixed(2)}: confident — proceeds on most routine work, escalates real risk.`;
+  else band = `Now at ${t.toFixed(2)}: near-autopilot — only stops for clearly irreversible or destructive actions.`;
+  return base + band;
 }
 
 function labeled(text: string, child: HTMLElement): HTMLElement {
@@ -1238,17 +1257,16 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     const modelLbl = document.createElement("span");
     modelLbl.className = "op-modal-label";
     modelLbl.textContent = "Model";
-    const modelOptions = [...MODELS];
-    if (view.model && !modelOptions.some((m) => m.value === view.model)) {
-      modelOptions.push({ value: view.model, label: `${view.model} (custom)` });
-    }
     const modelSelect = new CustomSelect({
       className: "op-modal-select",
       ariaLabel: "Operator model",
       value: view.model ?? "claude-sonnet-4-6",
-      options: modelOptions,
+      options: withCurrentModel([], view.model ?? undefined),
     });
     modelSelect.element.addEventListener("change", () => { view.model = modelSelect.value; commit(false); });
+    void operatorModelOptions(view.model ?? undefined).then((opts) => {
+      modelSelect.setOptions(opts, view.model ?? "claude-sonnet-4-6");
+    });
     modelField.append(modelLbl, modelSelect.element);
     behaviour.append(modelField);
 
@@ -1263,8 +1281,14 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       view.escalate_threshold = Number.parseFloat(thr.value);
       const lbl = thrField.querySelector<HTMLElement>(".op-modal-label");
       if (lbl) lbl.textContent = `Escalate threshold · ${(view.escalate_threshold ?? 0.6).toFixed(2)}`;
+      const hintEl = thrField.querySelector<HTMLElement>(".op-modal-hint");
+      if (hintEl) hintEl.textContent = thresholdHint(view.escalate_threshold ?? 0.6);
       commit(false);
     });
+    const thrHint = document.createElement("small");
+    thrHint.className = "op-modal-hint";
+    thrHint.textContent = thresholdHint(view.escalate_threshold ?? 0.6);
+    thrField.append(thrHint);
     behaviour.append(thrField);
     controls.append(behaviour);
 
@@ -1394,11 +1418,63 @@ function renderFooter(h: ModalHandle): HTMLElement {
   return foot;
 }
 
-const MODELS: Array<{ value: string; label: string }> = [
+type ModelOption = { value: string; label: string };
+
+/// Static fallback list, used only when the configured Operator provider
+/// can't be reached (offline, no key) so the dropdown is never empty.
+const MODELS: ModelOption[] = [
   { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
   { value: "claude-opus-4-7", label: "Opus 4.7" },
 ];
+
+/// Ensure the operator's currently-selected model stays selectable even
+/// if the provider doesn't list it (custom/legacy id).
+function withCurrentModel(opts: ModelOption[], current?: string): ModelOption[] {
+  if (current && !opts.some((m) => m.value === current)) {
+    return [...opts, { value: current, label: `${current} (custom)` }];
+  }
+  return opts;
+}
+
+/// Resolve the model dropdown options from the provider configured for the
+/// `operator` role in Settings → Models (the same source the Models tab
+/// uses), so the picker lists exactly the models that provider serves.
+/// Falls back to the static `MODELS` list if the provider is unreachable.
+async function operatorModelOptions(current?: string): Promise<ModelOption[]> {
+  try {
+    const settings = await getSettings();
+    const route = settings.model_routes?.operator;
+    const entry = route ? settings.providers?.[route.provider_id] : undefined;
+    if (!entry) return withCurrentModel([...MODELS], current);
+
+    let models: ModelInfo[];
+    if (entry.kind === "anthropic") {
+      models = await listModelsAnthropic();
+    } else if (entry.kind === "azure_foundry") {
+      models = await listModelsAzureFoundry({
+        endpoint: entry.base_url ?? "",
+        apiKey: entry.api_key ?? "",
+        mode: entry.azure_mode ?? "azure_open_ai",
+        apiVersion:
+          entry.azure_api_version ??
+          (entry.azure_mode === "ai_inference"
+            ? "2024-05-01-preview"
+            : "2024-10-21"),
+      });
+    } else {
+      models = await listModelsOpenAiCompat(entry.base_url ?? "");
+    }
+
+    const opts: ModelOption[] = models.map((m) => ({
+      value: m.id,
+      label: m.label ?? m.id,
+    }));
+    return withCurrentModel(opts.length ? opts : [...MODELS], current);
+  } catch {
+    return withCurrentModel([...MODELS], current);
+  }
+}
 
 /// Persist the operator via the SOUL.md (`*_from_soul`) commands. Returns
 /// the created/updated operator so the caller can drive the post-save

@@ -2253,6 +2253,7 @@ async fn run_tick(
             "",
             mind_v2_on,
             op.voice,
+            op.escalate_threshold,
             task_archetype,
         );
 
@@ -3709,6 +3710,7 @@ fn build_system_prompt(
     project_context: &str,
     mind_v2_on: bool,
     voice: crate::operator_registry::VoiceTone,
+    escalate_threshold: f32,
     task_archetype: Option<crate::teammate::types::TaskArchetype>,
 ) -> String {
     let aom_block = if aom_active {
@@ -3776,11 +3778,13 @@ fn build_system_prompt(
          {review_block}\
          # PERSONA (set by user — guides judgment for the routine cases)\n\
          {persona}\n\n\
+         # {escalation}\n\n\
          # {recommendation}\n\n\
          # {hard}\n\n\
          # {voice_dir}\n\n\
          # {fmt}",
         persona = persona.trim(),
+        escalation = crate::operator_registry::escalate_directive(escalate_threshold),
         recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
         hard = HARD_CONSTRAINTS,
         voice_dir = crate::operator_registry::voice_directive(voice),
@@ -5079,6 +5083,7 @@ error[E0382]: borrow of moved value\n";
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             Some(crate::teammate::types::TaskArchetype::Review),
         );
         assert!(got.contains("REVIEW TASK CONTRACT"), "got: {got}");
@@ -5095,6 +5100,7 @@ error[E0382]: borrow of moved value\n";
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert!(!got.contains("REVIEW TASK CONTRACT"));
@@ -5110,9 +5116,39 @@ error[E0382]: borrow of moved value\n";
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             Some(crate::teammate::types::TaskArchetype::Do),
         );
         assert!(!got.contains("REVIEW TASK CONTRACT"));
+    }
+
+    #[test]
+    fn build_system_prompt_injects_escalation_band_from_threshold() {
+        let prompt_at = |t: f32| {
+            build_system_prompt(
+                "persona",
+                false,
+                None,
+                &[],
+                "",
+                false,
+                crate::operator_registry::VoiceTone::Terse,
+                t,
+                None,
+            )
+        };
+        // Every prompt carries the calibration header...
+        assert!(prompt_at(0.1).contains("ESCALATION CALIBRATION"));
+        // ...and the band copy tracks the threshold value.
+        assert!(prompt_at(0.1).contains("CAUTIOUS"));
+        assert!(prompt_at(0.5).contains("BALANCED"));
+        assert!(prompt_at(0.7).contains("CONFIDENT"));
+        assert!(prompt_at(0.95).contains("NEAR-AUTOPILOT"));
+        // The exact value is echoed for the model.
+        assert!(prompt_at(0.95).contains("threshold 0.95"));
+        // Sits between PERSONA and the executor recommendation.
+        let p = prompt_at(0.5);
+        assert!(p.find("# PERSONA").unwrap() < p.find("ESCALATION CALIBRATION").unwrap());
     }
 
     #[test]
@@ -5702,6 +5738,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         let expected = format!(
@@ -5711,11 +5748,13 @@ What would you like to do?
              to answer routine questions on their behalf within the charter below.\n\n\
              # PERSONA (set by user — guides judgment for the routine cases)\n\
              {persona}\n\n\
+             # {escalation}\n\n\
              # {recommendation}\n\n\
              # {hard}\n\n\
              # {voice_dir}\n\n\
              # {fmt}",
             persona = persona.trim(),
+            escalation = crate::operator_registry::escalate_directive(0.6),
             recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
             hard = HARD_CONSTRAINTS,
             voice_dir = crate::operator_registry::voice_directive(
@@ -5741,6 +5780,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert_eq!(got.matches("## Learned decisions").count(), 1);
@@ -5763,6 +5803,7 @@ What would you like to do?
             ctx,
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert!(
@@ -5786,6 +5827,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         let baseline = build_system_prompt(persona,
@@ -5795,6 +5837,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert_eq!(with_empty, baseline);
@@ -5822,6 +5865,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert!(
@@ -5855,6 +5899,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert!(
@@ -5887,6 +5932,7 @@ What would you like to do?
             "",
             false,
             crate::operator_registry::VoiceTone::Terse,
+            0.6,
             None,
         );
         assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");

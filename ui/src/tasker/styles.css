@@ -672,7 +672,7 @@ body.sidebar-view-tasker #tasker-panel {
 }
 .tasker-cal-clear:hover { border-color: #f87171; color: #f87171; }
 
-.tasker-newlist { padding: 0 12px 8px; display: flex; align-items: center; gap: 6px; }
+.tasker-newlist { padding: 12px 12px 8px; display: flex; align-items: center; gap: 6px; }
 .tasker-newlist-input {
   flex: 1;
   min-width: 0;

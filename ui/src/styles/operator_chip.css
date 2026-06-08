@@ -145,6 +145,12 @@ body.theme-dark .op-card-summary {
   letter-spacing: 0.5px;
   opacity: 0.66;
 }
+.op-modal-hint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.55;
+  margin-top: 2px;
+}
 .op-modal-field input[type="text"],
 .op-modal-field input[type="number"],
 .op-modal-field input[type="email"],
@@ -802,6 +808,9 @@ body.theme-light .op-tg-bubble {
 }
 
 /* Raw source (body + preview now use the MarkdownEditor WYSIWYG surface) */
+.op-soul-advanced {
+  margin-top: 18px;
+}
 .op-soul-advanced > summary {
   cursor: pointer;
   font-size: 12px;

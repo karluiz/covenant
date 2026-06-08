@@ -90,21 +90,37 @@ export class MarkdownEditor {
               self.opts.onChange?.(markdown);
             }
           );
-          if (self.opts.mode === "inline" && self.opts.onSubmit) {
-            // editorViewOptionsCtx typing varies by Milkdown version; cast is safe here.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ctx.update(editorViewOptionsCtx as any, (prev: Record<string, unknown>) => ({
-              ...prev,
-              handleKeyDown: (_view: unknown, event: KeyboardEvent) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  self.opts.onSubmit?.();
-                  return true;
+          // editorViewOptionsCtx typing varies by Milkdown version; cast is safe here.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ctx.update(editorViewOptionsCtx as any, (prev: Record<string, unknown>) => ({
+            ...prev,
+            // Images aren't a supported input — the chat backend only takes text.
+            // Swallow any pasted image data so ProseMirror doesn't embed an
+            // oversized image node. Text/HTML paste falls through to the default.
+            handlePaste: (_view: unknown, event: ClipboardEvent) => {
+              const items = event.clipboardData?.items;
+              if (!items) return false;
+              const hasImage = Array.from(items).some((it) => it.type.startsWith("image/"));
+              const hasText = Array.from(items).some((it) => it.kind === "string");
+              if (hasImage && !hasText) {
+                event.preventDefault();
+                return true;
+              }
+              return false;
+            },
+            ...(self.opts.mode === "inline" && self.opts.onSubmit
+              ? {
+                  handleKeyDown: (_view: unknown, event: KeyboardEvent) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      self.opts.onSubmit?.();
+                      return true;
+                    }
+                    return false;
+                  },
                 }
-                return false;
-              },
-            }));
-          }
+              : {}),
+          }));
         })
         .use(commonmark)
         .use(listener)
