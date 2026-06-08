@@ -890,6 +890,35 @@ async fn set_operator_enabled(
 }
 
 #[tauri::command]
+async fn rc_set_armed(state: State<'_, AppState>, session_id: String, armed: bool) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    let sessions = state.sessions.lock().await;
+    let managed = sessions.get(&id).ok_or("session not found")?;
+    *managed.armed.lock().map_err(|_| "armed lock poisoned")? = armed;
+    tracing::info!(session = %id, armed, "remote arming toggled");
+    Ok(())
+}
+
+#[tauri::command]
+async fn rc_get_armed(state: State<'_, AppState>, session_id: String) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    let sessions = state.sessions.lock().await;
+    let managed = sessions.get(&id).ok_or("session not found")?;
+    let armed = *managed.armed.lock().map_err(|_| "armed lock poisoned")?;
+    Ok(armed)
+}
+
+#[tauri::command]
+async fn rc_disarm_all(state: State<'_, AppState>) -> Result<(), String> {
+    let sessions = state.sessions.lock().await;
+    for managed in sessions.values() {
+        if let Ok(mut a) = managed.armed.lock() { *a = false; }
+    }
+    tracing::info!("remote control: disarmed all tabs");
+    Ok(())
+}
+
+#[tauri::command]
 async fn is_operator_enabled(
     state: State<'_, AppState>,
     session_id: String,
@@ -3808,6 +3837,9 @@ pub fn run() {
             set_settings,
             ask_agent,
             set_operator_enabled,
+            rc_set_armed,
+            rc_get_armed,
+            rc_disarm_all,
             is_operator_enabled,
             list_operator_decisions,
             set_operator_live,
