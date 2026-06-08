@@ -42,3 +42,6 @@ export function sendInputFrame(sessionId: string, text: string): string {
   const data = text.endsWith("\n") ? text : text + "\n";
   return JSON.stringify({ t: "send_input", session_id: sessionId, data });
 }
+
+export function closeTabFrame(sessionId: string): string { return JSON.stringify({ t: "close_tab", session_id: sessionId }); }
+export function focusTabFrame(sessionId: string): string { return JSON.stringify({ t: "focus_tab", session_id: sessionId }); }

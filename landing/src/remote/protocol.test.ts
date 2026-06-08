@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFrame, wsUrl, reduce, initialState, sendInputFrame } from "./protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame } from "./protocol";
 
 describe("parseFrame", () => {
   it("parses a tabs frame", () => {
@@ -62,4 +62,8 @@ describe("sendInputFrame", () => {
   it("does not double-append if the text already ends in newline", () => {
     expect(sendInputFrame("s1", "echo hi\n")).toBe(JSON.stringify({ t: "send_input", session_id: "s1", data: "echo hi\n" }));
   });
+});
+describe("lifecycle frames", () => {
+  it("builds close_tab", () => { expect(closeTabFrame("s1")).toBe(JSON.stringify({ t: "close_tab", session_id: "s1" })); });
+  it("builds focus_tab", () => { expect(focusTabFrame("s1")).toBe(JSON.stringify({ t: "focus_tab", session_id: "s1" })); });
 });

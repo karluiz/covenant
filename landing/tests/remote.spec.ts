@@ -135,6 +135,53 @@ test("send_input on armed tab, unarmed gating, and rejection display", async ({ 
   await expect(page.locator("#rc-tabs")).toContainText("rm -rf blocked");
 });
 
+test("Focus/Close buttons show only on armed tabs and push lifecycle frames", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true },
+              { session_id: "s2", title: "unarmed-tab", cwd: "~/q", executor: null, phase: "idle", armed: false }] }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+
+  await expect(page.locator('button.rc-focus[data-sid="s1"]')).toBeVisible();
+  await expect(page.locator('button.rc-close[data-sid="s1"]')).toBeVisible();
+  await expect(page.locator('button.rc-focus[data-sid="s2"]')).toHaveCount(0);
+  await expect(page.locator('button.rc-close[data-sid="s2"]')).toHaveCount(0);
+
+  await page.click('button.rc-focus[data-sid="s1"]');
+  await page.click('button.rc-close[data-sid="s1"]');
+
+  const sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "focus_tab", session_id: "s1" }));
+  expect(sent).toContain(JSON.stringify({ t: "close_tab", session_id: "s1" }));
+});
+
 test("preserves input focus and caret across an unsolicited frame", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeWS {
