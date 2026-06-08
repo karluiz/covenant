@@ -1,4 +1,7 @@
-import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, openTabFrame, type DashState } from "../remote/protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, openTabFrame, mirrorStartFrame, mirrorStopFrame, parseMirrorFrame, type DashState } from "../remote/protocol";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
 const RELAY_BASE = "https://forge.covenant.uno";
 const TOKEN_KEY = "covenant_rc_token";
@@ -13,7 +16,39 @@ export function mountRemoteDashboard(doc: Document = document): void {
   const tabsEl = doc.getElementById("rc-tabs");
   const newTabBtn = doc.getElementById("rc-new-tab") as HTMLButtonElement | null;
   const openErrEl = doc.getElementById("rc-open-error");
+  const mirrorEl = doc.getElementById("rc-mirror");
+  const mirrorTermEl = doc.getElementById("rc-mirror-term");
+  const mirrorStopBtn = doc.getElementById("rc-mirror-stop") as HTMLButtonElement | null;
   if (!tokenInput || !connectBtn || !statusEl || !tabsEl) return;
+
+  let term: Terminal | null = null;
+  let fit: FitAddon | null = null;
+  let mirroringSid: string | null = null;
+
+  const startMirror = (sid: string) => {
+    if (!sid || !mirrorEl || !mirrorTermEl) return;
+    stopMirror();
+    mirroringSid = sid;
+    term = new Terminal({ convertEol: false, fontSize: 12, theme: { background: "#000000" } });
+    fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(mirrorTermEl);
+    try { fit.fit(); } catch { /* ignore */ }
+    mirrorEl.classList.remove("hidden");
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(mirrorStartFrame(sid));
+  };
+
+  function stopMirror() {
+    if (mirroringSid && ws && ws.readyState === WebSocket.OPEN) ws.send(mirrorStopFrame(mirroringSid));
+    if (term) { try { term.dispose(); } catch { /* ignore */ } }
+    term = null;
+    fit = null;
+    mirroringSid = null;
+    if (mirrorTermEl) mirrorTermEl.innerHTML = "";
+    if (mirrorEl) mirrorEl.classList.add("hidden");
+  }
+
+  mirrorStopBtn?.addEventListener("click", () => stopMirror());
 
   const saved = localStorage.getItem(TOKEN_KEY);
   if (saved) tokenInput.value = saved;
@@ -69,6 +104,7 @@ export function mountRemoteDashboard(doc: Document = document): void {
             <button class="rc-send rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-sm text-emerald-200" data-sid="${sid}">Send</button>
             <button data-sid="${sid}" class="rc-focus rounded border border-zinc-700 bg-zinc-800/40 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700/50">Focus</button>
             <button data-sid="${sid}" class="rc-close rounded border border-red-800 bg-red-900/20 px-2 py-1 text-xs text-red-300 hover:bg-red-900/40">Close</button>
+            <button data-sid="${sid}" class="rc-mirror-btn rounded border border-sky-800 bg-sky-900/20 px-2 py-1 text-xs text-sky-300 hover:bg-sky-900/40">Mirror</button>
           </div>`
         : `<div class="mt-2 text-xs text-zinc-500">Arm this tab on the desktop to control it.</div>`;
       const rejLine = rejection
@@ -152,11 +188,21 @@ export function mountRemoteDashboard(doc: Document = document): void {
     };
     sock.onmessage = (e) => {
       if (myGen !== gen) return;
-      const f = parseFrame(typeof e.data === "string" ? e.data : "");
+      const text = typeof e.data === "string" ? e.data : "";
+      const mm = parseMirrorFrame(text);
+      if (mm) {
+        if (term && mm.sessionId === mirroringSid) {
+          if (mm.kind === "screen") { term.reset(); term.write(mm.text.replace(/\n/g, "\r\n")); }
+          else { term.write(mm.bytes); }
+        }
+        return;
+      }
+      const f = parseFrame(text);
       if (f) { state = reduce(state, f); render(); }
     };
     sock.onclose = () => {
       if (myGen !== gen) return;     // a replaced socket: do nothing
+      stopMirror();
       state = { ...state, desktopOnline: false };
       scheduleReconnect();
     };
@@ -183,6 +229,8 @@ export function mountRemoteDashboard(doc: Document = document): void {
   // Event delegation, attached once.
   tabsEl.addEventListener("click", (e) => {
     const target = e.target as HTMLElement;
+    const mirBtn = target.closest("button.rc-mirror-btn") as HTMLElement | null;
+    if (mirBtn) { startMirror(mirBtn.getAttribute("data-sid") || ""); return; }
     const sendBtn = target.closest("button.rc-send") as HTMLElement | null;
     if (sendBtn) { const sid = sendBtn.getAttribute("data-sid"); if (sid) sendFor(sid); return; }
     const focusBtn = target.closest("button.rc-focus") as HTMLElement | null;
