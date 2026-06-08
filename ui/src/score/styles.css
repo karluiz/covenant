@@ -421,6 +421,16 @@
   text-align: center;
 }
 
+.cov-error-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  border-radius: 8px;
+  background: rgba(248, 81, 73, 0.08);
+  color: #f85149;
+  font-size: 12px;
+}
+
 /* ─── Light-mode overrides ───────────────────────────────────────────────
    The whole Covenant Score / dashboard was tuned for dark. Repaint the
    key surfaces (stat tiles, section cards, heatmap, bars, sessions) so
