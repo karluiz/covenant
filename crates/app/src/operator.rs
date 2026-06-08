@@ -3637,7 +3637,7 @@ enum StartupActionKind {
 /// Write bytes into the named session's PTY. Reaches AppState through
 /// the AppHandle so the Operator stays decoupled from the rest of
 /// lib.rs's command surface — same path that `inject_command` takes.
-async fn inject_to_session(
+pub(crate) async fn inject_to_session(
     app: &AppHandle,
     session_id: SessionId,
     bytes: &[u8],
