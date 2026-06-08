@@ -57,6 +57,8 @@ import {
   setAomExcluded,
   sessionSetOperator,
   setOperatorEnabled,
+  getRemoteArmed,
+  setRemoteArmed,
   setOperatorLive,
   operatorSoloStart,
   operatorSoloStop,
@@ -6301,6 +6303,28 @@ export class TabManager {
           onClick: () => this.toggleOperatorSolo(tab.id),
         });
       }
+    }
+    // Remote control: per-tab arming gate for the RC channel. Off by
+    // default; injecting remote input requires this to be on.
+    if (ctxSessionId) {
+      let armed = false;
+      try {
+        armed = await getRemoteArmed(ctxSessionId as SessionId);
+      } catch {
+        /* best-effort; assume disarmed */
+      }
+      items.push({ divider: true });
+      items.push({
+        label: armed ? "Disable remote control" : "Allow remote control",
+        icon: Icons.link2(),
+        onClick: async () => {
+          try {
+            await setRemoteArmed(ctxSessionId as SessionId, !armed);
+          } catch (e) {
+            console.error("toggle remote arming failed", e);
+          }
+        },
+      });
     }
     } // end terminal-only (mission + operator) block
     // Saved commands (per-group) and prompts (global) as submenus, targeting
