@@ -10,7 +10,8 @@ pub const KEYCHAIN_USERNAME: &str = "github-token";
 pub const KEYCHAIN_JWT_USERNAME: &str = "covenant-jwt";
 
 pub fn backend_url() -> String {
-    std::env::var("COVENANT_BACKEND_URL").unwrap_or_else(|_| "https://covenant.uno".to_string())
+    std::env::var("COVENANT_BACKEND_URL")
+        .unwrap_or_else(|_| "https://forge.covenant.uno".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
