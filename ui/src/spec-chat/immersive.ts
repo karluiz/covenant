@@ -1,6 +1,7 @@
 import './immersive.css';
 import type { SpecEventSource } from './events';
 import { createStreamState } from './stream-state';
+import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
 
@@ -36,8 +37,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
             <div class="starters"></div>
             <div class="box">
               <svg class="box-spark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z"/></svg>
-              <textarea rows="1" placeholder="Describe the problem, paste an error, or name the feature…"></textarea>
-              <button class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+<button class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
             </div>
             <div class="composer-hint"><span><b>⏎</b> send · <b>⇧⏎</b> newline · <b>esc</b> close</span><span class="composer-engine"></span></div>
           </div>
@@ -78,24 +78,26 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
     if (md && draftId) opts.onPublish?.(md, draftId);
   });
 
-  const ta = root.querySelector('textarea') as HTMLTextAreaElement;
+  const boxEl = root.querySelector('.box') as HTMLElement;
+  const sendBtn = root.querySelector('.send') as HTMLElement;
+  let composer: MarkdownEditor;
   const submit = () => {
-    const text = ta.value.trim();
+    const text = composer.value.trim();
     if (!text) return;
-    ta.value = '';
+    composer.value = '';
     state.addUserMessage(text);
     void opts.source
       .send(draftId, text, opts.cwd)
       .then((id) => { draftId = id; })
       .catch((err) => state.apply({ kind: 'error', message: String(err?.message ?? err) }));
   };
-  (root.querySelector('.send') as HTMLElement).addEventListener('click', submit);
-  ta.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+  composer = new MarkdownEditor({
+    mode: 'inline',
+    placeholder: 'Describe the problem, paste an error, or name the feature…',
+    onSubmit: () => submit(),
   });
-  // Auto-grow the textarea up to its max-height.
-  const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; };
-  ta.addEventListener('input', grow);
+  boxEl.insertBefore(composer.element, sendBtn);
+  sendBtn.addEventListener('click', submit);
 
   // Starter chips — seed the empty state, vanish after the first turn.
   const startersEl = root.querySelector('.starters') as HTMLElement;
@@ -110,7 +112,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
     chip.className = 'starter-chip';
     chip.type = 'button';
     chip.textContent = s;
-    chip.addEventListener('click', () => { ta.value = s; ta.focus(); grow(); submit(); });
+    chip.addEventListener('click', () => { composer.value = s; composer.focus(); submit(); });
     startersEl.appendChild(chip);
   }
   state.onChange(() => {
