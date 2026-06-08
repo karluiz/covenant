@@ -1267,13 +1267,14 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     if ((view.hard_constraints ?? "").trim().length) adv.open = true;
     const advSum = document.createElement("summary");
     advSum.textContent = "Hard constraints";
-    const hc = document.createElement("textarea");
-    hc.className = "op-soul-hard";
-    hc.rows = 4;
-    hc.placeholder = "One deny rule per line (regex). e.g. ^git push --force";
-    hc.value = view.hard_constraints ?? "";
-    hc.addEventListener("input", () => { view.hard_constraints = hc.value; commit(false); });
-    adv.append(advSum, hc);
+    const hc = new MarkdownEditor({
+      mode: "inline",
+      className: "op-soul-hard",
+      value: view.hard_constraints ?? "",
+      placeholder: "One deny rule per line (regex). e.g. ^git push --force",
+      onChange: (md) => { view.hard_constraints = md; commit(false); },
+    });
+    adv.append(advSum, hc.element);
     controls.append(adv);
   }
 
