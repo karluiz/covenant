@@ -87,6 +87,29 @@ export function mountCovenantPage(host: HTMLElement): void {
 }
 
 async function refresh(host: HTMLElement, state: State): Promise<void> {
+  // Error boundary: a single failing query (a busy SQLite lock under heavy
+  // external polling, malformed data, etc.) must never tear down the whole
+  // page — render a visible banner instead of leaving a blank/half view.
+  try {
+    await refreshInner(host, state);
+  } catch (err) {
+    console.error("[covenant] score refresh failed", err);
+    const page = host.querySelector<HTMLElement>(".covenant-page");
+    if (page) {
+      let banner = page.querySelector<HTMLElement>("[data-role=refresh-error]");
+      if (!banner) {
+        banner = document.createElement("div");
+        banner.dataset.role = "refresh-error";
+        banner.className = "cov-error-banner";
+        page.prepend(banner);
+      }
+      banner.textContent = `Couldn't load metrics: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+}
+
+async function refreshInner(host: HTMLElement, state: State): Promise<void> {
+  host.querySelector<HTMLElement>("[data-role=refresh-error]")?.remove();
   const filtersHost = host.querySelector<HTMLElement>("[data-role=filters]")!;
   const statsHost = host.querySelector<HTMLElement>("[data-role=stats]")!;
   const heatmapHost = host.querySelector<HTMLElement>("[data-role=heatmap]")!;
