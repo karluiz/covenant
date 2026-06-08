@@ -5,6 +5,7 @@ import { attachTooltip } from "../tooltip/tooltip";
 /** Corner indicator shown only while >=1 web client is remote-controlling this
  *  desktop. Click "Disable all" to disarm every tab and cut remote control. */
 export function mountRemotePresencePill(doc: Document = document): void {
+  if (doc.getElementById("rc-presence-pill")) return; // guard against double-mount
   const pill = doc.createElement("div");
   pill.id = "rc-presence-pill";
   pill.setAttribute("role", "status");
