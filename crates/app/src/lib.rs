@@ -105,7 +105,7 @@ struct ManagedSession {
     op_state: Arc<std::sync::Mutex<OperatorState>>,
     /// Per-session remote-control arming flag. Default `false`. When
     /// `true`, gated remote `send_input` frames may inject into this PTY.
-    armed: std::sync::Arc<std::sync::Mutex<bool>>,
+    armed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(crate) struct AppState {
@@ -669,7 +669,7 @@ async fn spawn_session(
             _zdotdir: zdotdir,
             world,
             op_state: op_state.clone(),
-            armed: std::sync::Arc::new(std::sync::Mutex::new(false)),
+            armed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         },
     );
 
@@ -894,7 +894,7 @@ async fn rc_set_armed(state: State<'_, AppState>, session_id: String, armed: boo
     let id = parse_id(&session_id)?;
     let sessions = state.sessions.lock().await;
     let managed = sessions.get(&id).ok_or("session not found")?;
-    *managed.armed.lock().map_err(|_| "armed lock poisoned")? = armed;
+    managed.armed.store(armed, std::sync::atomic::Ordering::Relaxed);
     tracing::info!(session = %id, armed, "remote arming toggled");
     Ok(())
 }
@@ -904,15 +904,15 @@ async fn rc_get_armed(state: State<'_, AppState>, session_id: String) -> Result<
     let id = parse_id(&session_id)?;
     let sessions = state.sessions.lock().await;
     let managed = sessions.get(&id).ok_or("session not found")?;
-    let armed = *managed.armed.lock().map_err(|_| "armed lock poisoned")?;
-    Ok(armed)
+    Ok(managed.armed.load(std::sync::atomic::Ordering::Relaxed))
 }
 
+// Kill-switch backend. The user-facing button/shortcut lands with the RC-1b banner.
 #[tauri::command]
 async fn rc_disarm_all(state: State<'_, AppState>) -> Result<(), String> {
     let sessions = state.sessions.lock().await;
     for managed in sessions.values() {
-        if let Ok(mut a) = managed.armed.lock() { *a = false; }
+        managed.armed.store(false, std::sync::atomic::Ordering::Relaxed);
     }
     tracing::info!("remote control: disarmed all tabs");
     Ok(())
