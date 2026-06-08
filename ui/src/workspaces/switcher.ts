@@ -1,9 +1,10 @@
-// Workspace switcher: chip + popover.
+// Workspace switcher: tabbar chip.
 //
 // The chip lives in the tabbar brand row and shows the active workspace
-// (color dot + name). Clicking it opens a popover with the full list,
-// a "+ New workspace" affordance, and per-row right-click for rename /
-// duplicate / set root dir / set color / delete.
+// (color dot + name). Clicking it opens the command palette (unified
+// workspace/tab/action quick-switch — see palette.ts). Right-clicking it
+// opens a context menu for the active workspace: rename / duplicate /
+// set root dir / set color / delete.
 
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { TabManager } from "../tabs/manager";
@@ -190,18 +191,17 @@ export class WorkspaceSwitcher {
       <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="delete">Delete</div>
     `;
     document.body.appendChild(menu);
-    // Anchor as a submenu: flush to the right edge of the workspace
-    // popover, top-aligned with the clicked row. Fall back to the
-    // popover's left side if there's no horizontal room on the right.
+    // Anchor flush to the right edge of the anchor element (the chip),
+    // top-aligned with it. Fall back to its left side if there's no
+    // horizontal room on the right.
     const rect = menu.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
-    const popRect = row.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const PAD = 8;
     const GAP = 6;
-    let left = popRect.right + GAP;
-    if (left + rect.width + PAD > vw) left = Math.max(PAD, popRect.left - rect.width - GAP);
+    let left = rowRect.right + GAP;
+    if (left + rect.width + PAD > vw) left = Math.max(PAD, rowRect.left - rect.width - GAP);
     let top = rowRect.top;
     if (top + rect.height + PAD > vh) top = Math.max(PAD, vh - rect.height - PAD);
     menu.style.left = `${left}px`;
@@ -217,9 +217,8 @@ export class WorkspaceSwitcher {
     setTimeout(() => document.addEventListener("click", onAway), 0);
 
     menu.addEventListener("click", (e) => {
-      // Keep the popover open: the doc-level listener that closes it
-      // treats anything outside .workspace-popover as "outside", and
-      // this menu lives in document.body.
+      // The menu lives in document.body; stop propagation so its own
+      // clicks don't reach the doc-level away-listener that closes it.
       e.stopPropagation();
       const target = e.target as HTMLElement;
       const colorEl = target.closest<HTMLElement>(".workspace-rowmenu-color");
