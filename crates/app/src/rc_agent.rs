@@ -18,6 +18,8 @@ enum InFrame {
     ListTabs,
     SendInput { session_id: String, data: String },
     WebPresence { web_count: u32 },
+    CloseTab { session_id: String },
+    FocusTab { session_id: String },
     #[serde(other)]
     Unknown,
 }
@@ -176,6 +178,18 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                         tracing::debug!(target: "rc_agent", error=%e, "emit web-presence failed");
                     }
                 }
+                Ok(InFrame::CloseTab { session_id }) => {
+                    match lifecycle_gate(app, &session_id).await {
+                        Ok(id) => { use tauri::Emitter; let _ = app.emit("rc://tab/close", id.to_string()); }
+                        Err(rej) => { sink.send(Message::Text(serde_json::to_string(&rej)?)).await?; }
+                    }
+                }
+                Ok(InFrame::FocusTab { session_id }) => {
+                    match lifecycle_gate(app, &session_id).await {
+                        Ok(id) => { use tauri::Emitter; let _ = app.emit("rc://tab/focus", id.to_string()); }
+                        Err(rej) => { sink.send(Message::Text(serde_json::to_string(&rej)?)).await?; }
+                    }
+                }
                 Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
@@ -219,6 +233,40 @@ fn gate(armed: Option<bool>, danger: bool) -> Gate {
             } else {
                 Gate::Inject
             }
+        }
+    }
+}
+
+/// Arming-only gate for lifecycle ops (close/focus) — no blocklist (no command text).
+fn lifecycle_decision(armed: Option<bool>) -> Gate {
+    match armed {
+        None => Gate::Reject(RejectReason::NoSuchTab),
+        Some(false) => Gate::Reject(RejectReason::NotArmed),
+        Some(true) => Gate::Inject,
+    }
+}
+
+async fn lifecycle_gate(app: &AppHandle, session_id: &str) -> Result<karl_session::SessionId, OutFrame> {
+    use std::str::FromStr;
+    let make_reject = |reason: &'static str, message: String| OutFrame::Rejected {
+        session_id: session_id.to_string(), reason, message,
+    };
+    let id = match ulid::Ulid::from_str(session_id) {
+        Ok(u) => karl_session::SessionId(u),
+        Err(_) => return Err(make_reject("no_such_tab", "invalid session id".into())),
+    };
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        return Err(make_reject("no_such_tab", "no app state".into()));
+    };
+    let armed: Option<bool> = {
+        let sessions = state.sessions.lock().await;
+        sessions.get(&id).map(|m| m.armed.load(std::sync::atomic::Ordering::Relaxed))
+    };
+    match lifecycle_decision(armed) {
+        Gate::Inject => Ok(id),
+        Gate::Reject(reason) => {
+            let (code, message) = reject_payload(reason, None);
+            Err(make_reject(code, message))
         }
     }
 }
@@ -376,6 +424,22 @@ mod tests {
     fn web_presence_frame_parses() {
         let f: InFrame = serde_json::from_str(r#"{"t":"web_presence","web_count":2}"#).unwrap();
         assert!(matches!(f, InFrame::WebPresence { web_count: 2 }));
+    }
+    #[test]
+    fn close_tab_frame_parses() {
+        let f: InFrame = serde_json::from_str(r#"{"t":"close_tab","session_id":"s1"}"#).unwrap();
+        assert!(matches!(f, InFrame::CloseTab { .. }));
+    }
+    #[test]
+    fn focus_tab_frame_parses() {
+        let f: InFrame = serde_json::from_str(r#"{"t":"focus_tab","session_id":"s1"}"#).unwrap();
+        assert!(matches!(f, InFrame::FocusTab { .. }));
+    }
+    #[test]
+    fn lifecycle_decision_matches_armed() {
+        assert_eq!(lifecycle_decision(None), Gate::Reject(RejectReason::NoSuchTab));
+        assert_eq!(lifecycle_decision(Some(false)), Gate::Reject(RejectReason::NotArmed));
+        assert_eq!(lifecycle_decision(Some(true)), Gate::Inject);
     }
     #[test]
     fn unknown_frame_is_ignored_not_error() {
