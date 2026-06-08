@@ -2840,7 +2840,10 @@ body.theme-light .block-item-history .block-exit.fail {
 }
 .ui-select__popover {
     position: fixed;
-    z-index: 4000;
+    /* Portaled to <body>, so it must out-rank full-window modal takeovers
+       (op-creator / spec-creator at 2147482000) yet stay below the notch's
+       always-on-top layer (2147483000). */
+    z-index: 2147482500;
     display: flex;
     flex-direction: column;
     gap: 1px;

@@ -107,6 +107,8 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 /* ── body: two columns ── */
 .spec-creator .stage { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
 .spec-creator .left { border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; min-height: 0; }
+/* Stream fills the column so the composer pins to the bottom. */
+.spec-creator .stream-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .spec-creator .right { display: flex; flex-direction: column; min-height: 0; background: linear-gradient(180deg, rgba(124,140,255,.018), transparent); }
 
 .spec-creator .col-head { padding: 13px 22px 11px; font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--txt-faint); border-bottom: 1px solid var(--line-soft); display:flex; justify-content:space-between; align-items:center; }
@@ -152,7 +154,7 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* input */
-.spec-creator .composer { padding: 14px 20px 18px; border-top: 1px solid var(--line-soft); background: linear-gradient(180deg, transparent, rgba(124,140,255,.02)); }
+.spec-creator .composer { flex: none; padding: 14px 20px 18px; border-top: 1px solid var(--line-soft); background: linear-gradient(180deg, transparent, rgba(124,140,255,.02)); }
 
 /* starter chips — alive empty state */
 .spec-creator .starters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
@@ -252,3 +254,16 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 .spec-creator .ctl span { font-size: 12px; color: var(--txt-dim); }
 .spec-creator .ctl button { font-size:12px; padding:6px 14px; border-radius:999px; border:1px solid var(--line); background:var(--bg-elev2); color:var(--txt); cursor:pointer; }
 .spec-creator .ctl button.go { background: linear-gradient(180deg,var(--accent),var(--accent-soft)); border:0; color:#fff; }
+
+/* ── True Dark (OLED): override the local blue-tinted palette so the
+   immersive Spec Creator goes neutral pure-black like the rest of the
+   chrome. Vars are scoped to .spec-creator so they cascade to every
+   card/input/stream descendant. ── */
+body.theme-true-dark .spec-creator {
+  --bg: #000;
+  --bg-elev: #060606;
+  --bg-elev2: #0c0c0c;
+  --line: #1a1a1a;
+  --line-soft: #131313;
+}
+body.theme-true-dark .spec-creator .creator { background: #000; }

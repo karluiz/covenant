@@ -9,13 +9,15 @@
 }
 .op-creator.open .scrim { opacity: 1; }
 .op-creator .creator {
-  position: relative; margin: auto; width: min(1180px, 94vw); height: min(860px, 92%);
+  /* Full-window takeover (edge-to-edge below the 38px titlebar), matching the
+     Spec Creator's posture. A centered card looked washed-out floating over
+     the true-black workspace; edge-to-edge reads as a real takeover. */
+  position: fixed; top: 38px; left: 0; right: 0; bottom: 0;
   display: flex; flex-direction: column;
   background: linear-gradient(180deg, #14151b 0%, #101116 100%);
-  border: 1px solid rgba(124, 140, 255, 0.16); border-radius: 14px;
-  box-shadow: 0 40px 120px -30px rgba(0, 0, 0, 0.7);
-  transform: scale(0.94) translateY(14px); opacity: 0;
-  transition: transform 0.46s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.46s ease;
+  border: none; border-radius: 0;
+  transform: scale(0.94) translateY(14px); transform-origin: 50% 56%; opacity: 0;
+  transition: transform 0.46s cubic-bezier(0.18, 0.7, 0.27, 1), opacity 0.4s ease;
   overflow: hidden;
 }
 .op-creator.open .creator { transform: scale(1) translateY(0); opacity: 1; }
@@ -54,6 +56,12 @@
   border-top: 1px solid rgba(124, 140, 255, 0.12);
 }
 
+/* Everything inside the creator uses border-box so `width:100%` + padding
+   stays inside its column instead of overflowing past the right edge. */
+.op-creator .creator * { box-sizing: border-box; }
+.op-creator .op-section > *,
+.op-creator .op-soul-live > * { max-width: 100%; }
+
 .op-creator .op-modal-input,
 .op-creator .op-modal-select,
 .op-creator .op-soul-body,
@@ -76,3 +84,16 @@
 .op-creator .op-soul-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
 .op-creator .op-soul-preview { font-size: 13px; line-height: 1.5; color: #c4c8d6; }
 .op-creator .op-hero-chip { display: flex; align-items: center; }
+
+/* ── True Dark (OLED): neutralize the hardcoded blue-tinted gradient and
+   input surfaces so the operator editor matches the pure-black chrome. ── */
+body.theme-true-dark .op-creator .creator {
+  background: #000;
+}
+body.theme-true-dark .op-creator .op-modal-input,
+body.theme-true-dark .op-creator .op-modal-select,
+body.theme-true-dark .op-creator .op-soul-body,
+body.theme-true-dark .op-creator .op-soul-source {
+  background: #0a0a0a;
+  border-color: #1a1a1a;
+}

@@ -780,8 +780,20 @@ export function openOperatorModal(opts: {
     setThreshold(n) { state.draft.escalate_threshold = n; render(); },
     setPersona(s) { state.draft.persona = s; render(); },
     setHardConstraints(s) { state.draft.hard_constraints = s; render(); },
-    setAsDefault(b) { state.setAsDefault = b; render(); },
-    setSection(s) { state.activeSection = s; render(); },
+    // Native checkbox self-displays; no full render needed (would flash the modal).
+    setAsDefault(b) { state.setAsDefault = b; },
+    setSection(s) {
+      if (state.activeSection === s) return;
+      state.activeSection = s;
+      // Partial update: swap only the middle section + refresh rail active
+      // states. A full render() would wipe the DOM and reload every avatar
+      // image, flashing the whole modal on each rail click.
+      const ed = getSoulEditor(h);
+      const sectionHost = el.querySelector<HTMLElement>(".op-section");
+      if (sectionHost) ed.mountSection(sectionHost, s);
+      const rail = el.querySelector<HTMLElement>(".op-rail");
+      if (rail) rail.replaceWith(renderRail(h));
+    },
     applyPreset(key) {
       const preset = PRESETS.find((p) => p.key === key);
       if (!preset) return;
