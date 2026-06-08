@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.63 — WYSIWYG markdown editors + immersive operator creator
+
+### Added
+
+- **WYSIWYG markdown editor (`MarkdownEditor`)**: a reusable, lazy-loaded Milkdown-based editor replacing raw textareas, with markdown input-rules (`## `, `- `, `**…**`, `> `, `` `code` ``) and ⌘B/⌘I — no toolbar. Lives in `ui/src/ui/markdown-editor.ts` (+ token-based skin `markdown-editor.css`) and is wired into the operator SOUL body, Project Notes → docs (`ui/src/project-notes/docs-tab.ts`), hard constraints, and the Spec Creator composer (`ui/src/spec-chat/immersive.ts`, Enter=send / Shift+Enter=newline). ProseMirror loads only on first use, so the initial bundle is unaffected.
+- **Immersive full-screen operator creator**: the operator editor is now a full-window takeover (scrim / rail / stage / footer) with per-section middle controls, an always-live SOUL preview, and a header identity chip (`ui/src/settings/operators.ts`, `ui/src/settings/operator-creator.css`).
+- **"Run selection in new tab"**: pane context-menu action to run the selected text in a fresh tab (`ui/src/tabs/manager.ts`).
+
+### Changed
+
+- **VOICE uses the custom select**: the operator VOICE dropdown now uses `CustomSelect` (matching MODEL) instead of the native browser `<select>`, and follows the active theme including True Dark.
+- **SOUL.md source pane**: always-visible (no collapsible chevron), read-only, and fills the full pane height — the WYSIWYG body + structured controls are the source of truth (`ui/src/settings/operators.ts`, `ui/src/styles/operator_chip.css`).
+- **Theme-aware overlays + True Dark**: spawns popover, tooltips, the notch activity-filter dropdown, and the immersive spec-creator / operator-creator surfaces derive from theme tokens (`--bg-overlay` / `--border` / `--ink-rgb`) so they go neutral black under True Dark and invert under Light. The `ui-select` popover now out-ranks full-window modals (z-index fix).
+- **Native context menu suppressed** except in editable fields (`ui/src/...`); operator modal close/teardown animations and listener cleanup tightened.
+
+### Fixed
+
+- **`api.ts` ThemeMode missing `true_dark`**: the `ThemeMode` union in `ui/src/api.ts` omitted `true_dark`, breaking `tsc`. Added it.
+- **MarkdownEditor robustness**: boot failures are logged; programmatic body sets are `finally`-guarded so a throw can't wedge the change-suppression flag; placeholder is propagated onto the ProseMirror root; dead `op-soul-body`/`op-soul-preview` CSS pruned.
+
 ## v0.8.62 — Tasker linear redesign + spec-prompt tab targeting
 
 ### Added
