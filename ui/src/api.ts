@@ -181,6 +181,14 @@ export async function disarmAllRemote(): Promise<void> {
   return invoke<void>("rc_disarm_all");
 }
 
+export async function setRemoteAllowOpen(allow: boolean): Promise<void> {
+  return invoke<void>("rc_set_allow_open", { allow });
+}
+
+export async function getRemoteAllowOpen(): Promise<boolean> {
+  return invoke<boolean>("rc_get_allow_open");
+}
+
 export async function isOperatorEnabled(sessionId: SessionId): Promise<boolean> {
   return invoke<boolean>("is_operator_enabled", { sessionId });
 }

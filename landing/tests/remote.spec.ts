@@ -182,6 +182,49 @@ test("Focus/Close buttons show only on armed tabs and push lifecycle frames", as
   expect(sent).toContain(JSON.stringify({ t: "close_tab", session_id: "s1" }));
 });
 
+test("New Tab button sends open_tab and shows open_not_allowed rejection", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+    // @ts-ignore
+    window.__pushOpenReject = () => { FakeWS.last && FakeWS.last.onmessage && FakeWS.last.onmessage({
+      data: JSON.stringify({ t: "rejected", session_id: "", reason: "open_not_allowed", message: "remote tab creation is disabled on the desktop" }) }); };
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+  await expect(page.locator("#rc-status")).toHaveText("● desktop online");
+
+  await page.click("#rc-new-tab");
+  const sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "open_tab" }));
+
+  await page.evaluate(() => (window as any).__pushOpenReject());
+  await expect(page.locator("#rc-open-error")).toHaveText("remote tab creation is disabled on the desktop");
+});
+
 test("preserves input focus and caret across an unsolicited frame", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeWS {

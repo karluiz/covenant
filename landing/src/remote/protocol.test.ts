@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame } from "./protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, closeTabFrame, focusTabFrame, openTabFrame } from "./protocol";
 
 describe("parseFrame", () => {
   it("parses a tabs frame", () => {
@@ -66,4 +66,8 @@ describe("sendInputFrame", () => {
 describe("lifecycle frames", () => {
   it("builds close_tab", () => { expect(closeTabFrame("s1")).toBe(JSON.stringify({ t: "close_tab", session_id: "s1" })); });
   it("builds focus_tab", () => { expect(focusTabFrame("s1")).toBe(JSON.stringify({ t: "focus_tab", session_id: "s1" })); });
+});
+describe("open_tab frame", () => {
+  it("builds open_tab with no cwd", () => { expect(openTabFrame()).toBe(JSON.stringify({ t: "open_tab" })); });
+  it("builds open_tab with cwd", () => { expect(openTabFrame("~/p")).toBe(JSON.stringify({ t: "open_tab", cwd: "~/p" })); });
 });

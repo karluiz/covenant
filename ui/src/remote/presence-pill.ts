@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { disarmAllRemote } from "../api";
+import { disarmAllRemote, setRemoteAllowOpen, getRemoteAllowOpen } from "../api";
 import { attachTooltip } from "../tooltip/tooltip";
 
 /** Corner indicator shown only while >=1 web client is remote-controlling this
@@ -30,7 +30,19 @@ export function mountRemotePresencePill(doc: Document = document): void {
   attachTooltip(kill, "Disarm every tab and cut remote control");
   kill.addEventListener("click", () => { void disarmAllRemote(); });
 
-  pill.append(dot, label, kill);
+  const openWrap = doc.createElement("label");
+  openWrap.style.cssText = "display:flex;align-items:center;gap:4px;cursor:pointer;color:#ffd0d0";
+  const openCb = doc.createElement("input");
+  openCb.type = "checkbox";
+  openCb.style.cssText = "cursor:pointer";
+  attachTooltip(openWrap, "Allow remote clients to open new tabs");
+  const openTxt = doc.createElement("span");
+  openTxt.textContent = "new tabs";
+  openWrap.append(openCb, openTxt);
+  openCb.addEventListener("change", () => { void setRemoteAllowOpen(openCb.checked); });
+  void getRemoteAllowOpen().then((v) => { openCb.checked = v; }).catch(() => {});
+
+  pill.append(dot, label, openWrap, kill);
   doc.body.appendChild(pill);
 
   if (!doc.getElementById("rc-pulse-kf")) {

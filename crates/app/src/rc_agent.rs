@@ -20,6 +20,7 @@ enum InFrame {
     WebPresence { web_count: u32 },
     CloseTab { session_id: String },
     FocusTab { session_id: String },
+    OpenTab { #[serde(default)] cwd: Option<String> },
     #[serde(other)]
     Unknown,
 }
@@ -190,6 +191,11 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                         Err(rej) => { sink.send(Message::Text(serde_json::to_string(&rej)?)).await?; }
                     }
                 }
+                Ok(InFrame::OpenTab { cwd }) => {
+                    if let Some(rej) = handle_open_tab(app, cwd).await {
+                        sink.send(Message::Text(serde_json::to_string(&rej)?)).await?;
+                    }
+                }
                 Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
@@ -281,6 +287,21 @@ fn reject_payload(reason: RejectReason, blocklist_message: Option<String>) -> (&
         ),
         other => (other.code(), other.code().replace('_', " ")),
     }
+}
+
+async fn handle_open_tab(app: &AppHandle, cwd: Option<String>) -> Option<OutFrame> {
+    let state = app.try_state::<crate::AppState>()?;
+    if !state.allow_remote_open.load(std::sync::atomic::Ordering::Relaxed) {
+        return Some(OutFrame::Rejected {
+            session_id: String::new(),
+            reason: "open_not_allowed",
+            message: "remote tab creation is disabled on the desktop".into(),
+        });
+    }
+    use tauri::Emitter;
+    let _ = app.emit("rc://tab/open", cwd);
+    tracing::info!(target: "rc_agent", "remote open_tab");
+    None
 }
 
 async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Option<OutFrame> {
@@ -434,6 +455,13 @@ mod tests {
     fn focus_tab_frame_parses() {
         let f: InFrame = serde_json::from_str(r#"{"t":"focus_tab","session_id":"s1"}"#).unwrap();
         assert!(matches!(f, InFrame::FocusTab { .. }));
+    }
+    #[test]
+    fn open_tab_frame_parses() {
+        let f: InFrame = serde_json::from_str(r#"{"t":"open_tab","cwd":"~/p"}"#).unwrap();
+        assert!(matches!(f, InFrame::OpenTab { .. }));
+        let f2: InFrame = serde_json::from_str(r#"{"t":"open_tab"}"#).unwrap();
+        assert!(matches!(f2, InFrame::OpenTab { cwd: None }));
     }
     #[test]
     fn lifecycle_decision_matches_armed() {
