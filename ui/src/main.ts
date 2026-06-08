@@ -900,6 +900,9 @@ async function boot(): Promise<void> {
   void listen<string>("rc://tab/focus", (e) => {
     manager.activateBySessionId(e.payload as SessionId);
   });
+  void listen<string | null>("rc://tab/open", (e) => {
+    void manager.createTab({ cwd: e.payload ?? null });
+  });
 
   // Now that `manager` exists, wire the globe launcher's click + initial
   // visibility. The cached flag is populated by `loadExperimentalFlags()`
