@@ -3,6 +3,7 @@
 import type { Task, Project, TaskStatus, TaskPriority } from "./types";
 import { TaskStorage } from "./storage";
 import { Icons } from "../icons";
+import { BoardView } from "./board";
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
 const VIEW_KEY = "covenant.tasker.view";
@@ -95,6 +96,7 @@ export class TaskerPanel {
   private viewMode: "list" | "board" = "list";
   private boardProjectId: string | null = null;
   private boardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private board: BoardView | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -211,6 +213,26 @@ export class TaskerPanel {
       <div class="kb-columns-host"></div>
       <aside class="tasker-board-dock"></aside>
     </div>`;
+  }
+
+  private mountBoard(): void {
+    const columnsHost = this.host.querySelector<HTMLElement>(".kb-columns-host");
+    if (!columnsHost) return;
+    if (!this.board) {
+      this.board = new BoardView({
+        storage: this.storage,
+        getProjectId: () => this.boardProjectId,
+        isSelected: (p, t) =>
+          this.selectedTask?.projectId === p && this.selectedTask?.taskId === t,
+        onSelect: (p, t) => {
+          const same = this.selectedTask?.projectId === p && this.selectedTask?.taskId === t;
+          this.selectedTask = same ? null : { projectId: p, taskId: t };
+          this.render();
+        },
+        onChange: () => this.render(),
+      });
+    }
+    this.board.render(columnsHost);
   }
 
   render(): void {
@@ -487,6 +509,7 @@ export class TaskerPanel {
         }
       };
       document.addEventListener("keydown", this.boardKeyHandler);
+      this.mountBoard();
     }
 
     this.host.querySelectorAll<HTMLButtonElement>(".tasker-filter-btn").forEach((btn) => {
