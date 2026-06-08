@@ -226,7 +226,7 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 Ok(InFrame::MirrorStop { session_id }) => {
                     stop_mirror(&session_id, &mut mirrors);
                 }
-                Ok(InFrame::WebPresence { .. }) | Ok(InFrame::Unknown) => {}
+                Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
             Message::Close(_) => break,
