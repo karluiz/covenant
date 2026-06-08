@@ -64,18 +64,15 @@
 
 .op-creator .op-modal-input,
 .op-creator .op-modal-select,
-.op-creator .op-soul-body,
 .op-creator .op-soul-source {
   width: 100%; background: #16171e; color: #d7dae6;
   border: 1px solid #23252f; border-radius: 8px; padding: 9px 11px;
   font: inherit; transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
-.op-creator .op-modal-input:focus,
-.op-creator .op-soul-body:focus {
+.op-creator .op-modal-input:focus {
   outline: none; border-color: rgba(124, 140, 255, 0.6);
   box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
 }
-.op-creator .op-soul-body { min-height: 220px; resize: vertical; }
 .op-creator .op-section .md-editor--full { display: flex; flex-direction: column; }
 .op-creator .op-section .md-editor--full .ProseMirror { min-height: 320px; }
 .op-creator .op-soul-section-title {
@@ -84,7 +81,6 @@
 }
 .op-creator .op-soul-avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .op-creator .op-soul-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-.op-creator .op-soul-preview { font-size: 13px; line-height: 1.5; color: #c4c8d6; }
 .op-creator .op-hero-chip { display: flex; align-items: center; }
 
 /* ── True Dark (OLED): neutralize the hardcoded blue-tinted gradient and
@@ -94,7 +90,6 @@ body.theme-true-dark .op-creator .creator {
 }
 body.theme-true-dark .op-creator .op-modal-input,
 body.theme-true-dark .op-creator .op-modal-select,
-body.theme-true-dark .op-creator .op-soul-body,
 body.theme-true-dark .op-creator .op-soul-source {
   background: #0a0a0a;
   border-color: #1a1a1a;

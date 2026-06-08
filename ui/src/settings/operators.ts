@@ -1066,10 +1066,14 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       src.value = h.state.soulRaw;
     },
   });
+  // The guard relies on Milkdown firing its change listener synchronously
+  // inside replaceAll() (true for the current version). try/finally ensures a
+  // throw from the editor can't wedge the flag and silently swallow all
+  // subsequent user edits.
   function setBodyValue(md: string): void {
     suppressBodyChange = true;
-    bodyEditor.value = md;
-    suppressBodyChange = false;
+    try { bodyEditor.value = md; }
+    finally { suppressBodyChange = false; }
   }
 
   // Live pane: raw source + error — always visible on right.
