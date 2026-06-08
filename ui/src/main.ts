@@ -893,6 +893,19 @@ async function boot(): Promise<void> {
   void listen("menu://new-tab", () => {
     void manager.createTab();
   });
+  void listen("menu://copy-pairing-token", async () => {
+    try {
+      const token = await invoke<string | null>("rc_pairing_token");
+      if (token) {
+        await navigator.clipboard.writeText(token);
+        pushInfoToast({ message: "Pairing token copied" });
+      } else {
+        pushInfoToast({ message: "Not signed in" });
+      }
+    } catch (e) {
+      console.error("copy pairing token failed", e);
+    }
+  });
   void listen<string>("rc://tab/close", (e) => {
     const tab = manager.tabForSession(e.payload as SessionId);
     if (tab) manager.closeTab(tab.id);

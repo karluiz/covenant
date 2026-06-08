@@ -935,6 +935,11 @@ async fn rc_disarm_all(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn rc_pairing_token() -> Result<Option<String>, String> {
+    karl_score::auth::load_jwt().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn is_operator_enabled(
     state: State<'_, AppState>,
     session_id: String,
@@ -3050,7 +3055,24 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
     // window, so the frontend owns what ⌘W actually does.
     let close_tab = MenuItem::with_id(app, "close-tab", "Close Tab", true, Some("CmdOrCtrl+W"))?;
     let new_tab = MenuItem::with_id(app, "new-tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
-    let file_menu = Submenu::with_items(app, "File", true, &[&new_tab, &close_tab])?;
+    let copy_token = MenuItem::with_id(
+        app,
+        "copy-pairing-token",
+        "Copy Remote Pairing Token",
+        true,
+        None::<&str>,
+    )?;
+    let file_menu = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[
+            &new_tab,
+            &close_tab,
+            &PredefinedMenuItem::separator(app)?,
+            &copy_token,
+        ],
+    )?;
 
     let edit_menu = Submenu::with_items(
         app,
@@ -3102,6 +3124,9 @@ pub fn run() {
                 }
                 "new-tab" => {
                     let _ = app.emit("menu://new-tab", ());
+                }
+                "copy-pairing-token" => {
+                    let _ = app.emit("menu://copy-pairing-token", ());
                 }
                 _ => {}
             }
@@ -3859,6 +3884,7 @@ pub fn run() {
             rc_get_allow_open,
             rc_get_armed,
             rc_disarm_all,
+            rc_pairing_token,
             is_operator_enabled,
             list_operator_decisions,
             set_operator_live,
