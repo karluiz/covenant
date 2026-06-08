@@ -3,8 +3,11 @@
 import type { Task, Project, TaskStatus, TaskPriority } from "./types";
 import { TaskStorage } from "./storage";
 import { Icons } from "../icons";
+import { BoardView } from "./board";
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
+const VIEW_KEY = "covenant.tasker.view";
+const BOARD_PROJECT_KEY = "covenant.tasker.board-project";
 const PRIORITIES: TaskPriority[] = ["low", "normal", "high", "urgent"];
 
 function formatDueDate(ms: number): string {
@@ -90,11 +93,16 @@ export class TaskerPanel {
   private dateOutsideListener: ((ev: MouseEvent) => void) | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private composingList = false;
+  private viewMode: "list" | "board" = "list";
+  private boardProjectId: string | null = null;
+  private boardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private board: BoardView | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
     this.storage = new TaskStorage();
     this.loadExpandedProjects();
+    this.loadViewPrefs();
 
     if (this.storage.getProjects().length === 0) {
       const inbox = this.storage.createProject("Inbox", "Quick tasks and todos");
@@ -123,25 +131,58 @@ export class TaskerPanel {
     }
   }
 
+  private loadViewPrefs(): void {
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      if (v === "board" || v === "list") this.viewMode = v;
+    } catch { /* ignore */ }
+    try {
+      this.boardProjectId = localStorage.getItem(BOARD_PROJECT_KEY);
+    } catch { /* ignore */ }
+    // Ensure boardProjectId points at a real project.
+    const projects = this.storage.getProjects();
+    if (!this.boardProjectId || !projects.some((p) => p.id === this.boardProjectId)) {
+      this.boardProjectId = projects[0]?.id ?? null;
+    }
+  }
+
+  private saveViewPrefs(): void {
+    try {
+      localStorage.setItem(VIEW_KEY, this.viewMode);
+      if (this.boardProjectId) localStorage.setItem(BOARD_PROJECT_KEY, this.boardProjectId);
+    } catch { /* ignore */ }
+  }
+
+  private switchView(mode: "list" | "board"): void {
+    if (this.viewMode === mode) return;
+    this.viewMode = mode;
+    this.selectedTask = null;
+    document.body.classList.toggle("tasker-board", mode === "board");
+    this.saveViewPrefs();
+    this.render();
+  }
+
   isOpenCheck(): boolean {
     return this.isOpen;
   }
 
-  render(): void {
-    if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
-    this.host.classList.remove("hidden");
-    this.isOpen = true;
-    const projects = this.storage.getProjects();
-
-    this.host.innerHTML = `
-      <div class="tasker-panel">
-        <div class="tasker-header">
-          <h2 class="tasker-title">Tasker</h2>
-          <div class="tasker-header-actions">
-            <button class="tasker-btn-icon tasker-btn-new-project" type="button" title="New project">${Icons.folder({ size: 14 })}</button>
-          </div>
+  private renderHeader(): string {
+    return `
+    <div class="tasker-header">
+      <h2 class="tasker-title">Tasker</h2>
+      <div class="tasker-header-actions">
+        <div class="tasker-view-toggle" role="group" aria-label="View">
+          <button class="tasker-view-btn${this.viewMode === "list" ? " on" : ""}" type="button" data-view="list">List</button>
+          <button class="tasker-view-btn${this.viewMode === "board" ? " on" : ""}" type="button" data-view="board">Board</button>
         </div>
+        <button class="tasker-btn-icon tasker-btn-new-project" type="button" title="New project">${Icons.folder({ size: 14 })}</button>
+      </div>
+    </div>`;
+  }
 
+  private renderListBody(): string {
+    const projects = this.storage.getProjects();
+    return `
         <div class="tasker-filters">
           <button class="tasker-filter-btn${this.currentFilter === "all" ? " active" : ""}" data-filter="all">All</button>
           <button class="tasker-filter-btn${this.currentFilter === "active" ? " active" : ""}" data-filter="active">Active</button>
@@ -162,14 +203,93 @@ export class TaskerPanel {
 
         <div class="tasker-footer">
           <small class="tasker-stats">${this.getStats()}</small>
-        </div>
-      </div>
-    `;
+        </div>`;
+  }
+
+  private renderProjectSwitcher(): string {
+    const projects = this.storage.getProjects();
+    if (projects.length <= 1) {
+      const only = projects[0];
+      return `<span class="kb-project-name">${escapeHtml(only?.name ?? "")}</span>`;
+    }
+    const current = this.boardProjectId ?? projects[0].id;
+    return `
+      <select class="kb-project-select" aria-label="Project">
+        ${projects
+          .map((p) => `<option value="${p.id}"${p.id === current ? " selected" : ""}>${escapeHtml(p.name)}</option>`)
+          .join("")}
+      </select>`;
+  }
+
+  private renderBoardBody(): string {
+    const sel = this.selectedTask;
+    let dock = "";
+    if (sel) {
+      const task = this.storage.getTask(sel.projectId, sel.taskId);
+      if (task) dock = this.renderTaskDetails(sel.projectId, task);
+    }
+    return `
+    <div class="tasker-board-toolbar">${this.renderProjectSwitcher()}</div>
+    <div class="tasker-board-layout">
+      <div class="kb-columns-host"></div>
+      <aside class="tasker-board-dock${dock ? " tasker-board-dock-open" : ""}">${dock}</aside>
+    </div>`;
+  }
+
+  private mountBoard(): void {
+    const columnsHost = this.host.querySelector<HTMLElement>(".kb-columns-host");
+    if (!columnsHost) return;
+    // Self-heal a stale board project (e.g. the current project was deleted from
+    // the list view) so the board falls back instead of showing "No project selected".
+    const projects = this.storage.getProjects();
+    if (!this.boardProjectId || !projects.some((p) => p.id === this.boardProjectId)) {
+      this.boardProjectId = projects[0]?.id ?? null;
+    }
+    if (!this.board) {
+      this.board = new BoardView({
+        storage: this.storage,
+        getProjectId: () => this.boardProjectId,
+        isSelected: (p, t) =>
+          this.selectedTask?.projectId === p && this.selectedTask?.taskId === t,
+        onSelect: (p, t) => {
+          const same = this.selectedTask?.projectId === p && this.selectedTask?.taskId === t;
+          this.selectedTask = same ? null : { projectId: p, taskId: t };
+          this.render();
+        },
+        onChange: () => this.render(),
+      });
+    }
+    this.board.render(columnsHost);
+  }
+
+  render(): void {
+    if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
+    this.host.classList.remove("hidden");
+    this.isOpen = true;
+    document.body.classList.toggle("tasker-board", this.viewMode === "board");
+
+    if (this.viewMode === "board") {
+      this.host.innerHTML = `
+      <div class="tasker-panel tasker-panel-board">
+        ${this.renderHeader()}
+        ${this.renderBoardBody()}
+      </div>`;
+    } else {
+      this.host.innerHTML = `
+      <div class="tasker-panel">
+        ${this.renderHeader()}
+        ${this.renderListBody()}
+      </div>`;
+    }
 
     this.setupEventListeners();
-    queueMicrotask(() => {
-      this.host.querySelector<HTMLInputElement>(".tasker-composer-input")?.focus();
-    });
+
+    // Preserve the existing list-mode composer autofocus.
+    if (this.viewMode === "list") {
+      queueMicrotask(() => {
+        this.host.querySelector<HTMLInputElement>(".tasker-composer-input")?.focus();
+      });
+    }
   }
 
   private renderProject(project: Project): string {
@@ -398,6 +518,36 @@ export class TaskerPanel {
   }
 
   private setupEventListeners(): void {
+    this.host.querySelectorAll<HTMLButtonElement>(".tasker-view-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mode = btn.dataset.view === "board" ? "board" : "list";
+        this.switchView(mode);
+      });
+    });
+
+    if (this.boardKeyHandler) {
+      document.removeEventListener("keydown", this.boardKeyHandler);
+      this.boardKeyHandler = null;
+    }
+    if (this.viewMode === "board") {
+      this.boardKeyHandler = (e: KeyboardEvent): void => {
+        if (e.key === "Escape" && this.viewMode === "board" && !this.openMenu) {
+          this.switchView("list");
+        }
+      };
+      document.addEventListener("keydown", this.boardKeyHandler);
+
+      const projectSelect = this.host.querySelector<HTMLSelectElement>(".kb-project-select");
+      projectSelect?.addEventListener("change", () => {
+        this.boardProjectId = projectSelect.value;
+        this.selectedTask = null;
+        this.saveViewPrefs();
+        this.render();
+      });
+
+      this.mountBoard();
+    }
+
     this.host.querySelectorAll<HTMLButtonElement>(".tasker-filter-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         this.currentFilter = (btn.dataset.filter as TaskStatus | "all") || "all";
@@ -709,6 +859,11 @@ export class TaskerPanel {
   close(): void {
     this.host.classList.add("hidden");
     this.isOpen = false;
+    document.body.classList.remove("tasker-board");
+    if (this.boardKeyHandler) {
+      document.removeEventListener("keydown", this.boardKeyHandler);
+      this.boardKeyHandler = null;
+    }
   }
 
   toggle(): void {
