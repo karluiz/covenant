@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.64 — Remote tab control (RC-1) + Tasker redesign
+
+### Added
+
+- **Remote tab control (RC-1)**: a web client can now drive desktop tabs over the github_id-keyed WS relay, gated behind explicit per-tab arming. A per-session armed flag (default off) is toggled from the tab context menu; only armed tabs accept a relayed `send_input`, and rejected commands surface back to the web client. Backend commands `rc_set_armed` / `rc_get_armed` / `rc_disarm_all`, an `AtomicBool` armed flag in the tabs frame, and `send_input` / rejection state on the web side (`crates/app`, `ui/src/...`, rc-agent emits `rc://web-presence`).
+- **Remote-active corner pill + kill-switch**: when a web client is present and controlling, the desktop shows a corner pill with a one-click kill-switch to disarm all tabs; mounted at startup and guarded against double-mount.
+- **Delete projects in Tasker**: project headers now have a hover trash button (Inbox protected) wired to `storage.deleteProject`, removing the project and its tasks (`ui/src/tasker/panel.ts`).
+- **Full-width auto-grow notes**: task notes use a full-width textarea that grows with content instead of the cramped single-line field (`ui/src/tasker/panel.ts`, `styles.css`).
+
+### Changed
+
+- **Tasker visual redesign**: square full-width task cards, borders-only expanded card with a warm hairline under True Dark (no fill), light-stroke project chevrons with a rotate animation, and a dashed-border "Add task" button matching project notes (`ui/src/tasker/styles.css`).
+- **Remote control internals**: `inject_to_session` is now `pub(crate)`, reject reasons are typed, and message helpers are tested (`crates/app`).
+
+### Fixed
+
+- **Settings pane collapse with Tasker open**: opening Settings while the Tasker sidebar was active left `#layout` in a multi-column grid, collapsing the provider detail pane (background bled through). Full-page routes now collapse the right rail column in both default and `tabbar-left` modes (`ui/src/styles.css`).
+- **Provider header overlap**: the provider detail title, status pill, and subtitle overlapped in a narrow pane — added ellipsis + `flex-shrink` so they lay out cleanly (`ui/src/styles.css`).
+- **Remote control edge cases**: rejections persist across a tabs-frame refresh, and rendering is deferred during IME composition so it doesn't drop in-progress input (`ui/src/...`).
+- **Title edit dismiss**: editing a task title now commits on blur and discards on Escape, instead of leaving the input stuck open (`ui/src/tasker/panel.ts`).
+
 ## v0.8.63 — WYSIWYG markdown editors + immersive operator creator
 
 ### Added
