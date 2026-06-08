@@ -425,6 +425,8 @@ pub struct Session {
     /// Live PTY dimensions (cols<<16|rows), written by `resize`, read by
     /// the pump so the headless vt100 grid matches the real terminal.
     dims: Arc<AtomicU32>,
+    /// Broadcast tee of every raw PTY chunk, for remote live-mirroring.
+    raw_bytes_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
 }
 
 impl Session {
@@ -435,6 +437,7 @@ impl Session {
         let id = SessionId::new();
         let (events_tx, _) = broadcast::channel(EVENT_BUS_CAPACITY);
         let (raw_tx, raw_rx) = mpsc::unbounded_channel::<Bytes>();
+        let (raw_bytes_tx, _) = tokio::sync::broadcast::channel::<bytes::Bytes>(1024);
 
         let pump_events_tx = events_tx.clone();
         #[cfg(unix)]
@@ -446,11 +449,13 @@ impl Session {
         let dims = Arc::new(AtomicU32::new(pack_dims(80, 24)));
         let pump_screen = screen.clone();
         let pump_dims = dims.clone();
+        let pump_raw_bytes_tx = raw_bytes_tx.clone();
 
         tokio::spawn(pump(
             id,
             pty_rx,
             raw_tx,
+            pump_raw_bytes_tx,
             pump_events_tx,
             master_fd,
             pump_screen,
@@ -472,6 +477,7 @@ impl Session {
                 events_tx,
                 screen,
                 dims,
+                raw_bytes_tx,
             },
             SessionStreams { raw_bytes: raw_rx },
         ))
@@ -479,6 +485,12 @@ impl Session {
 
     pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
         self.events_tx.subscribe()
+    }
+
+    /// Fresh subscription to the raw PTY byte stream (for mirroring). Lagging
+    /// receivers drop oldest chunks; the live stream then resumes.
+    pub fn subscribe_raw_bytes(&self) -> tokio::sync::broadcast::Receiver<bytes::Bytes> {
+        self.raw_bytes_tx.subscribe()
     }
 
     /// Clone of the bus sender. Tasks that synthesize new events back
@@ -523,6 +535,7 @@ async fn pump(
     id: SessionId,
     mut pty_rx: mpsc::UnboundedReceiver<Bytes>,
     raw_tx: mpsc::UnboundedSender<Bytes>,
+    raw_bytes_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
     events_tx: broadcast::Sender<SessionEvent>,
     #[cfg(unix)] master_fd: std::os::fd::RawFd,
     #[cfg(not(unix))] _master_fd: (),
@@ -559,6 +572,7 @@ async fn pump(
                 //    dropped its receiver, we keep going — the agent (broadcast)
                 //    may still want events.
                 let _ = raw_tx.send(chunk.clone());
+                let _ = raw_bytes_tx.send(chunk.clone());
 
                 // 2. Accumulate output bytes against the in-flight block, if any.
                 if let Some((_, _, _, ref mut buf, _)) = current_block {
@@ -766,6 +780,45 @@ mod tests {
         assert!(
             output.contains("karl-bus"),
             "expected 'karl-bus' in output_text, got: {output:?}"
+        );
+    }
+
+    /// Raw-byte broadcast tee should carry live PTY output to a fresh
+    /// subscriber (the mirroring path).
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn subscribe_raw_bytes_receives_output() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join(".zshrc"),
+            format!("PROMPT='$ '\nsource {}\n", snippet_path().display()),
+        )
+        .expect("write .zshrc");
+
+        let mut opts = SpawnOptions::zsh_interactive();
+        opts.args.push("--no-globalrcs".to_string());
+        opts.env
+            .push(("ZDOTDIR".to_string(), dir.path().display().to_string()));
+
+        let (mut session, _streams) = Session::spawn(opts).expect("spawn");
+        let mut raw = session.subscribe_raw_bytes();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        session.write(b"echo karl-mirror\n").expect("write");
+        let mut got = String::new();
+        for _ in 0..50 {
+            match tokio::time::timeout(std::time::Duration::from_millis(200), raw.recv()).await {
+                Ok(Ok(b)) => {
+                    got.push_str(&String::from_utf8_lossy(&b));
+                    if got.contains("karl-mirror") {
+                        break;
+                    }
+                }
+                _ => continue,
+            }
+        }
+        assert!(
+            got.contains("karl-mirror"),
+            "raw mirror stream should carry PTY output; got {got:?}"
         );
     }
 
