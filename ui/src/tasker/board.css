@@ -120,8 +120,8 @@ body.theme-true-dark .kb-card { background: #141416; }
   border: 1px solid var(--border);
   color: var(--muted);
 }
-.kb-due { color: #f0a868; border-color: rgba(240 168 104 / 0.3); }
-.kb-tag { color: var(--accent); border-color: rgba(122 162 247 / 0.25); }
+.kb-due { color: #f0a868; border-color: color-mix(in srgb, #f0a868 30%, transparent); }
+.kb-tag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
 .kb-note { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); display: inline-block; }
 
 .kb-add {

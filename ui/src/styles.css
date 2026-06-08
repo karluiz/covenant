@@ -15215,6 +15215,31 @@ body.tasker-board #tasker-panel .tasker-panel-board {
   min-height: 0;
 }
 
+/* TASKER List/Board view toggle (segmented control in the header) */
+.tasker-view-toggle {
+  display: inline-flex;
+  margin-right: 6px;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.tasker-view-btn {
+  font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 3px 10px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tasker-view-btn:hover {
+  color: var(--text-primary);
+}
+.tasker-view-btn.on {
+  background: var(--accent);
+  color: #0b0d10;
+}
+
 /* Project Notes is a position:fixed overlay (right:0, width:240) — NOT an
    in-grid rail like Activity/Teammate. So it must NOT reserve a #layout
    column. Two failure modes that reserving caused:
