@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use karl_blocks::executor_phase::ExecutorPhase;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::str::FromStr;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio_tungstenite::tungstenite::Message;
@@ -15,6 +16,7 @@ use crate::AppState;
 #[serde(tag = "t", rename_all = "snake_case")]
 enum InFrame {
     ListTabs,
+    SendInput { session_id: String, data: String },
     #[serde(other)]
     Unknown,
 }
@@ -35,6 +37,11 @@ enum OutFrame {
     Tabs {
         device_id: String,
         tabs: Vec<TabInfo>,
+    },
+    Rejected {
+        session_id: String,
+        reason: &'static str,
+        message: String,
     },
 }
 
@@ -105,12 +112,15 @@ async fn collect_tabs(app: &AppHandle) -> Vec<TabInfo> {
         let sessions = state.sessions.lock().await;
         sessions
             .iter()
-            .map(|(sid, managed)| (*sid, managed.world.clone()))
+            .map(|(sid, managed)| {
+                let armed = managed.armed.load(std::sync::atomic::Ordering::Relaxed);
+                (*sid, managed.world.clone(), armed)
+            })
             .collect()
     };
 
     let mut out = Vec::with_capacity(snapshot.len());
-    for (sid, world) in snapshot {
+    for (sid, world, armed) in snapshot {
         let session_id = sid.to_string();
         let (cwd, world_title) = {
             let w = world.lock().await;
@@ -133,7 +143,7 @@ async fn collect_tabs(app: &AppHandle) -> Vec<TabInfo> {
             cwd: tilde(&cwd),
             executor,
             phase,
-            armed: false,
+            armed,
         });
     }
     out
@@ -154,6 +164,11 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                     })?;
                     sink.send(Message::Text(json)).await?;
                 }
+                Ok(InFrame::SendInput { session_id, data }) => {
+                    if let Some(rej) = handle_send_input(app, &session_id, &data).await {
+                        sink.send(Message::Text(serde_json::to_string(&rej)?)).await?;
+                    }
+                }
                 Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
@@ -162,6 +177,95 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum RejectReason {
+    NoSuchTab,
+    NotArmed,
+    Blocklisted,
+}
+
+impl RejectReason {
+    fn code(self) -> &'static str {
+        match self {
+            RejectReason::NoSuchTab => "no_such_tab",
+            RejectReason::NotArmed => "tab_not_armed",
+            RejectReason::Blocklisted => "blocklisted",
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Gate {
+    Inject,
+    Reject(RejectReason),
+}
+
+fn gate(armed: Option<bool>, danger: bool) -> Gate {
+    match armed {
+        None => Gate::Reject(RejectReason::NoSuchTab),
+        Some(false) => Gate::Reject(RejectReason::NotArmed),
+        Some(true) => {
+            if danger {
+                Gate::Reject(RejectReason::Blocklisted)
+            } else {
+                Gate::Inject
+            }
+        }
+    }
+}
+
+/// Pure: build the (code, message) for a rejected send_input. The blocklist's
+/// own message is used when present; otherwise a humanized code.
+fn reject_payload(reason: RejectReason, blocklist_message: Option<String>) -> (&'static str, String) {
+    match reason {
+        RejectReason::Blocklisted => (
+            "blocklisted",
+            blocklist_message.unwrap_or_else(|| "blocked".into()),
+        ),
+        other => (other.code(), other.code().replace('_', " ")),
+    }
+}
+
+async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Option<OutFrame> {
+    let make_reject = |reason: &'static str, message: String| {
+        Some(OutFrame::Rejected {
+            session_id: session_id.to_string(),
+            reason,
+            message,
+        })
+    };
+
+    let id = match ulid::Ulid::from_str(session_id) {
+        Ok(u) => karl_session::SessionId(u),
+        Err(_) => return make_reject("no_such_tab", "invalid session id".into()),
+    };
+    let state = app.try_state::<crate::AppState>()?;
+    let armed: Option<bool> = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(&id)
+            .map(|m| m.armed.load(std::sync::atomic::Ordering::Relaxed))
+    }; // guard dropped here
+    let danger = crate::safety::is_dangerous(data, &[]);
+    match gate(armed, danger.is_some()) {
+        Gate::Reject(reason) => {
+            let (code, message) = reject_payload(reason, danger.map(|d| d.message));
+            make_reject(code, message)
+        }
+        Gate::Inject => {
+            // NOTE: the gate is per-command, not transactional — a concurrent
+            // rc_disarm_all between the armed-read and this inject can still let
+            // one already-authorized, blocklist-passed command land. Acceptable.
+            if let Err(e) = crate::operator::inject_to_session(app, id, data.as_bytes()).await {
+                tracing::warn!(target: "rc_agent", error=%e, "inject failed");
+                return make_reject("inject_failed", e);
+            }
+            tracing::info!(target: "rc_agent", session=%id, "remote input injected");
+            None
+        }
+    }
 }
 
 async fn agent_loop(app: AppHandle, device_id: String) {
@@ -211,6 +315,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gate_rejects_unknown_tab() {
+        assert_eq!(gate(None, false), Gate::Reject(RejectReason::NoSuchTab));
+    }
+    #[test]
+    fn gate_rejects_unarmed_tab() {
+        assert_eq!(gate(Some(false), false), Gate::Reject(RejectReason::NotArmed));
+    }
+    #[test]
+    fn gate_rejects_blocklisted_even_when_armed() {
+        assert_eq!(gate(Some(true), true), Gate::Reject(RejectReason::Blocklisted));
+    }
+    #[test]
+    fn gate_injects_when_armed_and_clean() {
+        assert_eq!(gate(Some(true), false), Gate::Inject);
+    }
+    #[test]
+    fn reject_payload_blocklist_uses_real_message() {
+        assert_eq!(
+            reject_payload(RejectReason::Blocklisted, Some("rm -rf blocked".into())),
+            ("blocklisted", "rm -rf blocked".to_string())
+        );
+    }
+    #[test]
+    fn reject_payload_blocklist_without_message_falls_back() {
+        assert_eq!(
+            reject_payload(RejectReason::Blocklisted, None),
+            ("blocklisted", "blocked".to_string())
+        );
+    }
+    #[test]
+    fn reject_payload_humanizes_other_reasons() {
+        assert_eq!(
+            reject_payload(RejectReason::NotArmed, None),
+            ("tab_not_armed", "tab not armed".to_string())
+        );
+    }
+    #[test]
     fn tilde_collapses_home() {
         // Uses real $HOME; construct a path under it.
         if let Ok(home) = std::env::var("HOME") {
@@ -226,7 +367,7 @@ mod tests {
     }
     #[test]
     fn unknown_frame_is_ignored_not_error() {
-        let f: InFrame = serde_json::from_str(r#"{"t":"send_input","data":"x"}"#).unwrap();
+        let f: InFrame = serde_json::from_str(r#"{"t":"totally_bogus","data":"x"}"#).unwrap();
         assert!(matches!(f, InFrame::Unknown));
     }
     #[test]

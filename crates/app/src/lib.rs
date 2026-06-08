@@ -103,6 +103,9 @@ struct ManagedSession {
     _zdotdir: TempDir,
     world: Arc<Mutex<SessionWorldModel>>,
     op_state: Arc<std::sync::Mutex<OperatorState>>,
+    /// Per-session remote-control arming flag. Default `false`. When
+    /// `true`, gated remote `send_input` frames may inject into this PTY.
+    armed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(crate) struct AppState {
@@ -666,6 +669,7 @@ async fn spawn_session(
             _zdotdir: zdotdir,
             world,
             op_state: op_state.clone(),
+            armed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         },
     );
 
@@ -882,6 +886,35 @@ async fn set_operator_enabled(
     let id = parse_id(&session_id)?;
     state.operator.set_enabled(id, enabled).await;
     tracing::info!(session = %id, enabled, "operator toggled");
+    Ok(())
+}
+
+#[tauri::command]
+async fn rc_set_armed(state: State<'_, AppState>, session_id: String, armed: bool) -> Result<(), String> {
+    let id = parse_id(&session_id)?;
+    let sessions = state.sessions.lock().await;
+    let managed = sessions.get(&id).ok_or("session not found")?;
+    managed.armed.store(armed, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!(session = %id, armed, "remote arming toggled");
+    Ok(())
+}
+
+#[tauri::command]
+async fn rc_get_armed(state: State<'_, AppState>, session_id: String) -> Result<bool, String> {
+    let id = parse_id(&session_id)?;
+    let sessions = state.sessions.lock().await;
+    let managed = sessions.get(&id).ok_or("session not found")?;
+    Ok(managed.armed.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+// Kill-switch backend. The user-facing button/shortcut lands with the RC-1b banner.
+#[tauri::command]
+async fn rc_disarm_all(state: State<'_, AppState>) -> Result<(), String> {
+    let sessions = state.sessions.lock().await;
+    for managed in sessions.values() {
+        managed.armed.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+    tracing::info!("remote control: disarmed all tabs");
     Ok(())
 }
 
@@ -3804,6 +3837,9 @@ pub fn run() {
             set_settings,
             ask_agent,
             set_operator_enabled,
+            rc_set_armed,
+            rc_get_armed,
+            rc_disarm_all,
             is_operator_enabled,
             list_operator_decisions,
             set_operator_live,
