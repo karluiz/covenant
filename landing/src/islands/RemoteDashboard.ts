@@ -1,4 +1,4 @@
-import { parseFrame, wsUrl, reduce, initialState, type DashState } from "../remote/protocol";
+import { parseFrame, wsUrl, reduce, initialState, sendInputFrame, type DashState } from "../remote/protocol";
 
 const RELAY_BASE = "https://forge.covenant.uno";
 const TOKEN_KEY = "covenant_rc_token";
@@ -35,14 +35,73 @@ export function mountRemoteDashboard(doc: Document = document): void {
     statusEl.textContent = text;
     statusEl.className = cls;
     if (state.tabs.length === 0) { tabsEl.innerHTML = `<p class="text-zinc-500">No tabs.</p>`; return; }
-    tabsEl.innerHTML = state.tabs.map((t) => `
+
+    // Focus preservation: capture the focused .rc-cmd input's identity + caret.
+    const active = doc.activeElement as HTMLInputElement | null;
+    let focusedSid: string | null = null;
+    let focusedVal = "";
+    let selStart = 0, selEnd = 0;
+    if (active && active.classList.contains("rc-cmd")) {
+      focusedSid = active.getAttribute("data-sid");
+      focusedVal = active.value;
+      selStart = active.selectionStart ?? focusedVal.length;
+      selEnd = active.selectionEnd ?? focusedVal.length;
+    }
+
+    tabsEl.innerHTML = state.tabs.map((t) => {
+      const sid = escapeAttr(t.session_id);
+      const rejection = state.rejections[t.session_id];
+      const armedBadge = t.armed
+        ? `<span class="text-xs text-emerald-400">● armed</span>`
+        : `<span class="text-xs text-zinc-500">○ not armed</span>`;
+      const control = t.armed
+        ? `<div class="mt-2 flex gap-2">
+            <input class="rc-cmd flex-1 rounded border border-emerald-900/50 bg-black/40 px-2 py-1 text-sm text-emerald-100" data-sid="${sid}" placeholder="command…" />
+            <button class="rc-send rounded border border-emerald-700 bg-emerald-900/40 px-3 py-1 text-sm text-emerald-200" data-sid="${sid}">Send</button>
+          </div>`
+        : `<div class="mt-2 text-xs text-zinc-500">Arm this tab on the desktop to control it.</div>`;
+      const rejLine = rejection
+        ? `<div class="mt-1 text-xs text-red-400">✗ ${escapeHtml(rejection)}</div>`
+        : "";
+      return `
       <div class="rounded border border-emerald-900/50 bg-black/30 p-3">
         <div class="flex items-center justify-between">
           <span class="text-emerald-300">${escapeHtml(t.title)}</span>
           <span class="text-xs text-zinc-400">${escapeHtml(t.executor ?? "shell")} · ${escapeHtml(t.phase)}</span>
         </div>
         <div class="text-xs text-zinc-500">${escapeHtml(t.cwd)}</div>
-      </div>`).join("");
+        <div class="mt-1">${armedBadge}</div>
+        ${control}
+        ${rejLine}
+      </div>`;
+    }).join("");
+
+    // Restore focus + caret on the matching input after innerHTML rebuild.
+    if (focusedSid) {
+      const sel = `input.rc-cmd[data-sid="${cssEscape(focusedSid)}"]`;
+      const next = tabsEl.querySelector(sel) as HTMLInputElement | null;
+      if (next) {
+        next.value = focusedVal;
+        next.focus();
+        try { next.setSelectionRange(selStart, selEnd); } catch { /* ignore */ }
+      }
+    }
+  };
+
+  const sendFor = (sid: string) => {
+    const input = tabsEl.querySelector(`input.rc-cmd[data-sid="${cssEscape(sid)}"]`) as HTMLInputElement | null;
+    if (!input) return;
+    const text = input.value;
+    if (text.trim() === "") return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(sendInputFrame(sid, text));
+      input.value = "";
+      if (state.rejections[sid]) {
+        const { [sid]: _, ...rest } = state.rejections;
+        state = { ...state, rejections: rest };
+      }
+      render();
+    }
   };
 
   const teardown = (sock: WebSocket | null) => {
@@ -98,10 +157,34 @@ export function mountRemoteDashboard(doc: Document = document): void {
   }
 
   connectBtn.addEventListener("click", () => connect());
+
+  // Event delegation, attached once.
+  tabsEl.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("button.rc-send") as HTMLElement | null;
+    if (!btn) return;
+    const sid = btn.getAttribute("data-sid");
+    if (sid) sendFor(sid);
+  });
+  tabsEl.addEventListener("keydown", (e) => {
+    const ev = e as KeyboardEvent;
+    if (ev.key !== "Enter") return;
+    const input = (ev.target as HTMLElement).closest("input.rc-cmd") as HTMLElement | null;
+    if (!input) return;
+    ev.preventDefault();
+    const sid = input.getAttribute("data-sid");
+    if (sid) sendFor(sid);
+  });
+
   render();
   if (saved) connect();
 }
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/`/g, "&#96;");
+}
+function cssEscape(s: string): string {
+  return s.replace(/["\\]/g, "\\$&");
 }
