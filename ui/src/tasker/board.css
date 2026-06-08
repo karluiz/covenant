@@ -178,3 +178,19 @@ body.theme-true-dark .kb-card { background: #141416; }
   border-left: 1px solid var(--border);
   padding: 16px;
 }
+
+.tasker-board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+.kb-project-select,
+.kb-project-name {
+  font: 600 12.5px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-primary);
+  background: rgba(255 255 255 / 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 11px;
+}

@@ -206,6 +206,21 @@ export class TaskerPanel {
         </div>`;
   }
 
+  private renderProjectSwitcher(): string {
+    const projects = this.storage.getProjects();
+    if (projects.length <= 1) {
+      const only = projects[0];
+      return `<span class="kb-project-name">${escapeHtml(only?.name ?? "")}</span>`;
+    }
+    const current = this.boardProjectId ?? projects[0].id;
+    return `
+      <select class="kb-project-select" aria-label="Project">
+        ${projects
+          .map((p) => `<option value="${p.id}"${p.id === current ? " selected" : ""}>${escapeHtml(p.name)}</option>`)
+          .join("")}
+      </select>`;
+  }
+
   private renderBoardBody(): string {
     const sel = this.selectedTask;
     let dock = "";
@@ -214,7 +229,7 @@ export class TaskerPanel {
       if (task) dock = this.renderTaskDetails(sel.projectId, task);
     }
     return `
-    <div class="tasker-board-toolbar"></div>
+    <div class="tasker-board-toolbar">${this.renderProjectSwitcher()}</div>
     <div class="tasker-board-layout">
       <div class="kb-columns-host"></div>
       <aside class="tasker-board-dock${dock ? " tasker-board-dock-open" : ""}">${dock}</aside>
@@ -515,6 +530,15 @@ export class TaskerPanel {
         }
       };
       document.addEventListener("keydown", this.boardKeyHandler);
+
+      const projectSelect = this.host.querySelector<HTMLSelectElement>(".kb-project-select");
+      projectSelect?.addEventListener("change", () => {
+        this.boardProjectId = projectSelect.value;
+        this.selectedTask = null;
+        this.saveViewPrefs();
+        this.render();
+      });
+
       this.mountBoard();
     }
 

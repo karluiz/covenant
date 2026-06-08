@@ -199,3 +199,41 @@ describe("board inline add", () => {
     expect(created!.status).toBe("pending");
   });
 });
+
+describe("board project switcher", () => {
+  function mountBoardPanel() {
+    document.body.innerHTML = `<div id="tasker-panel"></div>`;
+    const host = document.getElementById("tasker-panel")!;
+    const panel = new TaskerPanel(host);
+    const storage = (panel as unknown as { storage: TaskStorage }).storage;
+    panel.render();
+    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+    return { panel, host, storage };
+  }
+
+  it("lists all projects and switches the board on change", () => {
+    const { host, storage } = mountBoardPanel();
+    const a = storage.getProjects()[0];
+    const b = storage.createProject("Second");
+    storage.createTask(a.id, "task in A", { status: "pending" });
+    storage.createTask(b.id, "task in B", { status: "pending" });
+    // re-render board after creating data
+    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="list"]')!.click();
+    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+
+    const select = host.querySelector<HTMLSelectElement>(".kb-project-select")!;
+    expect(select).toBeTruthy();
+    expect(select.options.length).toBe(2);
+
+    select.value = b.id;
+    select.dispatchEvent(new Event("change"));
+    expect(host.textContent).toContain("task in B");
+    expect(host.textContent).not.toContain("task in A");
+  });
+
+  it("shows the project name without a dropdown when only one project exists", () => {
+    const { host } = mountBoardPanel();
+    expect(host.querySelector(".kb-project-select")).toBeNull();
+    expect(host.querySelector(".kb-project-name")!.textContent).toContain("Inbox");
+  });
+});
