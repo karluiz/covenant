@@ -814,7 +814,10 @@ body.theme-light .op-tg-bubble {
   width: 100%;
   min-height: 220px;
   margin-top: 8px;
-  resize: vertical;
+  /* Read-only mirror of the generated SOUL.md — not editable, not resizable. */
+  resize: none;
+  cursor: default;
+  opacity: 0.85;
   border-radius: 10px;
   border: 1px solid var(--border, #2a2f37);
   background: var(--bg-overlay, rgba(0, 0, 0, 0.22));
