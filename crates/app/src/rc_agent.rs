@@ -5,6 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use karl_blocks::executor_phase::ExecutorPhase;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::str::FromStr;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tokio_tungstenite::tungstenite::Message;
@@ -15,6 +16,7 @@ use crate::AppState;
 #[serde(tag = "t", rename_all = "snake_case")]
 enum InFrame {
     ListTabs,
+    SendInput { session_id: String, data: String },
     #[serde(other)]
     Unknown,
 }
@@ -35,6 +37,11 @@ enum OutFrame {
     Tabs {
         device_id: String,
         tabs: Vec<TabInfo>,
+    },
+    Rejected {
+        session_id: String,
+        reason: &'static str,
+        message: String,
     },
 }
 
@@ -105,12 +112,15 @@ async fn collect_tabs(app: &AppHandle) -> Vec<TabInfo> {
         let sessions = state.sessions.lock().await;
         sessions
             .iter()
-            .map(|(sid, managed)| (*sid, managed.world.clone()))
+            .map(|(sid, managed)| {
+                let armed = *managed.armed.lock().unwrap();
+                (*sid, managed.world.clone(), armed)
+            })
             .collect()
     };
 
     let mut out = Vec::with_capacity(snapshot.len());
-    for (sid, world) in snapshot {
+    for (sid, world, armed) in snapshot {
         let session_id = sid.to_string();
         let (cwd, world_title) = {
             let w = world.lock().await;
@@ -133,7 +143,7 @@ async fn collect_tabs(app: &AppHandle) -> Vec<TabInfo> {
             cwd: tilde(&cwd),
             executor,
             phase,
-            armed: false,
+            armed,
         });
     }
     out
@@ -154,6 +164,11 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                     })?;
                     sink.send(Message::Text(json)).await?;
                 }
+                Ok(InFrame::SendInput { session_id, data }) => {
+                    if let Some(rej) = handle_send_input(app, &session_id, &data).await {
+                        sink.send(Message::Text(serde_json::to_string(&rej)?)).await?;
+                    }
+                }
                 Ok(InFrame::Unknown) => {}
                 Err(e) => tracing::debug!(target: "rc_agent", error=%e, "bad frame"),
             },
@@ -162,6 +177,58 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
         }
     }
     Ok(())
+}
+
+#[derive(Debug, PartialEq)]
+enum Gate {
+    Inject,
+    Reject(&'static str),
+}
+
+fn gate(armed: Option<bool>, danger: Option<()>) -> Gate {
+    match armed {
+        None => Gate::Reject("no_such_tab"),
+        Some(false) => Gate::Reject("tab_not_armed"),
+        Some(true) => match danger {
+            Some(()) => Gate::Reject("blocklisted"),
+            None => Gate::Inject,
+        },
+    }
+}
+
+async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Option<OutFrame> {
+    let reject = |reason: &'static str, message: String| {
+        Some(OutFrame::Rejected {
+            session_id: session_id.to_string(),
+            reason,
+            message,
+        })
+    };
+    let id = match ulid::Ulid::from_str(session_id) {
+        Ok(u) => karl_session::SessionId(u),
+        Err(_) => return reject("no_such_tab", "invalid session id".into()),
+    };
+    let state = app.try_state::<crate::AppState>()?;
+    let armed: Option<bool> = {
+        let sessions = state.sessions.lock().await;
+        sessions.get(&id).map(|m| *m.armed.lock().unwrap())
+    }; // guard dropped here
+    let danger = crate::safety::is_dangerous(data, &[]);
+    match gate(armed, danger.as_ref().map(|_| ())) {
+        Gate::Reject("blocklisted") => reject(
+            "blocklisted",
+            danger.map(|d| d.message).unwrap_or_else(|| "blocked".into()),
+        ),
+        Gate::Reject(reason) => reject(reason, reason.replace('_', " ")),
+        Gate::Inject => {
+            if let Err(e) = crate::operator::inject_to_session(app, id, data.as_bytes()).await {
+                tracing::warn!(target: "rc_agent", error=%e, "inject failed");
+                return reject("no_such_tab", e);
+            }
+            tracing::info!(target: "rc_agent", session=%id, "remote input injected");
+            None
+        }
+    }
 }
 
 async fn agent_loop(app: AppHandle, device_id: String) {
@@ -211,6 +278,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gate_rejects_unknown_tab() {
+        assert_eq!(gate(None, None), Gate::Reject("no_such_tab"));
+    }
+    #[test]
+    fn gate_rejects_unarmed_tab() {
+        assert_eq!(gate(Some(false), None), Gate::Reject("tab_not_armed"));
+    }
+    #[test]
+    fn gate_rejects_blocklisted_even_when_armed() {
+        assert_eq!(gate(Some(true), Some(())), Gate::Reject("blocklisted"));
+    }
+    #[test]
+    fn gate_injects_when_armed_and_clean() {
+        assert_eq!(gate(Some(true), None), Gate::Inject);
+    }
+    #[test]
     fn tilde_collapses_home() {
         // Uses real $HOME; construct a path under it.
         if let Ok(home) = std::env::var("HOME") {
@@ -226,7 +309,7 @@ mod tests {
     }
     #[test]
     fn unknown_frame_is_ignored_not_error() {
-        let f: InFrame = serde_json::from_str(r#"{"t":"send_input","data":"x"}"#).unwrap();
+        let f: InFrame = serde_json::from_str(r#"{"t":"totally_bogus","data":"x"}"#).unwrap();
         assert!(matches!(f, InFrame::Unknown));
     }
     #[test]
