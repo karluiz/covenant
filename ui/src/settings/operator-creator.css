@@ -76,6 +76,8 @@
   box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
 }
 .op-creator .op-soul-body { min-height: 220px; resize: vertical; }
+.op-creator .op-section .md-editor--full { display: flex; flex-direction: column; }
+.op-creator .op-section .md-editor--full .ProseMirror { min-height: 320px; }
 .op-creator .op-soul-section-title {
   font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
   color: #8b90a4; margin: 0 0 8px;

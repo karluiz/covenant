@@ -97,14 +97,14 @@ describe('operator modal', () => {
     const section = m.el.querySelector('.op-section')!;
     expect(section.querySelector('input.op-modal-input')).toBeTruthy();
     const live = m.el.querySelector('.op-soul-live')!;
-    expect(live.querySelector('.op-soul-preview')).toBeTruthy();
+    expect(live.querySelector('.op-soul-preview')).toBeFalsy();
     expect(live.querySelector('.op-soul-rawwrap')).toBeTruthy();
   });
 
-  it('soul section shows the prose textarea in the middle', () => {
+  it('soul section shows the markdown editor in the middle', () => {
     const m = openOperatorModal({ mode: 'create' });
     m.setSection('soul');
-    expect(m.el.querySelector('.op-section .op-soul-body')).toBeTruthy();
+    expect(m.el.querySelector('.op-section .md-editor')).toBeTruthy();
   });
 
   it('live operator chip renders in the header', () => {

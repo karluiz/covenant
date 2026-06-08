@@ -22,6 +22,7 @@ import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
+import { MarkdownEditor } from "../ui/markdown-editor";
 import "./operator-creator.css";
 
 /// Blank SOUL.md template seeded into the editor when the user starts
@@ -1050,16 +1051,28 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     validation_error: null,
   };
 
-  // The soul prose textarea (lives in the `soul` section).
-  const body = document.createElement("textarea");
-  body.className = "op-soul-body";
-  body.spellcheck = true;
-  body.placeholder =
-    "Write this operator's soul — who it is, how it judges, what it will never do without you.";
+  // SOUL body — WYSIWYG markdown editor. `suppressBodyChange` guards the
+  // programmatic value-set path: MarkdownEditor.value = ... triggers Milkdown's
+  // change listener (a <textarea> would not), which would otherwise feed back
+  // into the raw source and fight the raw-source editor.
+  let suppressBodyChange = false;
+  const bodyEditor = new MarkdownEditor({
+    mode: "full",
+    placeholder: "Write this operator's soul — who it is, how it judges, what it will never do without you.",
+    onChange: (md) => {
+      if (suppressBodyChange) return;
+      view.body = md;
+      h.state.soulRaw = soulRawFromView(view);
+      src.value = h.state.soulRaw;
+    },
+  });
+  function setBodyValue(md: string): void {
+    suppressBodyChange = true;
+    bodyEditor.value = md;
+    suppressBodyChange = false;
+  }
 
-  // Live pane: rendered preview + raw source + error — always visible on right.
-  const preview = document.createElement("div");
-  preview.className = "op-soul-preview";
+  // Live pane: raw source + error — always visible on right.
 
   const rawDetails = document.createElement("details");
   rawDetails.className = "op-soul-rawwrap";
@@ -1072,12 +1085,6 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
 
   const errLine = document.createElement("div");
   errLine.className = "op-soul-error";
-
-  let markedFn: typeof import("marked").marked | null = null;
-  async function renderPreview(): Promise<void> {
-    if (!markedFn) markedFn = (await import("marked")).marked;
-    preview.innerHTML = markedFn.parse(view.body ?? "", { async: false }) as string;
-  }
 
   // Mount the live operator chip into whatever host currently holds it.
   function mountChipInner(host: HTMLElement): void {
@@ -1099,7 +1106,6 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     src.value = h.state.soulRaw;
     const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
     if (chipHost) mountChipInner(chipHost);
-    void renderPreview();
     if (remountSection) {
       const sectionHost = h.el.querySelector<HTMLElement>(".op-section");
       if (sectionHost) mountSectionInner(sectionHost, h.state.activeSection);
@@ -1285,19 +1291,9 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       const label = document.createElement("div");
       label.className = "op-soul-section-title";
       label.textContent = "The soul";
-      host.append(label, body);
+      host.append(label, bodyEditor.element);
     }
   }
-
-  // Body prose drives the soul; debounced preview.
-  let bodyDebounce: number | undefined;
-  body.addEventListener("input", () => {
-    view.body = body.value;
-    h.state.soulRaw = soulRawFromView(view);
-    src.value = h.state.soulRaw;
-    window.clearTimeout(bodyDebounce);
-    bodyDebounce = window.setTimeout(() => void renderPreview(), 200);
-  });
 
   // Raw source escape hatch — authoritative re-parse on edit.
   let rawDebounce: number | undefined;
@@ -1321,9 +1317,8 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       if (!v) return;
       view = v;
       errLine.textContent = v.validation_error ?? "";
-      if (document.activeElement !== body) body.value = view.body ?? "";
+      if (!bodyEditor.element.contains(document.activeElement)) setBodyValue(view.body ?? "");
       repaintAll();
-      void renderPreview();
     } catch (e) {
       errLine.textContent = `Parse failed: ${e}`;
     }
@@ -1333,8 +1328,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     mountSection(host, section) { mountSectionInner(host, section); },
     mountLive(host) {
       host.innerHTML = "";
-      host.append(preview, rawDetails, errLine);
-      void renderPreview();
+      host.append(rawDetails, errLine);
     },
     mountChip(host) { mountChipInner(host); },
   };
@@ -1351,9 +1345,8 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     }
     if ((h.el as HTMLElement & { __soulEditor?: SoulEditor | null }).__soulEditor !== self) return;
     src.value = h.state.soulRaw;
-    body.value = view.body ?? "";
+    setBodyValue(view.body ?? "");
     repaintAll();
-    void renderPreview();
   })();
 
   return self;
