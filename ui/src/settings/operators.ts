@@ -1085,6 +1085,9 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
   const src = document.createElement("textarea");
   src.className = "op-soul-source";
   src.spellcheck = false;
+  // Read-only: the WYSIWYG body editor + structured controls are the source of
+  // truth; this pane just mirrors the generated SOUL.md (front-matter + body).
+  src.readOnly = true;
   rawDetails.append(rawSummary, src);
 
   const errLine = document.createElement("div");
@@ -1300,33 +1303,12 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     }
   }
 
-  // Raw source escape hatch — authoritative re-parse on edit.
-  let rawDebounce: number | undefined;
-  src.addEventListener("input", () => {
-    h.state.soulRaw = src.value;
-    window.clearTimeout(rawDebounce);
-    rawDebounce = window.setTimeout(() => void syncFromRaw(), 200);
-  });
-
-  // Re-mount the chip + active section after an authoritative re-parse.
+  // Re-mount the chip + active section after a structured-control change.
   function repaintAll(): void {
     const chipHost = h.el.querySelector<HTMLElement>(".op-hero-chip");
     if (chipHost) mountChipInner(chipHost);
     const sectionHost = h.el.querySelector<HTMLElement>(".op-section");
     if (sectionHost) mountSectionInner(sectionHost, h.state.activeSection);
-  }
-
-  async function syncFromRaw(): Promise<void> {
-    try {
-      const v = await operatorSoulParse(h.state.soulRaw);
-      if (!v) return;
-      view = v;
-      errLine.textContent = v.validation_error ?? "";
-      if (!bodyEditor.element.contains(document.activeElement)) setBodyValue(view.body ?? "");
-      repaintAll();
-    } catch (e) {
-      errLine.textContent = `Parse failed: ${e}`;
-    }
   }
 
   const self: SoulEditor = {
