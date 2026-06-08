@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.66 — Live tab mirror (RC-3) + pairing token
+
+### Added
+
+- **Live tab mirror (RC-3)**: stream an armed tab's screen to the `/remote` web dashboard byte-for-byte. The desktop tees raw PTY bytes onto a broadcast (`crates/session/src/lib.rs` `Session::subscribe_raw_bytes`, additive — the existing UI byte path is untouched), and the rc-agent forwards them, gated on arming, as an initial `mirror_screen` snapshot followed by base64 `mirror_data` frames (`crates/app/src/rc_agent.rs`; `run_once` restructured to fan read-loop replies and per-mirror tasks through one outbound channel). The dashboard mounts an `xterm.js` panel that renders them live, one mirror at a time, with a "Mirror" button per armed tab (`landing/src/islands/RemoteDashboard.ts`, `landing/src/remote/protocol.ts`, new `@xterm/xterm` dep).
+- **Copy Remote Pairing Token**: a File-menu item + `rc_pairing_token` command that copies the desktop's JWT to the clipboard, so the `/remote` dashboard can be paired without minting a token by hand (`crates/app/src/lib.rs`, `ui/src/main.ts`).
+
+### Fixed
+
+- **Backend URL default**: the desktop client defaulted to the dead `covenant.uno` apex; it now defaults to `forge.covenant.uno` so login and sync reach the live backend (`crates/score/src/auth.rs`).
+
 ## v0.8.65 — Remote open-tab (RC-2) + spec-chat resume fix
 
 ### Added
