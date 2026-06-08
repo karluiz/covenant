@@ -1,0 +1,47 @@
+/* ui/src/ui/markdown-editor.css — token-based skin so Milkdown follows the
+   active theme (incl. True Dark). We deliberately do NOT load Milkdown's theme. */
+.md-editor {
+  position: relative;
+  width: 100%;
+  background: var(--bg-overlay, #0c0d10);
+  color: var(--text, #e6e8eb);
+  border: 1px solid var(--border, #1c2027);
+  border-radius: 10px;
+}
+.md-editor .ProseMirror {
+  outline: none;
+  padding: 12px 14px;
+  min-height: 64px;
+  font-family: var(--sans, -apple-system, system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.55;
+  caret-color: var(--accent, #7aa2f7);
+}
+.md-editor--full .ProseMirror { min-height: 240px; }
+.md-editor--inline .ProseMirror { min-height: 22px; max-height: 180px; overflow-y: auto; }
+.md-editor:focus-within { border-color: var(--accent, #7aa2f7); }
+
+/* Empty-state placeholder painted from the host's data-placeholder. */
+.md-editor[data-placeholder] .ProseMirror.ProseMirror-empty::before,
+.md-editor[data-placeholder] .ProseMirror p.is-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted, #6c7280);
+  pointer-events: none;
+  height: 0;
+  float: left;
+}
+.md-editor .ProseMirror h1 { font-size: 1.5em; font-weight: 700; margin: 0.4em 0; }
+.md-editor .ProseMirror h2 { font-size: 1.25em; font-weight: 700; margin: 0.4em 0; }
+.md-editor .ProseMirror h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0; }
+.md-editor .ProseMirror ul,
+.md-editor .ProseMirror ol { padding-left: 1.4em; margin: 0.3em 0; }
+.md-editor .ProseMirror blockquote {
+  border-left: 2px solid var(--border, #2a2d35);
+  margin: 0.4em 0; padding-left: 0.8em; color: var(--muted, #8a8aa8);
+}
+.md-editor .ProseMirror code {
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+  font-size: 0.92em;
+  background: rgba(var(--ink-rgb, 255 255 255), 0.06);
+  padding: 1px 5px; border-radius: 5px;
+}

@@ -8,6 +8,7 @@ import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
 import "./styles/tab-themes/crt.css";
 import "./tasker/styles.css";
+import "./ui/markdown-editor.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getVersion } from "@tauri-apps/api/app";
