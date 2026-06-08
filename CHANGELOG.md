@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.65 — Remote open-tab (RC-2) + spec-chat resume fix
+
+### Added
+
+- **Remote tab lifecycle (RC-2a/2b)**: armed tabs can now be closed and focused, and new tabs opened, from a web client over the relay. Close/focus frames drive the `TabManager` via `rc://tab` events; open is gated behind a global `allow_remote_open` flag (default off) toggled from the corner pill, with rejected opens surfaced as `open_not_allowed`. Adds frame builders, gated command handlers, frontend `rc://tab/open` listeners, and a "New Tab" button (`crates/app`, `ui/src/...`).
+- **OpenCode usage tracking**: the score/metrics page now tracks OpenCode as an external usage source (`crates/...`, `ui/src/...`).
+
+### Fixed
+
+- **Spec Creator loses chat on resume**: the immersive Spec Creator mounted with an empty `StreamState`, so resuming a draft rendered a blank conversation column even though the full transcript was persisted on disk. Added `StreamState.hydrate()` and wired it from the immersive mount via `specAuthorLoadDraft`; completed drafts also restore their final markdown so publish is immediately available (`ui/src/spec-chat/immersive.ts`, `stream-state.ts`).
+- **Metrics page blanking on query failure**: added an error boundary around the score refresh so a single failed query can no longer blank the entire metrics page (`ui/src/...`).
+
 ## v0.8.64 — Remote tab control (RC-1) + Tasker redesign
 
 ### Added
