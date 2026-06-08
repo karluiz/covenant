@@ -208,6 +208,10 @@ pub(crate) struct AppState {
     /// Per-session fuzzy file search cache. Populated on first `search_session_files`
     /// call for each session, refreshed on cwd change or TTL expiry.
     pub(crate) file_search_cache: crate::file_search::FileSearchCache,
+    /// Global remote-tab-creation opt-in. Default `false`. When `true`,
+    /// remote `open_tab` frames are honored and emit `rc://tab/open`.
+    /// Not persisted (resets to off on every app launch).
+    allow_remote_open: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Lazy-init the shared embedder cell. Called by both `get_embedder`
@@ -897,6 +901,18 @@ async fn rc_set_armed(state: State<'_, AppState>, session_id: String, armed: boo
     managed.armed.store(armed, std::sync::atomic::Ordering::Relaxed);
     tracing::info!(session = %id, armed, "remote arming toggled");
     Ok(())
+}
+
+#[tauri::command]
+async fn rc_set_allow_open(state: State<'_, AppState>, allow: bool) -> Result<(), String> {
+    state.allow_remote_open.store(allow, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!(allow, "remote tab creation toggled");
+    Ok(())
+}
+
+#[tauri::command]
+async fn rc_get_allow_open(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.allow_remote_open.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 #[tauri::command]
@@ -3702,6 +3718,7 @@ pub fn run() {
                 vitals,
                 exec_vitals,
                 file_search_cache: crate::file_search::FileSearchCache::new(),
+                allow_remote_open: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             });
 
             rc_agent::spawn(app.handle().clone());
@@ -3838,6 +3855,8 @@ pub fn run() {
             ask_agent,
             set_operator_enabled,
             rc_set_armed,
+            rc_set_allow_open,
+            rc_get_allow_open,
             rc_get_armed,
             rc_disarm_all,
             is_operator_enabled,
