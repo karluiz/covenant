@@ -5334,6 +5334,102 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     font-style: italic;
 }
 
+/* Command palette — unified workspace/tab/action quick-switch. */
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.38);
+}
+.command-palette-card {
+  width: min(640px, 90vw);
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 22, 26, 0.98);
+  border: 1px solid rgba(var(--ink-rgb), 0.12);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.command-palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.08);
+}
+.command-palette-label {
+  font-size: 11px;
+  opacity: 0.6;
+  border: 1px solid rgba(var(--ink-rgb), 0.18);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+.command-palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text, #d6d8db);
+  font-size: 14px;
+}
+.command-palette-list {
+  overflow-y: auto;
+  padding: 4px;
+}
+.command-palette-section-header {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.45;
+  padding: 8px 8px 4px;
+}
+.command-palette-item {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.command-palette-item.active,
+.command-palette-item:hover {
+  background: rgba(var(--ink-rgb), 0.08);
+}
+.command-palette-item .cp-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.command-palette-item .cp-icon {
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center;
+}
+.command-palette-item .cp-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-palette-item .cp-sub {
+  font-size: 11px;
+  opacity: 0.55;
+}
+.command-palette-empty {
+  padding: 14px;
+  text-align: center;
+  opacity: 0.5;
+}
+.workspace-chip-rename {
+  min-width: 160px;
+}
+
 /* ─── AOM Morning Report ──────────────────────────── */
 
 .aom-report-overlay {
@@ -13625,44 +13721,6 @@ body.workspace-switching #workspace-switch-overlay { display: flex; }
 }
 .workspace-chip .new-tab-plus { display: inline-flex; align-items: center; }
 
-.workspace-popover {
-  min-width: 260px;
-  max-width: 340px;
-  background: rgba(20, 22, 26, 0.96);
-  border: 1px solid rgba(var(--ink-rgb), 0.12);
-  border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  padding: 4px;
-  color: var(--text, #d6d8db);
-  font-size: 12px;
-}
-.workspace-popover-list { max-height: 320px; overflow-y: auto; }
-.workspace-row {
-  display: grid;
-  grid-template-columns: 12px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.workspace-row:hover { background: rgba(var(--ink-rgb), 0.06); }
-.workspace-row-active { background: rgba(91, 140, 255, 0.14); }
-.workspace-row-dot { width: 10px; height: 10px; border-radius: 50%; }
-.workspace-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-row-meta { font-size: 10px; opacity: 0.6; }
-
-.workspace-popover-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 6px 8px; margin-top: 4px;
-  border-top: 1px solid rgba(var(--ink-rgb), 0.08);
-}
-.workspace-new-btn {
-  background: transparent; border: 0; color: var(--text, #d6d8db);
-  cursor: pointer; font: inherit; font-size: 12px; padding: 2px 4px;
-}
-.workspace-new-btn:hover { color: #fff; }
-.workspace-popover-kbd { opacity: 0.5; font-size: 10px; }
 
 .workspace-rowmenu {
   min-width: 180px;
@@ -14748,20 +14806,14 @@ body.theme-light .spawns-popover__add:hover {
     color: var(--text-primary);
 }
 
-/* ── Workspace switcher popover & row context menu ─────────── */
-body.theme-light .workspace-popover,
+/* ── Workspace switcher row context menu ─────────── */
 body.theme-light .workspace-rowmenu {
     background: #fff;
     border: 1px solid var(--border);
     color: var(--text-primary);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
-body.theme-light .workspace-row,
 body.theme-light .workspace-rowmenu-item { color: var(--text-primary); }
-body.theme-light .workspace-row.active {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-body.theme-light .workspace-row-meta { color: var(--muted); }
 
 /* ── Project notes / familiar panel (the big dark canvas) ─── */
 body.theme-light .familiar-panel,
@@ -15623,61 +15675,6 @@ body.theme-light .inline-notch-picker-count {
 }
 body.theme-light .inline-notch-picker-drop .inline-notch-av-dot {
   box-shadow: 0 0 0 1px rgba(var(--ink-rgb), 0.18) inset;
-}
-
-/* Global tab finder — search input + result rows inside the workspace
-   switcher popover. */
-.workspace-popover-searchwrap {
-  padding: 8px 10px 6px;
-  border-bottom: 1px solid rgba(var(--ink-rgb), 0.08);
-}
-.workspace-search {
-  width: 100%;
-  background: transparent;
-  border: 1px solid rgba(var(--ink-rgb), 0.14);
-  border-radius: 6px;
-  padding: 6px 8px;
-  color: inherit;
-  font: inherit;
-  outline: none;
-  box-sizing: border-box;
-}
-.workspace-search:focus {
-  border-color: rgba(var(--ink-rgb), 0.32);
-}
-.workspace-result-row {
-  display: grid;
-  grid-template-columns: 14px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-.workspace-result-row:hover,
-.workspace-result-row-selected {
-  background: rgba(var(--ink-rgb), 0.08);
-}
-.workspace-result-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-  box-sizing: border-box;
-}
-.workspace-result-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace-result-meta {
-  opacity: 0.6;
-  font-size: 0.85em;
-  white-space: nowrap;
-}
-.workspace-empty {
-  padding: 10px;
-  opacity: 0.6;
-  text-align: center;
 }
 
 /* ── TeammatePanel ─────────────────────────────────────────────────────────── */
