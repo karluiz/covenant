@@ -103,6 +103,9 @@ struct ManagedSession {
     _zdotdir: TempDir,
     world: Arc<Mutex<SessionWorldModel>>,
     op_state: Arc<std::sync::Mutex<OperatorState>>,
+    /// Per-session remote-control arming flag. Default `false`. When
+    /// `true`, gated remote `send_input` frames may inject into this PTY.
+    armed: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
 pub(crate) struct AppState {
@@ -666,6 +669,7 @@ async fn spawn_session(
             _zdotdir: zdotdir,
             world,
             op_state: op_state.clone(),
+            armed: std::sync::Arc::new(std::sync::Mutex::new(false)),
         },
     );
 
