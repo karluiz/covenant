@@ -22,8 +22,14 @@ export function mountRemoteDashboard(doc: Document = document): void {
   let reconnectTimer: number | undefined;
   let backoff = 3000;
   let gen = 0; // epoch: increments every (re)connect; stale handlers no-op
+  let composing = false;     // true while an .rc-cmd input is mid-IME-composition
+  let pendingRender = false;  // a render was deferred during composition
 
   const render = () => {
+    // Defer any innerHTML rebuild while composing (CJK/accents/dictation):
+    // rebuilding would destroy the composition node and lose input. State is
+    // already updated by reduce(); compositionend replays a single render().
+    if (composing) { pendingRender = true; return; }
     const map: Record<Conn, [string, string]> = {
       idle: ["○ not connected", "text-zinc-500 text-sm mb-4"],
       connecting: ["… connecting", "text-amber-400 text-sm mb-4"],
@@ -173,6 +179,15 @@ export function mountRemoteDashboard(doc: Document = document): void {
     ev.preventDefault();
     const sid = input.getAttribute("data-sid");
     if (sid) sendFor(sid);
+  });
+  tabsEl.addEventListener("compositionstart", (e) => {
+    if ((e.target as HTMLElement).classList?.contains("rc-cmd")) composing = true;
+  });
+  tabsEl.addEventListener("compositionend", (e) => {
+    if ((e.target as HTMLElement).classList?.contains("rc-cmd")) {
+      composing = false;
+      if (pendingRender) { pendingRender = false; render(); }
+    }
   });
 
   render();

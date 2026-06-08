@@ -47,6 +47,13 @@ describe("rejected frame", () => {
     s = reduce(s, { t: "tabs", device_id: "d", tabs: [] });
     expect(s.rejections).toEqual({});
   });
+  it("a tabs frame keeps rejections for sessions still present", () => {
+    let s = reduce(initialState(), { t: "rejected", session_id: "s1", reason: "blocklisted", message: "x" });
+    s = reduce(s, { t: "tabs", device_id: "d", tabs: [
+      { session_id: "s1", title: "t", cwd: "~", executor: null, phase: "idle", armed: true },
+    ] });
+    expect(s.rejections["s1"]).toBe("x");
+  });
 });
 describe("sendInputFrame", () => {
   it("builds a send_input frame and appends a newline (submit)", () => {

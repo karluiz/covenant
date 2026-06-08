@@ -134,3 +134,53 @@ test("send_input on armed tab, unarmed gating, and rejection display", async ({ 
   await page.evaluate(() => (window as any).__pushRejection());
   await expect(page.locator("#rc-tabs")).toContainText("rm -rf blocked");
 });
+
+test("preserves input focus and caret across an unsolicited frame", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true }] }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake");
+  await page.click("#rc-connect");
+
+  const input = page.locator('input.rc-cmd[data-sid="s1"]');
+  await input.click();
+  await input.fill("git stat");
+  await page.evaluate(() => {
+    const el = document.querySelector('input.rc-cmd[data-sid="s1"]') as HTMLInputElement;
+    el.setSelectionRange(3, 3);
+  });
+
+  // Push an UNSOLICITED frame that triggers a render() / innerHTML rebuild.
+  await page.evaluate(() => {
+    (window as any).WebSocket.last.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+  });
+
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue("git stat");
+  const caret = await page.evaluate(() => (document.activeElement as HTMLInputElement).selectionStart);
+  expect(caret).toBe(3);
+});

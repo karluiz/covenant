@@ -24,7 +24,17 @@ export function initialState(): DashState { return { desktopOnline: false, tabs:
 export function reduce(state: DashState, frame: Frame): DashState {
   switch (frame.t) {
     case "presence": return { ...state, desktopOnline: frame.desktop_online };
-    case "tabs": return { ...state, tabs: frame.tabs, rejections: {} };
+    case "tabs": {
+      // Authoritative rejection cleanup: keep rejections for sessions still
+      // present, drop those whose tab disappeared. (The island's per-sid clear
+      // on send is just optimistic snappiness.)
+      const present = new Set(frame.tabs.map((t) => t.session_id));
+      const rejections: Record<string, string> = {};
+      for (const [sid, msg] of Object.entries(state.rejections)) {
+        if (present.has(sid)) rejections[sid] = msg;
+      }
+      return { ...state, tabs: frame.tabs, rejections };
+    }
     case "rejected": return { ...state, rejections: { ...state.rejections, [frame.session_id]: frame.message } };
   }
 }
