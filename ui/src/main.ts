@@ -1600,13 +1600,12 @@ async function boot(): Promise<void> {
   });
 
   // Workspaces shortcuts.
-  //   ⌘⇧P  — toggle workspace picker (⌘⇧O was already the Operator
+  //   ⌘⇧P  — open the command palette (⌘⇧O was already the Operator
   //          picker, so the spec's preferred binding was relocated).
-  //   ⌘⌥T  — global tab finder: opens the switcher with the search
-  //          input focused so the user can type to filter tabs across
-  //          all workspaces. macOS substitutes ⌥T with the dead-key
-  //          "†"; accept both. Separate from ⌘⇧P so the picker and
-  //          the finder have distinct muscle memory.
+  //   ⌘⌥T  — open the command palette (unified quick-switch across
+  //          workspaces, tabs, and actions). macOS substitutes ⌥T with
+  //          the dead-key "†"; accept both. Kept distinct from ⌘⇧P for
+  //          muscle memory; both open the same palette.
   //   ⌘⌥N — new workspace (⌘⇧N is the Notch overlay, ⌘⇧J is Project Notes, ⌘N is spec-chat).
   window.addEventListener("keydown", (e) => {
     if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "P" || e.key === "p")) {
