@@ -44,6 +44,16 @@ pub fn store_jwt(jwt: &str) -> Result<(), AuthError> {
 }
 
 pub fn load_jwt() -> Result<Option<String>, AuthError> {
+    // Dev escape hatch: unsigned `tauri dev` binaries can't reliably read the
+    // macOS Keychain, so allow a JWT to be injected via env for local testing.
+    // Debug-only: compiled out of release builds, so it's not a production
+    // attack surface.
+    #[cfg(debug_assertions)]
+    if let Ok(j) = std::env::var("COVENANT_DEV_JWT") {
+        if !j.is_empty() {
+            return Ok(Some(j));
+        }
+    }
     let entry = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_JWT_USERNAME)?;
     match entry.get_password() {
         Ok(t) => Ok(Some(t)),

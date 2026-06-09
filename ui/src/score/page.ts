@@ -4,7 +4,7 @@ import type { ModelSource } from "./api";
 import { displayGroupName, renderRepoBars, renderBranchList, renderGroupBars, renderSessions } from "./breakdowns";
 import { DEFAULT_GROUP_VIEW, type GroupView } from "./leaderboard";
 import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
-import { getCurrentUser } from "./user";
+import { getCurrentUser, setCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
 import { attachTooltip } from "../tooltip/tooltip";
 import { scoreSignout, scoreSyncNow, scoreSyncStatus } from "./api";
@@ -404,6 +404,7 @@ function renderSync(
 
   wrap.querySelector(".cov-disconnect-btn")!.addEventListener("click", async () => {
     await scoreSignout();
+    setCurrentUser(null); // invalidate the in-memory cache so refresh shows signed-out
     void refresh(page, state);
   });
 }

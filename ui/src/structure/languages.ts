@@ -28,6 +28,25 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 
+// Legacy StreamLanguage modes don't all advertise `commentTokens`, so
+// CodeMirror's toggle-comment command (Mod-/) has nothing to insert.
+// Augment the parser with the line-comment token so the editor's
+// comment shortcut works for shell/toml/Dockerfile the same way it
+// does for the first-class grammars.
+function withLineComment<S>(
+  parser: StreamParser<S>,
+  line: string,
+): StreamParser<S> {
+  return {
+    ...parser,
+    languageData: { ...parser.languageData, commentTokens: { line } },
+  };
+}
+
+const shellMode = withLineComment(shell, "#");
+const tomlMode = withLineComment(toml, "#");
+const dockerMode = withLineComment(dockerFile, "#");
+
 // ---------------------------------------------------------------------------
 // dotenv grammar
 // ---------------------------------------------------------------------------
@@ -214,21 +233,21 @@ const BY_EXT: Record<string, () => Extension> = {
   xml: () => html(),
   yaml: () => yaml(),
   yml: () => yaml(),
-  sh: () => StreamLanguage.define(shell),
-  bash: () => StreamLanguage.define(shell),
-  zsh: () => StreamLanguage.define(shell),
-  toml: () => StreamLanguage.define(toml),
+  sh: () => StreamLanguage.define(shellMode),
+  bash: () => StreamLanguage.define(shellMode),
+  zsh: () => StreamLanguage.define(shellMode),
+  toml: () => StreamLanguage.define(tomlMode),
 };
 
 /// Filename fallback — exact (case-sensitive) match against the
 /// basename. These are filenames that don't carry an extension but
 /// whose language is well-known.
 const BY_NAME: Record<string, () => Extension> = {
-  Dockerfile: () => StreamLanguage.define(dockerFile),
-  Containerfile: () => StreamLanguage.define(dockerFile),
-  Makefile: () => StreamLanguage.define(shell), // close enough; shell-shaped
-  "Cargo.lock": () => StreamLanguage.define(toml),
-  "Cargo.toml": () => StreamLanguage.define(toml),
+  Dockerfile: () => StreamLanguage.define(dockerMode),
+  Containerfile: () => StreamLanguage.define(dockerMode),
+  Makefile: () => StreamLanguage.define(shellMode), // close enough; shell-shaped
+  "Cargo.lock": () => StreamLanguage.define(tomlMode),
+  "Cargo.toml": () => StreamLanguage.define(tomlMode),
 };
 
 /// Resolve a CodeMirror language extension for `path`. Returns null

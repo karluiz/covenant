@@ -31,6 +31,8 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  toggleComment,
+  toggleBlockComment,
 } from "@codemirror/commands";
 import {
   bracketMatching,
@@ -565,6 +567,13 @@ export class StructureEditor {
               return true;
             },
           },
+          // VS Code-style comment toggles. Line comment on Mod-/,
+          // block comment on Shift-Alt-A. Explicit (not relying on
+          // defaultKeymap) so the binding is stable regardless of
+          // ordering, and language-aware via each grammar's
+          // commentTokens (see languages.ts).
+          { key: "Mod-/", preventDefault: true, run: toggleComment },
+          { key: "Shift-Alt-a", preventDefault: true, run: toggleBlockComment },
           ...closeBracketsKeymap,
           ...completionKeymap,
           ...searchKeymap,

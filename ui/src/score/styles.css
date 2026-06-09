@@ -385,6 +385,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
   background: linear-gradient(90deg, rgba(94,234,212,0.04), transparent);
   border: 1px solid #1f4a44;
   border-radius: 10px;
