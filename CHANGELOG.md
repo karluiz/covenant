@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.68 — Tasker board switcher + notes polish
+
+### Added
+
+- **Non-native project switcher (Board)**: the board's project picker is no longer a native `<select>` — it's a custom listbox dropdown (button + popup menu) styled to match the app, with hover states, an accent check on the current project, and click-outside dismissal (`ui/src/tasker/panel.ts`, `ui/src/tasker/board.css`).
+
+### Changed
+
+- **Icon-only view toggle**: the TASKER `List | Board` toggle now renders glyphs (list lines / columns) instead of text labels, via new `listView` / `boardView` icons (`ui/src/icons/index.ts`, `ui/src/tasker/panel.ts`, `ui/src/styles.css`).
+- **Board notes fill the dock**: the Notes textarea flex-grows to fill the board detail dock instead of leaving a large empty void below it; the inline list sheet keeps a modest 88px floor with content autosize (`ui/src/tasker/board.css`, `ui/src/tasker/styles.css`, `ui/src/tasker/panel.ts`).
+
 ## v0.8.67 — Command palette + Tasker kanban board
 
 ### Added
