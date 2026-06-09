@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mountSpecChat } from "./index";
 import type { SpecDraftSummary, SpecDraftStatus } from "../api";
+import type { SpecChatApis } from "./index";
 import type { ImmersiveOpts, ImmersiveInstance } from "./immersive";
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,50 @@ describe("mountSpecChat — chooser logic", () => {
 
     expect(host.querySelector(".spec-chat-chooser")).toBeNull();
     expect(ctrl.isOpen()).toBe(false);
+  });
+
+  it("7a. Chooser delete button removes draft and re-renders", async () => {
+    const draft = makeDraft({ id: "d1" });
+    const listDrafts = vi.fn().mockResolvedValue([draft]);
+    const deleteDraft = vi.fn().mockResolvedValue(undefined);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, deleteDraft });
+    ctrl.open();
+
+    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+
+    const delBtn = host.querySelector<HTMLButtonElement>(".spec-chat-chooser-del");
+    expect(delBtn).not.toBeNull();
+    delBtn!.click();
+
+    await vi.waitFor(() => expect(deleteDraft).toHaveBeenCalledWith("d1"));
+    // After deleting the only draft, chooser is removed and immersive opens
+    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+  });
+
+  it("7b. Deleting one of multiple drafts keeps chooser open", async () => {
+    const draft1 = makeDraft({ id: "d1", messages: [{ role: "User", content: "Alpha" }] });
+    const draft2 = makeDraft({ id: "d2", messages: [{ role: "User", content: "Beta" }] });
+    const listDrafts = vi.fn().mockResolvedValue([draft1, draft2]);
+    const deleteDraft = vi.fn().mockResolvedValue(undefined);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, deleteDraft });
+    ctrl.open();
+
+    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+
+    // Delete first draft
+    const delBtns = host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-del");
+    delBtns[0]!.click();
+
+    await vi.waitFor(() => expect(deleteDraft).toHaveBeenCalledWith("d1"));
+    // Remaining draft row should still exist
+    const rows = host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-row");
+    expect(rows.length).toBe(1);
   });
 
   it("6c. Backdrop click on the chooser dismisses it", async () => {

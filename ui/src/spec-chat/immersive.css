@@ -104,6 +104,19 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 
 .spec-creator .kbd { font-family: var(--mono); font-size: 10.5px; color: var(--txt-faint); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
 
+.spec-creator-del {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  color: var(--txt-faint); cursor: pointer;
+  transition: all .15s;
+}
+.spec-creator-del:hover {
+  color: #e5534b;
+  border-color: rgba(229, 83, 75, 0.25);
+  background: rgba(229, 83, 75, 0.08);
+}
+
 /* ── body: two columns ── */
 .spec-creator .stage { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
 .spec-creator .left { border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; min-height: 0; }

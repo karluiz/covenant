@@ -2931,6 +2931,12 @@ async fn spec_author_mark_published(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn spec_author_delete_draft(id: String) -> Result<(), String> {
+    let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
+    karl_agent::spec_author::delete_draft_default(ulid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn telegram_test_connection(state: State<'_, AppState>) -> Result<(), String> {
     state.telegram_notifier.test_connection().await
 }
@@ -3995,6 +4001,7 @@ pub fn run() {
             spec_author_load_draft,
             spec_author_list_drafts,
             spec_author_mark_published,
+            spec_author_delete_draft,
             validate_sendgrid_key,
             project_notes::project_notes_get,
             project_notes::project_command_create,

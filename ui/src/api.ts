@@ -1668,6 +1668,10 @@ export async function specAuthorMarkPublished(id: string): Promise<void> {
   return invoke<void>("spec_author_mark_published", { id });
 }
 
+export async function specAuthorDeleteDraft(id: string): Promise<void> {
+  return invoke<void>("spec_author_delete_draft", { id });
+}
+
 export async function specAuthorStreamStep(
   draftId: string | null,
   userMsg: string,

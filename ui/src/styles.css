@@ -12841,10 +12841,16 @@ body[data-aom-phase="triaging"]
   text-transform: lowercase;
   letter-spacing: 0.02em;
 }
-.spec-chat-chooser-btn {
-  display: block;
+.spec-chat-chooser-row {
+  display: flex;
   width: 100%;
   max-width: 480px;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.spec-chat-chooser-btn {
+  flex: 1;
   padding: 10px 14px;
   background: var(--bg-overlay);
   border: 1px solid var(--border);
@@ -12854,6 +12860,25 @@ body[data-aom-phase="triaging"]
   text-align: left;
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
+}
+
+.spec-chat-chooser-del {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  flex-shrink: 0;
+}
+.spec-chat-chooser-del:hover {
+  border-color: var(--danger, #e5534b);
+  color: var(--danger, #e5534b);
+  background: rgba(229, 83, 75, 0.08);
 }
 .spec-chat-chooser-btn:hover {
   border-color: var(--muted);
@@ -12882,6 +12907,17 @@ body.theme-light .spec-chat-chooser-btn {
 body.theme-light .spec-chat-chooser-btn:hover {
   background: #f3f5f8;
   border-color: var(--accent);
+}
+body.theme-light .spec-chat-chooser-del {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #6b7280;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+body.theme-light .spec-chat-chooser-del:hover {
+  border-color: #e5534b;
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.08);
 }
 body.theme-light .spec-chat-chooser-btn--blank { color: var(--muted); }
 /* The chat panel itself is a white card in light mode; give it a crisp edge

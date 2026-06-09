@@ -3,6 +3,7 @@ import { normalizeAddress } from "./url";
 import { initialNavState, applyNav, type NavState } from "./nav-state";
 import { favoritesStore } from "./favorites/store";
 import { attachTooltip } from "../tooltip/tooltip";
+import { zoom } from "../zoom";
 
 export class BrowserPane {
   readonly host: HTMLElement;
@@ -13,6 +14,7 @@ export class BrowserPane {
   private bar: HTMLElement;
   private state: NavState = initialNavState();
   private ro: ResizeObserver;
+  private unlistenZoom?: () => void;
   private unlistenNav?: () => void;
   private opened = false;
   private frozen = false;
@@ -70,6 +72,7 @@ export class BrowserPane {
   /// Call after host is attached to the DOM.
   mounted(): void {
     this.ro.observe(this.viewport());
+    this.unlistenZoom = zoom.onChange(() => this.syncBounds());
     this.syncBounds();
   }
 
@@ -83,8 +86,13 @@ export class BrowserPane {
   }
 
   private bounds(): BrowserBounds {
+    // The native child webview is positioned in window-logical coordinates,
+    // which are unaffected by the global CSS `zoom` on <html>. WebKit reports
+    // getBoundingClientRect() in unzoomed layout space, so scale by the active
+    // zoom factor to land the webview on top of its visually-zoomed pane.
     const r = this.viewport().getBoundingClientRect();
-    return { x: r.left, y: r.top, width: r.width, height: r.height };
+    const z = zoom.level();
+    return { x: r.left * z, y: r.top * z, width: r.width * z, height: r.height * z };
   }
 
   private syncBounds(): void {
@@ -150,6 +158,7 @@ export class BrowserPane {
   }
   destroy(): void {
     this.ro.disconnect();
+    this.unlistenZoom?.();
     this.unlistenNav?.();
     if (this.opened) void browser.close(this.tabId);
   }

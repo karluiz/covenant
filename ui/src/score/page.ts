@@ -361,7 +361,7 @@ function renderSync(
     wrap.className = "cov-sync";
     wrap.innerHTML = `
       <div class="l"><b>Not connected</b>Sign in to sync across devices and see your public profile.</div>
-      <button class="btn cov-signin-btn">Sign in with GitHub</button>
+      <button type="button" class="btn cov-signin-btn">Sign in with GitHub</button>
     `;
     wrap.querySelector(".cov-signin-btn")!.addEventListener("click", async () => {
       const u = await runDeviceFlow();
@@ -380,8 +380,8 @@ function renderSync(
       <span class="cov-sync-status">Checking sync status…</span>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn ghost cov-sync-now-btn">Sync now</button>
-      <button class="btn ghost cov-disconnect-btn">Disconnect</button>
+      <button type="button" class="btn ghost cov-sync-now-btn">Sync now</button>
+      <button type="button" class="btn ghost cov-disconnect-btn">Disconnect</button>
     </div>
   `;
   host.appendChild(wrap);

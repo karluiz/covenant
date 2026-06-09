@@ -492,6 +492,24 @@ pub fn mark_published_default(id: Ulid) -> Result<()> {
     mark_published(id, &base)
 }
 
+/// Delete a draft file by id from `<base_dir>/spec-drafts/<id>.json`.
+pub fn delete_draft(base_dir: &Path, id: Ulid) -> Result<()> {
+    let path = draft_path(base_dir, id);
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+        tracing::debug!(draft_id = %id, "spec draft deleted");
+        Ok(())
+    } else {
+        Err(SpecAuthorError::NotFound { id })
+    }
+}
+
+/// Convenience wrapper — resolves `~/.covenant/` via `dirs::home_dir()`.
+pub fn delete_draft_default(id: Ulid) -> Result<()> {
+    let base = home_covenant_dir()?;
+    delete_draft(&base, id)
+}
+
 /// Public re-export of the `<spec>` extractor for the streaming module.
 pub fn extract_spec_pub(text: &str) -> Option<String> {
     extract_spec(text)

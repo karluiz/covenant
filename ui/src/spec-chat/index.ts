@@ -8,6 +8,7 @@ import type { SpecDraftSummary } from "../api";
 import {
   specAuthorListDrafts as defaultListDrafts,
   specAuthorMarkPublished as defaultMarkPublished,
+  specAuthorDeleteDraft as defaultDeleteDraft,
 } from "../api";
 import { createSpecChatState } from "./state";
 import { mountSpecChatPanel } from "./panel";
@@ -35,6 +36,7 @@ import type { ImmersiveOpts, ImmersiveInstance } from "./immersive";
 export interface SpecChatApis {
   listDrafts?: () => Promise<SpecDraftSummary[]>;
   markPublished?: (id: string) => Promise<void>;
+  deleteDraft?: (id: string) => Promise<void>;
   /** Optional panel factory — allows tests to inject a mock panel. */
   mountPanel?: (host: HTMLElement, state: ReturnType<typeof createSpecChatState>) => SpecChatPanel;
   /** Optional state factory — allows tests to inject pre-configured state. */
@@ -85,6 +87,7 @@ export function mountSpecChat(
 ): SpecChatController {
   const listDrafts = apis?.listDrafts ?? defaultListDrafts;
   const markPublished = apis?.markPublished ?? defaultMarkPublished;
+  const deleteDraft = apis?.deleteDraft ?? defaultDeleteDraft;
   const panelFactory = apis?.mountPanel ?? mountSpecChatPanel;
   const stateFactory = apis?.createState ?? (() => createSpecChatState({ getCwd: deps.getCwd }));
   const immersiveFactory = apis?.mountImmersive ?? mountImmersiveSpecCreator;
@@ -188,6 +191,9 @@ export function mountSpecChat(
     // "Retomar" options (up to 3)
     const recent = drafts.slice(0, 3);
     for (const draft of recent) {
+      const row = document.createElement("div");
+      row.className = "spec-chat-chooser-row";
+
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "spec-chat-chooser-btn";
@@ -196,7 +202,30 @@ export function mountSpecChat(
         removeChooser();
         openImmersive(draft.id);
       });
-      el.appendChild(btn);
+      row.appendChild(btn);
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "spec-chat-chooser-del";
+      delBtn.setAttribute("aria-label", "Delete draft");
+      delBtn.innerHTML = Icons.trash({ size: 14 });
+      delBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try {
+          await deleteDraft(draft.id);
+          row.remove();
+          // If no drafts left, re-render as if no in-progress drafts
+          if (el.querySelectorAll(".spec-chat-chooser-row").length === 0) {
+            removeChooser();
+            openImmersive(null);
+          }
+        } catch {
+          // silently ignore deletion failures
+        }
+      });
+      row.appendChild(delBtn);
+
+      el.appendChild(row);
     }
 
     // "Empezar nuevo"

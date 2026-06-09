@@ -4,8 +4,9 @@ import { createStreamState } from './stream-state';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
-import { specAuthorLoadDraft } from '../api';
+import { specAuthorLoadDraft, specAuthorDeleteDraft } from '../api';
 import type { SpecDraftSummary } from '../api';
+import { Icons } from '../icons';
 
 export interface ImmersiveOpts {
   host: HTMLElement;
@@ -32,6 +33,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
       <header>
         <div class="brand">✦ Spec Creator</div>
         <div class="spine-host" style="flex:1"></div>
+        <button class="spec-creator-del" aria-label="Delete draft" type="button">${Icons.trash({ size: 14 })}</button>
         <div class="kbd">esc</div>
       </header>
       <div class="stage">
@@ -99,6 +101,16 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   pubBtn.addEventListener('click', () => {
     const md = state.finalMarkdown();
     if (md && draftId) opts.onPublish?.(md, draftId);
+  });
+
+  const delBtn = root.querySelector('.spec-creator-del') as HTMLButtonElement;
+  delBtn.addEventListener('click', async () => {
+    if (!draftId) return;
+    if (!confirm('Delete this spec draft?')) return;
+    try {
+      await specAuthorDeleteDraft(draftId);
+      close();
+    } catch { /* non-fatal */ }
   });
 
   const boxEl = root.querySelector('.box') as HTMLElement;

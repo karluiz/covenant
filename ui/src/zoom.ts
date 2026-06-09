@@ -50,9 +50,13 @@ class ZoomController {
   }
 
   /// Subscribe to zoom changes — used by TabManager to refit xterm
-  /// instances after the cell metrics shift.
-  onChange(listener: ZoomChangeListener): void {
+  /// instances after the cell metrics shift. Returns an unsubscribe fn.
+  onChange(listener: ZoomChangeListener): () => void {
     this.listeners.push(listener);
+    return () => {
+      const i = this.listeners.indexOf(listener);
+      if (i !== -1) this.listeners.splice(i, 1);
+    };
   }
 
   private set(value: number): void {
