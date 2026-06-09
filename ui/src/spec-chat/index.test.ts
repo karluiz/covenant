@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mountSpecChat } from "./index";
 import type { SpecDraftSummary, SpecDraftStatus } from "../api";
-import type { SpecChatApis } from "./index";
 import type { ImmersiveOpts, ImmersiveInstance } from "./immersive";
 
 // ---------------------------------------------------------------------------
