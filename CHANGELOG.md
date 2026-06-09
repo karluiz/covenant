@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.69 — Command palette glassmorphism
+
+### Changed
+
+- **Frosted command palette**: the command palette scrim and card now use layered `backdrop-filter` blur/saturate with theme-aware surface tokens (`--cp-scrim`, `--cp-card-bg`, `--cp-card-border`, `--cp-card-sheen`) tuned for light and True Dark, plus softened multi-layer shadows and a larger corner radius (`ui/src/styles.css`).
+
 ## v0.8.68 — Tasker board switcher + notes polish
 
 ### Added
