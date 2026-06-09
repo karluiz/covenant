@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.71 — Tab collapse-all toggle + custom tab styles
+
+### Added
+
+- **Custom tab styles**: a new `tab_styles` experimental flag unlocks a "Custom tab style" section in Settings → Appearance where tab shape, background mode, active indicator, height, and gap are composed independently (Discord-style) instead of being locked to monolithic presets. Changes apply live and persist to `config.json` (`ui/src/tabs/custom-style.ts`, `ui/src/styles/tab-themes/custom.css`, `ui/src/settings/panel.ts`, `crates/app/src/settings.rs`; spec in `docs/specs/3.24-tab-styles.md`).
+
+### Changed
+
+- **Collapse-all is now a toggle**: the topbar collapse-all button flips between collapse and expand, swapping its glyph (`chevronsDownUp` ⇄ `chevronsUpDown`) and tooltip to match the current state, with a quick spring-scale animation on each click. Backed by new `TabManager.expandAllGroups()` / `areAllGroupsCollapsed()` and synced after manager init to avoid a boot-time reference error (`ui/src/main.ts`, `ui/src/tabs/manager.ts`, `ui/src/icons/index.ts`, `ui/src/styles.css`).
+
 ## v0.8.70 — Score sign-in button fix
 
 ### Fixed
