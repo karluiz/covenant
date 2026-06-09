@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.73 — Sign-out fix + full-width sync panel
+
+### Fixed
+
+- **Disconnect now actually signs out**: the score-sync panel cached the current user in memory (`getCurrentUser`) and never invalidated it on sign-out, so clicking Disconnect left the panel still showing "Synced as @…". The handler now clears the cache (`setCurrentUser(null)`) before re-rendering (`ui/src/score/page.ts`).
+- **Sync panel layout**: the score-sync card now spans the full width of its container (`width: 100%; box-sizing: border-box`) instead of sitting short (`ui/src/score/styles.css`).
+
+### Added
+
+- **Dev JWT escape hatch (debug builds only)**: unsigned `tauri dev` binaries can't reliably read the macOS Keychain, which blocked local end-to-end testing of remote control. `load_jwt()` now honours a `COVENANT_DEV_JWT` env var in debug builds; it is `#[cfg(debug_assertions)]`-gated so it is compiled out of release builds entirely (`crates/score/src/auth.rs`).
+
 ## v0.8.72 — Remote pairing token copy fix
 
 ### Fixed
