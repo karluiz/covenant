@@ -5088,7 +5088,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     border: 0;
     outline: 0;
     color: var(--fg);
-    font-family: var(--mono-font, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-family: var(--ui-font);
     font-size: 12px;
     letter-spacing: 0;
     text-transform: none;
@@ -5148,6 +5148,34 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     color: var(--muted);
     font-style: italic;
     text-align: center;
+}
+
+.recall-empty--idle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 56px 20px;
+    font-style: normal;
+    font-family: var(--ui-font);
+    list-style: none;
+}
+.recall-empty--idle svg {
+    opacity: 0.28;
+    color: var(--accent);
+}
+.recall-empty-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text, var(--fg));
+    opacity: 0.7;
+}
+.recall-empty-hint {
+    font-size: 11px;
+    color: var(--muted);
+    max-width: 200px;
+    line-height: 1.4;
 }
 
 .recall-item {
@@ -5239,8 +5267,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 }
 
 .recall-palette-label {
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--ui-font);
     font-size: 11px;
     color: var(--accent);
     background: rgba(122, 162, 247, 0.12);
@@ -5255,8 +5282,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
     border: none;
     outline: none;
     color: #fff;
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--ui-font);
     font-size: 14px;
 }
 
@@ -5371,11 +5397,13 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   border-bottom: 1px solid rgba(var(--ink-rgb), 0.08);
 }
 .command-palette-label {
+  font-family: var(--ui-font);
   font-size: 11px;
-  opacity: 0.6;
-  border: 1px solid rgba(var(--ink-rgb), 0.18);
-  border-radius: 5px;
-  padding: 1px 5px;
+  color: var(--accent);
+  background: rgba(122, 162, 247, 0.12);
+  border-radius: 4px;
+  padding: 3px 8px;
+  letter-spacing: 0.04em;
 }
 .command-palette-input {
   flex: 1;
@@ -5383,6 +5411,7 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   border: none;
   outline: none;
   color: var(--text, #d6d8db);
+  font-family: var(--ui-font);
   font-size: 14px;
 }
 .command-palette-list {
@@ -14193,6 +14222,29 @@ body.blocks-globally-collapsed .tab-pane:has(.editor-host:not([hidden])) > .edit
 #app-titlebar #tabbar-fold svg {
     width: 16px !important;
     height: 16px !important;
+}
+/* Collapse/expand-all toggle: chevrons ease open/closed on each click and the
+ * whole glyph gives a quick spring-scale to confirm the toggle. */
+#app-titlebar #tabbar-collapse-all svg {
+    transition: transform 0.18s ease-out;
+}
+#app-titlebar #tabbar-collapse-all svg path {
+    transition: transform 0.18s ease-out;
+    transform-origin: center;
+}
+#app-titlebar #tabbar-collapse-all.is-toggling svg {
+    animation: collapse-all-pop 0.26s ease-out;
+}
+@keyframes collapse-all-pop {
+    0% {
+        transform: scale(0.7);
+    }
+    55% {
+        transform: scale(1.15);
+    }
+    100% {
+        transform: scale(1);
+    }
 }
 
 /* Hide the in-sidebar Blocks/Files switcher row and the inner BLOCKS

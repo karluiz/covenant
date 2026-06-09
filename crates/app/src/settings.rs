@@ -72,6 +72,13 @@ pub struct ExperimentalConfig {
     /// in config.json to try the feature while it is being developed.
     #[serde(default)]
     pub internal_browser: bool,
+
+    /// Atomic tab-style customization (shape, background, indicator, etc).
+    /// When enabled, the monolithic preset radio buttons in Appearance are
+    /// hidden and the user gets granular controls instead. When disabled,
+    /// the Classic / Forge / Glass / CRT presets work as before.
+    #[serde(default)]
+    pub tab_styles: TabStylesConfig,
 }
 
 impl Default for ExperimentalConfig {
@@ -80,8 +87,100 @@ impl Default for ExperimentalConfig {
             split_panes: false,
             statusbar_two_row: true,
             internal_browser: false,
+            tab_styles: TabStylesConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabStylesConfig {
+    /// Master toggle — must be `true` for custom styles to apply.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Pill corner shape.
+    #[serde(default)]
+    pub shape: TabShape,
+    /// Tab background mode.
+    #[serde(default)]
+    pub bg_mode: TabBgMode,
+    /// Two-color gradient (start, end hex). Only used when `bg_mode` is
+    /// `Gradient`. Ignored otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg_gradient: Option<[String; 2]>,
+    /// Active-tab indicator style.
+    #[serde(default)]
+    pub indicator: TabIndicator,
+    /// Tab pill height.
+    #[serde(default)]
+    pub height: TabHeight,
+    /// Gap between tab pills.
+    #[serde(default)]
+    pub gap: TabGap,
+}
+
+impl Default for TabStylesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            shape: TabShape::default(),
+            bg_mode: TabBgMode::default(),
+            bg_gradient: None,
+            indicator: TabIndicator::default(),
+            height: TabHeight::default(),
+            gap: TabGap::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabShape {
+    #[default]
+    Rectangle,
+    Rounded,
+    Lofted,
+    Pill,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabBgMode {
+    #[default]
+    Solid,
+    Translucent,
+    Off,
+    Gradient,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabIndicator {
+    #[default]
+    Stripe,
+    Underline,
+    #[serde(rename = "left-bar")]
+    LeftBar,
+    Dot,
+    Glow,
+    Border,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabHeight {
+    #[default]
+    Normal,
+    Compact,
+    Spacious,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TabGap {
+    #[default]
+    Normal,
+    Tight,
+    Loose,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1115,5 +1214,93 @@ mod tab_style_tests {
     fn serializes_lowercase() {
         assert_eq!(serde_json::to_string(&TabStyle::Glass).unwrap(), "\"glass\"");
         assert_eq!(serde_json::to_string(&TabStyle::Crt).unwrap(), "\"crt\"");
+    }
+}
+
+#[cfg(test)]
+mod tab_styles_config_tests {
+    use super::*;
+
+    #[test]
+    fn deserializes_all_tab_shapes() {
+        assert_eq!(serde_json::from_str::<TabShape>("\"rectangle\"").unwrap(), TabShape::Rectangle);
+        assert_eq!(serde_json::from_str::<TabShape>("\"rounded\"").unwrap(), TabShape::Rounded);
+        assert_eq!(serde_json::from_str::<TabShape>("\"lofted\"").unwrap(), TabShape::Lofted);
+        assert_eq!(serde_json::from_str::<TabShape>("\"pill\"").unwrap(), TabShape::Pill);
+    }
+
+    #[test]
+    fn deserializes_all_bg_modes() {
+        assert_eq!(serde_json::from_str::<TabBgMode>("\"solid\"").unwrap(), TabBgMode::Solid);
+        assert_eq!(serde_json::from_str::<TabBgMode>("\"translucent\"").unwrap(), TabBgMode::Translucent);
+        assert_eq!(serde_json::from_str::<TabBgMode>("\"off\"").unwrap(), TabBgMode::Off);
+        assert_eq!(serde_json::from_str::<TabBgMode>("\"gradient\"").unwrap(), TabBgMode::Gradient);
+    }
+
+    #[test]
+    fn deserializes_all_indicators() {
+        assert_eq!(serde_json::from_str::<TabIndicator>("\"stripe\"").unwrap(), TabIndicator::Stripe);
+        assert_eq!(serde_json::from_str::<TabIndicator>("\"underline\"").unwrap(), TabIndicator::Underline);
+        assert_eq!(serde_json::from_str::<TabIndicator>("\"left-bar\"").unwrap(), TabIndicator::LeftBar);
+        assert_eq!(serde_json::from_str::<TabIndicator>("\"dot\"").unwrap(), TabIndicator::Dot);
+        assert_eq!(serde_json::from_str::<TabIndicator>("\"glow\"").unwrap(), TabIndicator::Glow);
+        assert_eq!(serde_json::from_str::<TabIndicator>("\"border\"").unwrap(), TabIndicator::Border);
+    }
+
+    #[test]
+    fn deserializes_all_heights() {
+        assert_eq!(serde_json::from_str::<TabHeight>("\"normal\"").unwrap(), TabHeight::Normal);
+        assert_eq!(serde_json::from_str::<TabHeight>("\"compact\"").unwrap(), TabHeight::Compact);
+        assert_eq!(serde_json::from_str::<TabHeight>("\"spacious\"").unwrap(), TabHeight::Spacious);
+    }
+
+    #[test]
+    fn deserializes_all_gaps() {
+        assert_eq!(serde_json::from_str::<TabGap>("\"normal\"").unwrap(), TabGap::Normal);
+        assert_eq!(serde_json::from_str::<TabGap>("\"tight\"").unwrap(), TabGap::Tight);
+        assert_eq!(serde_json::from_str::<TabGap>("\"loose\"").unwrap(), TabGap::Loose);
+    }
+
+    #[test]
+    fn tab_styles_config_defaults_disabled() {
+        let cfg = TabStylesConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.shape, TabShape::Rectangle);
+        assert_eq!(cfg.bg_mode, TabBgMode::Solid);
+        assert_eq!(cfg.indicator, TabIndicator::Stripe);
+        assert_eq!(cfg.height, TabHeight::Normal);
+        assert_eq!(cfg.gap, TabGap::Normal);
+        assert!(cfg.bg_gradient.is_none());
+    }
+
+    #[test]
+    fn experimental_config_defaults_tab_styles_disabled() {
+        let cfg = ExperimentalConfig::default();
+        assert!(!cfg.tab_styles.enabled);
+    }
+
+    #[test]
+    fn round_trips_tab_styles_config() {
+        let json = serde_json::json!({
+            "enabled": true,
+            "shape": "rounded",
+            "bg_mode": "gradient",
+            "bg_gradient": ["#ff0000", "#0000ff"],
+            "indicator": "underline",
+            "height": "spacious",
+            "gap": "loose"
+        });
+        let cfg: TabStylesConfig = serde_json::from_value(json.clone()).unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.shape, TabShape::Rounded);
+        assert_eq!(cfg.bg_mode, TabBgMode::Gradient);
+        assert_eq!(cfg.bg_gradient, Some(["#ff0000".into(), "#0000ff".into()]));
+        assert_eq!(cfg.indicator, TabIndicator::Underline);
+        assert_eq!(cfg.height, TabHeight::Spacious);
+        assert_eq!(cfg.gap, TabGap::Loose);
+        let back = serde_json::to_value(&cfg).unwrap();
+        assert_eq!(back["shape"], "rounded");
+        assert_eq!(back["bg_mode"], "gradient");
+        assert_eq!(back["indicator"], "underline");
     }
 }

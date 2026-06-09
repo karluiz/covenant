@@ -99,7 +99,24 @@ interface ExperimentalConfig {
   split_panes?: boolean;
   statusbar_two_row?: boolean;
   internal_browser?: boolean;
+  tab_styles?: TabStylesConfig;
 }
+
+interface TabStylesConfig {
+  enabled: boolean;
+  shape: TabShape;
+  bg_mode: TabBgMode;
+  bg_gradient?: [string, string];
+  indicator: TabIndicator;
+  height: TabHeight;
+  gap: TabGap;
+}
+
+type TabShape = "rectangle" | "rounded" | "lofted" | "pill";
+type TabBgMode = "solid" | "translucent" | "off" | "gradient";
+type TabIndicator = "stripe" | "underline" | "left-bar" | "dot" | "glow" | "border";
+type TabHeight = "normal" | "compact" | "spacious";
+type TabGap = "normal" | "tight" | "loose";
 
 interface Settings {
   anthropic_api_key: string | null;
@@ -514,6 +531,164 @@ export class SettingsPanel {
               </span>
             </label>
           </fieldset>
+          <fieldset class="settings-field settings-radio-group" id="tab-style-custom-card" hidden>
+            <span class="settings-label">Custom tab style <span class="settings-badge">experimental</span></span>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:-8px 0 8px;color:var(--muted)">Shape</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_shape" value="rectangle" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Rectangle</span>
+                <span class="settings-radio-hint">Sharp 90° corners — flat, utilitarian.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_shape" value="rounded" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Rounded</span>
+                <span class="settings-radio-hint">6px border radius — gentle and approachable.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_shape" value="lofted" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Lofted</span>
+                <span class="settings-radio-hint">12px radius — soft, elevated look.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_shape" value="pill" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Pill</span>
+                <span class="settings-radio-hint">Fully rounded — macOS-style capsule.</span>
+              </span>
+            </label>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Background</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_bg" value="solid" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Solid</span>
+                <span class="settings-radio-hint">Opaque tab background — max contrast.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_bg" value="translucent" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Translucent</span>
+                <span class="settings-radio-hint">Semi-transparent — lets wallpaper bleed through.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_bg" value="off" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Off</span>
+                <span class="settings-radio-hint">Fully transparent — just text and indicator.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_bg" value="gradient" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Gradient</span>
+                <span class="settings-radio-hint">Two-color gradient background.</span>
+              </span>
+            </label>
+            <div id="tab-custom-gradient-pickers" style="display:flex;gap:8px;margin:6px 0 0 28px" hidden>
+              <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)">
+                Start
+                <input type="color" name="tab_custom_gradient_start" value="#7aa2f7" style="width:32px;height:28px;padding:0;border:none;border-radius:4px;cursor:pointer" />
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)">
+                End
+                <input type="color" name="tab_custom_gradient_end" value="#bb9af7" style="width:32px;height:28px;padding:0;border:none;border-radius:4px;cursor:pointer" />
+              </label>
+            </div>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Active indicator</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_indicator" value="stripe" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Stripe</span>
+                <span class="settings-radio-hint">Top-edge accent bar — the classic look.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_indicator" value="underline" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Underline</span>
+                <span class="settings-radio-hint">Bottom-edge accent line — VS Code style.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_indicator" value="left-bar" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Left bar</span>
+                <span class="settings-radio-hint">Vertical accent stripe on leading edge.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_indicator" value="dot" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Dot</span>
+                <span class="settings-radio-hint">Small colored circle next to the label.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_indicator" value="glow" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Glow</span>
+                <span class="settings-radio-hint">Box-shadow aura behind the active pill.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_indicator" value="border" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Border</span>
+                <span class="settings-radio-hint">Colored outline around the active pill.</span>
+              </span>
+            </label>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Height</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_height" value="compact" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Compact</span>
+                <span class="settings-radio-hint">26px — denser tab bar, more tabs visible.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_height" value="normal" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Normal</span>
+                <span class="settings-radio-hint">30px — the default height.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_height" value="spacious" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Spacious</span>
+                <span class="settings-radio-hint">36px — roomier, easier to read.</span>
+              </span>
+            </label>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Gap</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_gap" value="tight" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Tight</span>
+                <span class="settings-radio-hint">2px between tabs — minimal spacing.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_gap" value="normal" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Normal</span>
+                <span class="settings-radio-hint">4px — the default gap.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_gap" value="loose" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Loose</span>
+                <span class="settings-radio-hint">8px — each tab breathes more.</span>
+              </span>
+            </label>
+          </fieldset>
           <label class="settings-field">
             <span class="settings-label">UI font</span>
             <input
@@ -819,6 +994,15 @@ export class SettingsPanel {
               tuned, so expect occasional redraw glitches when resizing panes.
             </small>
           </label>
+          <label class="settings-field settings-field-row">
+            <input type="checkbox" name="experimental_tab_styles" />
+            <span class="settings-label">Tab styles</span>
+            <small class="settings-hint">
+              Compose tab appearance from atomic properties — shape, background,
+              active indicator, height, gap. The preset radio buttons hide and
+              a custom control group appears in the Appearance section.
+            </small>
+          </label>
         </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
@@ -868,6 +1052,18 @@ export class SettingsPanel {
     const internalBrowserInput = form.querySelector<HTMLInputElement>(
       'input[name="experimental_internal_browser"]',
     );
+    const tabStylesInput = form.querySelector<HTMLInputElement>(
+      'input[name="experimental_tab_styles"]',
+    );
+    const customTabStyleCard = form.querySelector<HTMLElement>("#tab-style-custom-card");
+    const shapeRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_shape"]');
+    const bgRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_bg"]');
+    const gradientStart = form.querySelector<HTMLInputElement>('input[name="tab_custom_gradient_start"]');
+    const gradientEnd = form.querySelector<HTMLInputElement>('input[name="tab_custom_gradient_end"]');
+    const gradientPickers = form.querySelector<HTMLElement>("#tab-custom-gradient-pickers");
+    const indicatorRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_indicator"]');
+    const heightRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_height"]');
+    const gapRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_gap"]');
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
@@ -962,6 +1158,19 @@ export class SettingsPanel {
     statusbarTwoRowInput.checked =
       this.current.experimental?.statusbar_two_row ?? true;
     if (internalBrowserInput) internalBrowserInput.checked = !!this.current.experimental?.internal_browser;
+    const ts = this.current.experimental?.tab_styles;
+    if (tabStylesInput) tabStylesInput.checked = !!ts?.enabled;
+    if (customTabStyleCard) customTabStyleCard.hidden = !ts?.enabled;
+    if (ts?.enabled) {
+      shapeRadios.forEach((r) => { r.checked = r.value === (ts?.shape ?? "rectangle"); });
+      bgRadios.forEach((r) => { r.checked = r.value === (ts?.bg_mode ?? "solid"); });
+      if (gradientPickers) gradientPickers.hidden = ts?.bg_mode !== "gradient";
+      if (gradientStart && ts?.bg_gradient) gradientStart.value = ts.bg_gradient[0];
+      if (gradientEnd && ts?.bg_gradient) gradientEnd.value = ts.bg_gradient[1];
+      indicatorRadios.forEach((r) => { r.checked = r.value === (ts?.indicator ?? "stripe"); });
+      heightRadios.forEach((r) => { r.checked = r.value === (ts?.height ?? "normal"); });
+      gapRadios.forEach((r) => { r.checked = r.value === (ts?.gap ?? "normal"); });
+    }
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
       r.checked = r.value === currentBg;
@@ -1054,6 +1263,20 @@ export class SettingsPanel {
     })();
 
     updateEmailIncompleteWarn();
+
+    // Tab styles toggle → show/hide custom card
+    if (tabStylesInput && customTabStyleCard) {
+      tabStylesInput.addEventListener("change", () => {
+        customTabStyleCard.hidden = !tabStylesInput.checked;
+      });
+    }
+
+    // Background mode "gradient" → show color pickers
+    bgRadios.forEach((r) => {
+      r.addEventListener("change", () => {
+        if (gradientPickers) gradientPickers.hidden = r.value !== "gradient" || !r.checked;
+      });
+    });
 
     const providersRoot = form.querySelector<HTMLElement>("#providers-tab-root");
     if (providersRoot && this.current) {
@@ -1395,6 +1618,30 @@ export class SettingsPanel {
           split_panes: splitPanesInput.checked,
           statusbar_two_row: statusbarTwoRowInput.checked,
           internal_browser: internalBrowserInput?.checked ?? false,
+          tab_styles: tabStylesInput
+            ? {
+                enabled: tabStylesInput.checked,
+                shape:
+                  (Array.from(shapeRadios).find((r) => r.checked)
+                    ?.value as TabShape) ?? "rectangle",
+                bg_mode:
+                  (Array.from(bgRadios).find((r) => r.checked)
+                    ?.value as TabBgMode) ?? "solid",
+                bg_gradient:
+                  gradientStart && gradientEnd
+                    ? [gradientStart.value, gradientEnd.value]
+                    : undefined,
+                indicator:
+                  (Array.from(indicatorRadios).find((r) => r.checked)
+                    ?.value as TabIndicator) ?? "stripe",
+                height:
+                  (Array.from(heightRadios).find((r) => r.checked)
+                    ?.value as TabHeight) ?? "normal",
+                gap:
+                  (Array.from(gapRadios).find((r) => r.checked)
+                    ?.value as TabGap) ?? "normal",
+              }
+            : undefined,
         },
       };
       try {

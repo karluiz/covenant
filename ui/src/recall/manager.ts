@@ -79,7 +79,7 @@ export class RecallManager {
       this.buffer = this.searchInput.value;
       if (this.buffer.trim().length === 0) {
         this.lastQuery = "";
-        this.listEl.innerHTML = "";
+        this.renderIdle();
         return;
       }
       this.scheduleQuery();
@@ -89,7 +89,7 @@ export class RecallManager {
         this.searchInput.value = "";
         this.buffer = "";
         this.lastQuery = "";
-        this.listEl.innerHTML = "";
+        this.renderIdle();
         e.preventDefault();
       } else if (e.key === "Enter") {
         // Inject the first match (if any) like clicking the top item.
@@ -108,6 +108,18 @@ export class RecallManager {
     this.root.appendChild(this.listEl);
 
     this.host.appendChild(this.root);
+    this.renderIdle();
+  }
+
+  /// Idle empty state — shown when no query is active so the panel
+  /// isn't a black void (mirrors the Project Notes `.pn-empty` look).
+  private renderIdle(): void {
+    this.listEl.innerHTML = `
+      <li class="recall-empty recall-empty--idle">
+        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><path d="M3 4v5h5"/></svg>
+        <div class="recall-empty-title">Search your history</div>
+        <div class="recall-empty-hint">Type a command to find past runs across sessions</div>
+      </li>`;
   }
 
   /// Move focus into the search input. Used by the titlebar Recall
@@ -236,7 +248,7 @@ export class RecallManager {
       this.searchInput.value = "";
     }
     this.callbacks.onShouldShow(false);
-    this.listEl.innerHTML = "";
+    this.renderIdle();
   }
 
   private scheduleQuery(): void {

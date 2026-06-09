@@ -7,6 +7,7 @@ import "./styles/operator_chip.css";
 import "./styles/tab-themes/forge.css";
 import "./styles/tab-themes/glass.css";
 import "./styles/tab-themes/crt.css";
+import "./styles/tab-themes/custom.css";
 import "./tasker/styles.css";
 import "./ui/markdown-editor.css";
 
@@ -57,6 +58,7 @@ import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { activePane } from "./tabs/pane";
+import { applyCustomTabStyle } from "./tabs/custom-style";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
 
@@ -451,11 +453,13 @@ async function boot(): Promise<void> {
     applyWindowBackground(initialSettings.window?.background ?? "vibrant");
     applyTabbarPosition(initialSettings.tabbar_position ?? "top");
     applyTabStyle(initialSettings.window?.tab_style ?? "classic");
+    applyCustomTabStyle(initialSettings.experimental?.tab_styles);
     applyUiFont(initialSettings.ui_font_family);
   } catch {
     applyWindowBackground("vibrant");
     applyTabbarPosition("top");
     applyTabStyle("classic");
+    applyCustomTabStyle(null);
     applyUiFont(null);
   }
   // Set the theme class before the TabManager exists so first-run chrome
@@ -492,6 +496,21 @@ async function boot(): Promise<void> {
   });
 
   const collapseAllBtn = requireEl<HTMLButtonElement>("tabbar-collapse-all");
+  // Reflects whether the next click collapses or expands all groups. The icon
+  // (down-up = collapse, up-down = expand) and tooltip mirror the action.
+  const syncCollapseAllBtn = (): void => {
+    const allCollapsed = manager.areAllGroupsCollapsed();
+    collapseAllBtn.innerHTML = allCollapsed
+      ? Icons.chevronsUpDown({ size: 16 })
+      : Icons.chevronsDownUp({ size: 16 });
+    collapseAllBtn.classList.toggle("is-expanded", allCollapsed);
+    attachTooltip(
+      collapseAllBtn,
+      allCollapsed ? "Expand all groups" : "Collapse all groups",
+    );
+  };
+  // Static default until `manager` is constructed below (no groups at boot, so
+  // this matches the not-all-collapsed state). Re-synced after manager init.
   collapseAllBtn.innerHTML = Icons.chevronsDownUp({ size: 16 });
   attachTooltip(collapseAllBtn, "Collapse all groups");
   // Titlebar Blocks/Files/Activity view switch — dispatches a global event each
@@ -823,7 +842,14 @@ async function boot(): Promise<void> {
     });
   }
   collapseAllBtn.addEventListener("click", () => {
-    manager.collapseAllGroups();
+    if (manager.areAllGroupsCollapsed()) manager.expandAllGroups();
+    else manager.collapseAllGroups();
+    // Re-trigger the icon spin animation, then swap icon/tooltip to match
+    // the new state so the next click does the inverse.
+    collapseAllBtn.classList.remove("is-toggling");
+    void collapseAllBtn.offsetWidth; // force reflow to restart the animation
+    collapseAllBtn.classList.add("is-toggling");
+    syncCollapseAllBtn();
   });
 
   // Programmatic window drag from the custom title bar. `position:
@@ -876,6 +902,7 @@ async function boot(): Promise<void> {
     void getCurrentWindow().close();
   });
   tabsManager = manager;
+  syncCollapseAllBtn();
   installSidebarResizers(requireEl<HTMLElement>("layout"), manager);
 
   // ⌘W / ⌘T are bound to native macOS menu items (File → Close Tab / New
@@ -1311,6 +1338,7 @@ async function boot(): Promise<void> {
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
     applyTabStyle(next.window?.tab_style ?? "classic");
+    applyCustomTabStyle(next.experimental?.tab_styles);
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
     manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);

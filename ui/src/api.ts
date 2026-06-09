@@ -1012,6 +1012,22 @@ export type ResolvedTheme = "dark" | "light";
 /// "forge" (angled mechanical), "glass" (icy translucent), "crt" (phosphor retro).
 export type TabStyle = "classic" | "forge" | "glass" | "crt";
 
+export type TabShape = "rectangle" | "rounded" | "lofted" | "pill";
+export type TabBgMode = "solid" | "translucent" | "off" | "gradient";
+export type TabIndicator = "stripe" | "underline" | "left-bar" | "dot" | "glow" | "border";
+export type TabHeight = "normal" | "compact" | "spacious";
+export type TabGap = "normal" | "tight" | "loose";
+
+export interface TabStylesConfig {
+  enabled: boolean;
+  shape: TabShape;
+  bg_mode: TabBgMode;
+  bg_gradient?: [string, string];
+  indicator: TabIndicator;
+  height: TabHeight;
+  gap: TabGap;
+}
+
 export async function setWindowTheme(mode: ResolvedTheme): Promise<void> {
   await invoke("set_window_theme", { mode });
 }
@@ -1086,11 +1102,12 @@ export interface Settings {
   providers?: Record<string, ProviderEntry>;
   /// Model routing table mapping role names to provider+model.
   model_routes?: Record<string, RouteEntry>;
-  /// 4.x — experimental feature flags. Currently just split_panes.
+  /// 4.x — experimental feature flags.
   experimental?: {
     split_panes?: boolean;
     statusbar_two_row?: boolean;
     internal_browser?: boolean;
+    tab_styles?: TabStylesConfig;
   };
 }
 
@@ -1166,6 +1183,7 @@ export interface ExperimentalFlags {
   split_panes: boolean;
   statusbar_two_row: boolean;
   internal_browser: boolean;
+  tab_styles: TabStylesConfig;
 }
 
 export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
@@ -1174,6 +1192,14 @@ export async function getExperimentalFlags(): Promise<ExperimentalFlags> {
     split_panes: settings.experimental?.split_panes ?? false,
     statusbar_two_row: settings.experimental?.statusbar_two_row ?? true,
     internal_browser: settings.experimental?.internal_browser ?? false,
+    tab_styles: settings.experimental?.tab_styles ?? {
+      enabled: false,
+      shape: "rectangle",
+      bg_mode: "solid",
+      indicator: "stripe",
+      height: "normal",
+      gap: "normal",
+    },
   };
 }
 

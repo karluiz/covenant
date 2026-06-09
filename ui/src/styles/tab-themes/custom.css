@@ -1,0 +1,144 @@
+/* ═══ TAB STYLE: CUSTOM (body.tab-style-custom) ═══
+   Atomic tab styling driven by CSS custom properties set from
+   Settings → Experimental. Each knob maps to a --tab-custom-*
+   variable; default values mirror the "classic" preset so the
+   custom class works even without explicit overrides. */
+
+/* ── CUSTOM · pill treatment ── */
+body.tab-style-custom .tab-btn {
+  border-radius: var(--tab-custom-radius, 0px);
+  background: var(--tab-custom-bg, var(--tab-bg-rest));
+  height: var(--tab-custom-h, 30px);
+}
+
+/* ── CUSTOM · background modes ── */
+body.tab-style-custom[data-tab-bg="translucent"] .tab-btn {
+  background: color-mix(in srgb, var(--tab-bg-rest) 55%, transparent);
+}
+body.tab-style-custom[data-tab-bg="off"] .tab-btn {
+  background: transparent !important;
+}
+body.tab-style-custom[data-tab-bg="gradient"] .tab-btn {
+  background: linear-gradient(
+    135deg,
+    var(--tab-custom-gradient-start, var(--accent)),
+    var(--tab-custom-gradient-end, var(--accent-3, #bb9af7))
+  ) !important;
+}
+
+/* ── CUSTOM · active indicator variants ── */
+/* Baseline: hide the classic top stripe so each variant paints its own */
+body.tab-style-custom .tab-btn.active::before {
+  display: none;
+}
+
+/* Stripe — same as classic top-edge accent bar */
+body.tab-style-custom[data-tab-indicator="stripe"] .tab-btn.active::before {
+  display: block;
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -1px;
+  right: -1px;
+  height: 2px;
+  background: var(--tab-stripe, var(--accent));
+  border-radius: var(--tab-custom-radius, 0px) var(--tab-custom-radius, 0px) 0 0;
+}
+
+/* Underline — bottom edge instead of top */
+body.tab-style-custom[data-tab-indicator="underline"] .tab-btn.active::before {
+  display: block;
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--tab-stripe, var(--accent));
+  border-radius: 2px;
+}
+
+body.tabbar-left body.tab-style-custom[data-tab-indicator="underline"] .tab-btn.active::before {
+  left: -1px;
+  right: -1px;
+  bottom: 0;
+  height: 2px;
+}
+
+/* Left bar — vertical accent stripe on the leading edge */
+body.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.active::before {
+  display: block;
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 0;
+  bottom: 4px;
+  width: 3px;
+  background: var(--tab-stripe, var(--accent));
+  border-radius: 0 2px 2px 0;
+}
+
+body.tabbar-left body.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.active::before {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  border-radius: 0;
+}
+
+/* Dot — small circle near the tab label */
+body.tab-style-custom[data-tab-indicator="dot"] .tab-btn.active::before {
+  display: block;
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tab-stripe, var(--accent));
+  transform: translateY(-50%);
+}
+
+body.tabbar-left body.tab-style-custom[data-tab-indicator="dot"] .tab-btn.active::before {
+  left: 8px;
+}
+
+/* Glow — box-shadow glow behind the active pill */
+body.tab-style-custom[data-tab-indicator="glow"] .tab-btn.active {
+  box-shadow:
+    0 0 12px color-mix(in srgb, var(--tab-stripe, var(--accent)) 30%, transparent),
+    0 0 4px color-mix(in srgb, var(--tab-stripe, var(--accent)) 20%, transparent);
+}
+
+/* Border — colored outline on the active pill */
+body.tab-style-custom[data-tab-indicator="border"] .tab-btn.active {
+  border-color: var(--tab-stripe, var(--accent));
+  border-width: 1px;
+}
+
+/* ── CUSTOM · gap variants ── */
+body.tab-style-custom:not(.tabbar-left) #tabs {
+  gap: var(--tab-custom-gap, 4px);
+}
+
+body.tab-style-custom.tabbar-left #tabs {
+  gap: var(--tab-custom-gap, 4px);
+}
+
+/* ── CUSTOM · shape + height variants (handled by CSS vars above) ── */
+/* No extra rules needed — --tab-custom-radius and --tab-custom-h
+   cover all shape/height variants via the base .tab-btn rule. */
+
+/* ── CUSTOM · gradient bg needs explicit sub-pixel border-radius
+   on ::before so the stripe conforms to the tab shape */
+body.tab-style-custom[data-tab-bg="gradient"][data-tab-indicator="stripe"] .tab-btn.active::before,
+body.tab-style-custom[data-tab-bg="gradient"][data-tab-indicator="underline"] .tab-btn.active::before {
+  border-radius: var(--tab-custom-radius, 0px);
+}
+
+/* ── CUSTOM · AOM indicator ── */
+body.tab-style-custom .tab-btn.tab-aom-active::after {
+  inset: -2px;
+  border-radius: calc(var(--tab-custom-radius, 0px) + 2px);
+}

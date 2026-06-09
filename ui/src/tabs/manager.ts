@@ -5408,6 +5408,24 @@ export class TabManager {
     }
   }
 
+  /// Inverse of collapseAllGroups — expands every collapsed group via the
+  /// same in-place DOM path so transitions stay smooth.
+  expandAllGroups(): void {
+    for (const [id, g] of this.groups) {
+      if (g.collapsed) this.toggleGroupCollapsed(id);
+    }
+  }
+
+  /// True when there is at least one group and every group is collapsed.
+  /// Drives the topbar collapse/expand toggle affordance.
+  areAllGroupsCollapsed(): boolean {
+    if (this.groups.size === 0) return false;
+    for (const [, g] of this.groups) {
+      if (!g.collapsed) return false;
+    }
+    return true;
+  }
+
   private toggleGroupCollapsed(groupId: string): void {
     const g = this.groups.get(groupId);
     if (!g) return;
