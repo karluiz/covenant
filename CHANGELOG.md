@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.70 — Score sign-in button fix
+
+### Fixed
+
+- **Score sign-in / sync buttons**: the "Sync now", "Disconnect", and "Sign in with GitHub" buttons in the score-sync panel were missing `type="button"`, so a click submitted the enclosing settings form — closing the panel and aborting the action mid-flight. Disconnect silently failed to sign out (the cached profile kept reappearing) and sign-in could be interrupted. All three are now `type="button"` (`ui/src/score/page.ts`).
+
+### Changed
+
+- **Spec-chat polish**: refinements to the immersive spec-chat flow and surrounding UI (`ui/src/spec-chat/`, `crates/agent/src/spec_author.rs`, plus minor browser-pane and zoom tweaks).
+
 ## v0.8.69 — Command palette glassmorphism
 
 ### Changed
