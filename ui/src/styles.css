@@ -5343,17 +5343,24 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
-  background: rgba(0, 0, 0, 0.38);
+  background: var(--cp-scrim, rgba(8, 9, 11, 0.5));
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
 }
 .command-palette-card {
   width: min(640px, 90vw);
   max-height: 64vh;
   display: flex;
   flex-direction: column;
-  background: rgba(20, 22, 26, 0.98);
-  border: 1px solid rgba(var(--ink-rgb), 0.12);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  background: var(--cp-card-bg, rgba(24, 26, 31, 0.72));
+  border: 1px solid var(--cp-card-border, rgba(var(--ink-rgb), 0.1));
+  border-radius: 14px;
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 var(--cp-card-sheen, rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
   overflow: hidden;
 }
 .command-palette-input-row {
@@ -5425,6 +5432,20 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   padding: 14px;
   text-align: center;
   opacity: 0.5;
+}
+
+/* Theme-aware surfaces for the command palette */
+body.theme-light {
+  --cp-scrim: rgba(120, 124, 130, 0.32);
+  --cp-card-bg: rgba(252, 253, 255, 0.78);
+  --cp-card-border: rgba(0, 0, 0, 0.1);
+  --cp-card-sheen: rgba(255, 255, 255, 0.7);
+}
+body.theme-true-dark {
+  --cp-scrim: rgba(0, 0, 0, 0.62);
+  --cp-card-bg: rgba(10, 10, 11, 0.66);
+  --cp-card-border: rgba(255, 255, 255, 0.07);
+  --cp-card-sheen: rgba(255, 255, 255, 0.025);
 }
 .workspace-chip-rename {
   min-width: 160px;
