@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.72 — Remote pairing token copy fix
+
+### Fixed
+
+- **Copy Remote Pairing Token**: the File-menu action now copies via `pbcopy`
+  from Rust (`crates/app/src/lib.rs`) instead of the webview clipboard, which
+  rejected with "Document is not focused" when fired from a native menu click —
+  so nothing was copied. Emits `menu://pairing-token-copied` with a
+  `copied`/`signed-out`/`error` status the UI (`ui/src/main.ts`) toasts.
+
+- **Tasker kanban selection**: disabled text selection on the board
+  (`.kb-columns` in `ui/src/tasker/board.css`) so dragging or select-all no
+  longer highlights every card, header, and date; the inline add-task input
+  stays selectable.
+
 ## v0.8.71 — Tab collapse-all toggle + custom tab styles
 
 ### Added
