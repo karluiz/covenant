@@ -20,7 +20,10 @@ notify = "6"
 walkdir = "2"
 dirs = "5"
 reqwest = { workspace = true, features = ["json"] }
-keyring = "3"
+# keyring v3 makes the OS-keychain backends opt-in features. Without one of
+# these, it silently falls back to an in-memory `mock` store that never
+# persists — tokens/JWT vanish on restart ("Sync failed: not signed in").
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 [dev-dependencies]
 tempfile = "3"

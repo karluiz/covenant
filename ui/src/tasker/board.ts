@@ -106,6 +106,7 @@ export class BoardView {
     if (this.addingStatus === status) {
       return `<form class="kb-add-form" data-status="${status}">
         <input class="kb-add-input" type="text" placeholder="Task title" autocomplete="off" />
+        <button class="kb-add-cancel" type="button" aria-label="Discard task" title="Discard">×</button>
       </form>`;
     }
     return `<button class="kb-add" type="button" data-status="${status}">+ Add task</button>`;
@@ -147,19 +148,31 @@ export class BoardView {
       });
     });
 
-    // Submit creates; Escape cancels.
+    // Submit creates; Escape / × button / blur-while-empty cancels.
     this.host.querySelectorAll<HTMLFormElement>(".kb-add-form").forEach((form) => {
       const status = form.dataset.status as TaskStatus | undefined;
       const input = form.querySelector<HTMLInputElement>(".kb-add-input");
+      const cancel = (): void => {
+        this.addingStatus = null;
+        if (this.host) this.render(this.host);
+      };
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         if (status && input) this.addTask(projectId, status, input.value);
       });
+      form.querySelector<HTMLButtonElement>(".kb-add-cancel")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        cancel();
+      });
       input?.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") {
-          this.addingStatus = null;
-          if (this.host) this.render(this.host);
-        }
+        if (e.key === "Escape") cancel();
+      });
+      // Clicking away from an empty input discards it.
+      input?.addEventListener("blur", () => {
+        // Defer so a click on the × / submit isn't pre-empted by the blur.
+        setTimeout(() => {
+          if (this.addingStatus === status && !input.value.trim()) cancel();
+        }, 120);
       });
     });
   }

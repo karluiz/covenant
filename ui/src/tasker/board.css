@@ -137,7 +137,21 @@ body.theme-true-dark .kb-card { background: #141416; }
   cursor: pointer;
 }
 .kb-add:hover { color: var(--text-primary); }
-.kb-add-form { display: flex; }
+.kb-add-form { display: flex; align-items: stretch; gap: 6px; }
+.kb-add-cancel {
+  flex: none;
+  width: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  line-height: 1;
+  border-radius: 7px;
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+.kb-add-cancel:hover { color: var(--text-primary); border-color: var(--accent); }
 .kb-add-input {
   flex: 1;
   font-size: 12.5px;
