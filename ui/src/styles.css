@@ -15277,12 +15277,15 @@ body.tasker-board #tasker-panel .tasker-panel-board {
   overflow: hidden;
 }
 .tasker-view-btn {
-  font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  padding: 3px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 9px;
   background: transparent;
   border: none;
   color: var(--muted);
   cursor: pointer;
+  transition: color 120ms, background 120ms;
 }
 .tasker-view-btn:hover {
   color: var(--text-primary);

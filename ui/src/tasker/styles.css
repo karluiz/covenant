@@ -565,8 +565,8 @@ body.theme-true-dark .tasker-task-selected {
 .tasker-edit-note {
   width: 100%;
   min-width: 0;
-  min-height: 40px;
-  max-height: 320px;
+  min-height: 88px;
+  max-height: 480px;
   resize: none;
   overflow-y: auto;
   box-sizing: border-box;

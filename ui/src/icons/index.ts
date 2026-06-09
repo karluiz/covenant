@@ -384,6 +384,20 @@ export const Icons = {
       o,
     ),
 
+  /** List view — Lucide `list`. */
+  listView: (o?: IconOptions): string =>
+    svg(
+      `<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>`,
+      o,
+    ),
+
+  /** Board / kanban view — Lucide `columns-3`. */
+  boardView: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>`,
+      o,
+    ),
+
   /** Check mark — done / complete. Lucide `check`. */
   check: (o?: IconOptions): string =>
     svg(

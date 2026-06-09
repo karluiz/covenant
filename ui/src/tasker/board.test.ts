@@ -221,12 +221,15 @@ describe("board project switcher", () => {
     host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="list"]')!.click();
     host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
 
-    const select = host.querySelector<HTMLSelectElement>(".kb-project-select")!;
-    expect(select).toBeTruthy();
-    expect(select.options.length).toBe(2);
+    const trigger = host.querySelector<HTMLButtonElement>(".kb-project-select")!;
+    expect(trigger).toBeTruthy();
+    trigger.click();
 
-    select.value = b.id;
-    select.dispatchEvent(new Event("change"));
+    const opts = document.querySelectorAll<HTMLButtonElement>(".kb-project-menu .kb-project-opt");
+    expect(opts.length).toBe(2);
+
+    const optB = Array.from(opts).find((o) => o.dataset.projectId === b.id)!;
+    optB.click();
     expect(host.textContent).toContain("task in B");
     expect(host.textContent).not.toContain("task in A");
   });

@@ -91,6 +91,8 @@ export class TaskerPanel {
   private dateMenuEl: HTMLElement | null = null;
   private datePickerRepaint: (() => void) | null = null;
   private dateOutsideListener: ((ev: MouseEvent) => void) | null = null;
+  private projectMenuEl: HTMLElement | null = null;
+  private projectMenuOutside: ((ev: MouseEvent) => void) | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
   private composingList = false;
   private viewMode: "list" | "board" = "list";
@@ -172,8 +174,8 @@ export class TaskerPanel {
       <h2 class="tasker-title">Tasker</h2>
       <div class="tasker-header-actions">
         <div class="tasker-view-toggle" role="group" aria-label="View">
-          <button class="tasker-view-btn${this.viewMode === "list" ? " on" : ""}" type="button" data-view="list">List</button>
-          <button class="tasker-view-btn${this.viewMode === "board" ? " on" : ""}" type="button" data-view="board">Board</button>
+          <button class="tasker-view-btn${this.viewMode === "list" ? " on" : ""}" type="button" data-view="list" aria-label="List view">${Icons.listView({ size: 15 })}</button>
+          <button class="tasker-view-btn${this.viewMode === "board" ? " on" : ""}" type="button" data-view="board" aria-label="Board view">${Icons.boardView({ size: 15 })}</button>
         </div>
         <button class="tasker-btn-icon tasker-btn-new-project" type="button" title="New project">${Icons.folder({ size: 14 })}</button>
       </div>
@@ -213,12 +215,12 @@ export class TaskerPanel {
       return `<span class="kb-project-name">${escapeHtml(only?.name ?? "")}</span>`;
     }
     const current = this.boardProjectId ?? projects[0].id;
+    const currentName = projects.find((p) => p.id === current)?.name ?? "";
     return `
-      <select class="kb-project-select" aria-label="Project">
-        ${projects
-          .map((p) => `<option value="${p.id}"${p.id === current ? " selected" : ""}>${escapeHtml(p.name)}</option>`)
-          .join("")}
-      </select>`;
+      <button class="kb-project-select" type="button" aria-haspopup="listbox" aria-expanded="false" data-current="${current}">
+        <span class="kb-project-select-label">${escapeHtml(currentName)}</span>
+        <span class="kb-project-select-caret" aria-hidden="true">${Icons.chevronRight({ size: 13 })}</span>
+      </button>`;
   }
 
   private renderBoardBody(): string {
@@ -264,6 +266,7 @@ export class TaskerPanel {
 
   render(): void {
     if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
+    if (this.projectMenuEl) this.closeProjectMenu();
     this.host.classList.remove("hidden");
     this.isOpen = true;
     document.body.classList.toggle("tasker-board", this.viewMode === "board");
@@ -404,6 +407,63 @@ export class TaskerPanel {
     `;
   }
 
+  private closeProjectMenu(): void {
+    if (this.projectMenuOutside) {
+      document.removeEventListener("mousedown", this.projectMenuOutside, true);
+      this.projectMenuOutside = null;
+    }
+    this.projectMenuEl?.remove();
+    this.projectMenuEl = null;
+    const btn = this.host.querySelector<HTMLButtonElement>(".kb-project-select");
+    btn?.setAttribute("aria-expanded", "false");
+  }
+
+  private openProjectMenu(anchor: HTMLElement): void {
+    if (this.projectMenuEl) { this.closeProjectMenu(); return; }
+    const projects = this.storage.getProjects();
+    const current = anchor.dataset.current ?? this.boardProjectId ?? projects[0]?.id;
+
+    const el = document.createElement("div");
+    el.className = "kb-project-menu";
+    el.setAttribute("role", "listbox");
+    el.innerHTML = projects
+      .map((p) =>
+        `<button class="kb-project-opt${p.id === current ? " on" : ""}" type="button" role="option" aria-selected="${p.id === current}" data-project-id="${p.id}">
+          <span class="kb-project-opt-check">${p.id === current ? Icons.check({ size: 13 }) : ""}</span>
+          <span class="kb-project-opt-name">${escapeHtml(p.name)}</span>
+        </button>`)
+      .join("");
+    document.body.appendChild(el);
+    this.projectMenuEl = el;
+    anchor.setAttribute("aria-expanded", "true");
+
+    const r = anchor.getBoundingClientRect();
+    el.style.position = "fixed";
+    el.style.top = `${r.bottom + 4}px`;
+    el.style.left = `${r.left}px`;
+    el.style.minWidth = `${r.width}px`;
+
+    el.querySelectorAll<HTMLButtonElement>(".kb-project-opt").forEach((opt) => {
+      opt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = opt.dataset.projectId;
+        this.closeProjectMenu();
+        if (!id || id === this.boardProjectId) return;
+        this.boardProjectId = id;
+        this.selectedTask = null;
+        this.saveViewPrefs();
+        this.render();
+      });
+    });
+
+    this.projectMenuOutside = (ev: MouseEvent) => {
+      if (!el.contains(ev.target as Node) && !anchor.contains(ev.target as Node)) {
+        this.closeProjectMenu();
+      }
+    };
+    document.addEventListener("mousedown", this.projectMenuOutside, true);
+  }
+
   private closeDatePicker(): void {
     if (this.dateOutsideListener) {
       document.removeEventListener("mousedown", this.dateOutsideListener, true);
@@ -537,12 +597,10 @@ export class TaskerPanel {
       };
       document.addEventListener("keydown", this.boardKeyHandler);
 
-      const projectSelect = this.host.querySelector<HTMLSelectElement>(".kb-project-select");
-      projectSelect?.addEventListener("change", () => {
-        this.boardProjectId = projectSelect.value;
-        this.selectedTask = null;
-        this.saveViewPrefs();
-        this.render();
+      const projectSelect = this.host.querySelector<HTMLButtonElement>(".kb-project-select");
+      projectSelect?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openProjectMenu(projectSelect);
       });
 
       this.mountBoard();
@@ -773,11 +831,14 @@ export class TaskerPanel {
       if (!projectId || !taskId) return;
 
       const note = edit.querySelector<HTMLTextAreaElement>(".tasker-edit-note");
+      // In the board dock the notes box flex-fills the panel via CSS, so leave
+      // height to the layout. In the inline list sheet, autosize to content.
+      const inBoardDock = !!edit.closest(".tasker-board-dock");
       const autoGrow = (el: HTMLTextAreaElement): void => {
         el.style.height = "auto";
         el.style.height = `${el.scrollHeight}px`;
       };
-      if (note) {
+      if (note && !inBoardDock) {
         autoGrow(note);
         note.addEventListener("input", () => autoGrow(note));
       }
