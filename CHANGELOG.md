@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.74 — Auth persistence fix (Keychain backend)
+
+### Fixed
+
+- **Sync auth now actually persists**: `keyring` v3 makes the OS-keychain backends opt-in, and the dependency was declared as `keyring = "3"` with no features — so it silently fell back to an in-memory `mock` store. The GitHub token and backend JWT never reached the real Keychain and vanished on every restart, so the sync panel showed "Synced as @user" (read from SQLite, which does persist) while every sync failed with "not signed in". Enabled the `apple-native` + `windows-native` features so credentials hit the real macOS/Windows keychain (`crates/score/Cargo.toml`).
+- **Tasker board add-task cancel**: the inline add-task form gains an explicit × discard button and cancels on Escape (`ui/src/tasker/board.ts`, `ui/src/tasker/board.css`).
+
 ## v0.8.73 — Sign-out fix + full-width sync panel
 
 ### Fixed
