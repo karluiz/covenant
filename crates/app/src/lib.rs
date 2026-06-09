@@ -939,6 +939,27 @@ async fn rc_pairing_token() -> Result<Option<String>, String> {
     karl_score::auth::load_jwt().map_err(|e| e.to_string())
 }
 
+/// Write `text` to the macOS system clipboard via `pbcopy`. Done in Rust so it
+/// works when triggered from a native menu item (the webview clipboard API
+/// rejects with "Document is not focused" in that case). Returns true on success.
+fn copy_to_clipboard(text: &str) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = match Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(target: "rc_agent", error=%e, "pbcopy spawn failed");
+            return false;
+        }
+    };
+    if let Some(stdin) = child.stdin.as_mut() {
+        if stdin.write_all(text.as_bytes()).is_err() {
+            return false;
+        }
+    }
+    matches!(child.wait(), Ok(s) if s.success())
+}
+
 #[tauri::command]
 async fn is_operator_enabled(
     state: State<'_, AppState>,
@@ -3132,7 +3153,19 @@ pub fn run() {
                     let _ = app.emit("menu://new-tab", ());
                 }
                 "copy-pairing-token" => {
-                    let _ = app.emit("menu://copy-pairing-token", ());
+                    // Copy from the Rust side via `pbcopy`. Doing it in the
+                    // webview (`navigator.clipboard.writeText`) fails with
+                    // "Document is not focused" when triggered from a native
+                    // menu click, since the menubar steals focus.
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let status = match karl_score::auth::load_jwt() {
+                            Ok(Some(token)) if copy_to_clipboard(&token) => "copied",
+                            Ok(Some(_)) => "error",
+                            _ => "signed-out",
+                        };
+                        let _ = app.emit("menu://pairing-token-copied", status);
+                    });
                 }
                 _ => {}
             }

@@ -920,17 +920,19 @@ async function boot(): Promise<void> {
   void listen("menu://new-tab", () => {
     void manager.createTab();
   });
-  void listen("menu://copy-pairing-token", async () => {
-    try {
-      const token = await invoke<string | null>("rc_pairing_token");
-      if (token) {
-        await navigator.clipboard.writeText(token);
+  // The copy happens in Rust (pbcopy) because navigator.clipboard rejects with
+  // "Document is not focused" when fired from a native menu click. We only
+  // surface the result here.
+  void listen<string>("menu://pairing-token-copied", (e) => {
+    switch (e.payload) {
+      case "copied":
         pushInfoToast({ message: "Pairing token copied" });
-      } else {
-        pushInfoToast({ message: "Not signed in" });
-      }
-    } catch (e) {
-      console.error("copy pairing token failed", e);
+        break;
+      case "signed-out":
+        pushInfoToast({ message: "Sign in to Score first" });
+        break;
+      default:
+        pushInfoToast({ message: "Couldn't copy pairing token" });
     }
   });
   void listen<string>("rc://tab/close", (e) => {

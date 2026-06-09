@@ -6,6 +6,8 @@
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .kb-col {
   display: flex;
@@ -144,6 +146,8 @@ body.theme-true-dark .kb-card { background: #141416; }
   border: 1px solid var(--accent);
   background: var(--bg);
   color: var(--text-primary);
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .kb-empty { padding: 24px; color: var(--muted); }
