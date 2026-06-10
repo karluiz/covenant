@@ -3733,7 +3733,11 @@ pub fn run() {
                 use std::time::Duration;
                 loop {
                     tokio::time::sleep(Duration::from_secs(300)).await;
-                    if let Err(e) = karl_score::sync::push_once(&sync_store).await {
+                    // Drain the whole backlog each cycle (batched, paced) so a
+                    // large first-sync doesn't take hours at one batch per tick.
+                    if let Err(e) =
+                        karl_score::sync::push_drain(&sync_store, Duration::from_millis(250)).await
+                    {
                         tracing::debug!(error = %e, "periodic sync skipped");
                     }
                 }

@@ -94,6 +94,26 @@ pub async fn push_once(store: &ScoreStore) -> std::result::Result<u64, SyncError
     Ok(count)
 }
 
+/// Push batches repeatedly until the backlog is drained (the batch comes
+/// back smaller than `BATCH_SIZE`). Sleeps `batch_delay` between full
+/// batches so a large first-sync backlog doesn't hammer the server.
+pub async fn push_drain(
+    store: &ScoreStore,
+    batch_delay: std::time::Duration,
+) -> std::result::Result<u64, SyncError> {
+    let mut total = 0u64;
+    loop {
+        let n = push_once(store).await?;
+        total += n;
+        if (n as usize) < BATCH_SIZE {
+            return Ok(total);
+        }
+        if !batch_delay.is_zero() {
+            tokio::time::sleep(batch_delay).await;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SyncStatus {
     pub signed_in: bool,
