@@ -2,25 +2,32 @@
 import Base from "../layouts/Base.astro";
 ---
 <Base title="Covenant · Remote" description="Remote tab dashboard">
-  <main class="mx-auto max-w-2xl px-4 py-10 font-mono">
-    <h1 class="text-emerald-400 text-lg mb-1">Covenant · Remote</h1>
-    <p class="text-zinc-500 text-sm mb-6">Paste your pairing token to view your desktop tabs. Read-only.</p>
-    <div class="flex gap-2 mb-3">
+  <main class="mx-auto max-w-6xl px-4 py-4 font-mono flex flex-col h-[calc(100dvh-4rem)]">
+    <div class="flex items-center gap-3 mb-2 flex-wrap">
+      <h1 class="text-emerald-400 text-lg">Covenant · Remote</h1>
+      <p id="rc-status" class="text-zinc-500 text-sm">○ not connected</p>
+      <div class="flex-1"></div>
+      <button id="rc-token-toggle"
+        class="hidden rounded border border-zinc-700 bg-zinc-800/40 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700/50">change token</button>
+      <button id="rc-new-tab"
+        class="rounded border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-900/50">+ New tab</button>
+    </div>
+    <div id="rc-token-row" class="flex gap-2 mb-2">
       <input id="rc-token" type="password" placeholder="pairing token (JWT)"
         class="flex-1 rounded border border-zinc-800 bg-black/40 px-3 py-2 text-sm text-zinc-200" />
       <button id="rc-connect"
         class="rounded border border-emerald-700 bg-emerald-900/30 px-4 py-2 text-sm text-emerald-300 hover:bg-emerald-900/50">Connect</button>
     </div>
-    <p id="rc-status" class="text-zinc-500 text-sm mb-4">○ desktop offline</p>
-    <button id="rc-new-tab" class="mb-3 rounded border border-emerald-700 bg-emerald-900/30 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-900/50">+ New tab</button>
-    <p id="rc-open-error" class="mb-3 text-xs text-red-400"></p>
-    <div id="rc-tabs" class="space-y-2"></div>
-    <div id="rc-mirror" class="mt-4 hidden">
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-xs text-emerald-400">live mirror</span>
-        <button id="rc-mirror-stop" class="rounded border border-zinc-700 bg-zinc-800/40 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-700/50">Stop</button>
+    <p id="rc-open-error" class="text-xs text-red-400 mb-1"></p>
+    <div class="flex-1 min-h-0 grid gap-3 auto-rows-fr md:grid-cols-[280px_1fr]">
+      <div id="rc-list" class="min-h-0 overflow-y-auto space-y-1 md:block"></div>
+      <div id="rc-detail" class="hidden flex md:flex min-h-0 flex-col rounded border border-emerald-900/50 bg-black/30 p-3">
+        <div id="rc-detail-info"></div>
+        <div id="rc-detail-mirror" class="hidden flex-col flex-1 min-h-0 mt-2">
+          <span class="text-xs text-emerald-400 mb-1">live mirror</span>
+          <div id="rc-mirror-term" class="flex-1 min-h-0 rounded border border-emerald-900/50 bg-black"></div>
+        </div>
       </div>
-      <div id="rc-mirror-term" class="rounded border border-emerald-900/50 bg-black"></div>
     </div>
   </main>
   <script>
