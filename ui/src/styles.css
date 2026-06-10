@@ -18380,3 +18380,85 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .mc-reply__controls { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .mc-reply__scope { width: 96px; }
 .mc-reply__send { background: var(--accent); color: #fff; border: 0; font-size: 11px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+
+/* ─── RC presence dot ─────────────────────────────────────────────────
+   Pulsing red dot beside the COVENANT brand while >=1 web client is
+   remote-controlling this desktop. Popover (on body) holds the controls.
+   Deliberately red/alarming — it is a security indicator. */
+@keyframes rc-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+.rc-presence-dot {
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 0;
+    padding: 0;
+    margin-left: 8px;
+    vertical-align: middle;
+    background: #ff5050;
+    box-shadow: 0 0 6px #ff5050;
+    animation: rc-pulse 1.6s ease-in-out infinite;
+    cursor: pointer;
+    display: inline-block;
+}
+.rc-presence-popover {
+    position: fixed;
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 180px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(20, 8, 8, 0.95);
+    border: 1px solid rgba(255, 80, 80, 0.5);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    font: 600 11px ui-monospace, Menlo, monospace;
+    color: #ffb3b3;
+    user-select: none;
+}
+.rc-presence-popover-open {
+    display: flex;
+}
+.rc-presence-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.rc-presence-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ff5050;
+    box-shadow: 0 0 6px #ff5050;
+    animation: rc-pulse 1.6s ease-in-out infinite;
+}
+.rc-presence-allow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: #ffd0d0;
+}
+.rc-presence-allow input {
+    cursor: pointer;
+    margin: 0;
+}
+.rc-presence-kill {
+    border: 1px solid rgba(255, 80, 80, 0.5);
+    background: rgba(255, 80, 80, 0.12);
+    color: #ffd0d0;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font: inherit;
+    cursor: pointer;
+}
+.rc-presence-kill:hover {
+    background: rgba(255, 80, 80, 0.22);
+}

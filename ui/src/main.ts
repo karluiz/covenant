@@ -26,7 +26,7 @@ import { AgentPanel } from "./agent/panel";
 import { AomActivityFeed } from "./aom/activity-feed";
 import { AomBanner } from "./aom/banner";
 import { installConnectivityBridge } from "./aom/connectivity";
-import { mountRemotePresencePill } from "./remote/presence-pill";
+import { mountRemotePresenceDot } from "./remote/presence-dot";
 import { playAomEntrySplash, playAomExitSplash } from "./aom/entry-splash";
 import { AomReportPanel } from "./aom/report";
 import {
@@ -1391,7 +1391,7 @@ async function boot(): Promise<void> {
   // unchanged.
   installConnectivityBridge();
 
-  mountRemotePresencePill();
+  mountRemotePresenceDot();
 
   const aomBanner = new AomBanner(document.body);
   manager.setAomBanner(aomBanner);
