@@ -268,6 +268,12 @@ interface Tab {
   /// Browser-specific — set when `kind === "browser"`. Owns the native
   /// webview chrome mounted inside `pane`.
   browser?: BrowserPane;
+  /// True when PTY output was written into xterm while the pane was
+  /// display:none — xterm can't measure its viewport then, so the scroll
+  /// area goes stale and activate() must run the resize nudge to re-sync
+  /// it. Cleared after the nudge runs. Shell tabs are born true (replay
+  /// scrollback + early shell output land before first activation).
+  wroteWhileHidden?: boolean;
   /// Which sidebar view is currently selected manually. Recall still
   /// overrides this when user is typing (existing behavior).
   sidebarView: "blocks" | "structure" | "recall";
@@ -551,6 +557,60 @@ export function stripObserverOnPromote(
 ): string[] {
   if (!newDriverId) return [...observers];
   return observers.filter((id) => id !== newDriverId);
+}
+
+/// Pure policy for the activation-time refit. Activation used to run an
+/// unconditional rows-1/rows resize nudge plus scrollToBottom on every tab
+/// switch — visible as flicker + a viewport jump 2 frames after the pane
+/// was already on screen. The nudge is only needed to re-sync xterm's
+/// scroll area after data was written while the pane was display:none
+/// (xterm can't measure the viewport then), and the bottom pin should
+/// only be restored if the user was actually at the bottom.
+export interface ActivationRefitPlan {
+  nudge: boolean;
+  scrollToBottom: boolean;
+}
+
+export function computeActivationRefit(opts: {
+  wroteWhileHidden: boolean;
+  viewportY: number;
+  baseY: number;
+  rows: number;
+}): ActivationRefitPlan {
+  return {
+    nudge: opts.wroteWhileHidden && opts.rows > 1,
+    scrollToBottom: opts.viewportY >= opts.baseY,
+  };
+}
+
+/// Pure policy for the ResizeObserver second-pass nudge. The nudge exists
+/// for sub-cell drift while VISIBLE (status bar mount, splitter settle —
+/// host height changed but fit() resolved to the same cols/rows). It must
+/// NOT run on the reveal transition (host going 0x0 → real size when a
+/// hidden tab is activated): activate() already handles that case, and
+/// nudging there repaints the terminal right after it became visible.
+export function shouldRoNudge(opts: {
+  revealing: boolean;
+  dimsChanged: boolean;
+  rows: number;
+}): boolean {
+  return !opts.revealing && !opts.dimsChanged && opts.rows > 1;
+}
+
+/// Pure helper: which pane is actually painted on screen right now —
+/// laid out (`hidden` false) AND composited (not `visibility:hidden`,
+/// i.e. not a pane another in-flight activation prepared invisibly).
+/// Activation keeps that pane up as the visual frame until the incoming
+/// pane has fitted and rendered, so a tab switch is one clean cross-cut
+/// instead of paint-then-jump spread over several frames.
+export function pickPaintedPaneId(
+  panes: ReadonlyArray<{ id: string; hidden: boolean; visibility: string }>,
+  targetId: string,
+): string | null {
+  const painted = panes.find(
+    (p) => p.id !== targetId && !p.hidden && p.visibility !== "hidden",
+  );
+  return painted ? painted.id : null;
 }
 
 /// localStorage key for the short-id → display-name cache. Purpose:
@@ -960,7 +1020,10 @@ export class TabManager {
     if (sessionId) {
       const binder = (this as unknown as Record<string, unknown>)[`_xtermRef_${sessionId}`] as ((ref: { write: (d: Uint8Array) => void } | null) => void) | undefined;
       if (binder) {
-        binder({ write: (data) => term.write(data) });
+        binder({ write: (data) => {
+          term.write(data);
+          if (tab.pane.hidden) tab.wroteWhileHidden = true;
+        } });
         delete (this as unknown as Record<string, unknown>)[`_xtermRef_${sessionId}`];
       }
     }
@@ -2945,7 +3008,10 @@ export class TabManager {
     try {
       sessionId = await spawnSession(
         {
-          onOutput: (chunk) => term.write(chunk),
+          onOutput: (chunk) => {
+            term.write(chunk);
+            if (tabRef.current?.pane.hidden) tabRef.current.wroteWhileHidden = true;
+          },
           onSessionEvent: (event) => {
             blocks?.handleEvent(event);
             // Track which agentic executor (if any) is running in this
@@ -3507,11 +3573,22 @@ export class TabManager {
     // keeps stale rows and the viewport stops short of the bottom (user
     // can't scroll to last line). rAF-debounced to coalesce bursts.
     let rafId: number | null = null;
+    // Last host size this observer acted on. 0x0 means the pane was
+    // display:none — the next non-zero pass is a reveal (tab switch),
+    // which activate() already fits/nudges; re-nudging here repainted
+    // the terminal right after it became visible (visible flicker).
+    let lastRoWidth = 0;
+    let lastRoHeight = 0;
     const ro = new ResizeObserver(() => {
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        if (termHost.offsetWidth === 0 || termHost.offsetHeight === 0) return;
+        const roWidth = termHost.offsetWidth;
+        const roHeight = termHost.offsetHeight;
+        const revealing = lastRoWidth === 0 || lastRoHeight === 0;
+        lastRoWidth = roWidth;
+        lastRoHeight = roHeight;
+        if (roWidth === 0 || roHeight === 0) return;
         try {
           fit.fit();
         } catch {
@@ -3532,8 +3609,10 @@ export class TabManager {
             return;
           }
           // If fit() resolved to the same dimensions (sub-cell change),
-          // nudge to force xterm to re-sync its viewport scroll area.
-          if (term.cols === prevCols && term.rows === prevRows && prevRows > 1) {
+          // nudge to force xterm to re-sync its viewport scroll area —
+          // but never on a reveal, where activate() owns the refit.
+          const dimsChanged = term.cols !== prevCols || term.rows !== prevRows;
+          if (shouldRoNudge({ revealing, dimsChanged, rows: prevRows })) {
             try {
               term.resize(prevCols, prevRows - 1);
               term.resize(prevCols, prevRows);
@@ -3706,6 +3785,7 @@ export class TabManager {
       structure,
       editor,
       openEditor,
+      wroteWhileHidden: true,
       sidebarView: "blocks",
       disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose],
       specBadge: null,
@@ -5189,8 +5269,40 @@ export class TabManager {
       if (opts.skipIfSame !== false) return;
     }
 
-    this.hideAllPanes();
+    // Anti-flicker activation. The old sequence revealed the pane first
+    // and then ran fit + an unconditional resize nudge + scrollToBottom
+    // over the next two frames — users saw stale content paint, then
+    // resize/scroll jumps. Now: the currently painted pane stays on
+    // screen as the visual frame, the incoming pane is laid out
+    // invisibly (visibility:hidden keeps real dimensions so fit() and
+    // the WebGL renderer both work, unlike display:none), all geometry
+    // work happens before it ever paints, and the swap is one clean
+    // cross-cut on the next frame.
+    const paintedId = pickPaintedPaneId(
+      this.tabs.map((t) => ({
+        id: t.id,
+        hidden: t.pane.hidden,
+        visibility: t.pane.style.visibility,
+      })),
+      id,
+    );
+    const prevPainted = paintedId
+      ? this.tabs.find((t) => t.id === paintedId) ?? null
+      : null;
+    const deferSwap =
+      tab.kind === "shell" && !!tab.term && !!tab.fit && !!prevPainted;
+
+    for (const t of this.tabs) {
+      if (t === tab) continue;
+      if (deferSwap && t === prevPainted) continue;
+      t.pane.hidden = true;
+      t.pane.style.removeProperty("visibility");
+      if (t.kind === "browser") t.browser?.hide();
+    }
     tab.pane.hidden = false;
+    if (deferSwap) tab.pane.style.visibility = "hidden";
+    else tab.pane.style.removeProperty("visibility");
+
     this.activeId = id;
     this.renderTabbar();
     this.onTabActivated?.();
@@ -5207,7 +5319,7 @@ export class TabManager {
 
     if (tab.kind === "browser") {
       // Browser tabs have no xterm. Reveal the native webview (which
-      // floats above the DOM and was hidden by hideAllPanes).
+      // floats above the DOM and was hidden above).
       tab.browser?.show();
       return;
     }
@@ -5224,14 +5336,15 @@ export class TabManager {
     const fit = tab.fit;
     if (!term || !fit) return;
 
-    // Double-rAF refit. The first pass fits against layout from the
-    // synchronous reflow triggered by toggling `pane.hidden`; the second
-    // pass corrects for any sub-pixel/cell-metric drift that lands on
-    // the next paint (status bar, AOM banner, splitter, etc. settling).
-    // Without the second pass, term.rows can stay one too high and
-    // xterm renders rows under the status bar — invisible but
-    // selectable, which is exactly what users hit when scrolling can't
-    // reach the actual last line.
+    // Capture scroll pinning BEFORE any resize moves the viewport.
+    const buf = term.buffer.active;
+    const plan = computeActivationRefit({
+      wroteWhileHidden: tab.wroteWhileHidden === true,
+      viewportY: buf.viewportY,
+      baseY: buf.baseY,
+      rows: term.rows,
+    });
+
     const doFit = (): void => {
       try {
         fit.fit();
@@ -5240,34 +5353,49 @@ export class TabManager {
         console.warn("fit failed on activation", err);
       }
     };
+
+    // First fit runs synchronously: the pane is back in layout
+    // (hidden = false) so measurements are live, and resizing now means
+    // the first painted frame already has correct geometry.
+    doFit();
+    if (plan.nudge) {
+      // Re-sync xterm's viewport scroll area. Data written while the
+      // pane was display:none updates the buffer, but xterm can't
+      // measure the viewport div then — the internal scroll-area height
+      // goes stale, and if fit() resolved to the same cols/rows the
+      // resize was a no-op and never corrected it. Shrink one row and
+      // grow back to force a real resize cycle with live geometry.
+      const { cols, rows } = term;
+      try {
+        term.resize(cols, rows - 1);
+        term.resize(cols, rows);
+      } catch {
+        /* ignore — terminal may be mid-dispose */
+      }
+      tab.wroteWhileHidden = false;
+    }
+    if (plan.scrollToBottom) term.scrollToBottom();
+    const activateSessId = activePane(tab).sessionId;
+    if (activateSessId) void resizeSession(activateSessId as SessionId, term.cols, term.rows).catch(() => {});
+
     requestAnimationFrame(() => {
+      // Superseded by a later activate(), or the pane was hidden again
+      // (settings page opened mid-switch) — the screen isn't ours.
+      if (this.activeId !== id || tab.pane.hidden) return;
+      // Drift pass: status bar / AOM banner / splitter can settle a
+      // sub-cell height change after the synchronous fit. Without it,
+      // term.rows can stay one too high and xterm renders rows under
+      // the status bar — invisible but selectable.
       doFit();
-      requestAnimationFrame(() => {
-        doFit();
-        // Force xterm to re-sync its viewport scroll area. When data
-        // was written while the pane was hidden (display:none), xterm
-        // updates its buffer but can't measure the viewport div — so
-        // the internal scroll-area height goes stale. If fit.fit()
-        // resolved to the same cols/rows, term.resize() was a no-op
-        // and the scroll area stayed wrong. The nudge below forces a
-        // real resize cycle: shrink by one row (recalculates scroll
-        // area) then grow back (recalculates again with correct
-        // geometry). Cost: two synchronous resize calls — negligible
-        // since this only runs on tab activation, not per-byte.
-        const { cols, rows } = term;
-        if (rows > 1) {
-          try {
-            term.resize(cols, rows - 1);
-            term.resize(cols, rows);
-          } catch {
-            /* ignore — terminal may be mid-dispose */
-          }
+      if (deferSwap) {
+        tab.pane.style.removeProperty("visibility");
+        if (prevPainted && prevPainted !== tab) {
+          prevPainted.pane.hidden = true;
+          prevPainted.pane.style.removeProperty("visibility");
+          if (prevPainted.kind === "browser") prevPainted.browser?.hide();
         }
-        const activateSessId = activePane(tab).sessionId;
-        if (activateSessId) void resizeSession(activateSessId as SessionId, term.cols, term.rows).catch(() => {});
-        term.scrollToBottom();
-        term.focus();
-      });
+      }
+      term.focus();
     });
   }
 
@@ -5666,6 +5794,9 @@ export class TabManager {
   private hideAllPanes(): void {
     for (const t of this.tabs) {
       t.pane.hidden = true;
+      // Clear any visibility:hidden left by an in-flight activation so
+      // the pane paints normally the next time something un-hides it.
+      t.pane.style.removeProperty("visibility");
       // Native webviews float above the DOM and ignore `hidden`, so they
       // must be explicitly hidden when their tab is no longer in front.
       if (t.kind === "browser") t.browser?.hide();
