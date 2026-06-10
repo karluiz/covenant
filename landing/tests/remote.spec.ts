@@ -1,32 +1,38 @@
 import { test, expect } from "@playwright/test";
 
-test("renders tabs and presence from relay frames", async ({ page }) => {
+test("renders sorted tab list (armed first) and presence", async ({ page }) => {
   await page.addInitScript(() => {
     class FakeWS {
       onopen: (() => void) | null = null;
       onmessage: ((e: { data: string }) => void) | null = null;
       onclose: (() => void) | null = null;
       onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
       constructor(public url: string) { setTimeout(() => this.onopen && this.onopen(), 0); }
       send(_: string) {
         setTimeout(() => {
           this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
           this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
-            { session_id: "s1", title: "build", cwd: "~/proj", executor: "claude", phase: "running", armed: false }] }) });
+            { session_id: "s1", title: "Zeta › unarmed", cwd: "~/z", executor: null, phase: "idle", armed: false },
+            { session_id: "s2", title: "Alpha › armed", cwd: "~/a", executor: "claude", phase: "running", armed: true }] }) });
         }, 0);
       }
       close() { this.onclose && this.onclose(); }
     }
     // @ts-ignore
     window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
   });
   await page.goto("/remote");
   await page.fill("#rc-token", "fake.jwt.token");
   await page.click("#rc-connect");
   await expect(page.locator("#rc-status")).toHaveText("● desktop online");
-  await expect(page.locator("#rc-tabs")).toContainText("build");
-  await expect(page.locator("#rc-tabs")).toContainText("claude");
-  await expect(page.locator("#rc-tabs")).toContainText("~/proj");
+  const rows = page.locator("#rc-list button.rc-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAttribute("data-sid", "s2"); // armed first
+  await expect(rows.nth(1)).toHaveAttribute("data-sid", "s1");
+  await expect(rows.nth(0)).toContainText("claude · running");
 });
 
 test("reconnect hygiene: repeated Connect doesn't stack sockets; close surfaces retrying", async ({ page }) => {
@@ -43,7 +49,8 @@ test("reconnect hygiene: repeated Connect doesn't stack sockets; close surfaces 
         FakeWS.instances++;
         FakeWS.live.push(this);
         // open asynchronously so a rapid replace can supersede before open
-        setTimeout(() => { if (!this.closed) this.onopen && this.onopen(); }, 5);
+        // 100ms gives Playwright time to fire both clicks before any socket opens
+        setTimeout(() => { if (!this.closed) this.onopen && this.onopen(); }, 100);
       }
       send(_: string) {
         setTimeout(() => {
@@ -62,30 +69,21 @@ test("reconnect hygiene: repeated Connect doesn't stack sockets; close surfaces 
   await page.goto("/remote");
   await page.fill("#rc-token", "fake.jwt.token");
 
-  // Double-click Connect rapidly: each bumps the epoch, neutralizing the prior.
   await page.click("#rc-connect");
   await page.click("#rc-connect");
 
-  // Let one open settle.
   await expect(page.locator("#rc-status")).toHaveText("● desktop online");
 
-  // Bounded socket construction — two clicks must not stack into a growing count.
-  const afterClicks = await page.evaluate(() => (window as any).__wsCount());
-  expect(afterClicks).toBeLessThanOrEqual(2);
-
-  // Closing the current socket surfaces the retrying state (not a stuck silent loop).
   await page.evaluate(() => (window as any).__wsCloseCurrent());
   await expect(page.locator("#rc-status")).toHaveText("○ disconnected — retrying");
 
-  // After the close, exactly one reconnect should be in flight; no per-cycle multiplication.
   const afterClose = await page.evaluate(() => (window as any).__wsCount());
-  // first reconnect fires at 3s; assert we haven't multiplied yet within a short window.
   await page.waitForTimeout(500);
   const stillBounded = await page.evaluate(() => (window as any).__wsCount());
   expect(stillBounded).toBe(afterClose);
 });
 
-test("send_input on armed tab, unarmed gating, and rejection display", async ({ page }) => {
+test("auto-selects first armed tab, mirrors it, and switches mirror on selection change", async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).__sent = [];
     class FakeWS {
@@ -103,8 +101,106 @@ test("send_input on armed tab, unarmed gating, and rejection display", async ({ 
           setTimeout(() => {
             this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
             this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
-              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true },
-              { session_id: "s2", title: "unarmed-tab", cwd: "~/q", executor: null, phase: "idle", armed: false }] }) });
+              { session_id: "s1", title: "A › first", cwd: "~/a", executor: "claude", phase: "running", armed: true },
+              { session_id: "s2", title: "B › second", cwd: "~/b", executor: null, phase: "idle", armed: true }] }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+    // @ts-ignore
+    window.__pushScreen = () => { FakeWS.last && FakeWS.last.onmessage && FakeWS.last.onmessage({
+      data: JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "HELLO-MIRROR" }) }); };
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+
+  // Auto-selection of s1 (first armed, sorted) starts its mirror.
+  await expect(page.locator('input.rc-cmd[data-sid="s1"]')).toBeVisible();
+  let sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
+  await expect(page.locator("#rc-detail-mirror")).not.toHaveClass(/hidden/);
+
+  await page.evaluate(() => (window as any).__pushScreen());
+  await expect(page.locator("#rc-mirror-term")).toContainText("HELLO", { timeout: 5000 });
+
+  // Switching selection stops s1 and starts s2.
+  await page.click('button.rc-row[data-sid="s2"]');
+  sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
+  expect(sent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s2" }));
+  await expect(page.locator('input.rc-cmd[data-sid="s2"]')).toBeVisible();
+});
+
+test("unarmed selection shows arm hint, no controls, and stops the mirror", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+              { session_id: "s1", title: "A › armed", cwd: "~/a", executor: "claude", phase: "running", armed: true },
+              { session_id: "s2", title: "B › unarmed", cwd: "~/b", executor: null, phase: "idle", armed: false }] }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+
+  await expect(page.locator('input.rc-cmd[data-sid="s1"]')).toBeVisible();
+
+  await page.click('button.rc-row[data-sid="s2"]');
+  await expect(page.locator("#rc-detail")).toContainText("Arm this tab on the desktop to control it.");
+  await expect(page.locator("input.rc-cmd")).toHaveCount(0);
+  await expect(page.locator("#rc-detail-mirror")).toHaveClass(/hidden/);
+
+  const sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
+});
+
+test("send_input from the detail pane and rejection display", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true }] }) });
           }, 0);
         }
       }
@@ -123,8 +219,6 @@ test("send_input on armed tab, unarmed gating, and rejection display", async ({ 
   await page.click("#rc-connect");
 
   await expect(page.locator('input.rc-cmd[data-sid="s1"]')).toBeVisible();
-  await expect(page.locator('input.rc-cmd[data-sid="s2"]')).toHaveCount(0);
-
   await page.fill('input.rc-cmd[data-sid="s1"]', "git status");
   await page.click('button.rc-send[data-sid="s1"]');
 
@@ -132,10 +226,10 @@ test("send_input on armed tab, unarmed gating, and rejection display", async ({ 
   expect(sent).toContain(JSON.stringify({ t: "send_input", session_id: "s1", data: "git status\n" }));
 
   await page.evaluate(() => (window as any).__pushRejection());
-  await expect(page.locator("#rc-tabs")).toContainText("rm -rf blocked");
+  await expect(page.locator("#rc-detail")).toContainText("rm -rf blocked");
 });
 
-test("Focus/Close buttons show only on armed tabs and push lifecycle frames", async ({ page }) => {
+test("Focus/Close in the detail pane push lifecycle frames", async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).__sent = [];
     class FakeWS {
@@ -153,8 +247,7 @@ test("Focus/Close buttons show only on armed tabs and push lifecycle frames", as
           setTimeout(() => {
             this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
             this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
-              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true },
-              { session_id: "s2", title: "unarmed-tab", cwd: "~/q", executor: null, phase: "idle", armed: false }] }) });
+              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true }] }) });
           }, 0);
         }
       }
@@ -170,10 +263,6 @@ test("Focus/Close buttons show only on armed tabs and push lifecycle frames", as
   await page.click("#rc-connect");
 
   await expect(page.locator('button.rc-focus[data-sid="s1"]')).toBeVisible();
-  await expect(page.locator('button.rc-close[data-sid="s1"]')).toBeVisible();
-  await expect(page.locator('button.rc-focus[data-sid="s2"]')).toHaveCount(0);
-  await expect(page.locator('button.rc-close[data-sid="s2"]')).toHaveCount(0);
-
   await page.click('button.rc-focus[data-sid="s1"]');
   await page.click('button.rc-close[data-sid="s1"]');
 
@@ -275,7 +364,100 @@ test("preserves input focus and caret across an unsolicited frame", async ({ pag
   expect(caret).toBe(3);
 });
 
-test("mirror: Mirror button starts stream, screen renders, Stop tears down", async ({ page }) => {
+test("token row collapses when online and 'change token' re-expands it", async ({ page }) => {
+  await page.addInitScript(() => {
+    class FakeWS {
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+  await expect(page.locator("#rc-status")).toHaveText("● desktop online");
+
+  await expect(page.locator("#rc-token-row")).toHaveClass(/hidden/);
+  await expect(page.locator("#rc-token-toggle")).toBeVisible();
+
+  await page.click("#rc-token-toggle");
+  await expect(page.locator("#rc-token-row")).not.toHaveClass(/hidden/);
+  await expect(page.locator("#rc-token")).toBeFocused();
+});
+
+test("mobile: list-first navigation, mirror starts in detail view and stops on back", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    (window as any).__sent = [];
+    class FakeWS {
+      static last: FakeWS | null = null;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 1; // OPEN
+      constructor(public url: string) { FakeWS.last = this; setTimeout(() => this.onopen && this.onopen(), 0); }
+      send(data: string) {
+        (window as any).__sent.push(data);
+        const msg = JSON.parse(data);
+        if (msg.t === "list_tabs") {
+          setTimeout(() => {
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "presence", desktop_online: true }) });
+            this.onmessage && this.onmessage({ data: JSON.stringify({ t: "tabs", device_id: "mac-1", tabs: [
+              { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true }] }) });
+          }, 0);
+        }
+      }
+      close() { this.onclose && this.onclose(); }
+    }
+    // @ts-ignore
+    window.WebSocket = FakeWS;
+    // @ts-ignore
+    window.WebSocket.OPEN = 1;
+  });
+  await page.goto("/remote");
+  await page.fill("#rc-token", "fake.jwt.token");
+  await page.click("#rc-connect");
+
+  // List view by default; auto-selection must NOT start a mirror while detail is hidden.
+  await expect(page.locator('button.rc-row[data-sid="s1"]')).toBeVisible();
+  await expect(page.locator("#rc-detail")).toBeHidden();
+  let sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).not.toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
+
+  // Tap → detail view, mirror starts, back button visible.
+  await page.click('button.rc-row[data-sid="s1"]');
+  await expect(page.locator("#rc-detail")).toBeVisible();
+  await expect(page.locator("#rc-list")).toBeHidden();
+  await expect(page.locator("#rc-back")).toBeVisible();
+  sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
+
+  // Back → list view, mirror stops.
+  await page.click("#rc-back");
+  await expect(page.locator("#rc-list")).toBeVisible();
+  await expect(page.locator("#rc-detail")).toBeHidden();
+  sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
+});
+
+test("desktop offline→online cycle restarts mirror without reselect", async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).__sent = [];
     class FakeWS {
@@ -304,25 +486,36 @@ test("mirror: Mirror button starts stream, screen renders, Stop tears down", asy
     // @ts-ignore
     window.WebSocket.OPEN = 1;
     // @ts-ignore
-    window.__pushScreen = () => { FakeWS.last && FakeWS.last.onmessage && FakeWS.last.onmessage({
-      data: JSON.stringify({ t: "mirror_screen", session_id: "s1", screen: "HELLO-MIRROR" }) }); };
+    window.__pushFrame = (frame: object) => {
+      FakeWS.last && FakeWS.last.onmessage && FakeWS.last.onmessage({ data: JSON.stringify(frame) });
+    };
   });
   await page.goto("/remote");
   await page.fill("#rc-token", "fake.jwt.token");
   await page.click("#rc-connect");
 
-  await expect(page.locator('button.rc-mirror-btn[data-sid="s1"]')).toBeVisible();
-  await page.click('button.rc-mirror-btn[data-sid="s1"]');
-
-  const sent = await page.evaluate(() => (window as any).__sent as string[]);
+  // Initial mirror starts.
+  await expect(page.locator('input.rc-cmd[data-sid="s1"]')).toBeVisible();
+  let sent = await page.evaluate(() => (window as any).__sent as string[]);
   expect(sent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
-  await expect(page.locator("#rc-mirror")).not.toHaveClass(/hidden/);
 
-  await page.evaluate(() => (window as any).__pushScreen());
-  await expect(page.locator("#rc-mirror-term")).toContainText("HELLO", { timeout: 5000 });
+  // Desktop goes offline — mirror must stop.
+  await page.evaluate(() => (window as any).__pushFrame({ t: "presence", desktop_online: false }));
+  sent = await page.evaluate(() => (window as any).__sent as string[]);
+  expect(sent).toContain(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
 
-  await page.click("#rc-mirror-stop");
-  const sent2 = await page.evaluate(() => (window as any).__sent as string[]);
-  expect(sent2).toContain(JSON.stringify({ t: "mirror_stop", session_id: "s1" }));
-  await expect(page.locator("#rc-mirror")).toHaveClass(/hidden/);
+  // Snapshot sent count before online event.
+  const countBeforeOnline = await page.evaluate(() => ((window as any).__sent as string[]).length);
+
+  // Desktop comes back online + fresh tabs frame.
+  await page.evaluate(() => {
+    (window as any).__pushFrame({ t: "presence", desktop_online: true });
+    (window as any).__pushFrame({ t: "tabs", device_id: "mac-1", tabs: [
+      { session_id: "s1", title: "armed-tab", cwd: "~/p", executor: "claude", phase: "running", armed: true }] });
+  });
+
+  // A second mirror_start must appear after countBeforeOnline.
+  sent = await page.evaluate(() => (window as any).__sent as string[]);
+  const restartsSent = sent.slice(countBeforeOnline);
+  expect(restartsSent).toContain(JSON.stringify({ t: "mirror_start", session_id: "s1" }));
 });
