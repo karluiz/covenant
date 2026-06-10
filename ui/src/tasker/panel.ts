@@ -94,6 +94,7 @@ export class TaskerPanel {
   private projectMenuEl: HTMLElement | null = null;
   private projectMenuOutside: ((ev: MouseEvent) => void) | null = null;
   private editingTitle: { projectId: string; taskId: string } | null = null;
+  private renamingProjectId: string | null = null;
   private composingList = false;
   private viewMode: "list" | "board" = "list";
   private boardProjectId: string | null = null;
@@ -315,12 +316,19 @@ export class TaskerPanel {
     return `
       <div class="tasker-project">
         <div class="tasker-project-headrow">
+          ${this.renamingProjectId === project.id
+            ? `
+          <div class="tasker-project-header tasker-project-header-renaming">
+            <span class="tasker-project-toggle${isExpanded ? " tasker-project-toggle-open" : ""}">${Icons.chevronRight({ size: 14 })}</span>
+            <input class="tasker-project-rename-input" data-project-id="${project.id}" type="text" value="${escapeAttr(project.name)}" autocomplete="off" aria-label="Rename project" />
+          </div>`
+            : `
           <button class="tasker-project-header" data-project-id="${project.id}">
             <span class="tasker-project-toggle${isExpanded ? " tasker-project-toggle-open" : ""}">${Icons.chevronRight({ size: 14 })}</span>
             <span class="tasker-project-name">${escapeHtml(project.name)}</span>
             <span class="tasker-project-count">${tasks.length}</span>
           </button>
-          ${project.name === "Inbox" ? "" : `<button class="tasker-project-delete" type="button" data-project-id="${project.id}" aria-label="Delete project">${Icons.trash({ size: 13 })}</button>`}
+          ${project.name === "Inbox" ? "" : `<button class="tasker-project-delete" type="button" data-project-id="${project.id}" aria-label="Delete project">${Icons.trash({ size: 13 })}</button>`}`}
         </div>
         ${isExpanded ? `
           <div class="tasker-tasks">
@@ -625,6 +633,50 @@ export class TaskerPanel {
       });
     });
 
+    this.host.querySelectorAll<HTMLElement>(".tasker-project-header .tasker-project-name").forEach((nameEl) => {
+      nameEl.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        const projectId = nameEl.closest<HTMLElement>(".tasker-project-header")?.dataset.projectId;
+        if (!projectId) return;
+        const project = this.storage.getProject(projectId);
+        if (!project || project.name === "Inbox") return;
+        this.renamingProjectId = projectId;
+        this.render();
+      });
+    });
+
+    this.host.querySelectorAll<HTMLInputElement>(".tasker-project-rename-input").forEach((input) => {
+      let settled = false;
+      const commit = (): void => {
+        if (settled) return;
+        settled = true;
+        const projectId = input.dataset.projectId;
+        const name = input.value.trim();
+        this.renamingProjectId = null;
+        if (projectId && name.length > 0) {
+          this.storage.updateProject(projectId, { name });
+        }
+        this.render();
+      };
+      input.addEventListener("blur", commit);
+      input.addEventListener("change", commit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          settled = true;
+          this.renamingProjectId = null;
+          this.render();
+        }
+      });
+      queueMicrotask(() => {
+        input.focus();
+        input.select();
+      });
+    });
+
     this.host.querySelectorAll<HTMLButtonElement>(".tasker-project-delete").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -792,9 +844,10 @@ export class TaskerPanel {
     });
 
     this.host.querySelectorAll<HTMLInputElement>(".tasker-title-input").forEach((input) => {
-      let cancelled = false;
+      let settled = false;
       const commit = (): void => {
-        if (cancelled) return;
+        if (settled) return;
+        settled = true;
         const taskEl = input.closest<HTMLElement>(".tasker-task");
         const projectId = taskEl?.dataset.projectId;
         const taskId = taskEl?.dataset.taskId;
@@ -806,13 +859,14 @@ export class TaskerPanel {
         this.render();
       };
       input.addEventListener("blur", commit);
+      input.addEventListener("change", commit);
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          input.blur();
+          commit();
         } else if (e.key === "Escape") {
           e.preventDefault();
-          cancelled = true;
+          settled = true;
           this.editingTitle = null;
           this.render();
         }

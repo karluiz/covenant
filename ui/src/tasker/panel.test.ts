@@ -224,6 +224,71 @@ describe("TaskerPanel inline edit", () => {
 
 });
 
+describe("TaskerPanel project rename", () => {
+  function projectNameEl(host: HTMLElement, pid: string): HTMLElement {
+    return host.querySelector<HTMLElement>(
+      `.tasker-project-header[data-project-id="${pid}"] .tasker-project-name`,
+    )!;
+  }
+
+  it("double-clicking a project name turns it into an input that commits on change", () => {
+    const { panel, host } = mount();
+    const project = storageOf(panel).createProject("Travel to Peru");
+    panel.render();
+
+    projectNameEl(host, project.id).dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = host.querySelector<HTMLInputElement>(
+      `.tasker-project-rename-input[data-project-id="${project.id}"]`,
+    )!;
+    expect(input).toBeTruthy();
+    input.value = "Travel to Chile";
+    input.dispatchEvent(new Event("change"));
+
+    expect(storageOf(panel).getProject(project.id).name).toBe("Travel to Chile");
+  });
+
+  it("Escape cancels a project rename without changing the stored name", () => {
+    const { panel, host } = mount();
+    const project = storageOf(panel).createProject("Travel to Peru");
+    panel.render();
+
+    projectNameEl(host, project.id).dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = host.querySelector<HTMLInputElement>(
+      `.tasker-project-rename-input[data-project-id="${project.id}"]`,
+    )!;
+    expect(input).toBeTruthy();
+    input.value = "Should not persist";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(storageOf(panel).getProject(project.id).name).toBe("Travel to Peru");
+    expect(host.querySelector(".tasker-project-rename-input")).toBeNull();
+  });
+
+  it("an empty name does not commit", () => {
+    const { panel, host } = mount();
+    const project = storageOf(panel).createProject("Travel to Peru");
+    panel.render();
+
+    projectNameEl(host, project.id).dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    const input = host.querySelector<HTMLInputElement>(
+      `.tasker-project-rename-input[data-project-id="${project.id}"]`,
+    )!;
+    input.value = "   ";
+    input.dispatchEvent(new Event("change"));
+
+    expect(storageOf(panel).getProject(project.id).name).toBe("Travel to Peru");
+  });
+
+  it("Inbox cannot be renamed", () => {
+    const { panel, host } = mount();
+    const pid = inbox(panel);
+    panel.render();
+
+    projectNameEl(host, pid).dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    expect(host.querySelector(".tasker-project-rename-input")).toBeNull();
+  });
+});
+
 describe("TaskerPanel new-list composer", () => {
   it("does not call window.prompt and creates a project from the inline composer", () => {
     const promptSpy = vi.spyOn(window, "prompt");
