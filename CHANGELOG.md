@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.75 — Tasker inline project rename (double-click header)
+
+### Added
+
+- **Rename Tasker projects inline**: double-click a project name in the Tasker panel header to edit it in place — Enter or clicking away commits, Escape cancels, an empty name is a no-op, and the built-in Inbox stays non-renameable (matching the delete affordance). The input mirrors the header's uppercase styling with an accent underline (`ui/src/tasker/panel.ts`, `ui/src/tasker/styles.css`).
+
+### Fixed
+
+- **Task title inline edit commits on change**: the task title input only committed on `blur`, so `change`-driven commits were dropped; it now commits on `change` as well, with a guard against double-commits when both events fire (`ui/src/tasker/panel.ts`).
+
 ## v0.8.74 — Auth persistence fix (Keychain backend)
 
 ### Fixed
