@@ -6,6 +6,39 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.77 — Teammate tasks can be marked done + operator release fixes
+
+### Added
+
+- **Mark done on task rows**: active/blocked tasks in the teammate Tasks tab
+  now have a "Mark done" button next to Stop. It flips the task to `done`
+  (stamping `completed_at`), posts a "Task completed." lifecycle message, and
+  releases the operator so it can immediately take the next task — the tab
+  stays open. New `teammate_complete_task` command + `complete_task_inner` in
+  `crates/app/src/teammate/commands.rs`, `teammate_mark_task_done` in
+  `crates/app/src/storage.rs`, button wiring in `ui/src/teammate/panel.ts`.
+  Previously nothing in the app ever wrote `TaskStatus::Done`, so operators
+  stayed "on task" forever once they confirmed anything.
+
+### Fixed
+
+- **Stop now frees the operator**: `teammate_cancel_active_task` never
+  released the in-memory runtime claim, so after stopping a task every later
+  confirm failed with "operator is already working on another task" until an
+  app restart. Cancel goes through the new `cancel_active_task_inner`, which
+  calls `runtime.finish_task` (`crates/app/src/teammate/commands.rs`).
+
+- **Confirm is atomic**: `confirm_task_inner` persisted the task row and
+  marked the proposal confirmed *before* claiming the operator runtime. A
+  busy-operator rejection left behind an orphaned Active task and a proposal
+  stuck answering "this proposal was already confirmed" to every retry. The
+  runtime is now claimed first and rolled back if the storage writes fail.
+
+- **Confirm errors resync the chat**: a failed confirm now repaints the
+  thread from storage instead of leaving the stale proposal card interactive,
+  which invited retry-spam against an already-settled proposal
+  (`ui/src/teammate/panel.ts`).
+
 ## v0.8.76 — Workspace rename/delete prompts + tab-switch flicker fix
 
 ### Added
