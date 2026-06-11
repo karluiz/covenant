@@ -526,6 +526,12 @@ export async function teammateCancelActiveTask(taskId: string): Promise<void> {
   return invoke<void>("teammate_cancel_active_task", { taskId });
 }
 
+/// Mark an active/blocked task as done, releasing the operator so it can
+/// pick up the next task. Used by the task-detail "Mark done" button.
+export async function teammateCompleteTask(taskId: string): Promise<void> {
+  return invoke<void>("teammate_complete_task", { taskId });
+}
+
 export async function teammateEditTaskProposal(
   messageId: string,
   draft: TaskDraft,

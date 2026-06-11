@@ -2982,6 +2982,28 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    /// Mark a task done: status → 'done' and stamp `completed_at_unix_ms`.
+    /// Kept separate from `teammate_update_task_status` because completion
+    /// is the only transition that owns the completed_at column.
+    pub async fn teammate_mark_task_done(
+        &self,
+        id: crate::teammate::TaskId,
+        now_unix_ms: u64,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_tasks SET status = 'done', updated_at_unix_ms = ?1, \
+                 completed_at_unix_ms = ?1 WHERE id = ?2",
+                params![now_unix_ms as i64, id.0.to_string()],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn teammate_update_task_status(
         &self,
         id: crate::teammate::TaskId,

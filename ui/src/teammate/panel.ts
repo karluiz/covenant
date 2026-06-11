@@ -8,7 +8,7 @@ import {
   structureFindFiles, structureReadFile,
   teammateAttachSessionToTask, teammateArchiveThread, teammateCancelActiveTask, teammateCancelTaskProposal,
   teammateConfirmTask, teammateCreateThread, teammateEditTaskProposal,
-  teammateClearFinishedTasks, teammateDeleteTask,
+  teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask,
   teammateListDecisionsForSession, teammateListMessages, teammateListTasks, teammateListThreads,
   teammateRenameThread, teammateSendText,
   type BlockExcerpt, type SessionExcerpt,
@@ -135,6 +135,10 @@ export interface TeammatePanelDeps {
   /// Backend cancel for already-active tasks (proposals use
   /// cancelTaskProposal). Wired to the task-detail "Stop" button.
   cancelActiveTask?: (taskId: string) => Promise<void>;
+  /// Backend complete for active/blocked tasks. Marks the task done and
+  /// releases the operator so it can take the next task. Wired to the
+  /// task-detail "Mark done" button.
+  completeTask?: (taskId: string) => Promise<void>;
   /// Remove the operator binding from a tab — used by Stop so the
   /// teammate is free to take a new task elsewhere.
   unbindOperatorFromTab?: (sessionId: string) => Promise<void>;
@@ -167,6 +171,7 @@ const DEFAULT_DEPS: TeammatePanelDeps = {
   clearFinishedTasks:  teammateClearFinishedTasks,
   deleteTask:          teammateDeleteTask,
   cancelActiveTask:    teammateCancelActiveTask,
+  completeTask:        teammateCompleteTask,
   mentionSources: {
     findFiles:          structureFindFiles,
     listOperators:      operatorList,
@@ -223,7 +228,7 @@ function taskUpdateSummary(kind: UpdateKind): SystemLineStyle {
   }
 }
 
-/// Translate known backend error strings to user-facing Spanish copy.
+/// Translate known backend error strings to user-facing copy.
 /// Unknown errors fall back to a generic message — the raw error still
 /// lands in console.error for devs.
 function friendlyError(action: "confirm" | "cancel" | "edit", raw: string): { title: string; body: string } {
@@ -1388,6 +1393,37 @@ export class TeammatePanel {
       return actions;
     }
 
+    // Mark done — the success twin of Stop. Flips the task to done and
+    // releases the operator so the next proposal can be confirmed. Leaves
+    // the tab open: the work is finished, the user may still want to look
+    // at it.
+    if (this.deps.completeTask) {
+      const done = document.createElement("button");
+      done.type = "button";
+      done.className = "btn btn--primary";
+      done.textContent = "Mark done";
+      done.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!this.deps.completeTask) return;
+        done.disabled = true;
+        try {
+          await this.deps.completeTask(task.id);
+          // Free the operator from the spawned tab so it can bind to the
+          // next task's tab immediately.
+          if (recordedSid && this.deps.unbindOperatorFromTab) {
+            await this.deps.unbindOperatorFromTab(recordedSid).catch((err) =>
+              console.error("unbindOperatorFromTab failed", err),
+            );
+          }
+          void this.refreshTasks();
+        } catch (err) {
+          console.error("completeTask failed", err);
+          done.disabled = false;
+        }
+      });
+      actions.append(done);
+    }
+
     const stop = document.createElement("button");
     stop.type = "button";
     stop.className = "btn btn--danger";
@@ -1416,6 +1452,11 @@ export class TeammatePanel {
       }
     });
     actions.append(stop);
+    // The CSS grid defaults to two columns; with Open + Mark done + Stop
+    // all present we'd wrap to a lonely second row. Match columns to count.
+    if (actions.childElementCount > 2) {
+      actions.style.gridTemplateColumns = `repeat(${actions.childElementCount}, 1fr)`;
+    }
     return actions;
   }
 
@@ -1771,6 +1812,17 @@ export class TeammatePanel {
       console.error("confirmTask failed", e);
       const { title, body } = friendlyError("confirm", String(e));
       this.appendErrorCard(title, body);
+      // Repaint from the source of truth: a failed confirm can still mean
+      // the proposal's persisted state changed (or was already stale, e.g.
+      // confirmed elsewhere). Leaving the old card interactive invites
+      // retry-spam against an already-settled proposal.
+      try {
+        const refreshed = await this.deps.listMessages(this.activeThreadId ?? "", 200);
+        this.paintMessages(refreshed);
+        void this.refreshTasks();
+      } catch (refreshErr) {
+        console.error("post-error message refresh failed", refreshErr);
+      }
     }
     void msg;
   }

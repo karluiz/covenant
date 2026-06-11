@@ -680,6 +680,62 @@ describe("TeammatePanel task action row", () => {
     expect(dead).toHaveLength(0);
   });
 
+  function markDoneButton(host: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(host.querySelectorAll<HTMLButtonElement>(".task-actions .btn"))
+      .find((b) => b.textContent === "Mark done");
+  }
+
+  async function mountWithComplete(
+    task: Task,
+    completeTask: (taskId: string) => Promise<void>,
+  ): Promise<HTMLElement> {
+    const operator = makeOp({ id: "op1" });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages:  async () => [],
+      sendText:      vi.fn(),
+      listOperators: async () => [operator],
+      listTasks:     async () => [task],
+      cancelActiveTask: vi.fn().mockResolvedValue(undefined),
+      completeTask,
+    });
+    await panel.openFor(operator);
+    (host.querySelector(".task-item__head") as HTMLElement).click();
+    return host;
+  }
+
+  it("renders a Mark done button for an active task", async () => {
+    const host = await mountWithComplete(makeTask({ status: "active" }), vi.fn());
+    const btn = markDoneButton(host);
+    expect(btn).toBeDefined();
+    expect(btn!.disabled).toBe(false);
+  });
+
+  it("renders a Mark done button for a blocked task", async () => {
+    const host = await mountWithComplete(makeTask({ status: "blocked" }), vi.fn());
+    expect(markDoneButton(host)).toBeDefined();
+  });
+
+  it("renders no Mark done button for a done task", async () => {
+    const host = await mountWithComplete(makeTask({ status: "done" }), vi.fn());
+    expect(markDoneButton(host)).toBeUndefined();
+  });
+
+  it("renders no Mark done button for a cancelled task", async () => {
+    const host = await mountWithComplete(makeTask({ status: "cancelled" }), vi.fn());
+    expect(markDoneButton(host)).toBeUndefined();
+  });
+
+  it("invokes completeTask with the task id when Mark done is clicked", async () => {
+    const complete = vi.fn().mockResolvedValue(undefined);
+    const host = await mountWithComplete(makeTask({ status: "active" }), complete);
+    markDoneButton(host)!.click();
+    await Promise.resolve();
+    expect(complete).toHaveBeenCalledWith("task-x");
+  });
+
   function deleteButton(host: HTMLElement): HTMLButtonElement | undefined {
     return Array.from(host.querySelectorAll<HTMLButtonElement>(".task-actions .btn"))
       .find((b) => b.textContent === "Delete");

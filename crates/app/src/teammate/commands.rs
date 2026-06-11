@@ -387,10 +387,22 @@ pub(crate) async fn confirm_task_inner(
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
     };
-    storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
-    storage.teammate_mark_message_confirmed(message_id, Some(task.id), now_ms).await
-        .map_err(|e| e.to_string())?;
+    // Claim the operator FIRST. It's the only precondition that can fail on
+    // a valid proposal (AlreadyOnTask), and claiming an in-memory slot is
+    // trivially reversible — persisting a task row and confirming the
+    // message are not. Doing storage writes before this check used to leave
+    // an orphan Active task + a confirmed-but-never-started proposal behind
+    // every "operator already on task" rejection.
     runtime.start_task(operator_id, task.id, None).map_err(|e| e.to_string())?;
+    let persisted = async {
+        storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
+        storage.teammate_mark_message_confirmed(message_id, Some(task.id), now_ms).await
+            .map_err(|e| e.to_string())
+    }.await;
+    if let Err(e) = persisted {
+        let _ = runtime.finish_task(operator_id, task.id);
+        return Err(e);
+    }
 
     let started = TaskMessage {
         id: MessageId::new(),
@@ -406,6 +418,82 @@ pub(crate) async fn confirm_task_inner(
     };
     storage.teammate_insert_message(&started).await.map_err(|e| e.to_string())?;
     Ok(task)
+}
+
+/// Pure inner: mark an active/blocked task done, release the operator, and
+/// synthesize the Completed lifecycle message. The Tauri command wraps this
+/// with supervisor/operator-session cleanup + event emits.
+pub(crate) async fn complete_task_inner(
+    storage: &Arc<Storage>,
+    runtime: &Arc<TeammateRuntime>,
+    task_id: TaskId,
+    now_ms: u64,
+) -> Result<(Task, TaskMessage), String> {
+    let task = storage.teammate_get_task(task_id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "task not found".to_string())?;
+    if matches!(task.status, TaskStatus::Done) {
+        return Err("task already done".into());
+    }
+    storage.teammate_mark_task_done(task_id, now_ms).await.map_err(|e| e.to_string())?;
+    // Best-effort release: after an app restart the in-memory runtime may
+    // not know about this task (or may track a different one) — storage is
+    // the source of truth, so a mismatch must not block completion.
+    let _ = runtime.finish_task(task.operator_id, task_id);
+    let msg = TaskMessage {
+        id: MessageId::new(),
+        operator_id: task.operator_id,
+        task_id: Some(task_id),
+        thread_id: None,
+        role: Role::System,
+        content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Completed },
+        created_at_unix_ms: now_ms,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
+        sentiment: Some(crate::teammate::types::Sentiment::Feliz),
+    };
+    storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    let task = Task {
+        status: TaskStatus::Done,
+        completed_at_unix_ms: Some(now_ms),
+        updated_at_unix_ms: now_ms,
+        ..task
+    };
+    Ok((task, msg))
+}
+
+/// Pure inner: cancel an active/blocked task, release the operator, and
+/// synthesize the Cancelled lifecycle message.
+pub(crate) async fn cancel_active_task_inner(
+    storage: &Arc<Storage>,
+    runtime: &Arc<TeammateRuntime>,
+    task_id: TaskId,
+    now_ms: u64,
+) -> Result<(Task, TaskMessage), String> {
+    let task = storage.teammate_get_task(task_id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "task not found".to_string())?;
+    storage.teammate_update_task_status(task_id, TaskStatus::Cancelled, now_ms).await
+        .map_err(|e| e.to_string())?;
+    // Same best-effort semantics as complete_task_inner. Without this the
+    // operator stayed OnTask forever after a Stop, and every subsequent
+    // confirm died with "operator already on task" until an app restart.
+    let _ = runtime.finish_task(task.operator_id, task_id);
+    let msg = TaskMessage {
+        id: MessageId::new(),
+        operator_id: task.operator_id,
+        task_id: Some(task_id),
+        thread_id: None,
+        role: Role::System,
+        content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Cancelled },
+        created_at_unix_ms: now_ms,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
+        sentiment: Some(crate::teammate::types::Sentiment::Triste),
+    };
+    storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    let task = Task { status: TaskStatus::Cancelled, updated_at_unix_ms: now_ms, ..task };
+    Ok((task, msg))
 }
 
 pub(crate) async fn cancel_task_proposal_inner(
@@ -482,37 +570,41 @@ pub async fn teammate_cancel_active_task(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::AppState>,
     storage: State<'_, Arc<Storage>>,
+    runtime: State<'_, Arc<TeammateRuntime>>,
     supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
     use tauri::Emitter;
-    let now = now_unix_ms();
-    storage
-        .teammate_update_task_status(task_id, TaskStatus::Cancelled, now)
-        .await
-        .map_err(|e| e.to_string())?;
-    let task = storage
-        .teammate_get_task(task_id)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "task not found".to_string())?;
+    let (task, msg) =
+        cancel_active_task_inner(storage.inner(), runtime.inner(), task_id, now_unix_ms()).await?;
     if let Some(s) = task.spawned_session {
         supervisor.forget_task(s);
         state.operator.disable_for_session(&app, s, "task_cancelled").await;
     }
-    let msg = TaskMessage {
-        id: MessageId::new(),
-        operator_id: task.operator_id,
-        task_id: Some(task_id),
-        thread_id: None,
-        role: Role::System,
-        content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Cancelled },
-        created_at_unix_ms: now,
-        confirmed_at_unix_ms: None,
-        dismissed_at_unix_ms: None,
-        sentiment: Some(crate::teammate::types::Sentiment::Triste),
-    };
-    storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    let _ = app.emit("teammate-task", &task);
+    let _ = app.emit("teammate-message", &msg);
+    Ok(())
+}
+
+/// Mark an active/blocked task as done, releasing the operator so it can
+/// pick up the next task. Used by the task-detail "Mark done" button.
+#[tauri::command]
+pub async fn teammate_complete_task(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::AppState>,
+    storage: State<'_, Arc<Storage>>,
+    runtime: State<'_, Arc<TeammateRuntime>>,
+    supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
+    task_id: crate::teammate::TaskId,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let (task, msg) =
+        complete_task_inner(storage.inner(), runtime.inner(), task_id, now_unix_ms()).await?;
+    if let Some(s) = task.spawned_session {
+        supervisor.forget_task(s);
+        state.operator.disable_for_session(&app, s, "task_completed").await;
+    }
+    let _ = app.emit("teammate-task", &task);
     let _ = app.emit("teammate-message", &msg);
     Ok(())
 }
@@ -737,5 +829,65 @@ mod task_lifecycle_tests {
         cancel_task_proposal_inner(&storage, msg_id, 1_700_000_000_999).await.unwrap();
         let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
         assert_eq!(fetched.dismissed_at_unix_ms, Some(1_700_000_000_999));
+    }
+
+    #[tokio::test]
+    async fn confirm_while_operator_busy_leaves_proposal_clean() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+        runtime.start_task(op_id, crate::teammate::types::TaskId::new(), None).unwrap();
+
+        let err = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
+            .await
+            .unwrap_err();
+        assert!(err.contains("already on task"), "got: {err}");
+
+        // The failed confirm must not corrupt state: proposal stays
+        // unconfirmed (so it can be retried later) and no orphan task row
+        // is persisted.
+        let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
+        assert_eq!(fetched.confirmed_at_unix_ms, None);
+        let tasks = storage.teammate_list_tasks_for_operator(op_id).await.unwrap();
+        assert!(tasks.is_empty(), "no task row should survive a failed confirm");
+    }
+
+    #[tokio::test]
+    async fn complete_task_marks_done_and_frees_operator() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
+
+        let (done, _msg) = complete_task_inner(&storage, &runtime, task.id, 99).await.unwrap();
+        assert!(matches!(done.status, crate::teammate::types::TaskStatus::Done));
+        assert_eq!(done.completed_at_unix_ms, Some(99));
+
+        // Operator must be free again: a fresh task can start immediately.
+        runtime
+            .start_task(op_id, crate::teammate::types::TaskId::new(), None)
+            .expect("operator should be Idle after completing its task");
+    }
+
+    #[tokio::test]
+    async fn complete_task_twice_returns_error() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
+        complete_task_inner(&storage, &runtime, task.id, 2).await.unwrap();
+        let err = complete_task_inner(&storage, &runtime, task.id, 3).await.unwrap_err();
+        assert!(err.contains("already done"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn cancel_active_task_frees_operator() {
+        let (storage, op_id, msg_id) = seed_storage().await;
+        let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
+
+        let (cancelled, _msg) = cancel_active_task_inner(&storage, &runtime, task.id, 2).await.unwrap();
+        assert!(matches!(cancelled.status, crate::teammate::types::TaskStatus::Cancelled));
+
+        runtime
+            .start_task(op_id, crate::teammate::types::TaskId::new(), None)
+            .expect("operator should be Idle after cancelling its task");
     }
 }
