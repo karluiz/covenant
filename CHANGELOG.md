@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.78 — Custom tab styling + brainstorm preview design fix
+
+### Added
+
+- **Custom tab/group styling**: the settings panel gains controls for tab group appearance — `group_shape` and `group_bg` are now persisted in the backend tab-style config (`crates/app/src/settings.rs`), wired through `ui/src/settings/panel.ts`, `ui/src/tabs/custom-style.ts`, and `ui/src/styles/tab-themes/custom.css`. Configs saved before these fields existed load with sane defaults.
+
+### Fixed
+
+- **Brainstorm HTML previews render with design**: superpowers brainstorm screens (`.superpowers/brainstorm/*/content/*.html`) are body-only fragments whose design lives in the brainstorm server's frame template. The structure preview tried to load the designed page from that server at `/<file>.html`, but the server only serves `/` (newest screen, wrapped) and `/files/<name>` (raw), so the per-file URL 404'd — and the `no-cors` liveness probe couldn't detect the 404, swapping the iframe to a blank "Not found" page. The cross-origin probe is gone; fragments are now wrapped locally with a vendored copy of the frame template (`ui/src/structure/brainstorm-frame.ts`, `ui/src/structure/preview.ts`) so any file renders with design, offline.
+- **Remote presence-dot polish**: refinements to the titlebar web-presence indicator (`ui/src/remote/presence-dot.ts`).
+
 ## v0.8.77 — Teammate tasks can be marked done + operator release fixes
 
 ### Added
