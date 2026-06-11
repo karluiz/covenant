@@ -5491,6 +5491,53 @@ body.theme-true-dark {
   text-align: right;
 }
 
+/* Confirm prompt — destructive-action card in the palette language. */
+.workspace-confirm-card {
+  width: min(420px, 90vw);
+  padding: 12px;
+  gap: 10px;
+}
+.workspace-confirm-card .command-palette-label {
+  align-self: flex-start;
+}
+.workspace-confirm-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text, #d6d8db);
+  line-height: 1.45;
+}
+.workspace-confirm-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.workspace-confirm-cancel,
+.workspace-confirm-confirm {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.workspace-confirm-cancel {
+  background: transparent;
+  border: 1px solid rgba(var(--ink-rgb), 0.18);
+  color: var(--text, #d6d8db);
+}
+.workspace-confirm-cancel:hover {
+  background: rgba(var(--ink-rgb), 0.08);
+}
+.workspace-confirm-confirm {
+  background: rgba(229, 83, 75, 0.14);
+  border: 1px solid rgba(229, 83, 75, 0.5);
+  color: var(--danger, #e5534b);
+}
+.workspace-confirm-confirm:hover,
+.workspace-confirm-confirm:focus-visible {
+  background: rgba(229, 83, 75, 0.24);
+  outline: none;
+}
+
 /* ─── AOM Morning Report ──────────────────────────── */
 
 .aom-report-overlay {
