@@ -10,6 +10,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
 import { buildActions } from "./actions";
+import { openConfirmPrompt } from "./confirm-prompt";
 import { CommandPalette } from "./palette";
 import { openRenamePrompt } from "./rename-prompt";
 import { WorkspaceManager } from "./manager";
@@ -47,7 +48,12 @@ export class WorkspaceSwitcher {
     private readonly ws: WorkspaceManager,
     tabManager: TabManager,
   ) {
-    const actions = buildActions(ws, tabManager, (id) => this.startInlineRename(id));
+    const actions = buildActions(
+      ws,
+      tabManager,
+      (id) => this.startInlineRename(id),
+      (id) => this.confirmDelete(id),
+    );
     this.palette = new CommandPalette(document.body, ws, tabManager, actions);
   }
 
@@ -147,6 +153,20 @@ export class WorkspaceSwitcher {
     });
   }
 
+  /// Delete a workspace behind a centered confirm card. The manager
+  /// refuses to delete the last workspace and switches to the
+  /// most-recently-used one first when deleting the active workspace.
+  private confirmDelete(id: string): void {
+    const ws = this.ws.list().find((w) => w.id === id);
+    if (!ws || this.ws.list().length <= 1) return;
+    openConfirmPrompt({
+      label: "Delete workspace",
+      message: `Delete "${ws.name}"? Its tabs will be closed.`,
+      confirmText: "Delete",
+      onConfirm: () => void this.ws.delete(id),
+    });
+  }
+
   /// Per-workspace context menu (rename / duplicate / root dir / color /
   /// delete). Public so a host (e.g. the command palette) can wire it to
   /// a row affordance; the inline popover that used to call it is gone.
@@ -233,7 +253,7 @@ export class WorkspaceSwitcher {
           else if (picked === null) this.ws.setRootDir(id, null);
         });
       } else if (action === "delete") {
-        void this.ws.delete(id);
+        this.confirmDelete(id);
       }
     });
   }

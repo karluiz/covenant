@@ -1,6 +1,6 @@
 /// Static command-palette action registry. Adding an action is one
-/// array entry. Rename is delegated to a callback the host supplies
-/// (the switcher owns the inline-rename UI), defaulting to a no-op.
+/// array entry. Rename and delete are delegated to callbacks the host
+/// supplies (the switcher owns the prompt UI), defaulting to no-ops.
 
 import type { TabManager } from "../tabs/manager";
 import type { WorkspaceManager } from "./manager";
@@ -10,6 +10,7 @@ export function buildActions(
   manager: WorkspaceManager,
   tabManager: TabManager,
   onRenameWorkspace?: (id: string) => void,
+  onDeleteWorkspace?: (id: string) => void,
 ): PaletteAction[] {
   return [
     {
@@ -25,6 +26,11 @@ export function buildActions(
       id: "rename-workspace",
       title: "Rename current workspace",
       run: () => onRenameWorkspace?.(manager.activeId_()),
+    },
+    {
+      id: "delete-workspace",
+      title: "Delete current workspace",
+      run: () => onDeleteWorkspace?.(manager.activeId_()),
     },
     {
       id: "close-tab",

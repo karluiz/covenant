@@ -37,4 +37,15 @@ describe("buildActions", () => {
     const actions = buildActions(m as never, tm as never);
     expect(actions.find((x) => x.id === "rename-workspace")).toBeDefined();
   });
+
+  it("Delete current workspace delegates to the host callback with the active id", async () => {
+    const m = fakeManager();
+    const tm = { closeActiveTab: vi.fn() };
+    const onDelete = vi.fn();
+    const actions = buildActions(m as never, tm as never, undefined, onDelete);
+    const a = actions.find((x) => x.id === "delete-workspace")!;
+    expect(a).toBeDefined();
+    await a.run();
+    expect(onDelete).toHaveBeenCalledWith("cur");
+  });
 });
