@@ -12924,6 +12924,15 @@ body[data-aom-phase="triaging"]
   border-color: var(--muted);
   background: var(--bg-panel);
 }
+/* The new/blank buttons are direct children of the column-flex chooser
+   (not wrapped in a -row); without this they flex-grow to split the
+   leftover viewport height between them. */
+.spec-chat-chooser-btn--new,
+.spec-chat-chooser-btn--blank {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 480px;
+}
 .spec-chat-chooser-btn--blank {
   color: var(--muted);
   font-size: 12px;
