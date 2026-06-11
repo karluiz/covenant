@@ -5476,8 +5476,19 @@ body.theme-true-dark {
   --cp-card-border: rgba(255, 255, 255, 0.07);
   --cp-card-sheen: rgba(255, 255, 255, 0.025);
 }
-.workspace-chip-rename {
-  min-width: 160px;
+/* Rename prompt — single-input card in the palette language. */
+.workspace-rename-card {
+  width: min(420px, 90vw);
+}
+.workspace-rename-card .command-palette-input-row {
+  border-bottom: none;
+}
+.workspace-rename-hint {
+  padding: 0 12px 8px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  opacity: 0.4;
+  text-align: right;
 }
 
 /* ─── AOM Morning Report ──────────────────────────── */
@@ -13739,21 +13750,8 @@ body.theme-light .update-banner__dismiss:hover { color: #0f1a36; }
 .update-modal__install { background: #5b8cff; color: white; }
 .update-modal__install:hover { background: #7aa2ff; }
 
-/* Workspace switcher chip + popover. The chip lives in the tabbar
-   brand row to the right of the "Covenant" wordmark. */
-.workspace-row-rename {
-  flex: 1;
-  min-width: 0;
-  background: rgba(var(--ink-rgb), 0.06);
-  border: 1px solid rgba(var(--ink-rgb), 0.2);
-  border-radius: 4px;
-  color: #fff;
-  font: inherit;
-  font-size: 13px;
-  padding: 2px 6px;
-  outline: none;
-}
-
+/* Workspace switcher chip. The chip lives in the tabbar brand row to
+   the right of the "Covenant" wordmark. */
 .workspace-chip {
   display: inline-flex;
   align-items: center;
