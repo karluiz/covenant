@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.76 — Workspace rename/delete prompts + tab-switch flicker fix
+
+### Added
+
+- **Delete current workspace from the command palette**: new "Delete current workspace" action (⌘⇧P), gated behind a centered confirm card in the palette language ("Delete 'X'? Its tabs will be closed." — Enter confirms, Esc cancels). The chip context-menu Delete routes through the same confirm instead of deleting instantly. Deleting the active workspace switches to the most-recently-used one first; the last workspace can't be deleted (`ui/src/workspaces/confirm-prompt.ts`, `ui/src/workspaces/actions.ts`, `ui/src/workspaces/switcher.ts`).
+- **Remote dashboard master-detail redesign**: armed-first compact tab list with an auto-mirroring detail pane — the live mirror follows the selected tab (one at a time, only while the pane is visible and the desktop is online). Mobile gets list→detail navigation, the pairing-token row collapses once paired, and status distinguishes relay-connected from desktop-online (`landing/src/islands/RemoteDashboard.ts`, `landing/src/remote/view-model.ts`).
+- **Titlebar presence dot**: the fixed top-right web-presence pill covered the titlebar view buttons; it's now a pulsing dot beside the COVENANT brand with a hover popover (remote count, allow-new-tabs toggle, Disable all). Click pins; Esc/outside click closes (`ui/src/remote/presence-dot.ts`, `ui/src/main.ts`).
+- **Score sync drains the full backlog**: `push_once` sent one 500-event batch per 5-minute tick, so a large first sign-in backlog (~38k events) took hours; `sync::push_drain` now loops batches with 250ms pacing until a partial batch, in both the periodic loop and manual sync (`crates/score/src/sync.rs`).
+
+### Fixed
+
+- **Workspace rename prompt**: the command-palette refactor left rename as a bare unstyled `<input>` floated at fixed coordinates after the palette closed — an orphaned box in the dark. It's now a centered prompt card reusing the palette overlay/card language, prefilled and selected, Enter saves / Esc cancels; used by both the palette action and the chip context menu (`ui/src/workspaces/rename-prompt.ts`, `ui/src/workspaces/switcher.ts`).
+- **Spec Creator chooser giant buttons**: "Start a new one" and "Blank draft (no chat)" are direct children of the fullscreen column-flex chooser and inherited `flex: 1`, so they grew to split the leftover viewport height as huge cards. Pinned to auto height and the same 480px width as the resume rows (`ui/src/styles.css`).
+- **Tab-switch flicker/jump**: tab activation painted a stale WebGL canvas, cleared it on `fit()`, forced a second reflow via an unconditional resize nudge, and jumped the viewport with `scrollToBottom()` even when scrolled up. `activate()` now keeps the outgoing pane on screen as the visual frame while the incoming pane lays out invisibly, and the resize nudges are gated (`ui/src/tabs/manager.ts`).
+
 ## v0.8.75 — Tasker inline project rename (double-click header)
 
 ### Added
