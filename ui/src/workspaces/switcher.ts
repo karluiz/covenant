@@ -11,6 +11,7 @@ import { TabManager } from "../tabs/manager";
 import { attachTooltip } from "../tooltip/tooltip";
 import { buildActions } from "./actions";
 import { CommandPalette } from "./palette";
+import { openRenamePrompt } from "./rename-prompt";
 import { WorkspaceManager } from "./manager";
 
 const KBD_PICK = "⌘⇧P";
@@ -131,34 +132,19 @@ export class WorkspaceSwitcher {
     `;
   }
 
-  /// Rename a workspace via a minimal inline input anchored to the
-  /// chip. The popover that previously hosted inline editing is gone;
-  /// the Tauri webview suppresses window.prompt, so we float an input.
+  /// Rename a workspace via a centered prompt card in the command-palette
+  /// language. The popover that previously hosted inline editing is gone
+  /// and the Tauri webview suppresses window.prompt.
   private startInlineRename(id: string): void {
     const ws = this.ws.list().find((w) => w.id === id);
-    if (!ws || !this.chip) return;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = ws.name;
-    input.className = "workspace-row-rename workspace-chip-rename";
-    document.body.appendChild(input);
-    const r = this.chip.getBoundingClientRect();
-    input.style.position = "fixed";
-    input.style.left = `${r.left}px`;
-    input.style.top = `${Math.max(8, r.top - 32)}px`;
-    input.style.zIndex = "1002";
-    input.focus();
-    input.select();
-    const commit = (save: boolean): void => {
-      const v = input.value.trim();
-      if (save && v !== "" && v !== ws.name) this.ws.rename(id, v);
-      input.remove();
-    };
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); commit(true); }
-      else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    if (!ws) return;
+    openRenamePrompt({
+      label: "Rename workspace",
+      value: ws.name,
+      onCommit: (v) => {
+        if (v !== ws.name) this.ws.rename(id, v);
+      },
     });
-    input.addEventListener("blur", () => commit(true));
   }
 
   /// Per-workspace context menu (rename / duplicate / root dir / color /
