@@ -12,7 +12,7 @@
 //   3. Add a factory call in StructureEditor.
 
 import { renderMarkdown } from "../release/markdown";
-import { structureReadFile } from "../api";
+import { htmlPreviewSrcdoc } from "./brainstorm-frame";
 
 export type PreviewKind =
   | "markdown"
@@ -25,8 +25,8 @@ export type PreviewKind =
 
 /// Optional context passed alongside content. Most previews ignore it;
 /// HtmlPreview uses `path` to detect superpowers brainstorm fragments
-/// and route them through the live HTTP server (so styles + interactivity
-/// work the same as opening in Chrome).
+/// (body-only screens) and wrap them in the brainstorm frame template so
+/// their design renders, rather than painting a bare unstyled fragment.
 export interface PreviewCtx {
   path?: string | null;
 }
@@ -141,14 +141,16 @@ export class SvgPreview implements Preview {
 /// Fonts, FontAwesome, and inline `<script>` blocks behave like a real
 /// browser open — but the iframe can't navigate the parent or touch
 /// our app's storage. Network is permitted for CDN assets.
+///
+/// Superpowers brainstorm screens are body-only fragments whose design
+/// lives in the brainstorm server's frame template. We can't fetch a
+/// per-file wrapped page from that server (it only wraps the newest screen
+/// at `/` and 404s on `/<file>.html` — a stale URL there used to swap the
+/// iframe to a blank "Not found" page), so `htmlPreviewSrcdoc` wraps such
+/// fragments locally with a vendored copy of that template. Everything stays
+/// in srcdoc — no cross-origin probe, no blank-on-404 failure mode.
 export class HtmlPreview implements Preview {
   private iframeEl: HTMLIFrameElement | null = null;
-  /// Tracks the most-recent probe so a stale resolution (user toggled
-  /// files quickly) doesn't overwrite the new frame's src.
-  private probeToken = 0;
-  /// The live URL we resolved for the *current* path, if any. Used by
-  /// `update()` to know whether to mutate `src` or `srcdoc`.
-  private liveUrl: string | null = null;
 
   mount(host: HTMLElement, content: string, ctx?: PreviewCtx): void {
     host.innerHTML = "";
@@ -162,7 +164,7 @@ export class HtmlPreview implements Preview {
     // a preview shouldn't open windows or POST anywhere.
     iframe.setAttribute("sandbox", "allow-scripts allow-same-origin");
     iframe.setAttribute("referrerpolicy", "no-referrer");
-    iframe.srcdoc = content;
+    iframe.srcdoc = htmlPreviewSrcdoc(content, ctx?.path ?? null);
     iframe.style.width = "100%";
     iframe.style.height = "100%";
     iframe.style.border = "0";
@@ -171,124 +173,21 @@ export class HtmlPreview implements Preview {
     wrap.appendChild(iframe);
     host.appendChild(wrap);
     this.iframeEl = iframe;
-    this.liveUrl = null;
-
-    // Superpowers brainstorm fragments need the live HTTP server to
-    // contribute the wrapping HTML/CSS/JS (the .html files on disk are
-    // only the body fragment). Probe asynchronously; fall back silently
-    // to the inline srcdoc if no server is reachable.
-    void this.maybeRouteToLiveServer(ctx?.path ?? null);
   }
   update(host: HTMLElement, content: string, ctx?: PreviewCtx): void {
-    // Path changed (different file opened): start fresh — we may need
-    // to flip from live-URL back to srcdoc or to a different live URL.
-    // Easiest correct path is a full remount.
-    if (ctx && ctx.path !== undefined) {
-      this.dispose();
-      this.mount(host, content, ctx);
+    // Recompute srcdoc from the current content + path (the wrapping
+    // decision depends on the path). Reusing the iframe avoids a reload
+    // flash when nothing changed.
+    const next = htmlPreviewSrcdoc(content, ctx?.path ?? null);
+    if (this.iframeEl) {
+      if (this.iframeEl.srcdoc !== next) this.iframeEl.srcdoc = next;
       return;
     }
-    // Live-routed: the iframe is showing the HTTP server's wrapper,
-    // not srcdoc. Reloading would lose state (SSE connection, current
-    // selection) and the on-disk content is what the server is already
-    // serving, so no-op.
-    if (this.liveUrl) return;
-    // Reusing the existing iframe avoids a full reload flash when the
-    // user toggles back-and-forth without changes. If content is the
-    // same we keep the current frame; otherwise replace srcdoc, which
-    // triggers a re-render.
-    if (this.iframeEl && this.iframeEl.srcdoc !== content) {
-      this.iframeEl.srcdoc = content;
-      return;
-    }
-    if (!this.iframeEl) {
-      this.mount(host, content, ctx);
-    }
+    this.mount(host, content, ctx);
   }
   dispose(): void {
     this.iframeEl = null;
-    this.liveUrl = null;
-    this.probeToken++;
   }
-
-  /// If `path` looks like a superpowers brainstorm content fragment
-  /// (`.../.superpowers/brainstorm/<session>/content/<file>.html`), read
-  /// the sibling `state/server.log`, parse the most-recent `server-started`
-  /// entry, verify the server is reachable, and swap the iframe to load
-  /// the live URL. Anything other than a clean happy path is a silent
-  /// no-op — srcdoc stays as the fallback.
-  private async maybeRouteToLiveServer(path: string | null): Promise<void> {
-    if (!path) return;
-    const m = path.match(/^(.*)\/\.superpowers\/brainstorm\/([^/]+)\/content\/([^/]+\.html?)$/);
-    if (!m) return;
-    const [, root, session, filename] = m;
-    const logPath = `${root}/.superpowers/brainstorm/${session}/state/server.log`;
-
-    const token = ++this.probeToken;
-
-    let baseUrl: string;
-    try {
-      const result = await structureReadFile(logPath, 64 * 1024);
-      if (token !== this.probeToken) return;
-      if (result.kind !== "text" || !result.content) return;
-      const parsed = parseLatestBrainstormUrl(result.content);
-      if (!parsed) return;
-      baseUrl = parsed;
-    } catch {
-      return;
-    }
-
-    // Liveness check — `server-stopped` may not have been written if
-    // the server crashed, so we do a short HEAD probe with a timeout.
-    const liveUrl = `${baseUrl}/${filename}`;
-    try {
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), 800);
-      await fetch(liveUrl, {
-        method: "HEAD",
-        mode: "no-cors",
-        signal: ctl.signal,
-        cache: "no-store",
-      });
-      clearTimeout(timer);
-    } catch {
-      return;
-    }
-
-    if (token !== this.probeToken) return;
-    if (!this.iframeEl) return;
-
-    // Drop sandbox attribute so the brainstorm UI's SSE / window.parent
-    // checks behave like a normal browser session. The server is bound
-    // to 127.0.0.1 and we just verified its log fingerprint, so this is
-    // not a meaningful trust escalation.
-    this.iframeEl.removeAttribute("sandbox");
-    this.iframeEl.removeAttribute("srcdoc");
-    this.iframeEl.src = liveUrl;
-    this.liveUrl = liveUrl;
-  }
-}
-
-/// Walks the brainstorm server.log JSONL backwards from the end looking
-/// for the last `server-started` event, returning its `url`. Returns null
-/// if a later `server-stopped` event supersedes it.
-function parseLatestBrainstormUrl(log: string): string | null {
-  const lines = log.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let evt: { type?: string; url?: string };
-    try {
-      evt = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (evt.type === "server-stopped") return null;
-    if (evt.type === "server-started" && typeof evt.url === "string") {
-      return evt.url.replace(/\/+$/, "");
-    }
-  }
-  return null;
 }
 
 // ─── Raster image (PNG / JPG / GIF / WebP) ─────────────
