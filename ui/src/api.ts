@@ -1023,6 +1023,8 @@ export type TabBgMode = "solid" | "translucent" | "off" | "gradient";
 export type TabIndicator = "stripe" | "underline" | "left-bar" | "dot" | "glow" | "border";
 export type TabHeight = "normal" | "compact" | "spacious";
 export type TabGap = "normal" | "tight" | "loose";
+export type GroupShape = "match" | "rectangle" | "rounded" | "lofted" | "pill";
+export type GroupBg = "tinted" | "solid" | "off";
 
 export interface TabStylesConfig {
   enabled: boolean;
@@ -1032,6 +1034,9 @@ export interface TabStylesConfig {
   indicator: TabIndicator;
   height: TabHeight;
   gap: TabGap;
+  // Optional: absent in configs saved before group customization.
+  group_shape?: GroupShape;
+  group_bg?: GroupBg;
 }
 
 export async function setWindowTheme(mode: ResolvedTheme): Promise<void> {

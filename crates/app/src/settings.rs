@@ -116,6 +116,13 @@ pub struct TabStylesConfig {
     /// Gap between tab pills.
     #[serde(default)]
     pub gap: TabGap,
+    /// Group-header chip shape. `Match` follows the tab `shape` knob.
+    #[serde(default)]
+    pub group_shape: GroupShape,
+    /// Group-header chip background mode. `Tinted` is the shipped
+    /// group-color card fill.
+    #[serde(default)]
+    pub group_bg: GroupBg,
 }
 
 impl Default for TabStylesConfig {
@@ -128,6 +135,8 @@ impl Default for TabStylesConfig {
             indicator: TabIndicator::default(),
             height: TabHeight::default(),
             gap: TabGap::default(),
+            group_shape: GroupShape::default(),
+            group_bg: GroupBg::default(),
         }
     }
 }
@@ -181,6 +190,26 @@ pub enum TabGap {
     Normal,
     Tight,
     Loose,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupShape {
+    #[default]
+    Match,
+    Rectangle,
+    Rounded,
+    Lofted,
+    Pill,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupBg {
+    #[default]
+    Tinted,
+    Solid,
+    Off,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1271,6 +1300,29 @@ mod tab_styles_config_tests {
         assert_eq!(cfg.height, TabHeight::Normal);
         assert_eq!(cfg.gap, TabGap::Normal);
         assert!(cfg.bg_gradient.is_none());
+        assert_eq!(cfg.group_shape, GroupShape::Match);
+        assert_eq!(cfg.group_bg, GroupBg::Tinted);
+    }
+
+    #[test]
+    fn deserializes_all_group_shapes_and_bgs() {
+        assert_eq!(serde_json::from_str::<GroupShape>("\"match\"").unwrap(), GroupShape::Match);
+        assert_eq!(serde_json::from_str::<GroupShape>("\"rectangle\"").unwrap(), GroupShape::Rectangle);
+        assert_eq!(serde_json::from_str::<GroupShape>("\"rounded\"").unwrap(), GroupShape::Rounded);
+        assert_eq!(serde_json::from_str::<GroupShape>("\"lofted\"").unwrap(), GroupShape::Lofted);
+        assert_eq!(serde_json::from_str::<GroupShape>("\"pill\"").unwrap(), GroupShape::Pill);
+        assert_eq!(serde_json::from_str::<GroupBg>("\"tinted\"").unwrap(), GroupBg::Tinted);
+        assert_eq!(serde_json::from_str::<GroupBg>("\"solid\"").unwrap(), GroupBg::Solid);
+        assert_eq!(serde_json::from_str::<GroupBg>("\"off\"").unwrap(), GroupBg::Off);
+    }
+
+    #[test]
+    fn tab_styles_config_without_group_fields_defaults() {
+        // Configs saved before group customization existed must load.
+        let json = serde_json::json!({ "enabled": true, "shape": "pill" });
+        let cfg: TabStylesConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.group_shape, GroupShape::Match);
+        assert_eq!(cfg.group_bg, GroupBg::Tinted);
     }
 
     #[test]

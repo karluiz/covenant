@@ -23,6 +23,7 @@ import { renderModelsTab } from "./model_routes";
 import { renderSpawnsTab } from "./spawns";
 import { activateTab, type SettingsTab } from "./tabs";
 import { CustomSelect } from "../ui/select";
+import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -110,6 +111,8 @@ interface TabStylesConfig {
   indicator: TabIndicator;
   height: TabHeight;
   gap: TabGap;
+  group_shape?: GroupShape;
+  group_bg?: GroupBg;
 }
 
 type TabShape = "rectangle" | "rounded" | "lofted" | "pill";
@@ -117,6 +120,8 @@ type TabBgMode = "solid" | "translucent" | "off" | "gradient";
 type TabIndicator = "stripe" | "underline" | "left-bar" | "dot" | "glow" | "border";
 type TabHeight = "normal" | "compact" | "spacious";
 type TabGap = "normal" | "tight" | "loose";
+type GroupShape = "match" | "rectangle" | "rounded" | "lofted" | "pill";
+type GroupBg = "tinted" | "solid" | "off";
 
 interface Settings {
   anthropic_api_key: string | null;
@@ -302,6 +307,16 @@ export class SettingsPanel {
 
   close(): void {
     this.openGeneration++;
+
+    // Live-preview revert: tab-style knobs apply as they're toggled, so
+    // re-apply the persisted settings in case the user previewed and
+    // bailed. After a save this.current already holds the new values,
+    // making this a visual no-op.
+    if (this.current) {
+      applyTabbarPosition(this.current.tabbar_position ?? "top");
+      applyPresetTabStyle(this.current.window?.tab_style ?? "classic");
+      applyCustomTabStyle(this.current.experimental?.tab_styles ?? null);
+    }
 
     // Be defensive: Settings.open()/render() does async work, and other
     // full-page panels (notably Set Mission) may ask us to close while
@@ -530,6 +545,13 @@ export class SettingsPanel {
                 <span class="settings-radio-hint">Terminal-brutalist — blinking caret, scanline glow, ASCII group headers. The screenshot magnet. Both layouts.</span>
               </span>
             </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_style" value="custom" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Custom <span class="settings-badge">experimental</span></span>
+                <span class="settings-radio-hint">Compose your own from atomic knobs — shape, background, indicator, height, gap. Selecting this reveals the controls below.</span>
+              </span>
+            </label>
           </fieldset>
           <fieldset class="settings-field settings-radio-group" id="tab-style-custom-card" hidden>
             <span class="settings-label">Custom tab style <span class="settings-badge">experimental</span></span>
@@ -686,6 +708,64 @@ export class SettingsPanel {
               <span class="settings-radio-body">
                 <span class="settings-radio-title">Loose</span>
                 <span class="settings-radio-hint">8px — each tab breathes more.</span>
+              </span>
+            </label>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Group header shape</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_shape" value="match" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Match tabs</span>
+                <span class="settings-radio-hint">Group headers follow the tab Shape knob.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_shape" value="rectangle" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Rectangle</span>
+                <span class="settings-radio-hint">Sharp 90° corners.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_shape" value="rounded" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Rounded</span>
+                <span class="settings-radio-hint">6px border radius.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_shape" value="lofted" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Lofted</span>
+                <span class="settings-radio-hint">12px radius — soft card look.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_shape" value="pill" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Pill</span>
+                <span class="settings-radio-hint">Full capsule, whatever the height.</span>
+              </span>
+            </label>
+            <span class="settings-label" style="font-size:11px;font-weight:400;margin:8px 0 8px;color:var(--muted)">Group header background</span>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_bg" value="tinted" checked />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Tinted</span>
+                <span class="settings-radio-hint">Group-color card fill — the shipped look.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_bg" value="solid" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Solid</span>
+                <span class="settings-radio-hint">Neutral tab background — no color tint.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="tab_custom_group_bg" value="off" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Off</span>
+                <span class="settings-radio-hint">Transparent — just the color stripe and label.</span>
               </span>
             </label>
           </fieldset>
@@ -994,15 +1074,6 @@ export class SettingsPanel {
               tuned, so expect occasional redraw glitches when resizing panes.
             </small>
           </label>
-          <label class="settings-field settings-field-row">
-            <input type="checkbox" name="experimental_tab_styles" />
-            <span class="settings-label">Tab styles</span>
-            <small class="settings-hint">
-              Compose tab appearance from atomic properties — shape, background,
-              active indicator, height, gap. The preset radio buttons hide and
-              a custom control group appears in the Appearance section.
-            </small>
-          </label>
         </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
@@ -1052,9 +1123,6 @@ export class SettingsPanel {
     const internalBrowserInput = form.querySelector<HTMLInputElement>(
       'input[name="experimental_internal_browser"]',
     );
-    const tabStylesInput = form.querySelector<HTMLInputElement>(
-      'input[name="experimental_tab_styles"]',
-    );
     const customTabStyleCard = form.querySelector<HTMLElement>("#tab-style-custom-card");
     const shapeRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_shape"]');
     const bgRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_bg"]');
@@ -1064,6 +1132,8 @@ export class SettingsPanel {
     const indicatorRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_indicator"]');
     const heightRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_height"]');
     const gapRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_gap"]');
+    const groupShapeRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_group_shape"]');
+    const groupBgRadios = form.querySelectorAll<HTMLInputElement>('input[name="tab_custom_group_bg"]');
     const windowBgRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="window_background"]',
     );
@@ -1100,6 +1170,10 @@ export class SettingsPanel {
     const tabStyleRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tab_style"]',
     );
+    // Selected Tab style radio value. "custom" is UI-only: it maps to
+    // experimental.tab_styles.enabled, never to window.tab_style.
+    const selectedTabStyle = (): string | undefined =>
+      Array.from(tabStyleRadios).find((r) => r.checked)?.value;
     const uiFont = form.querySelector<HTMLInputElement>(
       'input[name="ui_font"]',
     )!;
@@ -1159,17 +1233,18 @@ export class SettingsPanel {
       this.current.experimental?.statusbar_two_row ?? true;
     if (internalBrowserInput) internalBrowserInput.checked = !!this.current.experimental?.internal_browser;
     const ts = this.current.experimental?.tab_styles;
-    if (tabStylesInput) tabStylesInput.checked = !!ts?.enabled;
     if (customTabStyleCard) customTabStyleCard.hidden = !ts?.enabled;
-    if (ts?.enabled) {
-      shapeRadios.forEach((r) => { r.checked = r.value === (ts?.shape ?? "rectangle"); });
-      bgRadios.forEach((r) => { r.checked = r.value === (ts?.bg_mode ?? "solid"); });
-      if (gradientPickers) gradientPickers.hidden = ts?.bg_mode !== "gradient";
-      if (gradientStart && ts?.bg_gradient) gradientStart.value = ts.bg_gradient[0];
-      if (gradientEnd && ts?.bg_gradient) gradientEnd.value = ts.bg_gradient[1];
-      indicatorRadios.forEach((r) => { r.checked = r.value === (ts?.indicator ?? "stripe"); });
-      heightRadios.forEach((r) => { r.checked = r.value === (ts?.height ?? "normal"); });
-      gapRadios.forEach((r) => { r.checked = r.value === (ts?.gap ?? "normal"); });
+    if (ts) {
+      shapeRadios.forEach((r) => { r.checked = r.value === (ts.shape ?? "rectangle"); });
+      bgRadios.forEach((r) => { r.checked = r.value === (ts.bg_mode ?? "solid"); });
+      if (gradientPickers) gradientPickers.hidden = ts.bg_mode !== "gradient";
+      if (gradientStart && ts.bg_gradient) gradientStart.value = ts.bg_gradient[0];
+      if (gradientEnd && ts.bg_gradient) gradientEnd.value = ts.bg_gradient[1];
+      indicatorRadios.forEach((r) => { r.checked = r.value === (ts.indicator ?? "stripe"); });
+      heightRadios.forEach((r) => { r.checked = r.value === (ts.height ?? "normal"); });
+      gapRadios.forEach((r) => { r.checked = r.value === (ts.gap ?? "normal"); });
+      groupShapeRadios.forEach((r) => { r.checked = r.value === (ts.group_shape ?? "match"); });
+      groupBgRadios.forEach((r) => { r.checked = r.value === (ts.group_bg ?? "tinted"); });
     }
     const currentBg = this.current.window?.background ?? "vibrant";
     windowBgRadios.forEach((r) => {
@@ -1187,7 +1262,9 @@ export class SettingsPanel {
     tabbarPosRadios.forEach((r) => {
       r.checked = r.value === currentTabbarPos;
     });
-    const currentTabStyle = this.current.window?.tab_style ?? "classic";
+    const currentTabStyle = ts?.enabled
+      ? "custom"
+      : (this.current.window?.tab_style ?? "classic");
     tabStyleRadios.forEach((r) => {
       r.checked = r.value === currentTabStyle;
     });
@@ -1264,17 +1341,83 @@ export class SettingsPanel {
 
     updateEmailIncompleteWarn();
 
-    // Tab styles toggle → show/hide custom card
-    if (tabStylesInput && customTabStyleCard) {
-      tabStylesInput.addEventListener("change", () => {
-        customTabStyleCard.hidden = !tabStylesInput.checked;
+    // Tab style "Custom" selected → reveal the knobs card
+    tabStyleRadios.forEach((r) => {
+      r.addEventListener("change", () => {
+        if (customTabStyleCard) {
+          customTabStyleCard.hidden = selectedTabStyle() !== "custom";
+        }
       });
-    }
+    });
 
     // Background mode "gradient" → show color pickers
     bgRadios.forEach((r) => {
       r.addEventListener("change", () => {
         if (gradientPickers) gradientPickers.hidden = r.value !== "gradient" || !r.checked;
+      });
+    });
+
+    // Live preview — every tab-style knob applies to the real tabbar
+    // the moment it changes, so the user sees the result without
+    // saving. close() reverts to the persisted settings if they bail.
+    const readTabStylesDraft = (): TabStylesConfig => ({
+      enabled: selectedTabStyle() === "custom",
+      shape:
+        (Array.from(shapeRadios).find((r) => r.checked)?.value as TabShape) ??
+        "rectangle",
+      bg_mode:
+        (Array.from(bgRadios).find((r) => r.checked)?.value as TabBgMode) ??
+        "solid",
+      bg_gradient:
+        gradientStart && gradientEnd
+          ? [gradientStart.value, gradientEnd.value]
+          : undefined,
+      indicator:
+        (Array.from(indicatorRadios).find((r) => r.checked)
+          ?.value as TabIndicator) ?? "stripe",
+      height:
+        (Array.from(heightRadios).find((r) => r.checked)
+          ?.value as TabHeight) ?? "normal",
+      gap:
+        (Array.from(gapRadios).find((r) => r.checked)?.value as TabGap) ??
+        "normal",
+      group_shape:
+        (Array.from(groupShapeRadios).find((r) => r.checked)
+          ?.value as GroupShape) ?? "match",
+      group_bg:
+        (Array.from(groupBgRadios).find((r) => r.checked)
+          ?.value as GroupBg) ?? "tinted",
+    });
+    const previewTabStyles = (): void => {
+      // Same order as the saved-settings path in main.ts: preset class
+      // first, then the custom layer (which strips presets when enabled).
+      // "custom" matches no preset class, so it clears them all.
+      applyPresetTabStyle(selectedTabStyle() ?? "classic");
+      applyCustomTabStyle(readTabStylesDraft());
+    };
+    for (const group of [
+      tabStyleRadios,
+      shapeRadios,
+      bgRadios,
+      indicatorRadios,
+      heightRadios,
+      gapRadios,
+      groupShapeRadios,
+      groupBgRadios,
+    ]) {
+      group.forEach((r) => r.addEventListener("change", previewTabStyles));
+    }
+    gradientStart?.addEventListener("input", previewTabStyles);
+    gradientEnd?.addEventListener("input", previewTabStyles);
+
+    // Tabbar position previews instantly too — it only swaps a body
+    // class; the terminal refit happens in onClosed either way.
+    tabbarPosRadios.forEach((r) => {
+      r.addEventListener("change", () => {
+        applyTabbarPosition(
+          (Array.from(tabbarPosRadios).find((x) => x.checked)
+            ?.value as TabbarPosition) ?? "top",
+        );
       });
     });
 
@@ -1581,8 +1724,11 @@ export class SettingsPanel {
             (Array.from(themeRadios).find((r) => r.checked)
               ?.value as ThemeMode) || "system",
           tab_style:
-            (Array.from(tabStyleRadios).find((r) => r.checked)
-              ?.value as TabStyle) || "classic",
+            // "custom" is UI-only (maps to experimental.tab_styles.enabled);
+            // keep the last real preset so disabling custom restores it.
+            selectedTabStyle() === "custom"
+              ? (this.current!.window?.tab_style ?? "classic")
+              : ((selectedTabStyle() as TabStyle) || "classic"),
         },
         aom: {
           default_budget_usd: Math.max(
@@ -1618,30 +1764,7 @@ export class SettingsPanel {
           split_panes: splitPanesInput.checked,
           statusbar_two_row: statusbarTwoRowInput.checked,
           internal_browser: internalBrowserInput?.checked ?? false,
-          tab_styles: tabStylesInput
-            ? {
-                enabled: tabStylesInput.checked,
-                shape:
-                  (Array.from(shapeRadios).find((r) => r.checked)
-                    ?.value as TabShape) ?? "rectangle",
-                bg_mode:
-                  (Array.from(bgRadios).find((r) => r.checked)
-                    ?.value as TabBgMode) ?? "solid",
-                bg_gradient:
-                  gradientStart && gradientEnd
-                    ? [gradientStart.value, gradientEnd.value]
-                    : undefined,
-                indicator:
-                  (Array.from(indicatorRadios).find((r) => r.checked)
-                    ?.value as TabIndicator) ?? "stripe",
-                height:
-                  (Array.from(heightRadios).find((r) => r.checked)
-                    ?.value as TabHeight) ?? "normal",
-                gap:
-                  (Array.from(gapRadios).find((r) => r.checked)
-                    ?.value as TabGap) ?? "normal",
-              }
-            : undefined,
+          tab_styles: readTabStylesDraft(),
         },
       };
       try {

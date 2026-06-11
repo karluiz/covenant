@@ -160,6 +160,52 @@ describe("mountRemotePresenceDot", () => {
     expect(mocks.disarmAllRemote).toHaveBeenCalledOnce();
   });
 
+  it("Disable all confirms visually, then closes the popover", async () => {
+    const { dot, pop } = mount();
+    firePresence(1);
+    dot.click(); // pin open
+    const kill = pop.querySelector<HTMLButtonElement>(".rc-presence-kill");
+    if (!kill) throw new Error("kill button missing");
+    kill.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(kill.textContent).toBe("Disarmed ✓");
+    expect(kill.disabled).toBe(true);
+    expect(kill.classList.contains("rc-presence-kill-done")).toBe(true);
+    expect(isOpen(pop)).toBe(true); // confirmation visible before close
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(isOpen(pop)).toBe(false);
+  });
+
+  it("Disable all resets to idle after the confirmation closes", async () => {
+    const { dot, pop } = mount();
+    firePresence(1);
+    dot.click();
+    const kill = pop.querySelector<HTMLButtonElement>(".rc-presence-kill");
+    if (!kill) throw new Error("kill button missing");
+    kill.click();
+    await vi.advanceTimersByTimeAsync(1200);
+    hover(dot); // reopen
+    expect(kill.textContent).toBe("Disable all");
+    expect(kill.disabled).toBe(false);
+    expect(kill.classList.contains("rc-presence-kill-done")).toBe(false);
+  });
+
+  it("Disable all shows a retryable failure state when the command rejects", async () => {
+    mocks.disarmAllRemote.mockRejectedValueOnce(new Error("relay down"));
+    const { dot, pop } = mount();
+    firePresence(1);
+    dot.click();
+    const kill = pop.querySelector<HTMLButtonElement>(".rc-presence-kill");
+    if (!kill) throw new Error("kill button missing");
+    kill.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(kill.textContent).toBe("Failed — retry");
+    expect(kill.disabled).toBe(false);
+    expect(isOpen(pop)).toBe(true); // stays open so the user can retry
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(isOpen(pop)).toBe(true); // no auto-close on failure
+  });
+
   it("new-tabs checkbox calls setRemoteAllowOpen with its state", () => {
     const { pop } = mount();
     firePresence(1);

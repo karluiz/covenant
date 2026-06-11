@@ -45,12 +45,34 @@ export function mountRemotePresenceDot(doc: Document = document): void {
   openCb.addEventListener("change", () => { void setRemoteAllowOpen(openCb.checked); });
   void getRemoteAllowOpen().then((v) => { openCb.checked = v; }).catch(() => {});
 
+  // Disarming doesn't change the presence count (web clients stay
+  // connected), so the button itself must confirm: flip to "Disarmed ✓",
+  // hold briefly, then close. On failure stay open and offer a retry.
+  const KILL_IDLE_LABEL = "Disable all";
+  const KILL_CONFIRM_MS = 900;
   const kill = doc.createElement("button");
   kill.type = "button";
   kill.className = "rc-presence-kill";
-  kill.textContent = "Disable all";
+  kill.textContent = KILL_IDLE_LABEL;
   attachTooltip(kill, "Disarm every tab and cut remote control");
-  kill.addEventListener("click", () => { void disarmAllRemote(); });
+  let killReset: number | undefined;
+  const resetKill = () => {
+    if (killReset !== undefined) { clearTimeout(killReset); killReset = undefined; }
+    kill.textContent = KILL_IDLE_LABEL;
+    kill.disabled = false;
+    kill.classList.remove("rc-presence-kill-done");
+  };
+  kill.addEventListener("click", () => {
+    kill.disabled = true;
+    disarmAllRemote().then(() => {
+      kill.textContent = "Disarmed ✓";
+      kill.classList.add("rc-presence-kill-done");
+      killReset = window.setTimeout(close, KILL_CONFIRM_MS);
+    }).catch(() => {
+      kill.textContent = "Failed — retry";
+      kill.disabled = false;
+    });
+  });
 
   pop.append(status, openWrap, kill);
   doc.body.appendChild(pop);
@@ -74,6 +96,7 @@ export function mountRemotePresenceDot(doc: Document = document): void {
     if (closeTimer !== undefined) { clearTimeout(closeTimer); closeTimer = undefined; }
     pop.classList.remove("rc-presence-popover-open");
     dot.setAttribute("aria-expanded", "false");
+    resetKill();
   };
   const scheduleClose = () => {
     if (pinned) return;

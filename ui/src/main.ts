@@ -42,7 +42,7 @@ import { Icons } from "./icons";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
 import { detectExecutor } from "./executor";
-import type { Settings, WindowBackground, TabStyle } from "./api";
+import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
 import { MissionPage } from "./mission/page";
@@ -58,7 +58,7 @@ import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { activePane } from "./tabs/pane";
-import { applyCustomTabStyle } from "./tabs/custom-style";
+import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "./tabs/custom-style";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
 
@@ -159,23 +159,6 @@ async function applyTheme(
 
   tabs.applyTerminalTheme();
   await setWindowTheme(resolved).catch(() => {});
-}
-
-/// Toggle the vertical-tabbar layout. CSS does the heavy lifting via
-/// `body.tabbar-left`; the rest of the app stays layout-agnostic.
-function applyTabbarPosition(pos: "top" | "left" | undefined): void {
-  document.body.classList.toggle("tabbar-left", pos === "left");
-}
-
-/// Cosmetic tab skin. Like the theme/background toggles, this only
-/// flips a body class — `body.tab-style-<forge|glass|crt>` — and CSS
-/// reskins the pills + group chips in both horizontal and vertical
-/// layouts. The default ("classic") carries no class so the shipped
-/// look is the no-class baseline.
-function applyTabStyle(style: TabStyle | undefined): void {
-  for (const s of ["forge", "glass", "crt"] as const) {
-    document.body.classList.toggle(`tab-style-${s}`, style === s);
-  }
 }
 
 /// Override the chrome font stack. Empty / null restores the default
@@ -452,13 +435,13 @@ async function boot(): Promise<void> {
     initialSettings = await invoke<Settings>("get_settings");
     applyWindowBackground(initialSettings.window?.background ?? "vibrant");
     applyTabbarPosition(initialSettings.tabbar_position ?? "top");
-    applyTabStyle(initialSettings.window?.tab_style ?? "classic");
+    applyPresetTabStyle(initialSettings.window?.tab_style ?? "classic");
     applyCustomTabStyle(initialSettings.experimental?.tab_styles);
     applyUiFont(initialSettings.ui_font_family);
   } catch {
     applyWindowBackground("vibrant");
     applyTabbarPosition("top");
-    applyTabStyle("classic");
+    applyPresetTabStyle("classic");
     applyCustomTabStyle(null);
     applyUiFont(null);
   }
@@ -1339,7 +1322,7 @@ async function boot(): Promise<void> {
     applyWindowBackground(next.window?.background ?? "vibrant");
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
-    applyTabStyle(next.window?.tab_style ?? "classic");
+    applyPresetTabStyle(next.window?.tab_style ?? "classic");
     applyCustomTabStyle(next.experimental?.tab_styles);
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);

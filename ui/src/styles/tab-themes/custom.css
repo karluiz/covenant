@@ -11,12 +11,24 @@ body.tab-style-custom .tab-btn {
   height: var(--tab-custom-h, 30px);
 }
 
-/* ── CUSTOM · background modes ── */
+/* ── CUSTOM · background modes ──
+   The theme's --tab-bg-rest is only a ~4% ink lift, so deriving all
+   three modes from it made Solid / Translucent / Off identical to the
+   eye. Use explicit neutral-lift steps instead: 12% / 5% / 0%. */
+body.tab-style-custom[data-tab-bg="solid"] .tab-btn {
+  background: color-mix(in srgb, rgb(var(--ink-rgb)) 12%, transparent);
+}
 body.tab-style-custom[data-tab-bg="translucent"] .tab-btn {
-  background: color-mix(in srgb, var(--tab-bg-rest) 55%, transparent);
+  background: color-mix(in srgb, rgb(var(--ink-rgb)) 5%, transparent);
 }
 body.tab-style-custom[data-tab-bg="off"] .tab-btn {
   background: transparent !important;
+}
+/* Off promises "just text and indicator" — drop the rest-state border
+   too. The active tab keeps its border so the Border indicator and
+   active emphasis still work. */
+body.tab-style-custom[data-tab-bg="off"] .tab-btn:not(.active) {
+  border-color: transparent;
 }
 body.tab-style-custom[data-tab-bg="gradient"] .tab-btn {
   background: linear-gradient(
@@ -58,7 +70,7 @@ body.tab-style-custom[data-tab-indicator="underline"] .tab-btn.active::before {
   border-radius: 2px;
 }
 
-body.tabbar-left body.tab-style-custom[data-tab-indicator="underline"] .tab-btn.active::before {
+body.tabbar-left.tab-style-custom[data-tab-indicator="underline"] .tab-btn.active::before {
   left: -1px;
   right: -1px;
   bottom: 0;
@@ -78,7 +90,7 @@ body.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.active::before {
   border-radius: 0 2px 2px 0;
 }
 
-body.tabbar-left body.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.active::before {
+body.tabbar-left.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.active::before {
   top: 0;
   bottom: 0;
   left: 0;
@@ -86,13 +98,15 @@ body.tabbar-left body.tab-style-custom[data-tab-indicator="left-bar"] .tab-btn.a
   border-radius: 0;
 }
 
-/* Dot — small circle near the tab label */
+/* Dot — small colored circle before the tab label. The active tab
+   reserves left padding so the dot gets its own slot instead of
+   painting over the first characters of the label. */
 body.tab-style-custom[data-tab-indicator="dot"] .tab-btn.active::before {
   display: block;
   content: "";
   position: absolute;
   top: 50%;
-  left: 6px;
+  left: 8px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -100,8 +114,12 @@ body.tab-style-custom[data-tab-indicator="dot"] .tab-btn.active::before {
   transform: translateY(-50%);
 }
 
-body.tabbar-left body.tab-style-custom[data-tab-indicator="dot"] .tab-btn.active::before {
-  left: 8px;
+body.tab-style-custom[data-tab-indicator="dot"] .tab-btn.active {
+  padding-left: 22px;
+}
+
+body.tab-style-custom[data-tab-indicator="dot"] .tab-group-body > .tab-btn.tab-grouped.active {
+  padding-left: 24px;
 }
 
 /* Glow — box-shadow glow behind the active pill */
@@ -109,6 +127,15 @@ body.tab-style-custom[data-tab-indicator="glow"] .tab-btn.active {
   box-shadow:
     0 0 12px color-mix(in srgb, var(--tab-stripe, var(--accent)) 30%, transparent),
     0 0 4px color-mix(in srgb, var(--tab-stripe, var(--accent)) 20%, transparent);
+}
+
+/* Left rail rows are full-width inside an overflow-hidden column, so
+   an outer halo gets clipped to thin lines at the edges. Blend an
+   inset glow with a small outer one that survives the 4px gap. */
+body.tabbar-left.tab-style-custom[data-tab-indicator="glow"] .tab-btn.active {
+  box-shadow:
+    inset 0 0 10px color-mix(in srgb, var(--tab-stripe, var(--accent)) 18%, transparent),
+    0 0 5px color-mix(in srgb, var(--tab-stripe, var(--accent)) 25%, transparent);
 }
 
 /* Border — colored outline on the active pill */
@@ -135,6 +162,51 @@ body.tab-style-custom.tabbar-left #tabs {
 body.tab-style-custom[data-tab-bg="gradient"][data-tab-indicator="stripe"] .tab-btn.active::before,
 body.tab-style-custom[data-tab-bg="gradient"][data-tab-indicator="underline"] .tab-btn.active::before {
   border-radius: var(--tab-custom-radius, 0px);
+}
+
+/* ── CUSTOM · layout-specific overrides ──
+   The left rail (body.tabbar-left .tab-btn) and grouped rows
+   (.tab-group-body > .tab-grouped) hardcode their own height/radius/bg
+   in styles.css at higher specificity than the base rule above, which
+   silently swallowed the Shape and Height knobs. When custom mode is
+   on, the user's knobs win. .tab-pill-folded is excluded so the
+   group-collapse animation (height → 0) keeps working. */
+body.tabbar-left.tab-style-custom .tab-btn:not(.tab-pill-folded) {
+  height: var(--tab-custom-h, 30px);
+  border-radius: var(--tab-custom-radius, 0px);
+  --tab-radius: var(--tab-custom-radius, 0px);
+}
+body.tab-style-custom .tab-group-body > .tab-btn.tab-grouped:not(.tab-pill-folded) {
+  height: var(--tab-custom-h, 30px);
+  min-height: var(--tab-custom-h, 30px);
+  border-radius: var(--tab-custom-radius, 0px);
+  --tab-radius: var(--tab-custom-radius, 0px);
+}
+
+/* Grouped rows rest transparent by design (the group stripe carries
+   hierarchy); in custom mode the Background knob applies to them too
+   so Solid/Translucent read consistently across all tabs. */
+body.tab-style-custom[data-tab-bg="solid"] .tab-group-body > .tab-btn.tab-grouped {
+  background: color-mix(in srgb, rgb(var(--ink-rgb)) 12%, transparent);
+}
+body.tab-style-custom[data-tab-bg="translucent"] .tab-group-body > .tab-btn.tab-grouped {
+  background: color-mix(in srgb, rgb(var(--ink-rgb)) 5%, transparent);
+}
+
+/* ── CUSTOM · group header chip ──
+   [data-tab-group-bg] is always present while custom mode is on, so
+   these selectors carry enough specificity (0,3,0) to beat the dark
+   sidebar preset (`body.tabbar-left:not(.theme-light) .group-chip`).
+   The colored left stripe stays — it carries group identity. */
+body.tab-style-custom[data-tab-group-bg] .group-chip {
+  border-radius: var(--tab-custom-group-radius, 10px);
+}
+body.tab-style-custom[data-tab-group-bg="solid"] .group-chip {
+  background: color-mix(in srgb, rgb(var(--ink-rgb)) 12%, transparent);
+}
+body.tab-style-custom[data-tab-group-bg="off"] .group-chip {
+  background: transparent;
+  box-shadow: none;
 }
 
 /* ── CUSTOM · AOM indicator ── */

@@ -22,6 +22,35 @@ const GAP_VALUES: Record<string, string> = {
   loose: "8px",
 };
 
+/// Maps group-header shape variants to CSS `border-radius` values.
+/// "match" is resolved against SHAPE_RADII (the tab shape) instead.
+/// Pill uses 999px so the chip is a true capsule at any height.
+const GROUP_SHAPE_RADII: Record<string, string> = {
+  rectangle: "0px",
+  rounded: "6px",
+  lofted: "12px",
+  pill: "999px",
+};
+
+/// Preset tab skin (classic/forge/glass/crt). Flips the matching
+/// `body.tab-style-<preset>` class; "classic" carries no class so the
+/// shipped look is the no-class baseline. Any unknown value (notably
+/// the UI-only "custom" radio) also clears every preset class — the
+/// custom layer paints on the classic baseline. Lives here (not
+/// main.ts) so the settings panel can live-preview preset changes.
+export function applyPresetTabStyle(style: string | undefined): void {
+  for (const s of ["forge", "glass", "crt"] as const) {
+    document.body.classList.toggle(`tab-style-${s}`, style === s);
+  }
+}
+
+/// Toggle the vertical-tabbar layout. CSS does the heavy lifting via
+/// `body.tabbar-left`; the rest of the app stays layout-agnostic.
+/// Exported so the settings panel can live-preview position changes.
+export function applyTabbarPosition(pos: "top" | "left" | undefined): void {
+  document.body.classList.toggle("tabbar-left", pos === "left");
+}
+
 /// Apply custom tab style CSS variables from the given config.
 /// If the config is disabled or absent, remove the body class and
 /// all custom properties — the tabbar falls back to the classic
@@ -39,12 +68,14 @@ export function applyCustomTabStyle(config: TabStylesConfig | undefined | null):
     body.classList.remove("tab-style-custom");
     body.removeAttribute("data-tab-bg");
     body.removeAttribute("data-tab-indicator");
+    body.removeAttribute("data-tab-group-bg");
     root.style.removeProperty("--tab-custom-radius");
     root.style.removeProperty("--tab-custom-bg");
     root.style.removeProperty("--tab-custom-gradient-start");
     root.style.removeProperty("--tab-custom-gradient-end");
     root.style.removeProperty("--tab-custom-h");
     root.style.removeProperty("--tab-custom-gap");
+    root.style.removeProperty("--tab-custom-group-radius");
     return;
   }
 
@@ -81,4 +112,14 @@ export function applyCustomTabStyle(config: TabStylesConfig | undefined | null):
 
   // Gap
   root.style.setProperty("--tab-custom-gap", GAP_VALUES[config.gap] ?? "4px");
+
+  // Group header chip — shape "match" follows the tab radius.
+  const groupShape = config.group_shape ?? "match";
+  root.style.setProperty(
+    "--tab-custom-group-radius",
+    groupShape === "match"
+      ? (SHAPE_RADII[config.shape] ?? "0px")
+      : (GROUP_SHAPE_RADII[groupShape] ?? "10px"),
+  );
+  body.setAttribute("data-tab-group-bg", config.group_bg ?? "tinted");
 }
