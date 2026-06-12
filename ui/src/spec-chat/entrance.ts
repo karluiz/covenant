@@ -73,10 +73,32 @@ function shortSummary(draft: SpecDraftSummary): string {
 // Constellation sky
 // ---------------------------------------------------------------------------
 
-interface Particle { x: number; y: number; vx: number; vy: number; r: number; fill: string }
+interface Particle {
+  x: number;
+  y: number;
+  /** Corner spawn point the intro starts from. */
+  sx: number;
+  sy: number;
+  /** Home position the intro converges to; drift takes over from there. */
+  hx: number;
+  hy: number;
+  /** Per-particle intro stagger (ms). */
+  delay: number;
+  /** Current opacity factor (0..1), ramps in during the intro. */
+  a: number;
+  vx: number;
+  vy: number;
+  r: number;
+  fill: string;
+}
 
 const PARTICLE_COUNT = 80;
 const LINK_DIST = 110;
+// Particles converge from the corners over INTRO_MS, staggered up to
+// INTRO_STAGGER_MS; the link web fades in with intro² so the constellation
+// only "forms" late in the convergence.
+const INTRO_MS = 4200;
+const INTRO_STAGGER_MS = 1600;
 
 /** Starts the sky; returns a teardown fn. No-ops when canvas 2d is unavailable. */
 function startSky(canvas: HTMLCanvasElement): () => void {
@@ -106,9 +128,15 @@ function startSky(canvas: HTMLCanvasElement): () => void {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Redistribute existing particles to the new bounds (no-op before seeding).
     if (oldW > 0 && oldH > 0) {
+      const kx = w / oldW;
+      const ky = h / oldH;
       for (const p of ps) {
-        p.x *= w / oldW;
-        p.y *= h / oldH;
+        p.x *= kx;
+        p.y *= ky;
+        p.sx *= kx;
+        p.sy *= ky;
+        p.hx *= kx;
+        p.hy *= ky;
       }
     }
   };
@@ -116,9 +144,21 @@ function startSky(canvas: HTMLCanvasElement): () => void {
 
   for (let i = 0; i < PARTICLE_COUNT; i++) {
     const r = 0.6 + Math.random() * 1.4;
+    const hx = Math.random() * Math.max(w, 1);
+    const hy = Math.random() * Math.max(h, 1);
+    // Spawn near one of the four corners, jittered so each corner reads as a
+    // loose cluster rather than a point.
+    const sx = (Math.random() < 0.5 ? 0 : Math.max(w, 1)) + (Math.random() - 0.5) * 140;
+    const sy = (Math.random() < 0.5 ? 0 : Math.max(h, 1)) + (Math.random() - 0.5) * 140;
     ps.push({
-      x: Math.random() * Math.max(w, 1),
-      y: Math.random() * Math.max(h, 1),
+      x: reduced ? hx : sx,
+      y: reduced ? hy : sy,
+      sx,
+      sy,
+      hx,
+      hy,
+      delay: Math.random() * INTRO_STAGGER_MS,
+      a: reduced ? 1 : 0,
       vx: (Math.random() - 0.5) * 0.18,
       vy: (Math.random() - 0.5) * 0.14,
       r,
@@ -126,34 +166,58 @@ function startSky(canvas: HTMLCanvasElement): () => void {
     });
   }
 
+  // 0..1 across the whole intro; links scale with intro² so the web forms late.
+  let intro = reduced ? 1 : 0;
+
   const draw = (): void => {
     ctx.clearRect(0, 0, w, h);
-    ctx.lineWidth = 1;
-    for (let i = 0; i < ps.length; i++) {
-      for (let j = i + 1; j < ps.length; j++) {
-        const dx = ps[i]!.x - ps[j]!.x;
-        const dy = ps[i]!.y - ps[j]!.y;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < LINK_DIST * LINK_DIST) {
-          const a = (1 - Math.sqrt(d2) / LINK_DIST) * linkAlpha;
-          ctx.strokeStyle = `rgba(${rgb},${a.toFixed(3)})`;
-          ctx.beginPath();
-          ctx.moveTo(ps[i]!.x, ps[i]!.y);
-          ctx.lineTo(ps[j]!.x, ps[j]!.y);
-          ctx.stroke();
+    const linkScale = intro * intro;
+    if (linkScale > 0.02) {
+      ctx.lineWidth = 1;
+      for (let i = 0; i < ps.length; i++) {
+        for (let j = i + 1; j < ps.length; j++) {
+          const dx = ps[i]!.x - ps[j]!.x;
+          const dy = ps[i]!.y - ps[j]!.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < LINK_DIST * LINK_DIST) {
+            const a = (1 - Math.sqrt(d2) / LINK_DIST) * linkAlpha * linkScale;
+            ctx.strokeStyle = `rgba(${rgb},${a.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.moveTo(ps[i]!.x, ps[i]!.y);
+            ctx.lineTo(ps[j]!.x, ps[j]!.y);
+            ctx.stroke();
+          }
         }
       }
     }
     for (const p of ps) {
+      ctx.globalAlpha = p.a;
       ctx.fillStyle = p.fill;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalAlpha = 1;
   };
 
+  const t0 = typeof performance !== "undefined" ? performance.now() : 0;
+
   const step = (): void => {
+    const elapsed = (typeof performance !== "undefined" ? performance.now() : 0) - t0;
+    intro = Math.min(1, elapsed / (INTRO_MS + INTRO_STAGGER_MS));
+    if (intro < 1) {
+      // Converge corner spawns toward home, eased and staggered per particle.
+      for (const p of ps) {
+        const k = Math.min(1, Math.max(0, (elapsed - p.delay) / INTRO_MS));
+        const e = 1 - (1 - k) ** 3;
+        p.x = p.sx + (p.hx - p.sx) * e;
+        p.y = p.sy + (p.hy - p.sy) * e;
+        p.a = 0.15 + 0.85 * e;
+      }
+      return;
+    }
     for (const p of ps) {
+      p.a = 1;
       p.x += p.vx;
       p.y += p.vy;
       if (p.x < -4) p.x = w + 4;
