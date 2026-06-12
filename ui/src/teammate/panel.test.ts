@@ -117,6 +117,7 @@ function makeOp(overrides: Partial<Operator> = {}): Operator {
     created_at_unix_ms: 0,
     updated_at_unix_ms: 0,
     xp: 0,
+    github_access: "Off",
     ...overrides,
   };
 }

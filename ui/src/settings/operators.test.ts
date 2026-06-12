@@ -115,6 +115,34 @@ describe('operator modal', () => {
   });
 });
 
+describe('github access control', () => {
+  it('defaults to Off in create mode', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    expect(h.state.githubAccess).toBe('Off');
+    h.el.remove();
+  });
+
+  it('seeds from the existing operator in edit mode', () => {
+    const existing: Operator = {
+      id: 'gh1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.5, model: 'claude-sonnet-4-6',
+      hard_constraints: '', voice: 'Terse', is_default: false,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+      github_access: 'ReadWrite',
+    };
+    const h = openOperatorModal({ mode: 'edit', existing });
+    expect(h.state.githubAccess).toBe('ReadWrite');
+    h.el.remove();
+  });
+
+  it('setGithubAccess updates state', () => {
+    const h = openOperatorModal({ mode: 'create' });
+    h.setGithubAccess('ReadOnly');
+    expect(h.state.githubAccess).toBe('ReadOnly');
+    h.el.remove();
+  });
+});
+
 describe('operator list grid', () => {
   it('renders one card per operator', () => {
     const ops: Operator[] = [{
@@ -122,6 +150,7 @@ describe('operator list grid', () => {
       tags: [], persona: '', escalate_threshold: 0.5, model: 'gpt-4o',
       hard_constraints: '', is_default: true,
       created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse',
+      github_access: 'Off',
     }];
     const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
     expect(root.querySelectorAll('.op-card').length).toBe(1);

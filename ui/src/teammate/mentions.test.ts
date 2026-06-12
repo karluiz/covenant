@@ -14,6 +14,7 @@ function fakeOp(name = "claude"): Operator {
     escalate_threshold: 0, model: "gpt-4o", hard_constraints: "",
     voice: "Terse", is_default: true,
     created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+    github_access: "Off",
   };
 }
 

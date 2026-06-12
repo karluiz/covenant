@@ -7,6 +7,7 @@ import {
   operatorDelete,
   operatorList,
   operatorSetDefault,
+  operatorSetGithubAccess,
   operatorUpdate,
   operatorListArchetypes,
   operatorSoulRead,
@@ -16,6 +17,7 @@ import {
   listModelsAzureFoundry,
   listModelsOpenAiCompat,
   type ArchetypeView,
+  type GithubAccess,
   type SoulView,
   type ModelInfo,
 } from "../api";
@@ -124,6 +126,14 @@ export class OperatorsPane {
             if (handle.state.setAsDefault && !handle.state.isDefault && saved.id) {
               try { await operatorSetDefault(saved.id); } catch (e) {
                 console.warn("operator_set_default failed", e);
+              }
+            }
+            // Persist GitHub access if it changed — registry-side field,
+            // not carried by the SOUL.md save path.
+            const prevAccess = handle.state.existing?.github_access ?? "Off";
+            if (saved.id && handle.state.githubAccess !== prevAccess) {
+              try { await operatorSetGithubAccess(saved.id, handle.state.githubAccess); } catch (e) {
+                console.warn("operator_set_github_access failed", e);
               }
             }
             closeCreator(handle.el);
@@ -656,6 +666,10 @@ export interface ModalState {
   setAsDefault: boolean;
   /// Present in edit/duplicate mode; needed for Delete + default flow.
   existing?: Operator;
+  /// GitHub access level. Registry-side (not SOUL); persisted via the
+  /// dedicated operator_set_github_access command after save, same
+  /// pattern as setAsDefault.
+  githubAccess: GithubAccess;
   /// Active section in the immersive shell UI.
   activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
@@ -678,6 +692,7 @@ export interface ModalHandle {
   setPersona(s: string): void;
   setHardConstraints(s: string): void;
   setAsDefault(b: boolean): void;
+  setGithubAccess(a: GithubAccess): void;
   applyPreset(key: PresetKey): void;
   setSection(s: SectionKey): void;
 }
@@ -742,6 +757,7 @@ export function openOperatorModal(opts: {
     isDefault,
     setAsDefault: isDefault,
     existing: opts.existing,
+    githubAccess: opts.existing?.github_access ?? "Off",
     activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
@@ -787,6 +803,7 @@ export function openOperatorModal(opts: {
     setHardConstraints(s) { state.draft.hard_constraints = s; render(); },
     // Native checkbox self-displays; no full render needed (would flash the modal).
     setAsDefault(b) { state.setAsDefault = b; },
+    setGithubAccess(a) { state.githubAccess = a; render(); },
     setSection(s) {
       if (state.activeSection === s) return;
       state.activeSection = s;
@@ -1290,6 +1307,38 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     thrHint.textContent = thresholdHint(view.escalate_threshold ?? 0.6);
     thrField.append(thrHint);
     behaviour.append(thrField);
+
+    // ── GitHub access (registry-side, not part of the SOUL) ───────────
+    const ghSeg = document.createElement("div");
+    ghSeg.className = "op-soul-seg";
+    const GH_OPTIONS: { value: GithubAccess; label: string }[] = [
+      { value: "Off", label: "Off" },
+      { value: "ReadOnly", label: "Read-only" },
+      { value: "ReadWrite", label: "Read & write" },
+    ];
+    for (const opt of GH_OPTIONS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "op-soul-seg-btn";
+      if (h.state.githubAccess === opt.value) btn.classList.add("is-selected");
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => h.setGithubAccess(opt.value));
+      ghSeg.append(btn);
+    }
+    // div (not <label>) wrapper — a label would forward clicks on the
+    // hint/label text to the first button, silently selecting "Off".
+    // Mirrors the avatar-grid field structure above.
+    const ghField = document.createElement("div");
+    ghField.className = "op-modal-field";
+    const ghLbl = document.createElement("span");
+    ghLbl.className = "op-modal-label";
+    ghLbl.textContent = "GitHub access";
+    const ghHint = document.createElement("small");
+    ghHint.className = "op-modal-hint";
+    ghHint.textContent =
+      "Read lets this operator list and read issues and PRs; read & write can also create issues, comment, and open PRs as you.";
+    ghField.append(ghLbl, ghSeg, ghHint);
+    behaviour.append(ghField);
     controls.append(behaviour);
 
     // ── Hard constraints (safety — extra deny rules) ──────────────────
