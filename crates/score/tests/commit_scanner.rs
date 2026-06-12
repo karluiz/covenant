@@ -110,6 +110,33 @@ fn scan_known_repos_rescan_does_not_duplicate() {
 }
 
 #[test]
+fn scan_self_heals_when_cursor_advanced_but_no_commits_recorded() {
+    let _guard = LOCK.lock().unwrap();
+    let tmp = tempdir().unwrap();
+    let store = karl_score::ScoreStore::open(tmp.path()).unwrap();
+
+    let repo_dir = tempdir().unwrap();
+    let repo = repo_dir.path().join("healed-repo");
+    std::fs::create_dir(&repo).unwrap();
+    make_repo_with_commit(&repo);
+
+    karl_score::register_cwd(&repo);
+    // Simulate a poisoned cursor: an earlier (buggy/failed) scan advanced it
+    // without ever importing anything.
+    let canonical = repo.canonicalize().unwrap();
+    store
+        .set_commit_cursor(&canonical, chrono::Utc::now().timestamp())
+        .unwrap();
+
+    karl_score::commit_scanner::scan_known_repos(&store, "test@x.com");
+    assert_eq!(
+        commit_count(&store, "healed-repo"),
+        1,
+        "a repo with zero recorded commits must backfill despite the cursor"
+    );
+}
+
+#[test]
 fn duplicate_commit_insert_is_ignored() {
     let _guard = LOCK.lock().unwrap();
     let tmp = tempdir().unwrap();

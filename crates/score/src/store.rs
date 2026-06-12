@@ -398,6 +398,19 @@ impl ScoreStore {
             .map_err(Into::into)
     }
 
+    /// Whether any commit event exists for a repo name. Lets the scanner
+    /// self-heal: an advanced cursor with zero recorded commits means a
+    /// previous scan failed or filtered everything — backfill again.
+    pub fn has_commits_for_repo(&self, repo: &str) -> Result<bool> {
+        let c = self.conn.lock().unwrap();
+        let n: i64 = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM score_events WHERE kind='commit' AND repo = ?1)",
+            params![repo],
+            |r| r.get(0),
+        )?;
+        Ok(n != 0)
+    }
+
     /// Last commit-scan unix timestamp for a repo path. 0 = never scanned,
     /// which makes the first scan a full-history backfill.
     pub fn get_commit_cursor(&self, path: &Path) -> Result<i64> {

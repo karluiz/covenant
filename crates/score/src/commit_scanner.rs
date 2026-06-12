@@ -13,7 +13,14 @@ pub fn scan_known_repos(store: &ScoreStore, author_email: &str) -> u32 {
     paths.extend(store.repo_paths().unwrap_or_default());
     let mut n = 0u32;
     for p in paths {
-        let since = store.get_commit_cursor(&p).unwrap_or(0);
+        let mut since = store.get_commit_cursor(&p).unwrap_or(0);
+        // Self-heal: cursor advanced but nothing ever recorded for this repo
+        // → a previous scan failed or over-filtered. Backfill from scratch;
+        // the unique commit index makes that idempotent.
+        let repo_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("repo");
+        if since > 0 && !store.has_commits_for_repo(repo_name).unwrap_or(true) {
+            since = 0;
+        }
         let now_s = chrono::Utc::now().timestamp();
         if let Ok(c) = scan_repo_since(&p, author_email, since, store) {
             n += c;
@@ -32,16 +39,19 @@ pub fn scan_repo_since(
     since_ts_seconds: i64,
     store: &ScoreStore,
 ) -> std::io::Result<u32> {
-    // since=0 means full-history backfill: omit --since entirely. Git's
-    // approxidate does NOT read "@0" as the epoch (it filters like "today
-    // 00:00"), so passing it would silently drop everything older than today.
+    // since=0 means full-history backfill: omit --since entirely. Use RFC3339
+    // for the cutoff — git's approxidate does NOT read "@0" as the epoch (it
+    // filters like "today 00:00") and small @N values parse unpredictably.
     let mut args = vec![
         "log".to_string(),
         format!("--author={author_email}"),
         "--pretty=format:%H %ct".to_string(),
     ];
     if since_ts_seconds > 0 {
-        args.push(format!("--since=@{since_ts_seconds}"));
+        let cutoff = chrono::DateTime::from_timestamp(since_ts_seconds, 0)
+            .unwrap_or_default()
+            .to_rfc3339();
+        args.push(format!("--since={cutoff}"));
     }
     let out = Command::new("git")
         .args(&args)
