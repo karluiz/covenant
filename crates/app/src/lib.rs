@@ -4088,6 +4088,7 @@ pub fn run() {
             score_auth_commands::score_signin_poll,
             score_auth_commands::score_current_user,
             score_auth_commands::score_signout,
+            score_auth_commands::score_token_scope,
             score_sync_commands::score_sync_now,
             score_sync_commands::score_sync_status,
             score_commands::score_set_current_session,
