@@ -201,6 +201,34 @@ impl ScoreStore {
                  PRAGMA user_version = 5;",
             )?;
         }
+        // v6: durable commit scanning. The repo-path registry survives
+        // relaunches, each repo keeps its own scan cursor (first scan
+        // backfills full history), and commits dedupe on (repo, executor) —
+        // executor is "{repo}:{sha7}", so overlapping scan windows are safe.
+        // Pre-v6 data had duplicates from relaunch re-scans; collapse them
+        // before the unique index lands.
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 6 {
+            conn.execute_batch(
+                "DELETE FROM score_events WHERE kind='commit' AND id NOT IN (
+                    SELECT MIN(id) FROM score_events WHERE kind='commit'
+                    GROUP BY repo, executor
+                 );
+                 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_commit_unique
+                    ON score_events(repo, executor) WHERE kind='commit';
+                 CREATE TABLE IF NOT EXISTS repo_paths (
+                    path             TEXT PRIMARY KEY,
+                    registered_at_ms INTEGER NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS commit_scan_cursors (
+                    path            TEXT PRIMARY KEY,
+                    last_scanned_ts INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 6;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -239,8 +267,10 @@ impl ScoreStore {
             EventKind::Commit => "commit",
         };
         let c = self.conn.lock().unwrap();
+        // OR IGNORE: commits carry a unique (repo, executor) index so
+        // overlapping scan windows no-op; prompts have no constraint.
         c.execute(
-            "INSERT INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name, agent, workspace)
+            "INSERT OR IGNORE INTO score_events(timestamp_ms, kind, executor, day, repo, branch, group_name, agent, workspace)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 timestamp_ms,
@@ -345,6 +375,49 @@ impl ScoreStore {
                 last_server_cursor_ms = excluded.last_server_cursor_ms,
                 last_synced_at_ms = excluded.last_synced_at_ms",
             params![last_pushed_event_id, server_cursor_ms, synced_at_ms],
+        )?;
+        Ok(())
+    }
+
+    /// Persist a repo toplevel path for commit scanning across relaunches.
+    pub fn upsert_repo_path(&self, path: &Path, now_ms: i64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT OR IGNORE INTO repo_paths(path, registered_at_ms) VALUES (?1, ?2)",
+            params![path.to_string_lossy(), now_ms],
+        )?;
+        Ok(())
+    }
+
+    pub fn repo_paths(&self) -> Result<Vec<std::path::PathBuf>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare("SELECT path FROM repo_paths")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.map(|r| r.map(std::path::PathBuf::from))
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    /// Last commit-scan unix timestamp for a repo path. 0 = never scanned,
+    /// which makes the first scan a full-history backfill.
+    pub fn get_commit_cursor(&self, path: &Path) -> Result<i64> {
+        let c = self.conn.lock().unwrap();
+        let row = c
+            .query_row(
+                "SELECT last_scanned_ts FROM commit_scan_cursors WHERE path = ?1",
+                params![path.to_string_lossy()],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?;
+        Ok(row.unwrap_or(0))
+    }
+
+    pub fn set_commit_cursor(&self, path: &Path, ts: i64) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO commit_scan_cursors(path, last_scanned_ts) VALUES (?1, ?2)
+             ON CONFLICT(path) DO UPDATE SET last_scanned_ts = excluded.last_scanned_ts",
+            params![path.to_string_lossy(), ts],
         )?;
         Ok(())
     }

@@ -76,8 +76,21 @@ pub(crate) fn register_toplevel(toplevel: &std::path::Path) {
     let p = toplevel
         .canonicalize()
         .unwrap_or_else(|_| toplevel.to_path_buf());
-    if let Ok(mut g) = repo_paths_slot().lock() {
-        g.insert(p);
+    let newly = match repo_paths_slot().lock() {
+        Ok(mut g) => g.insert(p.clone()),
+        Err(_) => false,
+    };
+    // Persist so the registry survives relaunches; the commit scanner unions
+    // this with the store's repo_paths table.
+    if newly {
+        if let Ok(g) = slot().lock() {
+            if let Some(store) = g.as_ref() {
+                let now = chrono::Utc::now().timestamp_millis();
+                if let Err(e) = store.upsert_repo_path(&p, now) {
+                    tracing::warn!(target: "score", error = %e, "upsert_repo_path failed");
+                }
+            }
+        }
     }
 }
 

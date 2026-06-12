@@ -2,12 +2,23 @@ use crate::{EventKind, ScoreStore};
 use std::path::Path;
 use std::process::Command;
 
-/// Scan every repo registered via `karl_score::register_cwd` for new commits
-/// by `author_email` after `since_ts_seconds`. Returns total appended.
-pub fn scan_known_repos(store: &ScoreStore, author_email: &str, since_ts_seconds: i64) -> u32 {
+/// Scan every known repo (in-memory registry ∪ persisted repo_paths) for new
+/// commits by `author_email`. Each repo keeps its own cursor: the first scan
+/// backfills full history, later scans only look past the cursor. Duplicate
+/// rows are impossible regardless — commits carry a unique (repo, executor)
+/// index. Returns total appended.
+pub fn scan_known_repos(store: &ScoreStore, author_email: &str) -> u32 {
+    let mut paths: std::collections::HashSet<std::path::PathBuf> =
+        crate::known_repo_paths().into_iter().collect();
+    paths.extend(store.repo_paths().unwrap_or_default());
     let mut n = 0u32;
-    for p in crate::known_repo_paths() {
-        n += scan_repo_since(&p, author_email, since_ts_seconds, store).unwrap_or(0);
+    for p in paths {
+        let since = store.get_commit_cursor(&p).unwrap_or(0);
+        let now_s = chrono::Utc::now().timestamp();
+        if let Ok(c) = scan_repo_since(&p, author_email, since, store) {
+            n += c;
+            let _ = store.set_commit_cursor(&p, now_s);
+        }
     }
     n
 }

@@ -3710,8 +3710,6 @@ pub fn run() {
             let scanner_store = score_store.clone();
             tauri::async_runtime::spawn(async move {
                 use std::time::Duration;
-                let mut since = (chrono::Utc::now() - chrono::Duration::hours(24))
-                    .timestamp();
                 if let Ok(cwd) = std::env::current_dir() {
                     karl_score::register_cwd(&cwd);
                 }
@@ -3725,12 +3723,10 @@ pub fn run() {
                         .unwrap_or_default();
                     if email.is_empty() { continue; }
                     let store = scanner_store.clone();
-                    let s = since;
                     let _ = tokio::task::spawn_blocking(move || {
-                        karl_score::commit_scanner::scan_known_repos(&store, &email, s)
+                        karl_score::commit_scanner::scan_known_repos(&store, &email)
                     })
                     .await;
-                    since = chrono::Utc::now().timestamp();
                 }
             });
 
