@@ -37,6 +37,22 @@ fn require_write(c: &GithubCtx) -> Result<(), ToolError> {
     }
 }
 
+/// Validate a path segment provided by the LLM (owner/repo). GitHub
+/// names are alphanumeric plus `.`, `_`, `-`; anything else (slashes,
+/// `?`, `#`, dots-only traversal) would redirect the request to a
+/// different endpoint, defeating the specific-endpoints-only design.
+fn segment(s: &str) -> Result<&str, ToolError> {
+    let ok = !s.is_empty()
+        && s.len() <= 100
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+        && s.chars().any(|c| c.is_ascii_alphanumeric());
+    if ok {
+        Ok(s)
+    } else {
+        Err(ToolError::InvalidArgs(format!("invalid owner/repo segment: {s:?}")))
+    }
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         s.to_string()
@@ -52,8 +68,8 @@ fn map_github_error(status: u16, body: &str) -> ToolError {
             "github: token invalid or expired — ask the user to re-connect GitHub in Settings".into(),
         ),
         403 => ToolError::CommandFailed(
-            "github: forbidden or rate-limited — wait and retry, or ask the user to re-connect \
-             GitHub so the token carries repo scope"
+            "github: forbidden — possibly rate-limited (wait and retry), or the token/user \
+             lacks permission on this repository"
                 .into(),
         ),
         404 => ToolError::CommandFailed(
@@ -70,7 +86,10 @@ async fn gh_request(
     body: Option<Value>,
 ) -> Result<Value, ToolError> {
     let url = format!("{}{}", c.api_base.trim_end_matches('/'), path_and_query);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| ToolError::CommandFailed(format!("github client init failed: {e}")))?;
     let mut req = client
         .request(method, &url)
         .header("Accept", "application/vnd.github+json")
@@ -150,12 +169,17 @@ fn issue_summary(r: &Value) -> Value {
 
 pub async fn gh_list_issues(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: RepoArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let state = a.state.as_deref().unwrap_or("open");
+    if !matches!(state, "open" | "closed" | "all") {
+        return Err(ToolError::InvalidArgs("state must be open|closed|all".into()));
+    }
     let c = ctx(env)?;
     let v = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{}/{}/issues?state={state}&per_page={MAX_LIST_ITEMS}", a.owner, a.repo),
+        &format!("/repos/{owner}/{repo}/issues?state={state}&per_page={MAX_LIST_ITEMS}"),
         None,
     )
     .await?;
@@ -182,18 +206,20 @@ struct NumberArgs {
 
 pub async fn gh_get_issue(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: NumberArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let c = ctx(env)?;
     let issue = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{}/{}/issues/{}", a.owner, a.repo, a.number),
+        &format!("/repos/{owner}/{repo}/issues/{}", a.number),
         None,
     )
     .await?;
     let comments = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{}/{}/issues/{}/comments?per_page={MAX_COMMENTS}", a.owner, a.repo, a.number),
+        &format!("/repos/{owner}/{repo}/issues/{}/comments?per_page={MAX_COMMENTS}", a.number),
         None,
     )
     .await
@@ -222,12 +248,17 @@ pub async fn gh_get_issue(env: &ToolEnv, args: &Value) -> Result<String, ToolErr
 
 pub async fn gh_list_prs(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: RepoArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let state = a.state.as_deref().unwrap_or("open");
+    if !matches!(state, "open" | "closed" | "all") {
+        return Err(ToolError::InvalidArgs("state must be open|closed|all".into()));
+    }
     let c = ctx(env)?;
     let v = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{}/{}/pulls?state={state}&per_page={MAX_LIST_ITEMS}", a.owner, a.repo),
+        &format!("/repos/{owner}/{repo}/pulls?state={state}&per_page={MAX_LIST_ITEMS}"),
         None,
     )
     .await?;
@@ -256,18 +287,20 @@ pub async fn gh_list_prs(env: &ToolEnv, args: &Value) -> Result<String, ToolErro
 
 pub async fn gh_get_pr(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: NumberArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let c = ctx(env)?;
     let pr = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{}/{}/pulls/{}", a.owner, a.repo, a.number),
+        &format!("/repos/{owner}/{repo}/pulls/{}", a.number),
         None,
     )
     .await?;
     let files = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{}/{}/pulls/{}/files?per_page={MAX_PR_FILES}", a.owner, a.repo, a.number),
+        &format!("/repos/{owner}/{repo}/pulls/{}/files?per_page={MAX_PR_FILES}", a.number),
         None,
     )
     .await
@@ -309,12 +342,14 @@ struct CreateIssueArgs {
 
 pub async fn gh_create_issue(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: CreateIssueArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let c = ctx(env)?;
     require_write(c)?;
     let v = gh_request(
         c,
         reqwest::Method::POST,
-        &format!("/repos/{}/{}/issues", a.owner, a.repo),
+        &format!("/repos/{owner}/{repo}/issues"),
         Some(serde_json::json!({"title": a.title, "body": a.body.unwrap_or_default()})),
     )
     .await?;
@@ -335,12 +370,14 @@ struct CommentArgs {
 
 pub async fn gh_comment(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: CommentArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let c = ctx(env)?;
     require_write(c)?;
     let v = gh_request(
         c,
         reqwest::Method::POST,
-        &format!("/repos/{}/{}/issues/{}/comments", a.owner, a.repo, a.number),
+        &format!("/repos/{owner}/{repo}/issues/{}/comments", a.number),
         Some(serde_json::json!({"body": a.body})),
     )
     .await?;
@@ -360,12 +397,14 @@ struct CreatePrArgs {
 
 pub async fn gh_create_pr(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: CreatePrArgs = parse_args(args)?;
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let c = ctx(env)?;
     require_write(c)?;
     let v = gh_request(
         c,
         reqwest::Method::POST,
-        &format!("/repos/{}/{}/pulls", a.owner, a.repo),
+        &format!("/repos/{owner}/{repo}/pulls"),
         Some(serde_json::json!({
             "title": a.title, "head": a.head, "base": a.base,
             "body": a.body.unwrap_or_default(),
@@ -393,12 +432,14 @@ pub async fn gh_update_issue_state(env: &ToolEnv, args: &Value) -> Result<String
     if a.state != "open" && a.state != "closed" {
         return Err(ToolError::InvalidArgs("state must be 'open' or 'closed'".into()));
     }
+    let owner = segment(&a.owner)?;
+    let repo = segment(&a.repo)?;
     let c = ctx(env)?;
     require_write(c)?;
     let v = gh_request(
         c,
         reqwest::Method::PATCH,
-        &format!("/repos/{}/{}/issues/{}", a.owner, a.repo, a.number),
+        &format!("/repos/{owner}/{repo}/issues/{}", a.number),
         Some(serde_json::json!({"state": a.state})),
     )
     .await?;
@@ -726,5 +767,66 @@ mod tests {
             .unwrap();
         assert!(out.contains("(truncated)"));
         assert!(out.len() < 4000);
+    }
+
+    #[tokio::test]
+    async fn path_traversal_owner_repo_rejected() {
+        let env = env_with("http://127.0.0.1:9".into(), GithubAccess::ReadOnly);
+        for bad in ["../user", "a/b", "a?x=1", "a#f", "", "..", "a b"] {
+            let err = gh_list_issues(&env, &serde_json::json!({"owner": bad, "repo": "r"}))
+                .await
+                .unwrap_err();
+            assert!(matches!(err, ToolError::InvalidArgs(_)), "owner {bad:?} should be rejected");
+            let err = gh_list_issues(&env, &serde_json::json!({"owner": "o", "repo": bad}))
+                .await
+                .unwrap_err();
+            assert!(matches!(err, ToolError::InvalidArgs(_)), "repo {bad:?} should be rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn list_state_validated() {
+        let env = env_with("http://127.0.0.1:9".into(), GithubAccess::ReadOnly);
+        let err = gh_list_issues(&env, &serde_json::json!({"owner": "o", "repo": "r", "state": "open&per_page=100"}))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ToolError::InvalidArgs(_)));
+    }
+
+    #[tokio::test]
+    async fn get_pr_projects_files_with_patch_excerpts() {
+        let mut server = mockito::Server::new_async().await;
+        let _pr = server
+            .mock("GET", "/repos/o/r/pulls/3")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"number":3,"title":"PR","state":"open","user":{"login":"u"},
+                "head":{"ref":"feat"},"base":{"ref":"main"},"draft":false,"mergeable":true,
+                "additions":10,"deletions":2,"changed_files":1,"body":"desc"}"#)
+            .create_async()
+            .await;
+        let _files = server
+            .mock("GET", "/repos/o/r/pulls/3/files")
+            .match_query(mockito::Matcher::Any)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"[{"filename":"src/x.rs","status":"modified","additions":10,"deletions":2,"patch":"@@ -1 +1 @@"}]"#)
+            .create_async()
+            .await;
+        let env = env_with(server.url(), GithubAccess::ReadOnly);
+        let out = gh_get_pr(&env, &serde_json::json!({"owner": "o", "repo": "r", "number": 3}))
+            .await
+            .unwrap();
+        assert!(out.contains("src/x.rs"));
+        assert!(out.contains("feat"));
+        assert!(out.contains("@@ -1 +1 @@"));
+    }
+
+    #[test]
+    fn github_ctx_debug_redacts_token() {
+        let c = GithubCtx { token: "ghu_SECRET".into(), access: GithubAccess::ReadOnly, api_base: "x".into() };
+        let dbg = format!("{c:?}");
+        assert!(!dbg.contains("ghu_SECRET"));
+        assert!(dbg.contains("<redacted>"));
     }
 }

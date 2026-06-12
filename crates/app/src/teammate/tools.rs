@@ -50,11 +50,21 @@ pub struct ToolEnv {
 
 /// Token + access level + API base for the `gh_*` tools. `api_base` is
 /// "https://api.github.com" in production; tests point it at mockito.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GithubCtx {
     pub token: String,
     pub access: crate::operator_registry::GithubAccess,
     pub api_base: String,
+}
+
+impl std::fmt::Debug for GithubCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GithubCtx")
+            .field("token", &"<redacted>")
+            .field("access", &self.access)
+            .field("api_base", &self.api_base)
+            .finish()
+    }
 }
 
 impl ToolEnv {
