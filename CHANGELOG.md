@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.79 — Per-operator GitHub tools + Score multi-repo scanners
+
+### Added
+
+- **Per-operator GitHub access + `gh_*` tools**: operators gain a `GithubAccess` level (`Off`/`ReadOnly`/`ReadWrite`) stored in the registry with a SQLite migration (`crates/app/src/operator_registry.rs`); a new access-gated GitHub tools module (`crates/app/src/teammate/github_tools.rs`) registers `gh_*` tool definitions in both LLM dispatch paths, and the keychain GitHub token is attached to the operator's `ToolEnv` according to its level. The device-flow sign-in now requests `repo` scope and persists the granted scope, and the operator creator gets a GitHub access control plus a re-connect CTA when the stored token lacks `repo` scope (`ui/src/settings/operators.ts`).
+- **Score scans every repo, not just the cwd**: the context resolver registers every git toplevel it sees into a persisted registry, and the periodic commit scanner iterates that registry with per-repo cursors, dedupe, full-history backfill, and self-healing (`crates/score/`). LLM token usage is now attributed to the owning repo/branch, and a new spec scanner walks the same registry for `**/specs/**/*.md` so "Specs created" stops reading 0 (`crates/app/src/score/spec_scanner.rs`).
+- **Spec Creator constellation entrance**: opening the Spec Creator lands on a full-bleed particle-sky surface where the constellation assembles from the corners, with draft cards and a hero CTA (`ui/src/spec-chat/entrance.ts`).
+- **Task cleanup affordances**: finished (done/cancelled) task cards in the teammate panel show a per-task Delete button and the filter row gains a bulk "Clean (N)" action — the commands existed but were never passed to the panel (`ui/src/main.ts`, `ui/src/teammate/panel.ts`).
+- **Spawns master-detail editor**: the settings Spawns section is now a brand-colored rail plus a single-spawn editor with labeled fields, scoped arg chips, and a live composed-command preview; set-default is exclusive (`ui/src/settings/`).
+- **Operator cards show tags**: settings cards render the operator's tags and switcher rows show the first tag; the hard-constraints field gains an explainer with one-click example rules (`ui/src/settings/operators.ts`).
+
+### Changed
+
+- **Debug probe removed**: the temporary on-screen red contextmenu probe banner ("window capture: …") added to diagnose the mission-chip right-click is reverted from production builds (`ui/src/main.ts`, `ui/src/status/bar.ts`).
+
+### Fixed
+
+- **`gh_*` hardening**: path segments are validated, the token is redacted from `Debug` output, and HTTP calls get a timeout (`crates/app/src/teammate/github_tools.rs`). GitHub access survives duplicating an operator, and the re-connect CTA no longer duplicates on rapid re-render (`ui/src/settings/operators.ts`).
+- **Stuck tooltips**: tooltips hide when the content under a stationary cursor moves away (`ui/src/tooltip/tooltip.ts`).
+- **Spec Creator repo grounding**: the research agent is grounded at the git root with an honest no-repo fallback instead of silently jailing to `~/.covenant` (`crates/app/src/spec_agent.rs`).
+- **Score range heading**: the By-repo card heading reflects the active time range (`ui/src/score/`).
+
 ## v0.8.78 — Custom tab styling + brainstorm preview design fix
 
 ### Added
