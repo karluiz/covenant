@@ -416,6 +416,7 @@ function renderSync(
       .map((s) => s.trim())
       .includes("repo");
     if (hasRepo) return;
+    if (host.querySelector(".cov-sync-reauth")) return;
     const cta = document.createElement("div");
     cta.className = "cov-sync cov-sync-reauth";
     cta.innerHTML = `
