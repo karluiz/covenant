@@ -31,7 +31,7 @@ const TEMPLATE = /* html */ `
     </div>
     <div class="cov-two">
       <div class="cov-card">
-        <h4>By repo · last 30d <span class="hint">click to drill in</span></h4>
+        <h4 data-role="repos-title">By repo <span class="hint">click to drill in</span></h4>
         <div data-role="repos"></div>
         <div class="cov-card-foot">
           <span class="seg-key seg-p"></span> prompts &nbsp; <span class="seg-key seg-c"></span> commits
@@ -140,6 +140,8 @@ async function refreshInner(host: HTMLElement, state: State): Promise<void> {
     state.filter.day = day;
     void refresh(host, state);
   });
+  const reposTitleEl = host.querySelector<HTMLElement>("[data-role=repos-title]")!;
+  reposTitleEl.innerHTML = `${escHtml(reposTitle(state.filter))} <span class="hint">click to drill in</span>`;
   renderRepoBars(reposHost, repos, state.filter.repo ?? null, (repo) => {
     state.filter.repo = repo;
     state.filter.branch = null;
@@ -428,6 +430,12 @@ function rangeLabel(filter: ScoreFilter): string {
   if (filter.range === "last30d") return "30 days";
   if (filter.range === "last7d") return "7 days";
   return "all time";
+}
+
+/// The "By repo" card heading must reflect the active range — the breakdown
+/// query uses the page filter, so a hardcoded "last 30d" lies under "all".
+export function reposTitle(filter: ScoreFilter): string {
+  return `By repo · ${rangeLabel(filter)}`;
 }
 
 function escHtml(s: string): string {

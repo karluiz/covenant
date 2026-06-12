@@ -8,6 +8,9 @@ const SOURCE: &str = "claude_code";
 #[derive(Deserialize)]
 struct Line {
     message: Option<Msg>,
+    cwd: Option<String>,
+    #[serde(rename = "gitBranch")]
+    git_branch: Option<String>,
 }
 #[derive(Deserialize)]
 struct Msg {
@@ -50,7 +53,9 @@ pub fn poll_one(store: &ScoreStore, path: &Path) -> Result<(), Box<dyn std::erro
     file.seek(SeekFrom::Start(watermark))?;
     let reader = BufReader::new(&mut file);
 
-    let ctx = Context::default();
+    // One git invocation per distinct cwd per poll, not per line.
+    let mut repo_cache: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
     let mut new_offset = watermark;
     for line in reader.lines() {
         let line = match line {
@@ -65,6 +70,17 @@ pub fn poll_one(store: &ScoreStore, path: &Path) -> Result<(), Box<dyn std::erro
         let Some(msg) = parsed.message else { continue };
         let Some(usage) = msg.usage else { continue };
         let model = msg.model.unwrap_or_else(|| "unknown".into());
+        let ctx = match parsed.cwd.as_deref() {
+            Some(cwd) => {
+                let repo = repo_cache
+                    .entry(cwd.to_string())
+                    .or_insert_with(|| crate::context::repo_name_for_cwd(Path::new(cwd)))
+                    .clone();
+                let branch = if repo.is_some() { parsed.git_branch.clone() } else { None };
+                Context { repo, branch, group_name: None, workspace: None }
+            }
+            None => Context::default(),
+        };
         store.append_llm_call(
             chrono::Utc::now().timestamp_millis(),
             ModelSource::External,

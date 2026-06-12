@@ -59,6 +59,9 @@ impl ContextResolver {
 
     fn compute(cwd: &Path, group_name: Option<String>, workspace: Option<String>) -> Context {
         let toplevel = Self::git(cwd, &["rev-parse", "--show-toplevel"]);
+        if let Some(t) = toplevel.as_deref() {
+            crate::register_toplevel(Path::new(t));
+        }
         let repo = toplevel
             .as_deref()
             .and_then(|p| Path::new(p).file_name().and_then(|n| n.to_str()))
@@ -102,6 +105,21 @@ impl ContextResolver {
             Some(s)
         }
     }
+}
+
+/// Resolve the git toplevel for an arbitrary cwd. None outside a repo.
+pub(crate) fn toplevel_for_cwd(cwd: &Path) -> Option<std::path::PathBuf> {
+    ContextResolver::git(cwd, &["rev-parse", "--show-toplevel"]).map(std::path::PathBuf::from)
+}
+
+/// Resolve the repo name (git toplevel basename) for a cwd learned from a
+/// transcript line rather than a live session. Same naming as prompt events.
+pub(crate) fn repo_name_for_cwd(cwd: &Path) -> Option<String> {
+    let toplevel = toplevel_for_cwd(cwd)?;
+    toplevel
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from)
 }
 
 impl Default for ContextResolver {
