@@ -70,14 +70,14 @@ function makeMockImmersiveFactory(): {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("mountSpecChat — chooser logic", () => {
+describe("mountSpecChat — entrance logic", () => {
   let host: HTMLElement;
 
   beforeEach(() => {
     host = makeHost();
   });
 
-  it("1. No in-progress drafts: open mounts immersive directly, no chooser", async () => {
+  it("1. No in-progress drafts: open mounts immersive directly, no entrance", async () => {
     const listDrafts = vi.fn().mockResolvedValue([]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
@@ -88,11 +88,11 @@ describe("mountSpecChat — chooser logic", () => {
     ctrl.open();
 
     await vi.waitFor(() => expect(latestInstance()).toBeDefined());
-    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    expect(host.querySelector(".spec-entrance")).toBeNull();
     expect(ctrl.isOpen()).toBe(true);
   });
 
-  it("2. With 2 in-progress drafts: chooser visible with both labels", async () => {
+  it("2. With 2 in-progress drafts: entrance visible with both labels", async () => {
     const draft1 = makeDraft({ id: "d1", messages: [{ role: "User", content: "Alpha project spec" }] });
     const draft2 = makeDraft({ id: "d2", messages: [{ role: "User", content: "Beta project spec" }] });
     const listDrafts = vi.fn().mockResolvedValue([draft1, draft2]);
@@ -101,16 +101,16 @@ describe("mountSpecChat — chooser logic", () => {
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
 
     ctrl.open();
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
-    const btns = host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-btn");
-    const texts = Array.from(btns).map((b) => b.textContent ?? "");
+    const cards = host.querySelectorAll<HTMLElement>(".spec-entrance-card-summary");
+    const texts = Array.from(cards).map((c) => c.textContent ?? "");
 
     expect(texts.some((t) => t.includes("Alpha project spec"))).toBe(true);
     expect(texts.some((t) => t.includes("Beta project spec"))).toBe(true);
   });
 
-  it("3. Clicking 'Resume X' removes chooser and mounts the immersive surface", async () => {
+  it("3. Clicking 'Resume X' removes entrance and mounts the immersive surface", async () => {
     const draft = makeDraft({ id: "resume-me" });
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
@@ -121,17 +121,14 @@ describe("mountSpecChat — chooser logic", () => {
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
 
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
-    const resumeBtn = Array.from(
-      host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-btn"),
-    ).find((b) => b.textContent?.startsWith("Resume"));
+    const card = host.querySelector<HTMLElement>(".spec-entrance-card");
+    expect(card).not.toBeNull();
+    card!.click();
 
-    expect(resumeBtn).toBeDefined();
-    resumeBtn!.click();
-
-    // Chooser disappears; immersive is mounted with the correct draftId
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).toBeNull());
+    // Entrance disappears; immersive is mounted with the correct draftId
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).toBeNull());
     await vi.waitFor(() => expect(latestInstance()).toBeDefined());
     expect(latestOpts()?.draftId).toBe("resume-me");
     expect(ctrl.isOpen()).toBe(true);
@@ -145,17 +142,15 @@ describe("mountSpecChat — chooser logic", () => {
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
 
     ctrl.open();
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
-    const blankBtn = Array.from(
-      host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-btn"),
-    ).find((b) => b.textContent?.includes("Blank draft"));
+    const blankBtn = host.querySelector<HTMLButtonElement>(".spec-entrance-blank");
 
-    expect(blankBtn).toBeDefined();
+    expect(blankBtn).not.toBeNull();
     blankBtn!.click();
 
     expect(deps.openBlankWizard).toHaveBeenCalledOnce();
-    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).toBeNull());
     expect(ctrl.isOpen()).toBe(false);
   });
 
@@ -183,7 +178,7 @@ describe("mountSpecChat — chooser logic", () => {
     expect(ctrl.isOpen()).toBe(false);
   });
 
-  it("6b. Escape dismisses the chooser overlay", async () => {
+  it("6b. Escape dismisses the entrance overlay", async () => {
     const draft = makeDraft();
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
@@ -191,36 +186,40 @@ describe("mountSpecChat — chooser logic", () => {
 
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
     ctrl.open();
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 
-    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).toBeNull());
     expect(ctrl.isOpen()).toBe(false);
   });
 
-  it("7a. Chooser delete button removes draft and re-renders", async () => {
+  it("7a. Entrance delete button removes draft and re-renders", async () => {
     const draft = makeDraft({ id: "d1" });
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const deleteDraft = vi.fn().mockResolvedValue(undefined);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
+    // Mock the immersive: deleting the last draft auto-opens it, and the real
+    // one leaks a capture-phase Escape listener that swallows later tests' Esc.
+    const { factory, latestInstance } = makeMockImmersiveFactory();
 
-    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, deleteDraft });
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, deleteDraft, mountImmersive: factory });
     ctrl.open();
 
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
-    const delBtn = host.querySelector<HTMLButtonElement>(".spec-chat-chooser-del");
+    const delBtn = host.querySelector<HTMLButtonElement>(".spec-entrance-card-del");
     expect(delBtn).not.toBeNull();
     delBtn!.click();
 
     await vi.waitFor(() => expect(deleteDraft).toHaveBeenCalledWith("d1"));
-    // After deleting the only draft, chooser is removed and immersive opens
-    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    // After deleting the only draft, entrance is removed and immersive opens
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).toBeNull());
+    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
   });
 
-  it("7b. Deleting one of multiple drafts keeps chooser open", async () => {
+  it("7b. Deleting one of multiple drafts keeps entrance open", async () => {
     const draft1 = makeDraft({ id: "d1", messages: [{ role: "User", content: "Alpha" }] });
     const draft2 = makeDraft({ id: "d2", messages: [{ role: "User", content: "Beta" }] });
     const listDrafts = vi.fn().mockResolvedValue([draft1, draft2]);
@@ -231,19 +230,19 @@ describe("mountSpecChat — chooser logic", () => {
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, deleteDraft });
     ctrl.open();
 
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
     // Delete first draft
-    const delBtns = host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-del");
+    const delBtns = host.querySelectorAll<HTMLButtonElement>(".spec-entrance-card-del");
     delBtns[0]!.click();
 
     await vi.waitFor(() => expect(deleteDraft).toHaveBeenCalledWith("d1"));
-    // Remaining draft row should still exist
-    const rows = host.querySelectorAll<HTMLButtonElement>(".spec-chat-chooser-row");
+    // Remaining draft card should still exist
+    const rows = host.querySelectorAll<HTMLElement>(".spec-entrance-card");
     expect(rows.length).toBe(1);
   });
 
-  it("6c. Backdrop click on the chooser dismisses it", async () => {
+  it("6c. Backdrop click on the entrance dismisses it", async () => {
     const draft = makeDraft();
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
@@ -251,12 +250,12 @@ describe("mountSpecChat — chooser logic", () => {
 
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
     ctrl.open();
-    await vi.waitFor(() => expect(host.querySelector(".spec-chat-chooser")).not.toBeNull());
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
 
-    const chooser = host.querySelector(".spec-chat-chooser") as HTMLElement;
-    chooser.click(); // click directly on chooser (backdrop), not on a button
+    const entrance = host.querySelector(".spec-entrance") as HTMLElement;
+    entrance.click();
 
-    expect(host.querySelector(".spec-chat-chooser")).toBeNull();
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).toBeNull());
     expect(ctrl.isOpen()).toBe(false);
   });
 
@@ -280,5 +279,41 @@ describe("mountSpecChat — chooser logic", () => {
     ctrl.open();
     await vi.waitFor(() => expect(latestInstance()).not.toBe(prevInstance));
     expect(ctrl.isOpen()).toBe(true);
+  });
+
+  it("Esc dismiss keeps the host visible for the exit fade, then hides it", async () => {
+    const draft = makeDraft();
+    const listDrafts = vi.fn().mockResolvedValue([draft]);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
+    ctrl.open();
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(ctrl.isOpen()).toBe(false);
+    expect(host.hidden).toBe(false); // fade still playing
+    await vi.waitFor(() => expect(host.hidden).toBe(true));
+  });
+
+  it("reopening during the exit fade is not clobbered by the deferred hide", async () => {
+    const draft = makeDraft();
+    const listDrafts = vi.fn().mockResolvedValue([draft]);
+    const markPublished = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps();
+
+    const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished });
+    ctrl.open();
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    ctrl.open(); // reopen while the old root is still fading
+
+    await vi.waitFor(() => expect(ctrl.isOpen()).toBe(true));
+    // Wait past the fade window; the stale hide must have been skipped.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(host.hidden).toBe(false);
   });
 });

@@ -1,0 +1,392 @@
+/* spec-chat/entrance.css — Constellation entrance for the Spec Creator.
+   Scoped under .spec-entrance. Theme variants: default dark (matches
+   immersive.css palette), body.theme-true-dark (OLED), body.theme-light. */
+
+.spec-entrance {
+  --se-bg: rgba(7, 8, 12, 0.86);
+  --se-accent: #7c8cff;
+  --se-accent-soft: #5663c9;
+  --se-txt: #e7e8ec;
+  --se-txt-dim: #9a9da7;
+  --se-good: #4ec9a0;
+  --se-card-bg: rgba(19, 20, 28, 0.82);
+  --se-card-border: #23252e;
+  --se-dot-bg: rgba(255, 255, 255, 0.08);
+  --se-dot-border: rgba(255, 255, 255, 0.14);
+  position: fixed;
+  top: 38px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10100;
+}
+
+.spec-entrance-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--se-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.spec-entrance-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.8s ease 0.1s;
+}
+
+.spec-entrance.open .spec-entrance-scrim,
+.spec-entrance.open .spec-entrance-sky {
+  opacity: 1;
+}
+
+/* Mid exit-fade: the whole entrance is inert (handlers also guard in TS). */
+.spec-entrance.closing {
+  pointer-events: none;
+}
+
+.spec-entrance.closing .spec-entrance-scrim,
+.spec-entrance.closing .spec-entrance-sky {
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+
+/* Staggered rise choreography — transitions keyed off .open so they reverse
+   cleanly on close. --rise-delay is set per element from TS. */
+.spec-entrance .spec-entrance-rise {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 0.45s ease var(--rise-delay, 0ms),
+    transform 0.52s cubic-bezier(0.18, 0.7, 0.27, 1) var(--rise-delay, 0ms);
+}
+
+.spec-entrance.open .spec-entrance-rise {
+  opacity: 1;
+  transform: none;
+}
+
+.spec-entrance.closing .spec-entrance-rise {
+  opacity: 0;
+  /* Hold the risen position while fading; without this the base
+     translateY(16px) would reapply instantly and snap the layout. */
+  transform: none;
+  transition: opacity 0.22s ease;
+}
+
+.spec-entrance-content {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding: 40px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Clicks fall through the full-bleed content column to the backdrop, except
+   on interactive elements. */
+.spec-entrance-card,
+.spec-entrance-cta,
+.spec-entrance-blank {
+  pointer-events: auto;
+}
+
+/* --- Brand ----------------------------------------------------------- */
+
+.spec-entrance-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.spec-entrance-spark {
+  display: inline-flex;
+  color: var(--se-accent);
+  filter: drop-shadow(0 0 8px rgba(124, 140, 255, 0.55));
+  animation: se-pulse 3.2s ease-in-out infinite;
+}
+
+@keyframes se-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+.spec-entrance-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  background: linear-gradient(100deg, var(--se-txt) 35%, var(--se-accent) 50%, var(--se-txt) 65%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: se-shimmer 6s ease-in-out infinite;
+}
+
+@keyframes se-shimmer {
+  0%, 100% { background-position: 0% 0; }
+  50% { background-position: 100% 0; }
+}
+
+.spec-entrance-lead {
+  margin: 2px 0 0;
+  color: var(--se-txt-dim);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+/* --- Draft cards ------------------------------------------------------ */
+
+.spec-entrance-drafts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  max-width: 880px;
+}
+
+.spec-entrance-drafts:empty {
+  display: none;
+}
+
+.spec-entrance-card {
+  position: relative;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+  background: var(--se-card-bg);
+  border: 1px solid var(--se-card-border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    transform 0.22s cubic-bezier(0.18, 0.7, 0.27, 1),
+    border-color 0.22s ease,
+    box-shadow 0.25s ease;
+}
+
+.spec-entrance-card:hover,
+.spec-entrance-card:focus-visible {
+  transform: translateY(-3px);
+  border-color: rgba(124, 140, 255, 0.55);
+  box-shadow: 0 12px 32px -12px rgba(124, 140, 255, 0.35);
+  outline: none;
+}
+
+.spec-entrance-card-summary {
+  color: var(--se-txt);
+  font-size: 13px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.9em;
+}
+
+.spec-entrance-card-meta {
+  color: var(--se-txt-dim);
+  font-size: 11px;
+}
+
+.spec-entrance-card-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.spec-entrance-card-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--se-dot-bg);
+  border: 1px solid var(--se-dot-border);
+}
+
+.spec-entrance-card-dots .dot.filled {
+  background: var(--se-good);
+  border-color: var(--se-good);
+  box-shadow: 0 0 6px rgba(78, 201, 160, 0.5);
+}
+
+.spec-entrance-card-del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: var(--se-txt-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.spec-entrance-card:hover .spec-entrance-card-del,
+.spec-entrance-card-del:focus-visible {
+  opacity: 1;
+}
+
+.spec-entrance-card-del:hover {
+  color: var(--danger, #e5534b);
+  background: rgba(229, 83, 75, 0.1);
+}
+
+/* --- Hero CTA ---------------------------------------------------------- */
+
+.spec-entrance-cta {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 34px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--se-accent), var(--se-accent-soft));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 6px 24px -6px rgba(124, 140, 255, 0.55);
+  transition: transform 0.18s ease, box-shadow 0.25s ease;
+}
+
+.spec-entrance-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 32px -6px rgba(124, 140, 255, 0.7);
+}
+
+.spec-entrance-cta-spark {
+  display: inline-flex;
+}
+
+/* Periodic shimmer sweep across the CTA. */
+.spec-entrance-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: se-sweep 4.2s ease-in-out infinite;
+}
+
+@keyframes se-sweep {
+  0%, 60%, 100% { background-position: 160% 0; }
+  25% { background-position: -60% 0; }
+}
+
+/* --- Blank link & hint -------------------------------------------------- */
+
+.spec-entrance-blank {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--se-txt-dim);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+  transition: opacity 0.18s ease, color 0.18s ease;
+}
+
+.spec-entrance-blank:hover {
+  opacity: 1;
+  color: var(--se-txt);
+}
+
+.spec-entrance-hint {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  opacity: 0.6;
+}
+
+.spec-entrance-hint kbd {
+  font-family: var(--mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 11px;
+  color: var(--se-txt-dim);
+  border: 1px solid var(--se-card-border);
+  border-radius: 5px;
+  padding: 2px 7px;
+  background: var(--se-card-bg);
+}
+
+/* --- Reduced motion ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .spec-entrance .spec-entrance-spark,
+  .spec-entrance .spec-entrance-title,
+  .spec-entrance .spec-entrance-cta::after {
+    animation: none;
+  }
+
+  .spec-entrance .spec-entrance-rise {
+    transition-duration: 0.01s;
+    transition-delay: 0ms;
+  }
+}
+
+/* --- True Dark (OLED): neutral lifts, never accent tints on surfaces. --- */
+
+body.theme-true-dark .spec-entrance {
+  --se-bg: rgba(0, 0, 0, 0.92);
+  --se-card-bg: #0a0a0a;
+  --se-card-border: #1a1a1a;
+}
+
+body.theme-true-dark .spec-entrance-card:hover,
+body.theme-true-dark .spec-entrance-card:focus-visible {
+  border-color: rgba(231, 232, 236, 0.28);
+  box-shadow: 0 12px 32px -12px rgba(231, 232, 236, 0.12);
+}
+
+/* --- Light theme --------------------------------------------------------- */
+
+body.theme-light .spec-entrance {
+  --se-bg: rgba(244, 246, 250, 0.88);
+  --se-accent: #4656d8;
+  --se-accent-soft: #3e3aa8;
+  --se-txt: #1c2027;
+  --se-txt-dim: #5a6170;
+  --se-card-bg: rgba(255, 255, 255, 0.92);
+  --se-card-border: #d6dae2;
+  --se-dot-bg: rgba(20, 25, 40, 0.1);
+  --se-dot-border: rgba(20, 25, 40, 0.18);
+}
+
+body.theme-light .spec-entrance-card {
+  box-shadow: 0 2px 10px rgba(15, 20, 30, 0.08);
+}
+
+body.theme-light .spec-entrance-card:hover,
+body.theme-light .spec-entrance-card:focus-visible {
+  border-color: rgba(70, 86, 216, 0.5);
+  box-shadow: 0 12px 28px -12px rgba(70, 86, 216, 0.3);
+}
+
+body.theme-light .spec-entrance-spark {
+  filter: drop-shadow(0 0 8px rgba(70, 86, 216, 0.4));
+}
+
+body.theme-light .spec-entrance-cta {
+  box-shadow: 0 6px 24px -6px rgba(70, 86, 216, 0.45);
+}
