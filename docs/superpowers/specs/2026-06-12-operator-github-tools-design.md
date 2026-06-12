@@ -29,9 +29,10 @@ Covenant already stores from sign-in.
   public-read-only token).
 - `DeviceTokenResponse::Success.scope` (currently discarded) is persisted at
   sign-in so the app knows whether the stored token carries `repo`.
-  Storage: a small key-value entry in the score SQLite store
-  (`github_token_scope`), written by the auth command path in
-  `crates/app/src/score_auth_commands.rs`.
+  Storage: a second Keychain entry (`github-token-scope`) following the
+  existing `covenant-jwt` pattern in `crates/score/src/auth.rs`, written by
+  the auth command path in `crates/app/src/score_auth_commands.rs` and
+  cleared on sign-out.
 - Settings UI: when signed in but stored scope lacks `repo`, show an English
   CTA — "Re-connect GitHub to enable repo access for operators" — that runs
   sign-out + sign-in (one device-flow round trip).
