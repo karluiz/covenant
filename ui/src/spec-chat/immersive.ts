@@ -7,6 +7,7 @@ import { mountLiveSpec } from './live-spec';
 import { specAuthorLoadDraft, specAuthorDeleteDraft } from '../api';
 import type { SpecDraftSummary } from '../api';
 import { Icons } from '../icons';
+import { attachTooltip } from '../tooltip/tooltip';
 
 export interface ImmersiveOpts {
   host: HTMLElement;
@@ -32,6 +33,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
     <div class="creator" role="dialog" aria-label="Spec Creator">
       <header>
         <div class="brand">✦ Spec Creator</div>
+        <div class="repo-chip"></div>
         <div class="spine-host" style="flex:1"></div>
         <button class="spec-creator-del" aria-label="Delete draft" type="button">${Icons.trash({ size: 14 })}</button>
         <div class="kbd">esc</div>
@@ -57,6 +59,20 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
     </div>`;
   opts.host.appendChild(root);
   requestAnimationFrame(() => root.classList.add('open'));
+
+  // Repo grounding chip — shows which repo the agent's tools are jailed to,
+  // or warns when the active tab never reported a cwd (agent flies blind).
+  const repoChip = root.querySelector('.repo-chip') as HTMLElement;
+  const repoName = opts.cwd?.replace(/\/+$/, '').split('/').pop() || null;
+  if (repoName) {
+    repoChip.textContent = repoName;
+    attachTooltip(repoChip, `Agent grounded in ${opts.cwd}`);
+  } else {
+    repoChip.textContent = 'No repo attached';
+    repoChip.classList.add('ungrounded');
+    attachTooltip(repoChip,
+      'No working directory from the active tab — the agent cannot explore your project');
+  }
 
   mountActivityStream(root.querySelector('.stream-host') as HTMLElement, state);
   // mountLiveSpec appends both .spine and .spec to its host; we want the spine in

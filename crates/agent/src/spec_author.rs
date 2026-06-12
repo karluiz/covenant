@@ -368,7 +368,55 @@ pub async fn step<D: Dispatcher>(
     })
 }
 
-/// Build a short repository context block (cwd, key files, top-level listing)
+/// Resolve the enclosing git repository root for `cwd` by walking up to the
+/// first directory containing a `.git` entry (a dir, or a file in linked
+/// worktrees). Falls back to the canonicalized `cwd` when no repo is found.
+pub fn resolve_repo_root(cwd: &Path) -> PathBuf {
+    let canon = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let mut cur: &Path = &canon;
+    loop {
+        if cur.join(".git").exists() {
+            return cur.to_path_buf();
+        }
+        match cur.parent() {
+            Some(p) => cur = p,
+            None => return canon.clone(),
+        }
+    }
+}
+
+/// Honest fallback context for when no usable cwd reached the backend.
+/// Without this the model invents a stack out of thin air (it once claimed a
+/// Java repo was "a Python data-consolidation project").
+pub fn no_repo_context() -> String {
+    "\n\n---\n\n## Repository context\n\n\
+     No repository is attached to this session — the active tab had not \
+     reported a working directory. Do NOT assume any technology stack, \
+     language, or project layout. Your file tools are not pointed at the \
+     coordinator's project. Tell the coordinator you have no repository \
+     context and ask which project this spec concerns before exploring.\n"
+        .to_string()
+}
+
+/// Resolve the tool jail root and the full system prompt for one turn.
+/// The context block is attached on EVERY turn — it is deterministic for a
+/// given root, so the system prompt stays stable and prompt-cacheable.
+pub fn compose_system(cwd: Option<&Path>, fallback_root: &Path) -> (PathBuf, String) {
+    if let Some(p) = cwd {
+        if p.is_dir() {
+            let root = resolve_repo_root(p);
+            if let Some(ctx) = build_repo_context(&root) {
+                return (root, format!("{SYSTEM_PROMPT}{ctx}"));
+            }
+        }
+    }
+    (
+        fallback_root.to_path_buf(),
+        format!("{SYSTEM_PROMPT}{}", no_repo_context()),
+    )
+}
+
+/// Build a short repository context block (root, key files, top-level listing)
 /// to give the agent enough grounding to skip generic discovery questions.
 pub fn build_repo_context(cwd: &Path) -> Option<String> {
     if !cwd.is_dir() {
@@ -376,7 +424,12 @@ pub fn build_repo_context(cwd: &Path) -> Option<String> {
     }
     let mut out = String::new();
     out.push_str("\n\n---\n\n## Repository context (auto-attached)\n\n");
-    out.push_str(&format!("Working directory: `{}`\n\n", cwd.display()));
+    out.push_str(&format!("Repository root: `{}`\n\n", cwd.display()));
+    out.push_str(
+        "All tool paths (`grep` dirs, `read_file`, `list_dir`) are resolved relative \
+         to this root. Absolute paths and `..` escapes are rejected — use `.` to list \
+         the root itself.\n\n",
+    );
 
     // Top-level entries (1 level deep, max 40 items).
     if let Ok(rd) = std::fs::read_dir(cwd) {
@@ -423,9 +476,9 @@ pub fn build_repo_context(cwd: &Path) -> Option<String> {
 }
 
 /// Same as [`step`] but augments the system prompt with a repo-context block
-/// when `cwd` is provided. The augmentation is only included on the very first
-/// turn of a draft (when there is no prior history) to keep prompt-cache hits
-/// stable on subsequent turns.
+/// (or an explicit no-repo notice) via [`compose_system`]. The block is
+/// attached on every turn: it is deterministic for a given root, so the
+/// system prompt stays identical across turns and prompt-cacheable.
 pub async fn step_with_context<D: Dispatcher>(
     dispatcher: &D,
     draft: &mut SpecDraft,
@@ -433,14 +486,7 @@ pub async fn step_with_context<D: Dispatcher>(
     base_dir: &std::path::Path,
     cwd: Option<&std::path::Path>,
 ) -> Result<StepOutput> {
-    let is_first_turn = draft.messages.is_empty();
-    let system: String = match (is_first_turn, cwd) {
-        (true, Some(p)) => match build_repo_context(p) {
-            Some(ctx) => format!("{}{}", SYSTEM_PROMPT, ctx),
-            None => SYSTEM_PROMPT.to_string(),
-        },
-        _ => SYSTEM_PROMPT.to_string(),
-    };
+    let (_root, system) = compose_system(cwd, base_dir);
 
     draft.messages.push(DraftMessage {
         role: MessageRole::User,

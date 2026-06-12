@@ -61,4 +61,22 @@ describe('mountImmersiveSpecCreator', () => {
     mountImmersiveSpecCreator({ host, source: mockEventSource([]), cwd: null, draftId: null, loadDraft });
     expect(loadDraft).not.toHaveBeenCalled();
   });
+
+  it('shows the grounded repo in the header when cwd is known', () => {
+    mountImmersiveSpecCreator({
+      host, source: mockEventSource([]), cwd: '/Users/x/Sources/myrepo',
+    });
+    const chip = host.querySelector('.repo-chip');
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent).toContain('myrepo');
+    expect(chip?.classList.contains('ungrounded')).toBe(false);
+  });
+
+  it('warns in the header when no repo is attached', () => {
+    mountImmersiveSpecCreator({ host, source: mockEventSource([]), cwd: null });
+    const chip = host.querySelector('.repo-chip');
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent?.toLowerCase()).toContain('no repo');
+    expect(chip?.classList.contains('ungrounded')).toBe(true);
+  });
 });

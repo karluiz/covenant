@@ -81,6 +81,16 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 }
 @keyframes pulse { 0%,100%{opacity:.85;transform:scale(1)} 50%{opacity:1;transform:scale(1.08)} }
 
+.spec-creator .repo-chip {
+  font-family: var(--mono); font-size: 10.5px; color: var(--txt-faint);
+  border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.spec-creator .repo-chip.ungrounded {
+  color: var(--warn, #e0a458);
+  border-color: color-mix(in srgb, var(--warn, #e0a458) 40%, transparent);
+}
+
 .spec-creator .spine { display: flex; align-items: center; gap: 22px; flex: 1; margin-left: 20px; flex-wrap: wrap; }
 .spec-creator .node { display: flex; align-items: center; gap: 8px; }
 .spec-creator .dot {

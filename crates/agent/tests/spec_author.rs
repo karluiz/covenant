@@ -341,3 +341,114 @@ fn validate_detects_missing_sections() {
         other => panic!("expected InvalidSpec, got {other:?}"),
     }
 }
+
+// ── Repo grounding ────────────────────────────────────────────────────────────
+
+use karl_agent::spec_author::{compose_system, resolve_repo_root, step_with_context};
+
+#[test]
+fn resolve_repo_root_walks_up_to_git_root() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(root.join(".git")).expect("mk .git");
+    let nested = root.join("sub").join("dir");
+    std::fs::create_dir_all(&nested).expect("mk nested");
+
+    let resolved = resolve_repo_root(&nested);
+    assert_eq!(resolved, std::fs::canonicalize(&root).unwrap());
+}
+
+#[test]
+fn resolve_repo_root_falls_back_to_cwd_without_git() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let plain = dir.path().join("plain");
+    std::fs::create_dir_all(&plain).expect("mk plain");
+
+    let resolved = resolve_repo_root(&plain);
+    assert_eq!(resolved, std::fs::canonicalize(&plain).unwrap());
+}
+
+#[test]
+fn compose_system_grounds_tools_at_git_root_and_states_path_rule() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(root.join(".git")).expect("mk .git");
+    let nested = root.join("ui");
+    std::fs::create_dir_all(&nested).expect("mk nested");
+    let fallback = dir.path().join("covenant");
+    std::fs::create_dir_all(&fallback).expect("mk fallback");
+
+    let (jail, system) = compose_system(Some(&nested), &fallback);
+    let canon_root = std::fs::canonicalize(&root).unwrap();
+    assert_eq!(jail, canon_root, "tool jail must be the git root, not the raw cwd");
+    assert!(
+        system.contains(&canon_root.display().to_string()),
+        "system prompt must state the repo root path"
+    );
+    assert!(
+        system.contains("relative to this root"),
+        "system prompt must explain that tool paths are root-relative"
+    );
+}
+
+#[test]
+fn compose_system_without_cwd_admits_no_repo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (jail, system) = compose_system(None, dir.path());
+    assert_eq!(jail, dir.path());
+    assert!(
+        system.contains("No repository is attached"),
+        "system prompt must say there is no repo context instead of staying silent"
+    );
+}
+
+#[test]
+fn compose_system_with_missing_dir_admits_no_repo() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let ghost = dir.path().join("does-not-exist");
+    let (jail, system) = compose_system(Some(&ghost), dir.path());
+    assert_eq!(jail, dir.path());
+    assert!(system.contains("No repository is attached"));
+}
+
+/// Mock dispatcher that records the system prompt of every call.
+#[derive(Default)]
+struct RecordingDispatcher {
+    systems: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl Dispatcher for RecordingDispatcher {
+    async fn dispatch(
+        &self,
+        system: &str,
+        _messages: &[DraftMessage],
+    ) -> karl_agent::spec_author::Result<String> {
+        self.systems.lock().unwrap().push(system.to_string());
+        Ok("What is the goal?".to_string())
+    }
+}
+
+#[tokio::test]
+async fn step_with_context_keeps_repo_context_on_every_turn() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(repo.join(".git")).expect("mk .git");
+
+    let mut draft = fresh_draft();
+    let disp = RecordingDispatcher::default();
+
+    step_with_context(&disp, &mut draft, "turn 1".into(), dir.path(), Some(&repo))
+        .await
+        .expect("turn 1");
+    step_with_context(&disp, &mut draft, "turn 2".into(), dir.path(), Some(&repo))
+        .await
+        .expect("turn 2");
+
+    let systems = disp.systems.lock().unwrap();
+    assert!(systems[0].contains("Repository context"));
+    assert!(
+        systems[1].contains("Repository context"),
+        "repo context must not be dropped after the first turn"
+    );
+}
