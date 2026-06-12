@@ -36,7 +36,26 @@ so the card read flat, washed out, and off-theme. It also had zero
    section: `var(--bg-panel)`/`var(--border)` surfaces, `#0a8f7d` teal-on-
    light (matching the established mapping), darker rarity tones, no glows.
 
+## Revision 2 — token-driven (same day)
+
+Karluiz pointed out the first pass matched the Score *page* but not the app
+*theme*. The `.cov-ach-*` rules were rewired from hardcoded hex to the app
+theme tokens defined in `ui/src/styles.css`:
+
+- Surfaces/tracks: neutral `rgba(var(--ink-rgb), 0.03–0.06)` lifts (True
+  Dark-safe per the neutral-lift rule), borders `var(--border)`.
+- Accent: `var(--accent)` (blue `#7aa2f7` dark / `#2f6fed` light) for rep
+  bars, values, pill counts — no more hardcoded teal.
+- Text: `var(--text-primary)` / `var(--muted)` / `var(--fg-dim)`.
+- Rarity: common = neutral ink, uncommon = `var(--ok)`, rare =
+  `var(--accent)`; epic/legendary are fixed jewel tones via `--ach-epic` /
+  `--ach-legendary` custom props on `.cov-ach-card`, swapped darker under
+  `body.theme-light` (glows also disabled there). Borders blend rarity hues
+  into `var(--border)` with `color-mix`.
+- The hand-written `body.theme-light .cov-ach-*` override block from rev 1
+  collapsed to two rules; dark / light / True Dark all derive from tokens.
+
 ## Out of scope
 
-- TS changes, new sections, behavior. The score page palette is
-  intentionally hardcoded hex (self-contained), so no new CSS variables.
+- TS changes, new sections, behavior. The rest of the Score page still uses
+  its hardcoded palette; migrating it to tokens is a separate task.
