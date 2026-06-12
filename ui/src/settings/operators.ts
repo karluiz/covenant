@@ -34,6 +34,18 @@ import "./operator-creator.css";
 /// from scratch (or opens create-mode before picking an archetype).
 const BLANK_SOUL = `---\nname: New Operator\nvoice: terse\nescalate_threshold: 0.6\n---\n\n# New Operator\n\n`;
 
+/// One-click starter rules for the hard-constraints editor. Backslash-free
+/// on purpose: Milkdown's markdown round-trip can mangle `\`-escapes.
+/// Excludes rules the global hard blocklist already covers (sudo, rm -rf, …).
+const HARD_CONSTRAINT_EXAMPLES = [
+  "^git push --force",
+  "^git commit",
+  "^npm publish",
+  "^terraform apply",
+  "^docker push",
+  "^gh release",
+] as const;
+
 const DEFAULT_DRAFT: OperatorDraft = {
   name: "",
   // Default to a v2 pack character so new operators participate in the
@@ -415,9 +427,9 @@ export class LegacyOperatorsPane {
 
       <details class="operators-pane__advanced"
                ${this.editing.hard_constraints.trim().length > 0 ? "open" : ""}>
-        <summary>Hard constraints <span class="muted">(optional — extra ALWAYS-ASK-ME, one per line)</span></summary>
+        <summary>Hard constraints <span class="muted">(optional — regex deny rules, one per line)</span></summary>
         <textarea data-bind="hard_constraints" rows="5"
-          placeholder="One rule per line. Examples:&#10;always ask before touching ~/.aws or ~/.ssh&#10;never auto-merge to main&#10;ask before npm install of new packages&#10;skip auto-formatting on *.lock"
+          placeholder="One regex per line — matching commands are never auto-executed. Examples:&#10;^git push --force&#10;^npm publish&#10;^terraform apply"
           >${escapeHtml(this.editing.hard_constraints)}</textarea>
       </details>
 
@@ -1298,6 +1310,10 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     if ((view.hard_constraints ?? "").trim().length) adv.open = true;
     const advSum = document.createElement("summary");
     advSum.textContent = "Hard constraints";
+    const hcHint = document.createElement("div");
+    hcHint.className = "op-hc-hint";
+    hcHint.textContent =
+      "Regex deny rules — a command matching any line is never auto-executed; the operator asks you first. One rule per line.";
     const hc = new MarkdownEditor({
       mode: "inline",
       className: "op-soul-hard",
@@ -1305,7 +1321,24 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       placeholder: "One deny rule per line (regex). e.g. ^git push --force",
       onChange: (md) => { view.hard_constraints = md; commit(false); },
     });
-    adv.append(advSum, hc.element);
+    const hcChips = document.createElement("div");
+    hcChips.className = "op-hc-chips";
+    for (const rule of HARD_CONSTRAINT_EXAMPLES) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "op-hc-chip";
+      btn.textContent = rule;
+      btn.addEventListener("click", () => {
+        const cur = (view.hard_constraints ?? "").trim();
+        if (cur.split("\n").some((l) => l.trim() === rule)) return;
+        const next = cur ? `${cur}\n${rule}` : rule;
+        view.hard_constraints = next;
+        hc.value = next;
+        commit(false);
+      });
+      hcChips.appendChild(btn);
+    }
+    adv.append(advSum, hcHint, hc.element, hcChips);
     controls.append(adv);
   }
 
