@@ -1542,6 +1542,18 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     summary.className = "op-card-summary";
     summary.textContent = `${op.voice} · threshold ${op.escalate_threshold.toFixed(2)} · ${op.model || "—"}`;
     card.append(summary);
+    const tags = op.tags.map((t) => t.trim()).filter(Boolean);
+    if (tags.length > 0) {
+      const tagsRow = document.createElement("div");
+      tagsRow.className = "op-card-tags";
+      for (const tag of tags) {
+        const pill = document.createElement("span");
+        pill.className = "op-card-tag";
+        pill.textContent = tag;
+        tagsRow.append(pill);
+      }
+      card.append(tagsRow);
+    }
     const actions = document.createElement("div");
     actions.className = "op-card-actions";
     const mk = (label: string, fn: () => void, danger = false) => {

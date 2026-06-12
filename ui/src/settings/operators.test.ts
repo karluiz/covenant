@@ -158,4 +158,22 @@ describe('operator list grid', () => {
     expect(root.textContent).toContain('gpt-4o');
     expect(root.textContent).toContain('Terse');
   });
+
+  it('renders one pill per tag, and no tag row when tags are empty', () => {
+    const base = {
+      id: '1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      persona: '', escalate_threshold: 0.5, model: 'gpt-4o',
+      hard_constraints: '', is_default: false,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse' as const,
+    };
+    const ops: Operator[] = [
+      { ...base, id: '1', tags: ['reviewer', 'rust'] },
+      { ...base, id: '2', name: 'Kiro', tags: [] },
+    ];
+    const root = renderOperatorList(ops, { onEdit(){}, onDelete(){}, onDuplicate(){} });
+    const cards = root.querySelectorAll('.op-card');
+    const pills = cards[0]!.querySelectorAll('.op-card-tag');
+    expect([...pills].map((p) => p.textContent)).toEqual(['reviewer', 'rust']);
+    expect(cards[1]!.querySelector('.op-card-tags')).toBeNull();
+  });
 });

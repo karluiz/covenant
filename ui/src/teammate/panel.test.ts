@@ -313,6 +313,26 @@ describe("TeammatePanel", () => {
     expect(host.textContent).toMatch(/Karluiz/);
   });
 
+  it("switcher rows show the operator's first tag only", async () => {
+    const host = document.createElement("div");
+    const ops = [
+      makeOp({ tags: ["reviewer", "rust"] }),
+      makeOp({ id: "op-k", name: "Karluiz", is_default: false, tags: [] }),
+    ];
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn(),
+      listOperators: vi.fn().mockResolvedValue(ops),
+    });
+    await panel.openFor(makeOp());
+    (host.querySelector(".teammate-panel-header") as HTMLElement).click();
+    const rows = host.querySelectorAll(".teammate-panel-switcher-row");
+    const chips0 = rows[0]!.querySelectorAll(".teammate-panel-switcher-tagchip");
+    expect([...chips0].map((c) => c.textContent)).toEqual(["reviewer"]);
+    expect(rows[1]!.querySelector(".teammate-panel-switcher-tagchip")).toBeNull();
+  });
+
   it("passes active session id from resolver to sendText", async () => {
     const host = document.createElement("div");
     const send = vi.fn().mockResolvedValue({

@@ -121,6 +121,21 @@ body.theme-dark .op-card-summary {
   color: color-mix(in srgb, var(--text-primary, #f5f6f7) 76%, transparent);
   opacity: 1;
 }
+.op-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.op-card-tag {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 64%, transparent);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.12);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.04);
+  white-space: nowrap;
+}
 .op-card-actions {
   display: flex;
   gap: 6px;

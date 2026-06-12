@@ -1977,9 +1977,13 @@ export class TeammatePanel {
       if (this.operator && op.id === this.operator.id) {
         row.classList.add("teammate-panel-switcher-row-active");
       }
+      // First tag only — switcher rows are narrow; the full set lives on
+      // the settings cards.
+      const firstTag = op.tags.map((t) => t.trim()).find(Boolean);
       row.innerHTML = `
         ${renderAvatarHtml(op.emoji, 24)}
         <span class="teammate-panel-switcher-name">${escapeHtml(op.name)}</span>
+        ${firstTag ? `<span class="teammate-panel-switcher-tagchip">${escapeHtml(firstTag)}</span>` : ""}
         ${op.is_default ? `<span class="teammate-panel-switcher-tag">default</span>` : ""}
       `;
       row.addEventListener("click", () => {

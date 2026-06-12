@@ -16699,6 +16699,19 @@ body.theme-light .teammate-panel-switcher {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+/* First operator tag in a switcher row — quieter than the default chip
+   so name → tag → default reads in descending emphasis. */
+.teammate-panel-switcher-tagchip {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(var(--ink-rgb, 255 255 255), 0.05);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .teammate-bubble.teammate-typing {
   display: inline-flex;
   align-items: center;
