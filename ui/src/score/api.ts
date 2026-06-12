@@ -265,3 +265,9 @@ export async function scoreAchievementMarkSeen(awardId: number): Promise<void> {
 export async function scoreAchievementRecompute(): Promise<number> {
   return invoke<number>("score_achievement_recompute");
 }
+
+/// Comma-separated OAuth scopes granted to the stored GitHub token,
+/// or null when signed out / signed in before scopes were recorded.
+export async function scoreTokenScope(): Promise<string | null> {
+  return invoke<string | null>("score_token_scope");
+}

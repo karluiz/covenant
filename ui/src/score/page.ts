@@ -7,7 +7,7 @@ import { renderAgentBars, renderSpecsCard, renderModelsCard } from "./usage";
 import { getCurrentUser, setCurrentUser } from "./user";
 import { runDeviceFlow } from "./signin";
 import { attachTooltip } from "../tooltip/tooltip";
-import { scoreSignout, scoreSyncNow, scoreSyncStatus } from "./api";
+import { scoreSignout, scoreSyncNow, scoreSyncStatus, scoreTokenScope } from "./api";
 
 interface State {
   filter: ScoreFilter;
@@ -409,6 +409,28 @@ function renderSync(
     setCurrentUser(null); // invalidate the in-memory cache so refresh shows signed-out
     void refresh(page, state);
   });
+
+  // Operators need repo scope; tokens minted before this feature carry
+  // none. Offer a one-click re-connect (device flow overwrites the token).
+  scoreTokenScope().then((scope) => {
+    const hasRepo = (scope ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .includes("repo");
+    if (hasRepo) return;
+    if (host.querySelector(".cov-sync-reauth")) return;
+    const cta = document.createElement("div");
+    cta.className = "cov-sync cov-sync-reauth";
+    cta.innerHTML = `
+      <div class="l"><b>Operators need repo access</b>Re-connect GitHub so operators can read and write issues and pull requests.</div>
+      <button type="button" class="btn cov-reauth-btn">Re-connect GitHub</button>
+    `;
+    cta.querySelector(".cov-reauth-btn")!.addEventListener("click", async () => {
+      const u = await runDeviceFlow();
+      if (u) void refresh(page, state);
+    });
+    host.appendChild(cta);
+  }).catch(() => { /* scope unknown — stay quiet */ });
 }
 
 function formatSync(sync: import("./api").SyncStatus | null): string {

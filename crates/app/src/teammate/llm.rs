@@ -288,11 +288,30 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         name = operator.name,
         voice = voice,
     );
-    if persona.is_empty() {
+    let mut prompt = if persona.is_empty() {
         format!("{header}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
     } else {
         format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
+    };
+    if operator.github_access != crate::operator_registry::GithubAccess::Off {
+        let write_line = if operator.github_access
+            == crate::operator_registry::GithubAccess::ReadWrite
+        {
+            " You may also write: `gh_create_issue`, `gh_comment`, `gh_create_pr`, \
+             `gh_update_issue_state` (close/reopen). State plainly what you changed, \
+             with the URL."
+        } else {
+            " Your GitHub access is READ-ONLY: you cannot create or modify anything."
+        };
+        prompt.push_str(&format!(
+            "\n\n# GitHub access\n\
+             You can act on the user's GitHub account via `gh_*` tools: `gh_list_repos`, \
+             `gh_list_issues`, `gh_get_issue`, `gh_list_prs`, `gh_get_pr`.{write_line} \
+             Never guess owner/repo names — discover them with `gh_list_repos` or read \
+             `git remote -v` via `run_command`.\n"
+        ));
     }
+    prompt
 }
 
 /// Turn the recent thread into the user-side message for the API call.
@@ -455,6 +474,70 @@ pub enum ToolProgress {
     ToolCall { tool: String, args: serde_json::Value, ok: bool, error: Option<String> },
 }
 
+/// Execute one tool call. Shared by the Anthropic and OpenAI loops so the
+/// tool roster only exists in one place. `propose_task` is NOT handled
+/// here — both loops fast-path it before reaching this.
+async fn execute_tool(
+    tool_env: &ToolEnv,
+    name: &str,
+    input: &serde_json::Value,
+) -> (String, bool, Option<String>) {
+    use crate::teammate::github_tools;
+    let res: Result<String, ToolError> = match name {
+        "read_file" => tools::read_file(tool_env, input),
+        "list_directory" => tools::list_directory(tool_env, input),
+        "search_files" => tools::search_files(tool_env, input),
+        "git_status" => tools::git_status(tool_env, input),
+        "git_diff" => tools::git_diff(tool_env, input),
+        "run_command" => tools::run_command(tool_env, input),
+        "read_terminal_screen" => tools::read_terminal_screen(tool_env, input),
+        "propose_task" => {
+            // Unreachable in practice because both loops fast-path
+            // propose_task before executing tools. Defensive guard if
+            // the LLM stacks propose_task with other tool calls in the
+            // same turn — tell it to answer with text next.
+            return (
+                "propose_task already considered; respond with text now.".into(),
+                false,
+                Some("propose_task in non-leading position".into()),
+            )
+        }
+        other => match github_tools::execute_github_tool(tool_env, other, input).await {
+            Some(r) => r,
+            None => {
+                return (
+                    format!("unknown tool: {other}"),
+                    false,
+                    Some(format!("unknown tool: {other}")),
+                )
+            }
+        },
+    };
+    match res {
+        Ok(text) => (text, true, None),
+        Err(e) => (format!("error: {e}"), false, Some(e.to_string())),
+    }
+}
+
+/// Full tool-definition roster for this dispatch: the 8 base tools plus
+/// whatever GitHub access the ToolEnv carries.
+fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
+    let mut defs = vec![
+        tools::read_file_tool_def(),
+        tools::list_directory_tool_def(),
+        tools::search_files_tool_def(),
+        tools::git_status_tool_def(),
+        tools::git_diff_tool_def(),
+        tools::run_command_tool_def(),
+        tools::read_terminal_screen_tool_def(),
+        tools::propose_task_tool_def(),
+    ];
+    if let Some(g) = &tool_env.github {
+        defs.extend(crate::teammate::github_tools::github_tool_defs(g.access));
+    }
+    defs
+}
+
 /// Like `dispatch_reply`, but supplies the operator with a `read_file`
 /// tool and loops over assistant tool_use → user tool_result turns until
 /// the model emits a plain-text turn. Anthropic-only; falls back to the
@@ -512,16 +595,7 @@ where
 
     let system_prompt = build_system_prompt(operator);
     let initial_user = build_user_message(thread, operator, world_context);
-    let tools = vec![
-        tools::read_file_tool_def(),
-        tools::list_directory_tool_def(),
-        tools::search_files_tool_def(),
-        tools::git_status_tool_def(),
-        tools::git_diff_tool_def(),
-        tools::run_command_tool_def(),
-        tools::read_terminal_screen_tool_def(),
-        tools::propose_task_tool_def(),
-    ];
+    let tools = all_tool_defs(&tool_env);
 
     let mut messages: Vec<AnthropicMessage> = vec![AnthropicMessage::user_text(initial_user)];
 
@@ -560,50 +634,7 @@ where
             let calls = anthropic_http::collect_tool_uses(&resp.content);
             let mut tool_results: Vec<serde_json::Value> = Vec::with_capacity(calls.len());
             for (id, name, input) in calls {
-                let (out_text, ok, err) = match name.as_str() {
-                    "read_file" => match tools::read_file(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "list_directory" => match tools::list_directory(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "search_files" => match tools::search_files(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "git_status" => match tools::git_status(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "git_diff" => match tools::git_diff(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "run_command" => match tools::run_command(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "read_terminal_screen" => match tools::read_terminal_screen(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "propose_task" => (
-                        // Unreachable in practice because the fast-path above
-                        // returns. Defensive guard if the LLM stacks propose_task
-                        // with other tool calls in the same turn — tell it to
-                        // answer with text next.
-                        "propose_task already considered; respond with text now.".into(),
-                        false,
-                        Some("propose_task in non-leading position".into()),
-                    ),
-                    _ => (
-                        format!("unknown tool: {}", name),
-                        false,
-                        Some(format!("unknown tool: {}", name)),
-                    ),
-                };
+                let (out_text, ok, err) = execute_tool(&tool_env, &name, &input).await;
                 on_progress(ToolProgress::ToolCall {
                     tool: name.clone(),
                     args: input,
@@ -728,19 +759,10 @@ where
 
     let system_prompt = build_system_prompt(operator);
     let initial_user = build_user_message(thread, operator, world_context);
-    let tools_oa: Vec<serde_json::Value> = [
-        tools::read_file_tool_def(),
-        tools::list_directory_tool_def(),
-        tools::search_files_tool_def(),
-        tools::git_status_tool_def(),
-        tools::git_diff_tool_def(),
-        tools::run_command_tool_def(),
-        tools::read_terminal_screen_tool_def(),
-        tools::propose_task_tool_def(),
-    ]
-    .iter()
-    .map(openai_http::convert_tool_def)
-    .collect();
+    let tools_oa: Vec<serde_json::Value> = all_tool_defs(&tool_env)
+        .iter()
+        .map(openai_http::convert_tool_def)
+        .collect();
 
     let mut messages: Vec<OpenAiMessage> = vec![
         OpenAiMessage::system(system_prompt),
@@ -786,46 +808,7 @@ where
 
             let calls = openai_http::collect_tool_calls(&tool_calls);
             for (id, name, input) in calls {
-                let (out_text, ok, err) = match name.as_str() {
-                    "read_file" => match tools::read_file(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "list_directory" => match tools::list_directory(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "search_files" => match tools::search_files(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "git_status" => match tools::git_status(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "git_diff" => match tools::git_diff(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "run_command" => match tools::run_command(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "read_terminal_screen" => match tools::read_terminal_screen(&tool_env, &input) {
-                        Ok(text) => (text, true, None),
-                        Err(e) => (format!("error: {}", e), false, Some(e.to_string())),
-                    },
-                    "propose_task" => (
-                        "propose_task already considered; respond with text now.".into(),
-                        false,
-                        Some("propose_task in non-leading position".into()),
-                    ),
-                    _ => (
-                        format!("unknown tool: {}", name),
-                        false,
-                        Some(format!("unknown tool: {}", name)),
-                    ),
-                };
+                let (out_text, ok, err) = execute_tool(&tool_env, &name, &input).await;
                 on_progress(ToolProgress::ToolCall {
                     tool: name.clone(),
                     args: input,
@@ -986,6 +969,7 @@ mod tests {
             xp: 0,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: crate::operator_registry::GithubAccess::Off,
         }
     }
 
@@ -1200,5 +1184,58 @@ mod tests {
             { "type": "text", "text": "hola" }
         ]);
         assert!(extract_propose_from_content(&content_blocks).is_none());
+    }
+
+    #[test]
+    fn github_tools_registered_by_access_level() {
+        use crate::operator_registry::GithubAccess;
+        use crate::teammate::tools::{GithubCtx, ToolEnv};
+        let base = ToolEnv::new(std::env::temp_dir(), 1024);
+        assert_eq!(all_tool_defs(&base).len(), 8);
+
+        let ro = ToolEnv::new(std::env::temp_dir(), 1024).with_github(Some(GithubCtx {
+            token: "t".into(),
+            access: GithubAccess::ReadOnly,
+            api_base: "x".into(),
+        }));
+        assert_eq!(all_tool_defs(&ro).len(), 8 + 5);
+
+        let rw = ToolEnv::new(std::env::temp_dir(), 1024).with_github(Some(GithubCtx {
+            token: "t".into(),
+            access: GithubAccess::ReadWrite,
+            api_base: "x".into(),
+        }));
+        let rw_defs = all_tool_defs(&rw);
+        let names: Vec<&str> = rw_defs
+            .iter()
+            .map(|d| d["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(names.len(), 8 + 9);
+        assert!(names.contains(&"gh_create_issue"));
+    }
+
+    #[test]
+    fn system_prompt_mentions_github_only_when_enabled() {
+        use crate::operator_registry::GithubAccess;
+
+        let off = sample_op("Mibli", "");
+        let p_off = build_system_prompt(&off);
+        assert!(!p_off.contains("# GitHub access"));
+        assert!(!p_off.contains("gh_list_repos"));
+
+        let mut ro = sample_op("Mibli", "");
+        ro.github_access = GithubAccess::ReadOnly;
+        let p_ro = build_system_prompt(&ro);
+        assert!(p_ro.contains("# GitHub access"));
+        assert!(p_ro.contains("gh_list_repos"));
+        assert!(p_ro.contains("READ-ONLY"));
+        assert!(!p_ro.contains("gh_create_issue"));
+
+        let mut rw = sample_op("Mibli", "");
+        rw.github_access = GithubAccess::ReadWrite;
+        let p_rw = build_system_prompt(&rw);
+        assert!(p_rw.contains("# GitHub access"));
+        assert!(p_rw.contains("gh_create_issue"));
+        assert!(!p_rw.contains("READ-ONLY"));
     }
 }

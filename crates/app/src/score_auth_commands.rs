@@ -23,11 +23,15 @@ pub async fn score_signin_poll(
         .map_err(|e| e.to_string())?
     {
         DeviceTokenResponse::Pending { .. } => Ok(None),
-        DeviceTokenResponse::Success { access_token, .. } => {
+        DeviceTokenResponse::Success { access_token, scope, .. } => {
             let user =
                 auth::finalize_signin(GITHUB_API_BASE, &auth::backend_url(), &access_token, &store)
                     .await
                     .map_err(|e| e.to_string())?;
+            // Best-effort: scope is advisory metadata; signin must not fail on it.
+            if let Err(e) = auth::store_scope_in_keychain(&scope) {
+                tracing::warn!(error = %e, "failed to persist github token scope");
+            }
             Ok(Some(user))
         }
     }
@@ -41,4 +45,14 @@ pub fn score_current_user(state: State<'_, ScoreState>) -> Result<Option<User>, 
 #[tauri::command]
 pub fn score_signout(state: State<'_, ScoreState>) -> Result<(), String> {
     auth::signout(&state.0).map_err(|e| e.to_string())
+}
+
+/// Granted OAuth scopes of the stored GitHub token (comma-separated, as
+/// reported by GitHub at sign-in). `None` when signed out or pre-scope token.
+#[tauri::command]
+pub async fn score_token_scope() -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(auth::load_scope_from_keychain)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }

@@ -5,6 +5,10 @@ async fn start_device_flow_parses_response() {
     let mut server = mockito::Server::new_async().await;
     let _m = server
         .mock("POST", "/login/device/code")
+        .match_body(mockito::Matcher::AllOf(vec![
+            mockito::Matcher::UrlEncoded("client_id".into(), karl_score::auth::GITHUB_CLIENT_ID.into()),
+            mockito::Matcher::UrlEncoded("scope".into(), "repo".into()),
+        ]))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(

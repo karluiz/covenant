@@ -868,6 +868,7 @@ dependencies = [
  "karl-score",
  "karl-session",
  "libc",
+ "mockito",
  "notify",
  "objc2 0.5.2",
  "parking_lot",

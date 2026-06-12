@@ -7,6 +7,7 @@ const maya: Operator = {
   tags: [], persona: '', escalate_threshold: 0.5, model: '',
   hard_constraints: '', is_default: false,
   created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse',
+  github_access: 'Off',
 };
 
 describe('renderOperatorChip', () => {

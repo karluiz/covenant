@@ -42,11 +42,34 @@ pub struct ToolEnv {
     /// Live rendered screen of the active tab, if one is known. Read by
     /// `read_terminal_screen`. `None` when there's no active tab.
     pub active_screen: Option<std::sync::Arc<std::sync::Mutex<String>>>,
+    /// GitHub API context, present only when the operator's
+    /// `github_access != Off` AND a token exists in the Keychain.
+    /// Absence means the `gh_*` tools were never registered.
+    pub github: Option<GithubCtx>,
+}
+
+/// Token + access level + API base for the `gh_*` tools. `api_base` is
+/// "https://api.github.com" in production; tests point it at mockito.
+#[derive(Clone)]
+pub struct GithubCtx {
+    pub token: String,
+    pub access: crate::operator_registry::GithubAccess,
+    pub api_base: String,
+}
+
+impl std::fmt::Debug for GithubCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GithubCtx")
+            .field("token", &"<redacted>")
+            .field("access", &self.access)
+            .field("api_base", &self.api_base)
+            .finish()
+    }
 }
 
 impl ToolEnv {
     pub fn new(root: PathBuf, max_bytes_per_file: usize) -> Self {
-        Self { root, max_bytes_per_file, active_screen: None }
+        Self { root, max_bytes_per_file, active_screen: None, github: None }
     }
 
     /// Attach the active tab's rendered-screen handle (builder style).
@@ -55,6 +78,12 @@ impl ToolEnv {
         screen: Option<std::sync::Arc<std::sync::Mutex<String>>>,
     ) -> Self {
         self.active_screen = screen;
+        self
+    }
+
+    /// Attach GitHub API access (builder style).
+    pub fn with_github(mut self, github: Option<GithubCtx>) -> Self {
+        self.github = github;
         self
     }
 }

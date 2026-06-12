@@ -156,7 +156,7 @@ pub fn mtime_of(path: &std::path::Path) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::operator_registry::VoiceTone;
+    use crate::operator_registry::{GithubAccess, VoiceTone};
 
     const SAMPLE: &str = "---\nname: Atlas\ncolor: \"#c4a7ff\"\nvoice: warm\nescalate_threshold: 0.55\ntags:\n- deploys\n---\n\n# Atlas\n\nI was made to wait.\n";
 
@@ -221,6 +221,7 @@ mod tests {
             voice: VoiceTone::Warm,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::Off,
         };
         let soul = soul_from_operator(&op);
         assert_eq!(soul.frontmatter.name, "Atlas");

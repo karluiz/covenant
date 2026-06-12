@@ -234,6 +234,40 @@ pub async fn teammate_send_text_message(
                 });
             let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024)
                 .with_screen(active_screen);
+            // GitHub access: attach the stored token only when this operator
+            // is allowed to use it. Keychain reads are sync — keep them off
+            // the async thread.
+            let tool_env = if operator.github_access
+                != crate::operator_registry::GithubAccess::Off
+            {
+                match tokio::task::spawn_blocking(karl_score::auth::load_token_from_keychain).await
+                {
+                    Ok(Ok(Some(token))) => tool_env.with_github(Some(
+                        crate::teammate::tools::GithubCtx {
+                            token,
+                            access: operator.github_access,
+                            api_base: karl_score::auth::GITHUB_API_BASE.to_string(),
+                        },
+                    )),
+                    Ok(Ok(None)) => {
+                        tracing::warn!(
+                            operator_id = %operator.id,
+                            "operator has github access but no token in keychain; gh_* tools disabled"
+                        );
+                        tool_env
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %e, "keychain read failed; gh_* tools disabled");
+                        tool_env
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "keychain task panicked; gh_* tools disabled");
+                        tool_env
+                    }
+                }
+            } else {
+                tool_env
+            };
             let app_for_progress = app_bg.clone();
             let op_id_for_progress = operator_id;
             let progress = move |p: crate::teammate::llm::ToolProgress| {
@@ -769,6 +803,7 @@ mod task_lifecycle_tests {
             xp: 0,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: crate::operator_registry::GithubAccess::Off,
         }).await.unwrap();
 
         let msg_id = MessageId::new();

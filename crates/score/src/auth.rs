@@ -8,6 +8,7 @@ pub const GITHUB_CLIENT_ID: &str = "Ov23liWVUtut6NkCyDAE";
 pub const KEYCHAIN_SERVICE: &str = "covenant.uno";
 pub const KEYCHAIN_USERNAME: &str = "github-token";
 pub const KEYCHAIN_JWT_USERNAME: &str = "covenant-jwt";
+pub const KEYCHAIN_SCOPE_USERNAME: &str = "github-token-scope";
 
 pub fn backend_url() -> String {
     std::env::var("COVENANT_BACKEND_URL")
@@ -111,7 +112,7 @@ pub async fn start_device_flow(base_url: &str) -> Result<DeviceCodeResponse, Aut
     let resp = reqwest::Client::new()
         .post(&url)
         .header("Accept", "application/json")
-        .form(&[("client_id", GITHUB_CLIENT_ID)])
+        .form(&[("client_id", GITHUB_CLIENT_ID), ("scope", "repo")])
         .send()
         .await?
         .error_for_status()?;
@@ -187,6 +188,30 @@ pub fn delete_token_from_keychain() -> Result<(), AuthError> {
     }
 }
 
+pub fn store_scope_in_keychain(scope: &str) -> Result<(), AuthError> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_SCOPE_USERNAME)?;
+    entry.set_password(scope)?;
+    Ok(())
+}
+
+pub fn load_scope_from_keychain() -> Result<Option<String>, AuthError> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_SCOPE_USERNAME)?;
+    match entry.get_password() {
+        Ok(s) => Ok(Some(s)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn delete_scope_from_keychain() -> Result<(), AuthError> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_SCOPE_USERNAME)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// High-level: once the user has a token, fetch their /user record and
 /// persist it (Keychain + SQLite). Returns the User.
 pub async fn finalize_signin(
@@ -209,6 +234,7 @@ pub async fn finalize_signin(
 
 pub fn signout(store: &ScoreStore) -> Result<(), AuthError> {
     delete_token_from_keychain()?;
+    delete_scope_from_keychain()?;
     delete_jwt()?;
     session::clear(store)?;
     Ok(())

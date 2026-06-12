@@ -813,6 +813,35 @@ body.theme-light .op-tg-bubble {
   border-color: var(--text-primary, #fff);
   box-shadow: 0 0 0 2px var(--surface, #14181e), 0 0 0 4px currentColor;
 }
+/* Segmented control (e.g. GitHub access). Neutral lifts — selected state
+   brightens border/background instead of accent-tinting (True Dark). */
+.op-soul-seg {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+}
+.op-soul-seg-btn {
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 12.5px;
+  color: inherit;
+  opacity: 0.7;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s;
+}
+.op-soul-seg-btn + .op-soul-seg-btn {
+  border-left: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+.op-soul-seg-btn:hover { opacity: 0.9; }
+.op-soul-seg-btn.is-selected {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+
 .op-soul-color-custom {
   width: 28px; height: 28px;
   padding: 0;

@@ -252,6 +252,10 @@ export async function clearAllAomExcluded(): Promise<void> {
 /// generated text (banner messages, escalations, replies).
 export type VoiceTone = "Terse" | "Warm" | "Formal";
 
+/// Per-operator GitHub access level. Gates which gh_* tools the
+/// operator's LLM dispatch registers. Mirrors Rust `GithubAccess`.
+export type GithubAccess = "Off" | "ReadOnly" | "ReadWrite";
+
 /// Action surfaced by the operator in the banner / activity feed.
 /// Tagged union mirrors the Rust `OperatorAction` enum.
 export type OperatorAction =
@@ -277,6 +281,7 @@ export interface Operator {
   updated_at_unix_ms: number;
   /// 3.12 — accumulated XP. Level = floor(xp / 100) + 1.
   xp: number;
+  github_access: GithubAccess;
   soul_path?: string | null;
 }
 
@@ -327,6 +332,13 @@ export async function operatorDelete(id: string): Promise<void> {
 
 export async function operatorSetDefault(id: string): Promise<void> {
   return invoke<void>("operator_set_default", { id });
+}
+
+export async function operatorSetGithubAccess(
+  id: string,
+  access: GithubAccess,
+): Promise<void> {
+  return invoke<void>("operator_set_github_access", { id, access });
 }
 
 export interface ArchetypeView {
