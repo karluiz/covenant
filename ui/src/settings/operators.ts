@@ -130,7 +130,9 @@ export class OperatorsPane {
             }
             // Persist GitHub access if it changed — registry-side field,
             // not carried by the SOUL.md save path.
-            const prevAccess = handle.state.existing?.github_access ?? "Off";
+            const prevAccess = handle.state.mode === "edit"
+              ? (handle.state.existing?.github_access ?? "Off")
+              : "Off";
             if (saved.id && handle.state.githubAccess !== prevAccess) {
               try { await operatorSetGithubAccess(saved.id, handle.state.githubAccess); } catch (e) {
                 console.warn("operator_set_github_access failed", e);

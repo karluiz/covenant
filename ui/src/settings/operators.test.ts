@@ -141,6 +141,23 @@ describe('github access control', () => {
     expect(h.state.githubAccess).toBe('ReadOnly');
     h.el.remove();
   });
+
+  it('duplicate-mode (create with existing) seeds githubAccess from source operator', () => {
+    // Regression: duplicating a ReadWrite operator must seed the UI control to
+    // ReadWrite so the user sees the right value — baseline for the persist
+    // guard is independently forced to "Off" for all create-mode saves.
+    const source: Operator = {
+      id: 'src1', name: 'Maya', emoji: '🟣', color: '#a855f7',
+      tags: [], persona: '', escalate_threshold: 0.5, model: 'claude-sonnet-4-6',
+      hard_constraints: '', voice: 'Terse', is_default: false,
+      created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+      github_access: 'ReadWrite',
+    };
+    const h = openOperatorModal({ mode: 'create', existing: source });
+    // UI control must reflect the source operator's access level.
+    expect(h.state.githubAccess).toBe('ReadWrite');
+    h.el.remove();
+  });
 });
 
 describe('operator list grid', () => {
