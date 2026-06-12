@@ -91,6 +91,19 @@ const PRESETS: Record<string, ExecutorPreset> = {
 };
 const PRESET_KEYS = Object.keys(PRESETS);
 
+/// Brand accent for rail/header identity dots only — surfaces stay
+/// neutral per the True Dark elevation rule.
+const BRAND_COLORS: Record<string, string> = {
+  Claude: "#d97757",
+  Codex: "#e8e8e8",
+  Copilot: "#6dd29a",
+  Pi: "#7c8aff",
+  Gemini: "#7cc4f4",
+  Ollama: "#f4c97c",
+  Opencode: "#8a93a0",
+};
+const brandColor = (label: string): string => BRAND_COLORS[label] ?? "#8a93a0";
+
 function emptySpec(): SpawnSpec {
   const id =
     typeof crypto !== "undefined" && crypto.randomUUID
@@ -109,146 +122,6 @@ function emptySpec(): SpawnSpec {
   };
 }
 
-function renderRow(
-  spec: SpawnSpec,
-  host: HTMLElement,
-  onChange: (updated: SpawnSpec) => Promise<void>,
-  onDelete: (id: string) => Promise<void>,
-): void {
-  const row = document.createElement("div");
-  row.className = "spawns-settings-row";
-  row.dataset["id"] = spec.id;
-
-  const isPreset = PRESET_KEYS.includes(spec.label);
-  const labelSelect = new CustomSelect({
-    className: "spawns-settings-select",
-    ariaLabel: "Spawn brand",
-    value: isPreset ? spec.label : "__custom__",
-    options: [
-      ...PRESET_KEYS.map((k) => ({ value: k, label: k })),
-      { value: "__custom__", label: "Custom…" },
-    ],
-  });
-  row.innerHTML = `
-    <span data-role="label-select"></span>
-    <input class="spawns-settings-input spawns-settings-input--wide" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" name="command" placeholder="e.g. claude, gh, ollama" value="${escHtml(spec.command)}" />
-    <input class="spawns-settings-input spawns-settings-input--wide" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" name="args" placeholder="e.g. copilot, run llama3" value="${escHtml(spec.args.join(" "))}" />
-    <input class="spawns-settings-input" type="text" name="model" placeholder="e.g. claude-sonnet-4-6" value="${escHtml(spec.model ?? "")}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-    <label class="spawns-settings-default" title="Set as default">
-      <input type="checkbox" name="default" ${spec.default ? "checked" : ""} />
-      <span>default</span>
-    </label>
-    <button class="spawns-settings-delete btn-secondary" type="button" title="Delete">✕</button>
-  `;
-
-  row.querySelector<HTMLElement>('[data-role="label-select"]')!.replaceWith(labelSelect.element);
-  const cmdInp = row.querySelector<HTMLInputElement>('input[name="command"]')!;
-  const argsInp = row.querySelector<HTMLInputElement>('input[name="args"]')!;
-  const modelInp = row.querySelector<HTMLInputElement>('input[name="model"]')!;
-
-  const persist = async (): Promise<void> => {
-    const selVal = labelSelect.value;
-    const label = selVal === "__custom__" ? (spec.label || spec.id) : selVal;
-    const command = cmdInp.value.trim();
-    const argsRaw = argsInp.value.trim();
-    const model = modelInp.value.trim();
-    const isDefault = (row.querySelector<HTMLInputElement>('input[name="default"]')!).checked;
-
-    const updated: SpawnSpec = {
-      ...spec,
-      label,
-      command,
-      args: argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [],
-      model: model || null,
-      default: isDefault,
-    };
-    await onChange(updated);
-  };
-
-  labelSelect.element.addEventListener("change", () => {
-    const preset = PRESETS[labelSelect.value];
-    if (preset) {
-      cmdInp.value = preset.command;
-      argsInp.value = preset.args.join(" ");
-      modelInp.value = preset.model ?? "";
-    }
-    void persist();
-  });
-  row.querySelectorAll<HTMLInputElement>("input[type=text]").forEach((inp) => {
-    inp.addEventListener("change", () => { void persist(); });
-  });
-  row.querySelector<HTMLInputElement>('input[name="default"]')!.addEventListener("change", () => {
-    void persist();
-  });
-  row.querySelector<HTMLButtonElement>(".spawns-settings-delete")!.addEventListener("click", () => {
-    void onDelete(spec.id);
-  });
-
-  host.appendChild(row);
-
-  const hintEl = document.createElement("div");
-  hintEl.className = "spawns-settings-hint";
-
-  const appendChip = (chip: ArgChip): void => {
-    const current = argsInp.value;
-    const sep = current.length === 0 || /\s$/.test(current) ? "" : " ";
-    const before = current + sep;
-    argsInp.value = before + chip.insert;
-    argsInp.focus();
-    // Select the placeholder (e.g. <prompt>) so the user can type
-    // over it immediately. Falls back to cursor-at-end.
-    if (chip.caret) {
-      const start = (before + chip.insert).lastIndexOf(chip.caret);
-      if (start >= 0) {
-        argsInp.setSelectionRange(start, start + chip.caret.length);
-      } else {
-        argsInp.setSelectionRange(argsInp.value.length, argsInp.value.length);
-      }
-    } else {
-      argsInp.setSelectionRange(argsInp.value.length, argsInp.value.length);
-    }
-    void persist();
-  };
-
-  const renderHint = (k: string): void => {
-    hintEl.innerHTML = "";
-    const p = PRESETS[k];
-    if (!p) {
-      hintEl.style.display = "none";
-      return;
-    }
-    hintEl.style.display = "";
-
-    if (p.chips.length > 0) {
-      const chipsWrap = document.createElement("div");
-      chipsWrap.className = "spawns-settings-chips";
-      for (const chip of p.chips) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "spawns-settings-chip";
-        btn.textContent = chip.label;
-        btn.title = `Append \`${chip.insert}\` to args`;
-        btn.addEventListener("click", (e) => {
-          e.preventDefault();
-          appendChip(chip);
-        });
-        chipsWrap.appendChild(btn);
-      }
-      hintEl.appendChild(chipsWrap);
-    }
-
-    if (p.note) {
-      const note = document.createElement("div");
-      note.className = "spawns-settings-note";
-      note.textContent = p.note;
-      hintEl.appendChild(note);
-    }
-  };
-  renderHint(labelSelect.value);
-  labelSelect.element.addEventListener("change", () => renderHint(labelSelect.value));
-  host.appendChild(hintEl);
-}
-
 function escHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -261,6 +134,194 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
   host.innerHTML = "";
 
   let specs = await listSpawns();
+  let selectedId: string | null =
+    specs.find((s) => s.default)?.id ?? specs[0]?.id ?? null;
+
+  const persistSpec = async (updated: SpawnSpec): Promise<void> => {
+    await upsertSpawn(updated);
+    specs = specs.map((s) => (s.id === updated.id ? updated : s));
+  };
+
+  const renderDetail = (spec: SpawnSpec, detailHost: HTMLElement): void => {
+    const isPreset = PRESET_KEYS.includes(spec.label);
+    const brandSelect = new CustomSelect({
+      className: "spawns-settings-select",
+      ariaLabel: "Spawn brand",
+      value: isPreset ? spec.label : "__custom__",
+      options: [
+        ...PRESET_KEYS.map((k) => ({ value: k, label: k })),
+        { value: "__custom__", label: "Custom…" },
+      ],
+    });
+
+    const head = document.createElement("div");
+    head.className = "spawns-md-head";
+    const dot = document.createElement("span");
+    dot.className = "spawns-md-dot";
+    dot.style.background = brandColor(spec.label);
+    const spacer = document.createElement("span");
+    spacer.className = "spawns-md-spacer";
+    head.append(dot, brandSelect.element, spacer);
+
+    if (spec.default) {
+      const badge = document.createElement("span");
+      badge.className = "spawns-md-badge";
+      badge.textContent = "default";
+      head.appendChild(badge);
+    } else {
+      const setDefault = document.createElement("button");
+      setDefault.type = "button";
+      setDefault.className = "spawns-md-action";
+      setDefault.dataset["role"] = "set-default";
+      setDefault.textContent = "Set default";
+      setDefault.addEventListener("click", () => {
+        void (async () => {
+          const prev = specs.find((s) => s.default && s.id !== spec.id);
+          if (prev) await persistSpec({ ...prev, default: false });
+          await persistSpec({ ...collect(), default: true });
+          render();
+        })();
+      });
+      head.appendChild(setDefault);
+    }
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "spawns-md-action spawns-md-action--danger";
+    del.dataset["role"] = "delete";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => {
+      void (async () => {
+        const idx = specs.findIndex((s) => s.id === spec.id);
+        await deleteSpawn(spec.id);
+        specs = specs.filter((s) => s.id !== spec.id);
+        selectedId = specs[Math.min(idx, specs.length - 1)]?.id ?? null;
+        render();
+      })();
+    });
+    head.appendChild(del);
+    detailHost.appendChild(head);
+
+    const grid = document.createElement("div");
+    grid.className = "spawns-md-grid";
+    grid.innerHTML = `
+      <label class="spawns-md-label">Command</label>
+      <input class="spawns-settings-input" type="text" name="command" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. claude, gh, ollama" value="${escHtml(spec.command)}" />
+      <label class="spawns-md-label">Args</label>
+      <input class="spawns-settings-input" type="text" name="args" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. copilot, run llama3" value="${escHtml(spec.args.join(" "))}" />
+      <label class="spawns-md-label">Model</label>
+      <input class="spawns-settings-input spawns-md-input--model" type="text" name="model" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. claude-sonnet-4-6" value="${escHtml(spec.model ?? "")}" />
+    `;
+    detailHost.appendChild(grid);
+
+    const cmdInp = grid.querySelector<HTMLInputElement>('input[name="command"]')!;
+    const argsInp = grid.querySelector<HTMLInputElement>('input[name="args"]')!;
+    const modelInp = grid.querySelector<HTMLInputElement>('input[name="model"]')!;
+
+    const chipsHost = document.createElement("div");
+    chipsHost.className = "spawns-md-hint";
+    detailHost.appendChild(chipsHost);
+
+    const preview = document.createElement("div");
+    preview.className = "spawns-md-preview";
+    preview.dataset["role"] = "preview";
+    detailHost.appendChild(preview);
+
+    const updatePreview = (): void => {
+      const line = [cmdInp.value.trim(), argsInp.value.trim()]
+        .filter(Boolean)
+        .join(" ");
+      preview.innerHTML = `<span class="spawns-md-prompt">❯</span> ${escHtml(line)}`;
+    };
+
+    const collect = (): SpawnSpec => {
+      const selVal = brandSelect.value;
+      const label = selVal === "__custom__" ? (spec.label || spec.id) : selVal;
+      const argsRaw = argsInp.value.trim();
+      const model = modelInp.value.trim();
+      return {
+        ...spec,
+        label,
+        command: cmdInp.value.trim(),
+        args: argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [],
+        model: model || null,
+      };
+    };
+    const persist = async (): Promise<void> => {
+      await persistSpec(collect());
+    };
+
+    for (const inp of [cmdInp, argsInp, modelInp]) {
+      inp.addEventListener("change", () => { void persist(); });
+      inp.addEventListener("input", updatePreview);
+    }
+
+    brandSelect.element.addEventListener("change", () => {
+      const preset = PRESETS[brandSelect.value];
+      if (preset) {
+        cmdInp.value = preset.command;
+        argsInp.value = preset.args.join(" ");
+        modelInp.value = preset.model ?? "";
+      }
+      renderChips(brandSelect.value);
+      updatePreview();
+      void persist().then(render);
+    });
+
+    const appendChip = (chip: ArgChip): void => {
+      const current = argsInp.value;
+      const sep = current.length === 0 || /\s$/.test(current) ? "" : " ";
+      const before = current + sep;
+      argsInp.value = before + chip.insert;
+      argsInp.focus();
+      // Select the placeholder (e.g. <prompt>) so the user can type
+      // over it immediately. Falls back to cursor-at-end.
+      if (chip.caret) {
+        const start = (before + chip.insert).lastIndexOf(chip.caret);
+        if (start >= 0) {
+          argsInp.setSelectionRange(start, start + chip.caret.length);
+        } else {
+          argsInp.setSelectionRange(argsInp.value.length, argsInp.value.length);
+        }
+      } else {
+        argsInp.setSelectionRange(argsInp.value.length, argsInp.value.length);
+      }
+      updatePreview();
+      void persist();
+    };
+
+    const renderChips = (k: string): void => {
+      chipsHost.innerHTML = "";
+      const p = PRESETS[k];
+      if (!p) return;
+      if (p.chips.length > 0) {
+        const chipsWrap = document.createElement("div");
+        chipsWrap.className = "spawns-settings-chips";
+        for (const chip of p.chips) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "spawns-settings-chip";
+          btn.textContent = chip.label;
+          btn.title = `Append \`${chip.insert}\` to args`;
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            appendChip(chip);
+          });
+          chipsWrap.appendChild(btn);
+        }
+        chipsHost.appendChild(chipsWrap);
+      }
+      if (p.note) {
+        const note = document.createElement("div");
+        note.className = "spawns-settings-note";
+        note.textContent = p.note;
+        chipsHost.appendChild(note);
+      }
+    };
+
+    renderChips(brandSelect.value);
+    updatePreview();
+  };
 
   const render = (): void => {
     host.innerHTML = "";
@@ -276,49 +337,66 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       "Executor processes the operator can launch in a terminal tab. One spawn can be marked default.";
     host.appendChild(desc);
 
-    const header = document.createElement("div");
-    header.className = "spawns-settings-row spawns-settings-header";
-    header.innerHTML = `
-      <div>Brand</div>
-      <div>Command</div>
-      <div>Args</div>
-      <div>Model</div>
-      <div></div>
-      <div></div>
-    `;
-    host.appendChild(header);
+    const wrap = document.createElement("div");
+    wrap.className = "spawns-md";
 
-    const list = document.createElement("div");
-    list.className = "spawns-settings-list";
-    host.appendChild(list);
-
+    const rail = document.createElement("div");
+    rail.className = "spawns-md-rail";
     for (const spec of specs) {
-      renderRow(
-        spec,
-        list,
-        async (updated) => {
-          await upsertSpawn(updated);
-          specs = specs.map((s) => (s.id === updated.id ? updated : s));
-        },
-        async (id) => {
-          await deleteSpawn(id);
-          specs = specs.filter((s) => s.id !== id);
-          render();
-        },
-      );
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className =
+        "spawns-md-item" + (spec.id === selectedId ? " is-selected" : "");
+      const dot = document.createElement("span");
+      dot.className = "spawns-md-dot";
+      dot.style.background = brandColor(spec.label);
+      const label = document.createElement("span");
+      label.className = "spawns-md-item-label";
+      label.textContent = spec.label;
+      item.append(dot, label);
+      if (spec.default) {
+        const star = document.createElement("span");
+        star.className = "spawns-md-star";
+        star.textContent = "★";
+        item.appendChild(star);
+      }
+      item.addEventListener("click", () => {
+        selectedId = spec.id;
+        render();
+      });
+      rail.appendChild(item);
     }
 
     const addBtn = document.createElement("button");
     addBtn.type = "button";
-    addBtn.className = "btn-secondary spawns-settings-add";
-    addBtn.textContent = "+ New spawn";
-    addBtn.addEventListener("click", async () => {
-      const draft = emptySpec();
-      await upsertSpawn(draft);
-      specs = [...specs, draft];
-      render();
+    addBtn.className = "spawns-md-add";
+    addBtn.textContent = "+ Add executor";
+    addBtn.addEventListener("click", () => {
+      void (async () => {
+        const draft = emptySpec();
+        await upsertSpawn(draft);
+        specs = [...specs, draft];
+        selectedId = draft.id;
+        render();
+        host.querySelector<HTMLInputElement>('input[name="command"]')?.focus();
+      })();
     });
-    host.appendChild(addBtn);
+    rail.appendChild(addBtn);
+    wrap.appendChild(rail);
+
+    const detail = document.createElement("div");
+    detail.className = "spawns-md-detail";
+    const selected = specs.find((s) => s.id === selectedId);
+    if (selected) {
+      renderDetail(selected, detail);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "spawns-md-empty";
+      empty.textContent = "No spawns yet — add an executor to get started.";
+      detail.appendChild(empty);
+    }
+    wrap.appendChild(detail);
+    host.appendChild(wrap);
   };
 
   render();
