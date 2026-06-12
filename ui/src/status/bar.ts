@@ -1429,8 +1429,6 @@ function missionSegment(
   el.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // TEMP DEBUG PROBE — remove after mission-chip right-click diagnosis.
-    (window as unknown as { __cmProbe?: (l: string) => void }).__cmProbe?.("mission chip handler fired");
     onContextMenu(e.clientX, e.clientY);
   });
   return el;

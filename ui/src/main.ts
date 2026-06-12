@@ -384,33 +384,6 @@ function formatBudgetDuration(ms: number): string {
 async function boot(): Promise<void> {
   await waitForTauri();
 
-  // TEMP DEBUG PROBE — remove after mission-chip right-click diagnosis.
-  const probe = document.createElement("div");
-  probe.style.cssText =
-    "position:fixed;top:8px;left:8px;z-index:99999;background:#b00;color:#fff;" +
-    "font:12px monospace;padding:6px 10px;border-radius:6px;display:none;white-space:pre";
-  document.body.appendChild(probe);
-  let probeTimer: number | null = null;
-  (window as unknown as { __cmProbe: (line: string) => void }).__cmProbe = (line: string) => {
-    probe.style.display = "block";
-    probe.textContent += (probe.textContent ? "\n" : "") + line;
-    if (probeTimer) window.clearTimeout(probeTimer);
-    probeTimer = window.setTimeout(() => {
-      probe.style.display = "none";
-      probe.textContent = "";
-    }, 6000);
-  };
-  window.addEventListener(
-    "contextmenu",
-    (e) => {
-      const t = e.target as HTMLElement | null;
-      (window as unknown as { __cmProbe: (l: string) => void }).__cmProbe(
-        `window capture: <${t?.tagName}> ${String(t?.className).slice(0, 60)} chip=${!!t?.closest(".status-mission")}`,
-      );
-    },
-    { capture: true },
-  );
-
   // Suppress the native WebKit context menu (Reload / Inspect Element /
   // AutoFill) everywhere except editable fields, where the native copy/
   // paste menu is still useful. Our own pane/tab/etc. menus run their own
