@@ -550,6 +550,41 @@ body.theme-light .covenant-page .btn.ghost:hover {
 }
 body.theme-light .cov-empty { color: var(--muted); }
 
+body.theme-light .cov-ach-pill {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: var(--border);
+    color: var(--muted);
+}
+body.theme-light .cov-ach-pill strong { color: #0a8f7d; }
+body.theme-light .cov-rep-label,
+body.theme-light .cov-ach-col h5,
+body.theme-light .cov-ach-section { color: var(--muted); }
+body.theme-light .cov-rep-bar { background: #eef0f3; border-color: #e3e6eb; }
+body.theme-light .cov-rep-fill { background: linear-gradient(90deg, #2eb89c, #14a88c); }
+body.theme-light .cov-rep-value { color: #0a8f7d; }
+body.theme-light .cov-ach-prog,
+body.theme-light .cov-ach-award,
+body.theme-light .cov-ach-cat {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: var(--border);
+}
+body.theme-light .cov-ach-cat:hover {
+    border-color: color-mix(in srgb, var(--text-primary) 24%, transparent);
+}
+body.theme-light .cov-ach-title { color: var(--text-primary); }
+body.theme-light .cov-ach-sub,
+body.theme-light .cov-ach-target,
+body.theme-light .cov-ach-meta { color: var(--muted); }
+body.theme-light .cov-ach-badge {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--muted);
+}
+body.theme-light .cov-rarity-uncommon .cov-ach-badge { border-color: #2eb89c; color: #0a8f7d; box-shadow: none; }
+body.theme-light .cov-rarity-rare .cov-ach-badge { border-color: #44b9c4; color: #0e7e8c; box-shadow: none; }
+body.theme-light .cov-rarity-epic .cov-ach-badge { border-color: #a78bfa; color: #7c5cd6; box-shadow: none; }
+body.theme-light .cov-rarity-legendary .cov-ach-badge { border-color: #d9a93f; color: #a87f1d; box-shadow: none; }
+
 .cov-row { display:grid; grid-template-columns: 12px 1fr 4fr auto; gap:8px; align-items:center;
   background:transparent; border:none; color:inherit; padding:6px 4px; cursor:pointer; width:100%; text-align:left; }
 .cov-row:hover { background: rgba(255,255,255,0.04); border-radius:6px; }
@@ -571,44 +606,70 @@ body.theme-light .cov-empty { color: var(--muted); }
 .cov-model-table th, .cov-model-table td { padding:6px 8px; text-align:left; border-bottom:1px solid rgba(255,255,255,0.06); font-variant-numeric: tabular-nums; }
 .cov-dim { opacity:0.5; }
 
-/* ── Achievements ─────────────────────────────────────────────────────────── */
-.cov-ach-card { display:flex; flex-direction:column; gap:12px; }
+/* ── Achievements ─────────────────────────────────────────────────────────
+   Speaks the Covenant Score idiom: #0f1419 tile surfaces on the #131a1e
+   card, teal (#5eead4) brand accent, 9-10px uppercase wide-tracked labels.
+   Rarity hues stay distinct but sit on dark badge fills with muted borders
+   so they read as jewel tones, not stickers. */
+.cov-ach-card { display:flex; flex-direction:column; gap:14px; }
 .cov-ach-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
 .cov-ach-header h4 { margin:0; }
-.cov-ach-counts { display:flex; gap:6px; flex-wrap:wrap; }
-.cov-ach-pill { padding:3px 9px; border-radius:999px; background:rgba(255,255,255,0.06); font-size:12px; }
-.cov-ach-pill strong { color:#fff; }
-.cov-ach-rep { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:6px 16px; padding:4px 0; }
-.cov-rep-row { display:flex; align-items:center; gap:8px; font-size:12px; }
-.cov-rep-label { width:90px; opacity:0.75; }
-.cov-rep-bar { flex:1; height:6px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; }
-.cov-rep-fill { height:100%; background:linear-gradient(90deg, #7aa2f7, #bb9af7); }
-.cov-rep-value { width:40px; text-align:right; font-variant-numeric: tabular-nums; opacity:0.75; }
+.cov-ach-counts { display:flex; gap:8px; flex-wrap:wrap; }
+.cov-ach-pill {
+  font-size:11px; padding:5px 10px; line-height:1;
+  border:1px solid #243036; border-radius:6px;
+  background:#0f1419; color:#6c8088;
+}
+.cov-ach-pill strong { color:#5eead4; font-weight:500; }
+.cov-ach-rep { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:8px 18px; padding:2px 0; }
+.cov-rep-row { display:flex; align-items:center; gap:8px; }
+.cov-rep-label { width:92px; font-size:9px; text-transform:uppercase; letter-spacing:1.2px; color:#6c8088; }
+.cov-rep-bar { flex:1; height:6px; background:#0f1419; border:1px solid #182025; border-radius:3px; overflow:hidden; }
+.cov-rep-fill { height:100%; background:linear-gradient(90deg, #1f8a7a, #5eead4); }
+.cov-rep-value { width:40px; text-align:right; font-variant-numeric: tabular-nums; font-size:12px; color:#7dd3e0; }
 .cov-ach-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.cov-ach-col h5 { margin:0 0 6px 0; font-size:12px; letter-spacing:0.08em; opacity:0.7; text-transform:uppercase; font-weight:500; }
-.cov-ach-section { margin:8px 0 6px 0; font-size:12px; letter-spacing:0.08em; opacity:0.7; text-transform:uppercase; font-weight:500; }
-.cov-ach-prog { padding:6px 0; }
-.cov-ach-prog-head { display:flex; justify-content:space-between; gap:8px; font-size:13px; }
-.cov-ach-title { font-weight:500; }
-.cov-ach-target { opacity:0.6; font-variant-numeric: tabular-nums; }
-.cov-ach-sub { opacity:0.6; font-size:12px; margin-top:2px; }
-.cov-ach-meta { opacity:0.45; font-size:11px; margin-top:2px; text-transform:uppercase; letter-spacing:0.06em; }
-.cov-ach-award, .cov-ach-cat { display:flex; align-items:center; gap:10px; padding:6px 0; }
+.cov-ach-col h5, .cov-ach-section {
+  margin:0 0 8px; font-size:10px; letter-spacing:1.5px;
+  text-transform:uppercase; font-weight:600; color:#4a5b63;
+}
+.cov-ach-section { margin:6px 0 2px; }
+.cov-ach-prog {
+  padding:10px 12px; margin-bottom:8px;
+  background:#0f1419; border:1px solid #1c252b; border-radius:8px;
+}
+.cov-ach-prog-head { display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-bottom:6px; }
+.cov-ach-title { font-weight:500; color:#d6e2e6; }
+.cov-ach-target { color:#4a5b63; font-variant-numeric: tabular-nums; }
+.cov-ach-sub { color:#6c8088; font-size:11px; margin-top:4px; line-height:1.4; }
+.cov-ach-meta { color:#4a5b63; font-size:9px; margin-top:6px; text-transform:uppercase; letter-spacing:1.2px; }
+.cov-ach-award, .cov-ach-cat {
+  display:flex; align-items:center; gap:12px;
+  padding:10px 12px; background:#0f1419;
+  border:1px solid #1c252b; border-radius:8px;
+}
+.cov-ach-award { margin-bottom:8px; }
+.cov-ach-cat { transition:border-color 0.15s ease, opacity 0.15s ease; }
+.cov-ach-cat:hover { border-color:#324048; }
 .cov-ach-badge {
-  flex:0 0 auto; width:32px; height:32px; border-radius:50%;
+  flex:0 0 auto; width:34px; height:34px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
-  background:rgba(255,255,255,0.06); font-weight:600; font-size:13px;
-  border:1px solid rgba(255,255,255,0.10);
+  background:#131a1e; font-weight:600; font-size:13px;
+  border:1px solid #243036; color:#6c8088;
 }
 .cov-ach-award-body { flex:1; min-width:0; }
-.cov-ach-catalog { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px,1fr)); gap:10px 14px; }
-.cov-ach-locked { opacity:0.55; }
+.cov-ach-catalog { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:10px; }
+.cov-ach-locked { opacity:0.6; }
+.cov-ach-locked:hover { opacity:0.85; }
 .cov-ach-locked .cov-ach-badge { background:transparent; }
-.cov-rarity-common .cov-ach-badge { border-color:rgba(255,255,255,0.15); }
-.cov-rarity-uncommon .cov-ach-badge { border-color:#73d3a1; color:#73d3a1; }
-.cov-rarity-rare .cov-ach-badge { border-color:#7aa2f7; color:#7aa2f7; }
-.cov-rarity-epic .cov-ach-badge { border-color:#bb9af7; color:#bb9af7; }
-.cov-rarity-legendary .cov-ach-badge { border-color:#f7c873; color:#f7c873; }
+.cov-rarity-common .cov-ach-badge { border-color:#324048; color:#8fa3ab; }
+.cov-rarity-uncommon .cov-ach-badge { border-color:#2a6b5f; color:#5eead4; }
+.cov-rarity-rare .cov-ach-badge { border-color:#2a5a64; color:#7dd3e0; box-shadow:0 0 6px rgba(125,211,224,0.12); }
+.cov-rarity-epic .cov-ach-badge { border-color:#4a3f74; color:#bb9af7; box-shadow:0 0 6px rgba(187,154,247,0.15); }
+.cov-rarity-legendary .cov-ach-badge { border-color:#6b5a33; color:#f7c873; box-shadow:0 0 8px rgba(247,200,115,0.18); }
+.cov-ach-earned.cov-rarity-uncommon { border-color:#1f4a44; }
+.cov-ach-earned.cov-rarity-rare { border-color:#2a5a64; }
+.cov-ach-earned.cov-rarity-epic { border-color:#4a3f74; }
+.cov-ach-earned.cov-rarity-legendary { border-color:#6b5a33; }
 
 /* ── By group · Ranked Leaderboard ──────────────────────────────────────────
    Namespaced .lb-* so it never collides with the parked workspace-clustered
