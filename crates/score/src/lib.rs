@@ -67,13 +67,19 @@ pub fn clear_recorder_for_test() {
     }
 }
 
-pub fn record_prompt_with_agent(executor: &str, agent: Option<&str>) {
-    let now = chrono::Utc::now().timestamp_millis();
+/// Resolve the Context (repo/branch/group) of the current session, the same
+/// way prompt events get theirs. Default when no session is current.
+pub fn current_context() -> Context {
     let cur = current_slot().lock().ok().and_then(|g| g.clone());
-    let ctx = match cur {
+    match cur {
         Some(c) => resolver().resolve(&c.session_id, &c.cwd, c.group_name, c.workspace),
         None => Context::default(),
-    };
+    }
+}
+
+pub fn record_prompt_with_agent(executor: &str, agent: Option<&str>) {
+    let now = chrono::Utc::now().timestamp_millis();
+    let ctx = current_context();
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
             if let Err(e) = store.append_with_context(now, EventKind::Prompt, executor, agent, &ctx)

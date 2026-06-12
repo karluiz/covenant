@@ -188,7 +188,7 @@ pub async fn ask_oneshot_with_usage(req: AskRequest) -> Result<AskResponse, Agen
             cache_read: final_usage.cache_read_input_tokens as u64,
             cache_creation: final_usage.cache_creation_input_tokens as u64,
         },
-        &karl_score::Context::default(),
+        &karl_score::current_context(),
     );
     Ok(AskResponse {
         text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),

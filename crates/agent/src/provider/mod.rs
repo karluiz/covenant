@@ -130,7 +130,7 @@ pub async fn collect_oneshot(
             cache_read: final_usage.cache_read_input_tokens as u64,
             cache_creation: final_usage.cache_creation_input_tokens as u64,
         },
-        &karl_score::Context::default(),
+        &karl_score::current_context(),
     );
     Ok(crate::AskResponse {
         text: buffer.lock().map(|b| b.clone()).unwrap_or_default(),

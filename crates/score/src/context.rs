@@ -104,6 +104,16 @@ impl ContextResolver {
     }
 }
 
+/// Resolve the repo name (git toplevel basename) for a cwd learned from a
+/// transcript line rather than a live session. Same naming as prompt events.
+pub(crate) fn repo_name_for_cwd(cwd: &Path) -> Option<String> {
+    let toplevel = ContextResolver::git(cwd, &["rev-parse", "--show-toplevel"])?;
+    Path::new(&toplevel)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from)
+}
+
 impl Default for ContextResolver {
     fn default() -> Self {
         Self::new()

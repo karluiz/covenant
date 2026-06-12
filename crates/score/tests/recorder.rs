@@ -68,6 +68,41 @@ fn record_prompt_with_agent_persists_label() {
 }
 
 #[test]
+fn current_context_resolves_repo_from_current_session() {
+    let _guard = LOCK.lock().unwrap();
+    let dir = tempdir().unwrap();
+    let repo_path = dir.path().join("groowcity");
+    std::fs::create_dir(&repo_path).unwrap();
+    assert!(std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&repo_path)
+        .status()
+        .unwrap()
+        .success());
+
+    karl_score::set_current_session(Some(karl_score::CurrentSession {
+        session_id: "test-current-ctx".into(),
+        cwd: repo_path,
+        group_name: Some("g1".into()),
+        workspace: None,
+    }));
+    let ctx = karl_score::current_context();
+    karl_score::set_current_session(None);
+
+    assert_eq!(ctx.repo.as_deref(), Some("groowcity"));
+    assert_eq!(ctx.group_name.as_deref(), Some("g1"));
+}
+
+#[test]
+fn current_context_is_default_without_session() {
+    let _guard = LOCK.lock().unwrap();
+    karl_score::set_current_session(None);
+    let ctx = karl_score::current_context();
+    assert_eq!(ctx.repo, None);
+    assert_eq!(ctx.branch, None);
+}
+
+#[test]
 fn record_spec_emits_cartographer_and_is_idempotent() {
     let _guard = LOCK.lock().unwrap();
     let dir = tempdir().unwrap();
