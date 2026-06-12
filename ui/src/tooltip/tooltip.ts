@@ -17,12 +17,15 @@ export type TooltipContent =
 const OPEN_DELAY_MS = 350;
 const CLOSE_DELAY_MS = 60;
 const EDGE_PAD = 8;
+const POINTER_SLOP = 6;
 
 let host: HTMLElement | null = null;
 let openTimer: number | null = null;
 let closeTimer: number | null = null;
 let activeTarget: HTMLElement | null = null;
 let watchRaf: number | null = null;
+let lastMouseX: number | null = null;
+let lastMouseY: number | null = null;
 
 function ensureHost(): HTMLElement {
   if (host) return host;
@@ -113,13 +116,17 @@ function hide(): void {
   activeTarget = null;
 }
 
-/// Streaming UIs (activity sidebar, etc.) re-render the hovered row out
-/// from under the cursor, so the synthetic mouseleave never fires. Poll
-/// while visible and hide if the target detaches from the DOM. We
-/// intentionally do NOT compare the cursor against the target rect here:
-/// micro-movements and moving the cursor toward the tooltip itself would
-/// otherwise kill the tooltip within a second. Normal `mouseleave`
-/// handles the "cursor left the element" case.
+/// Content can move out from under a stationary cursor (scroll,
+/// re-layout, streaming re-renders) without any mouse event firing —
+/// and WebKit is also known to drop mouseleave in those cases — which
+/// leaves the fixed-position tooltip stuck on screen indefinitely.
+/// Poll while visible and hide when the target detaches from the DOM
+/// or the pointer is no longer over the target's current rect. The
+/// rect check is safe because the tooltip is pointer-events: none, so
+/// any real cursor exit already fires mouseleave today; it only ever
+/// catches the no-event cases above. It skips while an enter/leave
+/// timer is in flight so sweeping between adjacent targets keeps the
+/// existing cross-fade instead of flickering.
 function startWatch(): void {
   stopWatch();
   const tick = () => {
@@ -128,6 +135,18 @@ function startWatch(): void {
     if (!activeTarget.isConnected) {
       hide();
       return;
+    }
+    if (lastMouseX != null && lastMouseY != null && openTimer == null && closeTimer == null) {
+      const r = activeTarget.getBoundingClientRect();
+      const outside =
+        lastMouseX < r.left - POINTER_SLOP ||
+        lastMouseX > r.right + POINTER_SLOP ||
+        lastMouseY < r.top - POINTER_SLOP ||
+        lastMouseY > r.bottom + POINTER_SLOP;
+      if (outside) {
+        hide();
+        return;
+      }
     }
     watchRaf = window.requestAnimationFrame(tick);
   };
@@ -166,12 +185,14 @@ export function attachTooltip(el: HTMLElement, content: TooltipContent): () => v
   const onEnter = () => {
     clearTimers();
     openTimer = window.setTimeout(() => {
+      openTimer = null;
       show(el, content);
     }, OPEN_DELAY_MS);
   };
   const onLeave = () => {
     clearTimers();
     closeTimer = window.setTimeout(() => {
+      closeTimer = null;
       if (activeTarget === el || activeTarget == null) hide();
     }, CLOSE_DELAY_MS);
   };
@@ -200,3 +221,11 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") hide();
 });
 window.addEventListener("blur", () => hide());
+window.addEventListener(
+  "mousemove",
+  (e) => {
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  },
+  { capture: true, passive: true },
+);
