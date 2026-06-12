@@ -396,6 +396,7 @@
 .cov-sync .l { font-size: 11px; color: #6c8088; }
 .cov-sync .l b { color: #d6e2e6; display: block; margin-bottom: 2px; font-weight: 500; font-size: 13px; }
 .cov-sync-status { font-size: 11px; color: #6c8088; }
+.cov-sync-reauth { margin-top: 8px; }
 .covenant-page .btn {
   background: #5eead4;
   color: #04201c;
