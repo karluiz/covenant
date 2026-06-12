@@ -113,6 +113,35 @@ describe('operator modal', () => {
     const host = m.el.querySelector('header .op-hero-chip');
     expect(host && host.childElementCount > 0).toBeTruthy();
   });
+
+  it('behaviour section shows hard-constraint hint and example chips', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('behaviour');
+    expect(m.el.querySelector('.op-hc-hint')?.textContent).toContain('Regex deny rules');
+    expect(m.el.querySelectorAll('.op-hc-chip')).toHaveLength(6);
+  });
+
+  it('clicking a chip appends the rule to hard constraints, without duplicates', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('behaviour');
+    const chip = [...m.el.querySelectorAll<HTMLButtonElement>('.op-hc-chip')]
+      .find((c) => c.textContent === '^git push --force')!;
+    chip.click();
+    expect(m.state.soulRaw).toContain('hard_constraints: |');
+    expect(m.state.soulRaw).toContain('  ^git push --force');
+    chip.click(); // exact same rule → no duplicate line
+    const occurrences = m.state.soulRaw.split('^git push --force').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('chips append on new lines after existing rules', () => {
+    const m = openOperatorModal({ mode: 'create' });
+    m.setSection('behaviour');
+    const chips = [...m.el.querySelectorAll<HTMLButtonElement>('.op-hc-chip')];
+    chips.find((c) => c.textContent === '^npm publish')!.click();
+    chips.find((c) => c.textContent === '^terraform apply')!.click();
+    expect(m.state.soulRaw).toContain('  ^npm publish\n  ^terraform apply');
+  });
 });
 
 describe('operator list grid', () => {
