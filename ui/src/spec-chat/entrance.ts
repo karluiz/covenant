@@ -94,11 +94,10 @@ interface Particle {
 
 const PARTICLE_COUNT = 80;
 const LINK_DIST = 110;
-// Particles converge from the corners over INTRO_MS, staggered up to
-// INTRO_STAGGER_MS; the link web fades in with intro² so the constellation
-// only "forms" late in the convergence.
-const INTRO_MS = 4200;
-const INTRO_STAGGER_MS = 1600;
+// The sky opens already mostly assembled: particles spawn pulled slightly
+// toward their nearest corner and settle home over a short, staggered intro.
+const INTRO_MS = 1400;
+const INTRO_STAGGER_MS = 500;
 
 /** Starts the sky; returns a teardown fn. No-ops when canvas 2d is unavailable. */
 function startSky(canvas: HTMLCanvasElement): () => void {
@@ -146,10 +145,13 @@ function startSky(canvas: HTMLCanvasElement): () => void {
     const r = 0.6 + Math.random() * 1.4;
     const hx = Math.random() * Math.max(w, 1);
     const hy = Math.random() * Math.max(h, 1);
-    // Spawn near one of the four corners, jittered so each corner reads as a
-    // loose cluster rather than a point.
-    const sx = (Math.random() < 0.5 ? 0 : Math.max(w, 1)) + (Math.random() - 0.5) * 140;
-    const sy = (Math.random() < 0.5 ? 0 : Math.max(h, 1)) + (Math.random() - 0.5) * 140;
+    // Spawn pulled 22–40% from home toward the nearest corner: the field is
+    // recognizable immediately and the intro reads as a settle, not a build.
+    const cx = hx < w / 2 ? 0 : w;
+    const cy = hy < h / 2 ? 0 : h;
+    const pull = 0.22 + Math.random() * 0.18;
+    const sx = hx + (cx - hx) * pull + (Math.random() - 0.5) * 40;
+    const sy = hy + (cy - hy) * pull + (Math.random() - 0.5) * 40;
     ps.push({
       x: reduced ? hx : sx,
       y: reduced ? hy : sy,
@@ -166,12 +168,13 @@ function startSky(canvas: HTMLCanvasElement): () => void {
     });
   }
 
-  // 0..1 across the whole intro; links scale with intro² so the web forms late.
+  // 0..1 across the whole intro; links ramp with √intro so the web is
+  // visible almost immediately and just sharpens as particles settle.
   let intro = reduced ? 1 : 0;
 
   const draw = (): void => {
     ctx.clearRect(0, 0, w, h);
-    const linkScale = intro * intro;
+    const linkScale = Math.sqrt(intro);
     if (linkScale > 0.02) {
       ctx.lineWidth = 1;
       for (let i = 0; i < ps.length; i++) {
@@ -212,7 +215,7 @@ function startSky(canvas: HTMLCanvasElement): () => void {
         const e = 1 - (1 - k) ** 3;
         p.x = p.sx + (p.hx - p.sx) * e;
         p.y = p.sy + (p.hy - p.sy) * e;
-        p.a = 0.15 + 0.85 * e;
+        p.a = 0.45 + 0.55 * e;
       }
       return;
     }

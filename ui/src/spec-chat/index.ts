@@ -126,6 +126,9 @@ export function mountSpecChat(
 
   function renderEntrance(drafts: SpecDraftSummary[]): void {
     removeEntrance();
+    // Unhide BEFORE mounting: the sky canvas measures itself at mount, and a
+    // display:none host reads 0×0 — collapsing every particle to a point.
+    host.hidden = false;
     entrance = mountSpecEntrance(host, drafts, {
       onResume: (id) => {
         removeEntrance();
@@ -147,7 +150,6 @@ export function mountSpecChat(
       },
     });
     entranceMounted = true;
-    host.hidden = false;
   }
 
   const controller: SpecChatController = {
