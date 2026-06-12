@@ -2850,16 +2850,11 @@ async fn spec_author_stream_step(
     let draft_id_str = draft.id.to_string();
     let topic = format!("spec://{}/event", draft_id_str);
 
+    // Jail tools at the enclosing git root (not the raw cwd) and restate the
+    // grounding in the system prompt on every turn. When no cwd reached us,
+    // the prompt says so explicitly instead of leaving the model to guess.
     let cwd_path = cwd.as_ref().map(std::path::PathBuf::from);
-    let repo_root = cwd_path.clone()
-        .and_then(|p| std::fs::canonicalize(p).ok())
-        .unwrap_or_else(|| base_dir.clone());
-    let system = if draft.messages.is_empty() {
-        match cwd_path.as_deref().and_then(sa::build_repo_context) {
-            Some(ctx) => format!("{}{}", sa::SYSTEM_PROMPT_PUB, ctx),
-            None => sa::SYSTEM_PROMPT_PUB.to_string(),
-        }
-    } else { sa::SYSTEM_PROMPT_PUB.to_string() };
+    let (repo_root, system) = sa::compose_system(cwd_path.as_deref(), &base_dir);
 
     let sink = TauriSink { app: app.clone(), topic: topic.clone() };
 
