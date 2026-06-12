@@ -211,6 +211,7 @@ describe('operator list grid', () => {
       persona: '', escalate_threshold: 0.5, model: 'gpt-4o',
       hard_constraints: '', is_default: false,
       created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0, voice: 'Terse' as const,
+      github_access: 'Off' as const,
     };
     const ops: Operator[] = [
       { ...base, id: '1', tags: ['reviewer', 'rust'] },
