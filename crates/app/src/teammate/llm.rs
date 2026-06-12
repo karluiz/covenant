@@ -986,6 +986,7 @@ mod tests {
             xp: 0,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: crate::operator_registry::GithubAccess::Off,
         }
     }
 

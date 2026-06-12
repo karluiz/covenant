@@ -59,6 +59,7 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         voice: VoiceTone::default(),
         soul_path: None,
         soul_mtime_unix_ms: 0,
+        github_access: covenant_lib::operator_registry::GithubAccess::Off,
     };
     storage.operator_insert(operator).await.expect("insert operator");
 

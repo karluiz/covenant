@@ -55,6 +55,20 @@ pub struct Operator {
     /// Not persisted; recomputed on load.
     #[serde(default, skip)]
     pub soul_mtime_unix_ms: u64,
+    /// GitHub access level for the `gh_*` tools. Defaults Off.
+    #[serde(default)]
+    pub github_access: GithubAccess,
+}
+
+/// What the operator may do with the user's GitHub account. Gates which
+/// `gh_*` tools are registered at dispatch time — `Off` operators never
+/// even see them. Registry-only (NOT SOUL frontmatter), like `is_default`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum GithubAccess {
+    #[default]
+    Off,
+    ReadOnly,
+    ReadWrite,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -245,6 +259,7 @@ impl OperatorRegistry {
             voice: VoiceTone::default(),
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
@@ -416,6 +431,7 @@ impl OperatorRegistry {
             escalate_threshold: 0.6, model: String::new(), hard_constraints: String::new(),
             is_default: false, created_at_unix_ms: now, updated_at_unix_ms: now, xp: 0,
             voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         crate::soul::hydrate_operator(&mut op, &soul);
         self.create(storage, op).await
@@ -482,6 +498,22 @@ impl OperatorRegistry {
         let mut g = self.by_id.write().unwrap();
         for (oid, row) in g.iter_mut() {
             row.is_default = *oid == id;
+        }
+        Ok(())
+    }
+
+    pub async fn set_github_access(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        access: GithubAccess,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage.operator_set_github_access(id.to_string(), access).await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.github_access = access;
         }
         Ok(())
     }
@@ -563,6 +595,7 @@ impl OperatorRegistry {
             voice: VoiceTone::default(),
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         let id = op.id;
         let name = op.name.clone();
@@ -774,6 +807,7 @@ pub mod commands {
             voice: draft.voice,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -806,6 +840,7 @@ pub mod commands {
             voice: draft.voice,
             soul_path: existing.soul_path.clone(),
             soul_mtime_unix_ms: existing.soul_mtime_unix_ms,
+            github_access: existing.github_access,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -828,6 +863,17 @@ pub mod commands {
     ) -> Result<(), String> {
         let id: OperatorId = id.parse().map_err(map_err)?;
         registry.set_default(&storage, id).await.map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_github_access(
+        id: String,
+        access: GithubAccess,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry.set_github_access(&storage, id, access).await.map_err(map_err)
     }
 
     #[tauri::command]
@@ -880,6 +926,7 @@ mod voice_tests {
             voice: VoiceTone::default(),
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
@@ -909,6 +956,25 @@ mod voice_tests {
         );
         assert_ne!(t, w);
         assert_ne!(w, f);
+    }
+}
+
+#[cfg(test)]
+mod github_access_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_operator_json_defaults_github_access_off() {
+        // Serialized before the github_access field existed.
+        let json = serde_json::json!({
+            "id": "01HZX5K9PXVQJ8F2M3N4P5Q6R7",
+            "name": "Legacy", "emoji": "🤖", "color": "#6B7280",
+            "tags": [], "persona": "p", "escalate_threshold": 0.6,
+            "model": "claude-sonnet-4-6", "hard_constraints": "",
+            "is_default": false, "created_at_unix_ms": 0, "updated_at_unix_ms": 0
+        });
+        let op: Operator = serde_json::from_value(json).unwrap();
+        assert_eq!(op.github_access, GithubAccess::Off);
     }
 }
 
@@ -945,6 +1011,7 @@ mod soul_io_tests {
             voice: VoiceTone::Warm,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.clone().expect("soul_path set");
@@ -986,6 +1053,7 @@ mod soul_io_tests {
             voice: VoiceTone::Terse,
             soul_path: None,
             soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         storage.operator_insert(op.clone()).await.unwrap();
 
@@ -1014,6 +1082,7 @@ mod soul_io_tests {
             escalate_threshold: 0.5, model: "m".into(), hard_constraints: "".into(),
             is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
             voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.unwrap();
