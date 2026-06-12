@@ -3697,9 +3697,10 @@ pub fn run() {
                 favorites,
             )));
 
-            // Periodic commit scanner (CS-1b) — every 5 minutes scan every
-            // repo the context resolver has seen (i.e. any repo a session
-            // prompted from) for new commits by the local git user. The
+            // Periodic commit + spec scanner (CS-1b) — every 5 minutes scan
+            // every repo the context resolver has seen (i.e. any repo a
+            // session prompted from): new commits by the local git user, and
+            // spec files (**/specs/**/*.md, mtime-stamped, idempotent). The
             // process cwd is registered too so `tauri dev` keeps working;
             // a Finder-launched .app has cwd `/`, which register_cwd skips.
             let scanner_store = score_store.clone();
@@ -3716,10 +3717,12 @@ pub fn run() {
                         .and_then(|o| String::from_utf8(o.stdout).ok())
                         .map(|s| s.trim().to_string())
                         .unwrap_or_default();
-                    if email.is_empty() { continue; }
                     let store = scanner_store.clone();
                     let _ = tokio::task::spawn_blocking(move || {
-                        karl_score::commit_scanner::scan_known_repos(&store, &email)
+                        if !email.is_empty() {
+                            karl_score::commit_scanner::scan_known_repos(&store, &email);
+                        }
+                        karl_score::spec_scanner::scan_known_repos(&store)
                     })
                     .await;
                 }

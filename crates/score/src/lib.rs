@@ -6,6 +6,7 @@ pub mod context;
 pub mod external;
 pub mod filter;
 pub mod session;
+pub mod spec_scanner;
 pub mod spec_watcher;
 pub mod store;
 pub mod sync;
