@@ -2,6 +2,16 @@ use crate::{EventKind, ScoreStore};
 use std::path::Path;
 use std::process::Command;
 
+/// Scan every repo registered via `karl_score::register_cwd` for new commits
+/// by `author_email` after `since_ts_seconds`. Returns total appended.
+pub fn scan_known_repos(store: &ScoreStore, author_email: &str, since_ts_seconds: i64) -> u32 {
+    let mut n = 0u32;
+    for p in crate::known_repo_paths() {
+        n += scan_repo_since(&p, author_email, since_ts_seconds, store).unwrap_or(0);
+    }
+    n
+}
+
 /// Scan `repo_path` for commits by `author_email` whose unix-timestamp is
 /// strictly greater than `since_ts_seconds`. Each commit is appended to
 /// `store`. Returns count appended.

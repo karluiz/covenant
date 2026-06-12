@@ -67,6 +67,36 @@ pub fn clear_recorder_for_test() {
     }
 }
 
+fn repo_paths_slot() -> &'static Mutex<std::collections::HashSet<std::path::PathBuf>> {
+    static PATHS: OnceCell<Mutex<std::collections::HashSet<std::path::PathBuf>>> = OnceCell::new();
+    PATHS.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+pub(crate) fn register_toplevel(toplevel: &std::path::Path) {
+    let p = toplevel
+        .canonicalize()
+        .unwrap_or_else(|_| toplevel.to_path_buf());
+    if let Ok(mut g) = repo_paths_slot().lock() {
+        g.insert(p);
+    }
+}
+
+/// Register the git repo containing `cwd` (if any) for periodic commit
+/// scanning. No-op outside a git repo.
+pub fn register_cwd(cwd: &std::path::Path) {
+    if let Some(t) = context::toplevel_for_cwd(cwd) {
+        register_toplevel(&t);
+    }
+}
+
+/// Canonical toplevel paths of every git repo seen so far this run.
+pub fn known_repo_paths() -> Vec<std::path::PathBuf> {
+    repo_paths_slot()
+        .lock()
+        .map(|g| g.iter().cloned().collect())
+        .unwrap_or_default()
+}
+
 /// Resolve the Context (repo/branch/group) of the current session, the same
 /// way prompt events get theirs. Default when no session is current.
 pub fn current_context() -> Context {

@@ -3702,14 +3702,19 @@ pub fn run() {
                 favorites,
             )));
 
-            // Periodic commit scanner — every 5 minutes scan the process
-            // cwd for new commits by the local git user. CS-1 keeps this
-            // narrow; multi-repo scan is CS-1b.
+            // Periodic commit scanner (CS-1b) — every 5 minutes scan every
+            // repo the context resolver has seen (i.e. any repo a session
+            // prompted from) for new commits by the local git user. The
+            // process cwd is registered too so `tauri dev` keeps working;
+            // a Finder-launched .app has cwd `/`, which register_cwd skips.
             let scanner_store = score_store.clone();
             tauri::async_runtime::spawn(async move {
                 use std::time::Duration;
                 let mut since = (chrono::Utc::now() - chrono::Duration::hours(24))
                     .timestamp();
+                if let Ok(cwd) = std::env::current_dir() {
+                    karl_score::register_cwd(&cwd);
+                }
                 loop {
                     tokio::time::sleep(Duration::from_secs(300)).await;
                     let email = std::process::Command::new("git")
@@ -3719,10 +3724,12 @@ pub fn run() {
                         .map(|s| s.trim().to_string())
                         .unwrap_or_default();
                     if email.is_empty() { continue; }
-                    if let Ok(cwd) = std::env::current_dir() {
-                        let _ = karl_score::commit_scanner::scan_repo_since(
-                            &cwd, &email, since, &scanner_store);
-                    }
+                    let store = scanner_store.clone();
+                    let s = since;
+                    let _ = tokio::task::spawn_blocking(move || {
+                        karl_score::commit_scanner::scan_known_repos(&store, &email, s)
+                    })
+                    .await;
                     since = chrono::Utc::now().timestamp();
                 }
             });
