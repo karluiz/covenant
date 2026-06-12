@@ -43,8 +43,5 @@ crates/app/gen/schemas/
 .superpowers/
 .remember/
 
-# Agent-generated planning artifacts (contain absolute paths)
-docs/superpowers/
-
 # Local scratch / throwaway experiments
 scratch/
