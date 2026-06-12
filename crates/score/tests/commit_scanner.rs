@@ -64,21 +64,19 @@ fn scan_known_repos_backfills_full_history_on_first_scan() {
     let repo = repo_dir.path().join("backfill-repo");
     std::fs::create_dir(&repo).unwrap();
     make_repo_with_commit(&repo);
-    // An old commit, well before "now - 24h" windows.
+    // A genuinely old commit: committer date in 2020 (what `git log --since`
+    // filters on), not just author date. Catches "--since=@0 ≠ full history".
     std::fs::write(repo.join("g.txt"), "old").unwrap();
     run(&repo, &["add", "."]);
-    run(
-        &repo,
-        &[
-            "-c",
-            "user.email=test@x.com",
-            "commit",
-            "-q",
-            "-m",
-            "old",
-            "--date",
-            "2020-01-02T03:04:05",
-        ],
+    assert!(
+        Command::new("git")
+            .current_dir(&repo)
+            .env("GIT_COMMITTER_DATE", "2020-01-02T03:04:05")
+            .env("GIT_AUTHOR_DATE", "2020-01-02T03:04:05")
+            .args(["-c", "user.email=test@x.com", "commit", "-q", "-m", "old"])
+            .status()
+            .unwrap()
+            .success()
     );
 
     karl_score::register_cwd(&repo);

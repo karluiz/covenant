@@ -32,13 +32,19 @@ pub fn scan_repo_since(
     since_ts_seconds: i64,
     store: &ScoreStore,
 ) -> std::io::Result<u32> {
+    // since=0 means full-history backfill: omit --since entirely. Git's
+    // approxidate does NOT read "@0" as the epoch (it filters like "today
+    // 00:00"), so passing it would silently drop everything older than today.
+    let mut args = vec![
+        "log".to_string(),
+        format!("--author={author_email}"),
+        "--pretty=format:%H %ct".to_string(),
+    ];
+    if since_ts_seconds > 0 {
+        args.push(format!("--since=@{since_ts_seconds}"));
+    }
     let out = Command::new("git")
-        .args([
-            "log",
-            &format!("--author={author_email}"),
-            &format!("--since=@{since_ts_seconds}"),
-            "--pretty=format:%H %ct",
-        ])
+        .args(&args)
         .current_dir(repo_path)
         .output()?;
     if !out.status.success() {
