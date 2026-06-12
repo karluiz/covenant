@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Spec Creator — Premium Preview</title>
+<style>
+  :root {
+    --bg: #0c0d10;
+    --bg-elev: #131419;
+    --bg-elev2: #181a21;
+    --line: #23252e;
+    --line-soft: #1b1d24;
+    --txt: #e7e8ec;
+    --txt-dim: #9a9da7;
+    --txt-faint: #5e616c;
+    --accent: #7c8cff;
+    --accent-soft: #5663c9;
+    --good: #4ec9a0;
+    --warn: #d6a657;
+    --think: #7e8290;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: -apple-system, "Inter", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 75% -10%, #15171f 0%, transparent 60%),
+      var(--bg);
+    color: var(--txt);
+    font-family: var(--sans);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── faux workspace behind, to sell the takeover ── */
+  .workspace {
+    position: fixed; inset: 0;
+    padding: 40px;
+    font-family: var(--mono);
+    font-size: 12.5px; line-height: 1.7;
+    color: #353842;
+    user-select: none;
+    transition: filter .42s cubic-bezier(.22,.61,.36,1), transform .42s cubic-bezier(.22,.61,.36,1), opacity .42s;
+  }
+  .workspace .row { white-space: pre; }
+  body.open .workspace { filter: blur(7px) brightness(.6); transform: scale(.985); opacity: .5; }
+
+  .scrim {
+    position: fixed; inset: 0;
+    background: rgba(5,6,8,.55);
+    opacity: 0; pointer-events: none;
+    transition: opacity .42s ease;
+    backdrop-filter: blur(2px);
+  }
+  body.open .scrim { opacity: 1; }
+
+  /* ── the immersive creator ── */
+  .creator {
+    position: fixed; inset: 26px;
+    background:
+      linear-gradient(180deg, #14151b 0%, #101116 100%);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow:
+      0 40px 120px -20px rgba(0,0,0,.7),
+      0 0 0 1px rgba(124,140,255,.04),
+      inset 0 1px 0 rgba(255,255,255,.03);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+    opacity: 0;
+    transform: scale(.94) translateY(14px);
+    transform-origin: 50% 56%;
+    transition: opacity .4s ease, transform .46s cubic-bezier(.18,.7,.27,1);
+  }
+  body.open .creator { opacity: 1; transform: scale(1) translateY(0); }
+
+  /* ── header + phase spine ── */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--line-soft);
+    background: linear-gradient(180deg, rgba(255,255,255,.018), transparent);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; letter-spacing: .2px; }
+  .brand .spark {
+    width: 18px; height: 18px;
+    color: var(--accent);
+    filter: drop-shadow(0 0 6px rgba(124,140,255,.5));
+    animation: pulse 3.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:.85;transform:scale(1)} 50%{opacity:1;transform:scale(1.08)} }
+
+  .spine { display: flex; align-items: center; gap: 0; flex: 1; margin-left: 6px; }
+  .node { display: flex; align-items: center; gap: 8px; }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #2a2c35; border: 1px solid #34373f;
+    flex: none; transition: all .45s cubic-bezier(.3,.8,.4,1);
+    position: relative;
+  }
+  .node .label {
+    font-size: 11.5px; color: var(--txt-faint);
+    white-space: nowrap; transition: color .4s ease;
+    letter-spacing: .2px;
+  }
+  .seg { width: 26px; height: 1px; background: #26282f; margin: 0 9px; position: relative; overflow: hidden; }
+  .seg::after { content:""; position:absolute; inset:0; width:0; background: linear-gradient(90deg, var(--accent-soft), var(--accent)); transition: width .5s ease; }
+  .node.done .dot { background: var(--good); border-color: var(--good); box-shadow: 0 0 10px rgba(78,201,160,.5); }
+  .node.done .label { color: var(--txt-dim); }
+  .node.active .dot { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 4px rgba(124,140,255,.16), 0 0 14px rgba(124,140,255,.6); }
+  .node.active .label { color: var(--txt); }
+  .seg.filled::after { width: 100%; }
+
+  .kbd { font-family: var(--mono); font-size: 10.5px; color: var(--txt-faint); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px; }
+
+  /* ── body: two columns ── */
+  .stage { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .left { border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; min-height: 0; }
+  .right { display: flex; flex-direction: column; min-height: 0; background: linear-gradient(180deg, rgba(124,140,255,.018), transparent); }
+
+  .col-head { padding: 13px 22px 11px; font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--txt-faint); border-bottom: 1px solid var(--line-soft); display:flex; justify-content:space-between; align-items:center; }
+  .col-head .live { display:flex; align-items:center; gap:6px; color: var(--good); font-size: 10px; letter-spacing:.6px; }
+  .col-head .live i { width:6px; height:6px; border-radius:50%; background: var(--good); box-shadow:0 0 8px var(--good); animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:.4} 50%{opacity:1} }
+
+  .stream { flex: 1; overflow-y: auto; padding: 20px 22px 8px; display: flex; flex-direction: column; gap: 13px; scroll-behavior: smooth; }
+  .stream::-webkit-scrollbar { width: 8px; }
+  .stream::-webkit-scrollbar-thumb { background: #23252d; border-radius: 8px; }
+
+  .item { opacity: 0; transform: translateY(8px); animation: rise .42s cubic-bezier(.2,.7,.3,1) forwards; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  .bubble { max-width: 92%; border-radius: 12px; padding: 11px 14px; font-size: 13.5px; line-height: 1.55; }
+  .bubble.user { align-self: flex-end; background: linear-gradient(180deg,#272a39,#222536); border:1px solid #313548; color: #eef0f7; }
+  .bubble.asst { align-self: flex-start; background: var(--bg-elev); border:1px solid var(--line-soft); color: var(--txt); }
+
+  /* thinking block */
+  .think {
+    align-self: flex-start; max-width: 96%;
+    border-left: 2px solid #34384a;
+    padding: 4px 0 4px 13px; margin: -2px 0;
+  }
+  .think .head { display:flex; align-items:center; gap:7px; color: var(--think); font-size: 12px; cursor: pointer; }
+  .think .head .chev { transition: transform .25s; font-size: 9px; }
+  .think.collapsed .body { max-height: 21px; overflow: hidden; -webkit-mask-image: linear-gradient(180deg,#000 40%, transparent); }
+  .think .body { color: #797d8c; font-size: 12px; line-height: 1.65; font-style: italic; margin-top: 5px; transition: max-height .4s ease; max-height: 200px; }
+  .think .shimmer { background: linear-gradient(90deg,#797d8c 0%,#aeb2c2 50%,#797d8c 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: sh 2.2s linear infinite; }
+  @keyframes sh { to { background-position: -200% 0; } }
+
+  /* tool activity row */
+  .tool { align-self: flex-start; max-width: 96%; display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 12px; color: var(--txt-dim); background: var(--bg-elev); border:1px solid var(--line-soft); border-radius: 9px; padding: 8px 12px; }
+  .tool .ic { width: 15px; height:15px; flex:none; color: var(--accent); }
+  .tool .verb { color: var(--accent); }
+  .tool .path { color: #c5c8d2; }
+  .tool .hit { margin-left: auto; color: var(--good); font-size: 11px; background: rgba(78,201,160,.1); padding: 1px 8px; border-radius: 20px; opacity:0; animation: pop .3s ease .35s forwards; }
+  @keyframes pop { from{opacity:0; transform:scale(.8)} to{opacity:1; transform:scale(1)} }
+  .tool.running .ic { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* input */
+  .composer { padding: 14px 18px 16px; border-top: 1px solid var(--line-soft); }
+  .composer .box { display:flex; gap:10px; align-items:flex-end; background: var(--bg-elev); border:1px solid var(--line); border-radius: 12px; padding: 10px 12px; transition: border-color .2s, box-shadow .2s; }
+  .composer .box:focus-within { border-color: var(--accent-soft); box-shadow: 0 0 0 3px rgba(124,140,255,.12); }
+  .composer textarea { flex:1; background: transparent; border:0; resize:none; color: var(--txt); font-family: var(--sans); font-size: 13.5px; outline:none; line-height:1.5; max-height: 80px; }
+  .composer textarea::placeholder { color: var(--txt-faint); }
+  .send { width:32px;height:32px; border-radius:9px; border:0; background: linear-gradient(180deg,var(--accent),var(--accent-soft)); color:#fff; cursor:pointer; display:grid;place-items:center; flex:none; box-shadow:0 4px 12px -2px rgba(124,140,255,.5); transition: transform .15s; }
+  .send:hover { transform: translateY(-1px); }
+
+  /* ── right: live spec ── */
+  .spec { flex:1; overflow-y:auto; padding: 22px 26px; }
+  .spec::-webkit-scrollbar { width: 8px; }
+  .spec::-webkit-scrollbar-thumb { background: #23252d; border-radius: 8px; }
+  .spec h1 { font-size: 20px; font-weight: 650; letter-spacing:-.2px; margin-bottom: 4px; }
+  .spec .meta { font-family: var(--mono); font-size: 11px; color: var(--txt-faint); margin-bottom: 22px; }
+
+  .sec { margin-bottom: 18px; padding: 14px 16px; border:1px solid var(--line-soft); border-radius: 11px; background: rgba(255,255,255,.012); transition: border-color .4s, background .4s, box-shadow .4s; position: relative; }
+  .sec .stitle { display:flex; align-items:center; gap:9px; font-size: 13px; font-weight:600; color: var(--txt-dim); margin-bottom: 9px; letter-spacing:.2px; }
+  .sec .badge { width:16px;height:16px;border-radius:50%; border:1.5px solid #34373f; flex:none; display:grid;place-items:center; font-size:10px; transition: all .4s; }
+  .sec .content { font-size: 13px; line-height: 1.65; color: var(--txt); }
+  .sec .ghost { display:flex; flex-direction:column; gap:8px; }
+  .sec .ghost span { height: 9px; border-radius: 5px; background: linear-gradient(90deg,#1c1e25,#23262f,#1c1e25); background-size: 200% 100%; animation: gsh 1.8s linear infinite; }
+  @keyframes gsh { to { background-position:-200% 0; } }
+  .sec .ghost span:nth-child(1){width:90%} .sec .ghost span:nth-child(2){width:72%} .sec .ghost span:nth-child(3){width:81%}
+
+  .sec.active { border-color: var(--accent-soft); background: rgba(124,140,255,.04); box-shadow: 0 0 0 1px rgba(124,140,255,.1), 0 8px 28px -10px rgba(124,140,255,.25); }
+  .sec.active .stitle { color: var(--txt); }
+  .sec.active .badge { border-color: var(--accent); color: var(--accent); }
+  .sec.done { border-color: rgba(78,201,160,.25); }
+  .sec.done .stitle { color: var(--txt); }
+  .sec.done .badge { border-color: var(--good); background: var(--good); color:#0c0d10; }
+  .sec.flash { animation: flashglow .9s ease; }
+  @keyframes flashglow { 0%{box-shadow:0 0 0 1px rgba(78,201,160,.0)} 30%{box-shadow:0 0 0 2px rgba(78,201,160,.5),0 10px 30px -8px rgba(78,201,160,.4)} 100%{box-shadow:none} }
+
+  .sec code { font-family: var(--mono); font-size: 11.5px; background: #1d1f27; border:1px solid var(--line-soft); padding: 1px 6px; border-radius: 5px; color: #b9c0ff; }
+  .sec ul { margin: 4px 0 0 18px; } .sec li { margin: 3px 0; }
+  .typed { border-right: 2px solid var(--accent); animation: caret .7s step-end infinite; }
+  @keyframes caret { 50%{border-color: transparent} }
+
+  /* publish bar */
+  .publishbar { padding: 14px 26px; border-top:1px solid var(--line-soft); display:flex; justify-content:space-between; align-items:center; opacity:.45; pointer-events:none; transition:opacity .5s; }
+  .publishbar.ready { opacity:1; pointer-events:auto; }
+  .publishbar .summary { font-size: 12px; color: var(--txt-dim); }
+  .publishbar .summary b { color: var(--good); }
+  .publish { display:flex; gap:9px; }
+  .btn { font-family: var(--sans); font-size: 13px; padding: 9px 18px; border-radius: 10px; cursor:pointer; border:1px solid var(--line); background: var(--bg-elev); color: var(--txt); transition: all .18s; }
+  .btn:hover { border-color:#34373f; }
+  .btn.primary { border:0; background: linear-gradient(180deg,var(--good),#3aa583); color:#06241a; font-weight:600; box-shadow:0 6px 18px -4px rgba(78,201,160,.5); }
+  .btn.primary:hover { transform: translateY(-1px); }
+
+  /* publish celebration */
+  .burst { position: fixed; inset:0; pointer-events:none; z-index: 50; }
+  .spark2 { position:absolute; width:7px;height:7px;border-radius:2px; opacity:0; }
+
+  /* controls */
+  .ctl { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 60; display:flex; gap:10px; align-items:center; background: rgba(18,19,24,.85); border:1px solid var(--line); border-radius: 999px; padding: 7px 9px 7px 16px; backdrop-filter: blur(10px); }
+  .ctl span { font-size: 12px; color: var(--txt-dim); }
+  .ctl button { font-size:12px; padding:6px 14px; border-radius:999px; border:1px solid var(--line); background:var(--bg-elev2); color:var(--txt); cursor:pointer; }
+  .ctl button.go { background: linear-gradient(180deg,var(--accent),var(--accent-soft)); border:0; color:#fff; }
+</style>
+</head>
+<body>
+  <!-- faux workspace -->
+  <div class="workspace" id="ws"></div>
+  <div class="scrim"></div>
+
+  <!-- immersive creator -->
+  <div class="creator" role="dialog" aria-label="Spec Creator">
+    <header>
+      <div class="brand">
+        <svg class="spark" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z"/></svg>
+        Spec Creator
+      </div>
+      <div class="spine" id="spine"></div>
+      <div class="kbd">esc</div>
+    </header>
+
+    <div style="display:grid; grid-template-rows:1fr auto; min-height:0;">
+      <div class="stage">
+        <!-- LEFT -->
+        <div class="left">
+          <div class="col-head">Reasoning &amp; exploration <span class="live"><i></i>opus 4.8 · thinking</span></div>
+          <div class="stream" id="stream"></div>
+          <div class="composer">
+            <div class="box">
+              <textarea rows="1" placeholder="Reply to the agent…" disabled></textarea>
+              <button class="send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <!-- RIGHT -->
+        <div class="right">
+          <div class="col-head">Specification <span style="color:var(--txt-faint);text-transform:none;letter-spacing:0;font-size:11px;" id="pct">assembling…</span></div>
+          <div class="spec" id="spec">
+            <h1 id="spectitle">Untitled spec</h1>
+            <div class="meta" id="specmeta">draft · ~/.covenant/spec-drafts/01J…</div>
+            <!-- sections injected -->
+          </div>
+        </div>
+      </div>
+
+      <div class="publishbar" id="pubbar">
+        <div class="summary" id="pubsummary">Agent is still working…</div>
+        <div class="publish">
+          <button class="btn">Keep editing</button>
+          <button class="btn primary" id="pubbtn">Review &amp; publish</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="burst" id="burst"></div>
+
+  <div class="ctl">
+    <span id="status">Premium Spec Creator — animated preview</span>
+    <button class="go" id="replay">▸ Play</button>
+  </div>
+
+<script>
+const SECTIONS = [
+  { key:"goal",   title:"Goal" },
+  { key:"out",    title:"Out of scope" },
+  { key:"accept", title:"Acceptance criteria" },
+  { key:"files",  title:"File boundaries" },
+  { key:"cx",     title:"Complexity" },
+  { key:"open",   title:"Open questions" },
+];
+
+// ── build workspace backdrop ──
+const wsLines = [
+  "16 + private onKeydown = (e: KeyboardEvent): void => {",
+  "17 +   if (e.key === 'Escape') {",
+  "18 +     e.preventDefault();",
+  "19 +     e.stopPropagation();",
+  "20 +     this.close();",
+  "21 +   }","22 + };","23",
+  "24   constructor(private readonly mountHost: HTMLElement) {}",
+  "25","",
+  "Update ui/src/shortcuts/panel.ts   Added 2 lines",
+  "92     this.mountHost.appendChild(overlay);",
+  "93     this.modal = overlay;",
+  "94 +   document.addEventListener('keydown', this.onKeydown, true);",
+  "95   }","96","97   close(): void {","98     if (this.modal) {",
+];
+document.getElementById('ws').innerHTML = wsLines.map(l=>`<div class="row">${l}</div>`).join('');
+
+// ── build spine ──
+const spine = document.getElementById('spine');
+SECTIONS.forEach((s,i)=>{
+  const node = document.createElement('div');
+  node.className='node'; node.dataset.key=s.key;
+  node.innerHTML = `<span class="dot"></span><span class="label">${s.title}</span>`;
+  spine.appendChild(node);
+  if(i<SECTIONS.length-1){ const seg=document.createElement('div'); seg.className='seg'; seg.dataset.seg=i; spine.appendChild(seg);}
+});
+
+// ── build spec sections ──
+const specEl = document.getElementById('spec');
+SECTIONS.forEach(s=>{
+  const sec=document.createElement('div');
+  sec.className='sec'; sec.dataset.key=s.key;
+  sec.innerHTML = `<div class="stitle"><span class="badge"></span>${s.title}</div>
+    <div class="content"><div class="ghost"><span></span><span></span><span></span></div></div>`;
+  specEl.appendChild(sec);
+});
+
+const stream = document.getElementById('stream');
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+let timers = [];
+const T = (fn,ms)=>{ const id=setTimeout(fn,ms); timers.push(id); return id; };
+
+function scrollDown(){ stream.scrollTop = stream.scrollHeight; }
+
+function addUser(text){
+  const d=document.createElement('div'); d.className='item';
+  d.innerHTML=`<div class="bubble user">${text}</div>`; stream.appendChild(d); scrollDown();
+}
+function addAsst(text){
+  const d=document.createElement('div'); d.className='item';
+  d.innerHTML=`<div class="bubble asst">${text}</div>`; stream.appendChild(d); scrollDown();
+}
+async function addThinking(lines){
+  const d=document.createElement('div'); d.className='item';
+  const block=document.createElement('div'); block.className='think collapsed';
+  block.innerHTML=`<div class="head"><span class="chev">▶</span> thinking</div><div class="body"></div>`;
+  d.appendChild(block); stream.appendChild(d);
+  const body=block.querySelector('.body');
+  block.querySelector('.head').onclick=()=>{ block.classList.toggle('collapsed'); block.querySelector('.chev').style.transform = block.classList.contains('collapsed')?'':'rotate(90deg)'; };
+  scrollDown();
+  for(const ln of lines){
+    const p=document.createElement('div'); p.className='shimmer'; p.textContent=ln; body.appendChild(p);
+    scrollDown(); await sleep(420);
+    p.classList.remove('shimmer');
+  }
+}
+async function addTool(icon, verb, path, hit){
+  const d=document.createElement('div'); d.className='item';
+  const t=document.createElement('div'); t.className='tool running';
+  t.innerHTML=`<span class="ic">${icon}</span><span class="verb">${verb}</span><span class="path">${path}</span>`;
+  d.appendChild(t); stream.appendChild(d); scrollDown();
+  await sleep(680);
+  t.classList.remove('running');
+  if(hit){ const h=document.createElement('span'); h.className='hit'; h.textContent=hit; t.appendChild(h); }
+  scrollDown();
+}
+
+const IC = {
+  grep:`<svg width=15 height=15 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><circle cx=11 cy=11 r=7/><path d="M21 21l-4-4"/></svg>`,
+  read:`<svg width=15 height=15 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>`,
+  list:`<svg width=15 height=15 viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>`,
+};
+
+function setPhase(idx){
+  document.querySelectorAll('.node').forEach((n,i)=>{
+    n.classList.toggle('active', i===idx);
+    n.classList.toggle('done', i<idx);
+  });
+  document.querySelectorAll('.seg').forEach((s,i)=> s.classList.toggle('filled', i<idx));
+  // spec section active
+  document.querySelectorAll('.sec').forEach((s,i)=> s.classList.toggle('active', i===idx));
+}
+
+async function fillSection(key, html){
+  const sec=[...document.querySelectorAll('.sec')].find(s=>s.dataset.key===key);
+  const content=sec.querySelector('.content');
+  content.innerHTML=`<span class="typed"></span>`;
+  const typed=content.querySelector('.typed');
+  // crude type-in of plain text, then swap to rich html
+  const tmp=document.createElement('div'); tmp.innerHTML=html; const plain=tmp.textContent;
+  for(let i=0;i<plain.length;i+=2){ typed.textContent=plain.slice(0,i); specEl.scrollTop=sec.offsetTop-40; await sleep(8); }
+  content.innerHTML=html;
+  sec.classList.remove('active'); sec.classList.add('done','flash');
+  const badge=sec.querySelector('.badge'); badge.textContent='✓';
+  await sleep(250);
+}
+
+function setProgress(done){
+  document.getElementById('pct').textContent = `${done}/6 sections`;
+}
+
+async function run(){
+  reset();
+  document.body.classList.add('open');
+  setStatus("Opening…");
+  await sleep(650);
+
+  // turn 1 — user
+  setStatus("Turn 1 · Goal");
+  addUser("Esc doesn't close my modals when the terminal is focused. I want to fix it everywhere.");
+  await sleep(500);
+  setPhase(0);
+
+  await addThinking([
+    "User reports Esc swallowed when xterm holds focus.",
+    "I should find where modals bind Esc and how xterm handles keydown before committing to a goal.",
+  ]);
+  await addTool(IC.grep, "grep", `"addEventListener\\('keydown'" ui/src`, "9 matches");
+  await addTool(IC.read, "read", "ui/src/shortcuts/panel.ts:88-103", "found");
+  await addTool(IC.grep, "grep", `"stopPropagation" ui/src/terminal`, "3 matches");
+  await sleep(200);
+  addAsst("Confirmed — xterm's textarea calls <code>stopPropagation()</code> on Esc, so window-level handlers never fire. The fix is a capture-phase listener per modal. <b>Goal:</b> Esc reliably closes every modal regardless of terminal focus. Sound right?");
+  await sleep(700);
+  addUser("Yes. Every modal.");
+  await fillSection("goal", "Esc closes any open modal even while the xterm terminal holds focus, via a capture-phase <code>keydown</code> listener installed per modal in <code>open()</code> and removed in <code>close()</code>.");
+  setProgress(1);
+
+  // turn 2 — out of scope
+  setPhase(1);
+  setStatus("Turn 2 · Out of scope");
+  await addThinking(["Scope creep risk: rebinding other shortcuts. Keep this Esc-only."]);
+  addAsst("I'll keep this tight. Anything you explicitly want out of scope?");
+  await sleep(500);
+  addUser("Don't touch other shortcuts or the global ⌘K chain.");
+  await fillSection("out", "<ul><li>No changes to non-Esc shortcuts or the global <code>⌘K</code> chain.</li><li>No new key-handling abstraction — just the capture-phase pattern.</li></ul>");
+  setProgress(2);
+
+  // turn 3 — acceptance (grounded)
+  setPhase(2);
+  setStatus("Turn 3 · Acceptance — enumerating modals");
+  await addThinking(["Enumerate every modal in the Esc chain so acceptance is concrete, not hand-wavy."]);
+  await addTool(IC.grep, "grep", `"class .*Panel" ui/src/**/*.ts`, "6 modals");
+  await addTool(IC.read, "read", "ui/src/main.ts (Esc chain)", "ok");
+  addAsst("Found 6 modals sharing the Esc chain. I'll write acceptance against each.");
+  await fillSection("accept", "<ul><li>With terminal focused, Esc closes: settings, agent, operator, shortcuts, spec, command palettes.</li><li>Listener is removed on close — verified no dangling handler (count before/after).</li><li>Esc inside an input field still clears the field first, then closes.</li></ul>");
+  setProgress(3);
+
+  // turn 4 — files
+  setPhase(3);
+  setStatus("Turn 4 · File boundaries");
+  await addTool(IC.grep, "grep", `"shortcutsPanel.close" ui/src`, "1");
+  await addTool(IC.list, "list", "ui/src/shortcuts · ui/src/agent · ui/src/operator", "12 files");
+  await fillSection("files", "<ul><li><code>ui/src/shortcuts/panel.ts</code> — reference impl (already capture-phase)</li><li><code>ui/src/agent/panel.ts</code>, <code>operator/panel.ts</code>, <code>settings/*.ts</code> — port pattern</li><li><code>ui/src/main.ts</code> — remove now-redundant window Esc branch</li></ul>");
+  setProgress(4);
+
+  // turn 5 — complexity
+  setPhase(4);
+  setStatus("Turn 5 · Complexity");
+  await addThinking(["6 modals, identical mechanical change, plus one removal. Small–medium."]);
+  await fillSection("cx", "<b>Medium</b> — mechanical but touches 6 modal classes; needs a focus-trap regression pass.");
+  setProgress(5);
+
+  // turn 6 — open Qs
+  setPhase(5);
+  setStatus("Turn 6 · Open questions");
+  await fillSection("open", "<ul><li>Should nested modals close innermost-first, or all at once?</li><li>Do we need an Esc-to-cancel guard while an agent command is mid-execution?</li></ul>");
+  setProgress(6);
+
+  // done
+  document.querySelectorAll('.node').forEach(n=>{n.classList.remove('active');n.classList.add('done');});
+  document.querySelectorAll('.seg').forEach(s=>s.classList.add('filled'));
+  document.getElementById('spectitle').textContent = "Esc closes modals over focused terminal";
+  document.getElementById('pct').textContent = "complete";
+  const pb=document.getElementById('pubbar'); pb.classList.add('ready');
+  document.getElementById('pubsummary').innerHTML = "All 6 sections grounded in <b>5 files</b> · <b>11 tool calls</b> · ready to publish";
+  setStatus("Spec ready — publish to docs/specs/");
+  await sleep(400);
+}
+
+// publish celebration
+document.getElementById('pubbtn').onclick = ()=>{
+  const creator=document.querySelector('.creator');
+  creator.animate([{transform:'scale(1)'},{transform:'scale(1.012)'},{transform:'scale(1)'}],{duration:520,easing:'cubic-bezier(.2,.8,.3,1)'});
+  const burst=document.getElementById('burst'); burst.innerHTML='';
+  const cx=innerWidth/2, cy=innerHeight*0.62;
+  const colors=['#7c8cff','#4ec9a0','#d6a657','#c5c8d2'];
+  for(let i=0;i<26;i++){
+    const s=document.createElement('div'); s.className='spark2';
+    s.style.background=colors[i%colors.length]; s.style.left=cx+'px'; s.style.top=cy+'px';
+    burst.appendChild(s);
+    const ang=(Math.PI*2*i)/26, dist=120+Math.random()*120;
+    s.animate([
+      {transform:'translate(0,0) scale(1)',opacity:1},
+      {transform:`translate(${Math.cos(ang)*dist}px,${Math.sin(ang)*dist+40}px) scale(0)`,opacity:0}
+    ],{duration:900+Math.random()*400,easing:'cubic-bezier(.2,.7,.3,1)'});
+  }
+  setStatus("Published → docs/specs/0.9-esc-modal-close.md · Set Mission?");
+};
+
+function setStatus(t){ document.getElementById('status').textContent=t; }
+
+function reset(){
+  timers.forEach(clearTimeout); timers=[];
+  document.body.classList.remove('open');
+  stream.innerHTML='';
+  document.querySelectorAll('.sec').forEach(s=>{ s.className='sec'; s.dataset; s.querySelector('.content').innerHTML='<div class="ghost"><span></span><span></span><span></span></div>'; s.querySelector('.badge').textContent=''; });
+  document.querySelectorAll('.node').forEach(n=>n.className='node');
+  document.querySelectorAll('.seg').forEach(s=>s.className='seg');
+  document.getElementById('spectitle').textContent='Untitled spec';
+  document.getElementById('pct').textContent='assembling…';
+  document.getElementById('pubbar').classList.remove('ready');
+  document.getElementById('pubsummary').textContent='Agent is still working…';
+}
+
+document.getElementById('replay').onclick=run;
+
+// autoplay
+setTimeout(run, 500);
+</script>
+</body>
+</html>

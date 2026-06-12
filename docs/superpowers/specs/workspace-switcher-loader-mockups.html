@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Workspace switcher loader — concepts</title>
+<style>
+  :root {
+    --bg: #0c0f14;
+    --panel: #11151c;
+    --ink: #e6e8ec;
+    --ink-rgb: 230, 232, 236;
+    --muted: #8a93a3;
+    --accent: #7aa2f7;
+    --accent-warm: #f7a07a;
+    --accent-green: #9ece6a;
+    --border: rgba(230,232,236,0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #06080c;
+    color: var(--ink);
+    font: 13px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif;
+  }
+  header {
+    padding: 28px 32px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 12px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    min-height: calc(100vh - 90px);
+  }
+  .cell {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  .cell-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .cell-head h2 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink); }
+  .cell-head .tag { font-size: 10px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .stage {
+    flex: 1;
+    position: relative;
+    background:
+      radial-gradient(1200px 600px at 50% 0%, rgba(122,162,247,0.06), transparent 60%),
+      var(--bg);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .replay {
+    position: absolute; bottom: 12px; right: 14px;
+    font-size: 11px; color: var(--muted);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+  }
+  .replay:hover { color: var(--ink); background: rgba(255,255,255,0.07); }
+
+  /* ─────────────────────────────────────────────
+     CONCEPT A — Workspace identity reveal
+     ───────────────────────────────────────────── */
+  .a-wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 22px;
+    animation: a-fade 1.6s ease both;
+  }
+  .a-mark {
+    width: 56px; height: 56px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #7aa2f7 0%, #bb9af7 100%);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.06) inset,
+      0 18px 60px -10px rgba(122,162,247,0.45);
+    display: flex; align-items: center; justify-content: center;
+    color: #0c0f14;
+    font-weight: 700; font-size: 22px;
+    transform: scale(0.7);
+    animation: a-mark-in 900ms cubic-bezier(.2,.9,.25,1.1) 80ms both;
+  }
+  .a-name {
+    font-size: 26px; font-weight: 600; letter-spacing: 0.22em;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, #fff 0%, #b9c0cc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0;
+    animation: a-rise 700ms cubic-bezier(.2,.9,.25,1) 220ms forwards;
+  }
+  .a-bar {
+    width: 220px; height: 2px;
+    background: rgba(var(--ink-rgb), 0.08);
+    border-radius: 2px; overflow: hidden;
+    opacity: 0;
+    animation: a-rise 700ms ease 380ms forwards;
+  }
+  .a-bar::after {
+    content: ""; display: block; height: 100%; width: 35%;
+    background: linear-gradient(90deg, transparent, #7aa2f7, transparent);
+    animation: a-sweep 1.4s ease-in-out infinite;
+  }
+  .a-sub {
+    color: var(--muted); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    opacity: 0; animation: a-rise 700ms ease 520ms forwards;
+  }
+  .a-dots { display: inline-flex; gap: 4px; margin-left: 8px; }
+  .a-dots span {
+    width: 4px; height: 4px; border-radius: 50%; background: var(--muted);
+    animation: a-blink 1.2s ease-in-out infinite;
+  }
+  .a-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .a-dots span:nth-child(3) { animation-delay: 0.30s; }
+
+  @keyframes a-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes a-mark-in {
+    0% { transform: scale(0.7) rotate(-8deg); opacity: 0; }
+    100% { transform: scale(1) rotate(0); opacity: 1; }
+  }
+  @keyframes a-rise {
+    from { transform: translateY(6px); opacity: 0; }
+    to   { transform: translateY(0);   opacity: 1; }
+  }
+  @keyframes a-sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(380%); }
+  }
+  @keyframes a-blink {
+    0%, 100% { opacity: 0.25; }
+    50%      { opacity: 1; }
+  }
+
+  /* ─────────────────────────────────────────────
+     CONCEPT B — Live tab scaffold + progress
+     ───────────────────────────────────────────── */
+  .b-wrap { width: 78%; max-width: 560px; display: flex; flex-direction: column; gap: 22px; }
+  .b-tabs { display: flex; gap: 6px; }
+  .b-tab {
+    flex: 1; height: 28px; border-radius: 6px 6px 0 0;
+    background: linear-gradient(90deg,
+      rgba(255,255,255,0.03) 0%,
+      rgba(255,255,255,0.07) 50%,
+      rgba(255,255,255,0.03) 100%);
+    background-size: 300% 100%;
+    animation: b-shimmer 1.6s linear infinite;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    position: relative;
+  }
+  .b-tab.done {
+    background: rgba(122,162,247,0.10);
+    border-color: rgba(122,162,247,0.35);
+    animation: none;
+  }
+  .b-tab.active {
+    background: linear-gradient(180deg, rgba(122,162,247,0.18), rgba(122,162,247,0.04));
+    border-color: rgba(122,162,247,0.6);
+    box-shadow: 0 0 18px -2px rgba(122,162,247,0.35);
+    animation: none;
+  }
+  .b-tab.active::after {
+    content: ""; position: absolute; left: 8px; right: 8px; bottom: 4px; height: 2px;
+    background: linear-gradient(90deg, transparent, #7aa2f7, transparent);
+    animation: a-sweep 0.9s linear infinite;
+  }
+
+  .b-panel {
+    border: 1px solid var(--border);
+    border-radius: 0 8px 8px 8px;
+    padding: 22px 22px 20px;
+    background: rgba(255,255,255,0.015);
+  }
+  .b-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .b-title { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+  .b-count {
+    font-size: 11px; color: var(--muted);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+  }
+  .b-progress {
+    height: 4px; border-radius: 2px;
+    background: rgba(var(--ink-rgb), 0.06);
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .b-progress > div {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #7aa2f7, #bb9af7);
+    border-radius: 2px;
+    transition: width 380ms cubic-bezier(.2,.9,.25,1);
+  }
+  .b-log {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 11px; line-height: 1.7; color: var(--muted);
+    height: 78px; overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 30%, #000);
+            mask-image: linear-gradient(180deg, transparent, #000 30%, #000);
+  }
+  .b-log .line { opacity: 0; transform: translateY(6px); transition: all 220ms ease; }
+  .b-log .line.in { opacity: 1; transform: none; }
+  .b-log .line.cur { color: var(--ink); }
+  .b-log .line .chk { color: var(--accent-green); margin-right: 6px; }
+  .b-log .line .dot { color: var(--accent); margin-right: 6px; }
+
+  @keyframes b-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* ─────────────────────────────────────────────
+     CONCEPT C — Covenant orb + workspace badge
+     ───────────────────────────────────────────── */
+  .c-stage { position: relative; width: 280px; height: 280px; display: flex; align-items: center; justify-content: center; }
+  .c-orb {
+    width: 120px; height: 120px; border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, #cfe0ff 0%, #7aa2f7 30%, #5f4bb6 70%, #1a1340 100%);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.08) inset,
+      0 0 60px -5px rgba(122,162,247,0.55),
+      0 0 120px -20px rgba(187,154,247,0.4);
+    animation: c-breathe 3.4s ease-in-out infinite;
+    position: relative;
+  }
+  .c-orb::before {
+    content: ""; position: absolute; inset: 14% 30% 60% 18%;
+    background: radial-gradient(ellipse, rgba(255,255,255,0.7), transparent 70%);
+    filter: blur(2px);
+    border-radius: 50%;
+  }
+  .c-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 1px solid rgba(122,162,247,0.18);
+    animation: c-spin 12s linear infinite;
+  }
+  .c-ring.r2 { inset: 18px; border-color: rgba(187,154,247,0.14); animation-duration: 18s; animation-direction: reverse; }
+  .c-ring.r3 { inset: -22px; border-style: dashed; border-color: rgba(122,162,247,0.10); animation-duration: 30s; }
+  .c-particle {
+    position: absolute; width: 6px; height: 6px; border-radius: 50%;
+    background: #cfe0ff; box-shadow: 0 0 12px #7aa2f7;
+    top: 50%; left: 50%; margin: -3px;
+    transform-origin: 0 0;
+  }
+  .c-particle.p1 { animation: c-orbit1 4.5s linear infinite; }
+  .c-particle.p2 { animation: c-orbit2 6.5s linear infinite; background: #f7cfe0; box-shadow: 0 0 12px #bb9af7; }
+  .c-particle.p3 { animation: c-orbit3 8.0s linear infinite; background: #cfe0ff; }
+
+  .c-badge {
+    margin-top: 28px;
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 7px 14px 7px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(var(--ink-rgb), 0.10);
+    backdrop-filter: blur(6px);
+    font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink);
+    animation: a-rise 600ms ease 400ms both;
+  }
+  .c-badge .pip { width: 8px; height: 8px; border-radius: 50%; background: #9ece6a; box-shadow: 0 0 8px #9ece6a; animation: c-pip 1.4s ease-in-out infinite; }
+  .c-sub { margin-top: 10px; font-size: 11px; color: var(--muted); letter-spacing: 0.06em; animation: a-fade 1s ease 700ms both; }
+  .c-col { display: flex; flex-direction: column; align-items: center; }
+
+  @keyframes c-breathe {
+    0%, 100% { transform: scale(1); filter: brightness(1); }
+    50%      { transform: scale(1.04); filter: brightness(1.15); }
+  }
+  @keyframes c-spin { to { transform: rotate(360deg); } }
+  @keyframes c-pip { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+  @keyframes c-orbit1 { from { transform: rotate(0)   translateX(78px)  rotate(0); }   to { transform: rotate(360deg) translateX(78px)  rotate(-360deg); } }
+  @keyframes c-orbit2 { from { transform: rotate(120deg) translateX(96px) rotate(-120deg); } to { transform: rotate(480deg) translateX(96px) rotate(-480deg); } }
+  @keyframes c-orbit3 { from { transform: rotate(240deg) translateX(115px) rotate(-240deg); } to { transform: rotate(600deg) translateX(115px) rotate(-600deg); } }
+
+  .replay-all {
+    position: fixed; top: 24px; right: 28px;
+    font-size: 11px; letter-spacing: 0.06em;
+    background: var(--accent); color: #0c0f14;
+    border: none; border-radius: 6px; padding: 7px 12px;
+    cursor: pointer; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Workspace switcher loader — three concepts</h1>
+  <p>Each cell auto-plays a ~2.4s switch into the <strong>Personal</strong> workspace. Hit <em>replay</em> on any cell, or use the top-right button to restart all at once.</p>
+</header>
+
+<button class="replay-all" onclick="replayAll()">↻ replay all</button>
+
+<div class="grid">
+  <!-- ───── A ───── -->
+  <section class="cell">
+    <div class="cell-head">
+      <h2>A · Identity reveal</h2>
+      <span class="tag">pure CSS · low cost</span>
+    </div>
+    <div class="stage" id="stageA">
+      <div class="a-wrap" id="wrapA">
+        <div class="a-mark">P</div>
+        <div class="a-name">Personal</div>
+        <div class="a-bar"></div>
+        <div class="a-sub">restoring 7 tabs<span class="a-dots"><span></span><span></span><span></span></span></div>
+      </div>
+      <button class="replay" onclick="replay('A')">↻ replay</button>
+    </div>
+  </section>
+
+  <!-- ───── B ───── -->
+  <section class="cell">
+    <div class="cell-head">
+      <h2>B · Live scaffold + progress</h2>
+      <span class="tag">needs spawn events · most info</span>
+    </div>
+    <div class="stage" id="stageB">
+      <div class="b-wrap">
+        <div class="b-tabs" id="bTabs"></div>
+        <div class="b-panel">
+          <div class="b-row">
+            <div class="b-title">Restoring <strong style="color:#fff">Personal</strong></div>
+            <div class="b-count"><span id="bCur">0</span> / <span id="bTot">7</span></div>
+          </div>
+          <div class="b-progress"><div id="bFill"></div></div>
+          <div class="b-log" id="bLog"></div>
+        </div>
+      </div>
+      <button class="replay" onclick="replay('B')">↻ replay</button>
+    </div>
+  </section>
+
+  <!-- ───── C ───── -->
+  <section class="cell">
+    <div class="cell-head">
+      <h2>C · Covenant orb</h2>
+      <span class="tag">cinematic · echoes splash</span>
+    </div>
+    <div class="stage" id="stageC">
+      <div class="c-col" id="wrapC">
+        <div class="c-stage">
+          <div class="c-ring r3"></div>
+          <div class="c-ring"></div>
+          <div class="c-ring r2"></div>
+          <div class="c-orb"></div>
+          <div class="c-particle p1"></div>
+          <div class="c-particle p2"></div>
+          <div class="c-particle p3"></div>
+        </div>
+        <div class="c-badge"><span class="pip"></span> Personal</div>
+        <div class="c-sub">restoring workspace…</div>
+      </div>
+      <button class="replay" onclick="replay('C')">↻ replay</button>
+    </div>
+  </section>
+</div>
+
+<script>
+  // ───── Concept B: simulate sequential PTY spawns ─────
+  const tabsCount = 7;
+  const shellNames = ["zsh", "vim", "pnpm dev", "tail logs", "claude", "git", "ssh prod"];
+
+  function buildB() {
+    const tabs = document.getElementById("bTabs");
+    const log = document.getElementById("bLog");
+    tabs.innerHTML = "";
+    log.innerHTML = "";
+    for (let i = 0; i < tabsCount; i++) {
+      const t = document.createElement("div");
+      t.className = "b-tab";
+      tabs.appendChild(t);
+    }
+    document.getElementById("bCur").textContent = "0";
+    document.getElementById("bTot").textContent = tabsCount;
+    document.getElementById("bFill").style.width = "0%";
+  }
+
+  function playB() {
+    buildB();
+    const tabs = document.querySelectorAll("#bTabs .b-tab");
+    const log = document.getElementById("bLog");
+    const fill = document.getElementById("bFill");
+    const curEl = document.getElementById("bCur");
+
+    let i = 0;
+    function step() {
+      if (i > 0) tabs[i-1].classList.remove("active"), tabs[i-1].classList.add("done");
+      if (i >= tabsCount) {
+        const done = document.createElement("div");
+        done.className = "line cur";
+        done.innerHTML = `<span class="chk">✓</span> workspace ready`;
+        log.appendChild(done);
+        requestAnimationFrame(() => done.classList.add("in"));
+        return;
+      }
+      tabs[i].classList.add("active");
+      const name = shellNames[i];
+      const line = document.createElement("div");
+      line.className = "line cur";
+      line.innerHTML = `<span class="dot">›</span> spawning <strong style="color:#fff">${name}</strong>`;
+      // demote previous "cur"
+      log.querySelectorAll(".line.cur").forEach(el => {
+        el.classList.remove("cur");
+        const dot = el.querySelector(".dot");
+        if (dot) { dot.outerHTML = '<span class="chk">✓</span>'; }
+      });
+      log.appendChild(line);
+      requestAnimationFrame(() => line.classList.add("in"));
+      i++;
+      curEl.textContent = i;
+      fill.style.width = ((i / tabsCount) * 100) + "%";
+      // keep log scrolled to bottom-ish (we just trim by mask)
+      while (log.children.length > 5) log.removeChild(log.firstChild);
+      setTimeout(step, 320);
+    }
+    setTimeout(step, 250);
+  }
+
+  function replay(which) {
+    if (which === "A") {
+      const w = document.getElementById("wrapA");
+      const clone = w.cloneNode(true);
+      w.parentNode.replaceChild(clone, w);
+      clone.id = "wrapA";
+    } else if (which === "B") {
+      playB();
+    } else if (which === "C") {
+      const w = document.getElementById("wrapC");
+      const clone = w.cloneNode(true);
+      w.parentNode.replaceChild(clone, w);
+      clone.id = "wrapC";
+    }
+  }
+  function replayAll() { replay("A"); replay("B"); replay("C"); }
+
+  playB();
+</script>
+</body>
+</html>
