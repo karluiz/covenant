@@ -55,7 +55,40 @@ theme tokens defined in `ui/src/styles.css`:
 - The hand-written `body.theme-light .cov-ach-*` override block from rev 1
   collapsed to two rules; dark / light / True Dark all derive from tokens.
 
+## Revision 3 — True Dark pass for the whole Score page (2026-06-13)
+
+Karluiz, on True Dark/OLED: "the contrast is too much … same for metrics …
+we are missing something here." Root cause found: **the entire Score /
+Metrics page had no True Dark adaptation.** `.cov-card` / `.cov-stat` /
+`.cov-cell` etc. are hardcoded `#131a1e` blue-gray and never followed
+`--bg-panel`; on True Dark's pure-neutral `#000` they read as a foreign
+blue island, and the un-dimmed neon teal `#5eead4` (and the achievements
+card's periwinkle `--accent`) vibrated against the black. There was a full
+`body.theme-light` block but zero `body.theme-true-dark` rules.
+
+Fix (CSS-only, `ui/src/score/styles.css`):
+
+1. **Brand unification.** The achievements card had drifted to the app's
+   periwinkle `--accent` (rev 2) while the rest of the page is teal — a lone
+   odd-card. Introduced a card-local `--ach-accent` (default `#5eead4`) and
+   repointed pill count, rep bar/value, and rare badge to it. Structure
+   still rides app tokens; only the brand-accent role is page-teal. Light
+   sets `--ach-accent:#0a8f7d`.
+2. **Page-wide `body.theme-true-dark` block** (appended): neutral near-black
+   surface steps via local vars `--cov-surface #0d0d0e` (cards/stats/chips),
+   `--cov-surface-2 #131314` (tiles/inputs), `--cov-line #1e1e20` (borders);
+   calmed brand teal `--cov-teal #45c4b2` for stat values, repo/branch/
+   session accents, chip-active, bar segments, sync card, buttons, and the
+   leaderboard; heatmap data ramp kept but its l4 glow dropped. Achievements
+   `--ach-accent` points at `--cov-teal` and tiles use `--cov-surface-2` so
+   they read as cards, not muddy outlines.
+
+Result: dark unchanged; light unchanged; True Dark now a calm neutral-black
+page with a single teal brand instead of a harsh blue island.
+
 ## Out of scope
 
-- TS changes, new sections, behavior. The rest of the Score page still uses
-  its hardcoded palette; migrating it to tokens is a separate task.
+- TS changes, new sections, behavior. The Score page's *normal-dark* palette
+  is still hardcoded hex (works fine); only True Dark + the achievements
+  accent were touched. A full token migration of the dark palette remains a
+  separate task.
