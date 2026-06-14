@@ -24,6 +24,7 @@ import { renderSpawnsTab } from "./spawns";
 import { activateTab, type SettingsTab } from "./tabs";
 import { CustomSelect } from "../ui/select";
 import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
+import { renderPublicProfileCard } from "../score/profile";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -179,9 +180,9 @@ export class SettingsPanel {
     void import("../score/page").then((m) => m.mountCovenantPage(root));
   }
 
-  /// Append the achievements card to the bottom of the Operators tab.
-  /// Re-mounts if the section was wiped (DOM presence is the guard, so this
-  /// survives any re-render of the operators pane).
+  /// Append the achievements card and the public profile card to the bottom
+  /// of the Operators tab. Re-mounts if the section was wiped (DOM presence
+  /// is the guard, so this survives any re-render of the operators pane).
   private mountAchievementsOnce(): void {
     const section = document.getElementById("sec-operators");
     if (!section) return;
@@ -191,6 +192,11 @@ export class SettingsPanel {
     root.style.marginTop = "16px";
     section.appendChild(root);
     void import("../score/achievements").then((m) => m.renderAchievementsCard(root));
+
+    const pubHost = document.createElement("div");
+    pubHost.style.marginTop = "14px";
+    section.appendChild(pubHost);
+    void renderPublicProfileCard(pubHost);
   }
 
   /// Optional callback fired whenever settings are saved. Used by main
