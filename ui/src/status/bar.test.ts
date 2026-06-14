@@ -128,3 +128,52 @@ describe("StatusBar mission chip", () => {
     expect(open).not.toHaveBeenCalled();
   });
 });
+
+describe("mission chip context menu", () => {
+  let host: HTMLDivElement;
+  let bar: StatusBar;
+
+  beforeEach(() => {
+    (globalThis as unknown as { __APP_VERSION__: string }).__APP_VERSION__ = "0.0.0-test";
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    bar = new StatusBar(host);
+    bar.setEnabled(false);
+    bar.setEnabled(true);
+  });
+
+  it("right-click opens the popover; Remove fires onMissionClearRequested", () => {
+    const clear = vi.fn();
+    bar.onMissionClearRequested = clear;
+    bar.setMission(
+      {
+        kind: "covenant",
+        path: "/tmp/spec.md",
+        content_preview: "x",
+        loaded_at_unix_ms: 1,
+        mtime_unix_ms: 1,
+        plan: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      "sess-1" as any,
+    );
+    const chip = host.querySelector<HTMLElement>(".status-mission");
+    expect(chip).toBeTruthy();
+    chip!.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 500,
+      }),
+    );
+    const menu = document.body.querySelector<HTMLElement>(".workspace-rowmenu");
+    expect(menu).toBeTruthy();
+    const remove = [...menu!.querySelectorAll<HTMLElement>("[data-action]")]
+      .find((m) => m.dataset.action === "clear")!;
+    remove.click();
+    expect(clear).toHaveBeenCalledWith("sess-1");
+  });
+});
