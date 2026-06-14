@@ -6610,10 +6610,67 @@ button.status-segment.status-mission {
 
 button.status-segment.status-mission .status-icon {
     color: var(--accent, #b794f4);
+    flex: 0 0 auto;
 }
 
 button.status-segment.status-mission .status-text {
     color: color-mix(in srgb, var(--fg, #d6d8db) 90%, transparent);
+    /* Cap long mission filenames and ellipsize. Full name stays in the
+       hover tooltip + aria-label so nothing is lost when clipped. */
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* Hover-revealed remove (×). Collapsed to zero width at rest (and the
+   parent's gap is suppressed) so the chip reserves no space for it;
+   expands on chip hover / keyboard focus-within. */
+button.status-segment.status-mission {
+    gap: 0;
+}
+
+button.status-segment.status-mission .status-icon {
+    margin-right: 5px;
+}
+
+button.status-segment.status-mission .status-mission-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 0;
+    height: 14px;
+    margin-left: 0;
+    overflow: hidden;
+    border-radius: 3px;
+    color: color-mix(in srgb, var(--fg, #d6d8db) 55%, transparent);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        width 0.12s ease,
+        opacity 0.12s ease,
+        margin-left 0.12s ease,
+        background-color 0.12s ease,
+        color 0.12s ease;
+}
+
+button.status-segment.status-mission:hover .status-mission-remove,
+button.status-segment.status-mission:focus-within .status-mission-remove {
+    width: 14px;
+    margin-left: 3px;
+    opacity: 1;
+}
+
+button.status-segment.status-mission .status-mission-remove:hover {
+    background: color-mix(in srgb, var(--fail, #f87171) 22%, transparent);
+    color: var(--fail, #f87171);
+}
+
+button.status-segment.status-mission .status-mission-remove:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--fail, #f87171);
 }
 
 button.status-segment.status-mission:hover {

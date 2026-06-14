@@ -35,6 +35,7 @@ vi.mock("../release/markdown", () => ({
 
 // -------------------------------------------------------------------------
 import { StatusBar } from "./bar";
+import type { MissionInfo } from "../api";
 
 describe("StatusBar.setTwoRow", () => {
   let host: HTMLDivElement;
@@ -78,5 +79,52 @@ describe("StatusBar.setTwoRow", () => {
     bar.setTwoRow(true);
     const rows = host.querySelectorAll(".sb-row");
     expect(rows.length).toBe(2);
+  });
+});
+
+describe("StatusBar mission chip", () => {
+  let host: HTMLDivElement;
+  let bar: StatusBar;
+
+  const mission = (path: string): MissionInfo => ({
+    kind: "covenant",
+    path,
+    content_preview: "",
+    loaded_at_unix_ms: 1,
+    mtime_unix_ms: 1,
+    plan: null,
+  });
+
+  beforeEach(() => {
+    (globalThis as unknown as { __APP_VERSION__: string }).__APP_VERSION__ = "0.0.0-test";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    bar = new StatusBar(host);
+    bar.setEnabled(false);
+    bar.setEnabled(true);
+  });
+
+  it("renders a remove affordance inside the chip", () => {
+    bar.setMission(mission("/repo/specs/2026-06-12-some-design.md"), "s1");
+    const chip = host.querySelector("button.status-mission");
+    expect(chip).not.toBeNull();
+    const x = chip!.querySelector<HTMLElement>(".status-mission-remove");
+    expect(x).not.toBeNull();
+    expect(x!.getAttribute("role")).toBe("button");
+    expect(x!.getAttribute("aria-label")).toBe("Remove mission");
+  });
+
+  it("clicking remove fires onMissionClearRequested without opening the spec", () => {
+    const cleared = vi.fn();
+    bar.onMissionClearRequested = cleared;
+    bar.setMission(mission("/repo/specs/a.md"), "s1");
+    const open = vi.spyOn(
+      bar as unknown as { openMission: () => Promise<void> },
+      "openMission",
+    );
+    const x = host.querySelector<HTMLElement>(".status-mission-remove")!;
+    x.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(cleared).toHaveBeenCalledWith("s1");
+    expect(open).not.toHaveBeenCalled();
   });
 });

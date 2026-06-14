@@ -626,11 +626,13 @@ export class StatusBar {
       );
     }
     if (this.currentMission && this.currentSessionId) {
+      const sid = this.currentSessionId;
       framing.appendChild(
         missionSegment(
           this.currentMission,
           () => this.openMission(),
           (x, y) => this.openMissionContextMenu(x, y),
+          () => this.onMissionClearRequested?.(sid),
         ),
       );
     } else if (
@@ -1385,6 +1387,7 @@ function missionSegment(
   mission: MissionInfo,
   onClick: () => void,
   onContextMenu: (x: number, y: number) => void,
+  onRemove: () => void,
 ): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
@@ -1418,8 +1421,32 @@ function missionSegment(
 
   const text = document.createElement("span");
   text.className = "status-text";
+  // Truncation is CSS (max-width + ellipsis). The full basename stays in
+  // the hover tooltip + aria-label so nothing is lost when it's clipped.
   text.textContent = basename(mission.path);
   el.appendChild(text);
+
+  // Hover-revealed remove affordance. A <span role=button> rather than a
+  // nested <button> (which is invalid inside the chip's <button>). Clicking
+  // it clears the mission and must NOT bubble into the chip's open-spec
+  // click — hence stopPropagation before onRemove.
+  const remove = document.createElement("span");
+  remove.className = "status-mission-remove";
+  remove.setAttribute("role", "button");
+  remove.setAttribute("tabindex", "0");
+  remove.setAttribute("aria-label", "Remove mission");
+  remove.innerHTML = Icons.x({ size: 11 });
+  attachTooltip(remove, "Remove mission from this tab");
+  const fireRemove = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onRemove();
+  };
+  remove.addEventListener("click", fireRemove);
+  remove.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") fireRemove(e);
+  });
+  el.appendChild(remove);
 
   el.addEventListener("click", (e) => {
     e.preventDefault();
