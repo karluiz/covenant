@@ -628,6 +628,7 @@ pub async fn teammate_cancel_active_task(
     storage: State<'_, Arc<Storage>>,
     runtime: State<'_, Arc<TeammateRuntime>>,
     supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
+    spec_tracker: State<'_, Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>>,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
     use tauri::Emitter;
@@ -635,6 +636,7 @@ pub async fn teammate_cancel_active_task(
         cancel_active_task_inner(storage.inner(), runtime.inner(), task_id, now_unix_ms()).await?;
     if let Some(s) = task.spawned_session {
         supervisor.forget_task(s);
+        spec_tracker.forget(s);
         state.operator.disable_for_session(&app, s, "task_cancelled").await;
     }
     let _ = app.emit("teammate-task", &task);
@@ -651,6 +653,7 @@ pub async fn teammate_complete_task(
     storage: State<'_, Arc<Storage>>,
     runtime: State<'_, Arc<TeammateRuntime>>,
     supervisor: State<'_, Arc<crate::teammate::task_supervisor::TaskSupervisor>>,
+    spec_tracker: State<'_, Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>>,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
     use tauri::Emitter;
@@ -672,6 +675,13 @@ pub async fn teammate_complete_task(
                     karl_score::record_task_recovered(&operator, &task_id_str),
             }
         }
+        // spec_keeper: spec read/created before first code edit, this task.
+        if spec_tracker.satisfied(s) {
+            if let Some(repo) = repo.as_deref() {
+                karl_score::record_spec_kept(&operator, repo, &task_id_str);
+            }
+        }
+        spec_tracker.forget(s);
         supervisor.forget_task(s);
         state.operator.disable_for_session(&app, s, "task_completed").await;
     }

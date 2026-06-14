@@ -64,6 +64,11 @@ pub struct NotchHub {
     /// — otherwise a "Thinking" event arriving mid-transition (flag still
     /// reads false) re-shows the overlay on top of the fullscreen Space.
     inline_mode: AtomicBool,
+    /// Feeds the `spec_keeper` achievement: every phase transition is
+    /// observed here so completion can ask whether a spec was read/created
+    /// before the first code edit. Owned by the hub; lib.rs `manage`s a
+    /// clone of the same Arc so the completion command queries it.
+    spec_edit_tracker: Arc<crate::teammate::spec_edit_tracker::SpecEditTracker>,
 }
 
 impl NotchHub {
@@ -75,7 +80,19 @@ impl NotchHub {
             notch_tx,
             enabled: AtomicBool::new(true),
             inline_mode: AtomicBool::new(false),
+            spec_edit_tracker: Arc::new(
+                crate::teammate::spec_edit_tracker::SpecEditTracker::new(),
+            ),
         })
+    }
+
+    /// The per-session spec-before-edit tracker fed from [`set_phase`].
+    /// lib.rs manages a clone of this Arc so the completion command can
+    /// query the same instance the hub feeds.
+    pub fn spec_edit_tracker(
+        &self,
+    ) -> Arc<crate::teammate::spec_edit_tracker::SpecEditTracker> {
+        self.spec_edit_tracker.clone()
     }
 
     /// Set/clear the fullscreen flag. Called by the Resized hook once the
@@ -178,6 +195,7 @@ impl NotchHub {
     /// same Done-dedupe behavior as [`ingest`] so a chatty `TurnEnd` flood
     /// doesn't re-fire the chime.
     pub async fn set_phase(&self, session: SessionId, phase: karl_session::ExecutorPhase) {
+        self.spec_edit_tracker.note_phase(session, &phase);
         if !self.enabled.load(Ordering::Relaxed) {
             return;
         }

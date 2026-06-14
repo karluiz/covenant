@@ -3759,6 +3759,15 @@ pub fn run() {
             std::mem::forget(_pollers);
 
             let gc_storage = storage.clone();
+
+            // Build the notch hub up front so we can both store it on
+            // AppState and manage a clone of its spec-edit tracker. The hub
+            // feeds the tracker from `set_phase`; the completion command
+            // reads the same instance via managed state to emit spec_keeper.
+            let notch_hub = notch::NotchHub::new();
+            let spec_edit_tracker = notch_hub.spec_edit_tracker();
+            app.manage(spec_edit_tracker.clone());
+
             app.manage(AppState {
                 sessions: Mutex::new(HashMap::new()),
                 settings: settings_arc,
@@ -3783,7 +3792,7 @@ pub fn run() {
                 telegram_inbound_handle: tg_inbound_handle,
                 telegram_inbound_tx: tg_inbound_tx,
                 pi_sessions: pi_commands::PiRegistry::new(),
-                notch_hub: notch::NotchHub::new(),
+                notch_hub,
                 vitals,
                 exec_vitals,
                 file_search_cache: crate::file_search::FileSearchCache::new(),
