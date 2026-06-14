@@ -677,8 +677,9 @@ pub async fn teammate_complete_task(
         }
         // spec_keeper: spec read/created before first code edit, this task.
         if spec_tracker.satisfied(s) {
-            if let Some(repo) = repo.as_deref() {
-                karl_score::record_spec_kept(&operator, repo, &task_id_str);
+            let spec_repo = spec_tracker.satisfied_repo(s).or_else(|| repo.clone());
+            if let Some(spec_repo) = spec_repo.as_deref() {
+                karl_score::record_spec_kept(&operator, spec_repo, &task_id_str);
             }
         }
         spec_tracker.forget(s);

@@ -9,11 +9,12 @@ use std::collections::HashMap;
 use karl_session::{ExecutorPhase, SessionId};
 use parking_lot::Mutex;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct State {
     saw_spec: bool,
     saw_code_edit: bool,
     satisfied: bool,
+    repo: Option<String>,
 }
 
 #[derive(Default)]
@@ -51,6 +52,11 @@ impl SpecEditTracker {
                 if !st.saw_code_edit {
                     st.saw_code_edit = true;
                     st.satisfied = st.saw_spec;
+                    if st.satisfied {
+                        st.repo = std::path::Path::new(file)
+                            .parent()
+                            .and_then(karl_score::context::repo_name_for_cwd);
+                    }
                 }
             }
             _ => {}
@@ -60,6 +66,12 @@ impl SpecEditTracker {
     /// Did this session read/create a spec before its first code edit?
     pub fn satisfied(&self, session: SessionId) -> bool {
         self.by_session.lock().get(&session).map(|s| s.satisfied).unwrap_or(false)
+    }
+
+    /// The repo of the satisfying code edit, if known. Best-effort — None
+    /// when the edit wasn't inside a resolvable git repo.
+    pub fn satisfied_repo(&self, session: SessionId) -> Option<String> {
+        self.by_session.lock().get(&session).and_then(|s| s.repo.clone())
     }
 
     pub fn forget(&self, session: SessionId) {
