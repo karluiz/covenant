@@ -229,6 +229,19 @@ impl ScoreStore {
                  PRAGMA user_version = 6;",
             )?;
         }
+        // v7: kv table for small boolean/string settings (e.g. publish_profile opt-in).
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
+        if v < 7 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS kv (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                 );
+                 PRAGMA user_version = 7;",
+            )?;
+        }
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             path,
@@ -431,6 +444,26 @@ impl ScoreStore {
             "INSERT INTO commit_scan_cursors(path, last_scanned_ts) VALUES (?1, ?2)
              ON CONFLICT(path) DO UPDATE SET last_scanned_ts = excluded.last_scanned_ts",
             params![path.to_string_lossy(), ts],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_publish_profile(&self) -> Result<bool> {
+        let conn = self.connection();
+        let conn = conn.lock().unwrap();
+        let v: Option<String> = conn
+            .query_row("SELECT value FROM kv WHERE key = 'publish_profile'", [], |r| r.get(0))
+            .optional()?;
+        Ok(v.as_deref() == Some("1"))
+    }
+
+    pub fn set_publish_profile(&self, enabled: bool) -> Result<()> {
+        let conn = self.connection();
+        let conn = conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO kv(key, value) VALUES ('publish_profile', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [if enabled { "1" } else { "0" }],
         )?;
         Ok(())
     }
@@ -1288,6 +1321,22 @@ impl ScoreStore {
         }
         tx.commit()?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod kv_tests {
+    use super::*;
+
+    #[test]
+    fn publish_profile_flag_defaults_false_and_persists() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ScoreStore::open(tmp.path()).unwrap();
+        assert!(!store.get_publish_profile().unwrap(), "default must be false");
+        store.set_publish_profile(true).unwrap();
+        assert!(store.get_publish_profile().unwrap());
+        store.set_publish_profile(false).unwrap();
+        assert!(!store.get_publish_profile().unwrap());
     }
 }
 
