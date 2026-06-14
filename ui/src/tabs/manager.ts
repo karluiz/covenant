@@ -2669,6 +2669,18 @@ export class TabManager {
       });
   }
 
+  /// True when at least one browser tab is open. Drives the titlebar globe's
+  /// toggle/active state (the globe targets a tab, not a rail panel).
+  hasBrowserTab(): boolean {
+    return this.tabs.some((t) => t.kind === "browser");
+  }
+
+  /// Id of the first open browser tab, or null. Used by the globe toggle to
+  /// close an existing browser tab instead of spawning another.
+  firstBrowserTabId(): string | null {
+    return this.tabs.find((t) => t.kind === "browser")?.id ?? null;
+  }
+
   /// Kind of the active tab. Pi tabs do not have the terminal-owned
   /// Blocks/Files rail; callers use this to avoid selecting a per-shell
   /// sidebar that cannot render for the current pane.

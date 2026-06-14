@@ -912,10 +912,28 @@ async function boot(): Promise<void> {
   // Now that `manager` exists, wire the globe launcher's click + initial
   // visibility. The cached flag is populated by `loadExperimentalFlags()`
   // (boot, re-synced below) and on every settings save.
-  browserBtn?.addEventListener(
-    "click",
-    () => void manager.openBrowserTab("", true),
-  );
+  const syncBrowserActive = (): void => {
+    browserBtn?.classList.toggle("titlebar-view-active", manager.hasBrowserTab());
+  };
+  // In-flight guard: `openBrowserTab` is async, so without it a fast double
+  // click would see no browser tab yet and spawn a second one.
+  let browserTogglePending = false;
+  const toggleBrowser = async (): Promise<void> => {
+    if (browserTogglePending) return;
+    browserTogglePending = true;
+    try {
+      const id = manager.firstBrowserTabId();
+      // Browser tabs carry no PTY session, so closeTab finalizes synchronously
+      // (no MindLoss confirm) — the post-close sync below is accurate.
+      if (id) manager.closeTab(id);
+      else await manager.openBrowserTab("", true);
+      syncBrowserActive();
+    } finally {
+      browserTogglePending = false;
+    }
+  };
+  browserBtn?.addEventListener("click", () => void toggleBrowser());
+  syncBrowserActive();
   applyInternalBrowserFlag(manager.isInternalBrowserEnabled());
 
   const publishActivityActiveSession = (): void => {
@@ -1051,6 +1069,7 @@ async function boot(): Promise<void> {
   };
   manager.onActiveTabChange = (info) => {
     statusBar.setActiveTab(info);
+    syncBrowserActive();
   };
   // Tell the vitals aggregator which session's snapshot should drive
   // the status-bar cluster. Other sessions' summariser / fix-proposer
