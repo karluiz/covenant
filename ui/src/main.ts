@@ -39,6 +39,7 @@ import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
 import type { SessionId, SpecCandidate } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
+import { RightRailController, type RailTarget } from "./titlebar/right-rail";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
 import { detectExecutor } from "./executor";
@@ -502,19 +503,105 @@ async function boot(): Promise<void> {
   const viewFilesBtn = document.getElementById("titlebar-view-files");
   const viewActivityBtn = document.getElementById("titlebar-view-activity");
   const viewRecallBtn = document.getElementById("titlebar-view-recall");
+  // Hoisted next to the view buttons so the RightRailController's railButtons
+  // map can reference them. Their icon/tooltip/click wiring lives further down.
+  const projectNotesBtn = document.getElementById("titlebar-project-notes");
+  const teammateBtn = document.getElementById("titlebar-view-teammate");
+  const taskerBtn = document.getElementById("titlebar-tasker");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
   const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
   let activeSidebarTitlebarView: SidebarTitlebarView =
     localStorage.getItem(ACTIVITY_KEY) === "1" ? "activity" : "blocks";
-  const syncSidebarTitlebarButtons = (view: SidebarTitlebarView): void => {
-    activeSidebarTitlebarView = view;
-    viewBlocksBtn?.classList.toggle("titlebar-view-active", view === "blocks");
-    viewFilesBtn?.classList.toggle("titlebar-view-active", view === "structure");
-    viewActivityBtn?.classList.toggle("titlebar-view-active", view === "activity");
-    viewRecallBtn?.classList.toggle("titlebar-view-active", view === "recall");
-    document.body.classList.toggle("sidebar-view-activity", view === "activity");
+
+  // Map every rail target to its titlebar button. Globe is absent on purpose.
+  const railButtons: Record<RailTarget, HTMLElement | null> = {
+    blocks: viewBlocksBtn,
+    structure: viewFilesBtn,
+    activity: viewActivityBtn,
+    recall: viewRecallBtn,
+    notes: projectNotesBtn,
+    teammate: teammateBtn,
+    tasker: taskerBtn,
   };
+
+  const highlightRail = (target: RailTarget | null): void => {
+    (Object.keys(railButtons) as RailTarget[]).forEach((k) =>
+      railButtons[k]?.classList.toggle("titlebar-view-active", k === target),
+    );
+    document.body.classList.toggle("sidebar-view-activity", target === "activity");
+  };
+
+  const openRail = (target: RailTarget): void => {
+    switch (target) {
+      case "blocks":
+      case "structure":
+      case "recall":
+        localStorage.removeItem(ACTIVITY_KEY);
+        activeSidebarTitlebarView = target;
+        window.dispatchEvent(new CustomEvent("sidebar-view:set", { detail: { view: target } }));
+        break;
+      case "activity":
+        localStorage.setItem(ACTIVITY_KEY, "1");
+        activeSidebarTitlebarView = "activity";
+        break;
+      case "notes":
+        mountProjectNotes();
+        break;
+      case "teammate":
+        void openTeammatePanel();
+        break;
+      case "tasker":
+        openTaskerPanel();
+        break;
+    }
+  };
+
+  const closeRail = (target: RailTarget): void => {
+    switch (target) {
+      case "notes":
+        activeProjectNotesPanel?.close();
+        break;
+      case "teammate":
+        closeTeammatePanel();
+        break;
+      case "tasker":
+        closeTaskerPanel();
+        break;
+      // Views (blocks/structure/activity/recall) need no teardown — folding
+      // hides the rail; the view content stays rendered underneath.
+      default:
+        break;
+    }
+  };
+
+  const setRailFolded = (folded: boolean): void => {
+    applyBlocksCollapsed(folded);
+    if (folded) localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
+    else localStorage.removeItem(BLOCKS_GLOBAL_KEY);
+    setTimeout(() => manager.refitActive(), 320);
+  };
+
+  const initialFolded = localStorage.getItem(BLOCKS_GLOBAL_KEY) === "1";
+  const rail = new RightRailController(
+    { open: openRail, close: closeRail, setFolded: setRailFolded, highlight: highlightRail },
+    initialFolded ? null : activeSidebarTitlebarView,
+  );
+  // Paint the initial button state (fold state itself is applied at the
+  // existing applyBlocksCollapsed call during boot).
+  highlightRail(rail.target);
+
+  // Guard: blocks/files are terminal-tab features; recall/activity are global.
+  const clickView = (view: SidebarTitlebarView): void => {
+    if ((view === "blocks" || view === "structure") && manager.activeKind() === "pi") {
+      pushInfoToast({
+        message: "Blocks and Files are available on terminal tabs. Switch to a shell tab first.",
+      });
+      return;
+    }
+    rail.toggle(view);
+  };
+
   if (viewBlocksBtn && viewFilesBtn && viewActivityBtn) {
     viewBlocksBtn.innerHTML = Icons.terminal({ size: 14 });
     viewFilesBtn.innerHTML = Icons.folder({ size: 14 });
@@ -524,71 +611,14 @@ async function boot(): Promise<void> {
     attachTooltip(viewFilesBtn, "Files");
     attachTooltip(viewActivityBtn, "Activity");
     if (viewRecallBtn) attachTooltip(viewRecallBtn, "Recall");
-    // Activity is a global view (not per-tab) so we only forward
-    // blocks/structure to the tab-level listener. When activity is
-    // selected we just flip the body class; the global aside renders
-    // itself.
-    const setView = (view: SidebarTitlebarView): void => {
-      syncSidebarTitlebarButtons(view);
-      if (view !== "activity") {
-        localStorage.removeItem(ACTIVITY_KEY);
-        window.dispatchEvent(
-          new CustomEvent("sidebar-view:set", { detail: { view } }),
-        );
-      } else {
-        localStorage.setItem(ACTIVITY_KEY, "1");
-      }
-    };
-    const pickView = (view: SidebarTitlebarView): void => {
-      const wasProjectNotesOpen = document.body.classList.contains("project-notes-open");
-      const wasCollapsed = document.body.classList.contains("blocks-globally-collapsed");
-      if (view !== "activity" && manager.activeKind() === "pi") {
-        pushInfoToast({
-          message: "Blocks and Files are available on terminal tabs. Switch to a shell tab first.",
-        });
-        return;
-      }
-      window.dispatchEvent(new CustomEvent("project-notes:close"));
-      window.dispatchEvent(new CustomEvent("teammate:close"));
-
-      // Treat each titlebar view icon as a toggle: clicking the already-open
-      // rail closes it, clicking any other icon swaps that same rail in place.
-      if (!wasProjectNotesOpen && !wasCollapsed && activeSidebarTitlebarView === view) {
-        applyBlocksCollapsed(true);
-        localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
-        setTimeout(() => manager.refitActive(), 320);
-        return;
-      }
-
-      if (wasCollapsed) {
-        applyBlocksCollapsed(false);
-        localStorage.removeItem(BLOCKS_GLOBAL_KEY);
-        setTimeout(() => manager.refitActive(), 320);
-      }
-      setView(view);
-    };
-    viewBlocksBtn.addEventListener("click", () => pickView("blocks"));
-    viewFilesBtn.addEventListener("click", () => pickView("structure"));
-    viewActivityBtn.addEventListener("click", () => pickView("activity"));
-    viewRecallBtn?.addEventListener("click", () => pickView("recall"));
+    viewBlocksBtn.addEventListener("click", () => clickView("blocks"));
+    viewFilesBtn.addEventListener("click", () => clickView("structure"));
+    viewActivityBtn.addEventListener("click", () => clickView("activity"));
+    viewRecallBtn?.addEventListener("click", () => clickView("recall"));
     window.addEventListener("sidebar-view:active", (e) => {
       const v = (e as CustomEvent<{ view: "blocks" | "structure" }>).detail.view;
-      // Teammate panel owns the right rail. Do not light two titlebar view
-      // buttons at once.
-      if (document.body.classList.contains("sidebar-view-teammate")) return;
-      // Tabs only know about blocks/structure — respect the activity
-      // override if it's currently active.
-      if (document.body.classList.contains("sidebar-view-activity")) return;
-      // Project Notes temporarily owns the right rail. Track the tab's
-      // underlying view, but do not light two titlebar view buttons at once.
-      if (document.body.classList.contains("project-notes-open")) {
-        activeSidebarTitlebarView = v;
-        return;
-      }
-      syncSidebarTitlebarButtons(v);
+      rail.syncView(v);
     });
-    // Restore titlebar state on reload.
-    syncSidebarTitlebarButtons(activeSidebarTitlebarView);
   }
 
   const teammatePanelHost = requireEl<HTMLElement>("teammate-panel");
@@ -691,113 +721,62 @@ async function boot(): Promise<void> {
       if (tab) manager.closeTab(tab.id);
     },
   });
-  const teammateBtn = document.getElementById("titlebar-view-teammate");
-
-  /// Close the teammate rail if open. Safe to call from any toggle that
-  /// claims the right rail — the right rail is a single slot, no two
-  /// panels should ever render together.
-  const closeTeammateIfOpen = (): void => {
+  /// Hide the teammate rail. Controller owns highlight/exclusivity, so this
+  /// only tears down the teammate panel's own DOM/body state.
+  const closeTeammatePanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-teammate")) return;
     document.body.classList.remove("sidebar-view-teammate");
     teammatePanelHost.setAttribute("hidden", "");
     teammatePanel.close();
-    teammateBtn?.classList.remove("titlebar-view-active");
   };
-  window.addEventListener("teammate:close", () => closeTeammateIfOpen());
+  const openTeammatePanel = async (): Promise<void> => {
+    document.body.classList.add("sidebar-view-teammate");
+    teammatePanelHost.removeAttribute("hidden");
+    const ops = await operatorList();
+    const def = ops.find((o) => o.is_default) ?? ops[0];
+    if (def) {
+      await teammatePanel.openFor(def);
+    } else {
+      teammatePanelHost.innerHTML =
+        `<div class="teammate-panel-empty">No operators configured yet. Open Settings → Operators.</div>`;
+    }
+  };
+  window.addEventListener("teammate:close", () => {
+    closeTeammatePanel();
+    rail.handleExternalClose("teammate");
+  });
 
+  if (projectNotesBtn) {
+    projectNotesBtn.innerHTML = Icons.clipboard({ size: 14 });
+    attachTooltip(projectNotesBtn, "Project notes");
+    projectNotesBtn.addEventListener("click", () => rail.toggle("notes"));
+  }
   if (teammateBtn) {
     teammateBtn.innerHTML = Icons.messageCircle({ size: 14 });
     attachTooltip(teammateBtn, "Teammate chat");
-    teammateBtn.addEventListener("click", async () => {
-      const wasOpen = document.body.classList.contains("sidebar-view-teammate");
-
-      if (wasOpen) {
-        closeTeammateIfOpen();
-        // Restore the previous tabs-view button highlight (blocks/files/activity).
-        syncSidebarTitlebarButtons(activeSidebarTitlebarView);
-        return;
-      }
-
-      // Opening teammate claims the right rail — make every competing panel
-      // step aside first.
-      window.dispatchEvent(new CustomEvent("project-notes:close"));
-      document.body.classList.remove("sidebar-view-activity");
-      document
-        .querySelectorAll("#app-titlebar-right .titlebar-view-active")
-        .forEach((b) => b.classList.remove("titlebar-view-active"));
-
-      document.body.classList.add("sidebar-view-teammate");
-      teammateBtn.classList.add("titlebar-view-active");
-      teammatePanelHost.removeAttribute("hidden");
-
-      const ops = await operatorList();
-      const def = ops.find((o) => o.is_default) ?? ops[0];
-      if (def) {
-        await teammatePanel.openFor(def);
-      } else {
-        teammatePanelHost.innerHTML =
-          `<div class="teammate-panel-empty">No hay operadores configurados. Andá a Settings → Operators.</div>`;
-      }
-    });
-  }
-
-  const projectNotesBtn = document.getElementById("titlebar-project-notes");
-  if (projectNotesBtn) {
-    projectNotesBtn.innerHTML = Icons.clipboard({ size: 16 });
-    attachTooltip(projectNotesBtn, "Project notes");
-    projectNotesBtn.addEventListener("click", () => {
-      if (activeProjectNotesPanel) {
-        activeProjectNotesPanel.close();
-        return;
-      }
-      if (document.body.classList.contains("blocks-globally-collapsed")) {
-        applyBlocksCollapsed(false);
-        localStorage.removeItem(BLOCKS_GLOBAL_KEY);
-        setTimeout(() => manager.refitActive(), 320);
-      }
-      const g = manager.activeGroup();
-      // openProjectNotes() closes competing right-rail panels.
-      if (g) openProjectNotes(g.id, g.name, g.color ?? null);
-    });
+    teammateBtn.addEventListener("click", () => rail.toggle("teammate"));
   }
 
   // Tasker sidebar — todo list / task management.
   const taskerPanelHost = requireEl<HTMLElement>("tasker-panel");
   const taskerPanel = new TaskerPanel(taskerPanelHost);
-  const taskerBtn = document.getElementById("titlebar-tasker");
 
-  const closeTaskerIfOpen = (): void => {
+  const closeTaskerPanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-tasker")) return;
     document.body.classList.remove("sidebar-view-tasker");
     taskerPanelHost.classList.add("hidden");
     taskerPanel.close();
-    taskerBtn?.classList.remove("titlebar-view-active");
+  };
+  const openTaskerPanel = (): void => {
+    document.body.classList.add("sidebar-view-tasker");
+    taskerPanelHost.classList.remove("hidden");
+    taskerPanel.render();
   };
 
   if (taskerBtn) {
     taskerBtn.innerHTML = Icons.checklist({ size: 14 });
     attachTooltip(taskerBtn, "Tasker (⌘⌥K)");
-    taskerBtn.addEventListener("click", () => {
-      const wasOpen = document.body.classList.contains("sidebar-view-tasker");
-
-      if (wasOpen) {
-        closeTaskerIfOpen();
-        return;
-      }
-
-      // Opening tasker claims a right-rail slot — close competing panels.
-      closeTeammateIfOpen();
-      window.dispatchEvent(new CustomEvent("project-notes:close"));
-      document.body.classList.remove("sidebar-view-activity");
-      document
-        .querySelectorAll("#app-titlebar-right .titlebar-view-active")
-        .forEach((b) => b.classList.remove("titlebar-view-active"));
-
-      document.body.classList.add("sidebar-view-tasker");
-      taskerBtn.classList.add("titlebar-view-active");
-      taskerPanelHost.classList.remove("hidden");
-      taskerPanel.render();
-    });
+    taskerBtn.addEventListener("click", () => rail.toggle("tasker"));
   }
 
   // Internal-browser globe launcher — gated by `experimental.internal_browser`.
@@ -818,14 +797,7 @@ async function boot(): Promise<void> {
   if (foldRightBtn) {
     attachTooltip(foldRightBtn, "Toggle right sidebar");
     applyBlocksCollapsed(localStorage.getItem(BLOCKS_GLOBAL_KEY) === "1");
-    foldRightBtn.addEventListener("click", () => {
-      const next = !document.body.classList.contains("blocks-globally-collapsed");
-      if (next && activeProjectNotesPanel) activeProjectNotesPanel.close();
-      applyBlocksCollapsed(next);
-      if (next) localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
-      else localStorage.removeItem(BLOCKS_GLOBAL_KEY);
-      setTimeout(() => manager.refitActive(), 320);
-    });
+    foldRightBtn.addEventListener("click", () => rail.toggleFold());
   }
   collapseAllBtn.addEventListener("click", () => {
     if (manager.areAllGroupsCollapsed()) manager.expandAllGroups();
@@ -1121,54 +1093,61 @@ async function boot(): Promise<void> {
     void manager.setMissionPathForActiveTab(detail.path);
   });
 
-  // Project Notes panel — singleton right sidebar, opened from group-chip or ⌘⇧J.
+  // Project Notes panel — singleton right sidebar. Controller owns exclusivity
+  // and highlight; this just mounts/unmounts the panel + its body class.
   let activeProjectNotesPanel: ProjectNotesPanel | null = null;
-  let projectNotesReturnView: SidebarTitlebarView | null = null;
-  window.addEventListener("project-notes:close", () => activeProjectNotesPanel?.close());
+  let pendingNotesArgs: {
+    groupId: string;
+    groupLabel: string;
+    groupColor: string | null;
+    defaultTab?: "commands" | "notes" | "docs" | "drafts";
+  } | null = null;
 
-  function openProjectNotes(
+  window.addEventListener("project-notes:close", () => {
+    activeProjectNotesPanel?.close();
+  });
+
+  /// External entry point (group chip, ⌘⇧J, draft flows): set args, then let
+  /// the controller close whatever's open and open notes.
+  function requestProjectNotes(
     groupId: string,
     groupLabel: string,
     groupColor: string | null,
     opts?: { defaultTab?: "commands" | "notes" | "docs" | "drafts" },
   ): void {
+    pendingNotesArgs = { groupId, groupLabel, groupColor, defaultTab: opts?.defaultTab };
+    rail.open("notes");
+  }
+
+  /// "Dumb" opener invoked by the controller's open("notes"). Uses pending args
+  /// if a specific group was requested, else the active group.
+  function mountProjectNotes(): void {
+    let args = pendingNotesArgs;
+    pendingNotesArgs = null;
+    if (!args) {
+      const g = manager.activeGroup();
+      if (!g) return;
+      args = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
+    }
     if (activeProjectNotesPanel) activeProjectNotesPanel.close();
-    // Project Notes claims the right rail — close any competing panel
-    // first so two never render together.
-    window.dispatchEvent(new CustomEvent("teammate:close"));
-    closeTaskerIfOpen();
-    projectNotesReturnView = activeSidebarTitlebarView;
     document.body.classList.add("project-notes-open");
-    document.body.classList.remove("sidebar-view-activity");
-    projectNotesBtn?.classList.add("titlebar-view-active");
-    viewBlocksBtn?.classList.remove("titlebar-view-active");
-    viewFilesBtn?.classList.remove("titlebar-view-active");
-    viewActivityBtn?.classList.remove("titlebar-view-active");
-    teammateBtn?.classList.remove("titlebar-view-active");
-    const groupRootDir = manager.groupRootDirFor(groupId);
+    const groupRootDir = manager.groupRootDirFor(args.groupId);
     activeProjectNotesPanel = new ProjectNotesPanel({
-      groupId,
-      groupLabel,
-      groupColor,
+      groupId: args.groupId,
+      groupLabel: args.groupLabel,
+      groupColor: args.groupColor,
       groupRootDir,
-      defaultTab: opts?.defaultTab,
+      defaultTab: args.defaultTab,
       onClose: () => {
         activeProjectNotesPanel = null;
         document.body.classList.remove("project-notes-open");
-        projectNotesBtn?.classList.remove("titlebar-view-active");
-        const restoreView = projectNotesReturnView ?? activeSidebarTitlebarView;
-        projectNotesReturnView = null;
-        syncSidebarTitlebarButtons(restoreView);
+        rail.handleExternalClose("notes");
       },
       onOpenFile: (absolutePath) => {
         manager.openFileAtLine(absolutePath);
         activeProjectNotesPanel?.close();
       },
       onOpenWizard: (_repoRoot) => {
-        // Keep the Project Notes drawer open underneath — the spec-chat
-        // overlay is fixed/z-index 10100, so it sits on top. Closing the
-        // drawer here would also restore the previous sidebar view
-        // (usually Blocks), which felt like the wizard "vanished".
         window.dispatchEvent(new CustomEvent("spec-chat:open"));
       },
       onSetRootDir: (gid) => manager.pickGroupRootDir(gid),
@@ -1176,7 +1155,7 @@ async function boot(): Promise<void> {
   }
 
   manager.setOptions({
-    onOpenProjectNotes: openProjectNotes,
+    onOpenProjectNotes: requestProjectNotes,
   });
 
   void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {
@@ -1187,7 +1166,7 @@ async function boot(): Promise<void> {
       if (openRoot === repoRoot) {
         const g = manager.activeGroup();
         if (g && g.id === openGroupId) {
-          openProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+          requestProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
         }
       }
     }
@@ -1206,7 +1185,7 @@ async function boot(): Promise<void> {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();
-        openProjectNotes(g.id, g.name, g.color ?? null);
+        requestProjectNotes(g.id, g.name, g.color ?? null);
       }
     }
   });
@@ -1942,7 +1921,7 @@ async function boot(): Promise<void> {
       const g = manager.activeGroup();
       if (g) {
         e.preventDefault();
-        openProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
+        requestProjectNotes(g.id, g.name, g.color ?? null, { defaultTab: "drafts" });
       }
       return;
     }
