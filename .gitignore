@@ -45,3 +45,4 @@ crates/app/gen/schemas/
 
 # Local scratch / throwaway experiments
 scratch/
+.claire/
