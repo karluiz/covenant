@@ -4325,11 +4325,6 @@ export class TabManager {
         const aomOn = await aomStatus().then((s) => s.enabled).catch(() => false);
         if (aomOn) await aomStop().catch(() => undefined);
       }
-      // Re-sync per-tab operator state from the backend so the just-removed
-      // tab drops its operatorEnabled/operatorLive flags — otherwise the
-      // tab keeps its AOM border color and the status bar chip shows stale
-      // LIVE state until something else triggers a refresh.
-      await this.refreshAllOperatorState();
     }
     // Removing the operator means the task it was driving in this tab has
     // no driver left. Cancel it so the work stops and Mibli's chat avatar
