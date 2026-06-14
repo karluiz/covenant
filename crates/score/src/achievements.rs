@@ -258,12 +258,13 @@ impl RiskyOutcome {
     }
 }
 
-/// Stable short hash for dedupe keys (avoids unbounded key length).
+/// Stable, deterministic short hash for dedupe keys (FNV-1a 64-bit).
+/// Must NOT use DefaultHasher — dedupe keys are persisted, so the hash
+/// has to be stable across Rust versions and processes.
 fn short_hash(s: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
+    const FNV_OFFSET: u64 = 14695981039346656037;
+    const FNV_PRIME: u64 = 1099511628211;
+    s.bytes().fold(FNV_OFFSET, |h, b| (h ^ b as u64).wrapping_mul(FNV_PRIME))
 }
 
 // ─── Pure fact builders ─────────────────────────────────────────────────────
@@ -301,11 +302,12 @@ pub fn task_recovered_fact(orchestrator: &str, task_id: &str) -> AchievementFact
 }
 
 pub fn build_pass_fact(kind: BuildKind, operator: &str, repo: &str, command: &str) -> AchievementFact {
-    AchievementFact::new(kind.passed_kind(), SubjectKind::Operator)
+    let k = kind.passed_kind();
+    AchievementFact::new(k, SubjectKind::Operator)
         .with_subject(operator)
         .with_repo(repo)
         .with_verification(VerificationLevel::CommandPassed)
-        .with_dedupe(format!("{}:{}:{}", kind.passed_kind(), repo, short_hash(command)))
+        .with_dedupe(format!("{k}:{repo}:{}", short_hash(command)))
 }
 
 pub fn risky_action_fact(outcome: RiskyOutcome, ts_ms: i64) -> AchievementFact {
@@ -337,8 +339,8 @@ pub fn task_delegated_fact(orchestrator: &str, task_id: &str) -> AchievementFact
         .with_dedupe(format!("orchestrator_task_delegated:{task_id}"))
 }
 
-pub fn project_command_learned_fact(repo: &str, command: &str, kind: BuildKind) -> AchievementFact {
-    let _ = kind; // kind retained for future metadata; not part of the key
+/// `_kind` is retained for future metadata but does not affect the dedupe key.
+pub fn project_command_learned_fact(repo: &str, command: &str, _kind: BuildKind) -> AchievementFact {
     AchievementFact::new("project_command_learned", SubjectKind::Project)
         .with_subject(repo)
         .with_repo(repo)
@@ -586,6 +588,7 @@ mod tests {
         assert_eq!(f.kind, "task_verified");
         assert_eq!(f.subject_type, SubjectKind::Operator);
         assert_eq!(f.subject_id.as_deref(), Some("op-123"));
+        assert_eq!(f.repo.as_deref(), Some("myrepo"));
         assert_eq!(f.verification, Some(VerificationLevel::UserAccepted));
         assert_eq!(f.dedupe_key.as_deref(), Some("task_verified:task-9"));
         assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "finisher"));
@@ -661,12 +664,18 @@ mod tests {
     }
 
     #[test]
-    fn dormant_facts_target_their_definitions() {
+    fn task_delegated_fact_targets_good_delegate() {
         let d = task_delegated_fact("op-1", "t-1");
         assert_eq!(d.kind, "orchestrator_task_delegated");
+        assert_eq!(d.subject_type, SubjectKind::Orchestrator);
         assert!(definitions_for_kind(&d.kind).iter().any(|x| x.id == "good_delegate"));
+    }
+
+    #[test]
+    fn project_command_learned_fact_targets_command_librarian() {
         let c = project_command_learned_fact("repo", "cargo test", BuildKind::Test);
         assert_eq!(c.kind, "project_command_learned");
+        assert_eq!(c.subject_type, SubjectKind::Project);
         assert!(definitions_for_kind(&c.kind).iter().any(|x| x.id == "command_librarian"));
     }
 
