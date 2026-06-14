@@ -2983,6 +2983,7 @@ async fn run_tick(
                             category = ?reason.category,
                             "operator reply blocked by safety"
                         );
+                        karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);
                         let note = format!("blocked: {}", reason.message);
                         // Spec 3.20 phase 5: append to tried_failed so
                         // the model learns within the session.
