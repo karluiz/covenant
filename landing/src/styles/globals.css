@@ -11,6 +11,11 @@ html, body {
   color: theme(colors.mist);
   font-family: 'Sansation', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Decorative glows and the perspective grid intentionally bleed past the
+     edges; clip horizontally so they never produce a horizontal scrollbar.
+     `clip` (not `hidden`) avoids creating a scroll container / breaking
+     sticky + fixed positioning. */
+  overflow-x: clip;
 }
 
 .eyebrow {
