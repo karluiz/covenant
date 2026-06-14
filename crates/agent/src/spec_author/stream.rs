@@ -87,12 +87,15 @@ pub async fn step_streaming(
             tool_budget -= 1;
             let arg = call.input.to_string();
             sink.emit(SpecStreamEvent::ToolStart {
-                id: call.id.clone(), tool: call.name.clone(), arg });
+                id: call.id.clone(), tool: call.name.clone(), arg: arg.clone() });
             let (result, summary) = tools::run_tool(repo_root, &call.name, &call.input);
             let ok = summary != "error";
+            // Persist arg + summary on the header line so a resumed transcript can
+            // rebuild the exact same chip (verb · arg · hit) the live stream showed.
+            feedback.push_str(&format!("[tool {} → {}] {} · {}\n{}\n\n",
+                call.name, call.id, arg, summary, mask_secrets(&result)));
             sink.emit(SpecStreamEvent::ToolResult {
                 id: call.id.clone(), summary, ok });
-            feedback.push_str(&format!("[tool {} → {}]\n{}\n\n", call.name, call.id, mask_secrets(&result)));
         }
         draft.messages.push(DraftMessage { role: MessageRole::User, content: feedback });
     }

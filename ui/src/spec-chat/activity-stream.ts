@@ -3,64 +3,167 @@ import type { StreamState } from './stream-state';
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+const itemFromHtml = (html: string): HTMLElement => {
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  return d.firstElementChild as HTMLElement;
+};
+
+/** Mount the reasoning/exploration stream. Renders incrementally: committed
+ *  turns are append-only and live nodes (thinking, tools, streaming text) are
+ *  updated in place, so a fast token stream never rebuilds the whole DOM. */
 export function mountActivityStream(host: HTMLElement, state: StreamState): () => void {
   const stream = document.createElement('div');
   stream.className = 'stream';
   host.appendChild(stream);
 
-  const render = () => {
-    const parts: string[] = [];
+  // Live region pinned as the last child; committed items are inserted before it.
+  const live = document.createElement('div');
+  live.className = 'live';
+  const thinkSlot = document.createElement('div');
+  const toolsWrap = document.createElement('div');
+  const textSlot = document.createElement('div');
+  const errSlot = document.createElement('div');
+  live.append(thinkSlot, toolsWrap, textSlot, errSlot);
+  stream.appendChild(live);
 
-    // Committed conversation turns.
-    for (const m of state.messages()) {
-      const cls = m.role === 'user' ? 'bubble user' : 'bubble asst';
-      parts.push(`<div class="item"><div class="${cls}">${esc(m.content)}</div></div>`);
+  let committedCount = 0;
+  let emptyEl: HTMLElement | null = null;
+  let thinkBody: HTMLElement | null = null;
+  let liveText: HTMLElement | null = null;
+  let errEl: HTMLElement | null = null;
+  const toolRows = new Map<string, { box: HTMLElement; verb: HTMLElement; path: HTMLElement; hit: HTMLElement }>();
+
+  const renderCommitted = () => {
+    const msgs = state.messages();
+    // Committed turns are immutable & append-only; a shorter list means a
+    // wholesale replace (hydrate/reset), so rebuild from scratch.
+    if (msgs.length < committedCount) {
+      while (stream.firstChild && stream.firstChild !== live) stream.removeChild(stream.firstChild);
+      committedCount = 0;
     }
+    for (let i = committedCount; i < msgs.length; i++) {
+      const m = msgs[i]!;
+      let el: HTMLElement;
+      if (m.role === 'tool') {
+        const path = m.arg ? ` <span class="path">${esc(m.arg)}</span>` : '';
+        const hit = m.summary ? `<span class="hit">${esc(m.summary)}</span>` : '';
+        el = itemFromHtml(
+          `<div class="item"><div class="tool">` +
+          `<span class="verb">${esc(m.tool)}</span>${path}${hit}</div></div>`);
+      } else {
+        el = itemFromHtml(`<div class="item"><div class="bubble ${m.role === 'user' ? 'user' : 'asst'}">${esc(m.content)}</div></div>`);
+      }
+      stream.insertBefore(el, live);
+    }
+    committedCount = msgs.length;
+  };
 
-    // Live reasoning for the current turn.
+  const renderThinking = () => {
     const think = state.thinking();
     if (think) {
-      parts.push(
-        `<div class="item"><div class="think collapsed">` +
-        `<div class="head"><span class="chev">▶</span> thinking</div>` +
-        `<div class="body">${esc(think)}</div></div></div>`,
-      );
+      if (!thinkBody) {
+        const el = itemFromHtml(
+          `<div class="item"><div class="think collapsed">` +
+          `<div class="head"><span class="chev">▶</span> thinking</div>` +
+          `<div class="body"></div></div></div>`);
+        const think_ = el.querySelector('.think')!;
+        el.querySelector('.head')!.addEventListener('click', () => think_.classList.toggle('collapsed'));
+        thinkBody = el.querySelector('.body') as HTMLElement;
+        thinkSlot.appendChild(el);
+      }
+      thinkBody.textContent = think;
+    } else if (thinkBody) {
+      thinkSlot.replaceChildren();
+      thinkBody = null;
     }
+  };
 
-    // Live tool activity.
-    for (const t of state.tools()) {
-      const hit = t.summary ? `<span class="hit">${esc(t.summary)}</span>` : '';
-      const running = t.summary == null ? ' running' : '';
-      parts.push(
-        `<div class="item"><div class="tool${running}">` +
-        `<span class="verb">${esc(t.tool)}</span> <span class="path">${esc(t.arg)}</span>${hit}` +
-        `</div></div>`,
-      );
+  const renderTools = () => {
+    const tools = state.tools();
+    const seen = new Set<string>();
+    for (const t of tools) {
+      seen.add(t.id);
+      let row = toolRows.get(t.id);
+      if (!row) {
+        const el = itemFromHtml(
+          `<div class="item"><div class="tool">` +
+          `<span class="verb"></span> <span class="path"></span><span class="hit"></span>` +
+          `</div></div>`);
+        row = {
+          box: el.querySelector('.tool') as HTMLElement,
+          verb: el.querySelector('.verb') as HTMLElement,
+          path: el.querySelector('.path') as HTMLElement,
+          hit: el.querySelector('.hit') as HTMLElement,
+        };
+        toolsWrap.appendChild(el);
+        toolRows.set(t.id, row);
+      }
+      row.box.className = t.summary == null ? 'tool running' : 'tool';
+      row.verb.textContent = t.tool;
+      row.path.textContent = t.arg;
+      row.hit.textContent = t.summary ?? '';
+      row.hit.style.display = t.summary ? '' : 'none';
     }
-
-    // Streaming assistant answer (not yet committed).
-    const live = state.text();
-    if (live) {
-      parts.push(`<div class="item"><div class="bubble asst typing">${esc(live)}</div></div>`);
+    for (const [id, row] of toolRows) {
+      if (!seen.has(id)) { row.box.closest('.item')?.remove(); toolRows.delete(id); }
     }
+  };
 
-    // Error surface.
-    const err = state.error();
-    if (err) {
-      parts.push(`<div class="item"><div class="bubble error">⚠ ${esc(err)}</div></div>`);
+  const renderLiveText = () => {
+    const t = state.text();
+    if (t) {
+      if (!liveText) {
+        const el = itemFromHtml(`<div class="item"><div class="bubble asst typing"></div></div>`);
+        liveText = el.querySelector('.bubble') as HTMLElement;
+        textSlot.appendChild(el);
+      }
+      liveText.textContent = t;
+    } else if (liveText) {
+      textSlot.replaceChildren();
+      liveText = null;
     }
+  };
 
-    // Empty state.
-    if (parts.length === 0) {
-      parts.push(`<div class="empty-hint">Describe the problem and the agent will explore your repo.</div>`);
+  const renderError = () => {
+    const e = state.error();
+    if (e) {
+      if (!errEl) {
+        const el = itemFromHtml(`<div class="item"><div class="bubble error"></div></div>`);
+        errEl = el.querySelector('.bubble') as HTMLElement;
+        errSlot.appendChild(el);
+      }
+      errEl.textContent = `⚠ ${e}`;
+    } else if (errEl) {
+      errSlot.replaceChildren();
+      errEl = null;
     }
+  };
 
-    stream.innerHTML = parts.join('');
-    // Keep the thinking block expandable.
-    const thinkEl = stream.querySelector('.think');
-    thinkEl?.querySelector('.head')?.addEventListener('click', () =>
-      thinkEl.classList.toggle('collapsed'));
-    stream.scrollTop = stream.scrollHeight;
+  const renderEmpty = () => {
+    const isEmpty = state.messages().length === 0 && !state.thinking()
+      && state.tools().length === 0 && !state.text() && !state.error();
+    if (isEmpty && !emptyEl) {
+      emptyEl = itemFromHtml(
+        `<div class="empty-hint">Describe the problem and the agent will explore your repo.</div>`);
+      stream.insertBefore(emptyEl, live);
+    } else if (!isEmpty && emptyEl) {
+      emptyEl.remove();
+      emptyEl = null;
+    }
+  };
+
+  const render = () => {
+    // Pin to bottom only when the user is already there, so streaming doesn't
+    // yank the view while they scroll back to read.
+    const nearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
+    renderEmpty();
+    renderCommitted();
+    renderThinking();
+    renderTools();
+    renderLiveText();
+    renderError();
+    if (nearBottom) stream.scrollTop = stream.scrollHeight;
   };
 
   const off = state.onChange(render);

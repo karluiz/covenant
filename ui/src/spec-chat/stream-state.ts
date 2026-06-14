@@ -1,8 +1,13 @@
 import type { SpecStreamEvent, SpecSectionKey } from './events';
+import { parsePersistedTranscript } from './transcript';
 
 export interface ToolActivity { id: string; tool: string; arg: string; summary?: string; ok?: boolean; }
 export interface SectionView { markdown: string; status: 'filling' | 'done'; }
 export interface ConvMessage { role: 'user' | 'assistant'; content: string; }
+/** A historical tool call reconstructed from a resumed transcript — rendered
+ *  inline as a chip mirroring the live one (verb · arg · hit). */
+export interface ToolChip { role: 'tool'; tool: string; arg?: string; summary?: string; }
+export type TimelineItem = ConvMessage | ToolChip;
 
 export interface StreamState {
   apply(e: SpecStreamEvent): void;
@@ -11,8 +16,9 @@ export interface StreamState {
   /** Restore a persisted draft: prior conversation turns and, if the draft was
    *  already complete, its final markdown (so publish is immediately available). */
   hydrate(data: { messages: readonly ConvMessage[]; finalMarkdown?: string | null }): void;
-  /** Committed conversation turns (user + assistant), oldest first. */
-  messages(): readonly ConvMessage[];
+  /** Committed timeline (user + assistant turns, plus tool chips on resume),
+   *  oldest first. */
+  messages(): readonly TimelineItem[];
   activePhase(): SpecSectionKey | null;
   thinking(): string;
   /** Assistant prose streaming in the current turn (uncommitted). */
@@ -35,7 +41,7 @@ export function createStreamState(): StreamState {
   let awaiting = false;
   let finalMd: string | null = null;
   let err: string | null = null;
-  const messages: ConvMessage[] = [];
+  const messages: TimelineItem[] = [];
   const subs = new Set<() => void>();
   const fire = () => subs.forEach((cb) => cb());
 
@@ -78,7 +84,7 @@ export function createStreamState(): StreamState {
     },
     hydrate(data) {
       messages.length = 0;
-      for (const m of data.messages) messages.push({ role: m.role, content: m.content });
+      for (const item of parsePersistedTranscript(data.messages)) messages.push(item);
       if (data.finalMarkdown != null) finalMd = data.finalMarkdown;
       fire();
     },
