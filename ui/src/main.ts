@@ -586,6 +586,9 @@ async function boot(): Promise<void> {
   const rail = new RightRailController(
     { open: openRail, close: closeRail, setFolded: setRailFolded, highlight: highlightRail },
     initialFolded ? null : activeSidebarTitlebarView,
+    // Seed the restore-target so a reload-while-folded re-opens the persisted
+    // view (e.g. Activity), not just Blocks.
+    activeSidebarTitlebarView,
   );
   // Paint the initial button state (fold state itself is applied at the
   // existing applyBlocksCollapsed call during boot).
@@ -741,6 +744,8 @@ async function boot(): Promise<void> {
         `<div class="teammate-panel-empty">No operators configured yet. Open Settings → Operators.</div>`;
     }
   };
+  // Imperative "close the teammate rail" hook for any external caller (the
+  // controller closes it directly; this stays as a named close-intent).
   window.addEventListener("teammate:close", () => {
     closeTeammatePanel();
     rail.handleExternalClose("teammate");
@@ -1103,6 +1108,8 @@ async function boot(): Promise<void> {
     defaultTab?: "commands" | "notes" | "docs" | "drafts";
   } | null = null;
 
+  // Imperative "close Project Notes" hook for any external caller; the panel's
+  // onClose syncs the controller via handleExternalClose("notes").
   window.addEventListener("project-notes:close", () => {
     activeProjectNotesPanel?.close();
   });

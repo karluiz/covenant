@@ -107,6 +107,15 @@ describe("RightRailController", () => {
     expect(fake.calls).toEqual([]);
   });
 
+  it("toggleFold restores the lastSeed when constructed folded", () => {
+    // Reload-while-folded: current=null, but lastSeed carries the persisted view.
+    const c = new RightRailController(fake.adapters, null, "activity");
+    fake.calls.length = 0;
+    c.toggleFold();
+    expect(c.target).toBe("activity");
+    expect(fake.calls).toEqual(["open:activity", "fold:false", "hi:activity"]);
+  });
+
   it("open() from folded opens the target (and does not fold on re-open)", () => {
     const c = new RightRailController(fake.adapters, null);
     fake.calls.length = 0;

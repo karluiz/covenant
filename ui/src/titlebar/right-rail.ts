@@ -33,9 +33,13 @@ export class RightRailController {
   constructor(
     private readonly adapters: RailAdapters,
     initial: RailTarget | null,
+    /// Seeds the "last shown" target that toggleFold() restores when unfolding.
+    /// Defaults to `initial` (or "blocks"). Pass the persisted view explicitly
+    /// so a reload-while-folded restores that view, not just "blocks".
+    lastSeed: RailTarget = initial ?? "blocks",
   ) {
     this.current = initial;
-    this.last = initial ?? "blocks";
+    this.last = lastSeed;
   }
 
   get target(): RailTarget | null {
