@@ -1,7 +1,7 @@
 //! Push-only sync to covenant-server. Reads new local events, sends them
 //! in batches, advances the local cursor on success.
 
-use crate::{auth, EventKind, ScoreStore};
+use crate::{auth, profile_card::{build_snapshot, PublicProfileSnapshot}, EventKind, ScoreStore};
 use chrono::TimeZone;
 use serde::{Deserialize, Serialize};
 
@@ -141,4 +141,59 @@ pub fn status(store: &ScoreStore) -> std::result::Result<SyncStatus, SyncError> 
         last_server_cursor_ms: last_server_cursor,
         pending_events: pending,
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct PublishResp {
+    url: String,
+    #[allow(dead_code)]
+    covenant_score: f64,
+}
+
+/// Build the current public snapshot from local data. Returns None if not signed in.
+pub fn current_snapshot(store: &ScoreStore) -> std::result::Result<Option<PublicProfileSnapshot>, SyncError> {
+    let user = match crate::session::current(store)? {
+        Some(u) => u,
+        None => return Ok(None),
+    };
+    let summary = store.summary()?;
+    let ach = store.achievement_summary()?;
+    let awards = store.achievement_awards_recent(10_000)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    Ok(Some(build_snapshot(&user, &summary, &ach.by_category, &awards, now)))
+}
+
+/// PUT the current snapshot to the backend. Returns the public profile URL.
+pub async fn publish_profile(store: &ScoreStore) -> std::result::Result<String, SyncError> {
+    let jwt = auth::load_jwt()?.ok_or(SyncError::NotSignedIn)?;
+    let snap = current_snapshot(store)?.ok_or(SyncError::NotSignedIn)?;
+    let backend = auth::backend_url();
+    let url = format!("{backend}/profile/publish");
+    let resp = reqwest::Client::new()
+        .put(&url)
+        .bearer_auth(&jwt)
+        .json(&snap)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(SyncError::Server(resp.text().await.unwrap_or_default()));
+    }
+    let body: PublishResp = resp.json().await?;
+    Ok(body.url)
+}
+
+/// DELETE the published profile (unpublish). Idempotent on the server.
+pub async fn unpublish_profile() -> std::result::Result<(), SyncError> {
+    let jwt = auth::load_jwt()?.ok_or(SyncError::NotSignedIn)?;
+    let backend = auth::backend_url();
+    let url = format!("{backend}/profile/publish");
+    let resp = reqwest::Client::new()
+        .delete(&url)
+        .bearer_auth(&jwt)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(SyncError::Server(resp.text().await.unwrap_or_default()));
+    }
+    Ok(())
 }
