@@ -1145,12 +1145,11 @@ async function boot(): Promise<void> {
     viewFilesBtn?.classList.remove("titlebar-view-active");
     viewActivityBtn?.classList.remove("titlebar-view-active");
     teammateBtn?.classList.remove("titlebar-view-active");
-    const groupRootDir = manager.groupRootDirFor(groupId);
     activeProjectNotesPanel = new ProjectNotesPanel({
       groupId,
       groupLabel,
       groupColor,
-      groupRootDir,
+      groupRootDir: manager.groupRootDirFor(groupId),
       defaultTab: opts?.defaultTab,
       onClose: () => {
         activeProjectNotesPanel = null;
@@ -1160,18 +1159,16 @@ async function boot(): Promise<void> {
         projectNotesReturnView = null;
         syncSidebarTitlebarButtons(restoreView);
       },
-      onOpenFile: (absolutePath) => {
-        manager.openFileAtLine(absolutePath);
-        activeProjectNotesPanel?.close();
-      },
-      onOpenWizard: (_repoRoot) => {
+      onNewSpec: () => {
         // Keep the Project Notes drawer open underneath — the spec-chat
         // overlay is fixed/z-index 10100, so it sits on top. Closing the
         // drawer here would also restore the previous sidebar view
         // (usually Blocks), which felt like the wizard "vanished".
         window.dispatchEvent(new CustomEvent("spec-chat:open"));
       },
-      onSetRootDir: (gid) => manager.pickGroupRootDir(gid),
+      onOpenDraft: (draftId) => {
+        window.dispatchEvent(new CustomEvent("spec-chat:open", { detail: { draftId } }));
+      },
     }).mount(document.body);
   }
 
@@ -1496,7 +1493,10 @@ async function boot(): Promise<void> {
     if (specChat.isOpen()) specChat.close();
   };
 
-  window.addEventListener("spec-chat:open", () => specChat.open());
+  window.addEventListener("spec-chat:open", (e: Event) => {
+    const draftId = (e as CustomEvent<{ draftId?: string }>).detail?.draftId;
+    specChat.open(draftId);
+  });
 
   // Open the spec-author wizard for a given repoRoot (no slug → fresh draft).
   // Fired by ProjectNotesPanel's "+ New spec (AI-assisted)" button.

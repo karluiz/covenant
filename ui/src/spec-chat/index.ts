@@ -25,7 +25,8 @@ export interface SpecChatDeps {
 }
 
 export interface SpecChatController {
-  open: () => void;
+  /** Open the entrance. Pass a draftId to resume that draft directly. */
+  open: (draftId?: string) => void;
   close: () => void;
   isOpen: () => boolean;
 }
@@ -155,8 +156,15 @@ export function mountSpecChat(
   const controller: SpecChatController = {
     isOpen: () => panelMounted || entranceMounted,
 
-    open() {
+    open(draftId?: string) {
       if (controller.isOpen()) return;
+
+      // Direct resume: the drafts tab clicks straight into a known draft,
+      // skipping the entrance/list lookup.
+      if (draftId) {
+        openImmersive(draftId);
+        return;
+      }
 
       void listDrafts().then((all) => {
         const inProgress = all.filter(isInProgress);

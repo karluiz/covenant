@@ -2775,6 +2775,7 @@ async fn spec_author_step(
             status: karl_agent::spec_author::DraftStatus::InProgress {
                 phase: karl_agent::spec_author::Phase::Goal,
             },
+            repo_root: None,
         },
     };
 
@@ -2784,6 +2785,14 @@ async fn spec_author_step(
     };
 
     let cwd_path = cwd.as_ref().map(std::path::PathBuf::from);
+    // Stamp the draft with its project's git root on first authoring (and
+    // backfill legacy drafts on resume) so the drafts tab can scope per group.
+    if draft.repo_root.is_none() {
+        if let Some(ref c) = cwd_path {
+            draft.repo_root =
+                Some(karl_agent::spec_author::resolve_repo_root(c).display().to_string());
+        }
+    }
     let output = karl_agent::spec_author::step_with_context(
         &dispatcher,
         &mut draft,
@@ -2839,12 +2848,14 @@ async fn spec_author_stream_step(
                 id: ulid, messages: vec![], partial_md: None,
                 last_updated: chrono::Utc::now(),
                 status: sa::DraftStatus::InProgress { phase: sa::Phase::Goal },
+                repo_root: None,
             })
         }
         None => sa::SpecDraft {
             id: Ulid::new(), messages: vec![], partial_md: None,
             last_updated: chrono::Utc::now(),
             status: sa::DraftStatus::InProgress { phase: sa::Phase::Goal },
+            repo_root: None,
         },
     };
     let draft_id_str = draft.id.to_string();
@@ -2854,6 +2865,13 @@ async fn spec_author_stream_step(
     // grounding in the system prompt on every turn. When no cwd reached us,
     // the prompt says so explicitly instead of leaving the model to guess.
     let cwd_path = cwd.as_ref().map(std::path::PathBuf::from);
+    // Stamp the draft with its project's git root on first authoring (and
+    // backfill legacy drafts on resume) so the drafts tab can scope per group.
+    if draft.repo_root.is_none() {
+        if let Some(ref c) = cwd_path {
+            draft.repo_root = Some(sa::resolve_repo_root(c).display().to_string());
+        }
+    }
     let (repo_root, system) = sa::compose_system(cwd_path.as_deref(), &base_dir);
 
     let sink = TauriSink { app: app.clone(), topic: topic.clone() };
@@ -2936,8 +2954,23 @@ async fn spec_author_load_draft(id: String) -> Result<karl_agent::spec_author::S
 }
 
 #[tauri::command]
-async fn spec_author_list_drafts() -> Result<Vec<karl_agent::spec_author::SpecDraft>, String> {
-    karl_agent::spec_author::list_drafts_default().map_err(|e| e.to_string())
+async fn spec_author_list_drafts(
+    repo_root: Option<String>,
+) -> Result<Vec<karl_agent::spec_author::SpecDraft>, String> {
+    use karl_agent::spec_author as sa;
+    let all = sa::list_drafts_default().map_err(|e| e.to_string())?;
+    // No group root (global entrance, or a group with no folder set) → unfiltered.
+    let Some(filter) = repo_root.filter(|s| !s.is_empty()) else {
+        return Ok(all);
+    };
+    // Match on the resolved git root; legacy/unassigned drafts (None) show everywhere.
+    let resolved = sa::resolve_repo_root(std::path::Path::new(&filter))
+        .display()
+        .to_string();
+    Ok(all
+        .into_iter()
+        .filter(|d| d.repo_root.is_none() || d.repo_root.as_deref() == Some(resolved.as_str()))
+        .collect())
 }
 
 #[tauri::command]

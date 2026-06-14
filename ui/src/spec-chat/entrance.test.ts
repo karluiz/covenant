@@ -42,6 +42,7 @@ function makeDraft(overrides: Partial<SpecDraftSummary> = {}): SpecDraftSummary 
     partial_md: null,
     last_updated: new Date(Date.now() - 5 * 60_000).toISOString(),
     status: { InProgress: { phase: "goal" } } as SpecDraftStatus,
+    repo_root: null,
     ...overrides,
   };
 }

@@ -491,13 +491,14 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 }
 
 .pn-drafts-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 8px 32px 8px 10px;
   cursor: pointer;
   text-align: left;
   color: var(--fg);
@@ -506,6 +507,40 @@ body.tabbar-left .pn-panel.pn-fullscreen {
 .pn-drafts-item:hover {
   background: var(--bg-hover);
   border-color: var(--border);
+}
+
+.pn-drafts-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms, background 120ms, color 120ms;
+}
+
+.pn-drafts-item:hover .pn-drafts-del,
+.pn-drafts-del:focus-visible {
+  opacity: 1;
+}
+
+.pn-drafts-del:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--danger, #ff6b6b);
+}
+
+.pn-drafts-del:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .pn-drafts-title {

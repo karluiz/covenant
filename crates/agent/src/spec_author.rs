@@ -80,6 +80,11 @@ pub struct SpecDraft {
     pub partial_md: Option<String>,
     pub last_updated: DateTime<Utc>,
     pub status: DraftStatus,
+    /// Resolved git root of the project this draft was authored in, used to
+    /// scope the drafts tab per group. `None` for legacy drafts (predate this
+    /// field) or drafts created without a cwd — those surface in every group.
+    #[serde(default)]
+    pub repo_root: Option<String>,
 }
 
 // ── Path helpers ─────────────────────────────────────────────────────────────

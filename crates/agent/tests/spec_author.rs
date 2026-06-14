@@ -24,6 +24,7 @@ fn make_draft(status: DraftStatus) -> SpecDraft {
         partial_md: Some("## Goal\n\nFoo bar.".to_string()),
         last_updated: Utc::now(),
         status,
+        repo_root: None,
     }
 }
 
@@ -158,6 +159,7 @@ fn fresh_draft() -> SpecDraft {
         partial_md: None,
         last_updated: Utc::now(),
         status: DraftStatus::InProgress { phase: Phase::Goal },
+        repo_root: None,
     }
 }
 

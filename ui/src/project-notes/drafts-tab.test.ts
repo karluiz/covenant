@@ -1,13 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DraftsTab } from "./drafts-tab";
+import type { SpecDraftSummary } from "../api";
 
-vi.mock("../drafts/api", () => ({
-  draftsApi: {
-    list: vi.fn(),
-  },
-}));
-
-import { draftsApi } from "../drafts/api";
+function draft(over: Partial<SpecDraftSummary> = {}): SpecDraftSummary {
+  return {
+    id: "01ID",
+    messages: [{ role: "User", content: "Build a thing" }],
+    partial_md: null,
+    last_updated: "2026-06-12T12:00:00Z",
+    status: { InProgress: { phase: "Reading" } },
+    repo_root: null,
+    ...over,
+  };
+}
 
 describe("DraftsTab", () => {
   let host: HTMLElement;
@@ -19,103 +24,134 @@ describe("DraftsTab", () => {
     vi.clearAllMocks();
   });
 
-  it("renders empty state when group has no rootDir", async () => {
-    new DraftsTab({
-      groupId: "g1",
-      groupRootDir: null,
-      onOpenFile: () => {},
-      onOpenWizard: () => {},
-    }).mount(host);
-    await Promise.resolve();
-    expect(host.textContent).toContain("No root dir");
-    expect(host.textContent).toContain("Choose the project folder");
-    expect(draftsApi.list).not.toHaveBeenCalled();
-  });
-
-  it("sets root dir from the empty-state CTA and refreshes drafts", async () => {
-    const mock = draftsApi.list as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValue([]);
-    new DraftsTab({
-      groupId: "g1",
-      groupRootDir: null,
-      onOpenFile: () => {},
-      onOpenWizard: () => {},
-      onSetRootDir: vi.fn(async () => "/repo"),
-    }).mount(host);
-    await Promise.resolve();
-
-    (host.querySelector(".pn-empty-action") as HTMLButtonElement).click();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(mock).toHaveBeenCalledWith("/repo");
-    expect(host.textContent).toContain("No drafts");
-  });
-
-  it("lists drafts returned by the API", async () => {
-    (draftsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { slug: "foo", title: "Foo spec", updated_at: "2026-05-16T12:00:00Z" },
-      { slug: "bar", title: "Bar spec", updated_at: "2026-05-15T12:00:00Z" },
+  it("lists Spec Creator drafts returned by the API", async () => {
+    const listDrafts = vi.fn().mockResolvedValue([
+      draft({ id: "a", messages: [{ role: "User", content: "Foo spec" }] }),
+      draft({ id: "b", messages: [{ role: "User", content: "Bar spec" }] }),
     ]);
     new DraftsTab({
       groupId: "g1",
-      groupRootDir: "/repo",
-      onOpenFile: () => {},
-      onOpenWizard: () => {},
+      groupRootDir: null,
+      onOpenDraft: () => {},
+      onNewSpec: () => {},
+      listDrafts,
+      deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
+
     const items = host.querySelectorAll(".pn-drafts-item");
     expect(items.length).toBe(2);
     expect(items[0].textContent).toContain("Foo spec");
   });
 
-  it("calls onOpenFile with absolute spec path when an item is clicked", async () => {
-    (draftsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { slug: "foo", title: "Foo spec", updated_at: "2026-05-16T12:00:00Z" },
-    ]);
+  it("passes the group root dir to the list API as the scope filter", async () => {
+    const listDrafts = vi.fn().mockResolvedValue([]);
+    new DraftsTab({
+      groupId: "g1",
+      groupRootDir: "/repo/proj",
+      onOpenDraft: () => {},
+      onNewSpec: () => {},
+      listDrafts,
+      deleteDraft: vi.fn(),
+    }).mount(host);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(listDrafts).toHaveBeenCalledWith("/repo/proj");
+  });
+
+  it("shows the empty state when there are no drafts", async () => {
+    new DraftsTab({
+      groupId: "g1",
+      groupRootDir: null,
+      onOpenDraft: () => {},
+      onNewSpec: () => {},
+      listDrafts: vi.fn().mockResolvedValue([]),
+      deleteDraft: vi.fn(),
+    }).mount(host);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(host.textContent).toContain("No drafts yet");
+  });
+
+  it("falls back to 'Untitled draft' when there is no user message", async () => {
+    new DraftsTab({
+      groupId: "g1",
+      groupRootDir: null,
+      onOpenDraft: () => {},
+      onNewSpec: () => {},
+      listDrafts: vi.fn().mockResolvedValue([draft({ messages: [] })]),
+      deleteDraft: vi.fn(),
+    }).mount(host);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(host.querySelector(".pn-drafts-title")?.textContent).toBe("Untitled draft");
+  });
+
+  it("calls onOpenDraft with the draft id when an item is clicked", async () => {
     const opened: string[] = [];
     new DraftsTab({
       groupId: "g1",
-      groupRootDir: "/repo",
-      onOpenFile: (path) => opened.push(path),
-      onOpenWizard: () => {},
+      groupRootDir: null,
+      onOpenDraft: (id) => opened.push(id),
+      onNewSpec: () => {},
+      listDrafts: vi.fn().mockResolvedValue([draft({ id: "xyz" })]),
+      deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
     (host.querySelector(".pn-drafts-item") as HTMLElement).click();
-    expect(opened).toEqual(["/repo/docs/specs/foo.md"]);
+    expect(opened).toEqual(["xyz"]);
   });
 
-  it("calls onOpenWizard when '+ New spec' is clicked", async () => {
-    (draftsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    let openedRoot: string | null = null;
+  it("deletes a draft via the trash button without opening it", async () => {
+    const deleteDraft = vi.fn().mockResolvedValue(undefined);
+    const opened: string[] = [];
     new DraftsTab({
       groupId: "g1",
-      groupRootDir: "/repo",
-      onOpenFile: () => {},
-      onOpenWizard: (root) => { openedRoot = root; },
+      groupRootDir: null,
+      onOpenDraft: (id) => opened.push(id),
+      onNewSpec: () => {},
+      listDrafts: vi.fn().mockResolvedValue([draft({ id: "kill-me" })]),
+      deleteDraft,
+    }).mount(host);
+    await new Promise((r) => setTimeout(r, 0));
+
+    (host.querySelector(".pn-drafts-del") as HTMLButtonElement).click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(deleteDraft).toHaveBeenCalledWith("kill-me");
+    expect(opened).toEqual([]); // click must not bubble to the item
+    expect(host.querySelectorAll(".pn-drafts-item").length).toBe(0);
+    expect(host.textContent).toContain("No drafts yet");
+  });
+
+  it("calls onNewSpec when '+ New spec' is clicked", async () => {
+    let called = false;
+    new DraftsTab({
+      groupId: "g1",
+      groupRootDir: null,
+      onOpenDraft: () => {},
+      onNewSpec: () => { called = true; },
+      listDrafts: vi.fn().mockResolvedValue([]),
+      deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
     (host.querySelector(".pn-drafts-new") as HTMLElement).click();
-    expect(openedRoot).toBe("/repo");
+    expect(called).toBe(true);
   });
 
   it("re-renders when refresh() is called", async () => {
-    const mock = draftsApi.list as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValueOnce([
-      { slug: "foo", title: "Foo", updated_at: "2026-05-16T12:00:00Z" },
-    ]);
+    const listDrafts = vi
+      .fn()
+      .mockResolvedValueOnce([draft({ id: "a" })])
+      .mockResolvedValueOnce([draft({ id: "a" }), draft({ id: "b" })]);
     const tab = new DraftsTab({
       groupId: "g1",
-      groupRootDir: "/repo",
-      onOpenFile: () => {},
-      onOpenWizard: () => {},
+      groupRootDir: null,
+      onOpenDraft: () => {},
+      onNewSpec: () => {},
+      listDrafts,
+      deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
     expect(host.querySelectorAll(".pn-drafts-item").length).toBe(1);
 
-    mock.mockResolvedValueOnce([
-      { slug: "foo", title: "Foo", updated_at: "2026-05-16T12:00:00Z" },
-      { slug: "bar", title: "Bar", updated_at: "2026-05-16T13:00:00Z" },
-    ]);
     await tab.refresh();
     expect(host.querySelectorAll(".pn-drafts-item").length).toBe(2);
   });

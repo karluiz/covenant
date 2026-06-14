@@ -26,6 +26,7 @@ function makeDraftSummary(overrides: Partial<SpecDraftSummary> = {}): SpecDraftS
     partial_md: null,
     last_updated: '2026-05-05T00:00:00Z',
     status: { InProgress: { phase: 'goal' } },
+    repo_root: null,
     ...overrides,
   };
 }

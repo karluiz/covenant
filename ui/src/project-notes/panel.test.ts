@@ -110,9 +110,8 @@ describe("ProjectNotesPanel", () => {
     const p = new ProjectNotesPanel({
       groupId: "g1",
       groupLabel: "G1",
-      groupRootDir: "/repo",
-      onOpenFile: () => {},
-      onOpenWizard: () => {},
+      onOpenDraft: () => {},
+      onNewSpec: () => {},
     }).mount(host);
     p.switchTab("drafts");
     expect(host.querySelector(".pn-drafts-tab")).not.toBeNull();

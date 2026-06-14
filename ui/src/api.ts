@@ -1695,6 +1695,8 @@ export interface SpecDraftSummary {
   partial_md: string | null;
   last_updated: string; // ISO from chrono DateTime<Utc>
   status: SpecDraftStatus;
+  /** Resolved git root the draft was authored in; null for legacy/global drafts. */
+  repo_root: string | null;
 }
 
 export async function specAuthorStep(
@@ -1709,8 +1711,10 @@ export async function specAuthorLoadDraft(id: string): Promise<SpecDraftSummary>
   return invoke<SpecDraftSummary>("spec_author_load_draft", { id });
 }
 
-export async function specAuthorListDrafts(): Promise<SpecDraftSummary[]> {
-  return invoke<SpecDraftSummary[]>("spec_author_list_drafts");
+export async function specAuthorListDrafts(
+  repoRoot?: string | null,
+): Promise<SpecDraftSummary[]> {
+  return invoke<SpecDraftSummary[]>("spec_author_list_drafts", { repoRoot: repoRoot ?? null });
 }
 
 export async function specAuthorMarkPublished(id: string): Promise<void> {

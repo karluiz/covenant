@@ -455,7 +455,7 @@ mod tests {
     fn fresh_draft() -> SpecDraft {
         SpecDraft { id: Ulid::new(), messages: vec![], partial_md: None,
             last_updated: chrono::Utc::now(),
-            status: DraftStatus::InProgress { phase: Phase::Goal } }
+            status: DraftStatus::InProgress { phase: Phase::Goal }, repo_root: None }
     }
 
     #[tokio::test]

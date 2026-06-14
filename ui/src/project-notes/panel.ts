@@ -12,16 +12,14 @@ export interface PanelOpts {
   groupLabel: string;
   /** Optional group accent color — drives the left-edge bar and title dot. */
   groupColor?: string | null;
-  /** Active group's root dir; needed by the drafts tab. Null when unset. */
+  /** This group's project folder; scopes the drafts tab per group. */
   groupRootDir?: string | null;
   defaultTab?: PanelTab;
   onClose?: () => void;
-  /** Open an absolute file path in the editor (called from drafts tab). */
-  onOpenFile?: (absolutePath: string) => void;
-  /** Open the AI spec wizard for the given repo root (called from drafts tab). */
-  onOpenWizard?: (repoRoot: string) => void;
-  /** Pick and persist a root dir for this group (called from drafts tab CTA). */
-  onSetRootDir?: (groupId: string) => Promise<string | null>;
+  /** Resume a Spec Creator draft by id (called from drafts tab). */
+  onOpenDraft?: (draftId: string) => void;
+  /** Start a new AI-assisted spec (called from drafts tab). */
+  onNewSpec?: () => void;
 }
 
 const LAST_TAB_STORAGE_KEY = "covenant.project-notes.last-tab";
@@ -140,13 +138,8 @@ export class ProjectNotesPanel {
       new DraftsTab({
         groupId: this.opts.groupId,
         groupRootDir: this.opts.groupRootDir ?? null,
-        onOpenFile: (p) => this.opts.onOpenFile?.(p),
-        onOpenWizard: (r) => this.opts.onOpenWizard?.(r),
-        onSetRootDir: async () => {
-          const root = (await this.opts.onSetRootDir?.(this.opts.groupId)) ?? null;
-          if (root) this.opts.groupRootDir = root;
-          return root;
-        },
+        onOpenDraft: (id) => this.opts.onOpenDraft?.(id),
+        onNewSpec: () => this.opts.onNewSpec?.(),
       }).mount(this.body);
     }
   }

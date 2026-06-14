@@ -42,6 +42,7 @@ describe('mountImmersiveSpecCreator', () => {
       partial_md: null,
       last_updated: '2026-06-08T00:00:00Z',
       status: { InProgress: { phase: 'goal' } } as const,
+      repo_root: null,
     }));
     mountImmersiveSpecCreator({
       host, source: mockEventSource([]), cwd: null, draftId: 'd9', loadDraft,
