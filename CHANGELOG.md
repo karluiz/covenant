@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.80 — Achievements earn from real activity + True Dark metrics
+
+### Added
+
+- **Achievement emitters wired to real activity**: the badge engine's nine previously-dormant achievements now fire from actual operator/system events. Live emitters: **finisher**, **clean_run**, and **recovery_artist** fire on task completion (`crates/app/src/teammate/commands.rs`) gated on new sticky per-task flags the supervisor tracks (`saw_failed_block`/`ever_blocked` on `TaskCtx`, read via `TaskSupervisor::task_flags`); **build_steward** fires on a passing build/test/lint command via a pure classifier (`crates/app/src/teammate/build_classify.rs`); **guardian** fires when the safety blocklist refuses an action (`crates/app/src/operator.rs`, `crates/app/src/rc_agent.rs`); **secret_keeper** fires when operator-mind masking redacts a secret; and **spec_keeper** fires when a spec is read or created before the first code edit in a task, via a new per-session state machine fed from `NotchHub::set_phase` that uses `ExecutorPhase::Reading/Writing { file }` (`crates/app/src/teammate/spec_edit_tracker.rs`). The emitter layer is pure `*_fact()` builders plus thin `record_*()` wrappers (`crates/score/src/achievements.rs`, `crates/score/src/lib.rs`). `good_delegate` and `command_librarian` ship as dormant builders pending their trigger sources.
+- **Mission chip truncate + hover-revealed remove**: the status-bar mission chip truncates long text and reveals a remove (×) control on hover (`ui/src/status/bar.ts`).
+
+### Changed
+
+- **True Dark for the whole metrics page**: the Score/Metrics page gains a page-wide `body.theme-true-dark` block — neutral near-black surface steps and a calmed brand teal — replacing the hardcoded blue-gray surfaces that read as a harsh island on OLED (`ui/src/score/styles.css`).
+- **Achievements card homologated to the app theme**: the achievements card is driven from app theme tokens and unified onto the page teal via a card-local `--ach-accent`, instead of bespoke hardcoded colors (`ui/src/score/`).
+- **Stable dedupe hashing**: achievement dedupe keys use a deterministic FNV-1a hash rather than `DefaultHasher`, so persisted keys stay stable across Rust versions (`crates/score/src/achievements.rs`).
+
+### Fixed
+
+- **spec_keeper repo attribution**: the `spec_keeper` award is attributed to the edited file's git-root repo rather than the process-global current-context, avoiding wrong or dropped attribution when a task is completed from the teammate panel (`crates/app/src/teammate/spec_edit_tracker.rs`, `crates/app/src/teammate/commands.rs`).
+
 ## v0.8.79 — Per-operator GitHub tools + Score multi-repo scanners
 
 ### Added
