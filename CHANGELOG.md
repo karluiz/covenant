@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.81 — Titlebar buttons unified as toggles + spec-draft polish
+
+### Added
+
+- **Titlebar right-cluster is one uniform set of toggles**: every button in the titlebar's right cluster (Blocks/Files/Activity/Recall, Project Notes, Teammate, Tasker, and the Browser globe) now behaves as the same on/off toggle with equal visual weight, driven by a single `RightRailController` state machine (`ui/src/titlebar/right-rail.ts`) that owns the right-rail slot. The fold button at the end is the single collapse authority — folding closes whatever panel is open and clears every highlight, and clicking any toggle while folded unfolds and lights only that one. The globe became a real toggle that opens/closes a browser tab (with a double-click guard) instead of spawning a new tab on every click (`ui/src/main.ts`, `ui/src/tabs/manager.ts`). This also closes two long-standing bugs: clicking a view while a panel was open could leave the panel open, and folding the rail could leave a button highlighted while nothing was shown.
+- **Project Notes drafts open in the Spec Creator**: draft cards open directly in the spec-chat overlay via an `onOpenDraft` callback that carries the draft id (`ui/src/project-notes/`, `ui/src/spec-chat/`, `ui/src/main.ts`).
+- **Landing footer + navbar links**: the landing footer logo links to karluiz.com and the navbar gains Forge/Remote links (`landing/src/components/`).
+
+### Fixed
+
+- **Spec Creator resume rendering**: resuming a spec session rebuilds tool chips from the persisted transcript and streams activity incrementally instead of dumping tool output as walls of text (`ui/src/spec-chat/transcript.ts`, `ui/src/spec-chat/activity-stream.ts`, `crates/agent/src/spec_author/`).
+- **Landing mobile layout**: mobile navbar hamburger menu plus tightened section spacing, and a horizontal-overflow fix with a responsive mobile footer (`landing/src/components/Navbar.astro`, `landing/src/styles/globals.css`).
+
 ## v0.8.80 — Achievements earn from real activity + True Dark metrics
 
 ### Added
