@@ -1,16 +1,62 @@
 ---
 const githubUrl = "https://github.com/karluiz/covenant";
+const links = [
+  { href: "#install", label: "Install" },
+  { href: "/remote", label: "Remote" },
+  { href: "https://forge.covenant.uno", label: "Forge" },
+  { href: githubUrl, label: "GitHub" },
+];
 ---
 <nav class="fixed top-0 left-0 right-0 z-50 bg-ink/80 backdrop-blur-md border-b border-mist/10">
-  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-    <a href="/" class="flex items-center">
-      <img src="/brand/covenant-logotipo.svg" alt="Covenant" class="h-8" />
+  <div class="max-w-7xl mx-auto px-5 md:px-6 py-4 flex items-center justify-between">
+    <a href="/" class="flex items-center shrink-0">
+      <img src="/brand/covenant-logotipo.svg" alt="Covenant" class="h-7 md:h-8 w-auto" />
     </a>
-    <div class="flex items-center gap-6">
-      <a href="#install" class="text-mist/70 hover:text-mist transition text-sm">Install</a>
-      <a href="/remote" class="text-mist/70 hover:text-mist transition text-sm">Remote</a>
-      <a href="https://forge.covenant.uno" class="text-mist/70 hover:text-mist transition text-sm">Forge</a>
-      <a href={githubUrl} class="text-mist/70 hover:text-mist transition text-sm">GitHub</a>
+
+    <!-- Desktop links -->
+    <div class="hidden md:flex items-center gap-6">
+      {links.map((l) => (
+        <a href={l.href} class="text-mist/70 hover:text-mist transition text-sm">{l.label}</a>
+      ))}
+    </div>
+
+    <!-- Mobile toggle -->
+    <button
+      id="nav-toggle"
+      type="button"
+      class="md:hidden inline-flex items-center justify-center w-9 h-9 -mr-1 rounded-md text-mist/80 hover:text-mist hover:bg-mist/10 transition"
+      aria-label="Toggle navigation menu"
+      aria-controls="nav-menu"
+      aria-expanded="false">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h16" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Mobile menu -->
+  <div id="nav-menu" class="hidden md:hidden border-t border-mist/10 bg-ink/95 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-5 py-2 flex flex-col">
+      {links.map((l) => (
+        <a href={l.href} class="py-3 text-mist/80 hover:text-mist transition text-base border-b border-mist/5 last:border-b-0">{l.label}</a>
+      ))}
     </div>
   </div>
 </nav>
+
+<script>
+  const toggle = document.getElementById("nav-toggle");
+  const menu = document.getElementById("nav-menu");
+  if (toggle && menu) {
+    const close = () => {
+      menu.classList.add("hidden");
+      toggle.setAttribute("aria-expanded", "false");
+    };
+    toggle.addEventListener("click", () => {
+      const open = menu.classList.toggle("hidden");
+      toggle.setAttribute("aria-expanded", open ? "false" : "true");
+    });
+    // Close after tapping a link
+    menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", close));
+  }
+</script>
