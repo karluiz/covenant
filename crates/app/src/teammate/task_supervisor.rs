@@ -37,6 +37,12 @@ pub struct TaskCtx {
     /// The command of the most recent nonzero-exit block; used so we only
     /// count "same command failed again" as a retry.
     pub last_failed_cmd: Option<String>,
+    /// True once any block in this task exited non-zero. Sticky for the
+    /// task lifetime. Drives `clean_run`.
+    pub saw_failed_block: bool,
+    /// True once this task entered Blocked at least once. Sticky. Drives
+    /// `recovery_artist` (recovered-then-completed).
+    pub ever_blocked: bool,
 }
 
 /// Decision returned by the pure observer. The bus loop turns this into
@@ -84,6 +90,9 @@ impl Inner {
     ) -> Option<(TaskCtx, Decision)> {
         let ctx = self.by_session.get_mut(&session)?;
         let nonzero = matches!(exit_code, Some(c) if c != 0);
+        if nonzero {
+            ctx.saw_failed_block = true;
+        }
         let decision = if !nonzero {
             if matches!(ctx.status, TaskStatus::Blocked) {
                 ctx.status = TaskStatus::Active;
@@ -111,6 +120,7 @@ impl Inner {
             }
             if !matches!(ctx.status, TaskStatus::Blocked) {
                 ctx.status = TaskStatus::Blocked;
+                ctx.ever_blocked = true;
                 ctx.status_at = now;
                 if self.resolver.decide(ctx.operator_id, ctx.task_id, Sentiment::Duda, true, now) {
                     Decision::Transition {
@@ -156,6 +166,33 @@ impl Inner {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TaskFlags {
+    pub saw_failed_block: bool,
+    pub ever_blocked: bool,
+}
+
+impl Inner {
+    pub fn flags(&self, session: SessionId) -> Option<TaskFlags> {
+        self.by_session.get(&session).map(|c| TaskFlags {
+            saw_failed_block: c.saw_failed_block,
+            ever_blocked: c.ever_blocked,
+        })
+    }
+
+    pub fn operator_for(&self, session: SessionId) -> Option<OperatorId> {
+        self.by_session.get(&session).map(|c| c.operator_id)
+    }
+}
+
+impl TaskSupervisor {
+    /// Read the accumulated per-task flags for `session`, if still tracked.
+    /// Call before `forget_task`.
+    pub fn task_flags(&self, session: SessionId) -> Option<TaskFlags> {
+        self.inner.lock().flags(session)
+    }
+}
+
 /// Sink for synth `TaskMessage`s the supervisor produces. Production
 /// uses `tauri::AppHandle` (emits to the webview); tests use an
 /// in-memory capturing impl so the supervisor can be exercised
@@ -198,6 +235,8 @@ impl TaskSupervisor {
             status_at: Instant::now(),
             retry_count: 0,
             last_failed_cmd: None,
+            saw_failed_block: false,
+            ever_blocked: false,
         });
     }
 
@@ -227,12 +266,25 @@ impl TaskSupervisor {
         loop {
             match rx.recv().await {
                 Ok(karl_session::SessionEvent::BlockFinished {
-                    session, command, exit_code, ..
+                    session, command, exit_code, cwd, ..
                 }) => {
                     let decision = {
                         let mut g = self.inner.lock();
                         g.observe_block_finished(session, &command, exit_code, Instant::now())
                     };
+                    // build_steward: a passing build/test/lint attributable to
+                    // the task's operator. Resolve operator from the tracked
+                    // TaskCtx; skip if the session isn't a tracked task.
+                    if matches!(exit_code, Some(0)) {
+                        if let Some(kind) = crate::teammate::build_classify::classify_command(&command) {
+                            let op = { self.inner.lock().operator_for(session) };
+                            if let Some(op) = op {
+                                if let Some(repo) = karl_score::context::repo_name_for_cwd(&cwd) {
+                                    karl_score::record_build_pass(kind, &op.to_string(), &repo, &command);
+                                }
+                            }
+                        }
+                    }
                     if let Some((ctx, d)) = decision {
                         self.apply_decision(ctx, d).await;
                     }
@@ -318,6 +370,8 @@ mod tests {
             status_at: Instant::now(),
             retry_count: 0,
             last_failed_cmd: None,
+            saw_failed_block: false,
+            ever_blocked: false,
         }
     }
 
@@ -426,5 +480,47 @@ mod tests {
         let _ = inner.tick(t + Duration::from_secs(5 * 60 + 1));
         let again = inner.tick(t + Duration::from_secs(5 * 60 + 30));
         assert!(again.is_empty());
+    }
+
+    #[test]
+    fn flags_track_failure_and_recovery() {
+        let mut inner = Inner::new(Duration::from_secs(60));
+        let (o, task) = (op(), TaskId::new());
+        let s = SessionId::new();
+        inner.register(s, ctx(o, task));
+        let t = Instant::now();
+
+        // clean so far
+        let f0 = inner.flags(s).unwrap();
+        assert!(!f0.saw_failed_block);
+        assert!(!f0.ever_blocked);
+
+        inner.observe_block_finished(s, "cargo test", Some(1), t); // fail -> blocked
+        let f1 = inner.flags(s).unwrap();
+        assert!(f1.saw_failed_block);
+        assert!(f1.ever_blocked);
+
+        inner.observe_block_finished(s, "cargo test", Some(0), t); // recover
+        let f2 = inner.flags(s).unwrap();
+        assert!(f2.saw_failed_block, "failure flag is sticky for the task lifetime");
+        assert!(f2.ever_blocked, "ever_blocked is sticky");
+    }
+
+    #[test]
+    fn flags_clean_when_no_failures() {
+        let mut inner = Inner::new(Duration::from_secs(60));
+        let (o, task) = (op(), TaskId::new());
+        let s = SessionId::new();
+        inner.register(s, ctx(o, task));
+        inner.observe_block_finished(s, "ls", Some(0), Instant::now());
+        let f = inner.flags(s).unwrap();
+        assert!(!f.saw_failed_block);
+        assert!(!f.ever_blocked);
+    }
+
+    #[test]
+    fn flags_none_for_unknown_session() {
+        let inner = Inner::new(Duration::from_secs(60));
+        assert!(inner.flags(SessionId::new()).is_none());
     }
 }

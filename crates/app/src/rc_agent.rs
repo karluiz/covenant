@@ -432,6 +432,9 @@ async fn handle_send_input(app: &AppHandle, session_id: &str, data: &str) -> Opt
     let danger = crate::safety::is_dangerous(data, &[]);
     match gate(armed, danger.is_some()) {
         Gate::Reject(reason) => {
+            if matches!(reason, RejectReason::Blocklisted) {
+                karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);
+            }
             let (code, message) = reject_payload(reason, danger.map(|d| d.message));
             make_reject(code, message)
         }

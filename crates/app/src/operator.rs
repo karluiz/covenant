@@ -2983,6 +2983,7 @@ async fn run_tick(
                             category = ?reason.category,
                             "operator reply blocked by safety"
                         );
+                        karl_score::record_risky_action(karl_score::RiskyOutcome::Blocked);
                         let note = format!("blocked: {}", reason.message);
                         // Spec 3.20 phase 5: append to tried_failed so
                         // the model learns within the session.
@@ -3479,7 +3480,17 @@ async fn run_tick(
         out
     };
     for (id, mut m) in to_flush {
-        crate::operator_mind::mask_in_place(&mut m, |s| crate::safety::mask_secrets(s));
+        let redacted = std::cell::Cell::new(false);
+        crate::operator_mind::mask_in_place(&mut m, |s| {
+            let out = crate::safety::mask_secrets(s);
+            if out != s {
+                redacted.set(true);
+            }
+            out
+        });
+        if redacted.get() {
+            karl_score::record_secret_redacted("operator_mind");
+        }
         if let Err(e) = storage.mind_save(&id.to_string(), &m).await {
             tracing::warn!(session = %id, error = %e, "operator_mind: save failed; will retry");
             let mut inner_lock = inner.lock().await;
