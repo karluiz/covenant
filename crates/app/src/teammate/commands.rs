@@ -454,6 +454,28 @@ pub(crate) async fn confirm_task_inner(
     Ok(task)
 }
 
+/// Which completion-gated achievement facts a finished task should emit,
+/// given the supervisor's accumulated per-task flags. Pure + testable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompletionFact {
+    Finisher,
+    CleanRun,
+    Recovered,
+}
+
+pub(crate) fn plan_completion_emits(
+    flags: crate::teammate::task_supervisor::TaskFlags,
+) -> Vec<CompletionFact> {
+    let mut out = vec![CompletionFact::Finisher]; // verified completion always counts
+    if !flags.saw_failed_block {
+        out.push(CompletionFact::CleanRun);
+    }
+    if flags.ever_blocked {
+        out.push(CompletionFact::Recovered);
+    }
+    out
+}
+
 /// Pure inner: mark an active/blocked task done, release the operator, and
 /// synthesize the Completed lifecycle message. The Tauri command wraps this
 /// with supervisor/operator-session cleanup + event emits.
@@ -635,6 +657,21 @@ pub async fn teammate_complete_task(
     let (task, msg) =
         complete_task_inner(storage.inner(), runtime.inner(), task_id, now_unix_ms()).await?;
     if let Some(s) = task.spawned_session {
+        // Achievement emits: read flags while the task is still tracked.
+        let flags = supervisor.task_flags(s).unwrap_or_default();
+        let operator = task.operator_id.to_string();
+        let repo = karl_score::current_context().repo;
+        let task_id_str = task_id.0.to_string();
+        for fact in plan_completion_emits(flags) {
+            match fact {
+                CompletionFact::Finisher =>
+                    karl_score::record_task_verified(&operator, repo.as_deref(), &task_id_str),
+                CompletionFact::CleanRun =>
+                    karl_score::record_clean_run(&operator, repo.as_deref(), &task_id_str),
+                CompletionFact::Recovered =>
+                    karl_score::record_task_recovered(&operator, &task_id_str),
+            }
+        }
         supervisor.forget_task(s);
         state.operator.disable_for_session(&app, s, "task_completed").await;
     }
@@ -924,5 +961,26 @@ mod task_lifecycle_tests {
         runtime
             .start_task(op_id, crate::teammate::types::TaskId::new(), None)
             .expect("operator should be Idle after cancelling its task");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{plan_completion_emits, CompletionFact};
+    use crate::teammate::task_supervisor::TaskFlags;
+
+    #[test]
+    fn completion_plan_emits_finisher_always_and_gates_others() {
+        // clean, never blocked -> finisher + clean_run
+        let p = plan_completion_emits(TaskFlags { saw_failed_block: false, ever_blocked: false });
+        assert!(p.contains(&CompletionFact::Finisher));
+        assert!(p.contains(&CompletionFact::CleanRun));
+        assert!(!p.contains(&CompletionFact::Recovered));
+
+        // had a failure, was blocked, recovered -> finisher + recovered, NO clean_run
+        let p = plan_completion_emits(TaskFlags { saw_failed_block: true, ever_blocked: true });
+        assert!(p.contains(&CompletionFact::Finisher));
+        assert!(!p.contains(&CompletionFact::CleanRun));
+        assert!(p.contains(&CompletionFact::Recovered));
     }
 }
