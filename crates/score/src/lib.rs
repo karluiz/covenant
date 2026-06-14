@@ -180,6 +180,48 @@ pub fn record_llm_call(
     }
 }
 
+pub use achievements::{BuildKind, RiskyOutcome};
+
+pub fn record_task_verified(operator: &str, repo: Option<&str>, task_id: &str) {
+    let _ = record_achievement_fact(achievements::task_verified_fact(operator, repo, task_id));
+}
+
+pub fn record_clean_run(operator: &str, repo: Option<&str>, task_id: &str) {
+    let _ = record_achievement_fact(achievements::clean_run_fact(operator, repo, task_id));
+}
+
+pub fn record_task_recovered(orchestrator: &str, task_id: &str) {
+    let _ = record_achievement_fact(achievements::task_recovered_fact(orchestrator, task_id));
+}
+
+pub fn record_build_pass(kind: BuildKind, operator: &str, repo: &str, command: &str) {
+    let _ = record_achievement_fact(achievements::build_pass_fact(kind, operator, repo, command));
+}
+
+pub fn record_risky_action(outcome: RiskyOutcome) {
+    let ts = chrono::Utc::now().timestamp_millis();
+    let _ = record_achievement_fact(achievements::risky_action_fact(outcome, ts));
+}
+
+pub fn record_secret_redacted(site: &str) {
+    let ts = chrono::Utc::now().timestamp_millis();
+    let _ = record_achievement_fact(achievements::secret_redacted_fact(site, ts));
+}
+
+pub fn record_spec_kept(operator: &str, repo: &str, task_id: &str) {
+    let _ = record_achievement_fact(achievements::spec_kept_fact(operator, repo, task_id));
+}
+
+// Dormant — wired + tested, no production caller yet (good_delegate).
+pub fn record_task_delegated(orchestrator: &str, task_id: &str) {
+    let _ = record_achievement_fact(achievements::task_delegated_fact(orchestrator, task_id));
+}
+
+// Dormant — wired + tested, no production caller yet (command_librarian).
+pub fn record_project_command_learned(repo: &str, command: &str, kind: BuildKind) {
+    let _ = record_achievement_fact(achievements::project_command_learned_fact(repo, command, kind));
+}
+
 /// Record an achievement fact. Updates progress and inserts new awards atomically.
 /// Returns the awards that were newly earned (may be empty).
 pub fn record_achievement_fact(
@@ -197,6 +239,29 @@ pub fn record_achievement_fact(
         }
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod emit_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    // The global recorder is process-wide; this test owns it for its duration.
+    #[test]
+    fn record_task_verified_awards_finisher() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(ScoreStore::open(tmp.path()).unwrap());
+        set_recorder(store.clone());
+
+        record_task_verified("op-abc", Some("repo"), "task-1");
+
+        let awards = store.achievement_awards_recent(10).unwrap();
+        assert!(
+            awards.iter().any(|a| a.achievement_id == "finisher" && a.subject_id.as_deref() == Some("op-abc")),
+            "expected a finisher award, got {awards:?}"
+        );
+        clear_recorder_for_test();
+    }
 }
 
 pub fn record_spec(path: &str, ctx: &Context) {
