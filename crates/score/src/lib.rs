@@ -1,6 +1,7 @@
 pub mod achievements;
 pub mod agent_label;
 pub mod auth;
+pub mod profile_card;
 pub mod commit_scanner;
 pub mod context;
 pub mod external;
@@ -13,6 +14,7 @@ pub mod sync;
 pub mod types;
 
 pub use sync::SyncStatus;
+pub use profile_card::{PublicProfileSnapshot, ScoreBreakdown};
 
 pub use store::{ScoreError, ScoreStore};
 pub use types::{
