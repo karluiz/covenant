@@ -109,17 +109,24 @@ const taskerPanelHost = requireEl<HTMLElement>("tasker-panel");
 const taskerPanel = new TaskerPanel(taskerPanelHost);
 const taskerBtn = document.getElementById("titlebar-tasker");
 
-// Close handler
-const closeTaskerIfOpen = (): void => {
+// "Dumb" open/close helpers — they only manage Tasker's own DOM/body state.
+// Exclusivity (closing competing panels) and the active highlight are owned by
+// the RightRailController (see ui/src/titlebar/right-rail.ts), NOT here.
+const openTaskerPanel = (): void => {
+  document.body.classList.add("sidebar-view-tasker");
+  taskerPanelHost.classList.remove("hidden");
+  taskerPanel.render();
+};
+const closeTaskerPanel = (): void => {
   if (!document.body.classList.contains("sidebar-view-tasker")) return;
   document.body.classList.remove("sidebar-view-tasker");
   taskerPanelHost.classList.add("hidden");
   taskerPanel.close();
-  taskerBtn?.classList.remove("titlebar-view-active");
 };
 
-// Button handler closes competing panels (teammate, activity, project-notes)
-// then opens tasker in the right-rail slot
+// The titlebar button and the ⌘⌥K shortcut both route through the controller:
+//   taskerBtn.addEventListener("click", () => rail.toggle("tasker"));
+// The controller closes whatever else is open and toggles the active highlight.
 ```
 
 ## How to Use
