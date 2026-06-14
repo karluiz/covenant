@@ -9,6 +9,7 @@
 //! No LLM calls happen yet — that lands in Phase 2 (v0.8.1).
 
 pub mod anthropic_http;
+pub mod build_classify;
 pub mod commands;
 pub mod github_tools;
 pub mod llm;

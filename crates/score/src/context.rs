@@ -114,7 +114,7 @@ pub(crate) fn toplevel_for_cwd(cwd: &Path) -> Option<std::path::PathBuf> {
 
 /// Resolve the repo name (git toplevel basename) for a cwd learned from a
 /// transcript line rather than a live session. Same naming as prompt events.
-pub(crate) fn repo_name_for_cwd(cwd: &Path) -> Option<String> {
+pub fn repo_name_for_cwd(cwd: &Path) -> Option<String> {
     let toplevel = toplevel_for_cwd(cwd)?;
     toplevel
         .file_name()

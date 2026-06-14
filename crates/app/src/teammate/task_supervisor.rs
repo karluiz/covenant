@@ -179,6 +179,10 @@ impl Inner {
             ever_blocked: c.ever_blocked,
         })
     }
+
+    pub fn operator_for(&self, session: SessionId) -> Option<OperatorId> {
+        self.by_session.get(&session).map(|c| c.operator_id)
+    }
 }
 
 impl TaskSupervisor {
@@ -262,12 +266,25 @@ impl TaskSupervisor {
         loop {
             match rx.recv().await {
                 Ok(karl_session::SessionEvent::BlockFinished {
-                    session, command, exit_code, ..
+                    session, command, exit_code, cwd, ..
                 }) => {
                     let decision = {
                         let mut g = self.inner.lock();
                         g.observe_block_finished(session, &command, exit_code, Instant::now())
                     };
+                    // build_steward: a passing build/test/lint attributable to
+                    // the task's operator. Resolve operator from the tracked
+                    // TaskCtx; skip if the session isn't a tracked task.
+                    if matches!(exit_code, Some(0)) {
+                        if let Some(kind) = crate::teammate::build_classify::classify_command(&command) {
+                            let op = { self.inner.lock().operator_for(session) };
+                            if let Some(op) = op {
+                                if let Some(repo) = karl_score::context::repo_name_for_cwd(&cwd) {
+                                    karl_score::record_build_pass(kind, &op.to_string(), &repo, &command);
+                                }
+                            }
+                        }
+                    }
                     if let Some((ctx, d)) = decision {
                         self.apply_decision(ctx, d).await;
                     }
