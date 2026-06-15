@@ -810,6 +810,9 @@ async function boot(): Promise<void> {
       sampleNow: resourcesSampleNow,
       onUpdate: onResourcesUpdate,
     });
+    // The panel insets the workspace; refit xterm after the grid transition so
+    // the shell's cols/rows match the narrowed terminal.
+    setTimeout(() => manager.refitActive(), 320);
   };
   const closeResourcesPanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-resources")) return;
@@ -817,6 +820,7 @@ async function boot(): Promise<void> {
     resourcesPanelHost.classList.add("hidden");
     resourcesUnmount?.();
     resourcesUnmount = null;
+    setTimeout(() => manager.refitActive(), 320);
   };
 
   if (resourcesBtn) {
