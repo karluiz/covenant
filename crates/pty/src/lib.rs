@@ -144,6 +144,11 @@ impl PtySession {
     /// Spawn `options.program` inside a fresh PTY pair. Returns the
     /// session handle plus an [`OutputReceiver`] the caller drains on a
     /// tokio task.
+    /// The OS process id of the child shell, if the platform exposes it.
+    pub fn child_pid(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
     pub fn spawn(options: SpawnOptions) -> Result<(Self, OutputReceiver), PtyError> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(options.size)?;
