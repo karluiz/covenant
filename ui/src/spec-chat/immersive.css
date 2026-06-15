@@ -296,7 +296,7 @@ body.theme-true-dark .spec-creator .creator { background: #000; }
 .spec-creator .spine .node.done .label { color: var(--txt); }
 
 /* editable section body */
-.spec-creator .sec .content[contenteditable="true"] { cursor: text; outline: none; border-radius: 7px; transition: background .2s, box-shadow .2s; }
+.spec-creator .sec .content[contenteditable="true"] { cursor: text; outline: none; border-radius: 7px; white-space: pre-wrap; transition: background .2s, box-shadow .2s; }
 .spec-creator .sec .content[contenteditable="true"]:hover { background: rgba(255,255,255,.02); }
 .spec-creator .sec .content[contenteditable="true"]:focus { background: rgba(124,140,255,.05); box-shadow: 0 0 0 1px var(--accent-soft); padding: 6px 8px; margin: -6px -8px; }
 

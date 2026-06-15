@@ -29,7 +29,10 @@ export function mountLiveSpec(
     const content = sec.querySelector('.content') as HTMLElement;
     content.addEventListener('blur', () => {
       if (content.contentEditable !== 'true') return;
-      const md = (content.textContent ?? '').trim();
+      // innerText preserves the line breaks the browser inserts as <div>/<br>
+      // when the user hits Enter; textContent would flatten a bullet list to one
+      // line. Fall back to textContent under jsdom (no innerText) for tests.
+      const md = (content.innerText ?? content.textContent ?? '').trim();
       const cur = state.section(s.key);
       if (!cur || cur.markdown === md) return;
       const rebuilt = state.editSection(s.key, md);
