@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.83 — Spec Creator UX — editable sections, resume, marker chips
+
+### Added
+
+- **Editable, persisted spec sections**: each section card in the Spec Creator's SPECIFICATION panel is now editable in place. Editing a body (on blur) rebuilds the canonical spec markdown and persists it through a new backend command `spec_author_save_markdown` (`crates/agent/src/spec_author.rs`, `crates/app/src/lib.rs`, `ui/src/api.ts`), so edits survive resume and flow into the published spec. A focus guard keeps a live token stream from clobbering the body you're typing in, and `innerText` + `white-space: pre-wrap` preserve multi-line bullet lists (`ui/src/spec-chat/live-spec.ts`).
+- **Publish without waiting for the agent**: "Review & publish" now enables as soon as all six sections are drafted — the full spec is composed client-side from the section cards (`## Title` + body in canonical order), so you no longer have to coax the agent into emitting a final block (`ui/src/spec-chat/stream-state.ts`).
+- **Section markers render as inline chips**: the `<!--section:goal-->…<!--/section-->` markers the agent embeds in its prose now render as compact `✓ Goal drafted` chips (pending mid-stream) in the reasoning column instead of leaking raw, via a new `renderProse` util (`ui/src/spec-chat/prose.ts`, `ui/src/spec-chat/activity-stream.ts`).
+
+### Changed
+
+- **Single-sourced section model**: the section list/titles, markdown parsing, and marker extraction live in one shared `ui/src/spec-chat/sections.ts`, replacing the copies previously duplicated across `live-spec.ts` and `entrance.ts`.
+
+### Fixed
+
+- **Resume now repopulates the spec panel**: reopening a draft rebuilds the section cards and marks the nav chips done — `hydrate` seeds the section map from the persisted `partial_md` and falls back to parsing the transcript's section markers for drafts that were authored via markers but never persisted `partial_md` (`ui/src/spec-chat/stream-state.ts`). Previously the panel fell back to empty skeletons.
+- **SPECIFICATION panel scrolls**: `.spec-host` now takes the same `flex`/`min-height` constraint as its left-column twin so the panel's `overflow-y` actually engages on long specs (`ui/src/spec-chat/immersive.css`).
+- **Redundant heading removed from cards**: section bodies are stored header-less, dropping the agent's baked-in `## Goal` that duplicated the card title.
+- **Profile card buttons**: the Copy-link / View-profile buttons are marked `type="button"` to avoid an implicit form submit (`ui/src/score/profile.ts`).
+
 ## v0.8.82 — Shareable Covenant Score profile (opt-in)
 
 ### Added
