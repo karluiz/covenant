@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.84 — Ctrl+1..9 quick-spawn shortcuts
+
+### Added
+
+- **Quick-spawn keyboard shortcuts**: `Ctrl+1`…`Ctrl+9` launch the Nth executor (in `listSpawns()` order) directly in the active terminal — the same action as picking it from the titlebar dropdown. The shortcut is auto-assigned by list position (no pinning, no persistence), so reordering spawns re-maps the keys. A `⌃N` hint now renders on the first nine rows of both the executor picker popover (`ui/src/spawns/chip.ts`) and the Spawns settings rail (`ui/src/settings/spawns.ts`). The command-line builder and shortcut-label helpers were extracted into `ui/src/spawns/shortcuts.ts` (unit-tested) so the picker click and the shortcut share one path, including the Claude theme injection. The global keydown handler in `ui/src/main.ts` handles `Ctrl+1..9` (distinct from `⌘1..9` tab-switch, which requires `metaKey`), and `ui/src/tabs/manager.ts` returns `false` for these chords at the xterm key layer so no stray control character reaches the PTY.
+
 ## v0.8.83 — Spec Creator UX — editable sections, resume, marker chips
 
 ### Added
