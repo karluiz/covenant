@@ -42,7 +42,6 @@ import { Icons } from "./icons";
 import { RightRailController, type RailTarget } from "./titlebar/right-rail";
 import { findSpecs, findRecentCommands, getSettings, getVitals, injectCommand, killSessionForeground, onTeammateMessage, onTeammateThreadRenamed, onVitalsUpdate, operatorList, readBlockExcerpt, readSessionExcerpt, setOperatorEnabled, setOperatorLive, setWindowTheme, structureFindFiles, structureReadFile, tabManifestLoad, teammateAttachSessionToTask, teammateCancelActiveTask, teammateCancelTaskProposal, teammateClearFinishedTasks, teammateCompleteTask, teammateDeleteTask, teammateConfirmTask, teammateEditTaskProposal, teammateListMessages, teammateListTasks, teammateListThreads, teammateCreateThread, teammateRenameThread, teammateArchiveThread, teammateSendText, writeToSession, zshAutosuggestionsStatus } from "./api";
 import { resolveTheme, watchSystemTheme, claudeThemeFor, type ThemeMode } from "./theme/mode";
-import { detectExecutor } from "./executor";
 import type { Settings, WindowBackground } from "./api";
 import { DocsPanel } from "./docs/panel";
 import { DraftsPanel } from "./drafts/panel";
@@ -78,6 +77,7 @@ import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
+import { buildSpawnCmdline } from "./spawns/shortcuts";
 import { TeammatePanel } from "./teammate/panel";
 
 type LastCallChoice = "use" | "without" | "cancel";
@@ -961,9 +961,16 @@ async function boot(): Promise<void> {
   // even though SettingsPanel is instantiated further down in boot().
   const settingsRef: { panel: SettingsPanel | null } = { panel: null };
 
+  // Set by the spawns block below; the global keydown handler calls it for
+  // Ctrl+1..9. Stays null (no-op) if the spawns chip didn't mount.
+  let spawnByShortcut: ((index: number) => void) | null = null;
+
   // Spawns chip — titlebar chip + popover wired to backend.
   const spawnsMount = document.getElementById("spawns-chip-mount");
   if (spawnsMount) {
+    // Claude Code theme to inject so the executor matches Covenant. The
+    // osc133 shell wrapper is idempotent and won't double-inject once set.
+    const claudeTheme = (): string => claudeThemeFor(resolveTheme(activeThemeMode));
     const runSpawn = (id: string): void => {
       void (async () => {
         const sid = manager.activeSessionId();
@@ -971,22 +978,20 @@ async function boot(): Promise<void> {
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
         if (!spec || !spec.command) return;
-        // Launch Claude Code matching Covenant's theme. Skip if the user
-        // already pinned a theme via --settings/--theme. The osc133 shell
-        // wrapper is idempotent and won't double-inject once this is set.
-        const args = [...spec.args];
-        if (
-          detectExecutor(spec.command) === "claude" &&
-          !args.some((a) => a === "--settings" || a === "--theme")
-        ) {
-          const theme = claudeThemeFor(resolveTheme(activeThemeMode));
-          args.push("--settings", `'{"theme":"${theme}"}'`);
-        }
-        const cmdline = [spec.command, ...args].join(" ") + "\n";
+        const cmdline = buildSpawnCmdline(spec, claudeTheme()) + "\n";
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
         manager.setActiveSpawnId(spec.id);
         void chip.refresh();
+      })();
+    };
+    // Ctrl+N quick-spawn: launch the Nth executor (list order) in the
+    // CURRENT terminal — same as clicking it in the picker (runSpawn).
+    spawnByShortcut = (index: number): void => {
+      void (async () => {
+        const specs = await listSpawns();
+        const spec = specs[index];
+        if (spec) runSpawn(spec.id);
       })();
     };
     const chip = new SpawnsChip(spawnsMount, {
@@ -2040,6 +2045,20 @@ async function boot(): Promise<void> {
         draftsPanel.close();
         return;
       }
+    }
+
+    // Ctrl+1..9 → quick-spawn the Nth executor (list order) in the active
+    // terminal. Distinct from ⌘1..9 (tab switch) below, which needs metaKey.
+    if (
+      e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.shiftKey &&
+      /^[1-9]$/.test(e.key)
+    ) {
+      e.preventDefault();
+      spawnByShortcut?.(Number(e.key) - 1);
+      return;
     }
 
     if (!e.metaKey) return;

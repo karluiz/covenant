@@ -1,6 +1,7 @@
 import type { SpawnSpec } from "../spawns/types";
 import { listSpawns, upsertSpawn, deleteSpawn } from "../spawns/api";
 import { CustomSelect } from "../ui/select";
+import { spawnShortcutLabel } from "../spawns/shortcuts";
 
 /// Known executor presets. Picking one fills in defaults for any
 /// fields the user hasn't customised yet. "Custom" leaves the row
@@ -342,7 +343,7 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
 
     const rail = document.createElement("div");
     rail.className = "spawns-md-rail";
-    for (const spec of specs) {
+    specs.forEach((spec, idx) => {
       const item = document.createElement("button");
       item.type = "button";
       item.className =
@@ -360,12 +361,20 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
         star.textContent = "★";
         item.appendChild(star);
       }
+      // Ctrl+N quick-spawn hint (auto-assigned by list order, first 9).
+      const kbd = spawnShortcutLabel(idx);
+      if (kbd) {
+        const hint = document.createElement("span");
+        hint.className = "spawn-kbd spawns-md-kbd";
+        hint.textContent = kbd;
+        item.appendChild(hint);
+      }
       item.addEventListener("click", () => {
         selectedId = spec.id;
         render();
       });
       rail.appendChild(item);
-    }
+    });
 
     const addBtn = document.createElement("button");
     addBtn.type = "button";

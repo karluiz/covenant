@@ -3554,6 +3554,19 @@ export class TabManager {
     // widely-accepted "newline without submit" sequence those agents
     // recognize. Returning false stops xterm from also sending `\r`.
     term.attachCustomKeyEventHandler((ev) => {
+      // Ctrl+1..9 is a global quick-spawn shortcut (handled in main.ts).
+      // Let it bubble to the window handler instead of sending a stray
+      // control char to the PTY.
+      if (
+        ev.type === "keydown" &&
+        ev.ctrlKey &&
+        !ev.metaKey &&
+        !ev.altKey &&
+        !ev.shiftKey &&
+        /^[1-9]$/.test(ev.key)
+      ) {
+        return false;
+      }
       if (
         ev.type === "keydown" &&
         ev.key === "Enter" &&

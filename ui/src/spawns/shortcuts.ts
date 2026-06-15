@@ -1,0 +1,35 @@
+import type { SpawnSpec } from "./types";
+import { detectExecutor } from "../executor";
+
+/// How many spawns get an auto-assigned Ctrl+N shortcut. Bound to the
+/// digit row 1..9 — the 10th+ executor in list order gets none.
+export const SPAWN_SHORTCUT_MAX = 9;
+
+/// Ctrl+N hint for the spawn at `index` (0-based, in listSpawns order).
+/// Returns null past the cap. Uses the macOS Control glyph (⌃).
+export function spawnShortcutLabel(index: number): string | null {
+  return index < SPAWN_SHORTCUT_MAX ? `⌃${index + 1}` : null;
+}
+
+/// Build the command line that launches a spawn. Shared by the active-tab
+/// quick-run and the Ctrl+N new-tab path so both produce identical input.
+/// Returns the line WITHOUT a trailing newline — callers add it (or rely
+/// on createTab's initialCommand, which appends one itself).
+///
+/// `claudeTheme` injects `--settings '{"theme":...}'` so Claude Code matches
+/// Covenant's theme, but only for the claude executor and only when the user
+/// hasn't already pinned a theme via --settings/--theme. Pass null to skip.
+export function buildSpawnCmdline(
+  spec: SpawnSpec,
+  claudeTheme: string | null,
+): string {
+  const args = [...spec.args];
+  if (
+    claudeTheme &&
+    detectExecutor(spec.command) === "claude" &&
+    !args.some((a) => a === "--settings" || a === "--theme")
+  ) {
+    args.push("--settings", `'{"theme":"${claudeTheme}"}'`);
+  }
+  return [spec.command, ...args].join(" ");
+}
