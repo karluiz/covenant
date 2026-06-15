@@ -5982,6 +5982,53 @@ export class TabManager {
     return { items };
   }
 
+  /// Group→session view for the Resources panel. Walks every tab's panes
+  /// (split tabs have two) and collects their backend sessionIds, bucketed
+  /// by tab group. Ungrouped tabs fall into a synthetic "Ungrouped" group
+  /// so they still surface in the panel. `titleFor` resolves a sessionId
+  /// back to its owning tab's display name.
+  public resourcesGroupViews(): Array<{
+    id: string;
+    name: string;
+    sessionIds: string[];
+    titleFor: (sessionId: string) => string;
+  }> {
+    const sidToTitle = new Map<string, string>();
+    const order: string[] = [];
+    const buckets = new Map<string, { id: string; name: string; sessionIds: string[] }>();
+
+    const bucketFor = (id: string, name: string) => {
+      let b = buckets.get(id);
+      if (!b) {
+        b = { id, name, sessionIds: [] };
+        buckets.set(id, b);
+        order.push(id);
+      }
+      return b;
+    };
+
+    for (const tab of this.tabs) {
+      const groupId = tab.groupId;
+      const group = groupId ? this.groups.get(groupId) : null;
+      const bucket = group
+        ? bucketFor(group.id, group.name)
+        : bucketFor("__ungrouped__", "Ungrouped");
+      const title = tabDisplayName(tab);
+      for (const pane of tab.panes) {
+        const sid = pane.sessionId;
+        if (!sid) continue;
+        bucket.sessionIds.push(sid);
+        sidToTitle.set(sid, title);
+      }
+    }
+
+    const titleFor = (sid: string) => sidToTitle.get(sid) ?? sid;
+    return order
+      .map((id) => buckets.get(id)!)
+      .filter((b) => b.sessionIds.length > 0)
+      .map((b) => ({ id: b.id, name: b.name, sessionIds: b.sessionIds, titleFor }));
+  }
+
   private renderGroupChip(group: TabGroup, memberCount: number): HTMLElement {
     const chip = document.createElement("div");
     chip.className = "group-chip";

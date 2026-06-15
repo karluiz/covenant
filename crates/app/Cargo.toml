@@ -62,6 +62,8 @@ karl-familiar = { path = "../familiar" }
 karl-capabilities = { path = "../capabilities" }
 karl-score = { path = "../score" }
 dirs = { workspace = true }
+sysinfo = { workspace = true }
+karl-metrics = { workspace = true }
 
 [features]
 default = ["embeddings"]

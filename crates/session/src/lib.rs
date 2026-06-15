@@ -529,6 +529,11 @@ impl Session {
     pub fn master_fd(&self) -> std::os::fd::RawFd {
         self.pty.master_fd()
     }
+
+    /// The OS process id of the underlying shell child, if available.
+    pub fn pid(&self) -> Option<u32> {
+        self.pty.child_pid()
+    }
 }
 
 async fn pump(
@@ -839,6 +844,18 @@ mod tests {
         assert!(
             screen.contains("CAPTURE_MARKER_42"),
             "screen snapshot did not contain marker; got:\n{screen}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn spawned_session_exposes_a_pid() {
+        let mut opts = SpawnOptions::zsh_interactive();
+        opts.args.push("--no-globalrcs".to_string());
+        let (session, _streams) = Session::spawn(opts).expect("spawn");
+        assert!(
+            session.pid().is_some(),
+            "child pid should be available after spawn"
         );
     }
 }
