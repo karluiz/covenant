@@ -248,6 +248,36 @@ export async function clearAllAomExcluded(): Promise<void> {
   return invoke<void>("clear_all_aom_excluded");
 }
 
+export interface ResourcesSessionMetric { id: string; cpu: number; mem_bytes: number; }
+export interface ResourcesSnapshot {
+  total_cpu: number;
+  total_mem_bytes: number;
+  ram_share: number;
+  mem_total_bytes: number;
+  sessions: ResourcesSessionMetric[];
+}
+
+/** Start/stop the live resources sampler (panel mount/unmount). */
+export async function resourcesSetActive(active: boolean): Promise<void> {
+  return invoke<void>("resources_set_active", { active });
+}
+
+/** Force one immediate resources sample (the ↻ button). */
+export async function resourcesSampleNow(): Promise<void> {
+  return invoke<void>("resources_sample_now", {});
+}
+
+/** Subscribe to live resources snapshots. Returns an unlisten fn. */
+export async function onResourcesUpdate(
+  handler: (s: ResourcesSnapshot) => void,
+): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<ResourcesSnapshot>("resources_update", (e) =>
+    handler(e.payload),
+  );
+  return unlisten;
+}
+
 /// Operator voice tone — drives prompt directive for the operator's
 /// generated text (banner messages, escalations, replies).
 export type VoiceTone = "Terse" | "Warm" | "Formal";
