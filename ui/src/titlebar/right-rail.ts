@@ -8,7 +8,8 @@ export type RailTarget =
   | "recall"
   | "notes"
   | "teammate"
-  | "tasker";
+  | "tasker"
+  | "resources";
 
 /// Side-effects the controller drives. Implementations live in main.ts and
 /// know nothing about each other — the controller sequences them. Keeping this

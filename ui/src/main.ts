@@ -53,6 +53,8 @@ import { ReleasePanel } from "./release/panel";
 import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { TaskerPanel } from "./tasker/panel";
+import { mountResourcesPanel } from "./resources/panel";
+import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
@@ -508,6 +510,7 @@ async function boot(): Promise<void> {
   const projectNotesBtn = document.getElementById("titlebar-project-notes");
   const teammateBtn = document.getElementById("titlebar-view-teammate");
   const taskerBtn = document.getElementById("titlebar-tasker");
+  const resourcesBtn = document.getElementById("titlebar-resources");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
   const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
@@ -523,6 +526,7 @@ async function boot(): Promise<void> {
     notes: projectNotesBtn,
     teammate: teammateBtn,
     tasker: taskerBtn,
+    resources: resourcesBtn,
   };
 
   const highlightRail = (target: RailTarget | null): void => {
@@ -554,6 +558,9 @@ async function boot(): Promise<void> {
       case "tasker":
         openTaskerPanel();
         break;
+      case "resources":
+        openResourcesPanel();
+        break;
     }
   };
 
@@ -567,6 +574,9 @@ async function boot(): Promise<void> {
         break;
       case "tasker":
         closeTaskerPanel();
+        break;
+      case "resources":
+        closeResourcesPanel();
         break;
       // Views (blocks/structure/activity/recall) need no teardown — folding
       // hides the rail; the view content stays rendered underneath.
@@ -782,6 +792,37 @@ async function boot(): Promise<void> {
     taskerBtn.innerHTML = Icons.checklist({ size: 14 });
     attachTooltip(taskerBtn, "Tasker (⌘⌥K)");
     taskerBtn.addEventListener("click", () => rail.toggle("tasker"));
+  }
+
+  // Resources sidebar — per-session CPU/memory usage. Mirrors the Tasker
+  // host pattern: a dedicated #resources-panel aside placed in the right
+  // rail, toggled via body.sidebar-view-resources + the .hidden class. The
+  // panel module owns its own DOM; we mount/unmount it on open/close so the
+  // backend sampler is only active while the panel is visible.
+  const resourcesPanelHost = requireEl<HTMLElement>("resources-panel");
+  let resourcesUnmount: (() => void) | null = null;
+  const openResourcesPanel = (): void => {
+    document.body.classList.add("sidebar-view-resources");
+    resourcesPanelHost.classList.remove("hidden");
+    resourcesUnmount = mountResourcesPanel(resourcesPanelHost, {
+      getGroups: () => manager.resourcesGroupViews(),
+      setActive: resourcesSetActive,
+      sampleNow: resourcesSampleNow,
+      onUpdate: onResourcesUpdate,
+    });
+  };
+  const closeResourcesPanel = (): void => {
+    if (!document.body.classList.contains("sidebar-view-resources")) return;
+    document.body.classList.remove("sidebar-view-resources");
+    resourcesPanelHost.classList.add("hidden");
+    resourcesUnmount?.();
+    resourcesUnmount = null;
+  };
+
+  if (resourcesBtn) {
+    resourcesBtn.innerHTML = Icons.boxes({ size: 14 });
+    attachTooltip(resourcesBtn, "Resources");
+    resourcesBtn.addEventListener("click", () => rail.toggle("resources"));
   }
 
   // Internal-browser globe launcher — gated by `experimental.internal_browser`.
