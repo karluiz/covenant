@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.86 — Fix startup crash from Resources sampler
+
+### Fixed
+
+- **Startup crash (SIGABRT) on fresh v0.8.85 launch**: the Resources panel
+  sampler in `crates/app/src/resources.rs` is spawned during `setup` before
+  `app.manage(AppState)` runs, and `tokio::time::interval`'s first tick fires
+  immediately — so the loop called `app.state::<AppState>()` before the state
+  was registered. `Manager::state` panics on a missing type, aborting the
+  whole app at launch. The sampler now uses `try_state` and skips ticks until
+  `AppState` is available.
+
 ## v0.8.85 — Resources panel — live per-session CPU/mem monitor
 
 ### Added
