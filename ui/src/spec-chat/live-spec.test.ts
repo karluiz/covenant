@@ -25,4 +25,34 @@ describe('mountLiveSpec', () => {
     const node = host.querySelector('.node[data-key="acceptance"]')!;
     expect(node.classList.contains('active')).toBe(true);
   });
+
+  it('marks a completed section node on the spine even when not the active phase', () => {
+    const state = createStreamState();
+    mountLiveSpec(host, state);
+    state.hydrate({ messages: [], markdown: '## Goal\n\nDone goal.' });
+    const node = host.querySelector('.node[data-key="goal"]')!;
+    expect(node.classList.contains('done')).toBe(true);
+  });
+
+  it('fires onPersist with rebuilt markdown when a section body is edited', () => {
+    const state = createStreamState();
+    const saved: string[] = [];
+    mountLiveSpec(host, state, (md) => saved.push(md));
+    state.apply({ kind: 'section_update', section: 'goal', markdown: 'old', status: 'done' });
+    const content = host.querySelector('.sec[data-key="goal"] .content') as HTMLElement;
+    content.textContent = 'edited goal';
+    content.dispatchEvent(new Event('blur'));
+    expect(saved).toEqual(['## Goal\n\nedited goal']);
+  });
+
+  it('does not clobber a section body while it is focused', () => {
+    const state = createStreamState();
+    mountLiveSpec(host, state);
+    state.apply({ kind: 'section_update', section: 'goal', markdown: 'first', status: 'done' });
+    const content = host.querySelector('.sec[data-key="goal"] .content') as HTMLElement;
+    content.focus();
+    content.textContent = 'user typing';
+    state.apply({ kind: 'section_update', section: 'goal', markdown: 'first', status: 'done' });
+    expect(content.textContent).toBe('user typing');
+  });
 });
