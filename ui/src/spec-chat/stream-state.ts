@@ -1,5 +1,6 @@
 import type { SpecStreamEvent, SpecSectionKey } from './events';
 import { parsePersistedTranscript } from './transcript';
+import { SECTIONS, parseSectionsFromMarkdown } from './sections';
 
 export interface ToolActivity { id: string; tool: string; arg: string; summary?: string; ok?: boolean; }
 export interface SectionView { markdown: string; status: 'filling' | 'done'; }
@@ -15,7 +16,10 @@ export interface StreamState {
   addUserMessage(text: string): void;
   /** Restore a persisted draft: prior conversation turns and, if the draft was
    *  already complete, its final markdown (so publish is immediately available). */
-  hydrate(data: { messages: readonly ConvMessage[]; finalMarkdown?: string | null }): void;
+  hydrate(data: { messages: readonly ConvMessage[]; markdown?: string | null; finalMarkdown?: string | null }): void;
+  /** Overwrite a section's body (user edit). Returns the rebuilt canonical
+   *  spec markdown (all known sections, in order) for persistence. */
+  editSection(key: SpecSectionKey, markdown: string): string;
   /** Committed timeline (user + assistant turns, plus tool chips on resume),
    *  oldest first. */
   messages(): readonly TimelineItem[];
@@ -44,6 +48,11 @@ export function createStreamState(): StreamState {
   const messages: TimelineItem[] = [];
   const subs = new Set<() => void>();
   const fire = () => subs.forEach((cb) => cb());
+
+  const rebuildMarkdown = () =>
+    SECTIONS.filter((s) => sections.has(s.key))
+      .map((s) => `## ${s.title}\n\n${sections.get(s.key)!.markdown}`)
+      .join('\n\n');
 
   // Commit any streamed assistant prose as a conversation turn. The live `text`
   // accumulator is cleared so the committed bubble isn't duplicated; thinking
@@ -85,8 +94,19 @@ export function createStreamState(): StreamState {
     hydrate(data) {
       messages.length = 0;
       for (const item of parsePersistedTranscript(data.messages)) messages.push(item);
+      if (data.markdown != null) {
+        sections.clear();
+        for (const [k, v] of parseSectionsFromMarkdown(data.markdown)) sections.set(k, v);
+      }
       if (data.finalMarkdown != null) finalMd = data.finalMarkdown;
       fire();
+    },
+    editSection(key, markdown) {
+      sections.set(key, { markdown, status: 'done' });
+      const rebuilt = rebuildMarkdown();
+      if (finalMd != null) finalMd = rebuilt;
+      fire();
+      return rebuilt;
     },
     messages: () => messages,
     activePhase: () => phase,
