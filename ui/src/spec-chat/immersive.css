@@ -228,6 +228,8 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 .spec-creator .composer-engine { color: var(--txt-faint); }
 
 /* ── right: live spec ── */
+/* Constrain the host like .stream-host so the spec's overflow-y can scroll. */
+.spec-creator .spec-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .spec-creator .spec { flex:1; overflow-y:auto; padding: 22px 26px; }
 .spec-creator .spec::-webkit-scrollbar { width: 8px; }
 .spec-creator .spec::-webkit-scrollbar-thumb { background: #23252d; border-radius: 8px; }

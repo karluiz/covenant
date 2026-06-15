@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SECTIONS, titleForKey, keyForTitle, parseSectionsFromMarkdown } from './sections';
+import { SECTIONS, titleForKey, keyForTitle, parseSectionsFromMarkdown, parseSectionMarkers, stripLeadingHeading } from './sections';
 
 describe('sections util', () => {
   it('exposes the six canonical sections in order', () => {
@@ -38,5 +38,29 @@ describe('sections util', () => {
     expect(map.has('goal')).toBe(true);
     expect(map.get('goal')!.markdown).toBe('y');
     expect(map.size).toBe(1);
+  });
+
+  it('strips a leading ## heading from a section body', () => {
+    expect(stripLeadingHeading('## Goal\n\nBuild it.')).toBe('Build it.');
+    expect(stripLeadingHeading('## Out of scope\nNot this.')).toBe('Not this.');
+  });
+
+  it('leaves a header-less body untouched and keeps mid-body subheadings', () => {
+    expect(stripLeadingHeading('Just text.')).toBe('Just text.');
+    expect(stripLeadingHeading('Intro\n## Subsection\nmore')).toBe('Intro\n## Subsection\nmore');
+  });
+
+  it('extracts closed section markers (header-less bodies, known keys only)', () => {
+    const text = 'Here it is. <!--section:goal-->## Goal\n\nBuild it.<!--/section--> and '
+      + '<!--section:open_questions-->Anything?<!--/section--> done. '
+      + '<!--section:bogus-->ignored<!--/section-->';
+    expect(parseSectionMarkers(text)).toEqual([
+      { key: 'goal', markdown: 'Build it.' },
+      { key: 'open_questions', markdown: 'Anything?' },
+    ]);
+  });
+
+  it('ignores an unclosed marker', () => {
+    expect(parseSectionMarkers('text <!--section:goal-->half written')).toEqual([]);
   });
 });

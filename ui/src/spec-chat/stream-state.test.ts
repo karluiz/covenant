@@ -64,6 +64,30 @@ describe('createStreamState', () => {
     expect(s.section('acceptance')).toBeNull();
   });
 
+  it('hydrate rebuilds sections from transcript markers when partial_md is null', () => {
+    const s = createStreamState();
+    s.hydrate({
+      messages: [
+        { role: 'user', content: 'goal?' },
+        { role: 'assistant', content: 'Drafted: <!--section:goal-->## Goal\n\nBuild it.<!--/section-->' },
+        { role: 'assistant', content: 'And <!--section:complexity-->Medium.<!--/section-->' },
+      ],
+      markdown: null,
+    });
+    expect(s.section('goal')).toEqual({ markdown: 'Build it.', status: 'done' });
+    expect(s.section('complexity')).toEqual({ markdown: 'Medium.', status: 'done' });
+    expect(s.section('acceptance')).toBeNull();
+  });
+
+  it('hydrate prefers partial_md over transcript markers for the same section', () => {
+    const s = createStreamState();
+    s.hydrate({
+      messages: [{ role: 'assistant', content: '<!--section:goal-->stale draft<!--/section-->' }],
+      markdown: '## Goal\n\nedited & saved',
+    });
+    expect(s.section('goal')).toEqual({ markdown: 'edited & saved', status: 'done' });
+  });
+
   it('editSection updates the map and returns rebuilt canonical markdown', () => {
     const s = createStreamState();
     s.apply({ kind: 'section_update', section: 'goal', markdown: 'old', status: 'done' });
@@ -78,5 +102,36 @@ describe('createStreamState', () => {
     s.apply({ kind: 'section_update', section: 'goal', markdown: 'old', status: 'done' });
     s.editSection('goal', 'edited');
     expect(s.finalMarkdown()).toBe('## Goal\n\nedited');
+  });
+
+  it('section_update strips the agent\'s baked-in ## heading from the body', () => {
+    const s = createStreamState();
+    s.apply({ kind: 'section_update', section: 'goal', markdown: '## Goal\n\nBuild it.', status: 'done' });
+    expect(s.section('goal')).toEqual({ markdown: 'Build it.', status: 'done' });
+  });
+
+  it('becomes publishable once all six sections are done, composing the doc', () => {
+    const s = createStreamState();
+    const keys = ['goal', 'out_of_scope', 'acceptance', 'file_boundaries', 'complexity', 'open_questions'] as const;
+    for (const k of keys) {
+      expect(s.ready()).toBe(false); // not yet — still missing sections
+      s.apply({ kind: 'section_update', section: k, markdown: `body of ${k}`, status: 'done' });
+    }
+    expect(s.ready()).toBe(true);
+    const md = s.finalMarkdown()!;
+    // contains every required heading in canonical order, no agent `final` needed
+    expect(md).toContain('## Goal');
+    expect(md).toContain('## Out of scope');
+    expect(md).toContain('## Open questions');
+    expect(md.indexOf('## Goal')).toBeLessThan(md.indexOf('## Open questions'));
+  });
+
+  it('is not publishable when a section is still filling', () => {
+    const s = createStreamState();
+    const keys = ['goal', 'out_of_scope', 'acceptance', 'file_boundaries', 'complexity'] as const;
+    for (const k of keys) s.apply({ kind: 'section_update', section: k, markdown: 'x', status: 'done' });
+    s.apply({ kind: 'section_update', section: 'open_questions', markdown: 'x', status: 'filling' });
+    expect(s.ready()).toBe(false);
+    expect(s.finalMarkdown()).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import type { SpecStreamEvent, SpecSectionKey } from './events';
 import { parsePersistedTranscript } from './transcript';
-import { SECTIONS, parseSectionsFromMarkdown } from './sections';
+import { SECTIONS, parseSectionsFromMarkdown, parseSectionMarkers, stripLeadingHeading } from './sections';
 
 export interface ToolActivity { id: string; tool: string; arg: string; summary?: string; ok?: boolean; }
 export interface SectionView { markdown: string; status: 'filling' | 'done'; }
@@ -54,6 +54,11 @@ export function createStreamState(): StreamState {
       .map((s) => `## ${s.title}\n\n${sections.get(s.key)!.markdown}`)
       .join('\n\n');
 
+  // Every section authored → the spec is self-sufficiently publishable from the
+  // section cards, even if the agent never emitted an explicit `final` block.
+  const allSectionsDone = () =>
+    SECTIONS.every((s) => sections.get(s.key)?.status === 'done');
+
   // Commit any streamed assistant prose as a conversation turn. The live `text`
   // accumulator is cleared so the committed bubble isn't duplicated; thinking
   // and tools stay visible until the user sends the next message.
@@ -74,7 +79,7 @@ export function createStreamState(): StreamState {
           if (t) { t.summary = e.summary; t.ok = e.ok; }
           break;
         }
-        case 'section_update': sections.set(e.section, { markdown: e.markdown, status: e.status }); break;
+        case 'section_update': sections.set(e.section, { markdown: stripLeadingHeading(e.markdown), status: e.status }); break;
         case 'turn_done': awaiting = e.awaiting_user; commitAssistant(); break;
         case 'final': finalMd = e.markdown; commitAssistant(); break;
         case 'error': err = e.message; break;
@@ -94,9 +99,21 @@ export function createStreamState(): StreamState {
     hydrate(data) {
       messages.length = 0;
       for (const item of parsePersistedTranscript(data.messages)) messages.push(item);
-      if (data.markdown != null) {
-        sections.clear();
-        for (const [k, v] of parseSectionsFromMarkdown(data.markdown)) sections.set(k, v);
+      // Rebuild section cards: prefer the persisted spec (partial_md, which holds
+      // any user edits), then fall back to the section markers in the transcript
+      // for drafts that were authored via markers but never persisted partial_md.
+      const fromMd = parseSectionsFromMarkdown(data.markdown ?? null);
+      const fromTranscript = new Map<SpecSectionKey, SectionView>();
+      for (const m of data.messages) {
+        if (m.role !== 'assistant') continue;
+        for (const { key, markdown } of parseSectionMarkers(m.content)) {
+          fromTranscript.set(key, { markdown, status: 'done' }); // latest draft wins
+        }
+      }
+      sections.clear();
+      for (const s of SECTIONS) {
+        const v = fromMd.get(s.key) ?? fromTranscript.get(s.key);
+        if (v) sections.set(s.key, v);
       }
       if (data.finalMarkdown != null) finalMd = data.finalMarkdown;
       fire();
@@ -115,8 +132,8 @@ export function createStreamState(): StreamState {
     tools: () => tools,
     section: (k) => sections.get(k) ?? null,
     awaitingUser: () => awaiting,
-    finalMarkdown: () => finalMd,
-    ready: () => finalMd != null,
+    finalMarkdown: () => finalMd ?? (allSectionsDone() ? rebuildMarkdown() : null),
+    ready: () => finalMd != null || allSectionsDone(),
     error: () => err,
     onChange(cb) { subs.add(cb); return () => subs.delete(cb); },
   };
