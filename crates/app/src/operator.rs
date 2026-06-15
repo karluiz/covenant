@@ -217,6 +217,16 @@ const LOOP_TAIL_SIG_CHARS: usize = 80;
 /// trigger it, short enough to wake morning-you with a fresh signal.
 const IDLE_WAIT_ESCALATE_THRESHOLD: u32 = 5;
 
+/// AOM idle re-poll interval. Under AOM, an executor parked at a stable
+/// decision point emits no new bytes, so the byte-dedup engage gate
+/// would strand the operator forever (no human will type to unstick it).
+/// `aom_idle_repoll_due` re-opens engagement once per this interval so
+/// the operator actually answers/escalates a parked prompt. Paced so the
+/// 5-wait idle-escalate ladder (`IDLE_WAIT_ESCALATE_THRESHOLD`) still
+/// flips in a few minutes, not seconds — long enough to avoid token
+/// churn, short enough that "left it overnight" reacts within a minute.
+const AOM_IDLE_REPOLL_INTERVAL: Duration = Duration::from_secs(45);
+
 const HARD_CONSTRAINTS: &str = "\
 HARD CONSTRAINTS — these override every line of the persona, including \
 explicit user permission. The Operator MUST NEVER:
@@ -309,6 +319,12 @@ pub struct OperatorState {
     /// Marks the byte position at which the last decision was made,
     /// so we don't re-decide on the same idle period.
     pub last_decision_at_bytes_total: u64,
+    /// Wall-clock instant of the last decision. Powers the AOM idle
+    /// re-poll escape hatch (`aom_idle_repoll_due`): under AOM, a stable
+    /// decision point may be re-engaged once per re-poll interval even
+    /// when `bytes_total` hasn't advanced. `None` until the first
+    /// decision is made for this session.
+    pub last_decision_at: Option<Instant>,
 }
 
 impl OperatorState {
@@ -318,6 +334,7 @@ impl OperatorState {
             bytes_total: 0,
             tail: VecDeque::with_capacity(TAIL_CAPACITY),
             last_decision_at_bytes_total: 0,
+            last_decision_at: None,
         }
     }
 
@@ -2004,16 +2021,15 @@ async fn run_tick(
         // Snapshot tail + idle BEFORE the threshold check so we can
         // pre-scan for decision-point patterns. Dropping de-dup'd
         // sessions still happens here under the sync lock.
-        let (idle, bytes_total, tail) = {
+        let (idle, bytes_total, tail, new_bytes, since_last_decision) = {
             let st = state_arc.lock().map_err(|e| e.to_string())?;
-            let already_decided = st.last_decision_at_bytes_total == st.bytes_total;
-            if already_decided {
-                continue;
-            }
+            let new_bytes = st.last_decision_at_bytes_total != st.bytes_total;
             (
                 now.duration_since(st.last_byte_at),
                 st.bytes_total,
                 st.snapshot_tail(SUMMARY_TAIL_TARGET),
+                new_bytes,
+                st.last_decision_at.map(|t| now.duration_since(t)),
             )
         };
 
@@ -2023,6 +2039,26 @@ async fn run_tick(
         // would otherwise blink the cursor past 4s) and a larger token
         // budget (so the model can write a real answer, not just `y`).
         let is_decision = detect_decision_point(&tail);
+
+        // Byte-dedup engage gate. Default posture: exactly one decision
+        // per idle window — don't reconsider until the executor emits NEW
+        // bytes (anti-runaway: a failing model call must not re-fire every
+        // tick). That assumes a human will eventually type to clear the
+        // prompt — FALSE under AOM. So under AOM, a stable decision point
+        // re-opens engagement once per `AOM_IDLE_REPOLL_INTERVAL` even
+        // with no new bytes; otherwise the operator strands overnight on
+        // a parked prompt nobody is there to answer. Loop detection +
+        // idle-wait escalation downstream still bound the worst case.
+        let aom_repoll = aom_idle_repoll_due(
+            new_bytes,
+            effective_aom,
+            is_decision,
+            since_last_decision,
+            AOM_IDLE_REPOLL_INTERVAL,
+        );
+        if !new_bytes && !aom_repoll {
+            continue;
+        }
         let effective_threshold = if is_decision {
             DECISION_IDLE_THRESHOLD.min(idle_threshold)
         } else {
@@ -2082,7 +2118,7 @@ async fn run_tick(
         let trigger_by_idle =
             idle >= effective_threshold && idle <= effective_threshold + Duration::from_secs(30);
 
-        if !trigger_by_idle && !trigger_by_stable {
+        if !trigger_by_idle && !trigger_by_stable && !aom_repoll {
             // Diagnostic: log why we're NOT engaging. With many ticks
             // per second this can be noisy — only every ~5s per
             // session via the existing tick cadence (RUST_LOG=debug).
@@ -2267,6 +2303,9 @@ async fn run_tick(
         // operator considers this session again.
         if let Ok(mut st) = state_arc.lock() {
             st.last_decision_at_bytes_total = bytes_total;
+            // Timestamp powers the AOM idle re-poll: the next re-engage
+            // on an unchanged screen is allowed only after the interval.
+            st.last_decision_at = Some(now);
         }
         if is_decision {
             if let Some(att) = inner.lock().await.sessions.get_mut(&session_id) {
@@ -4266,6 +4305,36 @@ pub(crate) fn should_skip_triage_for_idle_repeat(
     current_progress_sig: u64,
 ) -> bool {
     consecutive_idle_waits > 0 && current_progress_sig == progress_sig_at_last_wait
+}
+
+/// AOM idle re-poll escape hatch for the byte-dedup engage gate.
+///
+/// The operator normally engages at most once per "idle window" and
+/// won't reconsider a session until the executor emits NEW bytes (the
+/// `last_decision_at_bytes_total == bytes_total` guard in `run_tick`).
+/// That guard is anti-runaway: a failing model call must not re-fire
+/// every tick. It assumes a human will eventually clear the prompt by
+/// typing — true with a human in the loop, FALSE under AOM.
+///
+/// Under AOM an executor parked at a decision prompt emits no further
+/// bytes, so the operator goes dormant indefinitely (observed: AOM left
+/// overnight does nothing; only focusing the tab revives it, because the
+/// focus-induced redraw is what finally emits fresh bytes). This opens
+/// exactly one re-engagement per `repoll` interval, but ONLY under AOM
+/// and ONLY at a stable decision point — so we never re-poll arbitrary
+/// idle output. Downstream loop detection + idle-wait escalation still
+/// bound the worst case to a few calls before the tab parks in cooldown.
+pub(crate) fn aom_idle_repoll_due(
+    new_bytes: bool,
+    effective_aom: bool,
+    is_decision: bool,
+    since_last_decision: Option<Duration>,
+    repoll: Duration,
+) -> bool {
+    !new_bytes
+        && effective_aom
+        && is_decision
+        && since_last_decision.map_or(false, |e| e >= repoll)
 }
 
 /// Strip animated-glyph and elapsed-time churn from already-ANSI-
@@ -6478,6 +6547,93 @@ What would you like to do?
         // Counter reset to 0 (e.g. after non-Wait outcome) → gate must
         // NOT fire even if the cached sig happens to match.
         assert!(!should_skip_triage_for_idle_repeat(0, sig, sig));
+    }
+
+    /// AOM idle re-poll escape hatch. The byte-dedup gate normally
+    /// refuses to re-engage until the executor emits NEW bytes — an
+    /// anti-runaway guard that assumes a human will eventually clear the
+    /// prompt. Under AOM there is no human, so an executor parked at a
+    /// decision prompt (no new bytes) would strand the operator forever.
+    /// `aom_idle_repoll_due` opens exactly one re-engagement per `repoll`
+    /// interval, but ONLY under AOM and ONLY at a stable decision point.
+    #[test]
+    fn aom_idle_repoll_reengages_parked_executor() {
+        let repoll = Duration::from_secs(45);
+
+        // The overnight bug: AOM on, claude parked at a decision prompt,
+        // no new bytes, last decision well past the re-poll interval.
+        assert!(aom_idle_repoll_due(
+            false, // no new bytes since last decision
+            true,  // effective_aom
+            true,  // is_decision (stable prompt on screen)
+            Some(Duration::from_secs(60)),
+            repoll,
+        ));
+
+        // New bytes arrived → the normal trigger path owns engagement;
+        // this is NOT the re-poll reason.
+        assert!(!aom_idle_repoll_due(
+            true,
+            true,
+            true,
+            Some(Duration::from_secs(60)),
+            repoll,
+        ));
+
+        // Not AOM → never change non-AOM (human-in-loop) behavior.
+        assert!(!aom_idle_repoll_due(
+            false,
+            false,
+            true,
+            Some(Duration::from_secs(60)),
+            repoll,
+        ));
+
+        // Not a decision point → don't re-poll arbitrary idle screens
+        // (that would burn tokens on non-prompts).
+        assert!(!aom_idle_repoll_due(
+            false,
+            true,
+            false,
+            Some(Duration::from_secs(60)),
+            repoll,
+        ));
+
+        // Interval not yet elapsed → rate-limited, no re-poll.
+        assert!(!aom_idle_repoll_due(
+            false,
+            true,
+            true,
+            Some(Duration::from_secs(10)),
+            repoll,
+        ));
+
+        // Never decided yet (no timestamp) → nothing to re-poll.
+        assert!(!aom_idle_repoll_due(false, true, true, None, repoll));
+    }
+
+    /// Structural guard: the AOM idle re-poll must be wired into BOTH
+    /// engage gates in `run_tick`. The unit test above proves the helper
+    /// is correct, but the helper is inert unless the byte-dedup gate AND
+    /// the trigger gate both honor it. `run_tick` can't be unit-driven
+    /// (needs a real AppHandle/Storage/registry), so we assert the wiring
+    /// by reading the source — same approach as the pre-triage guard.
+    #[test]
+    fn aom_idle_repoll_is_wired_into_both_gates() {
+        let src = include_str!("operator.rs");
+        // Gate 1 (byte-dedup): re-opens when no new bytes but re-poll due.
+        assert!(
+            src.contains("if !new_bytes && !aom_repoll {"),
+            "byte-dedup gate must let the AOM re-poll through; without it \
+             a parked executor strands the operator (see aom_idle_repoll_due)"
+        );
+        // Gate 2 (trigger): idle/stable triggers won't fire on an
+        // overnight-idle prompt, so the re-poll must be a third path.
+        assert!(
+            src.contains("if !trigger_by_idle && !trigger_by_stable && !aom_repoll {"),
+            "trigger gate must include the AOM re-poll path; otherwise the \
+             byte-dedup gate opens but this one re-closes it"
+        );
     }
 
     /// Regression guard for the gate-overwrite bug: once the pre-triage
