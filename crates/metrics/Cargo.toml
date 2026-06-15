@@ -1,0 +1,10 @@
+[package]
+name = "karl-metrics"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "karl_metrics"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }

@@ -4,6 +4,7 @@ members = [
     "crates/app",
     "crates/pty",
     "crates/blocks",
+    "crates/metrics",
     "crates/session",
     "crates/agent",
     "crates/familiar",

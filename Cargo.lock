@@ -3025,6 +3025,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "karl-metrics"
+version = "0.8.84"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "karl-pty"
 version = "0.8.84"
 dependencies = [
