@@ -76,10 +76,13 @@ export function mountResourcesPanel(host: HTMLElement, deps: ResourcesPanelDeps)
       for (const { id, m } of rows) {
         const r = document.createElement('div');
         r.className = 'res-session';
+        // Numeric spans are safe to template; the session title is user-controlled
+        // (custom tab names), so set it via textContent to avoid HTML injection.
         r.innerHTML =
-          `<span class="res-name">${g.titleFor(id)}</span>` +
+          `<span class="res-name"></span>` +
           `<span class="res-cpu">${m ? fmtPct(m.cpu) : '—'}</span>` +
           `<span class="res-mem">${m ? fmtBytes(m.mem_bytes) : '—'}</span>`;
+        (r.querySelector('.res-name') as HTMLElement).textContent = g.titleFor(id);
         body.appendChild(r);
       }
     }
