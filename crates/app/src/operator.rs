@@ -583,6 +583,12 @@ struct Attached {
     /// decision. Same value across consecutive WAITs ⇒ the visible
     /// screen (ignoring spinner / elapsed-time animation) is unchanged.
     progress_sig_at_last_wait: u64,
+    /// Wall-clock instant of the last REAL (model-backed) decision — i.e.
+    /// when the pre-triage cost gate did NOT short-circuit to a free Wait.
+    /// Powers `aom_force_real_attempt_due`: under AOM, a parked decision
+    /// point gets one real re-attempt per loop-cooldown interval instead
+    /// of synthesizing free Waits forever. `None` until the first real call.
+    last_real_attempt_at: Option<Instant>,
     /// True while an Anthropic Messages API call is in flight for this
     /// session. Set by `ThinkingGuard` around the `karl_agent::ask_*`
     /// call site in `run_tick`; consumed by `OperatorWatcher::is_thinking`
@@ -807,6 +813,7 @@ impl OperatorWatcher {
                 loop_cooldown_until: None,
                 consecutive_idle_waits: 0,
                 progress_sig_at_last_wait: 0,
+                last_real_attempt_at: None,
                 thinking: Arc::new(AtomicBool::new(false)),
                 current_phase: OperatorPhase::Idle,
                 phase_started_at: Instant::now(),
@@ -2331,17 +2338,38 @@ async fn run_tick(
         // zero triage cost.
         let pretriage_sig = compute_progress_signature(&tail);
         let (pretriage_skip, pretriage_prior_count, pretriage_prior_sig) = {
-            let i = inner.lock().await;
-            match i.sessions.get(&session_id) {
-                Some(att) => (
-                    should_skip_triage_for_idle_repeat(
+            let mut i = inner.lock().await;
+            match i.sessions.get_mut(&session_id) {
+                Some(att) => {
+                    let base_skip = should_skip_triage_for_idle_repeat(
                         att.consecutive_idle_waits,
                         att.progress_sig_at_last_wait,
                         pretriage_sig,
-                    ),
-                    att.consecutive_idle_waits,
-                    att.progress_sig_at_last_wait,
-                ),
+                    );
+                    // AOM act-by-default: grant one REAL model attempt per
+                    // loop-cooldown interval on a parked decision point, so
+                    // the cheap free-Wait path can't strand an unanswered
+                    // prompt forever. See `aom_force_real_attempt_due`.
+                    let since_last_real =
+                        att.last_real_attempt_at.map(|t| now.duration_since(t));
+                    let force_real = aom_force_real_attempt_due(
+                        effective_aom,
+                        is_decision,
+                        since_last_real,
+                        LOOP_COOLDOWN,
+                    );
+                    let skip = base_skip && !force_real;
+                    if !skip {
+                        // About to consult the model for real — stamp it so
+                        // the next forced attempt waits a full interval.
+                        att.last_real_attempt_at = Some(now);
+                    }
+                    (
+                        skip,
+                        att.consecutive_idle_waits,
+                        att.progress_sig_at_last_wait,
+                    )
+                }
                 None => (false, 0, 0),
             }
         };
@@ -4337,6 +4365,27 @@ pub(crate) fn aom_idle_repoll_due(
         && since_last_decision.map_or(false, |e| e >= repoll)
 }
 
+/// Whether an AOM re-poll should force a REAL model attempt, overriding
+/// the pre-triage cost gate (`should_skip_triage_for_idle_repeat`).
+///
+/// On a parked decision point the cheap path synthesizes free Waits and
+/// never re-consults the model, so a prompt the operator initially
+/// punted on (WAIT) would never get answered — counter to AOM's act-by-
+/// default posture. This grants exactly one real attempt per
+/// `min_interval` (the loop cooldown): under AOM, at a decision point,
+/// when the last real attempt is older than the interval (or there was
+/// none). Bounded cost — one model call per interval on a stuck prompt.
+pub(crate) fn aom_force_real_attempt_due(
+    effective_aom: bool,
+    is_decision: bool,
+    since_last_real_attempt: Option<Duration>,
+    min_interval: Duration,
+) -> bool {
+    effective_aom
+        && is_decision
+        && since_last_real_attempt.map_or(true, |e| e >= min_interval)
+}
+
 /// Strip animated-glyph and elapsed-time churn from already-ANSI-
 /// stripped terminal text. Removes:
 ///   - Braille block (U+2800-U+28FF) — cli-spinners default
@@ -5283,6 +5332,7 @@ error[E0382]: borrow of moved value\n";
             loop_cooldown_until: None,
             consecutive_idle_waits: 0,
             progress_sig_at_last_wait: 0,
+            last_real_attempt_at: None,
             thinking: Arc::new(AtomicBool::new(false)),
             current_phase: OperatorPhase::Idle,
             phase_started_at: Instant::now(),
@@ -6612,6 +6662,36 @@ What would you like to do?
         assert!(!aom_idle_repoll_due(false, true, true, None, repoll));
     }
 
+    /// AOM re-attempt: on a parked decision point the pre-triage cost
+    /// gate would synthesize free Waits forever and never re-call the
+    /// model. `aom_force_real_attempt_due` bypasses that gate once per
+    /// `min_interval` (the loop cooldown) so AOM actually re-attempts an
+    /// answer to a prompt it initially punted on.
+    #[test]
+    fn aom_forces_one_real_attempt_per_cooldown() {
+        let cd = Duration::from_secs(120);
+        // Never made a real attempt yet → force one.
+        assert!(aom_force_real_attempt_due(true, true, None, cd));
+        // Interval elapsed since last real attempt → force again.
+        assert!(aom_force_real_attempt_due(
+            true,
+            true,
+            Some(Duration::from_secs(130)),
+            cd
+        ));
+        // Too soon since last real attempt → stay on the cheap free-Wait path.
+        assert!(!aom_force_real_attempt_due(
+            true,
+            true,
+            Some(Duration::from_secs(30)),
+            cd
+        ));
+        // Not AOM → never bypass the cost gate (human-in-loop posture).
+        assert!(!aom_force_real_attempt_due(false, true, None, cd));
+        // Not a decision point → never bypass (don't burn tokens on non-prompts).
+        assert!(!aom_force_real_attempt_due(true, false, None, cd));
+    }
+
     /// Structural guard: the AOM idle re-poll must be wired into BOTH
     /// engage gates in `run_tick`. The unit test above proves the helper
     /// is correct, but the helper is inert unless the byte-dedup gate AND
@@ -6633,6 +6713,19 @@ What would you like to do?
             src.contains("if !trigger_by_idle && !trigger_by_stable && !aom_repoll {"),
             "trigger gate must include the AOM re-poll path; otherwise the \
              byte-dedup gate opens but this one re-closes it"
+        );
+    }
+
+    /// Structural guard: the forced AOM re-attempt must actually weaken the
+    /// pre-triage skip, else `aom_force_real_attempt_due` is inert and a
+    /// parked prompt the operator punted on never gets re-answered.
+    #[test]
+    fn aom_force_real_attempt_weakens_pretriage_skip() {
+        let src = include_str!("operator.rs");
+        assert!(
+            src.contains("let skip = base_skip && !force_real;"),
+            "pre-triage skip must yield to a forced AOM real attempt; \
+             see aom_force_real_attempt_due"
         );
     }
 
