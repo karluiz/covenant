@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.82 — Shareable Covenant Score profile (opt-in)
+
+### Added
+
+- **Shareable Covenant Score + achievements profile**: a real composite Covenant Score (0–10) now exists — 70% verified achievement reputation, 30% streak, with saturating curves so it can't be farmed — and you can **opt in** to publish a public profile at `forge.covenant.uno/u/<login>` showing the score, the six reputation dimensions, and your earned badges. New `crates/score/src/profile_card.rs` holds the pure, unit-tested score formula + an aggregates-only snapshot builder (it never copies repo names, branches, paths, or commands — a test guards against leakage); `crates/score/src/sync.rs` gains publish/unpublish transport; the opt-in flag lives in the score store (off by default) and is surfaced as a "Public profile" card in the Score/Achievements UI with a live preview and share link (`ui/src/score/profile.ts`, `ui/src/score/api.ts`). The backend (`covenant-server`) stores the snapshot, **recomputes the score server-side** so a tampered client can't inflate it, and renders the score + badges (with OpenGraph tags) on `/u/:login`.
+
 ## v0.8.81 — Titlebar buttons unified as toggles + spec-draft polish
 
 ### Added
