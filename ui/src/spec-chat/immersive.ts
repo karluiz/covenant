@@ -4,7 +4,7 @@ import { createStreamState } from './stream-state';
 import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
-import { specAuthorLoadDraft, specAuthorDeleteDraft } from '../api';
+import { specAuthorLoadDraft, specAuthorDeleteDraft, specAuthorSaveMarkdown } from '../api';
 import type { SpecDraftSummary } from '../api';
 import { Icons } from '../icons';
 import { attachTooltip } from '../tooltip/tooltip';
@@ -78,7 +78,9 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   // mountLiveSpec appends both .spine and .spec to its host; we want the spine in
   // the header and the spec in the right column. Mount into a temp host, then move.
   const tmp = document.createElement('div');
-  mountLiveSpec(tmp, state);
+  mountLiveSpec(tmp, state, (md) => {
+    if (draftId) void specAuthorSaveMarkdown(draftId, md);
+  });
   const spine = tmp.querySelector('.spine');
   const spec = tmp.querySelector('.spec');
   if (spine) (root.querySelector('.spine-host') as HTMLElement).appendChild(spine);
@@ -97,8 +99,9 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
             role: m.role === 'User' ? 'user' : 'assistant',
             content: m.content,
           })),
-          // A completed draft stores its final markdown in partial_md — surface
-          // it so Review & publish is available immediately on resume.
+          // Rebuild the section cards/nav from whatever was authored so far.
+          markdown: draft.partial_md,
+          // Publish stays gated on a completed (Ready) draft.
           finalMarkdown: draft.status === 'Ready' ? draft.partial_md : null,
         });
       })
