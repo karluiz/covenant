@@ -1725,6 +1725,11 @@ export async function specAuthorDeleteDraft(id: string): Promise<void> {
   return invoke<void>("spec_author_delete_draft", { id });
 }
 
+/** Persist a user-edited spec body (overwrites the draft's partial_md). */
+export async function specAuthorSaveMarkdown(id: string, markdown: string): Promise<void> {
+  return invoke<void>("spec_author_save_markdown", { id, markdown });
+}
+
 export async function specAuthorStreamStep(
   draftId: string | null,
   userMsg: string,

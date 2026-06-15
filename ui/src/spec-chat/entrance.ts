@@ -13,6 +13,7 @@
 import "./entrance.css";
 import type { SpecDraftSummary } from "../api";
 import { Icons } from "../icons";
+import { SECTIONS } from "./sections";
 
 export interface EntranceCallbacks {
   onResume: (draftId: string) => void;
@@ -28,15 +29,8 @@ export interface EntranceInstance {
   dismiss: () => void;
 }
 
-/** Must stay in sync with SECTIONS titles in live-spec.ts. */
-const SECTION_TITLES = [
-  "Goal",
-  "Out of scope",
-  "Acceptance criteria",
-  "File boundaries",
-  "Complexity",
-  "Open questions",
-] as const;
+/** Display titles, single-sourced from the shared sections util. */
+const SECTION_TITLES = SECTIONS.map((s) => s.title);
 
 export function sectionProgress(partialMd: string | null): boolean[] {
   if (!partialMd) return SECTION_TITLES.map(() => false);

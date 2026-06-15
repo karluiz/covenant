@@ -45,4 +45,16 @@ describe('mountActivityStream', () => {
     // The committed user bubble is the very same element — untouched by streaming.
     expect(host.querySelector('.bubble.user')).toBe(committed);
   });
+
+  it('renders section markers in assistant prose as chips, not raw', () => {
+    const state = createStreamState();
+    mountActivityStream(host, state);
+    state.addUserMessage('go');
+    state.apply({ kind: 'text_delta', text: 'Done. <!--section:goal-->## Goal\nx<!--/section-->' });
+    state.apply({ kind: 'turn_done', awaiting_user: true });
+    const bubble = host.querySelector('.bubble.asst')!;
+    expect(bubble.querySelector('.sec-chip')).not.toBeNull();
+    expect(bubble.innerHTML).not.toContain('## Goal');
+    expect(bubble.textContent).not.toContain('<!--');
+  });
 });

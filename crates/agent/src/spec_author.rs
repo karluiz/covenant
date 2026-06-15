@@ -543,6 +543,20 @@ pub fn mark_published_default(id: Ulid) -> Result<()> {
     mark_published(id, &base)
 }
 
+/// Overwrite a draft's spec body (user edit from the section editor) and persist.
+pub fn save_markdown(id: Ulid, markdown: &str, base_dir: &Path) -> Result<()> {
+    let mut draft = load_draft(base_dir, id)?;
+    draft.partial_md = Some(markdown.to_string());
+    draft.last_updated = chrono::Utc::now();
+    save_draft(base_dir, &draft)
+}
+
+/// Convenience wrapper — resolves `~/.covenant/` via `dirs::home_dir()`.
+pub fn save_markdown_default(id: Ulid, markdown: &str) -> Result<()> {
+    let base = home_covenant_dir()?;
+    save_markdown(id, markdown, &base)
+}
+
 /// Delete a draft file by id from `<base_dir>/spec-drafts/<id>.json`.
 pub fn delete_draft(base_dir: &Path, id: Ulid) -> Result<()> {
     let path = draft_path(base_dir, id);
@@ -576,4 +590,27 @@ fn extract_spec(text: &str) -> Option<String> {
         return None;
     }
     Some(text[start..end].trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_markdown_overwrites_partial_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path();
+        let draft = SpecDraft {
+            id: Ulid::new(),
+            messages: vec![],
+            partial_md: Some("## Goal\n\nold".into()),
+            last_updated: chrono::Utc::now(),
+            status: DraftStatus::InProgress { phase: Phase::Goal },
+            repo_root: None,
+        };
+        save_draft(base, &draft).unwrap();
+        save_markdown(draft.id, "## Goal\n\nedited", base).unwrap();
+        let reloaded = load_draft(base, draft.id).unwrap();
+        assert_eq!(reloaded.partial_md.as_deref(), Some("## Goal\n\nedited"));
+    }
 }
