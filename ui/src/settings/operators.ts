@@ -86,7 +86,7 @@ export class OperatorsPane {
     this.mount.innerHTML = `
       <div class="operators-pane-v2">
         <header class="operators-pane-v2__head">
-          <button type="button" class="primary" data-role="new">+ New operator</button>
+          <button type="button" class="operators-pane-v2__new" data-role="new">${Icons.plus({ size: 15 })}<span>New operator</span></button>
         </header>
         <div class="operators-pane-v2__grid" data-role="grid"></div>
       </div>
@@ -298,7 +298,7 @@ export class LegacyOperatorsPane {
     const root = this.mount.querySelector<HTMLElement>('[data-role="list"]')!;
     const items = this.operators
       .map((op) => {
-        const star = op.is_default ? "⭐" : "";
+        const star = op.is_default ? Icons.star({ size: 13 }) : "";
         const selected = op.id === this.selectedId ? " is-selected" : "";
         return `
           <button type="button" class="operators-pane__row${selected}" data-id="${op.id}">
@@ -311,7 +311,7 @@ export class LegacyOperatorsPane {
       .join("");
     root.innerHTML = `
       ${items}
-      <button type="button" class="operators-pane__new" data-role="new">+ New operator</button>
+      <button type="button" class="operators-pane__new" data-role="new">${Icons.plus({ size: 15 })}<span>New operator</span></button>
     `;
     root.querySelectorAll<HTMLButtonElement>('.operators-pane__row').forEach((btn) => {
       btn.addEventListener("click", () => this.selectId(btn.dataset.id!));
@@ -931,7 +931,8 @@ function renderHeader(h: ModalHandle): HTMLElement {
   const header = document.createElement("header");
   const brand = document.createElement("div");
   brand.className = "brand";
-  brand.textContent = `✦ ${h.state.mode === "edit" ? "Edit operator" : "New operator"}`;
+  const brandLabel = h.state.mode === "edit" ? "Edit operator" : "New operator";
+  brand.innerHTML = `${Icons.headphones({ size: 16 })}<span>${brandLabel}</span>`;
   const chipHost = document.createElement("div");
   chipHost.className = "op-hero-chip";
   chipHost.style.flex = "1";

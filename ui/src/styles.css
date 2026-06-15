@@ -4386,19 +4386,31 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 }
 
 .settings-toggle {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
     color: var(--muted);
     font-size: 11px;
-    padding: 0 12px;
+    padding: 5px 10px;
     cursor: pointer;
     font-family: inherit;
+    transition: background 0.12s ease, color 0.12s ease;
 }
+.settings-toggle svg { opacity: 0.8; flex: none; }
 
 .settings-toggle:hover {
-    color: #fff;
-    border-color: var(--accent);
+    color: var(--text-primary);
+    background: var(--settings-btn-fill-hover);
+}
+.settings-toggle:hover svg { opacity: 1; }
+
+.settings-toggle:focus { outline: none; }
+.settings-toggle:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .settings-hint {
@@ -10722,19 +10734,33 @@ body.theme-light .wiz-modal { box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.operators-pane__row-star { font-size: 12px; }
+.operators-pane__row-star { display: inline-flex; align-items: center; color: #eab308; }
 
 .operators-pane__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 4px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   cursor: pointer;
   color: var(--muted);
   font: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.operators-pane__new:hover { color: inherit; border-color: var(--accent); }
+.operators-pane__new svg { opacity: 0.8; flex: none; }
+.operators-pane__new:hover {
+  color: var(--text-primary);
+  background: var(--settings-btn-fill-hover);
+}
+.operators-pane__new:hover svg { opacity: 1; }
+.operators-pane__new:focus { outline: none; }
+.operators-pane__new:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
 
 .operators-pane__editor {
   display: flex;

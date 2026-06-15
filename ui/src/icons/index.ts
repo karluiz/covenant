@@ -112,12 +112,40 @@ export const Icons = {
   plus: (o?: IconOptions): string =>
     svg(`<path d="M5 12h14"/><path d="M12 5v14"/>`, o),
 
+  /** Download — export / save to disk. Lucide `download`. */
+  download: (o?: IconOptions): string =>
+    svg(
+      `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>`,
+      o,
+    ),
+
+  /** Upload — import / load from disk. Lucide `upload`. */
+  upload: (o?: IconOptions): string =>
+    svg(
+      `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>`,
+      o,
+    ),
+
   /** Eye — toggle visibility of hidden / gitignored items. */
   eye: (o?: IconOptions): string =>
     svg(
       `<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>`,
       o,
     ),
+
+  /** Eye-off — value is currently revealed; click hides. Lucide `eye-off`. */
+  eyeOff: (o?: IconOptions): string =>
+    svg(
+      `<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>`,
+      o,
+    ),
+
+  /** Star (filled) — marks the default / starred item. Lucide `star`. */
+  star: (o?: IconOptions): string => {
+    const size = o?.size ?? 16;
+    const cls = o?.className ? ` class="${o.className}"` : "";
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="${o?.strokeWidth ?? 1.5}" stroke-linecap="round" stroke-linejoin="round"${cls} aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.69 21.348a.53.53 0 0 1-.771-.56l.882-5.139a2.122 2.122 0 0 0-.611-1.879L2.453 10.13a.53.53 0 0 1 .294-.904l5.166-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>`;
+  },
 
   /** Sparkles — AI-assisted suggestion / help. */
   sparkles: (o?: IconOptions): string =>

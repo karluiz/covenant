@@ -25,7 +25,11 @@
   display: flex; align-items: center; gap: 12px; padding: 12px 18px;
   border-bottom: 1px solid rgba(124, 140, 255, 0.12);
 }
-.op-creator header .brand { font-weight: 600; color: #e6e8f0; }
+.op-creator header .brand {
+  font-weight: 600; color: #e6e8f0;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.op-creator header .brand svg { color: var(--accent, #7c8cff); opacity: 0.9; }
 .op-creator header .kbd {
   font-family: monospace; font-size: 11px; opacity: 0.5;
   border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 5px; padding: 2px 6px;

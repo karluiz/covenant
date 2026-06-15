@@ -1,6 +1,7 @@
 import type { Settings, ProviderEntry } from "../api";
 import { listModelsOpenAiCompat, listModelsAzureFoundry, testAnthropicKey } from "../api";
 import { CustomSelect } from "../ui/select";
+import { Icons } from "../icons";
 
 /// Master/detail providers settings: left rail lists providers (with
 /// status dots), right pane edits the selected one. State (selected id +
@@ -650,9 +651,11 @@ function wrapSecret(input: HTMLInputElement): HTMLElement {
   reveal.className = "providers-md__icon-btn";
   reveal.title = "Reveal";
   reveal.setAttribute("aria-label", "Reveal API key");
-  reveal.textContent = "👁";
+  reveal.innerHTML = Icons.eye({ size: 16 });
   reveal.onclick = () => {
-    input.type = input.type === "password" ? "text" : "password";
+    const revealed = input.type === "password";
+    input.type = revealed ? "text" : "password";
+    reveal.innerHTML = revealed ? Icons.eyeOff({ size: 16 }) : Icons.eye({ size: 16 });
   };
   wrap.appendChild(reveal);
 
@@ -661,12 +664,12 @@ function wrapSecret(input: HTMLInputElement): HTMLElement {
   copy.className = "providers-md__icon-btn";
   copy.title = "Copy";
   copy.setAttribute("aria-label", "Copy API key to clipboard");
-  copy.textContent = "⧉";
+  copy.innerHTML = Icons.copy({ size: 16 });
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(input.value);
-      copy.textContent = "✓";
-      setTimeout(() => (copy.textContent = "⧉"), 1200);
+      copy.innerHTML = Icons.check({ size: 16 });
+      setTimeout(() => (copy.innerHTML = Icons.copy({ size: 16 })), 1200);
     } catch {
       /// Clipboard may be denied in webview — silently no-op.
     }

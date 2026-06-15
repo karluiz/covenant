@@ -1031,8 +1031,8 @@ export class SettingsPanel {
           <div class="settings-field">
             <span class="settings-label">Export / Import</span>
             <div class="settings-input-row">
-              <button type="button" class="settings-toggle" data-ws-action="export">Export workspace…</button>
-              <button type="button" class="settings-toggle" data-ws-action="import">Import workspace…</button>
+              <button type="button" class="settings-toggle" data-ws-action="export">${Icons.download({ size: 14 })}<span>Export workspace…</span></button>
+              <button type="button" class="settings-toggle" data-ws-action="import">${Icons.upload({ size: 14 })}<span>Import workspace…</span></button>
               <input type="file" accept="application/json,.json" data-ws-file hidden />
             </div>
             <small class="settings-hint">

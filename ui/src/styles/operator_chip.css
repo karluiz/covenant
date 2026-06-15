@@ -46,6 +46,31 @@ body.theme-dark .op-card .op-chip {
   justify-content: flex-end;
   margin-bottom: 24px;
 }
+.operators-pane-v2__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 6px 11px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.operators-pane-v2__new svg { opacity: 0.8; flex: none; }
+.operators-pane-v2__new:hover {
+  color: var(--text-primary);
+  background: var(--settings-btn-fill-hover);
+}
+.operators-pane-v2__new:hover svg { opacity: 1; }
+.operators-pane-v2__new:focus { outline: none; }
+.operators-pane-v2__new:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
 .operators-pane-v2__grid {
   display: block;
 }
