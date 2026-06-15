@@ -1,6 +1,7 @@
 import type { SpawnSpec } from "./types";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
+import { spawnShortcutLabel } from "./shortcuts";
 
 const escHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -111,13 +112,15 @@ export class SpawnsChip {
     pop.innerHTML =
       this.specs
         .map(
-          (s) => {
+          (s, i) => {
           const c = brandColor(s);
+          const kbd = spawnShortcutLabel(i);
           return `
         <button class="spawns-popover__item${s.id === boundId ? " is-active" : ""}" data-id="${s.id}" type="button" style="--spawn-accent:${c};">
           <span class="dot" style="background:${c};box-shadow:0 0 6px ${c}99;"></span>
           <span class="label">${escHtml(s.label)}</span>
           ${s.model ? `<span class="meta">${escHtml(s.model)}</span>` : ""}
+          ${kbd ? `<span class="spawn-kbd">${kbd}</span>` : ""}
         </button>`;
         }
         )
