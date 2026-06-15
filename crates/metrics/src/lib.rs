@@ -58,6 +58,61 @@ pub fn aggregate_subtree(table: &ProcessTable, root: u32) -> ProcMetrics {
     out
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MachineTotals {
+    pub mem_total_bytes: u64,
+    pub ncpus: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct SessionMetric {
+    pub id: String,
+    pub cpu: f32,
+    pub mem_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ResourcesSnapshot {
+    pub total_cpu: f32,
+    pub total_mem_bytes: u64,
+    pub ram_share: f32,
+    pub mem_total_bytes: u64,
+    pub sessions: Vec<SessionMetric>,
+}
+
+/// Aggregate each session's subtree, normalize cpu to a 0..100 machine reading
+/// (so a fully-pegged core under 8 cores reads ~12.5%, matching Activity-Monitor
+/// style), and compute the footprint totals + RAM share.
+pub fn build_snapshot(
+    table: &ProcessTable,
+    roots: &[(String, u32)],
+    machine: MachineTotals,
+) -> ResourcesSnapshot {
+    let div = if machine.ncpus > 0 { machine.ncpus as f32 } else { 1.0 };
+    let mut sessions = Vec::with_capacity(roots.len());
+    let mut total_cpu = 0.0f32;
+    let mut total_mem = 0u64;
+    for (id, pid) in roots {
+        let m = aggregate_subtree(table, *pid);
+        let cpu = m.cpu / div;
+        total_cpu += cpu;
+        total_mem += m.mem_bytes;
+        sessions.push(SessionMetric { id: id.clone(), cpu, mem_bytes: m.mem_bytes });
+    }
+    let ram_share = if machine.mem_total_bytes > 0 {
+        total_mem as f32 / machine.mem_total_bytes as f32 * 100.0
+    } else {
+        0.0
+    };
+    ResourcesSnapshot {
+        total_cpu,
+        total_mem_bytes: total_mem,
+        ram_share,
+        mem_total_bytes: machine.mem_total_bytes,
+        sessions,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +150,36 @@ mod tests {
         ]);
         let m = aggregate_subtree(&table, 1);
         assert_eq!(m.mem_bytes, 2);
+    }
+
+    #[test]
+    fn snapshot_sums_sessions_and_normalizes_cpu_by_cores() {
+        let table = ProcessTable::from_samples(vec![
+            sample(10, 1, 200.0, 100_000_000),
+            sample(20, 1, 200.0, 100_000_000),
+        ]);
+        let snap = build_snapshot(
+            &table,
+            &[("a".into(), 10), ("b".into(), 20)],
+            MachineTotals { mem_total_bytes: 8_000_000_000, ncpus: 4 },
+        );
+        assert_eq!(snap.sessions[0].cpu, 50.0);
+        assert_eq!(snap.sessions[0].mem_bytes, 100_000_000);
+        assert_eq!(snap.total_cpu, 100.0);
+        assert_eq!(snap.total_mem_bytes, 200_000_000);
+        assert!((snap.ram_share - 2.5).abs() < 1e-3);
+        assert_eq!(snap.mem_total_bytes, 8_000_000_000);
+    }
+
+    #[test]
+    fn snapshot_guards_zero_cores_and_zero_total_ram() {
+        let table = ProcessTable::from_samples(vec![sample(10, 1, 5.0, 5)]);
+        let snap = build_snapshot(
+            &table,
+            &[("a".into(), 10)],
+            MachineTotals { mem_total_bytes: 0, ncpus: 0 },
+        );
+        assert_eq!(snap.sessions[0].cpu, 5.0);
+        assert_eq!(snap.ram_share, 0.0);
     }
 }
