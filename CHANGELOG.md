@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.85 — Resources panel — live per-session CPU/mem monitor
+
+### Added
+
+- **Resources panel**: a new right-rail panel that live-monitors the CPU and memory of Covenant's own terminal sessions, grouped Group → Session, with whole-footprint totals (CPU / Memory / RAM share) in the header. A new pure `crates/metrics` crate holds the process-subtree aggregation (sums each session's shell + all descendants, tolerant of missing pids/cycles) and snapshot math; `crates/app/src/resources.rs` samples `sysinfo` every ~1.5s while the panel is open (paused when closed) and emits `resources_update`, with `resources_set_active`/`resources_sample_now` commands. `crates/pty` + `crates/session` expose each session's child PID. The frontend panel (`ui/src/resources/panel.ts`) joins the flat per-session snapshot with the tab/group model, sorts by memory or CPU, and refreshes via a ↻ button. It docks like Project Notes — top-aligned, resizable via the shared `--right-sidebar-w` handle, and reflows the terminal rather than covering it.
+- **Operator chip + settings polish**: operator chip styling and provider/settings refinements (`ui/src/styles/operator_chip.css`, `ui/src/settings/`, `ui/src/icons/index.ts`).
+
+### Fixed
+
+- **AOM re-engages parked executors**: the autonomous operator now re-attempts a parked prompt once per cooldown via an idle re-poll, instead of going dormant when no human is typing (`crates/app/src/operator.rs`).
+- **Resources panel hardening**: session titles render via `textContent` (no HTML injection from custom tab names), and the panel's layout was corrected from a full-bleed overlay to a proper top-aligned, resizable right-rail sidebar.
+
 ## v0.8.84 — Ctrl+1..9 quick-spawn shortcuts
 
 ### Added
