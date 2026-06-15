@@ -1,4 +1,5 @@
 import type { StreamState } from './stream-state';
+import { renderProse } from './prose';
 
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -52,7 +53,9 @@ export function mountActivityStream(host: HTMLElement, state: StreamState): () =
           `<div class="item"><div class="tool">` +
           `<span class="verb">${esc(m.tool)}</span>${path}${hit}</div></div>`);
       } else {
-        el = itemFromHtml(`<div class="item"><div class="bubble ${m.role === 'user' ? 'user' : 'asst'}">${esc(m.content)}</div></div>`);
+        const cls = m.role === 'user' ? 'user' : 'asst';
+        const body = m.role === 'user' ? esc(m.content) : renderProse(m.content);
+        el = itemFromHtml(`<div class="item"><div class="bubble ${cls}">${body}</div></div>`);
       }
       stream.insertBefore(el, live);
     }
@@ -118,7 +121,7 @@ export function mountActivityStream(host: HTMLElement, state: StreamState): () =
         liveText = el.querySelector('.bubble') as HTMLElement;
         textSlot.appendChild(el);
       }
-      liveText.textContent = t;
+      liveText.innerHTML = renderProse(t);
     } else if (liveText) {
       textSlot.replaceChildren();
       liveText = null;
