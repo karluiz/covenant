@@ -41,6 +41,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 regex = "1"
 dirs = "5"
 async-trait = "0.1"
+sysinfo = "0.33"
+karl-metrics = { path = "crates/metrics" }
 
 # Tauri
 tauri = { version = "2", features = ["macos-private-api", "unstable"] }

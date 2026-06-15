@@ -43,6 +43,7 @@ mod pi_commands;
 mod project_notes;
 mod prompts;
 mod project_ref;
+mod resources;
 pub mod provider_resolve;
 mod providers_cmd;
 mod rc_agent;
