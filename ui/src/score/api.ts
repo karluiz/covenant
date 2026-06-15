@@ -271,3 +271,30 @@ export async function scoreAchievementRecompute(): Promise<number> {
 export async function scoreTokenScope(): Promise<string | null> {
   return invoke<string | null>("score_token_scope");
 }
+
+// ─── Public Profile ──────────────────────────────────────────────────────────
+
+export interface PublicProfileSnapshot {
+  schema_version: number;
+  github_id: number;
+  login: string;
+  avatar_url: string;
+  generated_at_ms: number;
+  score: { headline: number; reputation01: number; activity01: number };
+  dimensions: { category: string; points: number }[];
+  awards: { achievement_id: string; tier: number; rarity: string; title: string; earned_at_ms: number }[];
+  totals: { awards_count: number; current_streak: number; total_prompts: number; total_commits: number };
+}
+
+export async function scoreProfileGetPublish(): Promise<boolean> {
+  return invoke("score_profile_get_publish");
+}
+export async function scoreProfileSetPublish(enabled: boolean): Promise<string | null> {
+  return invoke("score_profile_set_publish", { enabled });
+}
+export async function scoreProfilePreview(): Promise<PublicProfileSnapshot | null> {
+  return invoke("score_profile_preview");
+}
+export async function scoreProfileShareUrl(): Promise<string | null> {
+  return invoke("score_profile_share_url");
+}

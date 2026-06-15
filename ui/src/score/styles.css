@@ -828,3 +828,122 @@ body.theme-true-dark .cov-rarity-rare .cov-ach-badge,
 body.theme-true-dark .cov-rarity-epic .cov-ach-badge,
 body.theme-true-dark .cov-rarity-legendary .cov-ach-badge { box-shadow: none; }
 body.theme-light .lb-more { color: #0a8f7d; }
+
+/* ── Public Profile card ─────────────────────────────────────────────────────
+   Consistent with .cov-card: dark #131a1e surface, teal (#5eead4) accents,
+   monospace chrome. Adapts to light and True Dark via existing body-class
+   rules that already repaint .cov-card. */
+
+.cov-pubprofile-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cov-pubprofile-head .eyebrow {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #6c8088;
+  font-weight: 600;
+}
+.cov-pub-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d6e2e6;
+  cursor: pointer;
+  user-select: none;
+}
+.cov-pub-toggle input[type="checkbox"] {
+  accent-color: #5eead4;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.cov-pubprofile-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.cov-score-hero {
+  font-size: 36px;
+  font-weight: 600;
+  color: #5eead4;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+.cov-pubprofile-badges {
+  font-size: 12px;
+  color: #8aa0a8;
+  margin-top: 4px;
+}
+.cov-pubprofile-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(94, 234, 212, 0.04);
+  border: 1px solid #1f4a44;
+  border-radius: 7px;
+}
+.cov-pubprofile-share code[data-share-url] {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: #5eead4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cov-pubprofile-share button {
+  background: #1a2128;
+  border: 1px solid #2a3540;
+  color: #e8f1f5;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cov-pubprofile-share button:hover { background: #232b34; border-color: #3a4854; }
+
+.cov-hidden { display: none !important; }
+.cov-muted  { color: #6c8088; font-size: 12px; margin: 0; }
+.cov-tiny   { font-size: 10px !important; line-height: 1.5; }
+
+/* Light-mode */
+body.theme-light .cov-pubprofile-head .eyebrow { color: var(--muted); }
+body.theme-light .cov-pub-toggle { color: var(--text-primary); }
+body.theme-light .cov-score-hero { color: #0a8f7d; }
+body.theme-light .cov-pubprofile-badges { color: var(--muted); }
+body.theme-light .cov-pubprofile-share {
+  background: rgba(94, 234, 212, 0.08);
+  border-color: rgba(94, 234, 212, 0.45);
+}
+body.theme-light .cov-pubprofile-share code[data-share-url] { color: #0a8f7d; }
+body.theme-light .cov-pubprofile-share button {
+  background: #fff; border-color: var(--border); color: var(--text-primary);
+}
+body.theme-light .cov-pubprofile-share button:hover { background: rgba(0,0,0,0.04); }
+body.theme-light .cov-muted { color: var(--muted); }
+
+/* True Dark */
+body.theme-true-dark .cov-score-hero { color: var(--cov-teal); }
+body.theme-true-dark .cov-pubprofile-share {
+  background: rgba(69, 196, 178, 0.04);
+  border-color: var(--cov-teal-dim);
+}
+body.theme-true-dark .cov-pubprofile-share code[data-share-url] { color: var(--cov-teal); }
+body.theme-true-dark .cov-pubprofile-share button {
+  background: var(--cov-surface-2); border-color: var(--cov-line); color: #d6e2e6;
+}
+body.theme-true-dark .cov-pubprofile-share button:hover { border-color: #2c2c2f; }
