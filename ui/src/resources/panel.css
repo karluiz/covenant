@@ -1,0 +1,12 @@
+.res-panel { display: flex; flex-direction: column; height: 100%; font-size: 13px; color: var(--txt, #e6e7ee); }
+.res-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.res-title { font-weight: 600; font-size: 15px; }
+.res-sort, .res-refresh { margin-left: auto; cursor: pointer; color: var(--txt-faint, #8a8d99); font-size: 12px; }
+.res-refresh { margin-left: 0; }
+.res-totals { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 6px 14px 14px; border-bottom: 1px solid var(--line-soft, #23252d); }
+.res-cap { display: block; font-size: 10px; letter-spacing: 1px; color: var(--txt-faint, #8a8d99); }
+.res-total-cpu, .res-total-mem, .res-total-share { font-size: 18px; }
+.res-body { flex: 1; overflow-y: auto; padding: 8px 14px; }
+.res-group { font-weight: 600; letter-spacing: .5px; margin: 12px 0 4px; }
+.res-session { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 4px 0 4px 14px; color: var(--txt-dim, #b6b9c5); }
+.res-empty { color: var(--txt-faint, #8a8d99); padding: 16px 2px; }
