@@ -43,8 +43,8 @@ export async function renderPublicProfileCard(host: HTMLElement): Promise<void> 
     </div>
     <div class="cov-pubprofile-share ${enabled ? "" : "cov-hidden"}">
       <code data-share-url>${url ?? ""}</code>
-      <button data-copy>Copy link</button>
-      <button data-view>View profile</button>
+      <button type="button" data-copy>Copy link</button>
+      <button type="button" data-view>View profile</button>
     </div>
     <p class="cov-muted cov-tiny">${PRIVACY_LINE}</p>`;
 
