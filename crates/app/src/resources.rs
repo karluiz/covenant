@@ -47,6 +47,68 @@ impl ResourcesState {
     }
 }
 
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
+
+/// Force one immediate sample + emit, regardless of the active flag (the ↻ button).
+#[tauri::command]
+pub async fn resources_sample_now(app: AppHandle) -> Result<(), String> {
+    emit_one(&app).await;
+    Ok(())
+}
+
+/// Start/stop the live sampler loop (panel mount/unmount).
+#[tauri::command]
+pub async fn resources_set_active(app: AppHandle, active: bool) -> Result<(), String> {
+    app.state::<crate::AppState>().resources.set_active(active);
+    if active {
+        emit_one(&app).await;
+    }
+    Ok(())
+}
+
+/// Collect the live session roots (id, pid) from the registry.
+async fn session_roots(app: &AppHandle) -> Vec<(String, u32)> {
+    let state = app.state::<crate::AppState>();
+    let sessions = state.sessions.lock().await;
+    sessions
+        .iter()
+        .filter_map(|(id, managed)| managed.session.pid().map(|pid| (id.0.to_string(), pid)))
+        .collect()
+}
+
+/// Refresh sysinfo (memory + cpu + processes; cpu is a delta so refresh twice) and emit a snapshot.
+async fn emit_one(app: &AppHandle) {
+    let roots = session_roots(app).await;
+    let mut sys = System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_processes(ProcessRefreshKind::everything())
+            .with_memory(MemoryRefreshKind::everything())
+            .with_cpu(CpuRefreshKind::everything()),
+    );
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    // second refresh after the minimum cpu interval gives a real cpu delta
+    tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    sys.refresh_memory();
+    sys.refresh_cpu_all();
+    let snap = snapshot(&sys, &roots);
+    let _ = app.emit("resources_update", &snap);
+}
+
+/// Spawn the background sampler. Ticks ~1.5s, but only emits while active.
+pub fn spawn_sampler(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_millis(1500));
+        loop {
+            tick.tick().await;
+            if app.state::<crate::AppState>().resources.is_active() {
+                emit_one(&app).await;
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

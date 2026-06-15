@@ -206,6 +206,8 @@ pub(crate) struct AppState {
     /// what the user's actual Claude session is doing, not just Covenant's
     /// internal summariser / fix-proposer calls.
     pub(crate) exec_vitals: exec_vitals::ExecVitals,
+    /// Live on/off switch for the Resources panel sampler loop.
+    pub(crate) resources: resources::ResourcesState,
     /// Per-session fuzzy file search cache. Populated on first `search_session_files`
     /// call for each session, refreshed on cwd change or TTL expiry.
     pub(crate) file_search_cache: crate::file_search::FileSearchCache,
@@ -3699,6 +3701,8 @@ pub fn run() {
 
             spawn_superpowers_watcher(app.handle().clone());
 
+            resources::spawn_sampler(app.handle().clone());
+
             // One-shot Recall seeding: on first launch, import the
             // user's existing ~/.zsh_history so Recall isn't empty.
             // Runs in the background — startup must not block on
@@ -3835,6 +3839,7 @@ pub fn run() {
                 notch_hub,
                 vitals,
                 exec_vitals,
+                resources: resources::ResourcesState::default(),
                 file_search_cache: crate::file_search::FileSearchCache::new(),
                 allow_remote_open: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             });
@@ -4176,6 +4181,8 @@ pub fn run() {
             split_commands::set_pane_ratio,
             vitals::get_vitals,
             vitals::set_active_session_for_vitals,
+            resources::resources_set_active,
+            resources::resources_sample_now,
             theme::set_window_theme,
         ])
         .run(tauri::generate_context!())
