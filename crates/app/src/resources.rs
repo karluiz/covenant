@@ -102,7 +102,14 @@ pub fn spawn_sampler(app: AppHandle) {
         let mut tick = tokio::time::interval(Duration::from_millis(1500));
         loop {
             tick.tick().await;
-            if app.state::<crate::AppState>().resources.is_active() {
+            // `interval`'s first tick fires immediately, and the sampler is
+            // spawned before `AppState` is managed in setup. `state()` panics
+            // when the type isn't registered yet, which aborts the whole app at
+            // launch — use `try_state` and skip until it's available.
+            let Some(state) = app.try_state::<crate::AppState>() else {
+                continue;
+            };
+            if state.resources.is_active() {
                 emit_one(&app).await;
             }
         }
