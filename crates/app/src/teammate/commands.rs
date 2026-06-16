@@ -528,6 +528,65 @@ pub(crate) fn plan_completion_emits(
     out
 }
 
+pub(crate) fn build_handoff_report_body(to: &str, deliverable: &str, ok: bool) -> String {
+    if ok {
+        format!("✓ {to} completed the delegated task — {deliverable}. (Review and continue.)")
+    } else {
+        format!("✗ {to} did not complete the delegated task — {deliverable}.")
+    }
+}
+
+/// If `task_id` was delegated via a handoff, persist a report into the
+/// delegator's thread and mark the edge terminal (Reported on success,
+/// Failed otherwise). Best-effort, pure storage I/O — the real-time emit +
+/// delegator wake land in Plan 2. No-op when the task wasn't delegated.
+pub(crate) async fn report_handoff_back(
+    storage: &Arc<Storage>,
+    task_id: TaskId,
+    deliverable: &str,
+    ok: bool,
+    now_ms: u64,
+) -> Result<(), String> {
+    let Some(h) = storage.teammate_get_handoff_by_task(task_id).await.map_err(|e| e.to_string())?
+    else { return Ok(()); };
+    if h.status != crate::teammate::types::HandoffStatus::Running { return Ok(()); }
+
+    let to_name = storage.operator_list().await.map_err(|e| e.to_string())?
+        .into_iter().find(|o| o.id == h.to_operator_id).map(|o| o.name)
+        .unwrap_or_else(|| "the operator".into());
+    let body = build_handoff_report_body(&to_name, deliverable, ok);
+
+    let mut report = TaskMessage {
+        id: MessageId::new(),
+        operator_id: h.from_operator_id,
+        task_id: h.origin_task_id,
+        thread_id: Some(h.origin_thread_id),
+        role: Role::System,
+        content: MessageContent::Text(body.clone()),
+        created_at_unix_ms: now_ms,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
+        sentiment: None,
+    };
+    // The report-back is best-effort: if the delegator's origin thread no
+    // longer exists (FK violation), still land the report on the operator's
+    // feed unthreaded rather than dropping it and stranding the edge.
+    if let Err(_e) = storage.teammate_insert_message(&report).await {
+        report.thread_id = None;
+        storage.teammate_insert_message(&report).await.map_err(|e| e.to_string())?;
+    }
+    storage.teammate_update_handoff_status(
+        h.id,
+        if ok { crate::teammate::types::HandoffStatus::Reported }
+        else  { crate::teammate::types::HandoffStatus::Failed },
+        Some(body),
+        Some(now_ms),
+    ).await.map_err(|e| e.to_string())?;
+
+    karl_score::record_task_delegated(&h.from_operator_id.0.to_string(), &task_id.0.to_string());
+    Ok(())
+}
+
 /// Pure inner: mark an active/blocked task done, release the operator, and
 /// synthesize the Completed lifecycle message. The Tauri command wraps this
 /// with supervisor/operator-session cleanup + event emits.
@@ -561,6 +620,9 @@ pub(crate) async fn complete_task_inner(
         sentiment: Some(crate::teammate::types::Sentiment::Feliz),
     };
     storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, true, now_ms).await {
+        tracing::warn!(error = %e, "handoff report-back (complete) failed");
+    }
     let task = Task {
         status: TaskStatus::Done,
         completed_at_unix_ms: Some(now_ms),
@@ -600,6 +662,9 @@ pub(crate) async fn cancel_active_task_inner(
         sentiment: Some(crate::teammate::types::Sentiment::Triste),
     };
     storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, false, now_ms).await {
+        tracing::warn!(error = %e, "handoff report-back (cancel) failed");
+    }
     let task = Task { status: TaskStatus::Cancelled, updated_at_unix_ms: now_ms, ..task };
     Ok((task, msg))
 }
@@ -1025,6 +1090,55 @@ mod task_lifecycle_tests {
             .start_task(op_id, crate::teammate::types::TaskId::new(), None)
             .expect("operator should be Idle after cancelling its task");
     }
+
+    #[tokio::test]
+    async fn complete_reports_handoff_back_to_delegator() {
+        use crate::operator_registry::{Operator, OperatorId, VoiceTone};
+        use crate::teammate::types::*;
+        let dir = tempfile::tempdir().unwrap();
+        let storage = std::sync::Arc::new(Storage::open(&dir.path().join("t.sqlite")).unwrap());
+        let runtime = std::sync::Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+
+        // mirror seed_storage's Operator literal:
+        let mk = |name: &str| Operator {
+            id: OperatorId(ulid::Ulid::new()), name: name.into(), emoji: "🤖".into(),
+            color: "#000".into(), tags: vec![], persona: "".into(), escalate_threshold: 0.6,
+            model: "x".into(), hard_constraints: "".into(), voice: VoiceTone::Terse,
+            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+            soul_path: None, soul_mtime_unix_ms: 0,
+            github_access: crate::operator_registry::GithubAccess::Off,
+        };
+        let zeta = mk("Zeta");
+        let kiro = mk("Kiro");
+        storage.operator_insert(zeta.clone()).await.unwrap();
+        storage.operator_insert(kiro.clone()).await.unwrap();
+
+        // receiver task owned by Kiro
+        let task = Task {
+            id: TaskId::new(), operator_id: kiro.id, archetype: TaskArchetype::Do,
+            title: "t".into(), body: "".into(), deliverable: "thing done".into(),
+            status: TaskStatus::Active, scope: TaskScope::default(), spawned_session: None,
+            created_at_unix_ms: 1, updated_at_unix_ms: 1, completed_at_unix_ms: None, cost_usd_cents: 0,
+        };
+        storage.teammate_insert_task(&task).await.unwrap();
+
+        // Running handoff edge Zeta -> Kiro for that task
+        let thread = ThreadId::new();
+        let h = Handoff {
+            id: HandoffId::new(), chain_id: ChainId::new(), depth: 0,
+            from_operator_id: zeta.id, to_operator_id: kiro.id, task_id: Some(task.id),
+            origin_task_id: None, origin_thread_id: thread, status: HandoffStatus::Running,
+            brief: "do the thing".into(), result_summary: None, created_at_unix_ms: 1, reported_at_unix_ms: None,
+        };
+        storage.teammate_insert_handoff(&h).await.unwrap();
+
+        complete_task_inner(&storage, &runtime, task.id, 200).await.unwrap();
+
+        let edge = storage.teammate_get_handoff_by_task(task.id).await.unwrap().unwrap();
+        assert_eq!(edge.status, HandoffStatus::Reported);
+        let summary = edge.result_summary.unwrap();
+        assert!(summary.contains("Kiro") && summary.contains("completed"));
+    }
 }
 
 #[cfg(test)]
@@ -1062,5 +1176,13 @@ mod tests {
         );
         assert!(m.contains("Kiro"));
         assert!(m.contains("busy"));
+    }
+
+    #[test]
+    fn handoff_report_body_summarizes() {
+        let ok = super::build_handoff_report_body("Kiro", "thing done", true);
+        assert!(ok.contains("Kiro") && ok.contains("thing done") && ok.contains("completed"));
+        let bad = super::build_handoff_report_body("Kiro", "thing done", false);
+        assert!(bad.contains("did not complete"));
     }
 }
