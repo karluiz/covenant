@@ -216,6 +216,9 @@ pub fn build_system_prompt(operator: &Operator) -> String {
            the only way to see their state.\n\
          - `propose_task` — propose structured work (do/review/watch). Only \
            call this for actionable multi-step requests, not Q&A.\n\
+         - `handoff_task` — delegate a self-contained sub-task to ANOTHER \
+           operator (not yourself); they run it and report back. Use when a \
+           peer is better placed. Never pass raw @tokens.\n\
          \n\
          IMPORTANT: Don't guess at file contents or project structure — call \
          the tools and quote what you read. Paths are relative to the active \
@@ -366,6 +369,7 @@ pub enum DispatchOutcome {
     /// garbled the directive — UI falls back to a neutral pose).
     Text { text: String, sentiment: Option<Sentiment> },
     Propose(crate::teammate::MessageContent),
+    Handoff(crate::teammate::types::HandoffRequest),
 }
 
 #[derive(Error, Debug)]
@@ -502,6 +506,13 @@ async fn execute_tool(
                 Some("propose_task in non-leading position".into()),
             )
         }
+        "handoff_task" => {
+            return (
+                "handoff_task already considered; respond with text now.".into(),
+                false,
+                Some("handoff_task in non-leading position".into()),
+            )
+        }
         other => match github_tools::execute_github_tool(tool_env, other, input).await {
             Some(r) => r,
             None => {
@@ -531,6 +542,7 @@ fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
         tools::run_command_tool_def(),
         tools::read_terminal_screen_tool_def(),
         tools::propose_task_tool_def(),
+        tools::handoff_task_tool_def(),
     ];
     if let Some(g) = &tool_env.github {
         defs.extend(crate::teammate::github_tools::github_tool_defs(g.access));
@@ -617,6 +629,14 @@ where
 
         let stop = resp.stop_reason.as_deref().unwrap_or("");
         if stop == "tool_use" {
+            // Fast-path: handoff_task is "structured output". If the assistant
+            // emitted one, end the loop and surface it as a Handoff outcome.
+            if let Some(req) = extract_handoff_from_content(
+                &serde_json::Value::Array(resp.content.clone())
+            ) {
+                return Ok(DispatchOutcome::Handoff(req));
+            }
+
             // Fast-path: propose_task is "structured output". If the assistant
             // emitted one, end the loop and surface it as a Propose message.
             if let Some(propose) = extract_propose_from_content(
@@ -795,6 +815,11 @@ where
         let tool_calls = choice.message.tool_calls.clone().unwrap_or_default();
 
         if finish == "tool_calls" || !tool_calls.is_empty() {
+            // Fast-path: handoff_task as structured output.
+            if let Some(req) = extract_handoff_from_openai_tool_calls(&tool_calls) {
+                return Ok(DispatchOutcome::Handoff(req));
+            }
+
             // Fast-path: propose_task as structured output.
             if let Some(propose) = extract_propose_from_openai_tool_calls(&tool_calls) {
                 return Ok(DispatchOutcome::Propose(propose));
@@ -920,6 +945,53 @@ pub(crate) fn extract_propose_from_content(
                 rationale,
             },
         ));
+    }
+    None
+}
+
+/// If the assistant turn contains a `handoff_task` tool_use block,
+/// build a `HandoffRequest` from its input. Returns None if no such block
+/// is present. If multiple handoff_task calls appear in one turn, take the first.
+pub(crate) fn extract_handoff_from_content(
+    content: &serde_json::Value,
+) -> Option<crate::teammate::types::HandoffRequest> {
+    let arr = content.as_array()?;
+    for block in arr {
+        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") { continue; }
+        if block.get("name").and_then(|v| v.as_str()) != Some("handoff_task") { continue; }
+        let input = block.get("input")?;
+        return Some(crate::teammate::types::HandoffRequest {
+            to_operator: input.get("to_operator")?.as_str()?.to_string(),
+            brief:       input.get("brief")?.as_str()?.to_string(),
+            deliverable: input.get("deliverable")?.as_str()?.to_string(),
+            executor:    input.get("executor")?.as_str()?.to_string(),
+            context:     input.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        });
+    }
+    None
+}
+
+/// OpenAI-shape equivalent of `extract_handoff_from_content`. Scans the
+/// assistant's `tool_calls` array for a `handoff_task` function call and
+/// builds the `HandoffRequest` from its arguments.
+fn extract_handoff_from_openai_tool_calls(
+    tool_calls: &[serde_json::Value],
+) -> Option<crate::teammate::types::HandoffRequest> {
+    for tc in tool_calls {
+        let function = tc.get("function")?;
+        let name = function.get("name").and_then(|v| v.as_str())?;
+        if name != "handoff_task" {
+            continue;
+        }
+        let args_raw = function.get("arguments").and_then(|v| v.as_str())?;
+        let input: serde_json::Value = serde_json::from_str(args_raw).ok()?;
+        return Some(crate::teammate::types::HandoffRequest {
+            to_operator: input.get("to_operator")?.as_str()?.to_string(),
+            brief:       input.get("brief")?.as_str()?.to_string(),
+            deliverable: input.get("deliverable")?.as_str()?.to_string(),
+            executor:    input.get("executor")?.as_str()?.to_string(),
+            context:     input.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        });
     }
     None
 }
@@ -1187,18 +1259,44 @@ mod tests {
     }
 
     #[test]
+    fn extracts_handoff_from_tool_use() {
+        let content = serde_json::json!([
+            { "type": "text", "text": "ok" },
+            { "type": "tool_use", "name": "handoff_task",
+              "input": {
+                "to_operator": "Kiro",
+                "brief": "migrate the auth module to the new client",
+                "deliverable": "auth module compiles against v2 client, tests green",
+                "executor": "codex"
+              } }
+        ]);
+        let req = extract_handoff_from_content(&content).expect("should parse");
+        assert_eq!(req.to_operator, "Kiro");
+        assert_eq!(req.executor, "codex");
+        assert!(req.context.is_none());
+    }
+
+    #[test]
+    fn handoff_extraction_ignores_other_tools() {
+        let content = serde_json::json!([
+            { "type": "tool_use", "name": "read_file", "input": { "path": "a" } }
+        ]);
+        assert!(extract_handoff_from_content(&content).is_none());
+    }
+
+    #[test]
     fn github_tools_registered_by_access_level() {
         use crate::operator_registry::GithubAccess;
         use crate::teammate::tools::{GithubCtx, ToolEnv};
         let base = ToolEnv::new(std::env::temp_dir(), 1024);
-        assert_eq!(all_tool_defs(&base).len(), 8);
+        assert_eq!(all_tool_defs(&base).len(), 9); // 8 base + handoff_task
 
         let ro = ToolEnv::new(std::env::temp_dir(), 1024).with_github(Some(GithubCtx {
             token: "t".into(),
             access: GithubAccess::ReadOnly,
             api_base: "x".into(),
         }));
-        assert_eq!(all_tool_defs(&ro).len(), 8 + 5);
+        assert_eq!(all_tool_defs(&ro).len(), 9 + 5);
 
         let rw = ToolEnv::new(std::env::temp_dir(), 1024).with_github(Some(GithubCtx {
             token: "t".into(),
@@ -1210,7 +1308,7 @@ mod tests {
             .iter()
             .map(|d| d["name"].as_str().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(names.len(), 8 + 9);
+        assert_eq!(names.len(), 9 + 9);
         assert!(names.contains(&"gh_create_issue"));
     }
 

@@ -648,6 +648,36 @@ pub fn propose_task_tool_def() -> Value {
     })
 }
 
+/// Tool def for `handoff_task` — delegate a unit of work to ANOTHER
+/// operator. Structured output, like `propose_task`: the dispatcher
+/// consumes the tool_use directly (no execute handler).
+pub fn handoff_task_tool_def() -> Value {
+    serde_json::json!({
+        "name": "handoff_task",
+        "description":
+            "Hand a concrete, self-contained unit of work to ANOTHER operator (teammate) \
+             who will run it with their own executor and report back to you when done. \
+             Use this when a peer is better placed for a sub-task than you are. You CANNOT \
+             hand off to yourself. Restate the goal in plain words — never pass a raw \
+             @token (the receiver has no access to your mention registry).",
+        "input_schema": {
+            "type": "object",
+            "required": ["to_operator", "brief", "deliverable", "executor"],
+            "properties": {
+                "to_operator": { "type": "string", "description": "Exact name of the receiving operator (a teammate, not yourself)." },
+                "brief":       { "type": "string", "description": "Self-contained description of the work. No @tokens." },
+                "deliverable": { "type": "string", "description": "What 'done' looks like." },
+                "executor": {
+                    "type": "string",
+                    "enum": ["claude", "codex", "copilot", "pi", "hermes"],
+                    "description": "Which executor CLI the receiver should drive."
+                },
+                "context": { "type": "string", "description": "Optional already-resolved facts (file contents, paths) to inline for the receiver." }
+            }
+        }
+    })
+}
+
 pub fn list_directory_tool_def() -> Value {
     serde_json::json!({
         "name": "list_directory",

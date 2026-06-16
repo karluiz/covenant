@@ -305,6 +305,8 @@ pub async fn teammate_send_text_message(
         let (reply_content, reply_sentiment) = match outcome {
             DispatchOutcome::Text { text, sentiment } => (MessageContent::Text(text), sentiment),
             DispatchOutcome::Propose(c) => (c, None),
+            // TODO(task6): route handoff
+            DispatchOutcome::Handoff(_) => (MessageContent::Text("(handoff routing not wired yet)".into()), None),
         };
         let reply_msg = TaskMessage {
             id: MessageId::new(),
