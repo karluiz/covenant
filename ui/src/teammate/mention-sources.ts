@@ -48,12 +48,15 @@ export interface FindMentionsArgs {
   activeTab: Tab;
   limit: number;
   deps: MentionSourcesDeps;
+  /// Operator id to omit from teammate results — the thread's own
+  /// operator, which has no reason to @-mention itself.
+  excludeOperatorId?: string | null;
 }
 
 const PER_SOURCE_ON_ALL = 3;
 
 export async function findMentions(args: FindMentionsArgs): Promise<MentionHit[]> {
-  const { query, cwd, activeTab, limit, deps } = args;
+  const { query, cwd, activeTab, limit, deps, excludeOperatorId } = args;
   const want = (s: Source) => activeTab === "all" || activeTab === s;
 
   const filesP: Promise<MentionHit[]> =
@@ -78,7 +81,7 @@ export async function findMentions(args: FindMentionsArgs): Promise<MentionHit[]
 
   const teammatesP: Promise<MentionHit[]> =
     want("teammates")
-      ? deps.listOperators().then((ops) => filterTeammates(ops, query)).catch(logZero("listOperators"))
+      ? deps.listOperators().then((ops) => filterTeammates(ops, query, excludeOperatorId)).catch(logZero("listOperators"))
       : Promise.resolve([]);
 
   const [files, specs, sessions, commands, teammates] = await Promise.all([filesP, specsP, sessionsP, commandsP, teammatesP]);
@@ -163,9 +166,10 @@ function filterSessions(sessions: OpenSessionInfo[], query: string): MentionHit[
     }));
 }
 
-function filterTeammates(ops: Operator[], query: string): MentionHit[] {
+function filterTeammates(ops: Operator[], query: string, excludeOperatorId?: string | null): MentionHit[] {
   const q = query.toLowerCase();
   return ops
+    .filter((o) => o.id !== excludeOperatorId)
     .filter((o) => q === "" || o.name.toLowerCase().includes(q))
     .map((o) => ({
       kind: "teammates",

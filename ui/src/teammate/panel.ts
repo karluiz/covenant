@@ -962,6 +962,7 @@ export class TeammatePanel {
       anchor: c,
       getCwd: () => this.deps.getActiveSessionCwd?.() ?? null,
       sources: this.deps.mentionSources,
+      getExcludeOperatorId: () => this.operator?.id ?? null,
       onPick: (chip, hit) => { this.mentionRegistry.set(chip.token, hit.payload); },
     });
     return c;

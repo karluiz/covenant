@@ -54,6 +54,24 @@ describe("findMentions", () => {
     expect(hits.some(h => h.kind === "teammates")).toBe(true);
   });
 
+  it("excludeOperatorId drops the current operator from teammate hits", async () => {
+    const d = deps({
+      listOperators: vi.fn().mockResolvedValue([
+        { id: "self", name: "Zeta", emoji: "", color: "", tags: [], persona: "",
+          escalate_threshold: 0, model: "gpt-4o", hard_constraints: "", voice: "neutral",
+          is_default: true, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0 },
+        { id: "op2", name: "Kiro", emoji: "", color: "", tags: [], persona: "",
+          escalate_threshold: 0, model: "gpt-4.1", hard_constraints: "", voice: "neutral",
+          is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0 },
+      ]),
+    });
+    const hits = await findMentions({
+      query: "", cwd: "/a", activeTab: "teammates", limit: 12, deps: d, excludeOperatorId: "self",
+    });
+    expect(hits.map(h => h.primary)).toEqual(["Kiro"]);
+    expect(hits.some(h => h.primary === "Zeta")).toBe(false);
+  });
+
   it("findSpecs results surface as specs-kind mention hits", async () => {
     const d = deps({
       findSpecs: vi.fn().mockResolvedValue([

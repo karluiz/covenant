@@ -308,6 +308,9 @@ export interface MentionPopupDeps {
   getCwd:  () => string | null;
   sources: MentionSourcesDeps;
   onPick:  (chip: ChipSpec, hit: MentionHit) => void;
+  /// Operator id of the thread we're composing in, so the teammate
+  /// source can omit it (you can't @-mention yourself).
+  getExcludeOperatorId?: () => string | null;
 }
 
 export class MentionPopup {
@@ -350,6 +353,7 @@ export class MentionPopup {
     const { query, cwd, activeTab } = this.state;
     const hits = await findMentions({
       query, cwd, activeTab, limit: POPUP_LIMIT, deps: this.deps.sources,
+      excludeOperatorId: this.deps.getExcludeOperatorId?.() ?? null,
     });
     if (my !== this.reqId || !this.state) return;
     this.state.hits = hits;
