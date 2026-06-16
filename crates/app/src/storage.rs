@@ -247,6 +247,25 @@ CREATE TABLE IF NOT EXISTS teammate_artifacts (
     created_at_unix_ms  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_artifacts_task ON teammate_artifacts(task_id);
+
+CREATE TABLE IF NOT EXISTS teammate_handoffs (
+    id                   TEXT PRIMARY KEY,
+    chain_id             TEXT NOT NULL,
+    depth                INTEGER NOT NULL,
+    from_operator_id     TEXT NOT NULL,
+    to_operator_id       TEXT NOT NULL,
+    task_id              TEXT,
+    origin_task_id       TEXT,
+    origin_thread_id     TEXT NOT NULL,
+    status               TEXT NOT NULL,
+    brief                TEXT NOT NULL DEFAULT '',
+    result_summary       TEXT,
+    created_at_unix_ms   INTEGER NOT NULL,
+    reported_at_unix_ms  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_handoffs_chain   ON teammate_handoffs(chain_id);
+CREATE INDEX IF NOT EXISTS idx_handoffs_task    ON teammate_handoffs(task_id);
+CREATE INDEX IF NOT EXISTS idx_handoffs_to      ON teammate_handoffs(to_operator_id);
 ";
 
 #[derive(Debug, Error)]
@@ -520,6 +539,61 @@ fn shorten(id: &str) -> String {
     } else {
         id.to_string()
     }
+}
+
+fn handoff_select_cols_where(tail: &str) -> String {
+    format!(
+        "SELECT id, chain_id, depth, from_operator_id, to_operator_id, task_id, \
+                origin_task_id, origin_thread_id, status, brief, result_summary, \
+                created_at_unix_ms, reported_at_unix_ms \
+         FROM teammate_handoffs WHERE {tail}"
+    )
+}
+
+type HandoffRowTuple = (
+    String, String, i64, String, String, Option<String>,
+    Option<String>, String, String, String, Option<String>, i64, Option<i64>,
+);
+
+fn map_handoff_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HandoffRowTuple> {
+    Ok((
+        row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?,
+        row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?, row.get(12)?,
+    ))
+}
+
+fn decode_handoff_row(
+    t: HandoffRowTuple,
+) -> Result<crate::teammate::types::Handoff, StorageError> {
+    use crate::teammate::types::*;
+    let parse_ulid = |s: &str| ulid::Ulid::from_string(s).map_err(|e| StorageError::Other(e.to_string()));
+    Ok(Handoff {
+        id: HandoffId(parse_ulid(&t.0)?),
+        chain_id: ChainId(parse_ulid(&t.1)?),
+        depth: t.2 as u8,
+        from_operator_id: crate::operator_registry::OperatorId(parse_ulid(&t.3)?),
+        to_operator_id: crate::operator_registry::OperatorId(parse_ulid(&t.4)?),
+        task_id: t.5.as_deref().map(|s| parse_ulid(s).map(TaskId)).transpose()?,
+        origin_task_id: t.6.as_deref().map(|s| parse_ulid(s).map(TaskId)).transpose()?,
+        origin_thread_id: ThreadId(parse_ulid(&t.7)?),
+        status: handoff_status_from_str(&t.8),
+        brief: t.9,
+        result_summary: t.10,
+        created_at_unix_ms: t.11 as u64,
+        reported_at_unix_ms: t.12.map(|v| v as u64),
+    })
+}
+
+fn handoff_status_str(s: crate::teammate::types::HandoffStatus) -> &'static str {
+    use crate::teammate::types::HandoffStatus::*;
+    match s { Running => "running", Reported => "reported", Failed => "failed",
+              Rejected => "rejected", BlockedBySafety => "blocked-by-safety" }
+}
+
+fn handoff_status_from_str(s: &str) -> crate::teammate::types::HandoffStatus {
+    use crate::teammate::types::HandoffStatus::*;
+    match s { "reported" => Reported, "failed" => Failed, "rejected" => Rejected,
+              "blocked-by-safety" => BlockedBySafety, _ => Running }
 }
 
 #[derive(Clone)]
@@ -2690,6 +2764,101 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    pub async fn teammate_insert_handoff(
+        &self,
+        h: &crate::teammate::types::Handoff,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        let h = h.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "INSERT INTO teammate_handoffs \
+                 (id, chain_id, depth, from_operator_id, to_operator_id, task_id, \
+                  origin_task_id, origin_thread_id, status, brief, result_summary, \
+                  created_at_unix_ms, reported_at_unix_ms) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                rusqlite::params![
+                    h.id.0.to_string(),
+                    h.chain_id.0.to_string(),
+                    h.depth as i64,
+                    h.from_operator_id.0.to_string(),
+                    h.to_operator_id.0.to_string(),
+                    h.task_id.map(|t| t.0.to_string()),
+                    h.origin_task_id.map(|t| t.0.to_string()),
+                    h.origin_thread_id.0.to_string(),
+                    handoff_status_str(h.status),
+                    h.brief,
+                    h.result_summary,
+                    h.created_at_unix_ms as i64,
+                    h.reported_at_unix_ms.map(|t| t as i64),
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_update_handoff_status(
+        &self,
+        id: crate::teammate::types::HandoffId,
+        status: crate::teammate::types::HandoffStatus,
+        result_summary: Option<String>,
+        reported_at_unix_ms: Option<u64>,
+    ) -> Result<(), StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = inner.blocking_lock();
+            c.execute(
+                "UPDATE teammate_handoffs \
+                 SET status = ?2, result_summary = ?3, reported_at_unix_ms = ?4 \
+                 WHERE id = ?1",
+                rusqlite::params![
+                    id.0.to_string(),
+                    handoff_status_str(status),
+                    result_summary,
+                    reported_at_unix_ms.map(|t| t as i64),
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_get_handoff_by_task(
+        &self,
+        task_id: crate::teammate::types::TaskId,
+    ) -> Result<Option<crate::teammate::types::Handoff>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Option<_>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(&handoff_select_cols_where("task_id = ?1"))?;
+            let row = stmt.query_row([task_id.0.to_string()], map_handoff_row).optional()?;
+            row.map(decode_handoff_row).transpose()
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
+    pub async fn teammate_list_handoffs_in_chain(
+        &self,
+        chain_id: crate::teammate::types::ChainId,
+    ) -> Result<Vec<crate::teammate::types::Handoff>, StorageError> {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<_>, StorageError> {
+            let c = inner.blocking_lock();
+            let mut stmt = c.prepare(&handoff_select_cols_where("chain_id = ?1 ORDER BY created_at_unix_ms ASC"))?;
+            let rows = stmt.query_map([chain_id.0.to_string()], map_handoff_row)?;
+            let mut out = Vec::new();
+            for r in rows { out.push(decode_handoff_row(r?)?); }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn teammate_get_message(
         &self,
         id: crate::teammate::MessageId,
@@ -4387,6 +4556,48 @@ mod task_card_storage_tests {
             )
             .unwrap();
         assert_eq!(nulls, 0, "no orphaned messages remain");
+    }
+
+    #[tokio::test]
+    async fn handoff_roundtrip_and_chain_query() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = std::sync::Arc::new(Storage::open(&dir.path().join("t.sqlite")).unwrap());
+        let chain = crate::teammate::types::ChainId::new();
+        let from = crate::operator_registry::OperatorId(ulid::Ulid::new());
+        let to   = crate::operator_registry::OperatorId(ulid::Ulid::new());
+        let task = crate::teammate::types::TaskId::new();
+        let h = crate::teammate::types::Handoff {
+            id: crate::teammate::types::HandoffId::new(),
+            chain_id: chain,
+            depth: 0,
+            from_operator_id: from,
+            to_operator_id: to,
+            task_id: Some(task),
+            origin_task_id: None,
+            origin_thread_id: crate::teammate::types::ThreadId::new(),
+            status: crate::teammate::types::HandoffStatus::Running,
+            brief: "do X".into(),
+            result_summary: None,
+            created_at_unix_ms: 10,
+            reported_at_unix_ms: None,
+        };
+        s.teammate_insert_handoff(&h).await.unwrap();
+
+        let by_task = s.teammate_get_handoff_by_task(task).await.unwrap().unwrap();
+        assert_eq!(by_task.id.0, h.id.0);
+
+        s.teammate_update_handoff_status(
+            h.id,
+            crate::teammate::types::HandoffStatus::Reported,
+            Some("done".into()),
+            Some(99),
+        ).await.unwrap();
+        let after = s.teammate_get_handoff_by_task(task).await.unwrap().unwrap();
+        assert_eq!(after.status, crate::teammate::types::HandoffStatus::Reported);
+        assert_eq!(after.result_summary.as_deref(), Some("done"));
+
+        let in_chain = s.teammate_list_handoffs_in_chain(chain).await.unwrap();
+        assert_eq!(in_chain.len(), 1);
     }
 
     #[tokio::test]
