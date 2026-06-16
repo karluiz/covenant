@@ -568,11 +568,14 @@ pub(crate) async fn report_handoff_back(
         dismissed_at_unix_ms: None,
         sentiment: None,
     };
-    // The report-back is best-effort: if the delegator's origin thread no
-    // longer exists (FK violation), still land the report on the operator's
-    // feed unthreaded rather than dropping it and stranding the edge.
-    if let Err(_e) = storage.teammate_insert_message(&report).await {
+    // The report-back is best-effort: if the delegator's origin thread or the
+    // origin task no longer exists (FK violation on thread_id or task_id),
+    // still land the report on the operator's feed unthreaded/untasked rather
+    // than dropping it and stranding the edge as Running forever.
+    if let Err(e) = storage.teammate_insert_message(&report).await {
+        tracing::warn!(error = %e, "handoff report threaded-insert failed; retrying unthreaded");
         report.thread_id = None;
+        report.task_id = None;
         storage.teammate_insert_message(&report).await.map_err(|e| e.to_string())?;
     }
     storage.teammate_update_handoff_status(
@@ -583,7 +586,11 @@ pub(crate) async fn report_handoff_back(
         Some(now_ms),
     ).await.map_err(|e| e.to_string())?;
 
-    karl_score::record_task_delegated(&h.from_operator_id.0.to_string(), &task_id.0.to_string());
+    // Only credit the good_delegate achievement on a successful handoff;
+    // crediting a cancelled delegation would be wrong/gameable.
+    if ok {
+        karl_score::record_task_delegated(&h.from_operator_id.0.to_string(), &task_id.0.to_string());
+    }
     Ok(())
 }
 

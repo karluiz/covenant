@@ -3317,6 +3317,19 @@ fn score_match(
 mod tests {
     use super::*;
 
+    #[test]
+    fn handoff_status_string_encoding_matches_serde_for_all_variants() {
+        use crate::teammate::types::HandoffStatus::*;
+        for s in [Running, Reported, Failed, Rejected, BlockedBySafety] {
+            // storage encoding round-trips
+            let enc = handoff_status_str(s);
+            assert_eq!(handoff_status_from_str(enc), s, "storage round-trip for {s:?}");
+            // storage token agrees with the serde kebab token
+            let serde_tok = serde_json::to_string(&s).unwrap();
+            assert_eq!(format!("\"{enc}\""), serde_tok, "serde vs storage token for {s:?}");
+        }
+    }
+
     fn fresh() -> (Storage, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("history.db");

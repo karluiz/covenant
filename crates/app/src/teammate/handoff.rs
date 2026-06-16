@@ -95,7 +95,7 @@ pub async fn route(
         return Ok(RouteResult::Rejected { handoff: h, reason });
     }
 
-    let to = to.expect("gate guarantees Some");
+    let Some(to) = to else { return Err("handoff gate accepted a None target".into()); };
 
     // 5. Create the receiver task (mirrors confirm_task_inner's constructor).
     let title: String = req.brief.chars().take(80).collect();
