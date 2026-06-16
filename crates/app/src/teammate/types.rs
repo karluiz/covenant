@@ -231,3 +231,85 @@ pub struct TaskArtifact {
     pub payload: Vec<u8>,
     pub created_at_unix_ms: u64,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct HandoffId(pub Ulid);
+impl HandoffId { pub fn new() -> Self { Self(Ulid::new()) } }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ChainId(pub Ulid);
+impl ChainId { pub fn new() -> Self { Self(Ulid::new()) } }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HandoffStatus { Running, Reported, Failed, Rejected, BlockedBySafety }
+
+/// One operator→operator delegation edge. The work itself is an ordinary
+/// `Task` referenced by `task_id`; this row is the relationship + audit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Handoff {
+    pub id: HandoffId,
+    pub chain_id: ChainId,
+    pub depth: u8,
+    pub from_operator_id: OperatorId,
+    pub to_operator_id: OperatorId,
+    /// None for rejected/blocked edges (no task was created).
+    pub task_id: Option<TaskId>,
+    /// The delegator's own task, if it was working one when it delegated.
+    pub origin_task_id: Option<TaskId>,
+    /// Thread the report-back is injected into.
+    pub origin_thread_id: ThreadId,
+    pub status: HandoffStatus,
+    pub brief: String,
+    pub result_summary: Option<String>,
+    pub created_at_unix_ms: u64,
+    pub reported_at_unix_ms: Option<u64>,
+}
+
+/// Parsed `handoff_task` tool input (LLM boundary), before routing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandoffRequest {
+    pub to_operator: String,
+    pub brief: String,
+    pub deliverable: String,
+    pub executor: String,
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+#[cfg(test)]
+mod handoff_type_tests {
+    use super::*;
+
+    #[test]
+    fn handoff_status_serde_is_kebab() {
+        let j = serde_json::to_string(&HandoffStatus::BlockedBySafety).unwrap();
+        assert_eq!(j, "\"blocked-by-safety\"");
+        let back: HandoffStatus = serde_json::from_str("\"reported\"").unwrap();
+        assert_eq!(back, HandoffStatus::Reported);
+    }
+
+    #[test]
+    fn handoff_roundtrips_through_json() {
+        let h = Handoff {
+            id: HandoffId::new(),
+            chain_id: ChainId::new(),
+            depth: 2,
+            from_operator_id: OperatorId(ulid::Ulid::new()),
+            to_operator_id: OperatorId(ulid::Ulid::new()),
+            task_id: Some(TaskId::new()),
+            origin_task_id: None,
+            origin_thread_id: ThreadId::new(),
+            status: HandoffStatus::Running,
+            brief: "migrate the auth module".into(),
+            result_summary: None,
+            created_at_unix_ms: 1,
+            reported_at_unix_ms: None,
+        };
+        let j = serde_json::to_string(&h).unwrap();
+        let back: Handoff = serde_json::from_str(&j).unwrap();
+        assert_eq!(back.depth, 2);
+        assert_eq!(back.brief, "migrate the auth module");
+        assert_eq!(back.status, HandoffStatus::Running);
+    }
+}
