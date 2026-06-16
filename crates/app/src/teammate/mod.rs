@@ -12,6 +12,7 @@ pub mod anthropic_http;
 pub mod build_classify;
 pub mod commands;
 pub mod github_tools;
+pub mod handoff;
 pub mod llm;
 pub mod openai_http;
 pub mod runtime;
