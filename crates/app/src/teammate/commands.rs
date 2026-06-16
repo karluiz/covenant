@@ -80,6 +80,7 @@ pub async fn teammate_send_text_message(
     state: tauri::State<'_, crate::AppState>,
     storage: tauri::State<'_, std::sync::Arc<crate::storage::Storage>>,
     registry: tauri::State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    runtime: tauri::State<'_, std::sync::Arc<crate::teammate::runtime::TeammateRuntime>>,
     operator_id: crate::operator_registry::OperatorId,
     thread_id: crate::teammate::ThreadId,
     text: String,
@@ -131,6 +132,7 @@ pub async fn teammate_send_text_message(
 
     let storage_bg = storage.inner().clone();
     let registry_bg = registry.inner().clone();
+    let runtime_bg = runtime.inner().clone();
     let settings_bg = state.settings.clone();
     let app_bg = app.clone();
     tokio::spawn(async move {
@@ -302,11 +304,52 @@ pub async fn teammate_send_text_message(
                 }
             }
         };
+        // Autonomous handoff: route immediately (no user confirm), then fall
+        // through with a system-style text reply describing what happened.
+        let outcome = match outcome {
+            DispatchOutcome::Handoff(req) => {
+                let routed = crate::teammate::handoff::route(
+                    &storage_bg, &runtime_bg, &registry_bg.list(),
+                    operator_id, thread_id, &req, now_ms(),
+                ).await;
+                match routed {
+                    Ok(crate::teammate::handoff::RouteResult::Accepted(acc)) => {
+                        let _ = app_bg.emit("teammate-handoff-routed", serde_json::json!({
+                            "handoff_id":  acc.handoff.id.0.to_string(),
+                            "chain_id":    acc.handoff.chain_id.0.to_string(),
+                            "from_operator": operator_id,
+                            "to_operator": acc.task.operator_id,
+                            "task_id":     acc.task.id.0.to_string(),
+                            "executor":    acc.executor,
+                            "brief":       acc.handoff.brief,
+                            "deliverable": acc.task.deliverable,
+                        }));
+                        DispatchOutcome::Text {
+                            text: handoff_outcome_message_accepted(&req.to_operator, &req.brief),
+                            sentiment: None,
+                        }
+                    }
+                    Ok(crate::teammate::handoff::RouteResult::Rejected { reason, .. }) => {
+                        DispatchOutcome::Text {
+                            text: handoff_outcome_message_rejected(&req.to_operator, &reason.message()),
+                            sentiment: None,
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "handoff routing failed");
+                        DispatchOutcome::Text {
+                            text: handoff_outcome_message_rejected(&req.to_operator, "internal error"),
+                            sentiment: None,
+                        }
+                    }
+                }
+            }
+            other => other,
+        };
         let (reply_content, reply_sentiment) = match outcome {
             DispatchOutcome::Text { text, sentiment } => (MessageContent::Text(text), sentiment),
             DispatchOutcome::Propose(c) => (c, None),
-            // TODO(task6): route handoff
-            DispatchOutcome::Handoff(_) => (MessageContent::Text("(handoff routing not wired yet)".into()), None),
+            DispatchOutcome::Handoff(_) => unreachable!("handoff resolved above"),
         };
         let reply_msg = TaskMessage {
             id: MessageId::new(),
@@ -328,6 +371,13 @@ pub async fn teammate_send_text_message(
     });
 
     Ok(user_msg)
+}
+
+fn handoff_outcome_message_accepted(to: &str, brief: &str) -> String {
+    format!("→ Handed off to {to}: {brief} (running; will report back).")
+}
+fn handoff_outcome_message_rejected(to: &str, reason: &str) -> String {
+    format!("⃠ Handoff to {to} blocked: {reason}")
 }
 
 async fn emit_system_error(
@@ -995,5 +1045,22 @@ mod tests {
         assert!(p.contains(&CompletionFact::Finisher));
         assert!(!p.contains(&CompletionFact::CleanRun));
         assert!(p.contains(&CompletionFact::Recovered));
+    }
+
+    #[test]
+    fn handoff_accept_message_names_receiver() {
+        let m = super::handoff_outcome_message_accepted("Kiro", "migrate auth");
+        assert!(m.contains("Kiro"));
+        assert!(m.contains("migrate auth"));
+    }
+
+    #[test]
+    fn handoff_reject_message_carries_reason() {
+        let m = super::handoff_outcome_message_rejected(
+            "Kiro",
+            "receiver is busy on another task; retry later",
+        );
+        assert!(m.contains("Kiro"));
+        assert!(m.contains("busy"));
     }
 }
