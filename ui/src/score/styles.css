@@ -294,6 +294,27 @@
 .seg-key.seg-p { background: #5eead4; }
 .seg-key.seg-c { background: #1f4a44; }
 
+/* Cap the By-repo and Top-branches lists to ~10 rows, then scroll. */
+[data-role=repos],
+[data-role=branches] {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* room for the scrollbar so rows don't sit under it */
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #2a3940 transparent;
+}
+[data-role=repos]::-webkit-scrollbar,
+[data-role=branches]::-webkit-scrollbar { width: 8px; }
+[data-role=repos]::-webkit-scrollbar-thumb,
+[data-role=branches]::-webkit-scrollbar-thumb {
+  background: #2a3940;
+  border-radius: 4px;
+}
+[data-role=repos]::-webkit-scrollbar-track,
+[data-role=branches]::-webkit-scrollbar-track { background: transparent; }
+
 /* Branch list */
 .branch {
   display: flex;
@@ -508,6 +529,10 @@ body.theme-light .branch:hover { background: rgba(0, 0, 0, 0.04); }
 body.theme-light .branch .b-name .ico { color: var(--muted); }
 body.theme-light .branch .b-meta { color: var(--muted); }
 body.theme-light .branch .b-meta b { color: #0a8f7d; }
+body.theme-light [data-role=repos],
+body.theme-light [data-role=branches] { scrollbar-color: #c3ccd2 transparent; }
+body.theme-light [data-role=repos]::-webkit-scrollbar-thumb,
+body.theme-light [data-role=branches]::-webkit-scrollbar-thumb { background: #c3ccd2; }
 
 body.theme-light .session { border-top-color: var(--border); }
 body.theme-light .session .when { color: var(--muted); }
@@ -783,9 +808,15 @@ body.theme-true-dark .lb-row:hover .lb-gname,
 body.theme-true-dark .lb-more { color: var(--cov-teal); }
 body.theme-true-dark .cov-stat .delta { color: #3ba35b; }
 
-/* Heatmap: neutral empty cells, keep the data ramp, drop the l4 glow */
+/* Heatmap: neutral empty cells, keep the data ramp, drop the l4 glow.
+   The empty-cell rule below is (0,2,1) specificity and would otherwise
+   clobber the (0,2,0) `.cov-cell.lN` ramp, so re-assert the ramp here at
+   (0,3,1) to keep the data colors on OLED. */
 body.theme-true-dark .cov-cell { background: var(--cov-surface); border-color: var(--cov-line); }
-body.theme-true-dark .cov-cell.l4 { box-shadow: none; }
+body.theme-true-dark .cov-cell.l1 { background: #0f3530; border-color: #134039; }
+body.theme-true-dark .cov-cell.l2 { background: #14564e; border-color: #1a6b60; }
+body.theme-true-dark .cov-cell.l3 { background: #1f8a7a; border-color: #25a293; }
+body.theme-true-dark .cov-cell.l4 { background: #5eead4; border-color: #7ff5dd; box-shadow: none; }
 
 /* Bars / segments */
 body.theme-true-dark .bar,

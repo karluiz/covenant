@@ -583,30 +583,25 @@ body.theme-true-dark .tasker-task-selected {
   gap: 6px;
 }
 .tasker-notes-label { margin-top: 0; width: auto; align-self: flex-start; }
+/* Notes is now a WYSIWYG markdown editor (Milkdown). The .md-editor child
+   carries the border/background; the wrapper only owns sizing. */
 .tasker-edit-note {
   width: 100%;
   min-width: 0;
+  box-sizing: border-box;
+}
+.tasker-edit-note .md-editor {
+  border-radius: 6px;
+}
+.tasker-edit-note .md-editor .ProseMirror {
   min-height: 88px;
   max-height: 480px;
-  resize: none;
   overflow-y: auto;
-  box-sizing: border-box;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
   padding: 8px 10px;
-  color: var(--text-primary);
-  font-family: var(--ui-font);
   font-size: 12px;
   line-height: 1.5;
-  outline: none;
-  transition: border-color 120ms, background 120ms;
 }
-.tasker-edit-note:focus {
-  border-color: var(--accent);
-}
-.tasker-edit-note::placeholder { color: var(--text-tertiary); }
-body.theme-true-dark .tasker-edit-note {
+body.theme-true-dark .tasker-edit-note .md-editor {
   border-color: #2e2a26;
 }
 .tasker-sheet-delete {

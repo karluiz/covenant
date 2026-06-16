@@ -208,8 +208,17 @@ body.theme-true-dark .kb-card { background: #141416; }
 }
 .tasker-board-dock-open .tasker-edit-note {
   flex: 1;
-  height: auto;
   min-height: 0;
+  display: flex;
+}
+.tasker-board-dock-open .tasker-edit-note .md-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.tasker-board-dock-open .tasker-edit-note .md-editor .ProseMirror {
+  flex: 1;
   max-height: none;
 }
 

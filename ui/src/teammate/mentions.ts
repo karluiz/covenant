@@ -12,6 +12,7 @@ import type { ReadResult } from "../api";
 import type { MentionHit, MentionSourcesDeps, Tab, Source } from "./mention-sources";
 import { findMentions } from "./mention-sources";
 import type { ComposerInput, ChipSpec } from "./composer-input";
+import { attachTooltip } from "../tooltip/tooltip";
 
 export type FindFilesFn = (cwd: string, query: string, limit: number) => Promise<import("../api").FileHit[]>;
 export type ReadFileFn  = (path: string, maxBytes?: number) => Promise<ReadResult>;
@@ -459,6 +460,10 @@ export class MentionPopup {
         e.preventDefault();
         this.setTab(t.dataset.tab as Tab);
       });
+      // Label survives as a hover tooltip for the collapsed (icon-only)
+      // rail in tight composers; harmless when the label is visible.
+      const tab = TABS.find((x) => x.id === t.dataset.tab);
+      if (tab) attachTooltip(t, tab.label);
     });
     this.el.querySelectorAll<HTMLElement>(".tmt-mp-row").forEach((row, idx) => {
       row.addEventListener("mousedown", (e) => {

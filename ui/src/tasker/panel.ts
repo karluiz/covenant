@@ -4,6 +4,7 @@ import type { Task, Project, TaskStatus, TaskPriority } from "./types";
 import { TaskStorage } from "./storage";
 import { Icons } from "../icons";
 import { BoardView } from "./board";
+import { MarkdownEditor } from "../ui/markdown-editor";
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
 const VIEW_KEY = "covenant.tasker.view";
@@ -100,6 +101,10 @@ export class TaskerPanel {
   private boardProjectId: string | null = null;
   private boardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private board: BoardView | null = null;
+  // Live WYSIWYG markdown editors mounted into open task-detail Notes fields.
+  // Flushed + destroyed on every render so Milkdown instances don't leak.
+  private noteEditors: Array<{ editor: MarkdownEditor; projectId: string; taskId: string }> = [];
+  private noteSaveTimer: number | null = null;
 
   constructor(host: HTMLElement) {
     this.host = host;
@@ -266,6 +271,7 @@ export class TaskerPanel {
   }
 
   render(): void {
+    this.flushNoteEditors();
     if (this.dateMenuEl && !this.openMenu) this.closeDatePicker();
     if (this.projectMenuEl) this.closeProjectMenu();
     this.host.classList.remove("hidden");
@@ -408,7 +414,7 @@ export class TaskerPanel {
         </div>
         <div class="tasker-kv tasker-kv-notes">
           <span class="tasker-kv-key tasker-notes-label">Notes</span>
-          <textarea class="tasker-edit-note" rows="1" placeholder="Add notes…">${escapeHtml(task.description ?? "")}</textarea>
+          <div class="tasker-edit-note" data-note-mount></div>
         </div>
         <button class="tasker-sheet-delete" type="button">Delete task</button>
       </div>
@@ -884,31 +890,27 @@ export class TaskerPanel {
       const taskId = edit.dataset.taskId;
       if (!projectId || !taskId) return;
 
-      const note = edit.querySelector<HTMLTextAreaElement>(".tasker-edit-note");
-      // In the board dock the notes box flex-fills the panel via CSS, so leave
-      // height to the layout. In the inline list sheet, autosize to content.
-      const inBoardDock = !!edit.closest(".tasker-board-dock");
-      const autoGrow = (el: HTMLTextAreaElement): void => {
-        el.style.height = "auto";
-        el.style.height = `${el.scrollHeight}px`;
-      };
-      if (note && !inBoardDock) {
-        autoGrow(note);
-        note.addEventListener("input", () => autoGrow(note));
-      }
-      note?.addEventListener("change", (e) => {
-        const description = (e.target as HTMLTextAreaElement).value.trim();
-        this.storage.updateTask(projectId, taskId, {
-          description: description.length > 0 ? description : undefined,
+      const mount = edit.querySelector<HTMLElement>(".tasker-edit-note[data-note-mount]");
+      if (mount && !mount.dataset.mounted) {
+        mount.dataset.mounted = "1";
+        const task = this.storage.getTask(projectId, taskId);
+        const editor = new MarkdownEditor({
+          value: task?.description ?? "",
+          placeholder: "Add notes…",
+          // Persist as the user types without re-rendering (which would tear
+          // the Milkdown instance down mid-edit). A pending render flushes the
+          // latest value via flushNoteEditors().
+          onChange: (md) => {
+            if (this.noteSaveTimer !== null) clearTimeout(this.noteSaveTimer);
+            this.noteSaveTimer = window.setTimeout(() => {
+              this.saveNote(projectId, taskId, md);
+              this.noteSaveTimer = null;
+            }, 300);
+          },
         });
-        this.render();
-      });
-      note?.addEventListener("keydown", (e) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-          e.preventDefault();
-          (e.target as HTMLTextAreaElement).blur();
-        }
-      });
+        mount.appendChild(editor.element);
+        this.noteEditors.push({ editor, projectId, taskId });
+      }
 
       edit.querySelectorAll<HTMLButtonElement>(".tasker-seg-status .tasker-seg-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -943,6 +945,32 @@ export class TaskerPanel {
         this.render();
       });
     });
+  }
+
+  private saveNote(projectId: string, taskId: string, md: string): void {
+    const description = md.trim();
+    this.storage.updateTask(projectId, taskId, {
+      description: description.length > 0 ? description : undefined,
+    });
+  }
+
+  // Persist each open Notes editor's current value, then tear the Milkdown
+  // instances down. Called at the top of render() so detached editors don't
+  // leak and the latest unsaved keystrokes survive the re-render.
+  private flushNoteEditors(): void {
+    if (this.noteSaveTimer !== null) {
+      clearTimeout(this.noteSaveTimer);
+      this.noteSaveTimer = null;
+    }
+    for (const { editor, projectId, taskId } of this.noteEditors) {
+      try {
+        this.saveNote(projectId, taskId, editor.value);
+      } catch {
+        // Editor may not have finished booting; nothing to flush.
+      }
+      editor.destroy();
+    }
+    this.noteEditors = [];
   }
 
   private positionDateMenu(anchor: HTMLElement, cal: HTMLElement): void {
