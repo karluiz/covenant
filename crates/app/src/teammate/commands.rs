@@ -80,6 +80,7 @@ pub async fn teammate_send_text_message(
     state: tauri::State<'_, crate::AppState>,
     storage: tauri::State<'_, std::sync::Arc<crate::storage::Storage>>,
     registry: tauri::State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
+    runtime: tauri::State<'_, std::sync::Arc<crate::teammate::runtime::TeammateRuntime>>,
     operator_id: crate::operator_registry::OperatorId,
     thread_id: crate::teammate::ThreadId,
     text: String,
@@ -131,6 +132,7 @@ pub async fn teammate_send_text_message(
 
     let storage_bg = storage.inner().clone();
     let registry_bg = registry.inner().clone();
+    let runtime_bg = runtime.inner().clone();
     let settings_bg = state.settings.clone();
     let app_bg = app.clone();
     tokio::spawn(async move {
@@ -302,9 +304,52 @@ pub async fn teammate_send_text_message(
                 }
             }
         };
+        // Autonomous handoff: route immediately (no user confirm), then fall
+        // through with a system-style text reply describing what happened.
+        let outcome = match outcome {
+            DispatchOutcome::Handoff(req) => {
+                let routed = crate::teammate::handoff::route(
+                    &storage_bg, &runtime_bg, &registry_bg.list(),
+                    operator_id, thread_id, &req, now_ms(),
+                ).await;
+                match routed {
+                    Ok(crate::teammate::handoff::RouteResult::Accepted(acc)) => {
+                        let _ = app_bg.emit("teammate-handoff-routed", serde_json::json!({
+                            "handoff_id":  acc.handoff.id.0.to_string(),
+                            "chain_id":    acc.handoff.chain_id.0.to_string(),
+                            "from_operator": operator_id,
+                            "to_operator": acc.task.operator_id,
+                            "task_id":     acc.task.id.0.to_string(),
+                            "executor":    acc.executor,
+                            "brief":       acc.handoff.brief,
+                            "deliverable": acc.task.deliverable,
+                        }));
+                        DispatchOutcome::Text {
+                            text: handoff_outcome_message_accepted(&req.to_operator, &req.brief),
+                            sentiment: None,
+                        }
+                    }
+                    Ok(crate::teammate::handoff::RouteResult::Rejected { reason, .. }) => {
+                        DispatchOutcome::Text {
+                            text: handoff_outcome_message_rejected(&req.to_operator, &reason.message()),
+                            sentiment: None,
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "handoff routing failed");
+                        DispatchOutcome::Text {
+                            text: handoff_outcome_message_rejected(&req.to_operator, "internal error"),
+                            sentiment: None,
+                        }
+                    }
+                }
+            }
+            other => other,
+        };
         let (reply_content, reply_sentiment) = match outcome {
             DispatchOutcome::Text { text, sentiment } => (MessageContent::Text(text), sentiment),
             DispatchOutcome::Propose(c) => (c, None),
+            DispatchOutcome::Handoff(_) => unreachable!("handoff resolved above"),
         };
         let reply_msg = TaskMessage {
             id: MessageId::new(),
@@ -326,6 +371,13 @@ pub async fn teammate_send_text_message(
     });
 
     Ok(user_msg)
+}
+
+fn handoff_outcome_message_accepted(to: &str, brief: &str) -> String {
+    format!("→ Handed off to {to}: {brief} (running; will report back).")
+}
+fn handoff_outcome_message_rejected(to: &str, reason: &str) -> String {
+    format!("⃠ Handoff to {to} blocked: {reason}")
 }
 
 async fn emit_system_error(
@@ -476,6 +528,72 @@ pub(crate) fn plan_completion_emits(
     out
 }
 
+pub(crate) fn build_handoff_report_body(to: &str, deliverable: &str, ok: bool) -> String {
+    if ok {
+        format!("✓ {to} completed the delegated task — {deliverable}. (Review and continue.)")
+    } else {
+        format!("✗ {to} did not complete the delegated task — {deliverable}.")
+    }
+}
+
+/// If `task_id` was delegated via a handoff, persist a report into the
+/// delegator's thread and mark the edge terminal (Reported on success,
+/// Failed otherwise). Best-effort, pure storage I/O — the real-time emit +
+/// delegator wake land in Plan 2. No-op when the task wasn't delegated.
+pub(crate) async fn report_handoff_back(
+    storage: &Arc<Storage>,
+    task_id: TaskId,
+    deliverable: &str,
+    ok: bool,
+    now_ms: u64,
+) -> Result<(), String> {
+    let Some(h) = storage.teammate_get_handoff_by_task(task_id).await.map_err(|e| e.to_string())?
+    else { return Ok(()); };
+    if h.status != crate::teammate::types::HandoffStatus::Running { return Ok(()); }
+
+    let to_name = storage.operator_list().await.map_err(|e| e.to_string())?
+        .into_iter().find(|o| o.id == h.to_operator_id).map(|o| o.name)
+        .unwrap_or_else(|| "the operator".into());
+    let body = build_handoff_report_body(&to_name, deliverable, ok);
+
+    let mut report = TaskMessage {
+        id: MessageId::new(),
+        operator_id: h.from_operator_id,
+        task_id: h.origin_task_id,
+        thread_id: Some(h.origin_thread_id),
+        role: Role::System,
+        content: MessageContent::Text(body.clone()),
+        created_at_unix_ms: now_ms,
+        confirmed_at_unix_ms: None,
+        dismissed_at_unix_ms: None,
+        sentiment: None,
+    };
+    // The report-back is best-effort: if the delegator's origin thread or the
+    // origin task no longer exists (FK violation on thread_id or task_id),
+    // still land the report on the operator's feed unthreaded/untasked rather
+    // than dropping it and stranding the edge as Running forever.
+    if let Err(e) = storage.teammate_insert_message(&report).await {
+        tracing::warn!(error = %e, "handoff report threaded-insert failed; retrying unthreaded");
+        report.thread_id = None;
+        report.task_id = None;
+        storage.teammate_insert_message(&report).await.map_err(|e| e.to_string())?;
+    }
+    storage.teammate_update_handoff_status(
+        h.id,
+        if ok { crate::teammate::types::HandoffStatus::Reported }
+        else  { crate::teammate::types::HandoffStatus::Failed },
+        Some(body),
+        Some(now_ms),
+    ).await.map_err(|e| e.to_string())?;
+
+    // Only credit the good_delegate achievement on a successful handoff;
+    // crediting a cancelled delegation would be wrong/gameable.
+    if ok {
+        karl_score::record_task_delegated(&h.from_operator_id.0.to_string(), &task_id.0.to_string());
+    }
+    Ok(())
+}
+
 /// Pure inner: mark an active/blocked task done, release the operator, and
 /// synthesize the Completed lifecycle message. The Tauri command wraps this
 /// with supervisor/operator-session cleanup + event emits.
@@ -509,6 +627,9 @@ pub(crate) async fn complete_task_inner(
         sentiment: Some(crate::teammate::types::Sentiment::Feliz),
     };
     storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, true, now_ms).await {
+        tracing::warn!(error = %e, "handoff report-back (complete) failed");
+    }
     let task = Task {
         status: TaskStatus::Done,
         completed_at_unix_ms: Some(now_ms),
@@ -548,6 +669,9 @@ pub(crate) async fn cancel_active_task_inner(
         sentiment: Some(crate::teammate::types::Sentiment::Triste),
     };
     storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, false, now_ms).await {
+        tracing::warn!(error = %e, "handoff report-back (cancel) failed");
+    }
     let task = Task { status: TaskStatus::Cancelled, updated_at_unix_ms: now_ms, ..task };
     Ok((task, msg))
 }
@@ -973,6 +1097,55 @@ mod task_lifecycle_tests {
             .start_task(op_id, crate::teammate::types::TaskId::new(), None)
             .expect("operator should be Idle after cancelling its task");
     }
+
+    #[tokio::test]
+    async fn complete_reports_handoff_back_to_delegator() {
+        use crate::operator_registry::{Operator, OperatorId, VoiceTone};
+        use crate::teammate::types::*;
+        let dir = tempfile::tempdir().unwrap();
+        let storage = std::sync::Arc::new(Storage::open(&dir.path().join("t.sqlite")).unwrap());
+        let runtime = std::sync::Arc::new(crate::teammate::runtime::TeammateRuntime::new());
+
+        // mirror seed_storage's Operator literal:
+        let mk = |name: &str| Operator {
+            id: OperatorId(ulid::Ulid::new()), name: name.into(), emoji: "🤖".into(),
+            color: "#000".into(), tags: vec![], persona: "".into(), escalate_threshold: 0.6,
+            model: "x".into(), hard_constraints: "".into(), voice: VoiceTone::Terse,
+            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
+            soul_path: None, soul_mtime_unix_ms: 0,
+            github_access: crate::operator_registry::GithubAccess::Off,
+        };
+        let zeta = mk("Zeta");
+        let kiro = mk("Kiro");
+        storage.operator_insert(zeta.clone()).await.unwrap();
+        storage.operator_insert(kiro.clone()).await.unwrap();
+
+        // receiver task owned by Kiro
+        let task = Task {
+            id: TaskId::new(), operator_id: kiro.id, archetype: TaskArchetype::Do,
+            title: "t".into(), body: "".into(), deliverable: "thing done".into(),
+            status: TaskStatus::Active, scope: TaskScope::default(), spawned_session: None,
+            created_at_unix_ms: 1, updated_at_unix_ms: 1, completed_at_unix_ms: None, cost_usd_cents: 0,
+        };
+        storage.teammate_insert_task(&task).await.unwrap();
+
+        // Running handoff edge Zeta -> Kiro for that task
+        let thread = ThreadId::new();
+        let h = Handoff {
+            id: HandoffId::new(), chain_id: ChainId::new(), depth: 0,
+            from_operator_id: zeta.id, to_operator_id: kiro.id, task_id: Some(task.id),
+            origin_task_id: None, origin_thread_id: thread, status: HandoffStatus::Running,
+            brief: "do the thing".into(), result_summary: None, created_at_unix_ms: 1, reported_at_unix_ms: None,
+        };
+        storage.teammate_insert_handoff(&h).await.unwrap();
+
+        complete_task_inner(&storage, &runtime, task.id, 200).await.unwrap();
+
+        let edge = storage.teammate_get_handoff_by_task(task.id).await.unwrap().unwrap();
+        assert_eq!(edge.status, HandoffStatus::Reported);
+        let summary = edge.result_summary.unwrap();
+        assert!(summary.contains("Kiro") && summary.contains("completed"));
+    }
 }
 
 #[cfg(test)]
@@ -993,5 +1166,30 @@ mod tests {
         assert!(p.contains(&CompletionFact::Finisher));
         assert!(!p.contains(&CompletionFact::CleanRun));
         assert!(p.contains(&CompletionFact::Recovered));
+    }
+
+    #[test]
+    fn handoff_accept_message_names_receiver() {
+        let m = super::handoff_outcome_message_accepted("Kiro", "migrate auth");
+        assert!(m.contains("Kiro"));
+        assert!(m.contains("migrate auth"));
+    }
+
+    #[test]
+    fn handoff_reject_message_carries_reason() {
+        let m = super::handoff_outcome_message_rejected(
+            "Kiro",
+            "receiver is busy on another task; retry later",
+        );
+        assert!(m.contains("Kiro"));
+        assert!(m.contains("busy"));
+    }
+
+    #[test]
+    fn handoff_report_body_summarizes() {
+        let ok = super::build_handoff_report_body("Kiro", "thing done", true);
+        assert!(ok.contains("Kiro") && ok.contains("thing done") && ok.contains("completed"));
+        let bad = super::build_handoff_report_body("Kiro", "thing done", false);
+        assert!(bad.contains("did not complete"));
     }
 }
