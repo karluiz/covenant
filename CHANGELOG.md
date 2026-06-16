@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.87 — Inter-operator handoff backend + metrics heatmap fix
+
+### Added
+
+- **Inter-operator handoff backend (Plan 1 of 2)**: operators can now hand a
+  task off to one another. New `Handoff` domain types and a
+  `teammate_handoffs` table with CRUD, a pure safety gate (depth / cycle /
+  busy / chain-cap), a `handoff_task` tool surfaced via
+  `DispatchOutcome::Handoff` extraction, and a router that resolves the
+  receiver, enforces the chain, persists the handoff, creates the task, and
+  emits `HandoffRouted`. Autonomous handoffs route straight from dispatch, and
+  on receiver completion the delegator gets a report-back plus the
+  `good_delegate` achievement (gated on success, with a hardened report
+  fallback). Backend only; UI wiring lands in Plan 2.
+
+### Fixed
+
+- **Metrics heatmap blank on True Dark**: the contribution heatmap rendered as
+  an empty grid on the OLED/True Dark theme because
+  `body.theme-true-dark .cov-cell` (specificity 0,2,1) outranked the
+  `.cov-cell.lN` intensity ramp (0,2,0), repainting every cell neutral. The
+  l1–l4 ramp is now re-asserted under `theme-true-dark` at (0,3,1) so data
+  colors win while empty cells stay neutral (`ui/src/score/styles.css`).
+- **By-repo / Top-branches overflow**: both lists now cap at ~10 rows and
+  scroll internally with a themed thin scrollbar and overscroll containment,
+  instead of growing unbounded (`ui/src/score/styles.css`).
+- **Self-mention in operator threads**: `@`-mentions now exclude the thread's
+  own operator (`ui/src/teammate/mentions.ts`).
+
 ## v0.8.86 — Fix startup crash from Resources sampler
 
 ### Fixed
