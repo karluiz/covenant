@@ -6,7 +6,7 @@ const { invokeMock } = vi.hoisted(() => ({
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
-import { openOperatorModal, canProceedFromStep1, saveOperator, renderOperatorList } from './operators';
+import { openOperatorModal, canProceedFromStep1, saveOperator, renderOperatorList, mergeSkillVocab, STARTER_SKILLS } from './operators';
 import type { Operator } from '../api';
 
 beforeEach(() => {
@@ -222,5 +222,14 @@ describe('operator list grid', () => {
     const pills = cards[0]!.querySelectorAll('.op-card-tag');
     expect([...pills].map((p) => p.textContent)).toEqual(['reviewer', 'rust']);
     expect(cards[1]!.querySelector('.op-card-tags')).toBeNull();
+  });
+
+  it('mergeSkillVocab dedupes case-insensitively, starters first, casing preserved', () => {
+    const merged = mergeSkillVocab(['rust', 'frontend'], ['Rust', 'graphql', 'frontend', '']);
+    expect(merged).toEqual(['rust', 'frontend', 'graphql']);
+  });
+
+  it('STARTER_SKILLS has no dupes', () => {
+    expect(new Set(STARTER_SKILLS).size).toBe(STARTER_SKILLS.length);
   });
 });

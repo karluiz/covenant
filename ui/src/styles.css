@@ -3513,23 +3513,31 @@ body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidde
     justify-content: center;
     background: transparent;
     border: none;
-    color: var(--muted);
+    padding: 0;
     cursor: pointer;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
+}
+
+.settings-esc {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: color-mix(in srgb, var(--muted) 85%, transparent);
+    background: rgba(var(--ink-rgb), 0.05);
+    border: 1px solid rgba(var(--ink-rgb), 0.1);
+    border-radius: 9px;
+    padding: 6px 12px;
+    line-height: 1;
     transition:
         background 0.12s ease-out,
-        color 0.12s ease-out;
+        color 0.12s ease-out,
+        border-color 0.12s ease-out;
 }
 
-.settings-close svg {
-    display: block;
-}
-
-.settings-close:hover {
-    background: var(--border);
+.settings-close:hover .settings-esc {
     color: #fff;
+    background: rgba(var(--ink-rgb), 0.08);
+    border-color: rgba(var(--ink-rgb), 0.16);
 }
 
 .settings-section {

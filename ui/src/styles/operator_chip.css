@@ -169,6 +169,33 @@ body.theme-dark .op-card-summary {
 /* Layout-only; visual styling comes from .settings-btn. */
 .op-card-btn { flex: 1; }
 
+/* Icon-only card actions — square buttons that fit a narrow card. */
+.op-card-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--text-primary, #f5f6f7) 70%, transparent);
+  border: 1px solid rgba(var(--ink-rgb, 255 255 255), 0.12);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.04);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.op-card-iconbtn svg { width: 16px; height: 16px; }
+.op-card-iconbtn:hover {
+  color: var(--text-primary, #f5f6f7);
+  background: rgba(var(--ink-rgb, 255 255 255), 0.09);
+  border-color: rgba(var(--ink-rgb, 255 255 255), 0.2);
+}
+.op-card-iconbtn.is-danger:hover {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.5);
+  background: rgba(255, 107, 107, 0.1);
+}
+
 /* Two-step operator modal — palette aligned with the release log
  * (⌘⇧V): same overlay backdrop, same accent-purple tinted card body,
  * same soft 1px border + glow. Theme tokens mean light/dark are auto-

@@ -27,6 +27,7 @@ import { renderOperatorChip } from "./operator_chip";
 import { AVATAR_PACK_V2, parseAvatar, renderAvatarHtml } from "../operator/avatars";
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
 import { MarkdownEditor } from "../ui/markdown-editor";
@@ -35,6 +36,39 @@ import "./operator-creator.css";
 /// Blank SOUL.md template seeded into the editor when the user starts
 /// from scratch (or opens create-mode before picking an archetype).
 const BLANK_SOUL = `---\nname: New Operator\nvoice: terse\nescalate_threshold: 0.6\n---\n\n# New Operator\n\n`;
+
+/// Starter skill vocabulary for the operator creator's suggestion chips —
+/// useful before any other operator exists. At runtime the live union of
+/// every operator's tags (the same vocabulary handoff_task routes on) is
+/// folded in via loadSkillVocab().
+export const STARTER_SKILLS = [
+  "rust", "typescript", "frontend", "backend", "security", "devops",
+  "testing", "database", "debugging", "refactoring", "docs", "api",
+  "performance", "ci/cd", "ui/ux",
+];
+
+/// Merge starter skills with the live team union, case-insensitively
+/// deduped, starters first, original casing preserved.
+export function mergeSkillVocab(starters: string[], union: string[]): string[] {
+  const seen = new Set<string>();
+  return [...starters, ...union].filter(
+    (s) => !!s && !seen.has(s.toLowerCase()) && !!seen.add(s.toLowerCase()),
+  );
+}
+
+/// Cached team skill vocabulary, loaded once per session.
+let skillVocab: string[] | null = null;
+async function loadSkillVocab(): Promise<string[]> {
+  if (skillVocab) return skillVocab;
+  let union: string[] = [];
+  try {
+    union = (await operatorList()).flatMap((o) => o.tags ?? []);
+  } catch {
+    // ponytail: first run / offline — starters alone still suggest fine.
+  }
+  skillVocab = mergeSkillVocab(STARTER_SKILLS, union);
+  return skillVocab;
+}
 
 /// One-click starter rules for the hard-constraints editor. Backslash-free
 /// on purpose: Milkdown's markdown round-trip can mangle `\`-escapes.
@@ -1252,16 +1286,111 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
     colField.append(colLbl, swatches);
     identity.append(colField);
 
-    const tags = document.createElement("input");
-    tags.type = "text";
-    tags.className = "op-modal-input";
-    tags.placeholder = "comma, separated";
-    tags.value = (view.tags ?? []).join(", ");
-    tags.addEventListener("input", () => {
-      view.tags = tags.value.split(",").map((t) => t.trim()).filter(Boolean);
+    // ── Skills ────────────────────────────────────────────────────────
+    // Skills are the team's routing vocabulary: handoff_task delegates to
+    // the teammate whose skills overlap a task's required_skills, and a
+    // successful routed handoff is what earns the Good Delegate badge. An
+    // operator with no skills can never receive a handoff — so we make this
+    // a first-class pill editor with suggestions, not a bare text field.
+    const skills = document.createElement("div");
+    skills.className = "op-skills";
+
+    const pills = document.createElement("div");
+    pills.className = "op-skills-pills";
+    const entry = document.createElement("input");
+    entry.type = "text";
+    entry.className = "op-skills-entry";
+
+    const has = (t: string) =>
+      (view.tags ?? []).some((x) => x.toLowerCase() === t.toLowerCase());
+
+    function addSkill(raw: string): void {
+      const t = raw.trim();
+      entry.value = "";
+      if (t && !has(t)) {
+        view.tags = [...(view.tags ?? []), t];
+        commit(false);
+      }
+      renderPills();
+      renderSuggest();
+    }
+    function removeSkill(t: string): void {
+      view.tags = (view.tags ?? []).filter((x) => x !== t);
       commit(false);
+      renderPills();
+      renderSuggest();
+    }
+    function renderPills(): void {
+      pills.querySelectorAll(".op-skill-pill").forEach((n) => n.remove());
+      for (const t of view.tags ?? []) {
+        const pill = document.createElement("span");
+        pill.className = "op-skill-pill";
+        const lbl = document.createElement("span");
+        lbl.textContent = t;
+        const x = document.createElement("button");
+        x.type = "button"; x.className = "op-skill-pill-x"; x.textContent = "×";
+        x.setAttribute("aria-label", `Remove ${t}`);
+        x.addEventListener("click", () => removeSkill(t));
+        pill.append(lbl, x);
+        pills.insertBefore(pill, entry);
+      }
+      entry.placeholder = (view.tags?.length ?? 0) ? "" : "type a skill, Enter to add";
+    }
+
+    entry.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addSkill(entry.value); }
+      else if (e.key === "Backspace" && !entry.value && (view.tags?.length ?? 0)) {
+        removeSkill(view.tags![view.tags!.length - 1]);
+      }
     });
-    identity.append(labeled("Skills", tags));
+    entry.addEventListener("blur", () => addSkill(entry.value));
+    // Click anywhere in the field (not on a pill) focuses the entry.
+    pills.addEventListener("click", (e) => { if (e.target === pills) entry.focus(); });
+    pills.append(entry);
+    renderPills();
+
+    const hint = document.createElement("div");
+    hint.className = "op-skills-hint";
+    hint.textContent =
+      "Skills are how operators delegate. When one hits work outside its lane, " +
+      "handoff_task routes to the teammate whose skills overlap — and a successful " +
+      "routed handoff is what earns the Good Delegate badge. No skills means this " +
+      "operator can never receive a handoff.";
+
+    const suggest = document.createElement("div");
+    suggest.className = "op-skills-suggest";
+    function renderSuggest(): void {
+      suggest.innerHTML = "";
+      const avail = (skillVocab ?? STARTER_SKILLS)
+        .filter((s) => !has(s))
+        .slice(0, 12);
+      if (!avail.length) return;
+      const lbl = document.createElement("span");
+      lbl.className = "op-skills-suggest-lbl";
+      lbl.textContent = "Suggested";
+      suggest.append(lbl);
+      for (const s of avail) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "op-skills-chip";
+        chip.textContent = s;
+        chip.addEventListener("click", () => addSkill(s));
+        suggest.append(chip);
+      }
+    }
+    renderSuggest();
+    // Fold in the live team vocabulary (union of every operator's tags) once
+    // it loads — same vocabulary handoff_task routes on.
+    void loadSkillVocab().then(renderSuggest);
+
+    skills.append(pills, hint, suggest);
+    const skillField = document.createElement("div");
+    skillField.className = "op-modal-field";
+    const skillLbl = document.createElement("span");
+    skillLbl.className = "op-modal-label";
+    skillLbl.textContent = "Skills";
+    skillField.append(skillLbl, skills);
+    identity.append(skillField);
     controls.append(identity);
   }
 
@@ -1608,17 +1737,19 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     }
     const actions = document.createElement("div");
     actions.className = "op-card-actions";
-    const mk = (label: string, fn: () => void, danger = false) => {
+    const mk = (label: string, icon: string, fn: () => void, danger = false) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = danger ? "settings-btn is-danger op-card-btn" : "settings-btn op-card-btn";
-      b.textContent = label;
+      b.className = danger ? "op-card-iconbtn is-danger" : "op-card-iconbtn";
+      b.innerHTML = icon;
+      b.setAttribute("aria-label", label);
+      attachTooltip(b, label);
       b.addEventListener("click", fn);
       return b;
     };
-    actions.append(mk("Edit", () => h.onEdit(op)));
-    actions.append(mk("Duplicate", () => h.onDuplicate(op)));
-    actions.append(mk("Delete", () => h.onDelete(op), true));
+    actions.append(mk("Edit", Icons.pencil(), () => h.onEdit(op)));
+    actions.append(mk("Duplicate", Icons.copy(), () => h.onDuplicate(op)));
+    actions.append(mk("Delete", Icons.trash(), () => h.onDelete(op), true));
     card.append(actions);
     root.append(card);
   }

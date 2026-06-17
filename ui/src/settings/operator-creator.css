@@ -102,6 +102,50 @@
 .op-creator .op-soul-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
 .op-creator .op-hero-chip { display: flex; align-items: center; }
 
+/* ── Skills: pill editor + suggestion chips ── */
+.op-creator .op-skills { display: flex; flex-direction: column; gap: 9px; }
+.op-creator .op-skills-pills {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  width: 100%; min-height: 38px; padding: 6px 8px;
+  background: #16171e; border: 1px solid #23252f; border-radius: 8px;
+  cursor: text; transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.op-creator .op-skills-pills:focus-within {
+  border-color: rgba(124, 140, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.14);
+}
+.op-creator .op-skill-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 6px 3px 10px; border-radius: 999px;
+  background: rgba(124, 140, 255, 0.16); color: #d7dae6;
+  font-size: 12.5px; line-height: 1.4; white-space: nowrap;
+}
+.op-creator .op-skill-pill-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; padding: 0; border: 0; border-radius: 999px;
+  background: transparent; color: #9aa0b5; font-size: 14px; line-height: 1;
+  cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
+}
+.op-creator .op-skill-pill-x:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.op-creator .op-skills-entry {
+  flex: 1; min-width: 130px; border: 0; background: transparent;
+  color: #d7dae6; font: inherit; padding: 3px 2px; outline: none;
+}
+.op-creator .op-skills-hint { font-size: 11.5px; line-height: 1.5; color: #7c8194; }
+.op-creator .op-skills-suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.op-creator .op-skills-suggest-lbl {
+  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; color: #5f6477;
+}
+.op-creator .op-skills-chip {
+  padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  background: transparent; border: 1px dashed #2c2f3b; color: #9aa0b5;
+  font: inherit; font-size: 12px; transition: all 0.15s ease;
+}
+.op-creator .op-skills-chip:hover {
+  border-color: rgba(124, 140, 255, 0.5); border-style: solid;
+  color: #d7dae6; background: rgba(124, 140, 255, 0.1);
+}
+
 /* ── True Dark (OLED): neutralize the hardcoded blue-tinted gradient and
    input surfaces so the operator editor matches the pure-black chrome. ── */
 body.theme-true-dark .op-creator .creator {
@@ -109,7 +153,12 @@ body.theme-true-dark .op-creator .creator {
 }
 body.theme-true-dark .op-creator .op-modal-input,
 body.theme-true-dark .op-creator .op-modal-select,
-body.theme-true-dark .op-creator .op-soul-source {
+body.theme-true-dark .op-creator .op-soul-source,
+body.theme-true-dark .op-creator .op-skills-pills {
   background: #0a0a0a;
   border-color: #1a1a1a;
+}
+/* Neutral lift instead of an accent tint — accent jumps hard on near-black. */
+body.theme-true-dark .op-creator .op-skill-pill {
+  background: rgba(255, 255, 255, 0.08);
 }

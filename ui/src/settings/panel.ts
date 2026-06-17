@@ -356,7 +356,7 @@ export class SettingsPanel {
     header.className = "settings-page-header";
     header.innerHTML = `
       <h2>Settings</h2>
-      <button type="button" class="settings-close" aria-label="Close" title="Close (Esc)">${Icons.x({ size: 14 })}</button>
+      <button type="button" class="settings-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
     `;
     this.pageHost.appendChild(header);
 
