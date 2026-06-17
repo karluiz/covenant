@@ -31,6 +31,59 @@ fn resolve(roster: &[Operator], name: &str) -> Option<OperatorId> {
     roster.iter().find(|o| o.name.eq_ignore_ascii_case(name)).map(|o| o.id)
 }
 
+/// Lowercase, trim, dedup, and sort the union of all operators' tags — the
+/// team's skill vocabulary. Advertised in the `handoff_task` tool schema so
+/// the delegator can only request skills that exist.
+pub fn skill_union(roster: &[Operator]) -> Vec<String> {
+    let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for o in roster {
+        for t in &o.tags {
+            let s = t.trim().to_ascii_lowercase();
+            if !s.is_empty() {
+                set.insert(s);
+            }
+        }
+    }
+    set.into_iter().collect()
+}
+
+/// How many DISTINCT requested skills an operator covers (case-insensitive).
+fn overlap_count(op_tags: &[String], required: &[String]) -> usize {
+    let req: std::collections::HashSet<String> = required
+        .iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    op_tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| req.contains(t))
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+}
+
+/// Resolve the best-suited peer for `required` skills. Excludes `from`
+/// (no self-handoff). Ranks candidates by `(available, overlap, xp)`
+/// descending — availability outranks raw skill match so the work goes to
+/// someone who can start now. Returns `None` when no operator overlaps
+/// at least one requested skill.
+fn resolve_by_skills(
+    roster: &[Operator],
+    required: &[String],
+    from: OperatorId,
+    is_available: impl Fn(OperatorId) -> bool,
+) -> Option<OperatorId> {
+    roster
+        .iter()
+        .filter(|o| o.id != from)
+        .filter_map(|o| {
+            let c = overlap_count(&o.tags, required);
+            (c > 0).then_some((o, c))
+        })
+        .max_by_key(|(o, c)| (is_available(o.id) as u8, *c, o.xp))
+        .map(|(o, _)| o.id)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn route(
     storage: &Arc<Storage>,
@@ -217,5 +270,75 @@ mod tests {
         rt.start_task(kiro, TaskId::new(), None).unwrap();
         let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req("Kiro"), 100).await.unwrap();
         assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::ReceiverBusy, .. }));
+    }
+
+    fn with_skills(name: &str, tags: &[&str], xp: u64) -> Operator {
+        let mut o = mk_operator(name);
+        o.tags = tags.iter().map(|s| s.to_string()).collect();
+        o.xp = xp;
+        o
+    }
+
+    #[test]
+    fn skill_union_normalizes_dedups_sorts() {
+        let roster = vec![
+            with_skills("A", &["Rust", "migrations"], 0),
+            with_skills("B", &["rust", "UI"], 0),
+        ];
+        assert_eq!(super::skill_union(&roster), vec!["migrations", "rust", "ui"]);
+    }
+
+    #[test]
+    fn overlap_is_case_insensitive_and_deduped() {
+        let tags = vec!["Rust".to_string(), "rust".to_string(), "ui".to_string()];
+        assert_eq!(super::overlap_count(&tags, &["RUST".into()]), 1);
+        assert_eq!(super::overlap_count(&tags, &["rust".into(), "ui".into()]), 2);
+        assert_eq!(super::overlap_count(&tags, &["python".into()]), 0);
+    }
+
+    #[test]
+    fn resolve_picks_highest_overlap() {
+        let from = OperatorId(ulid::Ulid::new());
+        let a = with_skills("A", &["rust"], 0);
+        let b = with_skills("B", &["rust", "migrations"], 0);
+        let roster = vec![a, b.clone()];
+        let got = super::resolve_by_skills(&roster, &["rust".into(), "migrations".into()], from, |_| true);
+        assert_eq!(got, Some(b.id));
+    }
+
+    #[test]
+    fn resolve_excludes_delegator() {
+        let a = with_skills("A", &["rust"], 999);
+        let roster = vec![a.clone()];
+        let got = super::resolve_by_skills(&roster, &["rust".into()], a.id, |_| true);
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn resolve_prefers_available_over_busy_at_equal_score() {
+        let busy = with_skills("Busy", &["rust"], 1000);
+        let free = with_skills("Free", &["rust"], 0);
+        let from = OperatorId(ulid::Ulid::new());
+        let roster = vec![busy.clone(), free.clone()];
+        let got = super::resolve_by_skills(&roster, &["rust".into()], from, |id| id == free.id);
+        assert_eq!(got, Some(free.id));
+    }
+
+    #[test]
+    fn resolve_prefers_higher_xp_at_equal_score_and_availability() {
+        let lo = with_skills("Lo", &["rust"], 10);
+        let hi = with_skills("Hi", &["rust"], 90);
+        let from = OperatorId(ulid::Ulid::new());
+        let roster = vec![lo, hi.clone()];
+        let got = super::resolve_by_skills(&roster, &["rust".into()], from, |_| true);
+        assert_eq!(got, Some(hi.id));
+    }
+
+    #[test]
+    fn resolve_none_on_zero_overlap() {
+        let a = with_skills("A", &["rust"], 0);
+        let from = OperatorId(ulid::Ulid::new());
+        let roster = vec![a];
+        assert_eq!(super::resolve_by_skills(&roster, &["python".into()], from, |_| true), None);
     }
 }
