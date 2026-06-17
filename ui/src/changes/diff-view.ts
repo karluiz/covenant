@@ -30,12 +30,14 @@ export function renderDiffBody(file: FileDiff): HTMLElement {
   root.dataset.path = file.path;
   const body = file.body;
   if (body.kind === "binary") {
-    const kb = Math.max(1, Math.round(body.sizeBytes / 1024));
-    root.appendChild(el("div", "cd-binary", `[binary] ${file.path} — ${kb} KB (no text diff)`));
+    const sizeLabel = body.sizeBytes > 0
+      ? `— ${Math.round(body.sizeBytes / 1024)} KB (no text diff)`
+      : `— binary (no text diff)`;
+    root.appendChild(el("div", "cd-binary", `[binary] ${file.path} ${sizeLabel}`));
     return root;
   }
   if (body.kind === "tooLarge") {
-    root.appendChild(el("div", "cd-toolarge", `Diff too large to display (${body.lineCount} lines).`));
+    root.appendChild(el("div", "cd-toolarge", `Diff too large to display (more than ${body.lineCount} lines).`));
     return root;
   }
   for (const h of body.hunks) root.appendChild(renderHunk(h, file.path));

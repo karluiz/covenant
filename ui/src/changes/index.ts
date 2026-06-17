@@ -10,6 +10,7 @@ export class ChangesSurface {
   private open_ = false;
   private railEl: HTMLElement | null = null;
   private diffEl: HTMLElement | null = null;
+  private selectedPath: string | null = null;
 
   constructor(host: HTMLElement) { this.host = host; }
 
@@ -80,6 +81,7 @@ export class ChangesSurface {
 
   private async showDiff(path: string, staged: boolean): Promise<void> {
     if (!this.diffEl) return;
+    this.selectedPath = path;
     const file = await gitFileDiff(this.repoRoot, path, staged);
     this.diffEl.replaceChildren(renderDiffBody(file));
   }
@@ -87,10 +89,16 @@ export class ChangesSurface {
   private async stage(path: string): Promise<void> {
     this.changes = await gitStage(this.repoRoot, path);
     this.renderRailInto();
+    if (path === this.selectedPath) {
+      await this.showDiff(path, true);
+    }
   }
 
   private async unstage(path: string): Promise<void> {
     this.changes = await gitUnstage(this.repoRoot, path);
     this.renderRailInto();
+    if (path === this.selectedPath) {
+      await this.showDiff(path, false);
+    }
   }
 }
