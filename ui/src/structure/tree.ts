@@ -6,6 +6,7 @@
 // entries at all). Manual refresh button re-lists from root.
 
 import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 import { resolveFileIcon, resolveFolderIcon } from "./file-icons";
 import { zoom } from "../zoom";
 import {
@@ -413,6 +414,18 @@ export class StructureTree {
       void this.refresh();
     });
     this.headerEl.appendChild(showIgnored);
+
+    const changes = document.createElement("button");
+    changes.type = "button";
+    changes.className = "structure-action";
+    changes.innerHTML = Icons.gitCompare({ size: 12 });
+    attachTooltip(changes, "View changes (git diff)");
+    changes.addEventListener("click", () => {
+      window.dispatchEvent(
+        new CustomEvent("covenant:open-changes", { detail: { cwd } }),
+      );
+    });
+    this.headerEl.appendChild(changes);
 
     const refresh = document.createElement("button");
     refresh.type = "button";

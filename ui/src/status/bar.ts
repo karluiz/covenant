@@ -910,7 +910,7 @@ export class StatusBar {
         <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching worktrees.</div>
       </section>
       <div class="status-git-pop-actions">
-        <button type="button" class="status-git-pop-view-changes">View changes</button>
+        <button type="button" class="status-git-pop-view-changes">${Icons.gitCompare({ size: 13 })}<span>View changes</span></button>
       </div>
     `;
 

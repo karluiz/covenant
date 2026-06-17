@@ -6484,6 +6484,34 @@ body.theme-light .status-git-popover {
     background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .status-git-pop-search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.status-git-pop-actions {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    margin-top: 2px;
+}
+.status-git-pop-view-changes {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(var(--ink-rgb), 0.04);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 550;
+    cursor: pointer;
+}
+.status-git-pop-view-changes:hover {
+    background: rgba(var(--ink-rgb), 0.09);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.status-git-pop-view-changes svg { width: 13px; height: 13px; }
+
 .status-git-pop-section {
     min-height: 0;
     display: flex;

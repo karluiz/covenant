@@ -1,39 +1,141 @@
+/* Changes — full-screen git diff viewer.
+   Uses Covenant theme tokens: --bg-overlay (opaque panel), --bg-panel,
+   --border, --text-primary, --muted, --accent, and rgba(var(--ink-rgb), a)
+   for neutral surface lifts that read correctly on every theme incl. True Dark. */
+
 body.changes-fullscreen .cd-frame {
-  position: fixed; inset: 0; z-index: 60;
-  display: grid; grid-template-columns: 320px 1fr;
-  background: var(--bg-primary); color: var(--text-primary);
-  font-family: var(--font-mono, ui-monospace, monospace);
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-overlay);
+  color: var(--text-primary);
 }
-.cd-left { border-right: 1px solid var(--border-subtle); overflow: auto; padding: 8px; }
-.cd-search { width: 100%; padding: 6px 8px; margin-bottom: 8px;
-  background: var(--bg-elevated); color: var(--text-primary);
-  border: 1px solid var(--border-subtle); border-radius: 6px; }
-.cd-group-title { font-size: 11px; text-transform: uppercase; opacity: .7; margin: 8px 4px; }
-.cd-file { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
-  border-radius: 6px; cursor: pointer; }
-.cd-file:hover { background: var(--bg-hover); }
-.cd-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Header */
+.cd-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+.cd-title { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.cd-repo { font-size: 12px; color: var(--muted); }
+.cd-header-spacer { flex: 1; }
+.cd-close {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.cd-close:hover { background: rgba(var(--ink-rgb), 0.09); }
+
+/* Body: rail | diff */
+.cd-body { flex: 1; display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
+
+.cd-left {
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  padding: 10px;
+  background: var(--bg-panel);
+}
+.cd-search {
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 10px;
+  background: rgba(var(--ink-rgb), 0.05);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+  outline: none;
+}
+.cd-search:focus { border-color: var(--accent); }
+.cd-search::placeholder { color: var(--muted); }
+
+.cd-group { margin-bottom: 6px; }
+.cd-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 10px 4px 4px;
+}
+.cd-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cd-file:hover { background: rgba(var(--ink-rgb), 0.06); }
+.cd-file--selected { background: rgba(var(--ink-rgb), 0.1); }
+.cd-file-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-status { font-size: 11px; font-weight: 700; width: 12px; text-align: center; }
 .cd-status--modified { color: #d7a700; }
 .cd-status--added, .cd-status--untracked { color: #3fb950; }
 .cd-status--deleted { color: #f85149; }
-.cd-counts { font-size: 11px; opacity: .8; }
-.cd-stage-btn { opacity: 0; font-size: 11px; }
+.cd-status--renamed { color: var(--accent); }
+.cd-counts { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cd-stage-btn {
+  opacity: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--text-primary);
+  cursor: pointer;
+}
 .cd-file:hover .cd-stage-btn { opacity: 1; }
-.cd-right { display: flex; flex-direction: column; overflow: auto; }
-.cd-close { align-self: flex-end; margin: 8px; }
-.cd-diff-host { padding: 0 8px 24px; }
-.cd-line { display: grid; grid-template-columns: 48px 48px 16px 1fr;
-  white-space: pre; font-size: 12px; line-height: 1.5; }
-.cd-num { text-align: right; padding-right: 8px; opacity: .5; user-select: none; }
-.cd-line--add { background: rgba(63,185,80,.15); }
-.cd-line--del { background: rgba(248,81,73,.15); }
-.cd-hunk-header { opacity: .6; padding: 8px 0 2px; }
-.cd-binary, .cd-toolarge { opacity: .7; padding: 24px 8px; }
+.cd-stage-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-/* True Dark / OLED: neutral lifts, no accent tint on selected surfaces */
-body.theme-true-dark.changes-fullscreen .cd-file:hover { background: rgba(255,255,255,.06); }
+.cd-clean, .cd-diff-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 28px 12px;
+  text-align: center;
+}
 
-/* Syntax highlighting: classHighlighter tok-* classes (stable, no EditorView required) */
+/* Diff pane */
+.cd-right { overflow: auto; min-width: 0; background: var(--bg-overlay); }
+.cd-diff-host { padding: 8px 0 24px; }
+.cd-diff { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.cd-line {
+  display: grid;
+  grid-template-columns: 52px 52px 18px 1fr;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.cd-num { text-align: right; padding-right: 10px; color: var(--muted); opacity: 0.7; user-select: none; }
+.cd-marker { text-align: center; user-select: none; opacity: 0.8; }
+.cd-line--add { background: rgba(63, 185, 80, 0.13); }
+.cd-line--add .cd-marker { color: #3fb950; }
+.cd-line--del { background: rgba(248, 81, 73, 0.13); }
+.cd-line--del .cd-marker { color: #f85149; }
+.cd-hunk-header {
+  color: var(--muted);
+  padding: 10px 14px 2px;
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+.cd-hunk:first-child .cd-hunk-header { border-top: none; margin-top: 0; }
+.cd-text { padding-left: 6px; }
+.cd-binary, .cd-toolarge { color: var(--muted); padding: 28px 16px; font-size: 13px; }
+
+/* Syntax highlighting: classHighlighter tok-* classes (stable, no EditorView required).
+   Fallback hex keeps colors visible even if a theme doesn't define --syntax-*. */
 .cd-text .tok-keyword    { color: var(--syntax-keyword,  #c678dd); }
 .cd-text .tok-string     { color: var(--syntax-string,   #98c379); }
 .cd-text .tok-string2    { color: var(--syntax-string,   #98c379); }

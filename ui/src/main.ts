@@ -1350,8 +1350,8 @@ async function boot(): Promise<void> {
   document.body.appendChild(changesHost);
   const changesSurface = new ChangesSurface(changesHost);
 
-  const openChanges = async (): Promise<void> => {
-    const cwd = manager.activeCwd();
+  const openChanges = async (cwdArg?: string): Promise<void> => {
+    const cwd = cwdArg ?? manager.activeCwd();
     if (!cwd) return;
     try {
       const summary = await gitRepoSummary(cwd);
@@ -1362,6 +1362,11 @@ async function boot(): Promise<void> {
   };
 
   statusBar.onViewChanges = () => void openChanges();
+  // File-tree "Changes" button (structure/tree.ts) dispatches this with its cwd.
+  window.addEventListener("covenant:open-changes", (e) => {
+    const cwd = (e as CustomEvent<{ cwd?: string }>).detail?.cwd;
+    void openChanges(cwd);
+  });
   statusBar.onVersionChipClick = () => release.toggle();
   // Statusbar Covenant chip click → open Settings, covenant tab.
   window.addEventListener("covenant:open-covenant-settings", () => {
