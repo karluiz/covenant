@@ -80,6 +80,9 @@ fn resolve_by_skills(
             let c = overlap_count(&o.tags, required);
             (c > 0).then_some((o, c))
         })
+        // On a full tie across (available, overlap, xp), max_by_key returns the
+        // last candidate in roster order (registry creation order). Acceptable —
+        // ties this exact are rare and any equally-ranked peer is a valid pick.
         .max_by_key(|(o, c)| (is_available(o.id) as u8, *c, o.xp))
         .map(|(o, _)| o.id)
 }
@@ -329,7 +332,7 @@ mod tests {
         let lo = with_skills("Lo", &["rust"], 10);
         let hi = with_skills("Hi", &["rust"], 90);
         let from = OperatorId(ulid::Ulid::new());
-        let roster = vec![lo, hi.clone()];
+        let roster = vec![hi.clone(), lo]; // hi first: win must come from xp, not roster position
         let got = super::resolve_by_skills(&roster, &["rust".into()], from, |_| true);
         assert_eq!(got, Some(hi.id));
     }
