@@ -315,15 +315,15 @@ pub fn file_diff(cwd: &Path, path: &str, staged: bool) -> Result<diff::FileDiff,
     let raw = if staged {
         git(cwd, &["diff", "--cached", "--", path])?
     } else {
-        match git(cwd, &["diff", "--", path]) {
-            Ok(s) if !s.trim().is_empty() => s,
-            _ => {
-                // --no-index returns exit code 1 on differences; capture stdout regardless.
-                let out = Command::new("git").arg("-C").arg(cwd)
-                    .args(["diff", "--no-index", "--", "/dev/null", path])
-                    .output().map_err(|e| format!("git failed to start: {e}"))?;
-                String::from_utf8_lossy(&out.stdout).to_string()
-            }
+        let tracked = git(cwd, &["diff", "--", path])?;
+        if !tracked.trim().is_empty() {
+            tracked
+        } else {
+            // --no-index returns exit code 1 on differences; capture stdout regardless.
+            let out = Command::new("git").arg("-C").arg(cwd)
+                .args(["diff", "--no-index", "--", "/dev/null", path])
+                .output().map_err(|e| format!("git failed to start: {e}"))?;
+            String::from_utf8_lossy(&out.stdout).to_string()
         }
     };
     Ok(diff::FileDiff {
@@ -398,6 +398,23 @@ pub mod diff {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct NumStat { pub added: u32, pub removed: u32, pub binary: bool, pub path: String }
 
+    /// git `--numstat` encodes renames as `old => new` or `pre{old => new}post`.
+    /// Reduce to the destination path so it matches `git status --porcelain` paths.
+    pub fn numstat_dest_path(raw: &str) -> String {
+        let Some(arrow) = raw.find(" => ") else { return raw.to_string(); };
+        // brace form: prefix{old => new}suffix
+        if let (Some(open), Some(close)) = (
+            raw[..arrow].rfind('{'),
+            raw[arrow..].find('}').map(|i| arrow + i),
+        ) {
+            let prefix = &raw[..open];
+            let new_part = &raw[arrow + 4..close];
+            let suffix = &raw[close + 1..];
+            return format!("{prefix}{new_part}{suffix}");
+        }
+        raw[arrow + 4..].to_string()
+    }
+
     pub fn parse_numstat(raw: &str) -> Vec<NumStat> {
         raw.lines().filter_map(|line| {
             let mut p = line.splitn(3, '\t');
@@ -408,7 +425,7 @@ pub mod diff {
                 added: a.parse().unwrap_or(0),
                 removed: r.parse().unwrap_or(0),
                 binary,
-                path: path.to_string(),
+                path: numstat_dest_path(path),
             })
         }).collect()
     }
@@ -573,6 +590,49 @@ index e69de29..0cfbf08 100644
         let mut raw = String::from("@@ -1,9999 +1,9999 @@\n");
         for _ in 0..6000 { raw.push_str("+x\n"); }
         assert!(matches!(diff::parse_unified_diff(&raw, 5000), diff::FileDiffBody::TooLarge { .. }));
+    }
+
+    // ---- numstat_dest_path unit tests ----
+
+    #[test]
+    fn numstat_dest_path_plain_unchanged() {
+        assert_eq!(diff::numstat_dest_path("src/a.rs"), "src/a.rs");
+    }
+
+    #[test]
+    fn numstat_dest_path_simple_rename() {
+        assert_eq!(diff::numstat_dest_path("old.txt => new.txt"), "new.txt");
+    }
+
+    #[test]
+    fn numstat_dest_path_brace_rename() {
+        assert_eq!(diff::numstat_dest_path("src/{a => b}.rs"), "src/b.rs");
+    }
+
+    // ---- staged rename surfaces non-zero numstat counts ----
+
+    #[test]
+    fn changes_staged_rename_has_nonzero_counts() {
+        use std::fs;
+        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        // Write a file with content, commit it, then rename + edit and stage.
+        fs::write(dir.join("original.txt"), "line1\nline2\nline3\n").unwrap();
+        git_run(dir, &["add", "original.txt"]);
+        git_run(dir, &["commit", "-q", "-m", "add original"]);
+        // Rename via git mv and also modify the file.
+        git_run(dir, &["mv", "original.txt", "renamed.txt"]);
+        fs::write(dir.join("renamed.txt"), "line1\nline2\nline3\nline4\n").unwrap();
+        git_run(dir, &["add", "renamed.txt"]);
+
+        let c = changes(dir).unwrap();
+        let entry = c.staged.iter().find(|f| f.path == "renamed.txt")
+            .expect("renamed.txt should appear in staged");
+        assert_eq!(entry.status, diff::ChangeStatus::Renamed);
+        // After adding a line the numstat should show at least 1 addition.
+        assert!(entry.added > 0, "staged rename should carry added count, got {}", entry.added);
     }
 
     #[test]
