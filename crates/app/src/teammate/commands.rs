@@ -235,7 +235,8 @@ pub async fn teammate_send_text_message(
                         .map(|(_, _, screen)| screen.clone())
                 });
             let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024)
-                .with_screen(active_screen);
+                .with_screen(active_screen)
+                .with_skills(crate::teammate::handoff::skill_union(&registry_bg.list()));
             // GitHub access: attach the stored token only when this operator
             // is allowed to use it. Keychain reads are sync — keep them off
             // the async thread.

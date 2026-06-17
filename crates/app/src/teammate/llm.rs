@@ -543,8 +543,12 @@ fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
         tools::run_command_tool_def(),
         tools::read_terminal_screen_tool_def(),
         tools::propose_task_tool_def(),
-        tools::handoff_task_tool_def(),
     ];
+    // Skill-routed handoff is only offered when the team actually has skills
+    // to route on (otherwise the enum would be empty and unusable).
+    if !tool_env.available_skills.is_empty() {
+        defs.push(tools::handoff_task_tool_def(&tool_env.available_skills));
+    }
     if let Some(g) = &tool_env.github {
         defs.extend(crate::teammate::github_tools::github_tool_defs(g.access));
     }
@@ -1315,28 +1319,41 @@ mod tests {
     fn github_tools_registered_by_access_level() {
         use crate::operator_registry::GithubAccess;
         use crate::teammate::tools::{GithubCtx, ToolEnv};
-        let base = ToolEnv::new(std::env::temp_dir(), 1024);
+        let base = ToolEnv::new(std::env::temp_dir(), 1024).with_skills(vec!["rust".into()]);
         assert_eq!(all_tool_defs(&base).len(), 9); // 8 base + handoff_task
 
-        let ro = ToolEnv::new(std::env::temp_dir(), 1024).with_github(Some(GithubCtx {
-            token: "t".into(),
-            access: GithubAccess::ReadOnly,
-            api_base: "x".into(),
-        }));
+        let ro = ToolEnv::new(std::env::temp_dir(), 1024)
+            .with_skills(vec!["rust".into()])
+            .with_github(Some(GithubCtx { token: "t".into(), access: GithubAccess::ReadOnly, api_base: "x".into() }));
         assert_eq!(all_tool_defs(&ro).len(), 9 + 5);
 
-        let rw = ToolEnv::new(std::env::temp_dir(), 1024).with_github(Some(GithubCtx {
-            token: "t".into(),
-            access: GithubAccess::ReadWrite,
-            api_base: "x".into(),
-        }));
+        let rw = ToolEnv::new(std::env::temp_dir(), 1024)
+            .with_skills(vec!["rust".into()])
+            .with_github(Some(GithubCtx { token: "t".into(), access: GithubAccess::ReadWrite, api_base: "x".into() }));
         let rw_defs = all_tool_defs(&rw);
-        let names: Vec<&str> = rw_defs
-            .iter()
-            .map(|d| d["name"].as_str().unwrap())
-            .collect::<Vec<_>>();
+        let names: Vec<&str> = rw_defs.iter().map(|d| d["name"].as_str().unwrap()).collect();
         assert_eq!(names.len(), 9 + 9);
         assert!(names.contains(&"gh_create_issue"));
+    }
+
+    #[test]
+    fn handoff_omitted_when_no_skills() {
+        use crate::teammate::tools::ToolEnv;
+        let env = ToolEnv::new(std::env::temp_dir(), 1024); // no skills
+        let defs = all_tool_defs(&env);
+        let names: Vec<&str> = defs.iter().map(|d| d["name"].as_str().unwrap()).collect();
+        assert_eq!(names.len(), 8);
+        assert!(!names.contains(&"handoff_task"));
+    }
+
+    #[test]
+    fn handoff_schema_enum_reflects_available_skills() {
+        use crate::teammate::tools::ToolEnv;
+        let env = ToolEnv::new(std::env::temp_dir(), 1024).with_skills(vec!["rust".into(), "ui".into()]);
+        let defs = all_tool_defs(&env);
+        let def = defs.into_iter().find(|d| d["name"] == "handoff_task").unwrap();
+        let enm = &def["input_schema"]["properties"]["required_skills"]["items"]["enum"];
+        assert_eq!(enm, &serde_json::json!(["rust", "ui"]));
     }
 
     #[test]

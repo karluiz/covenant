@@ -46,6 +46,10 @@ pub struct ToolEnv {
     /// `github_access != Off` AND a token exists in the Keychain.
     /// Absence means the `gh_*` tools were never registered.
     pub github: Option<GithubCtx>,
+    /// The team's skill vocabulary (union of all operators' tags), used to
+    /// build the `handoff_task` `required_skills` enum. Empty → the
+    /// `handoff_task` tool is omitted (nothing to route on).
+    pub available_skills: Vec<String>,
 }
 
 /// Token + access level + API base for the `gh_*` tools. `api_base` is
@@ -69,7 +73,7 @@ impl std::fmt::Debug for GithubCtx {
 
 impl ToolEnv {
     pub fn new(root: PathBuf, max_bytes_per_file: usize) -> Self {
-        Self { root, max_bytes_per_file, active_screen: None, github: None }
+        Self { root, max_bytes_per_file, active_screen: None, github: None, available_skills: Vec::new() }
     }
 
     /// Attach the active tab's rendered-screen handle (builder style).
@@ -84,6 +88,12 @@ impl ToolEnv {
     /// Attach GitHub API access (builder style).
     pub fn with_github(mut self, github: Option<GithubCtx>) -> Self {
         self.github = github;
+        self
+    }
+
+    /// Attach the team's skill vocabulary (builder style).
+    pub fn with_skills(mut self, skills: Vec<String>) -> Self {
+        self.available_skills = skills;
         self
     }
 }
@@ -651,7 +661,7 @@ pub fn propose_task_tool_def() -> Value {
 /// Tool def for `handoff_task` — delegate a unit of work to ANOTHER
 /// operator. Structured output, like `propose_task`: the dispatcher
 /// consumes the tool_use directly (no execute handler).
-pub fn handoff_task_tool_def() -> Value {
+pub fn handoff_task_tool_def(available_skills: &[String]) -> Value {
     serde_json::json!({
         "name": "handoff_task",
         "description":
@@ -666,7 +676,7 @@ pub fn handoff_task_tool_def() -> Value {
             "properties": {
                 "required_skills": {
                     "type": "array",
-                    "items": { "type": "string" },
+                    "items": { "type": "string", "enum": available_skills },
                     "minItems": 1,
                     "description": "The capabilities the work needs (e.g. [\"rust\", \"migrations\"]). The system routes to the best-suited available teammate."
                 },
