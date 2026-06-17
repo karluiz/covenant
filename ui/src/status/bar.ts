@@ -160,6 +160,10 @@ export class StatusBar {
   /// worktree in its own terminal tab.
   public onOpenGitWorktree: ((path: string, label: string) => void) | null = null;
 
+  /// Fired from the git branch popover "View changes" action.
+  /// Wired by main.ts to open the ChangesSurface for the active repo.
+  public onViewChanges: (() => void) | null = null;
+
   constructor(private readonly host: HTMLElement) {
     this.host.classList.add("status-bar");
     this.host.setAttribute("role", "status");
@@ -904,6 +908,9 @@ export class StatusBar {
         <div class="status-git-pop-list">${worktrees}</div>
         <div class="status-git-pop-empty status-git-pop-no-match" hidden>No matching worktrees.</div>
       </section>
+      <div class="status-git-pop-actions">
+        <button type="button" class="status-git-pop-view-changes">View changes</button>
+      </div>
     `;
 
     const search = pop.querySelector<HTMLInputElement>(".status-git-pop-search-input");
@@ -949,6 +956,10 @@ export class StatusBar {
         this.onOpenGitWorktree?.(path, label);
         this.closeBranchPopover();
       });
+    });
+    pop.querySelector<HTMLButtonElement>(".status-git-pop-view-changes")?.addEventListener("click", () => {
+      this.closeBranchPopover();
+      this.onViewChanges?.();
     });
   }
 
