@@ -324,9 +324,12 @@ pub async fn teammate_send_text_message(
                             "brief":       acc.handoff.brief,
                             "deliverable": acc.task.deliverable,
                         }));
-                        let skills_str = req.required_skills.join(", ");
+                        let to_name = registry_bg
+                            .get(acc.task.operator_id)
+                            .map(|o| o.name)
+                            .unwrap_or_else(|| "a teammate".to_string());
                         DispatchOutcome::Text {
-                            text: handoff_outcome_message_accepted(&skills_str, &req.brief),
+                            text: handoff_outcome_message_accepted(&to_name, &req.brief),
                             sentiment: None,
                         }
                     }
