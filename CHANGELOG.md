@@ -6,6 +6,47 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.88 — Changes git-diff viewer + handoff UI auto-spawn
+
+### Added
+
+- **Changes git-diff viewer**: a new full-screen surface that lists a repo's
+  staged/unstaged working-tree files and renders each file's unified diff
+  (line-number gutter, add/del coloring, per-line syntax highlighting, clean
+  binary/too-large placeholders) with stage/unstage actions. Backend extends
+  `crates/app/src/git_tools.rs` with a pure diff parser and four
+  `spawn_blocking` Tauri commands (`git_changes`, `git_file_diff`, `git_stage`,
+  `git_unstage`); frontend lives in `ui/src/changes/`. Opens against the
+  focused tab's repo via ⌘⇧C, the status-bar git popover "View changes"
+  action, or a new git-compare button on the Structure file-tree toolbar.
+- **Inter-operator handoff UI auto-spawn (Plan 2)**: when a handoff is routed,
+  the receiver operator's tab now auto-spawns, attaches, binds, and gets the
+  task injected — attach gates injection so a failed attach never leaves an
+  orphaned executor (`ui/src/operator/handoff-spawn.ts`, `ui/src/main.ts`).
+- **Skill-based handoff routing**: handoffs now route by `required_skills`
+  (an operator's Skills) instead of operator name, advertising a dynamic skill
+  enum and resolving the receiver via `resolve_by_skills` (skill union +
+  overlap + xp tie-break).
+
+### Changed
+
+- **Operator "Tags" relabeled "Skills"**: reframes the field as the routing
+  capability it now drives.
+
+### Fixed
+
+- **Changes surface rendering**: the surface first shipped with invented theme
+  variables (`--bg-primary`, etc.) that rendered the frame transparent, letting
+  the terminal bleed through. Switched to real Covenant tokens (`--bg-overlay`,
+  `--border`, `rgba(var(--ink-rgb), a)`), inset the surface below the 38px
+  titlebar and above the status bar, fixed the search input's `box-sizing` so
+  its focus border isn't clipped, and disabled autocapitalize/autocorrect
+  (`ui/src/changes/changes.css`, `ui/src/changes/index.ts`).
+- **Rename numstat + diff errors**: `git --numstat` rename paths (`old => new`)
+  are normalized to the destination so renamed files keep their line counts,
+  and real `git diff` errors propagate instead of being masked by the
+  untracked `--no-index` fallback (`crates/app/src/git_tools.rs`).
+
 ## v0.8.87 — Inter-operator handoff backend + metrics heatmap fix
 
 ### Added
