@@ -216,9 +216,10 @@ pub fn build_system_prompt(operator: &Operator) -> String {
            the only way to see their state.\n\
          - `propose_task` — propose structured work (do/review/watch). Only \
            call this for actionable multi-step requests, not Q&A.\n\
-         - `handoff_task` — delegate a self-contained sub-task to ANOTHER \
-           operator (not yourself); they run it and report back. Use when a \
-           peer is better placed. Never pass raw @tokens.\n\
+         - `handoff_task` — delegate a self-contained sub-task by the \
+           CAPABILITIES it needs (e.g. rust, migrations); the system routes \
+           to the best-suited available teammate. You do NOT name anyone. \
+           Use when a peer's skills fit the work better than yours.\n\
          \n\
          IMPORTANT: Don't guess at file contents or project structure — call \
          the tools and quote what you read. Paths are relative to the active \
@@ -961,7 +962,12 @@ pub(crate) fn extract_handoff_from_content(
         if block.get("name").and_then(|v| v.as_str()) != Some("handoff_task") { continue; }
         let input = block.get("input")?;
         return Some(crate::teammate::types::HandoffRequest {
-            to_operator: input.get("to_operator")?.as_str()?.to_string(),
+            required_skills: input
+                .get("required_skills")?
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
             brief:       input.get("brief")?.as_str()?.to_string(),
             deliverable: input.get("deliverable")?.as_str()?.to_string(),
             executor:    input.get("executor")?.as_str()?.to_string(),
@@ -986,7 +992,12 @@ fn extract_handoff_from_openai_tool_calls(
         let args_raw = function.get("arguments").and_then(|v| v.as_str())?;
         let input: serde_json::Value = serde_json::from_str(args_raw).ok()?;
         return Some(crate::teammate::types::HandoffRequest {
-            to_operator: input.get("to_operator")?.as_str()?.to_string(),
+            required_skills: input
+                .get("required_skills")?
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
             brief:       input.get("brief")?.as_str()?.to_string(),
             deliverable: input.get("deliverable")?.as_str()?.to_string(),
             executor:    input.get("executor")?.as_str()?.to_string(),
@@ -1264,14 +1275,14 @@ mod tests {
             { "type": "text", "text": "ok" },
             { "type": "tool_use", "name": "handoff_task",
               "input": {
-                "to_operator": "Kiro",
+                "required_skills": ["rust", "migrations"],
                 "brief": "migrate the auth module to the new client",
                 "deliverable": "auth module compiles against v2 client, tests green",
                 "executor": "codex"
               } }
         ]);
         let req = extract_handoff_from_content(&content).expect("should parse");
-        assert_eq!(req.to_operator, "Kiro");
+        assert_eq!(req.required_skills, vec!["rust".to_string(), "migrations".to_string()]);
         assert_eq!(req.executor, "codex");
         assert!(req.context.is_none());
     }

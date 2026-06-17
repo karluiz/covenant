@@ -24,13 +24,6 @@ pub enum RouteResult {
     Rejected { handoff: Handoff, reason: HandoffReject },
 }
 
-/// Resolve `to_operator` name → id (case-insensitive, exact match) against
-/// the current roster. Passing a slice (not the whole registry) keeps
-/// `route` trivially unit-testable — the caller passes `registry.list()`.
-fn resolve(roster: &[Operator], name: &str) -> Option<OperatorId> {
-    roster.iter().find(|o| o.name.eq_ignore_ascii_case(name)).map(|o| o.id)
-}
-
 /// Lowercase, trim, dedup, and sort the union of all operators' tags — the
 /// team's skill vocabulary. Advertised in the `handoff_task` tool schema so
 /// the delegator can only request skills that exist.
@@ -97,8 +90,13 @@ pub async fn route(
     req: &HandoffRequest,
     now_ms: u64,
 ) -> Result<RouteResult, String> {
-    // 1. Resolve target.
-    let to = resolve(roster, &req.to_operator);
+    // 1. Resolve target by capability — best-suited AVAILABLE peer, self excluded.
+    let to = resolve_by_skills(
+        roster,
+        &req.required_skills,
+        from_operator_id,
+        |id| !matches!(runtime.state(id), Some(OperatorState::OnTask { .. })),
+    );
 
     // 2. Derive the delegation chain from the delegator's current task.
     let origin_task_id = match runtime.state(from_operator_id) {
@@ -228,23 +226,30 @@ mod tests {
         Box::leak(Box::new(dir));
         let storage = Arc::new(Storage::open(&path).unwrap());
         let runtime = Arc::new(TeammateRuntime::new());
-        let zeta = mk_operator("Zeta");
-        let kiro = mk_operator("Kiro");
+        let mut zeta = mk_operator("Zeta");
+        zeta.tags = vec!["ops".into()];
+        let mut kiro = mk_operator("Kiro");
+        kiro.tags = vec!["rust".into()];
         storage.operator_insert(zeta.clone()).await.unwrap();
         storage.operator_insert(kiro.clone()).await.unwrap();
         let (zid, kid) = (zeta.id, kiro.id);
         (storage, runtime, vec![zeta, kiro], zid, kid)
     }
 
-    fn req(to: &str) -> HandoffRequest {
-        HandoffRequest { to_operator: to.into(), brief: "do the thing".into(),
-            deliverable: "thing done".into(), executor: "codex".into(), context: None }
+    fn req(skills: &[&str]) -> HandoffRequest {
+        HandoffRequest {
+            required_skills: skills.iter().map(|s| s.to_string()).collect(),
+            brief: "do the thing".into(),
+            deliverable: "thing done".into(),
+            executor: "codex".into(),
+            context: None,
+        }
     }
 
     #[tokio::test]
     async fn happy_path_creates_task_and_edge() {
         let (s, rt, roster, zeta, _kiro) = fixture().await;
-        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req("Kiro"), 100).await.unwrap();
+        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req(&["rust"]), 100).await.unwrap();
         let acc = match r { RouteResult::Accepted(a) => a, _ => panic!("expected accept") };
         assert_eq!(acc.executor, "codex");
         let edge = s.teammate_get_handoff_by_task(acc.task.id).await.unwrap().unwrap();
@@ -254,24 +259,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_unknown_operator() {
+    async fn rejects_no_capable_operator() {
         let (s, rt, roster, zeta, _kiro) = fixture().await;
-        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req("Nobody"), 100).await.unwrap();
+        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req(&["python"]), 100).await.unwrap();
         assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::NoCapableOperator, .. }));
     }
 
     #[tokio::test]
-    async fn rejects_self_handoff() {
+    async fn excludes_delegator_from_routing() {
+        // Only the delegator (Zeta) carries the skill → no peer matches → NoCapableOperator.
         let (s, rt, roster, zeta, _kiro) = fixture().await;
-        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req("Zeta"), 100).await.unwrap();
-        assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::SelfHandoff, .. }));
+        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req(&["ops"]), 100).await.unwrap();
+        assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::NoCapableOperator, .. }));
     }
 
     #[tokio::test]
     async fn rejects_busy_receiver() {
         let (s, rt, roster, zeta, kiro) = fixture().await;
-        rt.start_task(kiro, TaskId::new(), None).unwrap();
-        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req("Kiro"), 100).await.unwrap();
+        rt.start_task(kiro, TaskId::new(), None).unwrap(); // Kiro (only "rust" peer) is busy
+        let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req(&["rust"]), 100).await.unwrap();
         assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::ReceiverBusy, .. }));
     }
 

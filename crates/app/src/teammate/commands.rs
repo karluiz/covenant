@@ -324,21 +324,24 @@ pub async fn teammate_send_text_message(
                             "brief":       acc.handoff.brief,
                             "deliverable": acc.task.deliverable,
                         }));
+                        let skills_str = req.required_skills.join(", ");
                         DispatchOutcome::Text {
-                            text: handoff_outcome_message_accepted(&req.to_operator, &req.brief),
+                            text: handoff_outcome_message_accepted(&skills_str, &req.brief),
                             sentiment: None,
                         }
                     }
                     Ok(crate::teammate::handoff::RouteResult::Rejected { reason, .. }) => {
+                        let skills_str = req.required_skills.join(", ");
                         DispatchOutcome::Text {
-                            text: handoff_outcome_message_rejected(&req.to_operator, &reason.message()),
+                            text: handoff_outcome_message_rejected(&skills_str, &reason.message()),
                             sentiment: None,
                         }
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "handoff routing failed");
+                        let skills_str = req.required_skills.join(", ");
                         DispatchOutcome::Text {
-                            text: handoff_outcome_message_rejected(&req.to_operator, "internal error"),
+                            text: handoff_outcome_message_rejected(&skills_str, "internal error"),
                             sentiment: None,
                         }
                     }

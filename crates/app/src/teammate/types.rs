@@ -269,7 +269,8 @@ pub struct Handoff {
 /// Parsed `handoff_task` tool input (LLM boundary), before routing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandoffRequest {
-    pub to_operator: String,
+    /// Capabilities the work needs; the router resolves these to a teammate.
+    pub required_skills: Vec<String>,
     pub brief: String,
     pub deliverable: String,
     pub executor: String,
