@@ -45,11 +45,13 @@ body.changes-fullscreen .cd-frame {
 
 .cd-left {
   border-right: 1px solid var(--border);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px;
   background: var(--bg-panel);
 }
 .cd-search {
+  box-sizing: border-box;
   width: 100%;
   padding: 6px 10px;
   margin-bottom: 10px;
