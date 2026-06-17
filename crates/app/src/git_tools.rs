@@ -251,9 +251,197 @@ fn command_error(label: &str, out: &std::process::Output) -> String {
     }
 }
 
+pub mod diff {
+    use serde::Serialize;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum LineKind { Context, Add, Del }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct DiffLine {
+        pub kind: LineKind,
+        pub old_no: Option<u32>,
+        pub new_no: Option<u32>,
+        pub text: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Hunk {
+        pub old_start: u32,
+        pub new_start: u32,
+        pub header: String,
+        pub lines: Vec<DiffLine>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    pub enum FileDiffBody {
+        Hunks { hunks: Vec<Hunk> },
+        Binary { size_bytes: u64 },
+        TooLarge { line_count: u32 },
+    }
+    // NOTE: serde internally-tagged enums require STRUCT variants. Always
+    // construct/match with brace syntax: `FileDiffBody::Hunks { hunks }`.
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum ChangeStatus { Modified, Added, Deleted, Renamed, Untracked }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FileChange {
+        pub path: String,
+        pub old_path: Option<String>,
+        pub status: ChangeStatus,
+        pub added: u32,
+        pub removed: u32,
+        pub binary: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Changes { pub staged: Vec<FileChange>, pub unstaged: Vec<FileChange> }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FileDiff {
+        pub path: String,
+        pub old_path: Option<String>,
+        pub body: FileDiffBody,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct NumStat { pub added: u32, pub removed: u32, pub binary: bool, pub path: String }
+
+    pub fn parse_numstat(raw: &str) -> Vec<NumStat> {
+        raw.lines().filter_map(|line| {
+            let mut p = line.splitn(3, '\t');
+            let a = p.next()?; let r = p.next()?; let path = p.next()?;
+            if path.is_empty() { return None; }
+            let binary = a == "-" || r == "-";
+            Some(NumStat {
+                added: a.parse().unwrap_or(0),
+                removed: r.parse().unwrap_or(0),
+                binary,
+                path: path.to_string(),
+            })
+        }).collect()
+    }
+
+    /// Pure: parse `git diff` text for ONE file into a renderable body.
+    pub fn parse_unified_diff(raw: &str, max_lines: usize) -> FileDiffBody {
+        if raw.lines().any(|l| l.starts_with("Binary files") && l.ends_with("differ")) {
+            return FileDiffBody::Binary { size_bytes: 0 };
+        }
+        let mut hunks: Vec<Hunk> = Vec::new();
+        let mut total_lines = 0usize;
+        let mut old_no = 0u32;
+        let mut new_no = 0u32;
+        for line in raw.lines() {
+            if let Some(rest) = line.strip_prefix("@@") {
+                // "@@ -old_start,old_len +new_start,new_len @@ header"
+                let (ranges, header) = match rest.split_once("@@") {
+                    Some((a, b)) => (a, b.trim().to_string()),
+                    None => (rest, String::new()),
+                };
+                let (mut os, mut ns) = (1u32, 1u32);
+                for tok in ranges.split_whitespace() {
+                    if let Some(v) = tok.strip_prefix('-') { os = v.split(',').next().unwrap_or("1").parse().unwrap_or(1); }
+                    if let Some(v) = tok.strip_prefix('+') { ns = v.split(',').next().unwrap_or("1").parse().unwrap_or(1); }
+                }
+                old_no = os; new_no = ns;
+                hunks.push(Hunk { old_start: os, new_start: ns, header, lines: Vec::new() });
+                continue;
+            }
+            if hunks.is_empty() { continue; } // file headers before first hunk
+            if line.starts_with("\\ No newline") { continue; }
+            let (kind, text) = if let Some(t) = line.strip_prefix('+') {
+                (LineKind::Add, t)
+            } else if let Some(t) = line.strip_prefix('-') {
+                (LineKind::Del, t)
+            } else if let Some(t) = line.strip_prefix(' ') {
+                (LineKind::Context, t)
+            } else {
+                continue; // diff --git / index / +++ / --- lines
+            };
+            total_lines += 1;
+            if total_lines > max_lines {
+                return FileDiffBody::TooLarge { line_count: total_lines as u32 };
+            }
+            let (o, n) = match kind {
+                LineKind::Context => { let p = (Some(old_no), Some(new_no)); old_no += 1; new_no += 1; p }
+                LineKind::Add => { let p = (None, Some(new_no)); new_no += 1; p }
+                LineKind::Del => { let p = (Some(old_no), None); old_no += 1; p }
+            };
+            if let Some(h) = hunks.last_mut() {
+                h.lines.push(DiffLine { kind, old_no: o, new_no: n, text: text.to_string() });
+            }
+        }
+        FileDiffBody::Hunks { hunks }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_numstat_text_and_binary() {
+        let raw = "3\t1\tsrc/a.rs\n-\t-\tpublic/x.bmp\n";
+        let v = diff::parse_numstat(raw);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], diff::NumStat { added: 3, removed: 1, binary: false, path: "src/a.rs".into() });
+        assert_eq!(v[1], diff::NumStat { added: 0, removed: 0, binary: true, path: "public/x.bmp".into() });
+    }
+
+    #[test]
+    fn parse_unified_diff_classifies_and_numbers_lines() {
+        let raw = "\
+diff --git a/f.txt b/f.txt
+index e69de29..0cfbf08 100644
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1,2 @@
+ ctx
+-old
++new
+";
+        let body = diff::parse_unified_diff(raw, 5000);
+        let diff::FileDiffBody::Hunks { hunks } = body else { panic!("want hunks") };
+        assert_eq!(hunks.len(), 1);
+        let h = &hunks[0];
+        assert_eq!((h.old_start, h.new_start), (1, 1));
+        let kinds: Vec<_> = h.lines.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, vec![diff::LineKind::Context, diff::LineKind::Del, diff::LineKind::Add]);
+        // context line carries both numbers; del has only old; add has only new
+        assert_eq!((h.lines[0].old_no, h.lines[0].new_no), (Some(1), Some(1)));
+        assert_eq!((h.lines[1].old_no, h.lines[1].new_no), (Some(2), None));
+        assert_eq!((h.lines[2].old_no, h.lines[2].new_no), (None, Some(2)));
+        assert_eq!(h.lines[1].text, "old");
+    }
+
+    #[test]
+    fn parse_unified_diff_swallows_no_newline_marker() {
+        let raw = "@@ -1 +1 @@\n-a\n+b\n\\ No newline at end of file\n";
+        let diff::FileDiffBody::Hunks { hunks } = diff::parse_unified_diff(raw, 5000) else { panic!() };
+        assert_eq!(hunks[0].lines.len(), 2); // marker is not a diff line
+    }
+
+    #[test]
+    fn parse_unified_diff_detects_binary() {
+        let raw = "diff --git a/x.bmp b/x.bmp\nBinary files a/x.bmp and b/x.bmp differ\n";
+        assert!(matches!(diff::parse_unified_diff(raw, 5000), diff::FileDiffBody::Binary { .. }));
+    }
+
+    #[test]
+    fn parse_unified_diff_caps_large() {
+        let mut raw = String::from("@@ -1,9999 +1,9999 @@\n");
+        for _ in 0..6000 { raw.push_str("+x\n"); }
+        assert!(matches!(diff::parse_unified_diff(&raw, 5000), diff::FileDiffBody::TooLarge { .. }));
+    }
 
     #[test]
     fn parses_worktree_porcelain() {
