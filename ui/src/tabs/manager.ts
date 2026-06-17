@@ -559,6 +559,25 @@ export function stripObserverOnPromote(
   return observers.filter((id) => id !== newDriverId);
 }
 
+/// Placement facts inherited by an auto-spawned tab: working dir, group, color.
+export interface TabPlacement {
+  cwd: string | null;
+  groupId: string | null;
+  color: string | null;
+}
+
+/// Pure resolver: from a snapshot of (operator, cwd, groupId, color) per tab,
+/// return the placement of the FIRST tab currently driven by `operatorId`, or
+/// null if none. Kept pure so it's unit-testable without a TabManager instance
+/// (the manager has dozens of constructor-time deps).
+export function resolveOperatorPlacement(
+  rows: Array<{ operator: string | null; cwd: string | null; groupId: string | null; color: string | null }>,
+  operatorId: string,
+): TabPlacement | null {
+  const hit = rows.find((r) => r.operator === operatorId);
+  return hit ? { cwd: hit.cwd, groupId: hit.groupId, color: hit.color } : null;
+}
+
 /// Pure policy for the activation-time refit. Activation used to run an
 /// unconditional rows-1/rows resize nudge plus scrollToBottom on every tab
 /// switch — visible as flicker + a viewport jump 2 frames after the pane
@@ -1595,6 +1614,22 @@ export class TabManager {
     return g
       ? { id: g.id, name: g.name, color: g.color ?? null, rootDir: g.rootDir ?? null }
       : null;
+  }
+
+  /// Resolve the placement (cwd/group/color) of the tab currently driven by
+  /// `operatorId`. Used to spawn a delegated handoff tab in the delegator's
+  /// own workspace. Returns null when the operator has no bound tab.
+  public placementForOperator(operatorId: string): TabPlacement | null {
+    const rows = this.tabs.map((t) => {
+      const p = activePane(t);
+      return {
+        operator: p.operator ?? null,
+        cwd: p.cwd ?? null,
+        groupId: t.groupId ?? null,
+        color: t.color ?? null,
+      };
+    });
+    return resolveOperatorPlacement(rows, operatorId);
   }
 
   /// Lookup the `rootDir` of a group by id. Returns null if the group
