@@ -404,7 +404,7 @@ export class LegacyOperatorsPane {
       </div>
 
       <div class="operators-pane__field">
-        <label>Tags <span class="muted">(comma-separated)</span></label>
+        <label>Skills <span class="muted">(comma-separated — drive who gets handed work)</span></label>
         <input data-bind="tags" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
                value="${escapeHtml(this.editing.tags.join(", "))}" />
       </div>
@@ -1261,7 +1261,7 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       view.tags = tags.value.split(",").map((t) => t.trim()).filter(Boolean);
       commit(false);
     });
-    identity.append(labeled("Tags", tags));
+    identity.append(labeled("Skills", tags));
     controls.append(identity);
   }
 
