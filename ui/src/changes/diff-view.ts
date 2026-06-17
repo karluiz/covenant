@@ -1,4 +1,5 @@
 import type { FileDiff, Hunk } from "../api";
+import { highlightInto } from "./highlight";
 
 function el(tag: string, cls?: string, text?: string): HTMLElement {
   const e = document.createElement(tag);
@@ -7,7 +8,7 @@ function el(tag: string, cls?: string, text?: string): HTMLElement {
   return e;
 }
 
-function renderHunk(h: Hunk): HTMLElement {
+function renderHunk(h: Hunk, path: string): HTMLElement {
   const wrap = el("div", "cd-hunk");
   if (h.header) wrap.appendChild(el("div", "cd-hunk-header", h.header));
   for (const line of h.lines) {
@@ -16,7 +17,9 @@ function renderHunk(h: Hunk): HTMLElement {
     row.appendChild(el("span", "cd-num cd-num-new", line.newNo === null ? "" : String(line.newNo)));
     const marker = line.kind === "add" ? "+" : line.kind === "del" ? "-" : " ";
     row.appendChild(el("span", "cd-marker", marker));
-    row.appendChild(el("span", "cd-text", line.text));
+    const textSpan = el("span", "cd-text", line.text);
+    highlightInto(textSpan, line.text, path);
+    row.appendChild(textSpan);
     wrap.appendChild(row);
   }
   return wrap;
@@ -35,6 +38,6 @@ export function renderDiffBody(file: FileDiff): HTMLElement {
     root.appendChild(el("div", "cd-toolarge", `Diff too large to display (${body.lineCount} lines).`));
     return root;
   }
-  for (const h of body.hunks) root.appendChild(renderHunk(h));
+  for (const h of body.hunks) root.appendChild(renderHunk(h, file.path));
   return root;
 }
