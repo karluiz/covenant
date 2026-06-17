@@ -310,6 +310,17 @@ pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
     Ok(diff::Changes { staged, unstaged })
 }
 
+pub fn stage(cwd: &Path, path: &str) -> Result<diff::Changes, String> {
+    git(cwd, &["add", "--", path])?;
+    changes(cwd)
+}
+
+pub fn unstage(cwd: &Path, path: &str) -> Result<diff::Changes, String> {
+    // `restore --staged` is a no-op-safe unstage on any git >= 2.23.
+    git(cwd, &["restore", "--staged", "--", path])?;
+    changes(cwd)
+}
+
 pub fn file_diff(cwd: &Path, path: &str, staged: bool) -> Result<diff::FileDiff, String> {
     // Untracked file isn't known to git diff; use --no-index against /dev/null.
     let raw = if staged {
@@ -500,6 +511,24 @@ mod tests {
         fs::write(dir.join("tracked.txt"), "one\ntwo\n").unwrap();
         git_run(dir, &["add", "."]);
         git_run(dir, &["commit", "-q", "-m", "init"]);
+    }
+
+    #[test]
+    fn stage_then_unstage_moves_file_between_groups() {
+        use std::fs;
+        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        fs::write(dir.join("tracked.txt"), "one\ntwo\nthree\n").unwrap();
+
+        let after_stage = stage(dir, "tracked.txt").unwrap();
+        assert!(after_stage.staged.iter().any(|f| f.path == "tracked.txt"));
+        assert!(!after_stage.unstaged.iter().any(|f| f.path == "tracked.txt"));
+
+        let after_unstage = unstage(dir, "tracked.txt").unwrap();
+        assert!(after_unstage.unstaged.iter().any(|f| f.path == "tracked.txt"));
+        assert!(!after_unstage.staged.iter().any(|f| f.path == "tracked.txt"));
     }
 
     #[test]
