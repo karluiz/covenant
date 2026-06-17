@@ -1665,7 +1665,7 @@ async function boot(): Promise<void> {
         }, delayMs);
       },
       buildInjection: (brief, deliverable, executor) =>
-        buildTaskInjection(brief, deliverable, executor, new Map(), null, null, null),
+        buildTaskInjection(brief, deliverable, executor),
       alreadySpawned: (taskId) => spawnMeta.has(taskId),
       recordSpawn: (taskId, sessionId, placement) => {
         spawnMeta.set(taskId, {
