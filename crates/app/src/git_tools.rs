@@ -251,6 +251,88 @@ fn command_error(label: &str, out: &std::process::Output) -> String {
     }
 }
 
+const MAX_DIFF_LINES: usize = 5000;
+
+pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
+    use diff::{ChangeStatus, FileChange};
+    use std::collections::HashMap;
+
+    let parse_side = |args: &[&str]| -> Result<HashMap<String, diff::NumStat>, String> {
+        let raw = git(cwd, args)?;
+        Ok(diff::parse_numstat(&raw).into_iter().map(|n| (n.path.clone(), n)).collect())
+    };
+    let unstaged_ns = parse_side(&["diff", "--numstat"])?;
+    let staged_ns = parse_side(&["diff", "--cached", "--numstat"])?;
+
+    // porcelain gives reliable status letters + rename old->new + untracked.
+    let porcelain = git(cwd, &["status", "--porcelain"])?;
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+    for line in porcelain.lines() {
+        if line.len() < 3 { continue; }
+        let x = line.as_bytes()[0] as char; // staged (index) status
+        let y = line.as_bytes()[1] as char; // worktree status
+        let rest = &line[3..];
+        let (old_path, path) = match rest.split_once(" -> ") {
+            Some((o, n)) => (Some(o.to_string()), n.to_string()),
+            None => (None, rest.to_string()),
+        };
+        if x == '?' && y == '?' {
+            unstaged.push(FileChange { path, old_path: None, status: ChangeStatus::Untracked, added: 0, removed: 0, binary: false });
+            continue;
+        }
+        let map_status = |c: char| match c {
+            'A' => Some(ChangeStatus::Added),
+            'M' => Some(ChangeStatus::Modified),
+            'D' => Some(ChangeStatus::Deleted),
+            'R' => Some(ChangeStatus::Renamed),
+            _ => None,
+        };
+        if let Some(status) = map_status(x) {
+            let ns = staged_ns.get(&path);
+            staged.push(FileChange {
+                path: path.clone(), old_path: old_path.clone(), status,
+                added: ns.map(|n| n.added).unwrap_or(0),
+                removed: ns.map(|n| n.removed).unwrap_or(0),
+                binary: ns.map(|n| n.binary).unwrap_or(false),
+            });
+        }
+        if let Some(status) = map_status(y) {
+            let ns = unstaged_ns.get(&path);
+            unstaged.push(FileChange {
+                path: path.clone(), old_path, status,
+                added: ns.map(|n| n.added).unwrap_or(0),
+                removed: ns.map(|n| n.removed).unwrap_or(0),
+                binary: ns.map(|n| n.binary).unwrap_or(false),
+            });
+        }
+    }
+    Ok(diff::Changes { staged, unstaged })
+}
+
+pub fn file_diff(cwd: &Path, path: &str, staged: bool) -> Result<diff::FileDiff, String> {
+    // Untracked file isn't known to git diff; use --no-index against /dev/null.
+    let raw = if staged {
+        git(cwd, &["diff", "--cached", "--", path])?
+    } else {
+        match git(cwd, &["diff", "--", path]) {
+            Ok(s) if !s.trim().is_empty() => s,
+            _ => {
+                // --no-index returns exit code 1 on differences; capture stdout regardless.
+                let out = Command::new("git").arg("-C").arg(cwd)
+                    .args(["diff", "--no-index", "--", "/dev/null", path])
+                    .output().map_err(|e| format!("git failed to start: {e}"))?;
+                String::from_utf8_lossy(&out.stdout).to_string()
+            }
+        }
+    };
+    Ok(diff::FileDiff {
+        path: path.to_string(),
+        old_path: None,
+        body: diff::parse_unified_diff(&raw, MAX_DIFF_LINES),
+    })
+}
+
 pub mod diff {
     use serde::Serialize;
 
@@ -387,6 +469,56 @@ pub mod diff {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn git_run(cwd: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().unwrap();
+        assert!(out.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+    }
+
+    fn init_repo(dir: &std::path::Path) {
+        use std::fs;
+        git_run(dir, &["init", "-q"]);
+        git_run(dir, &["config", "user.email", "t@t.t"]);
+        git_run(dir, &["config", "user.name", "t"]);
+        fs::write(dir.join("tracked.txt"), "one\ntwo\n").unwrap();
+        git_run(dir, &["add", "."]);
+        git_run(dir, &["commit", "-q", "-m", "init"]);
+    }
+
+    #[test]
+    fn changes_groups_staged_unstaged_untracked() {
+        use std::fs;
+        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        // unstaged edit
+        fs::write(dir.join("tracked.txt"), "one\ntwo\nthree\n").unwrap();
+        // staged new file
+        fs::write(dir.join("staged.txt"), "hi\n").unwrap();
+        git_run(dir, &["add", "staged.txt"]);
+        // untracked
+        fs::write(dir.join("new.txt"), "fresh\n").unwrap();
+
+        let c = changes(dir).unwrap();
+        assert!(c.staged.iter().any(|f| f.path == "staged.txt" && f.status == diff::ChangeStatus::Added));
+        assert!(c.unstaged.iter().any(|f| f.path == "tracked.txt" && f.status == diff::ChangeStatus::Modified));
+        assert!(c.unstaged.iter().any(|f| f.path == "new.txt" && f.status == diff::ChangeStatus::Untracked));
+    }
+
+    #[test]
+    fn file_diff_untracked_is_all_additions() {
+        use std::fs;
+        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        fs::write(dir.join("new.txt"), "a\nb\n").unwrap();
+        let d = file_diff(dir, "new.txt", false).unwrap();
+        let diff::FileDiffBody::Hunks { hunks } = d.body else { panic!("want hunks") };
+        let adds = hunks[0].lines.iter().filter(|l| l.kind == diff::LineKind::Add).count();
+        assert_eq!(adds, 2);
+    }
 
     #[test]
     fn parse_numstat_text_and_binary() {
