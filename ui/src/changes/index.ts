@@ -61,7 +61,12 @@ export class ChangesSurface {
     left.className = "cd-left";
     const search = document.createElement("input");
     search.className = "cd-search";
+    search.type = "search";
     search.placeholder = "Search files…";
+    search.autocapitalize = "off";
+    search.autocomplete = "off";
+    search.spellcheck = false;
+    search.setAttribute("autocorrect", "off");
     search.addEventListener("input", () => { this.filter = search.value; this.renderRailInto(); });
     const railHost = document.createElement("div");
     railHost.className = "cd-rail-host";
