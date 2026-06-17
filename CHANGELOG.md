@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.89 — Settings search
+
+### Added
+
+- **Settings search**: a search field at the top of the Settings nav rail that
+  filters by section *content*, not just tab titles — so "email" surfaces
+  Notifications and "api key" surfaces Providers. A per-section keyword map
+  covers tabs that render empty until mounted (Spawns, Telegram, Metrics) plus
+  common synonyms. The active tab only auto-jumps once it stops matching, so
+  content stays put while you refine; Esc clears the filter. Lives in
+  `ui/src/settings/panel.ts` with styling in `ui/src/styles.css`.
+
 ## v0.8.88 — Changes git-diff viewer + handoff UI auto-spawn
 
 ### Added
