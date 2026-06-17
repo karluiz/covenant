@@ -6,6 +6,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.90 — Operator skill editor + card icon actions
+
+### Added
+
+- **Operator skill editor**: the operator creator's Skills field is now a pill
+  editor instead of a comma-separated text box — type + Enter/comma to add,
+  click `×` or Backspace to remove. Below it, suggestion chips draw from a
+  starter vocabulary merged with the live union of every operator's tags (the
+  same vocabulary `handoff_task` routes on), and a hint spells out why skills
+  matter: they're how operators delegate, a successful routed handoff earns the
+  Good Delegate badge, and an operator with no skills can never receive a
+  handoff. Lives in `ui/src/settings/operators.ts` + `operator-creator.css`.
+
+### Changed
+
+- **Operator card actions**: Edit / Duplicate / Delete on each operator card are
+  now icon buttons (pencil / copy / trash) with tooltips, so the controls fit a
+  narrow card instead of overflowing. `ui/src/settings/operators.ts`,
+  `ui/src/styles/operator_chip.css`.
+- **Unified esc pill**: the Settings close affordance now uses the same
+  lowercase "esc" pill as the operator creator. `ui/src/settings/panel.ts`,
+  `ui/src/styles.css`.
+
+### Fixed
+
+- **⌘A Select All**: ⌘A now dispatches to the focused surface — terminal buffer,
+  input/textarea, or CodeMirror — instead of WebKit's native `selectAll:`, which
+  selected the whole page DOM and never reached CM6's selection model.
+  `crates/app/src/lib.rs`, `ui/src/main.ts`, `ui/src/tabs/manager.ts`.
+- **Spec entrance Esc**: the entrance's Escape-to-dismiss listener moved to the
+  capture phase so it fires even while xterm (which `stopPropagation()`s Escape)
+  holds focus behind the overlay. `ui/src/spec-chat/entrance.ts`.
+- **Updater "latest" race**: releases are now created as prereleases and only
+  promoted to "latest" once the manifest job uploads `latest.json`, closing the
+  ~25min window where the in-app Updates panel 404'd. Error copy reworded from
+  the raw plugin message to an actionable note. `.github/workflows/release-*.yml`,
+  `ui/src/settings/panel.ts`.
+
 ## v0.8.89 — Settings search
 
 ### Added
