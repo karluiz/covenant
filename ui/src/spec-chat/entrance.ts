@@ -398,7 +398,9 @@ export function mountSpecEntrance(
       cb.onDismiss();
     }
   };
-  document.addEventListener("keydown", onKey);
+  // Capture phase: the terminal behind the entrance keeps focus and xterm
+  // calls stopPropagation() on Escape, so a bubble-phase listener never fires.
+  document.addEventListener("keydown", onKey, true);
 
   host.appendChild(root);
   requestAnimationFrame(() => root.classList.add("open"));
@@ -408,7 +410,7 @@ export function mountSpecEntrance(
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
-    document.removeEventListener("keydown", onKey);
+    document.removeEventListener("keydown", onKey, true);
     stopSky();
     root.classList.remove("open");
     root.classList.add("closing");

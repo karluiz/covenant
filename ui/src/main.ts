@@ -16,6 +16,8 @@ import { getVersion } from "@tauri-apps/api/app";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { EditorView } from "@codemirror/view";
+import { selectAll as cmSelectAll } from "@codemirror/commands";
 
 import { dismissBootSplash } from "./boot-splash";
 import { attachTooltip } from "./tooltip/tooltip";
@@ -947,6 +949,32 @@ async function boot(): Promise<void> {
   });
   void listen("menu://new-tab", () => {
     void manager.createTab();
+  });
+  // ⌘A is bound to the Edit → Select All menu item, which fires here
+  // instead of WebKit's native selectAll: (that one selects the page DOM
+  // and never reaches CodeMirror's own selection). Dispatch to whatever
+  // surface is focused.
+  void listen("menu://select-all", () => {
+    const el = document.activeElement as HTMLElement | null;
+    // Terminal: xterm's focus proxy is a real <textarea>, so check it
+    // before the generic input branch and select the buffer instead.
+    if (el?.closest(".xterm")) {
+      manager.selectAllActiveTerminal();
+      return;
+    }
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      el.select();
+      return;
+    }
+    const cmDom = el?.closest<HTMLElement>(".cm-editor");
+    const view = cmDom ? EditorView.findFromDOM(cmDom) : null;
+    if (view) {
+      cmSelectAll(view);
+      view.focus();
+      return;
+    }
+    // contentEditable / plain page selection.
+    document.getSelection()?.selectAllChildren(el ?? document.body);
   });
   // The copy happens in Rust (pbcopy) because navigator.clipboard rejects with
   // "Document is not focused" when fired from a native menu click. We only

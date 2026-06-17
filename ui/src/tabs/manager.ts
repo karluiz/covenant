@@ -2371,6 +2371,19 @@ export class TabManager {
     }
   }
 
+  /// Select all output in the active tab's terminal. Wired to the ⌘A
+  /// menu route in main.ts (the native Select All can't reach xterm's
+  /// buffer). No-op for Pi tabs, which have no terminal.
+  selectAllActiveTerminal(): void {
+    const tab = this.tabs.find((t) => t.id === this.activeId);
+    if (!tab || tab.kind === "pi") return;
+    try {
+      tab.term?.selectAll();
+    } catch {
+      /* term may be disposed mid-call */
+    }
+  }
+
   /// Refit the active tab's terminal. Public so main.ts can call it
   /// after the settings page closes (workspace was hidden + restored).
   refitActive(): void {

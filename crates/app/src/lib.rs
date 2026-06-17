@@ -3170,6 +3170,12 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         ],
     )?;
 
+    // Custom Select All — the predefined item fires WebKit's native
+    // `selectAll:`, which selects the whole page DOM and never reaches
+    // CodeMirror's own selection model (CM6 hides the native selection via
+    // drawSelection). Route ⌘A through the frontend instead, same as ⌘W/⌘T,
+    // so the focused surface (editor / input / terminal) handles it.
+    let select_all = MenuItem::with_id(app, "select-all", "Select All", true, Some("CmdOrCtrl+A"))?;
     let edit_menu = Submenu::with_items(
         app,
         "Edit",
@@ -3181,7 +3187,7 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
             &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,
-            &PredefinedMenuItem::select_all(app, None)?,
+            &select_all,
         ],
     )?;
 
@@ -3220,6 +3226,9 @@ pub fn run() {
                 }
                 "new-tab" => {
                     let _ = app.emit("menu://new-tab", ());
+                }
+                "select-all" => {
+                    let _ = app.emit("menu://select-all", ());
                 }
                 "copy-pairing-token" => {
                     // Copy from the Rust side via `pbcopy`. Doing it in the
