@@ -382,8 +382,8 @@ pub async fn teammate_send_text_message(
 fn handoff_outcome_message_accepted(to: &str, brief: &str) -> String {
     format!("→ Handed off to {to}: {brief} (running; will report back).")
 }
-fn handoff_outcome_message_rejected(to: &str, reason: &str) -> String {
-    format!("⃠ Handoff to {to} blocked: {reason}")
+fn handoff_outcome_message_rejected(subject: &str, reason: &str) -> String {
+    format!("⃠ Handoff blocked ({subject}): {reason}")
 }
 
 async fn emit_system_error(

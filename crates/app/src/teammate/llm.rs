@@ -961,13 +961,17 @@ pub(crate) fn extract_handoff_from_content(
         if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") { continue; }
         if block.get("name").and_then(|v| v.as_str()) != Some("handoff_task") { continue; }
         let input = block.get("input")?;
+        let required_skills: Vec<String> = input
+            .get("required_skills")?
+            .as_array()?
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if required_skills.is_empty() {
+            continue; // malformed: a handoff with no skills can't be routed
+        }
         return Some(crate::teammate::types::HandoffRequest {
-            required_skills: input
-                .get("required_skills")?
-                .as_array()?
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect(),
+            required_skills,
             brief:       input.get("brief")?.as_str()?.to_string(),
             deliverable: input.get("deliverable")?.as_str()?.to_string(),
             executor:    input.get("executor")?.as_str()?.to_string(),
@@ -991,16 +995,19 @@ fn extract_handoff_from_openai_tool_calls(
         }
         let args_raw = function.get("arguments").and_then(|v| v.as_str())?;
         let input: serde_json::Value = serde_json::from_str(args_raw).ok()?;
+        let required_skills: Vec<String> = input
+            .get("required_skills")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
+        if required_skills.is_empty() {
+            continue; // malformed: a handoff with no skills can't be routed
+        }
         return Some(crate::teammate::types::HandoffRequest {
-            required_skills: input
-                .get("required_skills")?
-                .as_array()?
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect(),
-            brief:       input.get("brief")?.as_str()?.to_string(),
-            deliverable: input.get("deliverable")?.as_str()?.to_string(),
-            executor:    input.get("executor")?.as_str()?.to_string(),
+            required_skills,
+            brief:       input.get("brief").and_then(|v| v.as_str())?.to_string(),
+            deliverable: input.get("deliverable").and_then(|v| v.as_str())?.to_string(),
+            executor:    input.get("executor").and_then(|v| v.as_str())?.to_string(),
             context:     input.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
         });
     }
@@ -1291,6 +1298,15 @@ mod tests {
     fn handoff_extraction_ignores_other_tools() {
         let content = serde_json::json!([
             { "type": "tool_use", "name": "read_file", "input": { "path": "a" } }
+        ]);
+        assert!(extract_handoff_from_content(&content).is_none());
+    }
+
+    #[test]
+    fn handoff_extraction_rejects_empty_skills() {
+        let content = serde_json::json!([
+            { "type": "tool_use", "name": "handoff_task",
+              "input": { "required_skills": [], "brief": "x", "deliverable": "y", "executor": "codex" } }
         ]);
         assert!(extract_handoff_from_content(&content).is_none());
     }
