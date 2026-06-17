@@ -1,0 +1,62 @@
+body.changes-fullscreen .cd-frame {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; grid-template-columns: 320px 1fr;
+  background: var(--bg-primary); color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.cd-left { border-right: 1px solid var(--border-subtle); overflow: auto; padding: 8px; }
+.cd-search { width: 100%; padding: 6px 8px; margin-bottom: 8px;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border-subtle); border-radius: 6px; }
+.cd-group-title { font-size: 11px; text-transform: uppercase; opacity: .7; margin: 8px 4px; }
+.cd-file { display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  border-radius: 6px; cursor: pointer; }
+.cd-file:hover { background: var(--bg-hover); }
+.cd-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-status--modified { color: #d7a700; }
+.cd-status--added, .cd-status--untracked { color: #3fb950; }
+.cd-status--deleted { color: #f85149; }
+.cd-counts { font-size: 11px; opacity: .8; }
+.cd-stage-btn { opacity: 0; font-size: 11px; }
+.cd-file:hover .cd-stage-btn { opacity: 1; }
+.cd-right { display: flex; flex-direction: column; overflow: auto; }
+.cd-close { align-self: flex-end; margin: 8px; }
+.cd-diff-host { padding: 0 8px 24px; }
+.cd-line { display: grid; grid-template-columns: 48px 48px 16px 1fr;
+  white-space: pre; font-size: 12px; line-height: 1.5; }
+.cd-num { text-align: right; padding-right: 8px; opacity: .5; user-select: none; }
+.cd-line--add { background: rgba(63,185,80,.15); }
+.cd-line--del { background: rgba(248,81,73,.15); }
+.cd-hunk-header { opacity: .6; padding: 8px 0 2px; }
+.cd-binary, .cd-toolarge { opacity: .7; padding: 24px 8px; }
+
+/* True Dark / OLED: neutral lifts, no accent tint on selected surfaces */
+body.theme-true-dark.changes-fullscreen .cd-file:hover { background: rgba(255,255,255,.06); }
+
+/* Syntax highlighting: classHighlighter tok-* classes (stable, no EditorView required) */
+.cd-text .tok-keyword    { color: var(--syntax-keyword,  #c678dd); }
+.cd-text .tok-string     { color: var(--syntax-string,   #98c379); }
+.cd-text .tok-string2    { color: var(--syntax-string,   #98c379); }
+.cd-text .tok-comment    { color: var(--syntax-comment,  #7f848e); font-style: italic; }
+.cd-text .tok-number     { color: var(--syntax-number,   #d19a66); }
+.cd-text .tok-atom       { color: var(--syntax-atom,     #d19a66); }
+.cd-text .tok-bool       { color: var(--syntax-atom,     #d19a66); }
+.cd-text .tok-null       { color: var(--syntax-atom,     #d19a66); }
+.cd-text .tok-typeName   { color: var(--syntax-type,     #e5c07b); }
+.cd-text .tok-className  { color: var(--syntax-type,     #e5c07b); }
+.cd-text .tok-namespace  { color: var(--syntax-type,     #e5c07b); }
+.cd-text .tok-propertyName { color: var(--syntax-property, #e06c75); }
+.cd-text .tok-variableName { color: var(--syntax-variable, #abb2bf); }
+.cd-text .tok-variableName2 { color: var(--syntax-variable, #abb2bf); }
+.cd-text .tok-definition { color: var(--syntax-function, #61afef); }
+.cd-text .tok-function   { color: var(--syntax-function, #61afef); }
+.cd-text .tok-operator   { color: var(--syntax-operator, #56b6c2); }
+.cd-text .tok-punctuation { color: var(--syntax-punctuation, #abb2bf); }
+.cd-text .tok-meta       { color: var(--syntax-meta,     #abb2bf); opacity: .8; }
+.cd-text .tok-link       { color: var(--syntax-link,     #61afef); text-decoration: underline; }
+.cd-text .tok-heading    { color: var(--syntax-heading,  #e5c07b); font-weight: bold; }
+.cd-text .tok-emphasis   { font-style: italic; }
+.cd-text .tok-strong     { font-weight: bold; }
+.cd-text .tok-inserted   { color: var(--syntax-inserted, #98c379); }
+.cd-text .tok-deleted    { color: var(--syntax-deleted,  #e06c75); }
+.cd-text .tok-invalid    { color: var(--syntax-invalid,  #f85149); }

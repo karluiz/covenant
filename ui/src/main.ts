@@ -81,6 +81,8 @@ import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline } from "./spawns/shortcuts";
 import { TeammatePanel } from "./teammate/panel";
+import { ChangesSurface } from "./changes/index";
+import { gitRepoSummary } from "./api";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -1323,6 +1325,25 @@ async function boot(): Promise<void> {
   };
   const release = new ReleasePanel(document.body);
   const shortcutsPanel = new ShortcutsPanel(document.body);
+
+  // Changes diff viewer — ⌘⇧C toggle. Host appended to body; ChangesSurface
+  // manages its own fixed-overlay .cd-frame inside that host.
+  const changesHost = document.createElement("div");
+  document.body.appendChild(changesHost);
+  const changesSurface = new ChangesSurface(changesHost);
+
+  const openChanges = async (): Promise<void> => {
+    const cwd = manager.activeCwd();
+    if (!cwd) return;
+    try {
+      const summary = await gitRepoSummary(cwd);
+      await changesSurface.open(summary.repo_root);
+    } catch {
+      // Not a git repo or backend error — no-op.
+    }
+  };
+
+  statusBar.onViewChanges = () => void openChanges();
   statusBar.onVersionChipClick = () => release.toggle();
   // Statusbar Covenant chip click → open Settings, covenant tab.
   window.addEventListener("covenant:open-covenant-settings", () => {
@@ -1850,6 +1871,12 @@ async function boot(): Promise<void> {
     if (e.metaKey && e.shiftKey && (e.key === "G" || e.key === "g")) {
       e.preventDefault();
       manager.createEmptyGroup();
+      return;
+    }
+    // ⌘⇧C → toggle the Changes diff viewer for the active tab's repo.
+    if (e.metaKey && e.shiftKey && (e.key === "C" || e.key === "c")) {
+      e.preventDefault();
+      if (changesSurface.isOpen) { changesSurface.close(); } else { void openChanges(); }
       return;
     }
     // ⌘⇧K → Keyboard shortcuts modal (read-only list).

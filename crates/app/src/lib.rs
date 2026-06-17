@@ -2237,6 +2237,38 @@ async fn git_switch_branch(
 }
 
 #[tauri::command]
+async fn git_changes(cwd: String) -> Result<git_tools::diff::Changes, String> {
+    let path = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::changes(&path))
+        .await
+        .map_err(|e| format!("git_changes join: {e}"))?
+}
+
+#[tauri::command]
+async fn git_file_diff(cwd: String, path: String, staged: bool) -> Result<git_tools::diff::FileDiff, String> {
+    let cwd = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::file_diff(&cwd, &path, staged))
+        .await
+        .map_err(|e| format!("git_file_diff join: {e}"))?
+}
+
+#[tauri::command]
+async fn git_stage(cwd: String, path: String) -> Result<git_tools::diff::Changes, String> {
+    let cwd = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::stage(&cwd, &path))
+        .await
+        .map_err(|e| format!("git_stage join: {e}"))?
+}
+
+#[tauri::command]
+async fn git_unstage(cwd: String, path: String) -> Result<git_tools::diff::Changes, String> {
+    let cwd = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::unstage(&cwd, &path))
+        .await
+        .map_err(|e| format!("git_unstage join: {e}"))?
+}
+
+#[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
     Ok(state.settings.lock().await.clone())
 }
@@ -4022,6 +4054,10 @@ pub fn run() {
             get_dir_context,
             git_repo_summary,
             git_switch_branch,
+            git_changes,
+            git_file_diff,
+            git_stage,
+            git_unstage,
             resolve_existing_path,
             structure_list_dir,
             structure_create_path,
