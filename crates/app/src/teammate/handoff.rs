@@ -201,7 +201,7 @@ mod tests {
     async fn rejects_unknown_operator() {
         let (s, rt, roster, zeta, _kiro) = fixture().await;
         let r = route(&s, &rt, &roster, zeta, ThreadId::new(), &req("Nobody"), 100).await.unwrap();
-        assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::UnknownOperator, .. }));
+        assert!(matches!(r, RouteResult::Rejected { reason: HandoffReject::NoCapableOperator, .. }));
     }
 
     #[tokio::test]

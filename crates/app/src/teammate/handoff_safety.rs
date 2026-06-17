@@ -11,7 +11,7 @@ pub const MAX_CHAIN_INFLIGHT: usize = 8;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffReject {
     SelfHandoff,
-    UnknownOperator,
+    NoCapableOperator,
     ReceiverBusy,
     DepthExceeded { depth: u8, max: u8 },
     Cycle { operator: OperatorId },
@@ -22,7 +22,7 @@ impl HandoffReject {
     pub fn message(&self) -> String {
         match self {
             HandoffReject::SelfHandoff => "cannot hand off to yourself".into(),
-            HandoffReject::UnknownOperator => "no operator by that name".into(),
+            HandoffReject::NoCapableOperator => "no available teammate has the requested skills".into(),
             HandoffReject::ReceiverBusy => "receiver is busy on another task; retry later".into(),
             HandoffReject::DepthExceeded { depth, max } =>
                 format!("delegation chain too deep ({depth} ≥ {max})"),
@@ -37,7 +37,7 @@ impl HandoffReject {
 /// `from_operator_id`s already in this chain (used for cycle detection).
 pub struct GateInput {
     pub from: OperatorId,
-    pub to: Option<OperatorId>,      // None = name didn't resolve
+    pub to: Option<OperatorId>,      // None = no operator matched the requested skills
     pub self_handoff: bool,
     pub receiver_busy: bool,
     pub next_depth: u8,
@@ -47,7 +47,7 @@ pub struct GateInput {
 
 pub fn decide(i: &GateInput) -> Result<(), HandoffReject> {
     let to = match i.to {
-        None => return Err(HandoffReject::UnknownOperator),
+        None => return Err(HandoffReject::NoCapableOperator),
         Some(t) => t,
     };
     if i.self_handoff || to == i.from {
@@ -91,11 +91,11 @@ mod tests {
         assert_eq!(decide(&i), Err(HandoffReject::SelfHandoff));
     }
     #[test]
-    fn rejects_unknown_operator() {
+    fn rejects_no_capable_operator() {
         let a = op();
         let mut i = base(a, op());
         i.to = None;
-        assert_eq!(decide(&i), Err(HandoffReject::UnknownOperator));
+        assert_eq!(decide(&i), Err(HandoffReject::NoCapableOperator));
     }
     #[test]
     fn rejects_depth() {
