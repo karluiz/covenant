@@ -5544,10 +5544,34 @@ body.theme-true-dark {
   border: 1px solid rgba(229, 83, 75, 0.5);
   color: var(--danger, #e5534b);
 }
-.workspace-confirm-confirm:hover,
+.workspace-confirm-confirm:hover:not(:disabled),
 .workspace-confirm-confirm:focus-visible {
   background: rgba(229, 83, 75, 0.24);
   outline: none;
+}
+.workspace-confirm-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Type-to-confirm extras (confirm-typed.ts) */
+.workspace-confirm-typed-prompt {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted, #9aa3ab);
+  line-height: 1.45;
+}
+.workspace-confirm-typed-name {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(var(--ink-rgb), 0.08);
+  color: var(--text, #d6d8db);
+  user-select: all;
+}
+.workspace-confirm-typed-input {
+  width: 100%;
 }
 
 /* ─── AOM Morning Report ──────────────────────────── */
@@ -7297,6 +7321,85 @@ button.status-segment.status-aom.status-aom-warn:hover {
     text-align: center;
     color: var(--muted);
     font-size: 12px;
+}
+
+/* In-modal find bar (⌘F / Ctrl+F). Sticky top-right of the scrolling body
+   so it stays visible while paging through a long spec. */
+.mv-find {
+    position: sticky;
+    top: 0;
+    align-self: flex-end;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 6px;
+    padding: 4px 5px 4px 10px;
+    background: var(--bg-overlay);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.mv-find-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--fg, #d6d8db);
+    font: inherit;
+    font-size: 12px;
+    width: 170px;
+}
+
+.mv-find-input::placeholder {
+    color: var(--muted);
+}
+
+.mv-find-counter {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 38px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.mv-find-nav,
+.mv-find-close {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.mv-find-nav:hover,
+.mv-find-close:hover {
+    background: color-mix(in srgb, var(--fg, #d6d8db) 8%, transparent);
+    color: var(--fg, #d6d8db);
+}
+
+.mv-find-close svg {
+    display: block;
+}
+
+/* Match highlights — yellow ramp reads as "search" across all themes; the
+   active hit is brighter so next/prev navigation is obvious. */
+mark.mv-find-hit {
+    background: color-mix(in srgb, #f5d04e 45%, transparent);
+    color: inherit;
+    border-radius: 2px;
+}
+
+mark.mv-find-hit.is-active {
+    background: #f5a623;
+    color: #1a1205;
 }
 
 /* Header action cluster: Edit + × buttons sit together on the right. */

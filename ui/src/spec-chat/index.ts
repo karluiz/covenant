@@ -146,8 +146,9 @@ export function mountSpecChat(
       onDismiss: () => controller.close(),
       deleteDraft: (id) => deleteDraft(id),
       onEmptied: () => {
-        removeEntrance();
-        openImmersive(null);
+        // Last draft deleted — stay on the entrance (now its empty welcome
+        // state) so the user keeps the AI-vs-blank choice. The entrance already
+        // removed the card from the DOM; the :empty cards row collapses itself.
       },
     });
     entranceMounted = true;
@@ -166,16 +167,13 @@ export function mountSpecChat(
         return;
       }
 
+      // Always land on the entrance — even with zero drafts — so the user
+      // gets the AI-vs-blank choice (and first-run users see the welcome).
       void listDrafts().then((all) => {
-        const inProgress = all.filter(isInProgress);
-        if (inProgress.length > 0) {
-          renderEntrance(inProgress);
-        } else {
-          openImmersive(null);
-        }
+        renderEntrance(all.filter(isInProgress));
       }).catch(() => {
-        // On error, open a fresh immersive session
-        openImmersive(null);
+        // On error, still show the entrance so the user can start fresh.
+        renderEntrance([]);
       });
     },
 

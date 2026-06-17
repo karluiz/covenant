@@ -78,7 +78,7 @@ describe("mountSpecChat — entrance logic", () => {
     host = makeHost();
   });
 
-  it("1. No in-progress drafts: open mounts immersive directly, no entrance", async () => {
+  it("1. No in-progress drafts: open shows the entrance welcome, not the immersive", async () => {
     const listDrafts = vi.fn().mockResolvedValue([]);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
@@ -88,8 +88,12 @@ describe("mountSpecChat — entrance logic", () => {
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
 
-    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
-    expect(host.querySelector(".spec-entrance")).toBeNull();
+    // Entrance is always shown so the user can pick AI vs. blank — even with no cards.
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).not.toBeNull());
+    expect(host.querySelectorAll(".spec-entrance-card").length).toBe(0);
+    expect(host.querySelector(".spec-entrance-cta")).not.toBeNull();
+    expect(host.querySelector(".spec-entrance-blank")).not.toBeNull();
+    expect(latestInstance()).toBeUndefined();
     expect(ctrl.isOpen()).toBe(true);
   });
 
@@ -165,6 +169,10 @@ describe("mountSpecChat — entrance logic", () => {
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
     ctrl.open();
 
+    // Reach the immersive via the entrance CTA (empty state no longer auto-opens it).
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance-cta")).not.toBeNull());
+    host.querySelector<HTMLButtonElement>(".spec-entrance-cta")!.click();
+
     await vi.waitFor(() => expect(latestInstance()).toBeDefined());
 
     // The controller should have set onPublish on the immersive opts
@@ -195,14 +203,12 @@ describe("mountSpecChat — entrance logic", () => {
     expect(ctrl.isOpen()).toBe(false);
   });
 
-  it("7a. Entrance delete button removes draft and re-renders", async () => {
+  it("7a. Deleting the only draft keeps the entrance open in its empty welcome state", async () => {
     const draft = makeDraft({ id: "d1" });
     const listDrafts = vi.fn().mockResolvedValue([draft]);
     const deleteDraft = vi.fn().mockResolvedValue(undefined);
     const markPublished = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps();
-    // Mock the immersive: deleting the last draft auto-opens it, and the real
-    // one leaks a capture-phase Escape listener that swallows later tests' Esc.
     const { factory, latestInstance } = makeMockImmersiveFactory();
 
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, deleteDraft, mountImmersive: factory });
@@ -215,9 +221,10 @@ describe("mountSpecChat — entrance logic", () => {
     delBtn!.click();
 
     await vi.waitFor(() => expect(deleteDraft).toHaveBeenCalledWith("d1"));
-    // After deleting the only draft, entrance is removed and immersive opens
-    await vi.waitFor(() => expect(host.querySelector(".spec-entrance")).toBeNull());
-    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
+    // The card disappears but the entrance stays — no jump to the AI creator.
+    await vi.waitFor(() => expect(host.querySelectorAll(".spec-entrance-card").length).toBe(0));
+    expect(host.querySelector(".spec-entrance")).not.toBeNull();
+    expect(latestInstance()).toBeUndefined();
   });
 
   it("7b. Deleting one of multiple drafts keeps entrance open", async () => {
@@ -268,16 +275,25 @@ describe("mountSpecChat — entrance logic", () => {
     const { factory, latestOpts, latestInstance } = makeMockImmersiveFactory();
 
     const ctrl = mountSpecChat(host, deps, { listDrafts, markPublished, mountImmersive: factory });
+    // Click the CTA on the live (non-fading) entrance — a dismissed entrance
+    // lingers in the DOM during its exit fade but is inert.
+    const clickLiveCta = (): void =>
+      host.querySelector<HTMLButtonElement>(".spec-entrance:not(.closing) .spec-entrance-cta")!.click();
+
     ctrl.open();
-    await vi.waitFor(() => expect(ctrl.isOpen()).toBe(true));
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance:not(.closing) .spec-entrance-cta")).not.toBeNull());
+    clickLiveCta();
+    await vi.waitFor(() => expect(latestInstance()).toBeDefined());
 
     // User closes the immersive surface via its own onClose
     latestOpts()!.onClose!();
     expect(ctrl.isOpen()).toBe(false);
 
-    // Reopening must mount a fresh immersive
+    // Reopening must mount a fresh immersive (via the entrance CTA again)
     const prevInstance = latestInstance();
     ctrl.open();
+    await vi.waitFor(() => expect(host.querySelector(".spec-entrance:not(.closing) .spec-entrance-cta")).not.toBeNull());
+    clickLiveCta();
     await vi.waitFor(() => expect(latestInstance()).not.toBe(prevInstance));
     expect(ctrl.isOpen()).toBe(true);
   });

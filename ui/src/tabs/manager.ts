@@ -36,6 +36,8 @@ import {
 } from "../project-notes/api";
 import { sendPromptToSession } from "../project-notes/paste";
 import { openMindLossModal } from "../operator/mind-loss-modal";
+import { openConfirmPrompt } from "../workspaces/confirm-prompt";
+import { openConfirmTyped } from "../workspaces/confirm-typed";
 import {
   aomStatus,
   aomStop,
@@ -5732,6 +5734,56 @@ export class TabManager {
     this.scheduleSave();
   }
 
+  /// Ungroup, with a lightweight confirm when the group has members (the
+  /// tabs survive, so a simple yes/no is proportional). An empty group has
+  /// nothing to lose, so it's removed directly.
+  private confirmUngroup(groupId: string): void {
+    const group = this.groups.get(groupId);
+    if (!group) return;
+    const count = this.memberIndices(groupId).length;
+    if (count === 0) {
+      this.ungroup(groupId);
+      return;
+    }
+    openConfirmPrompt({
+      label: "Ungroup",
+      message: `Ungroup "${group.name}"? The ${count} tab${
+        count === 1 ? "" : "s"
+      } stay open — they're just no longer grouped.`,
+      confirmText: "Ungroup",
+      onConfirm: () => this.ungroup(groupId),
+    });
+  }
+
+  /// Destroy, gated behind a type-the-name confirm because it kills every
+  /// member tab's shell and can't be undone. Falls back to a simple confirm
+  /// for the (rare) unnamed group, where typing a blank name is meaningless.
+  private confirmDestroyGroup(groupId: string): void {
+    const group = this.groups.get(groupId);
+    if (!group) return;
+    const count = this.memberIndices(groupId).length;
+    const name = group.name?.trim() ?? "";
+    const message = `This closes all ${count} tab${
+      count === 1 ? "" : "s"
+    } in the group and ends their sessions. This can't be undone.`;
+    if (name === "") {
+      openConfirmPrompt({
+        label: "Destroy group",
+        message,
+        confirmText: "Destroy",
+        onConfirm: () => this.destroyGroup(groupId),
+      });
+      return;
+    }
+    openConfirmTyped({
+      label: "Destroy group",
+      message,
+      expected: name,
+      confirmText: "Destroy",
+      onConfirm: () => this.destroyGroup(groupId),
+    });
+  }
+
   private ungroup(groupId: string): void {
     for (const t of this.tabs) {
       if (t.groupId === groupId) t.groupId = null;
@@ -6694,7 +6746,7 @@ export class TabManager {
         label: this.memberIndices(group.id).length === 0 ? "Delete group" : "Ungroup",
         icon: Icons.folderMinus(),
         danger: true,
-        onClick: () => this.ungroup(group.id),
+        onClick: () => this.confirmUngroup(group.id),
       },
       ...(this.memberIndices(group.id).length > 0
         ? [
@@ -6702,7 +6754,7 @@ export class TabManager {
               label: "Destroy group",
               icon: Icons.trash(),
               danger: true,
-              onClick: () => this.destroyGroup(group.id),
+              onClick: () => this.confirmDestroyGroup(group.id),
             },
           ]
         : []),

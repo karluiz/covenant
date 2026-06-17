@@ -43,6 +43,7 @@ import {
 import { Icons } from "../icons";
 import { brandIconSvg, telegramIconSvg } from "../icons/brands";
 import { renderMarkdown } from "../release/markdown";
+import { highlightMatches, clearMarks } from "./find-highlight";
 import { isOnline, subscribeOnline } from "../aom/connectivity";
 import { makeScoreChip, type ScoreChip } from "../score/chip";
 import { attachTooltip } from "../tooltip/tooltip";
@@ -1613,6 +1614,16 @@ class MissionViewerModal {
   /// allow Edit. Re-checked on Edit click in case AOM started in between.
   private aomActive = false;
 
+  /// In-modal find (⌘F / Ctrl+F), view mode only. `findOpen` survives a
+  /// body re-render (Source⇄Rendered toggle) so the bar reappears and the
+  /// query re-applies; `findMarks` are the live <mark> hits in doc order.
+  private findOpen = false;
+  private findBar: HTMLElement | null = null;
+  private findInput: HTMLInputElement | null = null;
+  private findMarks: HTMLElement[] = [];
+  private findActive = -1;
+  private findQuery = "";
+
   constructor(private readonly mountHost: HTMLElement) {}
 
   isOpen(): boolean {
@@ -1660,6 +1671,7 @@ class MissionViewerModal {
 
   close(): void {
     if (!this.overlay) return;
+    this.resetFind();
     this.overlay.remove();
     this.overlay = null;
     this.mission = null;
@@ -1667,10 +1679,18 @@ class MissionViewerModal {
     this.sessionId = null;
     this.mode = "view";
     document.removeEventListener("keydown", this.escListener);
+    document.removeEventListener("keydown", this.findKeyListener);
   }
 
   private escListener = (e: KeyboardEvent): void => {
     if (e.key !== "Escape" || !this.overlay) return;
+    // Find bar takes priority: Esc closes the find first, leaving the modal
+    // open (only a second Esc closes the modal).
+    if (this.findBar) {
+      e.preventDefault();
+      this.closeFind();
+      return;
+    }
     // In edit mode, Esc cancels back to view (matches the modal in
     // most editors); in view mode, it closes.
     if (this.mode === "edit") {
@@ -1680,6 +1700,16 @@ class MissionViewerModal {
     }
     e.preventDefault();
     this.close();
+  };
+
+  /// ⌘F / Ctrl+F opens (or focuses) the find bar in view mode. In edit
+  /// mode we leave it to the textarea / native behavior.
+  private findKeyListener = (e: KeyboardEvent): void => {
+    if (!this.overlay || this.mode !== "view") return;
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      this.openFind();
+    }
   };
 
   private ensureOverlay(): void {
@@ -1710,6 +1740,7 @@ class MissionViewerModal {
     this.overlay = overlay;
 
     document.addEventListener("keydown", this.escListener);
+    document.addEventListener("keydown", this.findKeyListener);
   }
 
   /// Re-render header (title/path/buttons) AND body+footer from
@@ -1828,6 +1859,19 @@ class MissionViewerModal {
           fillPlanSection(section, null);
         });
     }
+
+    // The body innerHTML was wiped above, taking any open find bar + marks
+    // with it. If find was open (e.g. user toggled Source⇄Rendered), rebuild
+    // it and re-apply the query against the fresh content.
+    if (this.findOpen) {
+      this.findBar = null;
+      this.findInput = null;
+      this.findMarks = [];
+      this.findActive = -1;
+      this.mountFindBar();
+      this.runFind(this.findQuery);
+      requestAnimationFrame(() => this.findInput?.focus());
+    }
   }
 
   private renderEditBody(body: HTMLElement): void {
@@ -1890,6 +1934,7 @@ class MissionViewerModal {
 
   private enterEdit(): void {
     if (this.aomActive || this.sessionId === null) return;
+    this.resetFind();
     this.mode = "edit";
     this.renderAll();
   }
@@ -1993,6 +2038,130 @@ class MissionViewerModal {
         banner.remove();
         if (ta) void this.save(ta.value, true);
       });
+  }
+
+  // ── In-modal find (⌘F / Ctrl+F) ──────────────────────────────────────────
+
+  /// Open the find bar (or just refocus it if already open).
+  private openFind(): void {
+    if (this.mode !== "view") return;
+    this.findOpen = true;
+    if (!this.findBar) {
+      this.mountFindBar();
+      if (this.findQuery) this.runFind(this.findQuery);
+    }
+    requestAnimationFrame(() => {
+      this.findInput?.focus();
+      this.findInput?.select();
+    });
+  }
+
+  /// Close the find bar and forget the query (next ⌘F starts fresh).
+  private closeFind(): void {
+    this.findQuery = "";
+    this.resetFind();
+  }
+
+  /// Tear down highlights + bar and mark find as closed. Callers decide
+  /// whether to also clear `findQuery` (closeFind does; close/enterEdit
+  /// leave it, though the modal is going away anyway).
+  private resetFind(): void {
+    this.findOpen = false;
+    clearMarks(this.findMarks);
+    this.findMarks = [];
+    this.findActive = -1;
+    this.findBar?.remove();
+    this.findBar = null;
+    this.findInput = null;
+  }
+
+  private mountFindBar(): void {
+    const body = this.bodyEl();
+    if (!body || this.findBar) return;
+
+    const bar = document.createElement("div");
+    bar.className = "mv-find";
+    bar.innerHTML = `
+      <input class="mv-find-input" type="text" placeholder="Find in spec" spellcheck="false" autocomplete="off" autocapitalize="off" />
+      <span class="mv-find-counter" aria-live="polite"></span>
+      <button type="button" class="mv-find-nav" data-dir="prev" aria-label="Previous match">↑</button>
+      <button type="button" class="mv-find-nav" data-dir="next" aria-label="Next match">↓</button>
+      <button type="button" class="mv-find-close" aria-label="Close find">${Icons.x({ size: 12 })}</button>
+    `;
+
+    const input = bar.querySelector<HTMLInputElement>(".mv-find-input")!;
+    input.value = this.findQuery;
+    input.addEventListener("input", () => this.runFind(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        this.gotoFind(e.shiftKey ? -1 : 1);
+      } else if (e.key === "Escape") {
+        // Swallow so the modal's Esc handler doesn't also fire.
+        e.preventDefault();
+        e.stopPropagation();
+        this.closeFind();
+      }
+    });
+
+    bar
+      .querySelector<HTMLButtonElement>('[data-dir=prev]')!
+      .addEventListener("click", () => {
+        this.gotoFind(-1);
+        this.findInput?.focus();
+      });
+    bar
+      .querySelector<HTMLButtonElement>('[data-dir=next]')!
+      .addEventListener("click", () => {
+        this.gotoFind(1);
+        this.findInput?.focus();
+      });
+    bar
+      .querySelector<HTMLButtonElement>(".mv-find-close")!
+      .addEventListener("click", () => this.closeFind());
+
+    body.insertBefore(bar, body.firstChild);
+    this.findBar = bar;
+    this.findInput = input;
+    this.updateFindCounter();
+  }
+
+  /// Re-run the search for `query`: clear old marks, wrap new ones, select
+  /// the first hit.
+  private runFind(query: string): void {
+    this.findQuery = query;
+    clearMarks(this.findMarks);
+    this.findMarks = [];
+    const content = this.overlay?.querySelector<HTMLElement>(".mission-viewer-content");
+    if (content && query) this.findMarks = highlightMatches(content, query);
+    this.findActive = this.findMarks.length ? 0 : -1;
+    this.updateFindActive(true);
+    this.updateFindCounter();
+  }
+
+  private gotoFind(delta: number): void {
+    if (this.findMarks.length === 0) return;
+    const n = this.findMarks.length;
+    this.findActive = (this.findActive + delta + n) % n;
+    this.updateFindActive(true);
+    this.updateFindCounter();
+  }
+
+  private updateFindActive(scroll: boolean): void {
+    this.findMarks.forEach((m, i) =>
+      m.classList.toggle("is-active", i === this.findActive),
+    );
+    if (scroll && this.findActive >= 0) {
+      this.findMarks[this.findActive].scrollIntoView({ block: "center" });
+    }
+  }
+
+  private updateFindCounter(): void {
+    const el = this.findBar?.querySelector<HTMLElement>(".mv-find-counter");
+    if (!el) return;
+    if (!this.findQuery) el.textContent = "";
+    else if (this.findMarks.length === 0) el.textContent = "0/0";
+    else el.textContent = `${this.findActive + 1}/${this.findMarks.length}`;
   }
 
   private bodyEl(): HTMLElement | null {
