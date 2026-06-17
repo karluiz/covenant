@@ -1228,6 +1228,34 @@ export async function gitSwitchBranch(cwd: string, branch: string): Promise<GitR
   return invoke<GitRepoSummary>("git_switch_branch", { cwd, branch });
 }
 
+export type ChangeStatus = "modified" | "added" | "deleted" | "renamed" | "untracked";
+export type LineKind = "context" | "add" | "del";
+export interface DiffLine { kind: LineKind; oldNo: number | null; newNo: number | null; text: string; }
+export interface Hunk { oldStart: number; newStart: number; header: string; lines: DiffLine[]; }
+export type FileDiffBody =
+  | { kind: "hunks"; hunks: Hunk[] }
+  | { kind: "binary"; sizeBytes: number }
+  | { kind: "tooLarge"; lineCount: number };
+export interface FileChange {
+  path: string; oldPath: string | null; status: ChangeStatus;
+  added: number; removed: number; binary: boolean;
+}
+export interface Changes { staged: FileChange[]; unstaged: FileChange[]; }
+export interface FileDiff { path: string; oldPath: string | null; body: FileDiffBody; }
+
+export async function gitChanges(cwd: string): Promise<Changes> {
+  return invoke<Changes>("git_changes", { cwd });
+}
+export async function gitFileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff> {
+  return invoke<FileDiff>("git_file_diff", { cwd, path, staged });
+}
+export async function gitStage(cwd: string, path: string): Promise<Changes> {
+  return invoke<Changes>("git_stage", { cwd, path });
+}
+export async function gitUnstage(cwd: string, path: string): Promise<Changes> {
+  return invoke<Changes>("git_unstage", { cwd, path });
+}
+
 export async function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
 }
