@@ -189,7 +189,7 @@ interface SystemLineStyle {
   tone: "ok" | "warn" | "err" | "muted";
 }
 
-interface TaskSpawnInfo {
+export interface TaskSpawnInfo {
   sessionId: string;
   cwd: string | null;
   groupId: string | null;
@@ -198,7 +198,7 @@ interface TaskSpawnInfo {
 
 const TASK_SPAWN_LS_KEY = "covenant.teammate.task-spawn-meta";
 
-function loadTaskSpawnedSessions(): Map<string, TaskSpawnInfo> {
+export function loadTaskSpawnedSessions(): Map<string, TaskSpawnInfo> {
   try {
     const raw = localStorage.getItem(TASK_SPAWN_LS_KEY);
     if (!raw) return new Map();
@@ -209,7 +209,7 @@ function loadTaskSpawnedSessions(): Map<string, TaskSpawnInfo> {
   }
 }
 
-function persistTaskSpawnedSessions(m: Map<string, TaskSpawnInfo>): void {
+export function persistTaskSpawnedSessions(m: Map<string, TaskSpawnInfo>): void {
   try {
     localStorage.setItem(TASK_SPAWN_LS_KEY, JSON.stringify(Array.from(m.entries())));
   } catch {

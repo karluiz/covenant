@@ -36,7 +36,7 @@ import {
   getSpecPromptState,
 } from "./aom/spec-prompt";
 import { installSpecLinkInterceptor } from "./aom/spec-link-menu";
-import type { SessionId, SpecCandidate } from "./api";
+import type { SessionId, SpecCandidate, Task } from "./api";
 import { AfkOverlay } from "./aom/afk";
 import { Icons } from "./icons";
 import { RightRailController, type RailTarget } from "./titlebar/right-rail";
@@ -80,7 +80,14 @@ import { ProjectNotesPanel } from "./project-notes/panel";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline } from "./spawns/shortcuts";
-import { TeammatePanel } from "./teammate/panel";
+import {
+  TeammatePanel,
+  buildTaskInjection,
+  loadTaskSpawnedSessions,
+  persistTaskSpawnedSessions,
+} from "./teammate/panel";
+import { handleHandoffRouted, type HandoffRoutedEvent } from "./teammate/handoff-spawn";
+import type { TabPlacement } from "./tabs/manager";
 
 type LastCallChoice = "use" | "without" | "cancel";
 
@@ -635,6 +642,52 @@ async function boot(): Promise<void> {
   }
 
   const teammatePanelHost = requireEl<HTMLElement>("teammate-panel");
+
+  // Hoisted so the handoff listener (below) can reuse the same logic
+  // without duplicating the body.
+  const spawnTabForTask = async (
+    task: Task,
+    overrides?: { cwd?: string | null; groupId?: string | null; color?: string | null },
+  ): Promise<{ sessionId: string; cwd: string | null; groupId: string | null; color: string | null }> => {
+    // Inherit cwd + group from the active tab's workspace so the
+    // spawned tab visually belongs to the same stripe and lands in
+    // the project's root dir — not a generic home/root shell.
+    // Overrides win (used by Continue to recover original metadata
+    // post-restart, when the active tab may be unrelated).
+    const group = manager.activeGroup();
+    const cwd = overrides?.cwd ?? group?.rootDir ?? manager.activeCwd();
+    const groupId = overrides?.groupId ?? group?.id ?? null;
+    const color = overrides?.color ?? group?.color ?? null;
+    const tab = await manager.createTab({
+      customName: `${task.title.slice(0, 32)}`,
+      cwd,
+      groupId,
+      color,
+    });
+    if (!tab) throw new Error("createTab returned null");
+    const pane = activePane(tab);
+    return {
+      sessionId: (pane.sessionId ?? "").toString(),
+      cwd: pane.cwd || cwd,
+      groupId: tab.groupId ?? groupId,
+      color: tab.color ?? color,
+    };
+  };
+
+  // Hoisted so the handoff listener (below) can reuse the same logic.
+  const bindOperatorToTab = async (sessionId: string, operatorId: string): Promise<void> => {
+    const tab = manager.tabForSession(sessionId as SessionId);
+    if (!tab) return;
+    await manager.setTabOperator(tab.id, operatorId);
+    const pane = activePane(tab);
+    if (pane.sessionId) {
+      await setOperatorEnabled(pane.sessionId as SessionId, true);
+      await setOperatorLive(pane.sessionId as SessionId, true);
+    }
+    // Re-read backend state into the tab + repaint ring/status bar.
+    await manager.refreshAllOperatorState();
+  };
+
   const teammatePanel = new TeammatePanel(teammatePanelHost, {
     listMessages: teammateListMessages,
     sendText: teammateSendText,
@@ -660,31 +713,7 @@ async function boot(): Promise<void> {
     readFile:           structureReadFile,
     readBlockExcerpt,
     readSessionExcerpt,
-    spawnTabForTask: async (task, overrides) => {
-      // Inherit cwd + group from the active tab's workspace so the
-      // spawned tab visually belongs to the same stripe and lands in
-      // the project's root dir — not a generic home/root shell.
-      // Overrides win (used by Continue to recover original metadata
-      // post-restart, when the active tab may be unrelated).
-      const group = manager.activeGroup();
-      const cwd = overrides?.cwd ?? group?.rootDir ?? manager.activeCwd();
-      const groupId = overrides?.groupId ?? group?.id ?? null;
-      const color = overrides?.color ?? group?.color ?? null;
-      const tab = await manager.createTab({
-        customName: `${task.title.slice(0, 32)}`,
-        cwd,
-        groupId,
-        color,
-      });
-      if (!tab) throw new Error("createTab returned null");
-      const pane = activePane(tab);
-      return {
-        sessionId: (pane.sessionId ?? "").toString(),
-        cwd: pane.cwd || cwd,
-        groupId: tab.groupId ?? groupId,
-        color: tab.color ?? color,
-      };
-    },
+    spawnTabForTask,
     isSessionAlive: (sessionId) => !!manager.tabForSession(sessionId as SessionId),
     unbindOperatorFromTab: async (sessionId) => {
       const tab = manager.tabForSession(sessionId as SessionId);
@@ -712,18 +741,7 @@ async function boot(): Promise<void> {
     },
     focusTabBySessionShort: (short) => manager.activateBySessionShort(short),
     getActiveExecutor: () => manager.activeExecutor(),
-    bindOperatorToTab: async (sessionId, operatorId) => {
-      const tab = manager.tabForSession(sessionId as SessionId);
-      if (!tab) return;
-      await manager.setTabOperator(tab.id, operatorId);
-      const pane = activePane(tab);
-      if (pane.sessionId) {
-        await setOperatorEnabled(pane.sessionId as SessionId, true);
-        await setOperatorLive(pane.sessionId as SessionId, true);
-      }
-      // Re-read backend state into the tab + repaint ring/status bar.
-      await manager.refreshAllOperatorState();
-    },
+    bindOperatorToTab,
     openSpec: (path) => manager.openFileAtLine(path),
     cancelActiveTask: teammateCancelActiveTask,
     completeTask: teammateCompleteTask,
@@ -1619,6 +1637,47 @@ async function boot(): Promise<void> {
       void manager.refreshAllOperatorState();
     },
   );
+
+  // Inter-operator handoff (Plan 2): when the backend routes a handoff, the
+  // receiver task already exists + the operator is claimed. Materialize it as
+  // a live BACKGROUND tab (spawn in the delegator's workspace → attach → bind →
+  // auto-launch executor). No focus steal: the delegator thread stays visible.
+  const seenHandoffs = new Set<string>();
+  void listen<HandoffRoutedEvent>("teammate-handoff-routed", (event) => {
+    const spawnMeta = loadTaskSpawnedSessions();
+    void handleHandoffRouted(event.payload, {
+      placementForOperator: (operatorId) => manager.placementForOperator(operatorId),
+      spawnTab: async (title, placement: TabPlacement | null) => {
+        // spawnTabForTask only reads `task.title`; a minimal object is safe.
+        const spawned = await spawnTabForTask(
+          { title } as Task,
+          placement ? { cwd: placement.cwd, groupId: placement.groupId, color: placement.color } : undefined,
+        );
+        return { sessionId: spawned.sessionId };
+      },
+      attachSessionToTask: teammateAttachSessionToTask,
+      bindOperatorToTab,
+      injectLater: (sessionId, line, delayMs) => {
+        window.setTimeout(() => {
+          void injectCommand(sessionId, line).catch((e) =>
+            console.error("handoff auto-spawn: injectCommand failed", e),
+          );
+        }, delayMs);
+      },
+      buildInjection: (brief, deliverable, executor) =>
+        buildTaskInjection(brief, deliverable, executor, new Map(), null, null, null),
+      alreadySpawned: (taskId) => spawnMeta.has(taskId),
+      recordSpawn: (taskId, sessionId, placement) => {
+        spawnMeta.set(taskId, {
+          sessionId,
+          cwd: placement?.cwd ?? null,
+          groupId: placement?.groupId ?? null,
+          color: placement?.color ?? null,
+        });
+        persistTaskSpawnedSessions(spawnMeta);
+      },
+    }, seenHandoffs).catch((e) => console.error("handoff auto-spawn handler error", e));
+  });
 
   // Workspaces V2: load the persisted envelope (or migrate from V1, or
   // fall back to a single Default workspace). WorkspaceManager owns
