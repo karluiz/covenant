@@ -96,3 +96,9 @@ jobs:
           # gh tries to infer the repo from a (nonexistent) local git checkout
           # and dies with "not a git repository".
           gh release upload "$TAG" latest.json --clobber --repo "$REPO"
+
+          # Now that latest.json (and every platform asset) is attached, flip the
+          # release from prerelease → latest. Until this point GitHub's "latest"
+          # pointer skipped it, so the in-app updater kept resolving the previous
+          # COMPLETE release instead of 404ing on a half-published one.
+          gh release edit "$TAG" --repo "$REPO" --prerelease=false --latest

@@ -112,8 +112,12 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.ref_name }}"
+          # Created as a PRERELEASE so it does NOT become GitHub's "latest"
+          # until the manifest job finishes and uploads latest.json. This stops
+          # the in-app updater from 404ing on /releases/latest/download/latest.json
+          # during the ~25min build window. release-manifest.yml promotes it.
           gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "$TAG" --notes "Automated release. See CHANGELOG for details."
+            gh release create "$TAG" --title "$TAG" --prerelease --notes "Automated release. See CHANGELOG for details."
           gh release upload "$TAG" "${{ steps.artifacts.outputs.tgz }}" --clobber
           gh release upload "$TAG" "${{ steps.artifacts.outputs.sig }}" --clobber
           gh release upload "$TAG" "${{ steps.artifacts.outputs.dmg }}" --clobber

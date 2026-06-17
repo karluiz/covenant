@@ -74,8 +74,9 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
+          # Prerelease until the manifest job promotes it — see release-macos.yml.
           if (-not (gh release view $tag 2>$null)) {
-            gh release create $tag --title $tag --notes "Automated release. See CHANGELOG for details."
+            gh release create $tag --title $tag --prerelease --notes "Automated release. See CHANGELOG for details."
           }
           gh release upload $tag "${{ steps.msi.outputs.path }}" --clobber
           gh release upload $tag "${{ steps.updater.outputs.sig_path }}" --clobber

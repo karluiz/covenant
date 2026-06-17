@@ -1611,12 +1611,12 @@ export class SettingsPanel {
             break;
           case "error": {
             const prev = readPersisted();
-            const since = prev?.ok ? ` · last success ${formatAgo(prev.at)}` : "";
+            const since = prev?.ok ? ` You're on v${prev.latest ?? currentVersion} — last confirmed ${formatAgo(prev.at)}.` : "";
             setState("error", {
-              title: "Couldn't reach GitHub Releases",
-              sub: `${result.message}${since}`,
-              latest: "—",
-              latestMeta: "Unknown — fetch failed",
+              title: "Couldn't check for updates right now",
+              sub: `This is usually temporary — a new release may still be publishing, or you're offline. Try again in a few minutes.${since}`,
+              latest: prev?.latest ? `v${prev.latest}` : "—",
+              latestMeta: "Couldn't check just now",
             });
             writePersisted({ at: now, latest: prev?.latest ?? null, ok: false });
             break;
