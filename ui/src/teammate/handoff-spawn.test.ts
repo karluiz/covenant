@@ -96,4 +96,11 @@ describe("handleHandoffRouted", () => {
     await handleHandoffRouted(ev({ task_id: "" }), d, seen);
     expect(d.spawnTab).not.toHaveBeenCalled();
   });
+
+  it("aborts before bind/inject when attachSessionToTask throws", async () => {
+    const d = mkDeps({ attachSessionToTask: vi.fn().mockRejectedValue(new Error("attach failed")) });
+    await expect(handleHandoffRouted(ev(), d, seen)).resolves.toBeUndefined();
+    expect(d.bindOperatorToTab).not.toHaveBeenCalled();
+    expect(d.injectLater).not.toHaveBeenCalled();
+  });
 });

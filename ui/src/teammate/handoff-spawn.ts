@@ -27,6 +27,9 @@ export interface HandoffSpawnDeps {
   /// settle, exactly like the confirm-spawn path's 1500ms delay).
   injectLater(sessionId: string, line: string, delayMs: number): void;
   /// Build the executor launch line (e.g. `codex '<brief> — <deliverable>'\n`).
+  /// Deliberately simpler than the confirm-path injection: a handoff carries no
+  /// spec path or @mention map (the delegating operator already resolved its
+  /// context into the brief), so this skips spec-prefix + mention substitution.
   buildInjection(brief: string, deliverable: string, executor: string): string;
   /// True when this task already has a recorded spawned session.
   alreadySpawned(taskId: string): boolean;
@@ -71,11 +74,18 @@ export async function handleHandoffRouted(
 
   deps.recordSpawn(ev.task_id, sessionId, placement);
 
+  // Attach is data-integrity: it sets the task's spawned_session and registers
+  // the session with the task supervisor (what enables report-back). If it
+  // fails, the executor must NOT run — otherwise it works against a tab the
+  // backend never linked to the task (orphaned, no report-back).
   try {
     await deps.attachSessionToTask(ev.to_operator, ev.task_id, sessionId);
   } catch (e) {
-    console.error("handoff auto-spawn: attachSessionToTask failed", ev.task_id, e);
+    console.error("handoff auto-spawn: attachSessionToTask failed; aborting before inject", ev.task_id, e);
+    return;
   }
+
+  // Bind is UI wiring (operator badge + AOM observation) — best-effort.
   try {
     await deps.bindOperatorToTab(sessionId, ev.to_operator);
   } catch (e) {
