@@ -368,6 +368,11 @@ export class SettingsPanel {
     const nav = document.createElement("nav");
     nav.className = "settings-nav";
     nav.innerHTML = `
+      <div class="settings-nav-search">
+        <input type="search" placeholder="Search settings…" aria-label="Search settings"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="settings-nav-links">
       <a href="#sec-providers" data-target="sec-providers">Providers</a>
       <a href="#sec-models" data-target="sec-models">Models</a>
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
@@ -380,6 +385,8 @@ export class SettingsPanel {
       <a href="#sec-covenant" data-target="sec-covenant">Metrics</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
       <a href="#sec-experimental" data-target="sec-experimental">Experimental</a>
+      </div>
+      <div class="settings-nav-empty" hidden>No matching settings</div>
     `;
     body.appendChild(nav);
 
@@ -1669,16 +1676,67 @@ export class SettingsPanel {
       }
     });
 
+    const goTo = (tab: SettingsTab) => {
+      if (this.panelBody) activateTab(this.panelBody, tab);
+      if (tab === "covenant") this.mountCovenantOnce();
+      if (tab === "operators") this.mountAchievementsOnce();
+    };
+
     // Sidebar nav: clicking a link shows only that section (tab mode).
     nav.addEventListener("click", (e) => {
       const a = (e.target as HTMLElement).closest<HTMLAnchorElement>("[data-target]");
       if (!a) return;
       e.preventDefault();
-      const sectionId = a.dataset.target ?? "";
-      const derivedTab = sectionId.replace(/^sec-/, "") as SettingsTab;
-      if (this.panelBody) activateTab(this.panelBody, derivedTab);
-      if (derivedTab === "covenant") this.mountCovenantOnce();
-      if (derivedTab === "operators") this.mountAchievementsOnce();
+      goTo((a.dataset.target ?? "").replace(/^sec-/, "") as SettingsTab);
+    });
+
+    // Search: filter nav by section content (not just titles), jump only when
+    // the active tab stops matching so content stays put while you refine.
+    // Keywords cover sections that render empty until mounted (spawns/telegram/
+    // metrics) and common synonyms not present in the visible copy.
+    const SEARCH_KEYWORDS: Record<string, string> = {
+      "sec-providers": "api key anthropic openai azure ollama lm studio endpoint llm credentials",
+      "sec-models": "model routing default fallback",
+      "sec-appearance": "theme dark light color font opacity accent",
+      "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
+      "sec-operators": "operator agent soul persona achievements skills",
+      "sec-spawns": "spawn preset launch quick action",
+      "sec-updates": "update version release auto-update channel",
+      "sec-notifications": "email sendgrid notify alert sound",
+      "sec-telegram": "telegram bot token chat message",
+      "sec-covenant": "metrics score commits prompts tokens repo",
+      "sec-workspace": "workspace directory folder repo path",
+      "sec-experimental": "experimental beta flags browser",
+    };
+    const search = nav.querySelector<HTMLInputElement>(".settings-nav-search input");
+    const empty = nav.querySelector<HTMLElement>(".settings-nav-empty");
+    const links = Array.from(nav.querySelectorAll<HTMLAnchorElement>("a[data-target]"));
+    search?.addEventListener("input", () => {
+      const terms = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let firstMatch: SettingsTab | null = null;
+      let activeStillShown = false;
+      for (const a of links) {
+        const secId = a.dataset.target ?? "";
+        const sec = body.querySelector<HTMLElement>(`#${secId}`);
+        const hay = `${a.textContent ?? ""} ${sec?.textContent ?? ""} ${SEARCH_KEYWORDS[secId] ?? ""}`.toLowerCase();
+        const ok = terms.every((t) => hay.includes(t));
+        a.style.display = ok ? "" : "none";
+        const tab = secId.replace(/^sec-/, "") as SettingsTab;
+        if (ok) {
+          if (!firstMatch) firstMatch = tab;
+          if (a.classList.contains("active")) activeStillShown = true;
+        }
+      }
+      if (empty) empty.hidden = firstMatch !== null;
+      if (firstMatch && !activeStillShown) goTo(firstMatch);
+    });
+    // Esc clears the filter (before the panel-close handler swallows it).
+    search?.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && search.value) {
+        e.stopPropagation();
+        search.value = "";
+        search.dispatchEvent(new Event("input"));
+      }
     });
 
     // Activate the initial tab.

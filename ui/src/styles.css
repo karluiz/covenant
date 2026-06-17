@@ -3449,6 +3449,47 @@ body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidde
     color: var(--accent);
 }
 
+.settings-nav-search {
+    position: relative;
+    margin-bottom: 8px;
+}
+
+.settings-nav-search input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(var(--ink-rgb), 0.04);
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+    transition:
+        border-color 0.1s,
+        background 0.1s;
+}
+
+.settings-nav-search input::placeholder {
+    color: var(--muted);
+}
+
+.settings-nav-search input:focus {
+    border-color: var(--accent);
+    background: rgba(var(--ink-rgb), 0.06);
+}
+
+.settings-nav-links {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.settings-nav-empty {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
 /* (legacy .settings-header kept for compat with older references) */
 .settings-header {
     display: flex;
