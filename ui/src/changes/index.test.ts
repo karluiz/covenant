@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("../api", () => ({
   gitChanges: vi.fn(async () => ({
@@ -18,6 +18,7 @@ import { ChangesSurface } from "./index";
 describe("ChangesSurface", () => {
   let host: HTMLElement;
   beforeEach(() => { host = document.createElement("div"); document.body.appendChild(host); });
+  afterEach(() => { host.remove(); document.body.classList.remove("changes-fullscreen"); });
 
   it("opens, sets fullscreen flag, and renders the rail", async () => {
     const s = new ChangesSurface(host);

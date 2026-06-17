@@ -25,6 +25,7 @@ export class ChangesSurface {
 
   close(): void {
     this.open_ = false;
+    this.filter = "";
     document.body.classList.remove("changes-fullscreen");
     this.host.innerHTML = "";
   }
