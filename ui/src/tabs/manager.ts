@@ -561,7 +561,7 @@ export function stripObserverOnPromote(
 
 /// Placement facts inherited by an auto-spawned tab: working dir, group, color.
 export interface TabPlacement {
-  cwd: string | null;
+  cwd: string;
   groupId: string | null;
   color: string | null;
 }
@@ -571,7 +571,7 @@ export interface TabPlacement {
 /// null if none. Kept pure so it's unit-testable without a TabManager instance
 /// (the manager has dozens of constructor-time deps).
 export function resolveOperatorPlacement(
-  rows: Array<{ operator: string | null; cwd: string | null; groupId: string | null; color: string | null }>,
+  rows: Array<{ operator: string | null; cwd: string; groupId: string | null; color: string | null }>,
   operatorId: string,
 ): TabPlacement | null {
   const hit = rows.find((r) => r.operator === operatorId);
@@ -1624,7 +1624,7 @@ export class TabManager {
       const p = activePane(t);
       return {
         operator: p.operator ?? null,
-        cwd: p.cwd ?? null,
+        cwd: p.cwd,
         groupId: t.groupId ?? null,
         color: t.color ?? null,
       };
