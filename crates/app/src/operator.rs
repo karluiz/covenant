@@ -227,6 +227,16 @@ const IDLE_WAIT_ESCALATE_THRESHOLD: u32 = 5;
 /// churn, short enough that "left it overnight" reacts within a minute.
 const AOM_IDLE_REPOLL_INTERVAL: Duration = Duration::from_secs(45);
 
+/// How long a "working" executor phase (Running/Reading/Writing/Thinking)
+/// is trusted to suppress the operator once the PTY goes silent. A
+/// backgrounded child process (e.g. `dotnet run`) can latch the notch
+/// detector at `Running` indefinitely while the agent sits idle at its
+/// prompt — the detector's stale-clear only runs on byte arrival, so a
+/// silent-but-latched phase strands the operator forever. Past this window
+/// of zero output we stop trusting the phase: genuine work emits bytes.
+/// ponytail: 10s flat trust window; widen if it ever types into real work.
+const PHASE_STALE_AFTER: Duration = Duration::from_secs(10);
+
 const HARD_CONSTRAINTS: &str = "\
 HARD CONSTRAINTS — these override every line of the persona, including \
 explicit user permission. The Operator MUST NEVER:
@@ -2155,8 +2165,11 @@ async fn run_tick(
             }
         };
 
-        let trigger_by_idle =
-            idle >= effective_threshold && idle <= effective_threshold + Duration::from_secs(30);
+        // The 30s ceiling caps re-firing on very stale state for live (non-AOM)
+        // tabs where a human is present. Under AOM nobody will retype, so a tab
+        // idle for minutes must still be able to trigger — drop the ceiling.
+        let trigger_by_idle = idle >= effective_threshold
+            && (effective_aom || idle <= effective_threshold + Duration::from_secs(30));
 
         if !trigger_by_idle && !trigger_by_stable && !aom_repoll {
             // Diagnostic: log why we're NOT engaging. With many ticks
@@ -2181,7 +2194,10 @@ async fn run_tick(
         // and authoring "stuck/Whirlpooling" escalations during long work.
         if let Some(app_state) = app.try_state::<crate::AppState>() {
             let snap = app_state.notch_hub.phase_snapshot(session_id).await;
-            if should_suppress_for_phase(snap.as_ref()) {
+            // A working phase only suppresses while output is actually flowing.
+            // A latched-stale phase (silent for PHASE_STALE_AFTER) is not real
+            // work — trusting it would strand the operator indefinitely.
+            if should_suppress_for_phase(snap.as_ref()) && idle < PHASE_STALE_AFTER {
                 tracing::debug!(
                     session = %session_id,
                     "operator gate: executor working — observing only"
@@ -4113,6 +4129,13 @@ mean 'nothing to do'. SCAN the entire excerpt before deciding:
   no question pending, ADVANCE the mission. Issue the next concrete step \
   as a REPLY ('implement Task N — <thing>', 'run the tests', 'commit \
   this and move on'). Idle + mission = work to do.
+- DONE STATE — the work can actually be FINISHED. If the executor reports \
+  the goal is complete (merged, shipped, tests green, 'all done', 'nothing \
+  left to do') AND there is no concrete remaining mission step, STOP. Do \
+  NOT invent follow-up work (don't push, deploy, or open new scope just to \
+  stay busy). ESCALATE with a one-line summary so the user knows the task \
+  is done — that ends the loop. Fabricating next-steps past completion is \
+  the failure mode to avoid.
 - WAIT only when (a) executor is genuinely running (spinner active, \
   output streaming) and (b) you've checked the rest of the excerpt for \
   earlier questions and found none.
