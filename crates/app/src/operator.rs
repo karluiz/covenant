@@ -340,6 +340,13 @@ pub struct OperatorState {
     /// when `bytes_total` hasn't advanced. `None` until the first
     /// decision is made for this session.
     pub last_decision_at: Option<Instant>,
+    /// Despinnered visible-screen signature at the last decision. The AOM
+    /// re-poll fires only when the CURRENT visible screen still matches
+    /// this — i.e. the executor is genuinely parked on the same prompt.
+    /// Raw `bytes_total` can't tell: a TUI executor (Claude Code) emits
+    /// cursor-blink / status-redraw bytes while parked, so byte dedup
+    /// always reads "new bytes" and would defeat the re-poll.
+    pub last_decision_sig: u64,
 }
 
 impl OperatorState {
@@ -350,6 +357,7 @@ impl OperatorState {
             tail: VecDeque::with_capacity(TAIL_CAPACITY),
             last_decision_at_bytes_total: 0,
             last_decision_at: None,
+            last_decision_sig: 0,
         }
     }
 
@@ -2043,7 +2051,7 @@ async fn run_tick(
         // Snapshot tail + idle BEFORE the threshold check so we can
         // pre-scan for decision-point patterns. Dropping de-dup'd
         // sessions still happens here under the sync lock.
-        let (idle, bytes_total, tail, new_bytes, since_last_decision) = {
+        let (idle, bytes_total, tail, new_bytes, since_last_decision, last_decision_sig) = {
             let st = state_arc.lock().map_err(|e| e.to_string())?;
             let new_bytes = st.last_decision_at_bytes_total != st.bytes_total;
             (
@@ -2052,6 +2060,7 @@ async fn run_tick(
                 st.snapshot_tail(SUMMARY_TAIL_TARGET),
                 new_bytes,
                 st.last_decision_at.map(|t| now.duration_since(t)),
+                st.last_decision_sig,
             )
         };
 
@@ -2062,17 +2071,26 @@ async fn run_tick(
         // budget (so the model can write a real answer, not just `y`).
         let is_decision = detect_decision_point(&tail);
 
+        // Despinnered visible-screen signature of THIS tick. Compared
+        // against the signature stored at the last decision to tell
+        // whether the executor is genuinely parked on the same prompt —
+        // robust to the cursor-blink / status-redraw byte churn a TUI
+        // executor emits while idle (which raw `bytes_total` can't see
+        // past).
+        let visible_sig = compute_progress_signature(&tail);
+        let screen_unchanged = since_last_decision.is_some() && visible_sig == last_decision_sig;
+
         // Byte-dedup engage gate. Default posture: exactly one decision
         // per idle window — don't reconsider until the executor emits NEW
         // bytes (anti-runaway: a failing model call must not re-fire every
         // tick). That assumes a human will eventually type to clear the
         // prompt — FALSE under AOM. So under AOM, a stable decision point
-        // re-opens engagement once per `AOM_IDLE_REPOLL_INTERVAL` even
-        // with no new bytes; otherwise the operator strands overnight on
-        // a parked prompt nobody is there to answer. Loop detection +
-        // idle-wait escalation downstream still bound the worst case.
+        // re-opens engagement once per `AOM_IDLE_REPOLL_INTERVAL` while the
+        // VISIBLE screen is unchanged; otherwise the operator strands
+        // overnight on a parked prompt nobody is there to answer. Loop
+        // detection + idle-wait escalation downstream bound the worst case.
         let aom_repoll = aom_idle_repoll_due(
-            new_bytes,
+            screen_unchanged,
             effective_aom,
             is_decision,
             since_last_decision,
@@ -2328,6 +2346,9 @@ async fn run_tick(
             // Timestamp powers the AOM idle re-poll: the next re-engage
             // on an unchanged screen is allowed only after the interval.
             st.last_decision_at = Some(now);
+            // Signature lets the re-poll detect "same prompt still on
+            // screen" without being fooled by cursor-blink byte churn.
+            st.last_decision_sig = visible_sig;
         }
         if is_decision {
             if let Some(att) = inner.lock().await.sessions.get_mut(&session_id) {
@@ -4361,22 +4382,25 @@ pub(crate) fn should_skip_triage_for_idle_repeat(
 /// every tick. It assumes a human will eventually clear the prompt by
 /// typing — true with a human in the loop, FALSE under AOM.
 ///
-/// Under AOM an executor parked at a decision prompt emits no further
-/// bytes, so the operator goes dormant indefinitely (observed: AOM left
-/// overnight does nothing; only focusing the tab revives it, because the
-/// focus-induced redraw is what finally emits fresh bytes). This opens
-/// exactly one re-engagement per `repoll` interval, but ONLY under AOM
-/// and ONLY at a stable decision point — so we never re-poll arbitrary
-/// idle output. Downstream loop detection + idle-wait escalation still
-/// bound the worst case to a few calls before the tab parks in cooldown.
+/// Under AOM an executor parked at a decision prompt strands the operator
+/// indefinitely (observed: AOM left overnight does nothing; only focusing
+/// the tab revives it). Note byte dedup CANNOT detect "parked": a TUI
+/// executor (Claude Code) emits cursor-blink / status-redraw bytes while
+/// idle, so `bytes_total` keeps advancing on a screen that hasn't visibly
+/// changed. Hence `screen_unchanged` is computed from the despinnered
+/// visible-screen signature, not raw bytes. This opens exactly one
+/// re-engagement per `repoll` interval, but ONLY under AOM and ONLY at a
+/// stable decision point — so we never re-poll arbitrary idle output.
+/// Downstream loop detection + idle-wait escalation still bound the worst
+/// case to a few calls before the tab parks in cooldown.
 pub(crate) fn aom_idle_repoll_due(
-    new_bytes: bool,
+    screen_unchanged: bool,
     effective_aom: bool,
     is_decision: bool,
     since_last_decision: Option<Duration>,
     repoll: Duration,
 ) -> bool {
-    !new_bytes
+    screen_unchanged
         && effective_aom
         && is_decision
         && since_last_decision.map_or(false, |e| e >= repoll)
@@ -6626,28 +6650,30 @@ What would you like to do?
     /// AOM idle re-poll escape hatch. The byte-dedup gate normally
     /// refuses to re-engage until the executor emits NEW bytes — an
     /// anti-runaway guard that assumes a human will eventually clear the
-    /// prompt. Under AOM there is no human, so an executor parked at a
-    /// decision prompt (no new bytes) would strand the operator forever.
-    /// `aom_idle_repoll_due` opens exactly one re-engagement per `repoll`
-    /// interval, but ONLY under AOM and ONLY at a stable decision point.
+    /// prompt. Under AOM there is no human, and byte dedup is ALSO blind:
+    /// a TUI executor (Claude Code) emits cursor-blink bytes while parked,
+    /// so the re-poll keys off the despinnered visible-screen signature
+    /// (`screen_unchanged`), not raw bytes. Opens exactly one re-engagement
+    /// per `repoll` interval, ONLY under AOM and ONLY at a decision point.
     #[test]
     fn aom_idle_repoll_reengages_parked_executor() {
         let repoll = Duration::from_secs(45);
 
         // The overnight bug: AOM on, claude parked at a decision prompt,
-        // no new bytes, last decision well past the re-poll interval.
+        // visible screen unchanged (cursor blinks don't count), last
+        // decision well past the re-poll interval.
         assert!(aom_idle_repoll_due(
-            false, // no new bytes since last decision
-            true,  // effective_aom
-            true,  // is_decision (stable prompt on screen)
+            true, // visible screen unchanged since last decision
+            true, // effective_aom
+            true, // is_decision (stable prompt on screen)
             Some(Duration::from_secs(60)),
             repoll,
         ));
 
-        // New bytes arrived → the normal trigger path owns engagement;
-        // this is NOT the re-poll reason.
+        // Screen visibly changed → the normal trigger path owns
+        // engagement; this is NOT the re-poll reason.
         assert!(!aom_idle_repoll_due(
-            true,
+            false,
             true,
             true,
             Some(Duration::from_secs(60)),
@@ -6656,7 +6682,7 @@ What would you like to do?
 
         // Not AOM → never change non-AOM (human-in-loop) behavior.
         assert!(!aom_idle_repoll_due(
-            false,
+            true,
             false,
             true,
             Some(Duration::from_secs(60)),
@@ -6666,7 +6692,7 @@ What would you like to do?
         // Not a decision point → don't re-poll arbitrary idle screens
         // (that would burn tokens on non-prompts).
         assert!(!aom_idle_repoll_due(
-            false,
+            true,
             true,
             false,
             Some(Duration::from_secs(60)),
@@ -6675,7 +6701,7 @@ What would you like to do?
 
         // Interval not yet elapsed → rate-limited, no re-poll.
         assert!(!aom_idle_repoll_due(
-            false,
+            true,
             true,
             true,
             Some(Duration::from_secs(10)),
@@ -6683,7 +6709,7 @@ What would you like to do?
         ));
 
         // Never decided yet (no timestamp) → nothing to re-poll.
-        assert!(!aom_idle_repoll_due(false, true, true, None, repoll));
+        assert!(!aom_idle_repoll_due(true, true, true, None, repoll));
     }
 
     /// AOM re-attempt: on a parked decision point the pre-triage cost

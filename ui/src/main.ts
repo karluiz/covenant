@@ -1080,6 +1080,7 @@ async function boot(): Promise<void> {
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
         manager.setActiveSpawnId(spec.id);
+        manager.focusActive();
         void chip.refresh();
       })();
     };
