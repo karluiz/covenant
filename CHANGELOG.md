@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.91 — Spawns store cleanup + tasker panel polish
+
+### Changed
+
+- **Spawns store simplification**: trimmed dead fields and indirection from the
+  spawns persistence path (`crates/app/src/spawns_store.rs`, `ui/src/spawns/types.ts`,
+  `ui/src/spawns/chip.ts`, `ui/src/settings/spawns.ts`) and pruned now-unused
+  spawn chip styles (`ui/src/spawns/styles.css`).
+
+- **Tasker panel polish**: refinements to the tasker panel and kanban board
+  (`ui/src/tasker/panel.ts`, `ui/src/tasker/styles.css`), plus operator and
+  changes diff-viewer tweaks (`crates/app/src/operator.rs`, `ui/src/changes/index.ts`,
+  `ui/src/changes/changes.css`, `ui/src/styles.css`).
+
 ## v0.8.90 — Operator skill editor + card icon actions
 
 ### Added
