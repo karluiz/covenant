@@ -20,7 +20,6 @@ interface ExecutorPreset {
   label: string;
   command: string;
   args: string[];
-  model: string | null;
   /// Clickable flag/subcommand chips, rendered under the row.
   chips: ArgChip[];
   /// Prose explaining usage / prerequisites — not actionable.
@@ -28,7 +27,7 @@ interface ExecutorPreset {
 }
 const PRESETS: Record<string, ExecutorPreset> = {
   Claude: {
-    label: "Claude", command: "claude", args: [], model: "claude-sonnet-4-6",
+    label: "Claude", command: "claude", args: [],
     chips: [
       { label: "-p '<prompt>'", insert: "-p '<prompt>'", caret: "<prompt>" },
       { label: "--continue", insert: "--continue" },
@@ -39,7 +38,7 @@ const PRESETS: Record<string, ExecutorPreset> = {
     ],
   },
   Codex: {
-    label: "Codex", command: "codex", args: [], model: "gpt-5",
+    label: "Codex", command: "codex", args: [],
     chips: [
       { label: "exec '<prompt>'", insert: "exec '<prompt>'", caret: "<prompt>" },
       { label: "--model <id>", insert: "--model <id>", caret: "<id>" },
@@ -48,7 +47,7 @@ const PRESETS: Record<string, ExecutorPreset> = {
     note: "Bare `codex` = interactive; `codex exec '<prompt>'` = headless.",
   },
   Copilot: {
-    label: "Copilot", command: "gh", args: ["copilot"], model: null,
+    label: "Copilot", command: "gh", args: ["copilot"],
     chips: [
       { label: "suggest '<query>'", insert: "suggest '<query>'", caret: "<query>" },
       { label: "explain '<cmd>'", insert: "explain '<cmd>'", caret: "<cmd>" },
@@ -56,7 +55,7 @@ const PRESETS: Record<string, ExecutorPreset> = {
     note: "Requires: gh auth login + gh extension install github/gh-copilot.",
   },
   Opencode: {
-    label: "Opencode", command: "opencode", args: [], model: null,
+    label: "Opencode", command: "opencode", args: [],
     chips: [
       { label: "run '<prompt>'", insert: "run '<prompt>'", caret: "<prompt>" },
       { label: "--model <provider/model>", insert: "--model <provider/model>", caret: "<provider/model>" },
@@ -65,12 +64,12 @@ const PRESETS: Record<string, ExecutorPreset> = {
     note: "Bare `opencode` opens the interactive TUI.",
   },
   Pi: {
-    label: "Pi", command: "pi", args: [], model: null,
+    label: "Pi", command: "pi", args: [],
     chips: [],
     note: "Covenant's in-house Pi RPC executor (LineFramer → PI-4 tools/thinking/steer). No external CLI; spawned via internal RPC.",
   },
   Gemini: {
-    label: "Gemini", command: "gemini", args: [], model: "gemini-2.5-pro",
+    label: "Gemini", command: "gemini", args: [],
     chips: [
       { label: "-p '<prompt>'", insert: "-p '<prompt>'", caret: "<prompt>" },
       { label: "-m <model>", insert: "-m <model>", caret: "<model>" },
@@ -80,7 +79,7 @@ const PRESETS: Record<string, ExecutorPreset> = {
     ],
   },
   Ollama: {
-    label: "Ollama", command: "ollama", args: ["run"], model: null,
+    label: "Ollama", command: "ollama", args: ["run"],
     chips: [
       { label: "run <model>", insert: "run <model>", caret: "<model>" },
       { label: "pull <model>", insert: "pull <model>", caret: "<model>" },
@@ -116,7 +115,6 @@ function emptySpec(): SpawnSpec {
     icon: null,
     command: "",
     args: [],
-    model: null,
     env: {},
     cwd: null,
     default: false,
@@ -209,15 +207,12 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       <label class="spawns-md-label">Command</label>
       <input class="spawns-settings-input" type="text" name="command" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. claude, gh, ollama" value="${escHtml(spec.command)}" />
       <label class="spawns-md-label">Args</label>
-      <input class="spawns-settings-input" type="text" name="args" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. copilot, run llama3" value="${escHtml(spec.args.join(" "))}" />
-      <label class="spawns-md-label">Model</label>
-      <input class="spawns-settings-input spawns-md-input--model" type="text" name="model" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. claude-sonnet-4-6" value="${escHtml(spec.model ?? "")}" />
+      <input class="spawns-settings-input" type="text" name="args" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. copilot, --model opus-4.8, run llama3" value="${escHtml(spec.args.join(" "))}" />
     `;
     detailHost.appendChild(grid);
 
     const cmdInp = grid.querySelector<HTMLInputElement>('input[name="command"]')!;
     const argsInp = grid.querySelector<HTMLInputElement>('input[name="args"]')!;
-    const modelInp = grid.querySelector<HTMLInputElement>('input[name="model"]')!;
 
     const chipsHost = document.createElement("div");
     chipsHost.className = "spawns-md-hint";
@@ -239,20 +234,18 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       const selVal = brandSelect.value;
       const label = selVal === "__custom__" ? (spec.label || spec.id) : selVal;
       const argsRaw = argsInp.value.trim();
-      const model = modelInp.value.trim();
       return {
         ...spec,
         label,
         command: cmdInp.value.trim(),
         args: argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [],
-        model: model || null,
       };
     };
     const persist = async (): Promise<void> => {
       await persistSpec(collect());
     };
 
-    for (const inp of [cmdInp, argsInp, modelInp]) {
+    for (const inp of [cmdInp, argsInp]) {
       inp.addEventListener("change", () => { void persist(); });
       inp.addEventListener("input", updatePreview);
     }
@@ -262,7 +255,6 @@ export async function renderSpawnsTab(host: HTMLElement): Promise<void> {
       if (preset) {
         cmdInp.value = preset.command;
         argsInp.value = preset.args.join(" ");
-        modelInp.value = preset.model ?? "";
       }
       renderChips(brandSelect.value);
       updatePreview();

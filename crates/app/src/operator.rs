@@ -265,6 +265,21 @@ OUTPUT — choose exactly one of these formats. No other lines.
 ACTION: REPLY
 TEXT: <bytes to type — use \\n for newline, \\t for tab.
 
+  CURSOR / ARROW-KEY MENUS — this is important:
+  When the executor shows a SELECT menu with a moving highlight and says
+  '↑/↓ to navigate · Enter to select' (Claude Code, fzf, ink prompts),
+  typing the option NUMBER does NOT work — those menus only respond to
+  arrow keys. You CAN drive them: \\e[B is one DOWN arrow, \\e[A is one UP
+  arrow, \\r is Enter (select). The highlight (›/❯/▶) starts on the first
+  option. To pick the Nth option, count from the current highlight and emit
+  that many arrows, then \\r. Examples (highlight on option 1):
+    * pick option 1 (the default): \"\\r\"
+    * pick option 2: \"\\e[B\\r\"
+    * pick option 3: \"\\e[B\\e[B\\r\"
+  If the menu instead lists pressable hotkeys (e.g. '1. Yes  2. No' with no
+  moving highlight), type the number+\\n as usual. When unsure which kind it
+  is, the arrow form is safe — \\e[B\\r reliably moves+selects on cursor menus.
+
   TRAILING NEWLINE — this matters:
   * TRIVIAL CONFIRMATIONS (single keystroke that auto-submits: y/n menus,
     numbered picks, plain yes/no): INCLUDE \\n at the end. The executor
@@ -4066,9 +4081,11 @@ node_modules reinstall, or a 10-minute fix?'  → If yes, ACT.
 
 PROACTIVE DRIVE — the executor cursor sitting at an idle prompt does NOT \
 mean 'nothing to do'. SCAN the entire excerpt before deciding:
-- If there is an UNANSWERED question, numbered menu (1./2./3.), y/n \
+- If there is an UNANSWERED question, numbered menu (1./2./3.), arrow-key \
+  select menu (↑/↓ to navigate · Enter to select), y/n \
   prompt, or 'continue?' anywhere in the excerpt — even several lines \
-  ABOVE the current cursor — the user expects you to ANSWER IT. The \
+  ABOVE the current cursor — the user expects you to ANSWER IT. For \
+  arrow-key menus, navigate with \\e[B / \\e[A then \\r (see OUTPUT). The \
   cursor moving past a question (because someone typed a slash command, \
   or the screen redrew) does NOT cancel the question; it's still pending.
 - If a mission is loaded and the executor finished its current task with \
@@ -4628,8 +4645,9 @@ fn parse_response(
 }
 
 /// Best-effort C-style unescape of model output. Intentionally narrow:
-/// only \n, \r, \t, \\, \" — we do NOT handle \xHH / \uHHHH because the
-/// risk of injecting raw control bytes outweighs the convenience.
+/// only \n, \r, \t, \e, \\, \" — we still do NOT handle \xHH / \uHHHH
+/// (arbitrary raw bytes), but \e (ESC, 0x1b) is whitelisted so the operator
+/// can drive arrow-key cursor menus: \e[A up, \e[B down, then \r to select.
 fn unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -4639,6 +4657,7 @@ fn unescape(s: &str) -> String {
                 Some('n') => out.push('\n'),
                 Some('r') => out.push('\r'),
                 Some('t') => out.push('\t'),
+                Some('e') => out.push('\x1b'),
                 Some('\\') => out.push('\\'),
                 Some('"') => out.push('"'),
                 Some(other) => {
@@ -5588,6 +5607,11 @@ error[E0382]: borrow of moved value\n";
         assert_eq!(unescape("a\\tb"), "a\tb");
         assert_eq!(unescape("path\\\\to"), "path\\to");
         assert_eq!(unescape("plain"), "plain");
+        // Arrow-key menu navigation: \e expands to ESC so \e[B\r = down+select.
+        assert_eq!(unescape("\\e[B\\r"), "\x1b[B\r");
+        assert_eq!(unescape("\\e[A"), "\x1b[A");
+        // Unknown escapes still pass through verbatim (no raw-byte injection).
+        assert_eq!(unescape("\\x41"), "\\x41");
     }
 
     #[test]

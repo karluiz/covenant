@@ -29,16 +29,21 @@ body.changes-fullscreen .cd-frame {
 .cd-title { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
 .cd-repo { font-size: 12px; color: var(--muted); }
 .cd-header-spacer { flex: 1; }
+/* Bare button; the visible pill is the inner .settings-esc (shared with
+   Settings + the operator creator for a consistent esc affordance). */
 .cd-close {
-  font-size: 12px;
-  padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: rgba(var(--ink-rgb), 0.04);
-  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 0;
   cursor: pointer;
 }
-.cd-close:hover { background: rgba(var(--ink-rgb), 0.09); }
+.cd-close:hover .settings-esc {
+  color: #fff;
+  background: rgba(var(--ink-rgb), 0.08);
+  border-color: rgba(var(--ink-rgb), 0.16);
+}
 
 /* Body: rail | diff */
 .cd-body { flex: 1; display: grid; grid-template-columns: 300px 1fr; min-height: 0; }

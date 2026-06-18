@@ -24,11 +24,6 @@
   background: #6dd29a;
   box-shadow: 0 0 6px rgba(109, 210, 154, 0.6);
 }
-.spawns-chip__model {
-  color: #5a6873;
-  font-family: var(--mono, "SF Mono", ui-monospace, Menlo, monospace);
-  font-size: 10.5px;
-}
 .spawns-chip__caret {
   color: #8a93a0;
   margin-left: 2px;
@@ -273,9 +268,6 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted, #5a6873);
-}
-.spawns-md-input--model {
-  max-width: 220px;
 }
 .spawns-md-hint {
   display: flex;

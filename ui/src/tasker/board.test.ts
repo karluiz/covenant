@@ -22,10 +22,13 @@ function boardHarness() {
   return { storage, project, host, view, getChanges: () => changes, getSelected: () => selected };
 }
 
-function mount(): { panel: TaskerPanel; host: HTMLElement } {
+function mount(onClose?: () => void): { panel: TaskerPanel; host: HTMLElement } {
   document.body.innerHTML = `<div id="tasker-panel"></div>`;
+  // The real host sets this class while the panel is open; the Esc handler
+  // gates on it so dispatched keys outside an open panel are ignored.
+  document.body.classList.add("sidebar-view-tasker");
   const host = document.getElementById("tasker-panel")!;
-  const panel = new TaskerPanel(host);
+  const panel = new TaskerPanel(host, onClose ? { onClose } : undefined);
   panel.render();
   return { panel, host };
 }
@@ -54,11 +57,19 @@ describe("view toggle + fullscreen", () => {
     expect(host.querySelector(".tasker-filters")).toBeTruthy();
   });
 
-  it("Escape in board mode returns to list", () => {
-    const { host } = mount();
+  it("Escape closes the panel via onClose", () => {
+    let closed = 0;
+    const { host } = mount(() => { closed++; });
     host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(document.body.classList.contains("tasker-board")).toBe(false);
+    expect(closed).toBe(1);
+  });
+
+  it("the header esc pill closes the panel via onClose", () => {
+    let closed = 0;
+    const { host } = mount(() => { closed++; });
+    host.querySelector<HTMLButtonElement>(".tasker-esc-btn")!.click();
+    expect(closed).toBe(1);
   });
 
   it("persists view mode across re-mount", () => {

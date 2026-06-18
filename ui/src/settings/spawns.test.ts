@@ -13,16 +13,16 @@ import { renderSpawnsTab } from "./spawns";
 function spec(over: Partial<SpawnSpec>): SpawnSpec {
   return {
     id: "id", label: "Custom", icon: null, command: "", args: [],
-    model: null, env: {}, cwd: null, default: false, ...over,
+    env: {}, cwd: null, default: false, ...over,
   };
 }
 const claude = (): SpawnSpec =>
   spec({
     id: "s-claude", label: "Claude", command: "claude",
-    args: ["--dangerously-skip-permissions"], model: "fable-5", default: true,
+    args: ["--dangerously-skip-permissions"], default: true,
   });
 const codex = (): SpawnSpec =>
-  spec({ id: "s-codex", label: "Codex", command: "codex", model: "gpt-5" });
+  spec({ id: "s-codex", label: "Codex", command: "codex" });
 
 async function mount(): Promise<HTMLElement> {
   const host = document.createElement("div");

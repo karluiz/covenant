@@ -44,6 +44,17 @@ describe("ChangesSurface", () => {
     expect(document.body.classList.contains("changes-fullscreen")).toBe(false);
   });
 
+  it("Escape closes the surface even when xterm stops propagation", async () => {
+    const s = new ChangesSurface(host);
+    await s.open("/repo");
+    // Bubble-phase listener that swallows Escape, like xterm behind the overlay.
+    const swallow = (e: KeyboardEvent) => e.stopPropagation();
+    document.addEventListener("keydown", swallow);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    document.removeEventListener("keydown", swallow);
+    expect(s.isOpen).toBe(false);
+  });
+
   it("re-pulls diff from staged side after staging the currently shown file", async () => {
     const gitFileDiff = vi.mocked(api.gitFileDiff);
     const gitStage = vi.mocked(api.gitStage);

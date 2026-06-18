@@ -796,7 +796,9 @@ async function boot(): Promise<void> {
 
   // Tasker sidebar — todo list / task management.
   const taskerPanelHost = requireEl<HTMLElement>("tasker-panel");
-  const taskerPanel = new TaskerPanel(taskerPanelHost);
+  const taskerPanel = new TaskerPanel(taskerPanelHost, {
+    onClose: () => rail.toggle("tasker"),
+  });
 
   const closeTaskerPanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-tasker")) return;
@@ -973,8 +975,11 @@ async function boot(): Promise<void> {
       view.focus();
       return;
     }
-    // contentEditable / plain page selection.
-    document.getSelection()?.selectAllChildren(el ?? document.body);
+    // contentEditable only — never page-wide select app chrome (that
+    // highlighted UI like the favorites rail).
+    if (el?.isContentEditable) {
+      document.getSelection()?.selectAllChildren(el);
+    }
   });
   // The copy happens in Rust (pbcopy) because navigator.clipboard rejects with
   // "Document is not focused" when fired from a native menu click. We only

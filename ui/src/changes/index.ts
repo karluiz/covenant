@@ -11,6 +11,12 @@ export class ChangesSurface {
   private railEl: HTMLElement | null = null;
   private diffEl: HTMLElement | null = null;
   private selectedPath: string | null = null;
+  // Capture phase: the terminal behind the fullscreen overlay keeps focus and
+  // xterm calls stopPropagation() on Escape, so a bubble-phase listener never
+  // fires. Mirrors the spec entrance's Esc handling.
+  private onKey = (e: KeyboardEvent): void => {
+    if (this.open_ && e.key === "Escape") { e.preventDefault(); this.close(); }
+  };
 
   constructor(host: HTMLElement) { this.host = host; }
 
@@ -20,6 +26,7 @@ export class ChangesSurface {
     this.repoRoot = repoRoot;
     this.open_ = true;
     document.body.classList.add("changes-fullscreen");
+    document.addEventListener("keydown", this.onKey, true);
     this.mountShell();
     await this.refresh();
   }
@@ -27,6 +34,7 @@ export class ChangesSurface {
   close(): void {
     this.open_ = false;
     this.filter = "";
+    document.removeEventListener("keydown", this.onKey, true);
     document.body.classList.remove("changes-fullscreen");
     this.host.innerHTML = "";
   }
@@ -50,7 +58,8 @@ export class ChangesSurface {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "cd-close";
-    close.textContent = "Close";
+    close.setAttribute("aria-label", "Close (Esc)");
+    close.innerHTML = `<kbd class="settings-esc">esc</kbd>`;
     close.addEventListener("click", () => this.close());
     header.append(title, repo, spacer, close);
 

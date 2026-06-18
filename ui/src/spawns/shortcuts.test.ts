@@ -8,7 +8,6 @@ const spec = (over: Partial<SpawnSpec>): SpawnSpec => ({
   icon: null,
   command: "x",
   args: [],
-  model: null,
   env: {},
   cwd: null,
   default: false,

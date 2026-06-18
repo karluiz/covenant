@@ -85,7 +85,7 @@ export class ReleasePanel {
           <h2>${escapeHtml(title)}</h2>
           <small class="release-subtitle">${escapeHtml(subtitle)}</small>
         </div>
-        <button type="button" class="release-close" aria-label="Close">×</button>
+        <button type="button" class="release-close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
       </header>
       <div class="release-body markdown-body">${renderMarkdown(__APP_CHANGELOG__)}</div>
     `;

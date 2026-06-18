@@ -10,7 +10,6 @@ pub struct SpawnSpec {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
-    pub model: Option<String>,
     #[serde(default)]
     pub env: std::collections::BTreeMap<String, String>,
     pub cwd: Option<String>,
@@ -23,14 +22,11 @@ pub struct SpawnStore {
     inner: Mutex<Vec<SpawnSpec>>,
 }
 
-const DEFAULT_SPAWNS: &[(&str, &str, &str, &[&str], Option<&str>)] = &[
-    ("claude", "Claude", "claude", &[], Some("claude-sonnet-4-6")),
-    ("codex", "Codex", "codex", &[], Some("gpt-5")),
-    ("copilot", "Copilot", "gh", &["copilot"], None),
-    // Hermes manages its own model via `hermes model` / `hermes setup`;
-    // we leave the model field empty and let Hermes pick from its
-    // configured provider.
-    ("hermes", "Hermes", "hermes", &[], None),
+const DEFAULT_SPAWNS: &[(&str, &str, &str, &[&str])] = &[
+    ("claude", "Claude", "claude", &[]),
+    ("codex", "Codex", "codex", &[]),
+    ("copilot", "Copilot", "gh", &["copilot"]),
+    ("hermes", "Hermes", "hermes", &[]),
 ];
 
 /// Presets we want to backfill into a previously-persisted spawns.json
@@ -56,7 +52,7 @@ impl SpawnStore {
                         if loaded.iter().any(|s| s.id == *id) {
                             continue;
                         }
-                        if let Some((sid, label, cmd, args, model)) =
+                        if let Some((sid, label, cmd, args)) =
                             DEFAULT_SPAWNS.iter().find(|(d_id, ..)| d_id == id)
                         {
                             loaded.push(SpawnSpec {
@@ -65,7 +61,6 @@ impl SpawnStore {
                                 icon: None,
                                 command: (*cmd).into(),
                                 args: args.iter().map(|s| (*s).into()).collect(),
-                                model: model.map(|s| s.into()),
                                 env: Default::default(),
                                 cwd: None,
                                 default: false,
@@ -87,13 +82,12 @@ impl SpawnStore {
         } else {
             let seeded = DEFAULT_SPAWNS
                 .iter()
-                .map(|(id, label, cmd, args, model)| SpawnSpec {
+                .map(|(id, label, cmd, args)| SpawnSpec {
                     id: (*id).into(),
                     label: (*label).into(),
                     icon: None,
                     command: (*cmd).into(),
                     args: args.iter().map(|s| (*s).into()).collect(),
-                    model: model.map(|s| s.into()),
                     env: Default::default(),
                     cwd: None,
                     default: *id == "claude",
@@ -165,7 +159,6 @@ mod tests {
             icon: None,
             command: "claude".into(),
             args: vec!["--print".into()],
-            model: Some("claude-sonnet-4-6".into()),
             env: Default::default(),
             cwd: None,
             default: true,
@@ -186,7 +179,6 @@ mod tests {
         let hermes = list.iter().find(|s| s.id == "hermes").expect("hermes preset");
         assert_eq!(hermes.command, "hermes");
         assert!(!hermes.default, "hermes must not steal default from claude");
-        assert!(hermes.model.is_none(), "hermes manages its own model");
         assert!(dir.path().join("spawns.json").exists());
     }
 
@@ -200,7 +192,6 @@ mod tests {
             icon: None,
             command: "claude".into(),
             args: vec![],
-            model: Some("claude-sonnet-4-6".into()),
             env: Default::default(),
             cwd: None,
             default: true,
@@ -245,7 +236,6 @@ mod tests {
                 icon: None,
                 command: "ollama".into(),
                 args: vec!["run".into(), "qwen3".into()],
-                model: Some("qwen3-30b".into()),
                 env: Default::default(),
                 cwd: None,
                 default: false,

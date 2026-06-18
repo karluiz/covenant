@@ -108,6 +108,23 @@ body.sidebar-view-tasker #tasker-panel {
   transform: scale(0.95);
 }
 
+/* Bare button; the visible pill is the inner .settings-esc, shared with
+   Settings / Changes / Release log for a consistent esc affordance. */
+.tasker-esc-btn {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-left: 2px;
+  cursor: pointer;
+}
+.tasker-esc-btn:hover .settings-esc {
+  color: #fff;
+  background: rgba(var(--ink-rgb), 0.08);
+  border-color: rgba(var(--ink-rgb), 0.16);
+}
+
 .tasker-filters {
   display: flex;
   gap: 4px;

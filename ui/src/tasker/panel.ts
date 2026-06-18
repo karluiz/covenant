@@ -100,14 +100,17 @@ export class TaskerPanel {
   private viewMode: "list" | "board" = "list";
   private boardProjectId: string | null = null;
   private boardKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /// Dismiss the whole panel (Esc / the header esc pill). Wired by the host.
+  private onClose: (() => void) | null = null;
   private board: BoardView | null = null;
   // Live WYSIWYG markdown editors mounted into open task-detail Notes fields.
   // Flushed + destroyed on every render so Milkdown instances don't leak.
   private noteEditors: Array<{ editor: MarkdownEditor; projectId: string; taskId: string }> = [];
   private noteSaveTimer: number | null = null;
 
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, opts?: { onClose?: () => void }) {
     this.host = host;
+    this.onClose = opts?.onClose ?? null;
     this.storage = new TaskStorage();
     this.loadExpandedProjects();
     this.loadViewPrefs();
@@ -184,6 +187,7 @@ export class TaskerPanel {
           <button class="tasker-view-btn${this.viewMode === "board" ? " on" : ""}" type="button" data-view="board" aria-label="Board view">${Icons.boardView({ size: 15 })}</button>
         </div>
         <button class="tasker-btn-icon tasker-btn-new-project" type="button" title="New project">${Icons.folder({ size: 14 })}</button>
+        <button class="tasker-esc-btn" type="button" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
       </div>
     </div>`;
   }
@@ -603,14 +607,21 @@ export class TaskerPanel {
       document.removeEventListener("keydown", this.boardKeyHandler);
       this.boardKeyHandler = null;
     }
-    if (this.viewMode === "board") {
-      this.boardKeyHandler = (e: KeyboardEvent): void => {
-        if (e.key === "Escape" && this.viewMode === "board" && !this.openMenu) {
-          this.switchView("list");
-        }
-      };
-      document.addEventListener("keydown", this.boardKeyHandler);
+    // Esc closes the whole panel — consistent with Settings / Changes /
+    // Release log. Guarded so it never hijacks an inline edit (rename / new
+    // task / new list inputs own their Escape) or an open menu.
+    this.boardKeyHandler = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      if (!document.body.classList.contains("sidebar-view-tasker")) return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement || ae?.isContentEditable) return;
+      if (this.openMenu || this.dateMenuEl || this.projectMenuEl) return;
+      e.preventDefault();
+      this.onClose?.();
+    };
+    document.addEventListener("keydown", this.boardKeyHandler);
 
+    if (this.viewMode === "board") {
       const projectSelect = this.host.querySelector<HTMLButtonElement>(".kb-project-select");
       projectSelect?.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -702,6 +713,10 @@ export class TaskerPanel {
 
     this.host.querySelector<HTMLButtonElement>(".tasker-btn-new-project")?.addEventListener("click", () => {
       this.showNewProjectDialog();
+    });
+
+    this.host.querySelector<HTMLButtonElement>(".tasker-esc-btn")?.addEventListener("click", () => {
+      this.onClose?.();
     });
 
     const newListForm = this.host.querySelector<HTMLFormElement>(".tasker-newlist");

@@ -72,7 +72,6 @@ export class SpawnsChip {
     btn.innerHTML = `
       <span class="spawns-chip__dot" style="background:${color};box-shadow:0 0 6px ${color}99;"></span>
       <span class="spawns-chip__label">${escHtml(bound?.label ?? "Spawn")}</span>
-      ${bound?.model ? `<span class="spawns-chip__model">${escHtml(bound.model)}</span>` : ""}
       <span class="spawns-chip__caret"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
       <span class="spawns-chip__run" role="button" aria-label="Run ${escHtml(bound?.label ?? "executor")}">${Icons.play({ size: 10 })}</span>
     `;
@@ -119,7 +118,6 @@ export class SpawnsChip {
         <button class="spawns-popover__item${s.id === boundId ? " is-active" : ""}" data-id="${s.id}" type="button" style="--spawn-accent:${c};">
           <span class="dot" style="background:${c};box-shadow:0 0 6px ${c}99;"></span>
           <span class="label">${escHtml(s.label)}</span>
-          ${s.model ? `<span class="meta">${escHtml(s.model)}</span>` : ""}
           ${kbd ? `<span class="spawn-kbd">${kbd}</span>` : ""}
         </button>`;
         }
