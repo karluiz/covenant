@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.92 — AOM operator re-engages parked decision prompts
+
+### Fixed
+
+- **AOM idle re-poll keyed off visible screen, not raw bytes**: under
+  Always-On Mode the operator went dormant on an executor parked at a
+  decision prompt (e.g. Claude Code's "Which option? 1-4"). The re-poll
+  fired only when `bytes_total` was unchanged, but a TUI executor emits
+  cursor-blink / status-redraw bytes while parked, so the byte counter
+  never stopped advancing and the "is it parked?" check was permanently
+  false. The re-poll now keys off the despinnered visible-screen
+  signature (`compute_progress_signature`) being unchanged since the last
+  decision; added `OperatorState.last_decision_sig` stamped at engage
+  (`crates/app/src/operator.rs`). Same gating otherwise: AOM only,
+  decision point only, once per 45s, behind the phase + loop/cost guards.
+
+- **Focus terminal after launching a spawn**: a freshly launched spawn now
+  takes input focus (`ui/src/main.ts`).
+
 ## v0.8.91 — Spawns store cleanup + tasker panel polish
 
 ### Changed
