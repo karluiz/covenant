@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.93 — AOM engages idle tabs latched at a stale "working" phase
+
+### Fixed
+
+- **Stale "working" phase no longer strands the operator**: a backgrounded
+  child process (e.g. an executor's `dotnet run` dev server) keeps the notch
+  phase detector latched at `Running` while the agent sits idle at its prompt.
+  The detector's stale-clear only runs on byte arrival, so once the PTY goes
+  silent the phase never cleared and the operator's phase gate suppressed every
+  tick — 0 decisions, "AOM takes ages to respond". The gate in
+  `crates/app/src/operator.rs` now cross-checks real byte activity: a working
+  phase only suppresses while output is actually flowing (`idle <
+  PHASE_STALE_AFTER`, 10s). Past that window of silence the phase is treated as
+  stale and the operator engages.
+
+- **AOM idle-trigger ceiling lifted**: the idle trigger only fired within a 30s
+  window after going idle, so a tab idle for minutes could never trigger and
+  AOM's re-poll net (gated on a decision-point pattern) couldn't save a plain
+  idle prompt. Under AOM the 30s ceiling is dropped — no human will retype to
+  unstick it.
+
+- **AOM stops fabricating work past completion**: the AOM directive now
+  recognises a DONE state. When the executor reports the goal is complete and
+  no concrete mission step remains, the operator escalates a one-line summary
+  instead of inventing follow-up work to stay busy.
+
 ## v0.8.92 — AOM operator re-engages parked decision prompts
 
 ### Fixed
