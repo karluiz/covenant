@@ -673,7 +673,11 @@ pub(crate) async fn cancel_active_task_inner(
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
-        sentiment: Some(crate::teammate::types::Sentiment::Triste),
+        // Cancel is an end-state, not a mood. The operator is released here;
+        // leaving it `Triste` left idle operators wearing a permanent sad
+        // face. Neutral resets the pose. (The frontend also clears mood on a
+        // terminal task_update — this keeps stored history honest too.)
+        sentiment: Some(crate::teammate::types::Sentiment::Neutral),
     };
     storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
     if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, false, now_ms).await {

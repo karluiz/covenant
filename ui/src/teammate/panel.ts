@@ -381,10 +381,21 @@ export class TeammatePanel {
     // through neutral on first paint.
     if (this.operator) {
       const opId = this.operator.id;
+      this.currentMoodByOperator.delete(opId);
       for (let i = messages.length - 1; i >= 0; i--) {
-        const s = messages[i]?.sentiment;
-        if (s) {
-          this.currentMoodByOperator.set(opId, s);
+        const m = messages[i];
+        if (!m) continue;
+        // A terminal task_update means the operator was released since the
+        // last mood-bearing turn → resting mood is neutral. Stop scanning
+        // so we don't resurrect the pre-terminal blocked/sad face.
+        if (
+          m.content.kind === "task_update" &&
+          (m.content.data.kind === "completed" || m.content.data.kind === "cancelled")
+        ) {
+          break;
+        }
+        if (m.sentiment) {
+          this.currentMoodByOperator.set(opId, m.sentiment);
           break;
         }
       }
@@ -1903,11 +1914,18 @@ export class TeammatePanel {
       }
     }
     this.setTyping(false);
-    // Update the per-operator mood map before painting so any DOM that
-    // re-reads it (header avatar wrap, future per-bubble badges) picks
-    // up the new pose. Only operator-authored text turns carry sentiment
-    // — see api.ts `Sentiment` doc-comment for the matrix.
-    if (msg.sentiment) {
+    // Mood is bound to task lifecycle. A terminal task_update (completed /
+    // cancelled) releases the operator → reset to neutral; otherwise the
+    // operator keeps a stale blocked/sad face after the task is gone.
+    // Non-terminal updates + text replies set mood from their sentiment so
+    // operators still feel alive (conversational mood, blocked escalation).
+    const terminal =
+      msg.content.kind === "task_update" &&
+      (msg.content.data.kind === "completed" || msg.content.data.kind === "cancelled");
+    if (terminal) {
+      this.currentMoodByOperator.delete(this.operator.id);
+      this.refreshHeaderAvatar();
+    } else if (msg.sentiment) {
       this.currentMoodByOperator.set(this.operator.id, msg.sentiment);
       this.refreshHeaderAvatar();
     }

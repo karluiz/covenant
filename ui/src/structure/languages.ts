@@ -27,6 +27,7 @@ import { tags as t } from "@lezer/highlight";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { csharp } from "@codemirror/legacy-modes/mode/clike";
 
 // Legacy StreamLanguage modes don't all advertise `commentTokens`, so
 // CodeMirror's toggle-comment command (Mod-/) has nothing to insert.
@@ -43,6 +44,7 @@ function withLineComment<S>(
   };
 }
 
+const csharpMode = withLineComment(csharp, "//");
 const shellMode = withLineComment(shell, "#");
 const tomlMode = withLineComment(toml, "#");
 const dockerMode = withLineComment(dockerFile, "#");
@@ -231,12 +233,18 @@ const BY_EXT: Record<string, () => Extension> = {
   htm: () => html(),
   astro: () => html(),
   xml: () => html(),
+  csproj: () => html(),
+  props: () => html(),
+  targets: () => html(),
+  cshtml: () => html(),
   yaml: () => yaml(),
   yml: () => yaml(),
   sh: () => StreamLanguage.define(shellMode),
   bash: () => StreamLanguage.define(shellMode),
   zsh: () => StreamLanguage.define(shellMode),
   toml: () => StreamLanguage.define(tomlMode),
+  cs: () => StreamLanguage.define(csharpMode),
+  csx: () => StreamLanguage.define(csharpMode),
 };
 
 /// Filename fallback — exact (case-sensitive) match against the

@@ -226,6 +226,33 @@ describe("TeammatePanel", () => {
     expect(opRows[0].querySelector(".teammate-bubble-avatar")).not.toBeNull();
   });
 
+  it("resets mood to neutral on a terminal task_update (cancelled)", async () => {
+    const host = document.createElement("div");
+    let captured: ((m: import("../api").TeammateMessage) => void) | null = null;
+    const panel = new TeammatePanel(host, {
+      ...stubMentionDeps,
+      listMessages:  vi.fn().mockResolvedValue([]),
+      sendText:      vi.fn(),
+      listOperators: vi.fn().mockResolvedValue([]),
+      onMessage: vi.fn(async (h) => { captured = h; return () => {}; }),
+    });
+    await panel.openFor(makeOp());
+    // Operator turns sad mid-task → header badge shows "sad".
+    captured!({
+      id: "m1", operator_id: "op-mibli", task_id: "t1", thread_id: null, role: "operator",
+      content: { kind: "text", data: "this is hard" }, created_at_unix_ms: 2,
+      confirmed_at_unix_ms: null, dismissed_at_unix_ms: null, sentiment: "triste",
+    });
+    expect(host.querySelector(".teammate-panel-sentiment")?.textContent).toBe("sad");
+    // Task cancelled → operator released → mood resets, badge gone.
+    captured!({
+      id: "m2", operator_id: "op-mibli", task_id: "t1", thread_id: null, role: "system",
+      content: { kind: "task_update", data: { task: "t1", kind: "cancelled" } },
+      created_at_unix_ms: 3, confirmed_at_unix_ms: null, dismissed_at_unix_ms: null,
+    });
+    expect(host.querySelector(".teammate-panel-sentiment")).toBeNull();
+  });
+
   it("renders backtick spans as <code> in bubbles", async () => {
     const host = document.createElement("div");
     let captured: ((m: import("../api").TeammateMessage) => void) | null = null;

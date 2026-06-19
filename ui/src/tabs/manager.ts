@@ -182,21 +182,17 @@ function termTheme(): typeof TERMINAL_THEME_DARK | typeof TERMINAL_THEME_LIGHT {
     : TERMINAL_THEME_DARK;
 }
 
-/// Scale negative letter-spacing by DPR. The user calibrates the
-/// value on whatever display they use most (typically Retina, DPR=2),
-/// where sub-pixel anti-aliasing absorbs the overlap. On a 1x
-/// external display each CSS pixel is one device pixel, so the same
-/// negative value renders glyphs literally on top of each other. We
-/// normalize so the same setting looks the same across DPRs.
+/// Normalize letter-spacing across displays. xterm adds the value to the
+/// *device* cell width (`device.cell.width = device.char.width + round(ls)`)
+/// WITHOUT multiplying by DPR, while device.char.width IS DPR-scaled. So the
+/// same value has double the visual (CSS-px) effect on a 1x display vs a 2x
+/// Retina. The user calibrates on Retina (DPR=2), so we anchor there: the
+/// CSS-px effect is `raw*factor/dpr`, and `factor = dpr/2` keeps that constant
+/// across DPRs (DPR=2 → unchanged; DPR=1 → half, matching the Retina look).
 function scaledLetterSpacing(raw: number): number {
-  if (raw >= 0) return raw;
+  if (raw === 0) return 0;
   const dpr = window.devicePixelRatio || 1;
-  // DPR=2 → full value; DPR=1 → 0 (no overlap on 1x displays);
-  // linear in between. Negative letter-spacing only works visually
-  // when sub-pixel anti-aliasing absorbs the overlap, which requires
-  // DPR > 1.
-  const factor = Math.max(0, Math.min(1, dpr - 1));
-  return raw * factor;
+  return raw * (dpr / 2);
 }
 
 function buildTerminalOptions(font: TerminalConfig | null): Record<string, unknown> {

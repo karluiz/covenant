@@ -75,7 +75,11 @@ impl Inner {
     }
 
     pub fn unregister(&mut self, session: SessionId) {
-        self.by_session.remove(&session);
+        if let Some(ctx) = self.by_session.remove(&session) {
+            // Drop the resolver's last-sentiment state so the map doesn't
+            // leak one entry per cancelled/closed task for the session's life.
+            self.resolver.clear(ctx.operator_id, ctx.task_id);
+        }
     }
 
     /// Pure: feed a `BlockFinished` event for `session`. Returns the

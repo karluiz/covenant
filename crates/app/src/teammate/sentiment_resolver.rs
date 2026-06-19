@@ -53,6 +53,13 @@ impl SentimentResolver {
     pub fn current(&self, op: OperatorId, task: TaskId) -> Option<Sentiment> {
         self.inner.lock().get(&(op, task)).map(|l| l.sentiment)
     }
+
+    /// Drop the remembered state for a finished task. Called when the
+    /// supervisor unregisters the task so the map doesn't grow unbounded
+    /// across the session.
+    pub fn clear(&self, op: OperatorId, task: TaskId) {
+        self.inner.lock().remove(&(op, task));
+    }
 }
 
 #[cfg(test)]
@@ -97,6 +104,19 @@ mod tests {
         let t = Instant::now();
         assert!(r.decide(op, task, Sentiment::Duda, true, t));
         assert!(r.decide(op, task, Sentiment::Feliz, true, t + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn clear_drops_state_and_lets_first_emit_succeed_again() {
+        let r = SentimentResolver::new(Duration::from_secs(60));
+        let (op, task) = ids();
+        let t = Instant::now();
+        assert!(r.decide(op, task, Sentiment::Triste, true, t));
+        r.clear(op, task);
+        assert_eq!(r.current(op, task), None);
+        // After clear, the same candidate is treated as a fresh first emit
+        // (the change-only suppression no longer sees the old state).
+        assert!(r.decide(op, task, Sentiment::Triste, true, t + Duration::from_secs(1)));
     }
 
     #[test]
