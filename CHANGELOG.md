@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.94 — C# syntax highlighting + DPR-correct letter spacing
+
+### Added
+
+- **C# language support in the code/diff viewers**: `.cs`/`.csx` files now
+  highlight via CodeMirror's `clike` (csharp) mode with `//` line-comment
+  toggling, and the MSBuild/Razor family (`.csproj`, `.props`, `.targets`,
+  `.cshtml`) falls back to XML highlighting. See `ui/src/structure/languages.ts`.
+
+### Fixed
+
+- **Letter spacing rendered wrong on non-Retina displays**: xterm adds the
+  configured `letterSpacing` to the *device* cell width without scaling by DPR,
+  while the measured char width is DPR-scaled — so a value tuned on a 2x Retina
+  panel had double the visual effect on a 1x external monitor (glyphs gapped or
+  overlapped). `scaledLetterSpacing` in `ui/src/tabs/manager.ts` now anchors the
+  CSS-pixel effect with a `dpr/2` factor, keeping the look identical across
+  displays (the prior `dpr-1` factor zeroed it out on 1x, reopening ligature-font
+  gaps).
+
+- **Idle operators stuck with a sad face**: cancelling a task wrote a `Triste`
+  sentiment as an end-state, leaving released/idle operators wearing a permanent
+  sad pose. Cancel now resets to `Neutral` (`crates/app/src/teammate/commands.rs`),
+  and the supervisor clears the resolver's remembered sentiment on `unregister`
+  so the per-task map no longer leaks one entry per cancelled/closed task for the
+  session's lifetime (`task_supervisor.rs`, `sentiment_resolver.rs`).
+
 ## v0.8.93 — AOM engages idle tabs latched at a stale "working" phase
 
 ### Fixed
