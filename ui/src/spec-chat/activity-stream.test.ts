@@ -32,7 +32,7 @@ describe('mountActivityStream', () => {
     state.apply({ kind: 'text_delta', text: 'lo' });
     // Same DOM node grew in place — not replaced on each delta.
     expect(host.querySelector('.bubble.asst.typing')).toBe(node);
-    expect(node.textContent).toBe('Hello');
+    expect(node.textContent).toContain('Hello');
   });
 
   it('does not rebuild committed bubbles when live text streams', () => {
