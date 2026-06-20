@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { looksLikePrompt, shouldHint } from "./prompt-detect";
+import { looksLikePrompt, shouldHint, mountPromptHint } from "./prompt-detect";
+import type { Terminal } from "@xterm/xterm";
+
+// Minimal Terminal stub: only the fields mountPromptHint reads for anchoring.
+const fakeTerm = (): Terminal =>
+  ({
+    buffer: { active: { cursorY: 0 } },
+    _core: { _renderService: { dimensions: { css: { cell: { width: 9, height: 17 } } } } },
+  } as unknown as Terminal);
 
 describe("looksLikePrompt", () => {
   it("detects natural-language / question lines", () => {
@@ -40,5 +48,40 @@ describe("shouldHint", () => {
     expect(shouldHint({ bareShell: false, recallVisible: false, line: "how to x" })).toBe(false);
     expect(shouldHint({ bareShell: true, recallVisible: true, line: "how to x" })).toBe(false);
     expect(shouldHint({ bareShell: true, recallVisible: false, line: "git status" })).toBe(false);
+  });
+});
+
+describe("mountPromptHint", () => {
+  it("starts hidden, shows on update(true,...), hides on update(false,...)", () => {
+    const host = document.createElement("div");
+    const hint = mountPromptHint(host, fakeTerm());
+    const el = host.querySelector(".prompt-hint") as HTMLElement;
+    expect(el).toBeTruthy();
+    expect(el.hidden).toBe(true);
+    expect(hint.shown).toBe(false);
+
+    hint.update(true, "how to reload env");
+    expect(hint.shown).toBe(true);
+    expect(hint.line).toBe("how to reload env");
+    expect(el.hidden).toBe(false);
+    expect(el.textContent).toContain("super-agent");
+
+    hint.update(false, "");
+    expect(hint.shown).toBe(false);
+    expect(el.hidden).toBe(true);
+
+    hint.dispose();
+    expect(host.querySelector(".prompt-hint")).toBeNull();
+  });
+
+  it("override() hides and sets overridden; reset() clears it", () => {
+    const host = document.createElement("div");
+    const hint = mountPromptHint(host, fakeTerm());
+    hint.update(true, "what is this");
+    hint.override();
+    expect(hint.overridden).toBe(true);
+    expect(hint.shown).toBe(false);
+    hint.reset();
+    expect(hint.overridden).toBe(false);
   });
 });

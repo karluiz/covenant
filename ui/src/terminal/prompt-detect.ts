@@ -38,3 +38,77 @@ export interface HintInputs {
 export function shouldHint(i: HintInputs): boolean {
   return i.bareShell && !i.recallVisible && looksLikePrompt(i.line);
 }
+
+import type { Terminal } from "@xterm/xterm";
+
+export interface PromptHint {
+  readonly shown: boolean;
+  overridden: boolean;
+  readonly line: string;
+  /** Show or hide the hint; when showing, capture `line` and reposition. */
+  update(show: boolean, line: string): void;
+  /** ⌘I: user wants the line run literally — hide + remember for this line. */
+  override(): void;
+  /** prompt_start: new prompt, clear per-line state. */
+  reset(): void;
+  dispose(): void;
+}
+
+export function mountPromptHint(host: HTMLElement, term: Terminal): PromptHint {
+  const el = document.createElement("div");
+  el.className = "prompt-hint";
+  el.hidden = true;
+  // Pointer-events off so it never blocks terminal interaction.
+  el.innerHTML =
+    `<kbd>↵</kbd> ask the super-agent ` +
+    `<span class="prompt-hint-sep">·</span> <kbd>⌘I</kbd> run literally`;
+  host.appendChild(el);
+
+  let shown = false;
+  let overridden = false;
+  let line = "";
+
+  const reposition = (): void => {
+    // ponytail: reads xterm's private renderer cell dimensions to anchor under
+    // the cursor row. Falls back to sane defaults if the internal shape moves.
+    const core = (term as unknown as {
+      _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } };
+    })._core;
+    const cellH = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
+    const cy = term.buffer.active.cursorY;
+    el.style.top = `${(cy + 1) * cellH + 4}px`;
+    el.style.left = `8px`;
+  };
+
+  return {
+    get shown() { return shown; },
+    get line() { return line; },
+    get overridden() { return overridden; },
+    set overridden(v: boolean) { overridden = v; },
+    update(show: boolean, nextLine: string): void {
+      if (show && !overridden) {
+        line = nextLine;
+        reposition();
+        el.hidden = false;
+        shown = true;
+      } else {
+        el.hidden = true;
+        shown = false;
+      }
+    },
+    override(): void {
+      overridden = true;
+      el.hidden = true;
+      shown = false;
+    },
+    reset(): void {
+      overridden = false;
+      line = "";
+      el.hidden = true;
+      shown = false;
+    },
+    dispose(): void {
+      el.remove();
+    },
+  };
+}

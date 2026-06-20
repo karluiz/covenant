@@ -1652,6 +1652,8 @@ body:not(.tabbar-left) #new-group {
        The real separators are .tab-blocks' border-left and the pane
        splitter, so this border is vestigial. */
     overflow: hidden;
+    /* Ensure overlays anchor to the terminal pane. */
+    position: relative;
 }
 
 .xterm,
@@ -1714,6 +1716,31 @@ body:not(.tabbar-left) #new-group {
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
     background: rgba(var(--ink-rgb), 0.28);
 }
+
+/* Warp-style prose autodetect hint, anchored under the cursor row. */
+.prompt-hint {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-secondary, #8a8f98);
+  background: color-mix(in srgb, var(--bg-elev, #1b1d24) 88%, transparent);
+  border: 1px solid var(--line-soft, #2a2d37);
+  border-radius: 7px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.prompt-hint kbd {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-primary, #eef0f7);
+  background: var(--bg-base, #0e0f13);
+  border: 1px solid var(--line-soft, #2a2d37);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.prompt-hint-sep { opacity: 0.5; margin: 0 2px; }
 
 /* ─── Block sidebar (per-tab) ──────────────────────── */
 
