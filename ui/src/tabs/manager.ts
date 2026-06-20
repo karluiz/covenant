@@ -3620,6 +3620,7 @@ export class TabManager {
           console.error("clear-line write failed", e),
         );
         this.onAskAgent?.(line);
+        recall?.notifyInput("\x15"); // resync Recall's shadow buffer with the line we just cleared
         promptHint.reset();
         return; // do NOT forward the carriage return to the shell
       }

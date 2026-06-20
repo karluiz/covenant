@@ -43,7 +43,7 @@ export function shouldHint(i: HintInputs): boolean {
 
 export interface PromptHint {
   readonly shown: boolean;
-  overridden: boolean;
+  readonly overridden: boolean;
   readonly line: string;
   /** Show or hide the hint; when showing, capture `line` and reposition. */
   update(show: boolean, line: string): void;
@@ -84,7 +84,6 @@ export function mountPromptHint(host: HTMLElement, term: Terminal): PromptHint {
     get shown() { return shown; },
     get line() { return line; },
     get overridden() { return overridden; },
-    set overridden(v: boolean) { overridden = v; },
     update(show: boolean, nextLine: string): void {
       if (show && !overridden) {
         line = nextLine;
