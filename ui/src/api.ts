@@ -2438,3 +2438,44 @@ export const favorites = {
   setCollapsed: (id: string, collapsed: boolean) =>
     invoke<void>("favorites_set_collapsed", { id, collapsed }),
 };
+
+export interface CloudSyncConfig {
+  enabled: boolean;
+  workspaces: boolean;
+  operators: boolean;
+  specs: boolean;
+  preferences: boolean;
+}
+
+export interface CloudSyncStatus extends CloudSyncConfig {
+  signed_in: boolean;
+  last_synced_ms: number | null;
+  device: string | null;
+}
+
+export interface CloudApplySummary {
+  workspaces: boolean;
+  operators: number;
+  specs: number;
+  preferences: boolean;
+}
+
+export async function cloudSyncStatus(): Promise<CloudSyncStatus> {
+  return invoke<CloudSyncStatus>("cloud_sync_status");
+}
+
+export async function cloudSyncSetConfig(cfg: CloudSyncConfig): Promise<void> {
+  return invoke<void>("cloud_sync_set_config", { cfg });
+}
+
+export async function cloudSyncPush(): Promise<number> {
+  return invoke<number>("cloud_sync_push");
+}
+
+export async function cloudSyncRestore(): Promise<CloudApplySummary> {
+  return invoke<CloudApplySummary>("cloud_sync_restore");
+}
+
+export async function cloudSyncWipe(): Promise<void> {
+  return invoke<void>("cloud_sync_wipe");
+}
