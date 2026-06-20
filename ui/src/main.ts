@@ -1379,6 +1379,7 @@ async function boot(): Promise<void> {
   // promote it to a first-class TabKind.
   getPiPanel();
   const agent = new AgentPanel(document.body, () => manager.activeSessionId());
+  manager.onAskAgent = (seed) => agent.openWithSeed(seed);
   const operatorPage = requireEl<HTMLElement>("operator-page");
   const operator = new OperatorPanel(operatorPage, workspace, manager);
   operator.onClosed = () => {

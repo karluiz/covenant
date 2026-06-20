@@ -1579,6 +1579,10 @@ export class TabManager {
     | ((executor: string | null) => void)
     | null = null;
 
+  /// Fired when shell-prompt autodetect routes a prose line to the
+  /// super-agent. main.ts wires this to AgentPanel.openWithSeed.
+  public onAskAgent: ((seed: string) => void) | null = null;
+
   /// Fires after every tabbar re-render so the collapsed-rail (the
   /// thin sidebar shown in vertical mode when the user folds the
   /// tabbar) can rebuild its dot/cell view from the same source of

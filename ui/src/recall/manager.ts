@@ -152,6 +152,17 @@ export class RecallManager {
     this.resetBuffer();
   }
 
+  /// The current best-effort shell line (shadow buffer), trimmed. Used by
+  /// shell-prompt autodetect — see ui/src/terminal/prompt-detect.ts.
+  currentLine(): string {
+    return this.buffer.trim();
+  }
+
+  /// Whether the Recall sidebar is currently showing results.
+  isVisible(): boolean {
+    return this.visible;
+  }
+
   /// Track the current cwd so backend queries can apply the cwd bonus.
   setCwd(cwd: string | null): void {
     this.currentCwd = cwd;
