@@ -470,6 +470,46 @@ impl OperatorRegistry {
         Some(crate::soul::serialize(&crate::soul::soul_from_operator(&op)))
     }
 
+    /// Upsert an operator from a synced cloud snapshot.
+    ///
+    /// - Insert when `op.id` is unknown locally; update in place when known.
+    /// - `soul_path` assignment is delegated to `create`/`update` (both handle
+    ///   `None` already — see their implementations).
+    /// - After the upsert, the provided `soul_md` is written verbatim to the
+    ///   operator's `soul_path`, overwriting whatever `create`/`update` wrote,
+    ///   so the cloud-synced SOUL.md is the file-system source of truth.
+    /// - Never deletes operators absent from the snapshot.
+    pub async fn import(
+        &self,
+        storage: &Storage,
+        op: Operator,
+        soul_md: &str,
+    ) -> Result<Operator, RegistryError> {
+        let mut saved = if self.get(op.id).is_some() {
+            self.update(storage, op).await?
+        } else {
+            self.create(storage, op).await?
+        };
+        // Overwrite whatever create/update serialized with the verbatim cloud SOUL.md.
+        if let Some(path) = &saved.soul_path {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+                })?;
+            }
+            std::fs::write(path, soul_md).map_err(|e| {
+                RegistryError::Storage(crate::storage::StorageError::Other(e.to_string()))
+            })?;
+            // Re-stat so the cached mtime matches the file we just wrote.
+            let mt = crate::soul::mtime_of(path).unwrap_or(0);
+            saved.soul_mtime_unix_ms = mt;
+            if let Some(op) = self.by_id.write().unwrap().get_mut(&saved.id) {
+                op.soul_mtime_unix_ms = mt;
+            }
+        }
+        Ok(saved)
+    }
+
     pub async fn delete(&self, storage: &Storage, id: OperatorId) -> Result<(), RegistryError> {
         {
             let g = self.by_id.read().unwrap();
@@ -1066,6 +1106,78 @@ mod soul_io_tests {
         assert!(got.soul_path.is_some());
         assert_eq!(got.persona, "old persona text");
         assert_eq!(got.hard_constraints, "^sudo");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn import_inserts_then_updates_by_id_without_deleting_others() {
+        let tmp = std::env::temp_dir().join(format!("covenant-import-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let souls = tmp.join("operators");
+        let storage = temp_storage(&tmp).await;
+        let reg = OperatorRegistry::load(&storage, souls).await.unwrap();
+
+        // Seed a pre-existing operator so we can verify it is untouched.
+        let existing_op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Existing".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: "pre-existing".into(),
+            escalate_threshold: 0.5,
+            model: "m".into(),
+            hard_constraints: "".into(),
+            is_default: true,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
+        };
+        reg.create(&storage, existing_op.clone()).await.unwrap();
+        let existing = reg.list();
+
+        // Build the operator to import (soul_path=None, as it would arrive from cloud).
+        let mut op = Operator {
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Imported".into(),
+            emoji: "🔵".into(),
+            color: "#3b82f6".into(),
+            tags: vec![],
+            persona: "imported persona".into(),
+            escalate_threshold: 0.5,
+            model: "claude-sonnet-4-6".into(),
+            hard_constraints: "".into(),
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
+            github_access: GithubAccess::default(),
+        };
+        let id = op.id;
+
+        // First import = insert.
+        reg.import(&storage, op.clone(), "# SOUL\nbody").await.unwrap();
+        assert!(reg.get(id).is_some(), "imported operator should be present");
+        assert_eq!(reg.read_soul(id).unwrap(), "# SOUL\nbody");
+
+        // Locally-present operators are untouched.
+        for e in &existing {
+            assert!(reg.get(e.id).is_some(), "existing operator {:?} should still exist", e.name);
+        }
+
+        // Second import with same id = update (name + soul change).
+        op.name = "Renamed".into();
+        reg.import(&storage, op, "# SOUL\nnew").await.unwrap();
+        assert_eq!(reg.get(id).unwrap().name, "Renamed");
+        assert_eq!(reg.read_soul(id).unwrap(), "# SOUL\nnew");
+
         std::fs::remove_dir_all(&tmp).ok();
     }
 
