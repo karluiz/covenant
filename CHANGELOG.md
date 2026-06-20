@@ -6,6 +6,43 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.95 — Covenant Cloud workspace sync + shell-prompt autodetect
+
+### Added
+
+- **Covenant Cloud sync**: opt-in sync of entire workspaces — operators, specs,
+  and preferences — to the cloud, with a debounced auto-push that fires on
+  workspace/operator/spec/settings saves. Configure from the new **Covenant
+  Cloud** settings section. Secrets are stripped and local-only keys preserved on
+  merge, operators upsert by id (no destructive delete), and the push/pull/wipe
+  HTTP clients carry an 8s timeout. Backend `CloudSyncConfig` +
+  status/push/restore/wipe Tauri commands in `crates/app`; typed wrappers and UI
+  in `ui/src/settings` / `ui/src/cloud_sync`.
+
+- **Shell-prompt autodetect**: when a terminal tab is a bare shell (no executor
+  running), typing a natural-language line shows a live Warp-style hint under the
+  cursor — Enter routes it to the ⌘K super-agent prefilled, ⌘I runs it literally.
+  Reuses `RecallManager`'s shadow line-buffer; new
+  `ui/src/terminal/prompt-detect.ts` wired into `ui/src/tabs/manager.ts`.
+
+- **Terminal welcome hint**: a one-time discoverability card on a fresh session,
+  plus a "start agent" context-menu item, an Inference rename, and Cmd+M freed for
+  rebinding (`ui/src/terminal/welcome-hint.ts`).
+
+### Fixed
+
+- **Spec Creator renders Markdown**: the assistant reasoning pane now renders
+  Markdown (bold, headings, lists, inline/block code) via `marked` instead of a
+  flat text blob, while keeping the section-marker chips. `renderProse` in
+  `ui/src/spec-chat/prose.ts`.
+
+- **Idle-waiting notification churn**: a per-session cooldown collapses the
+  repeated "agent idle / waiting" notifications that previously flooded
+  (`crates/app`).
+
+- **Cloud-sync restore**: skipped imports are now surfaced on restore (with
+  regression tests) instead of failing silently.
+
 ## v0.8.94 — C# syntax highlighting + DPR-correct letter spacing
 
 ### Added
