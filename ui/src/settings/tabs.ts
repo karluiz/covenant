@@ -1,7 +1,7 @@
 export type SettingsTab =
   | "providers" | "models" | "appearance" | "terminal"
   | "operators" | "spawns" | "updates" | "notifications" | "telegram"
-  | "workspace" | "covenant" | "experimental";
+  | "workspace" | "covenant" | "cloud" | "experimental";
 
 const TAB_OF_SECTION: Record<string, SettingsTab> = {
   "sec-providers":     "providers",
@@ -15,6 +15,7 @@ const TAB_OF_SECTION: Record<string, SettingsTab> = {
   "sec-telegram":      "telegram",
   "sec-workspace":     "workspace",
   "sec-covenant":      "covenant",
+  "sec-cloud":         "cloud",
   "sec-experimental":  "experimental",
 };
 

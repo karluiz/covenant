@@ -166,6 +166,7 @@ export class SettingsPanel {
   private operatorsPane: OperatorsPane | null = null;
   private panelBody: HTMLElement | null = null;
   private covenantMounted = false;
+  private cloudSyncMounted = false;
   /// Monotonic token that invalidates an async `open()` still waiting on
   /// backend/settings subpanels. Without this, opening Settings and
   /// immediately opening another full-page panel can let the stale
@@ -197,6 +198,14 @@ export class SettingsPanel {
     pubHost.style.marginTop = "14px";
     section.appendChild(pubHost);
     void renderPublicProfileCard(pubHost);
+  }
+
+  private mountCloudSyncOnce(): void {
+    if (this.cloudSyncMounted) return;
+    const root = document.getElementById("cloud-sync-root");
+    if (!root) return;
+    this.cloudSyncMounted = true;
+    void import("./cloud_sync").then((m) => m.mountCloudSyncSection(root));
   }
 
   /// Optional callback fired whenever settings are saved. Used by main
@@ -340,6 +349,7 @@ export class SettingsPanel {
     this.panelBody = null;
     this.operatorsPane = null;
     this.covenantMounted = false;
+    this.cloudSyncMounted = false;
 
     if (hadVisibleState && this.onClosed) this.onClosed();
   }
@@ -384,6 +394,7 @@ export class SettingsPanel {
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-covenant" data-target="sec-covenant">Metrics</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
+      <a href="#sec-cloud" data-target="sec-cloud">Covenant Cloud</a>
       <a href="#sec-experimental" data-target="sec-experimental">Experimental</a>
       </div>
       <div class="settings-nav-empty" hidden>No matching settings</div>
@@ -1047,6 +1058,10 @@ export class SettingsPanel {
             </small>
           </div>
         </section>
+        <section class="settings-section" id="sec-cloud">
+          <h3 class="settings-section-title">Covenant Cloud</h3>
+          <div id="cloud-sync-root"></div>
+        </section>
         <section class="settings-section" id="sec-experimental">
           <h3 class="settings-section-title">Experimental</h3>
           <p class="settings-section-desc">
@@ -1680,6 +1695,7 @@ export class SettingsPanel {
       if (this.panelBody) activateTab(this.panelBody, tab);
       if (tab === "covenant") this.mountCovenantOnce();
       if (tab === "operators") this.mountAchievementsOnce();
+      if (tab === "cloud") this.mountCloudSyncOnce();
     };
 
     // Sidebar nav: clicking a link shows only that section (tab mode).
@@ -1706,6 +1722,7 @@ export class SettingsPanel {
       "sec-telegram": "telegram bot token chat message",
       "sec-covenant": "metrics score commits prompts tokens repo",
       "sec-workspace": "workspace directory folder repo path",
+      "sec-cloud": "cloud sync backup restore operators specs preferences",
       "sec-experimental": "experimental beta flags browser",
     };
     const search = nav.querySelector<HTMLInputElement>(".settings-nav-search input");
@@ -1743,6 +1760,7 @@ export class SettingsPanel {
     activateTab(body, tab);
     if (tab === "covenant") this.mountCovenantOnce();
     if (tab === "operators") this.mountAchievementsOnce();
+    if (tab === "cloud") this.mountCloudSyncOnce();
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
