@@ -1,8 +1,9 @@
 //! Subscriber that turns `SessionEvent::AgentIdleWaiting` into a user-
 //! facing notification via [`crate::notifications::dispatch`].
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{broadcast, Mutex as AsyncMutex};
 use tracing::{debug, warn};
@@ -14,9 +15,15 @@ use crate::notifications::{dispatch, DispatchCtx};
 use crate::notify::{Notifier, Trigger};
 use crate::settings::Settings;
 
-// Strict edge-trigger: notify at most once per idle period per session.
-// The flag is cleared only when `AgentResumed`/`Closed` arrives, so a
-// session that sits idle for hours never produces a second popup.
+// Per-session cooldown: notify at most once per COOLDOWN per session.
+// A waiting prompt repaints (cursor/footer/spinner blips) and each blip
+// fires `AgentResumed`, so we can't trust resume edges to gate — a single
+// idle period would otherwise produce a notification every few minutes.
+// The cooldown collapses that churn into one popup.
+const COOLDOWN: Duration = Duration::from_secs(15 * 60);
+// ponytail: time-based cooldown, not true "resumed work" detection.
+// Upgrade path: gate re-notify on the waiting-prompt regex no longer
+// matching the screen if 15min ever proves too coarse.
 
 /// Spawn the long-lived task that listens for `AgentIdleWaiting` on the
 /// given session event bus and fans out via [`dispatch`]. Returns the
@@ -32,15 +39,11 @@ pub fn spawn(
     settings: Arc<AsyncMutex<Settings>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut notified: HashSet<SessionId> = HashSet::new();
+        let mut last_notified: HashMap<SessionId, Instant> = HashMap::new();
         loop {
             match rx.recv().await {
-                Ok(SessionEvent::AgentResumed { session }) => {
-                    notified.remove(&session);
-                    continue;
-                }
                 Ok(SessionEvent::Closed { session }) => {
-                    notified.remove(&session);
+                    last_notified.remove(&session);
                     continue;
                 }
                 Ok(SessionEvent::AgentIdleWaiting {
@@ -53,10 +56,13 @@ pub fn spawn(
                         debug!(target: "executor_idle", "skipped: toggle off");
                         continue;
                     }
-                    if !notified.insert(session) {
-                        debug!(target: "executor_idle", "skipped: already notified for this idle period");
-                        continue;
+                    if let Some(t) = last_notified.get(&session) {
+                        if t.elapsed() < COOLDOWN {
+                            debug!(target: "executor_idle", "skipped: within cooldown");
+                            continue;
+                        }
                     }
+                    last_notified.insert(session, Instant::now());
                     let (title, body) =
                         format_notification(&agent, prompt_text.as_deref(), quiet_ms);
                     let _ = dispatch(
