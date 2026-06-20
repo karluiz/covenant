@@ -5,6 +5,7 @@ import { MarkdownEditor } from '../ui/markdown-editor';
 import { mountActivityStream } from './activity-stream';
 import { mountLiveSpec } from './live-spec';
 import { specAuthorLoadDraft, specAuthorDeleteDraft, specAuthorSaveMarkdown } from '../api';
+import { scheduleCloudPush } from '../settings/cloud_push';
 import type { SpecDraftSummary } from '../api';
 import { Icons } from '../icons';
 import { attachTooltip } from '../tooltip/tooltip';
@@ -79,7 +80,7 @@ export function mountImmersiveSpecCreator(opts: ImmersiveOpts): ImmersiveInstanc
   // the header and the spec in the right column. Mount into a temp host, then move.
   const tmp = document.createElement('div');
   mountLiveSpec(tmp, state, (md) => {
-    if (draftId) void specAuthorSaveMarkdown(draftId, md);
+    if (draftId) { void specAuthorSaveMarkdown(draftId, md); scheduleCloudPush(); }
   });
   const spine = tmp.querySelector('.spine');
   const spec = tmp.querySelector('.spec');

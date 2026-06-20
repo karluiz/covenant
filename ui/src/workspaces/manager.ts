@@ -8,6 +8,7 @@
 // V2 envelope so the existing single-manifest file remains a single file.
 
 import { tabManifestSave } from "../api";
+import { scheduleCloudPush } from "../settings/cloud_push";
 import { TabManager, type TabManifestV1 } from "../tabs/manager";
 import type { TabRow } from "./finder";
 
@@ -274,6 +275,7 @@ export class WorkspaceManager {
       // eslint-disable-next-line no-console
       console.error("workspaces saveAll failed", err);
     }
+    scheduleCloudPush();
   }
 
   create(name: string): string {

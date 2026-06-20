@@ -25,6 +25,7 @@ import { activateTab, type SettingsTab } from "./tabs";
 import { CustomSelect } from "../ui/select";
 import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
 import { renderPublicProfileCard } from "../score/profile";
+import { scheduleCloudPush } from "./cloud_push";
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -1495,6 +1496,7 @@ export class SettingsPanel {
           if (!this.current) return;
           this.current.telegram = patch.telegram;
           await setSettings(this.current);
+          scheduleCloudPush();
           if (this.onSaved) this.onSaved(this.current);
         },
       );
@@ -1851,6 +1853,7 @@ export class SettingsPanel {
       };
       try {
         await setSettings(next);
+        scheduleCloudPush();
         this.current = next;
         if (this.onSaved) this.onSaved(next);
         pushInfoToast({ message: "Settings saved" });

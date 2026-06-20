@@ -28,6 +28,7 @@ import { AVATAR_PACK_V2, parseAvatar, renderAvatarHtml } from "../operator/avata
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
+import { scheduleCloudPush } from "./cloud_push";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
 import { MarkdownEditor } from "../ui/markdown-editor";
@@ -265,6 +266,7 @@ export class OperatorsPane {
       );
       await this.refresh();
       pushInfoToast({ message: `Deleted operator: ${op.name}` });
+      scheduleCloudPush();
     } catch (e) {
       alert(`Delete failed: ${e}`);
     }
@@ -629,6 +631,7 @@ export class LegacyOperatorsPane {
       this.dirty = false;
       await this.refresh();
       pushInfoToast({ message: `${isCreate ? "Created" : "Saved"} operator: ${savedName}` });
+      scheduleCloudPush();
     } catch (e) {
       alert(`Save failed: ${e}`);
     }
@@ -656,6 +659,7 @@ export class LegacyOperatorsPane {
       this.selectedId = null;
       await this.refresh();
       pushInfoToast({ message: `Deleted operator: ${name}` });
+      scheduleCloudPush();
     } catch (e) {
       alert(`Delete failed: ${e}`);
     }
