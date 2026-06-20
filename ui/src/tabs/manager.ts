@@ -23,6 +23,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
 import { mountWelcomeHint } from "../terminal/welcome-hint";
+import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BrowserPane } from "../browser/pane";
@@ -1579,6 +1580,10 @@ export class TabManager {
     | ((executor: string | null) => void)
     | null = null;
 
+  /// Fired when shell-prompt autodetect routes a prose line to the
+  /// super-agent. main.ts wires this to AgentPanel.openWithSeed.
+  public onAskAgent: ((seed: string) => void) | null = null;
+
   /// Fires after every tabbar re-render so the collapsed-rail (the
   /// thin sidebar shown in vertical mode when the user folds the
   /// tabbar) can rebuild its dot/cell view from the same source of
@@ -3005,6 +3010,10 @@ export class TabManager {
     // command is preloaded (the user already knows what they're doing) or once
     // dismissed via "Don't show again". Self-removes on first keystroke.
     if (!opts?.initialCommand) mountWelcomeHint(paneHost0, term);
+    // Warp-style prose autodetect: a live hint that offers to route a
+    // natural-language line at a bare shell to the super-agent. Anchored to
+    // the terminal pane; updated from onData below.
+    const promptHint = mountPromptHint(termHost, term);
     // Suppress the macOS WebView native context menu (Cut/Copy/Paste/
     // Show Writing Tools/…) on right-click inside the terminal. xterm
     // doesn't preventDefault on contextmenu itself, so the OS menu
@@ -3137,6 +3146,7 @@ export class TabManager {
             //     backend can apply its cwd bonus.
             if (event.kind === "prompt_start") {
               recall?.notifyPromptStart();
+              promptHint.reset();
               if (initialCmdPending !== null) {
                 const cmd = initialCmdPending;
                 initialCmdPending = null;
@@ -3599,18 +3609,35 @@ export class TabManager {
 
     const encoder = new TextEncoder();
     const dataDispose = term.onData((data) => {
-      // Forward to the PTY, then to Recall's shadow buffer. Order
-      // matters only insofar as we want the keystroke to land in
-      // the shell first; Recall's response is best-effort.
+      const tab = tabRef.current;
+      const bare = !!tab && !activePane(tab).executor;
+      // Intercept Enter while the autodetect hint is showing: clear the typed
+      // shell line and route it to the super-agent instead of running it.
+      if (data === "\r" && promptHint.shown && !promptHint.overridden) {
+        const line = promptHint.line;
+        void writeToSession(sessionId, encoder.encode("\x15")).catch((e) =>
+          // eslint-disable-next-line no-console
+          console.error("clear-line write failed", e),
+        );
+        this.onAskAgent?.(line);
+        recall?.notifyInput("\x15"); // resync Recall's shadow buffer with the line we just cleared
+        promptHint.reset();
+        return; // do NOT forward the carriage return to the shell
+      }
       void writeToSession(sessionId, encoder.encode(data)).catch((e) =>
         // eslint-disable-next-line no-console
         console.error("write failed", e),
       );
-      // Suppress Recall while an agent executor (claude/copilot/codex/
-      // opencode/…) holds the PTY. Their TUIs don't run a shell prompt,
-      // so the suggestion popup is just noise overlaying the agent UI.
-      if (!tabRef.current || !activePane(tabRef.current).executor) {
+      if (bare) {
         recall?.notifyInput(data);
+        // Re-evaluate with the freshly-updated shadow buffer.
+        const line = recall?.currentLine() ?? "";
+        promptHint.update(
+          shouldHint({ bareShell: true, recallVisible: !!recall?.isVisible(), line }),
+          line,
+        );
+      } else {
+        promptHint.update(false, "");
       }
     });
     // Shift+Enter → Alt+Enter (`\x1b\r`). xterm.js's default for
@@ -3644,6 +3671,21 @@ export class TabManager {
           // eslint-disable-next-line no-console
           console.error("shift-enter write failed", e),
         );
+        ev.preventDefault();
+        return false;
+      }
+      // ⌘I overrides the prose-autodetect hint: run the line literally.
+      // (Cmd shortcuts emit no onData byte, so we catch it here. Ctrl+I is
+      // Tab, so we require metaKey and exclude ctrl/alt.)
+      if (
+        ev.type === "keydown" &&
+        ev.metaKey &&
+        !ev.ctrlKey &&
+        !ev.altKey &&
+        ev.key.toLowerCase() === "i" &&
+        promptHint.shown
+      ) {
+        promptHint.override();
         ev.preventDefault();
         return false;
       }
@@ -3877,7 +3919,7 @@ export class TabManager {
       openEditor,
       wroteWhileHidden: true,
       sidebarView: "blocks",
-      disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose],
+      disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose, promptHint],
       specBadge: null,
       panes: [] as unknown as [Pane],
       layout: { kind: "single", activePaneIdx: 0 },
