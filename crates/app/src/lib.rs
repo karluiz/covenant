@@ -11,6 +11,7 @@
 
 mod aom;
 mod browser;
+pub mod cloud_sync;
 mod capabilities_commands;
 mod connectivity;
 mod context;
