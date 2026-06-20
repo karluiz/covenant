@@ -98,8 +98,10 @@ check to also catch imperative prose without colliding with real binaries.`
 
 ### 4. Hint overlay + commit
 
-The controller re-evaluates on every keystroke (it's invoked from
-`attachCustomKeyEventHandler`, which fires per key):
+Evaluation runs in the **`onData`** handler — *after* `recall.notifyInput(data)`
+updates the shadow buffer, so the just-typed char is included. (The key handler fires
+on keydown, one beat before the buffer updates, so it's only used for ⌘I and as the
+no-op pass-through.) On every `onData`:
 
 - gate passes and `looksLikePrompt(recall.currentLine())` → render an overlay strip
   anchored under the cursor row — `↵ ask the super-agent · ⌘I run literally`.
@@ -107,18 +109,18 @@ The controller re-evaluates on every keystroke (it's invoked from
 - Cursor anchor: compute from xterm cursor coords + cell dimensions (same overlay
   layer `welcome-hint` already uses). `// ponytail: reads xterm's css cell
   dimensions (semi-private). Fall back to pane-bottom strip if that API moves.`
-- **⌘I** keydown while shown → `overridden = true` for this line; hide hint (Enter
-  runs literally). Cleared on next `prompt_start`.
-- **Enter** keydown while shown and `!overridden` → intercept (return `false` from
-  the custom key handler so xterm sends no `\r`):
+- **Enter** (`\r` arrives in `onData`) while shown and `!overridden` → intercept:
+  do **not** forward the `\r`; instead
   1. send `\x15` (Ctrl-U) to clear the typed shell line *(one byte, multibyte-safe;
      cursor-at-end invariant guarantees a clean wipe)*
-  2. `agent.openWithSeed(line)` with the captured line
+  2. `onAskAgent(line)` (TabManager callback → `agent.openWithSeed(line)`)
   3. hide the hint
+- **⌘I** keydown (caught in `attachCustomKeyEventHandler`, since Cmd shortcuts emit
+  no `onData` byte) while shown → `overridden = true`; hide hint; `return false` so the
+  key does nothing. Cleared on next `prompt_start`.
 
-Interception lives in `attachCustomKeyEventHandler` — the same place Shift+Enter is
-already intercepted (`manager.ts:3619`). Returning `false` suppresses xterm's default
-key handling, so no stray byte reaches the PTY.
+Enter is handled in `onData` (buffer is current there); ⌘I in the key handler. Both
+share one small controller holding `shown`, `overridden`, and the captured line.
 
 ## Data flow
 
