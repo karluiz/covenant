@@ -18706,7 +18706,7 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   pointer-events: none;
   padding: 16px 24px 12px;
   background: transparent;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.1);
   animation: term-welcome-in 0.22s ease both;
 }
 @keyframes term-welcome-in {
@@ -18736,7 +18736,7 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   align-items: center;
   gap: 28px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--muted, rgba(255, 255, 255, 0.62));
 }
 /* Fixed-width keycap column so every label starts at the same x (Warp does
    this — the labels form a clean left edge regardless of key count). */
@@ -18747,8 +18747,8 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   align-items: center;
   gap: 5px;
 }
-/* Explicit rgba (not var(--ink-rgb), which is space-separated and breaks the
-   legacy rgba() comma form). Subtle white-on-black caps, Warp-style. */
+/* Theme-aware caps via --ink-rgb (space-separated → modern rgb() slash form,
+   not the legacy comma rgba()). Flips white-on-dark / dark-on-light. */
 .term-welcome-rows kbd {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px;
@@ -18758,13 +18758,13 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary, rgba(255, 255, 255, 0.7));
+  background: rgb(var(--ink-rgb, 255 255 255) / 0.06);
+  border: 1px solid rgb(var(--ink-rgb, 255 255 255) / 0.14);
   border-radius: 5px;
   padding: 0 6px;
   line-height: 1;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 0 rgb(var(--ink-rgb, 0 0 0) / 0.18);
 }
 .term-welcome-dismiss {
   pointer-events: auto;
