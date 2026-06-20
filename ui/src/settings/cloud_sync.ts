@@ -12,25 +12,51 @@ const CATS: { key: keyof CloudSyncConfig; label: string }[] = [
 
 export function mountCloudSyncSection(root: HTMLElement): void {
   root.innerHTML = `
-    <p class="settings-help">Back up your workspaces, operators, specs and
-      preferences to your Covenant account. <strong>API keys and tokens are
-      never uploaded.</strong></p>
-    <div class="cloud-account" data-account></div>
-    <label class="settings-field cloud-master">
-      <input type="checkbox" data-k="enabled" /> <span>Sync to Covenant Cloud</span>
-    </label>
-    <div class="cloud-cats">
-      ${CATS.map((c) => `<label class="settings-field"><input type="checkbox" data-k="${c.key}" /> <span>${c.label}</span></label>`).join("")}
+    <p class="settings-help cloud-help">Back up your workspaces, operators,
+      specs and preferences to your Covenant account.
+      <strong>API keys and tokens are never uploaded.</strong></p>
+
+    <div class="cloud-account" data-account hidden></div>
+
+    <div class="cloud-panel">
+      <label class="cloud-rowflex cloud-master">
+        <span class="cloud-master-text">
+          <span class="cloud-master-title">Sync to Covenant Cloud</span>
+          <span class="cloud-master-sub">Auto-backs up on change · restore is always manual</span>
+        </span>
+        <span class="cloud-switch cloud-switch-lg">
+          <input type="checkbox" data-k="enabled" />
+          <span class="cloud-slider"></span>
+        </span>
+      </label>
+
+      <div class="cloud-divider"></div>
+
+      <div class="cloud-cats" data-cats>
+        ${CATS.map(
+          (c) =>
+            `<label class="cloud-rowflex cloud-cat">
+              <span class="cloud-cat-label">${c.label}</span>
+              <span class="cloud-switch"><input type="checkbox" data-k="${c.key}" /><span class="cloud-slider"></span></span>
+            </label>`,
+        ).join("")}
+      </div>
     </div>
+
     <div class="cloud-actions">
-      <button type="button" data-act="backup">Back up now</button>
-      <button type="button" data-act="restore">Restore from cloud…</button>
+      <button type="button" class="settings-btn cloud-btn-primary" data-act="backup">Back up now</button>
+      <button type="button" class="settings-btn" data-act="restore">Restore from cloud…</button>
     </div>
     <div class="cloud-status" data-status></div>
   `;
 
   const statusEl = root.querySelector("[data-status]") as HTMLElement;
   const accountEl = root.querySelector("[data-account]") as HTMLElement;
+  const catsEl = root.querySelector("[data-cats]") as HTMLElement;
+  const setStatus = (text: string, kind: "ok" | "err" | "busy" | "" = ""): void => {
+    statusEl.textContent = text;
+    statusEl.className = `cloud-status${kind ? ` is-${kind}` : ""}`;
+  };
 
   const readCfg = (): CloudSyncConfig => ({
     enabled: (root.querySelector('[data-k="enabled"]') as HTMLInputElement).checked,
@@ -45,15 +71,23 @@ export function mountCloudSyncSection(root: HTMLElement): void {
     for (const c of CATS) {
       (root.querySelector(`[data-k="${c.key}"]`) as HTMLInputElement).checked = s[c.key];
     }
+    // Dim the category card when the master toggle is off.
+    catsEl.classList.toggle("is-disabled", !s.enabled);
     if (!s.signed_in) {
-      accountEl.textContent = "Sign in with GitHub (Metrics tab) to enable cloud sync.";
-      statusEl.textContent = "✗ sign-in required";
+      accountEl.hidden = false;
+      accountEl.textContent = "Sign in with GitHub on the Metrics tab to enable cloud sync.";
+      setStatus("Sign-in required", "err");
       return;
     }
-    accountEl.textContent = "";
-    statusEl.textContent = s.last_synced_ms
-      ? `✓ last synced from ${s.device ?? "?"} · ${new Date(s.last_synced_ms).toLocaleString()}`
-      : "✓ signed in · not yet backed up";
+    accountEl.hidden = true;
+    if (s.last_synced_ms) {
+      setStatus(
+        `Last synced from ${s.device ?? "this device"} · ${new Date(s.last_synced_ms).toLocaleString()}`,
+        "ok",
+      );
+    } else {
+      setStatus("Signed in · not yet backed up", "ok");
+    }
   };
 
   const persist = (): void => void cloudSyncSetConfig(readCfg());
@@ -62,10 +96,13 @@ export function mountCloudSyncSection(root: HTMLElement): void {
     el.addEventListener("change", persist),
   );
 
-  root.querySelector('[data-act="backup"]')?.addEventListener("click", async () => {
-    statusEl.textContent = "⟳ syncing…";
+  const backupBtn = root.querySelector('[data-act="backup"]') as HTMLButtonElement;
+  backupBtn.addEventListener("click", async () => {
+    backupBtn.disabled = true;
+    setStatus("Backing up…", "busy");
     try { await cloudSyncPush(); paint(await cloudSyncStatus()); }
-    catch (e) { statusEl.textContent = `✗ ${String(e)}`; }
+    catch (e) { setStatus(String(e), "err"); }
+    finally { backupBtn.disabled = false; }
   });
 
   root.querySelector('[data-act="restore"]')?.addEventListener("click", async () => {
@@ -73,13 +110,19 @@ export function mountCloudSyncSection(root: HTMLElement): void {
       "Restore from cloud?\n\n• Workspaces will be REPLACED.\n• Operators and specs will be merged (no deletions).\n• Preferences will be merged; your local API keys are kept.",
     );
     if (!ok) return;
-    statusEl.textContent = "⟳ restoring…";
+    setStatus("Restoring…", "busy");
     try {
       const sum = await cloudSyncRestore();
+      const parts = [
+        `${sum.operators} operators`,
+        `${sum.specs} specs`,
+        ...(sum.workspaces ? ["workspaces"] : []),
+        ...(sum.preferences ? ["preferences"] : []),
+      ];
       const skippedNote = sum.skipped > 0 ? ` · ${sum.skipped} skipped (conflict)` : "";
-      statusEl.textContent = `✓ restored — ${sum.operators} operators, ${sum.specs} specs${sum.workspaces ? ", workspaces" : ""}${sum.preferences ? ", preferences" : ""}${skippedNote}`;
-    } catch (e) { statusEl.textContent = `✗ ${String(e)}`; }
+      setStatus(`Restored — ${parts.join(", ")}${skippedNote}`, "ok");
+    } catch (e) { setStatus(String(e), "err"); }
   });
 
-  void cloudSyncStatus().then(paint).catch(() => { statusEl.textContent = "✗ unavailable"; });
+  void cloudSyncStatus().then(paint).catch(() => setStatus("Unavailable", "err"));
 }
