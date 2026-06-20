@@ -374,7 +374,7 @@ export class SettingsPanel {
       </div>
       <div class="settings-nav-links">
       <a href="#sec-providers" data-target="sec-providers">Providers</a>
-      <a href="#sec-models" data-target="sec-models">Models</a>
+      <a href="#sec-models" data-target="sec-models">Inference</a>
       <a href="#sec-appearance" data-target="sec-appearance">Appearance</a>
       <a href="#sec-terminal" data-target="sec-terminal">Terminal</a>
       <a href="#sec-operators" data-target="sec-operators">Operators</a>
@@ -406,7 +406,7 @@ export class SettingsPanel {
           <div id="providers-tab-root"></div>
         </section>
         <section class="settings-section" id="sec-models">
-          <h3 class="settings-section-title">Models</h3>
+          <h3 class="settings-section-title">Inference</h3>
           <div id="models-routes-root"></div>
           <label class="settings-field">
             <span class="settings-label">Max calls / minute / session</span>

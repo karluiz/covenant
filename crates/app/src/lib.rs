@@ -3191,12 +3191,17 @@ fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
         ],
     )?;
 
+    // Custom Minimize WITHOUT an accelerator: the predefined item grabs the
+    // macOS-standard ⌘M, which would shadow the app's ⌘M (Mission picker)
+    // before the keystroke reaches the webview. Minimize stays available via
+    // the menu; ⌘M is freed for the frontend handler.
+    let minimize = MenuItem::with_id(app, "minimize", "Minimize", true, None::<&str>)?;
     let window_menu = Submenu::with_items(
         app,
         "Window",
         true,
         &[
-            &PredefinedMenuItem::minimize(app, None)?,
+            &minimize,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::fullscreen(app, None)?,
         ],
@@ -3226,6 +3231,11 @@ pub fn run() {
                 }
                 "new-tab" => {
                     let _ = app.emit("menu://new-tab", ());
+                }
+                "minimize" => {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.minimize();
+                    }
                 }
                 "select-all" => {
                     let _ = app.emit("menu://select-all", ());

@@ -18690,3 +18690,93 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
     color: #b8edc8;
     opacity: 1;
 }
+
+/* ── New-terminal welcome hint ─────────────────────────────────────────
+   One-time discoverability card overlaid on a freshly spawned terminal
+   (ui/src/terminal/welcome-hint.ts). pointer-events:none so terminal focus
+   and typing pass through; only the dismiss link is interactive. */
+/* Full-width banner pinned to the bottom of the empty viewport (Warp-style):
+   a divider rule above, left-aligned rows, "Don't show again" far right. */
+.term-welcome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  pointer-events: none;
+  padding: 16px 24px 12px;
+  background: transparent;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  animation: term-welcome-in 0.22s ease both;
+}
+@keyframes term-welcome-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.term-welcome-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #e6e6f0);
+  margin-bottom: 12px;
+}
+.term-welcome-title svg { color: var(--text-primary, #e6e6f0); flex: none; }
+.term-welcome-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.term-welcome-rows li {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.62);
+}
+/* Fixed-width keycap column so every label starts at the same x (Warp does
+   this — the labels form a clean left edge regardless of key count). */
+.term-welcome-keys {
+  flex: none;
+  width: 104px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+/* Explicit rgba (not var(--ink-rgb), which is space-separated and breaks the
+   legacy rgba() comma form). Subtle white-on-black caps, Warp-style. */
+.term-welcome-rows kbd {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  padding: 0 6px;
+  line-height: 1;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+}
+.term-welcome-dismiss {
+  pointer-events: auto;
+  position: absolute;
+  right: 24px;
+  bottom: 12px;
+  padding: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+.term-welcome-dismiss:hover { color: var(--text-primary, #e6e6f0); }

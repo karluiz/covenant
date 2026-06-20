@@ -1069,9 +1069,9 @@ async function boot(): Promise<void> {
     // Claude Code theme to inject so the executor matches Covenant. The
     // osc133 shell wrapper is idempotent and won't double-inject once set.
     const claudeTheme = (): string => claudeThemeFor(resolveTheme(activeThemeMode));
-    const runSpawn = (id: string): void => {
+    const runSpawn = (id: string, target?: SessionId): void => {
       void (async () => {
-        const sid = manager.activeSessionId();
+        const sid = target ?? manager.activeSessionId();
         if (!sid) return;
         const specs = await listSpawns();
         const spec = specs.find((s) => s.id === id);
@@ -1082,6 +1082,15 @@ async function boot(): Promise<void> {
         manager.setActiveSpawnId(spec.id);
         manager.focusActive();
         void chip.refresh();
+      })();
+    };
+    // Pane context menu → "Start agent": run the default spawn (or first) in
+    // the right-clicked session.
+    manager.runDefaultAgent = (sid: SessionId): void => {
+      void (async () => {
+        const specs = await listSpawns();
+        const spec = specs.find((s) => s.default) ?? specs[0];
+        if (spec) runSpawn(spec.id, sid);
       })();
     };
     // Ctrl+N quick-spawn: launch the Nth executor (list order) in the

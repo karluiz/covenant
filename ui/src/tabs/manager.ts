@@ -22,6 +22,7 @@ import {
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
+import { mountWelcomeHint } from "../terminal/welcome-hint";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BrowserPane } from "../browser/pane";
@@ -1357,8 +1358,7 @@ export class TabManager {
     // are local px scaled by zoom — so we must divide the click position by
     // the zoom level, else the menu lands `x * zoom` to the right/down.
     const z = zoom.level();
-    menu.style.top = `${y / z}px`;
-    menu.style.left = `${x / z}px`;
+    // Position is set after append (below) once the menu is measurable.
 
     const dismiss = () => {
       menu.remove();
@@ -1415,6 +1415,13 @@ export class TabManager {
       });
     }
 
+    // Start the default agent — only when none is already running in this
+    // pane (pane.executor is the detected foreground executor, null if idle).
+    if (sessionId && !pane?.executor && this.runDefaultAgent) {
+      const run = this.runDefaultAgent;
+      addItem("Start agent", () => run(sessionId));
+    }
+
     // Split actions (only when the feature is on / a split exists).
     if (flag && isSingle) {
       addItem("Split right", () => void this.splitActivePane("horizontal"));
@@ -1459,18 +1466,21 @@ export class TabManager {
 
     document.body.appendChild(menu);
 
-    // Clamp into the viewport — sections can make the menu tall/wide.
-    // getBoundingClientRect() and window.inner* are both in visual px, so the
-    // comparisons hold; the corrective left/top we write are local px, hence
-    // the `/ z` (see the positioning note above).
-    const rect = menu.getBoundingClientRect();
+    // Position + flip-into-viewport entirely in LAYOUT px. The app applies CSS
+    // `zoom` to <html>; offsetWidth/Height and documentElement.client* are all
+    // layout px (never scaled by zoom), so they share one coordinate space.
+    // The only visual-px input is the click (x,y) — convert it once via `/ z`.
+    // (getBoundingClientRect/window.inner* are visual px under zoom and don't
+    // agree with layout px, which is why the menu used to clip at the bottom.)
     const margin = 8;
-    if (rect.bottom > window.innerHeight - margin) {
-      menu.style.top = `${Math.max(margin, window.innerHeight - margin - rect.height) / z}px`;
-    }
-    if (rect.right > window.innerWidth - margin) {
-      menu.style.left = `${Math.max(margin, window.innerWidth - margin - rect.width) / z}px`;
-    }
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    const top = Math.max(margin, Math.min(y / z, vh - margin - h));
+    const left = Math.max(margin, Math.min(x / z, vw - margin - w));
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
 
     // Dismiss on outside click or Escape.
     const outsideClick = (ev: MouseEvent) => {
@@ -1534,6 +1544,11 @@ export class TabManager {
   /// the active tab switched or because setActiveSpawnId was called.
   /// Passes null when the active tab has no bound spawn.
   public onActiveSpawnChange: ((spawnId: string | null) => void) | null = null;
+
+  /// Launches the default agent/executor in the given session. Wired from
+  /// main.ts (which owns spawn specs + theme resolution); used by the pane
+  /// context menu's "Start agent" item.
+  public runDefaultAgent: ((sessionId: SessionId) => void) | null = null;
 
   /// Fires whenever the *active* tab's identity (name, color, or
   /// group membership/color) changes — including activation. Lets the
@@ -2986,6 +3001,10 @@ export class TabManager {
       },
     });
     term.open(termHost);
+    // One-time discoverability card over the empty viewport. Skipped when a
+    // command is preloaded (the user already knows what they're doing) or once
+    // dismissed via "Don't show again". Self-removes on first keystroke.
+    if (!opts?.initialCommand) mountWelcomeHint(paneHost0, term);
     // Suppress the macOS WebView native context menu (Cut/Copy/Paste/
     // Show Writing Tools/…) on right-click inside the terminal. xterm
     // doesn't preventDefault on contextmenu itself, so the OS menu
