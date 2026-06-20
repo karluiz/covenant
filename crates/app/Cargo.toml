@@ -64,6 +64,7 @@ karl-score = { path = "../score" }
 dirs = { workspace = true }
 sysinfo = { workspace = true }
 karl-metrics = { workspace = true }
+hostname = "0.4"
 
 [features]
 default = ["embeddings"]

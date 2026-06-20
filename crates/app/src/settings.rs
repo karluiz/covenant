@@ -301,6 +301,9 @@ pub struct Settings {
 
     #[serde(default)]
     pub telegram: TelegramSettings,
+
+    #[serde(default)]
+    pub cloud_sync: CloudSyncConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -337,6 +340,30 @@ impl Default for TelegramEvents {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TelegramTabOverride {
     pub enabled: Option<bool>,
+}
+
+/// Cloud-sync configuration. Default is opt-in: disabled until the user
+/// explicitly enables it, but all four categories are pre-checked so
+/// enabling is a single click.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudSyncConfig {
+    pub enabled: bool,
+    pub workspaces: bool,
+    pub operators: bool,
+    pub specs: bool,
+    pub preferences: bool,
+}
+
+impl Default for CloudSyncConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            workspaces: true,
+            operators: true,
+            specs: true,
+            preferences: true,
+        }
+    }
 }
 
 impl Settings {
@@ -571,6 +598,7 @@ impl Default for Settings {
             zsh_history_imported_at_unix_ms: None,
             familiars_enabled: false,
             telegram: TelegramSettings::default(),
+            cloud_sync: CloudSyncConfig::default(),
         }
     }
 }
