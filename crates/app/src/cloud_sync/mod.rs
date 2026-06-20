@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod secrets;
 
 use serde::{Deserialize, Serialize};
