@@ -105,4 +105,81 @@ mod tests {
         assert_eq!(merged.telegram.bot_token, "LOCAL-BOT"); // nested secret kept
         assert_eq!(merged.ui_font_family.as_deref(), Some("NewFont")); // cloud applied
     }
+
+    #[test]
+    fn merge_keeps_local_bot_token_when_cloud_has_no_telegram_key() {
+        use crate::settings::TelegramSettings;
+
+        let mut local = Settings::default();
+        local.telegram = TelegramSettings {
+            bot_token: "LOCAL-BOT-TOKEN".into(),
+            enabled: true,
+            ..Default::default()
+        };
+
+        // Build cloud prefs from local (stripped), then remove the telegram key entirely.
+        let mut cloud = serde_json::to_value(&local).unwrap();
+        strip_secrets(&mut cloud);
+        cloud.as_object_mut().unwrap().remove("telegram");
+
+        // Cloud has no telegram key at all — merge must not wipe out local bot_token.
+        let merged = merge_preferences(&local, &cloud);
+        assert_eq!(
+            merged.telegram.bot_token, "LOCAL-BOT-TOKEN",
+            "local bot_token must survive when cloud prefs omit the telegram key entirely"
+        );
+    }
+
+    #[test]
+    fn merge_drops_local_provider_absent_from_cloud() {
+        use crate::settings::ProviderEntry;
+        use karl_agent::provider::ProviderKind;
+
+        let mut local = Settings::default();
+        // Give local two providers: "alpha" and "beta".
+        local.providers.insert(
+            "alpha".into(),
+            ProviderEntry {
+                kind: ProviderKind::OpenAiCompat,
+                label: "Alpha".into(),
+                api_key: Some("alpha-secret".into()),
+                base_url: Some("http://alpha".into()),
+                azure_mode: None,
+                azure_api_version: None,
+                azure_deployment: None,
+            },
+        );
+        local.providers.insert(
+            "beta".into(),
+            ProviderEntry {
+                kind: ProviderKind::OpenAiCompat,
+                label: "Beta".into(),
+                api_key: Some("beta-secret".into()),
+                base_url: Some("http://beta".into()),
+                azure_mode: None,
+                azure_api_version: None,
+                azure_deployment: None,
+            },
+        );
+
+        // Cloud prefs = stripped local, but with only "alpha" in providers (beta removed).
+        let mut cloud = serde_json::to_value(&local).unwrap();
+        strip_secrets(&mut cloud);
+        cloud["providers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("beta");
+
+        let merged = merge_preferences(&local, &cloud);
+
+        // Wholesale-merge: cloud providers wins; "beta" must be gone.
+        assert!(
+            merged.providers.contains_key("alpha"),
+            "alpha provider (present in cloud) must survive"
+        );
+        assert!(
+            !merged.providers.contains_key("beta"),
+            "beta provider (absent from cloud) must be dropped after merge"
+        );
+    }
 }

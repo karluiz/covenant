@@ -43,6 +43,7 @@ pub struct ApplySummary {
     pub operators: usize,
     pub specs: usize,
     pub preferences: bool,
+    pub skipped: usize,
 }
 
 pub fn device_name() -> String {
@@ -129,27 +130,37 @@ pub async fn apply_envelope(env: &SyncEnvelope, ctx: &mut ApplyCtx<'_>) -> Apply
     if let Some(ops) = &env.sections.operators {
         for ex in ops {
             // meta has no soul_path; deserialize then let import assign it.
-            if let Ok(op) =
-                serde_json::from_value::<crate::operator_registry::Operator>(ex.meta.clone())
-            {
-                if ctx
-                    .registry
-                    .import(ctx.storage, op, &ex.soul_md)
-                    .await
-                    .is_ok()
-                {
-                    summary.operators += 1;
+            match serde_json::from_value::<crate::operator_registry::Operator>(ex.meta.clone()) {
+                Ok(op) => {
+                    if ctx
+                        .registry
+                        .import(ctx.storage, op, &ex.soul_md)
+                        .await
+                        .is_ok()
+                    {
+                        summary.operators += 1;
+                    } else {
+                        summary.skipped += 1;
+                    }
+                }
+                Err(_) => {
+                    summary.skipped += 1;
                 }
             }
         }
     }
     if let Some(specs) = &env.sections.specs {
         for s in specs {
-            if let Ok(draft) =
-                serde_json::from_value::<karl_agent::spec_author::SpecDraft>(s.clone())
-            {
-                if karl_agent::spec_author::save_draft(&ctx.specs_base_dir, &draft).is_ok() {
-                    summary.specs += 1;
+            match serde_json::from_value::<karl_agent::spec_author::SpecDraft>(s.clone()) {
+                Ok(draft) => {
+                    if karl_agent::spec_author::save_draft(&ctx.specs_base_dir, &draft).is_ok() {
+                        summary.specs += 1;
+                    } else {
+                        summary.skipped += 1;
+                    }
+                }
+                Err(_) => {
+                    summary.skipped += 1;
                 }
             }
         }

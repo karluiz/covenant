@@ -2458,6 +2458,7 @@ export interface CloudApplySummary {
   operators: number;
   specs: number;
   preferences: boolean;
+  skipped: number;
 }
 
 export async function cloudSyncStatus(): Promise<CloudSyncStatus> {

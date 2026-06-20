@@ -76,7 +76,8 @@ export function mountCloudSyncSection(root: HTMLElement): void {
     statusEl.textContent = "⟳ restoring…";
     try {
       const sum = await cloudSyncRestore();
-      statusEl.textContent = `✓ restored — ${sum.operators} operators, ${sum.specs} specs${sum.workspaces ? ", workspaces" : ""}${sum.preferences ? ", preferences" : ""}`;
+      const skippedNote = sum.skipped > 0 ? ` · ${sum.skipped} skipped (conflict)` : "";
+      statusEl.textContent = `✓ restored — ${sum.operators} operators, ${sum.specs} specs${sum.workspaces ? ", workspaces" : ""}${sum.preferences ? ", preferences" : ""}${skippedNote}`;
     } catch (e) { statusEl.textContent = `✗ ${String(e)}`; }
   });
 
