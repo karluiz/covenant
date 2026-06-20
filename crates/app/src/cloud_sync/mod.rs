@@ -168,11 +168,18 @@ fn endpoint() -> String {
     format!("{}/sync/state", auth::backend_url())
 }
 
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 pub async fn push(env: &SyncEnvelope) -> Result<i64, String> {
     let jwt = auth::load_jwt()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "not signed in".to_string())?;
-    let resp = reqwest::Client::new()
+    let resp = http_client()
         .put(endpoint())
         .header("User-Agent", "covenant-cloud-sync")
         .bearer_auth(&jwt)
@@ -190,7 +197,7 @@ pub async fn pull() -> Result<Option<SyncEnvelope>, String> {
     let jwt = auth::load_jwt()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "not signed in".to_string())?;
-    let resp = reqwest::Client::new()
+    let resp = http_client()
         .get(endpoint())
         .header("User-Agent", "covenant-cloud-sync")
         .bearer_auth(&jwt)
@@ -211,7 +218,7 @@ pub async fn wipe() -> Result<(), String> {
     let jwt = auth::load_jwt()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "not signed in".to_string())?;
-    reqwest::Client::new()
+    http_client()
         .delete(endpoint())
         .header("User-Agent", "covenant-cloud-sync")
         .bearer_auth(&jwt)
