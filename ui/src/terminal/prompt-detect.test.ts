@@ -84,4 +84,15 @@ describe("mountPromptHint", () => {
     hint.reset();
     expect(hint.overridden).toBe(false);
   });
+
+  it("stays hidden when update(true,...) is called after override()", () => {
+    const host = document.createElement("div");
+    const hint = mountPromptHint(host, fakeTerm());
+    const el = host.querySelector(".prompt-hint") as HTMLElement;
+    hint.update(true, "what is this");
+    hint.override();
+    hint.update(true, "still the same line"); // overridden → must NOT show
+    expect(hint.shown).toBe(false);
+    expect(el.hidden).toBe(true);
+  });
 });

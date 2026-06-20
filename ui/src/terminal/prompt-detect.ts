@@ -1,3 +1,5 @@
+import type { Terminal } from "@xterm/xterm";
+
 // Heuristic detection of a natural-language line typed at a bare shell
 // prompt, so we can offer to route it to the super-agent instead of the
 // shell. Deliberately conservative: triggers on clear question/prose
@@ -38,8 +40,6 @@ export interface HintInputs {
 export function shouldHint(i: HintInputs): boolean {
   return i.bareShell && !i.recallVisible && looksLikePrompt(i.line);
 }
-
-import type { Terminal } from "@xterm/xterm";
 
 export interface PromptHint {
   readonly shown: boolean;
