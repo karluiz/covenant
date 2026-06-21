@@ -1,4 +1,6 @@
-:root {
+/* ponytail: scoped to .spec-creator (was :root, polluted global tokens + had
+   no light variant). Light override below mirrors entrance.css. */
+.spec-creator {
   --bg: #0c0d10;
   --bg-elev: #131419;
   --bg-elev2: #181a21;
@@ -14,6 +16,22 @@
   --think: #7e8290;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --sans: -apple-system, "Inter", system-ui, sans-serif;
+}
+
+body.theme-light .spec-creator {
+  --bg: #f4f6fa;
+  --bg-elev: #ffffff;
+  --bg-elev2: #eef1f6;
+  --line: #d6dae2;
+  --line-soft: #e3e7ee;
+  --txt: #1c2027;
+  --txt-dim: #5a6170;
+  --txt-faint: #8a909c;
+  --accent: #4656d8;
+  --accent-soft: #3e3aa8;
+  --good: #1f9e78;
+  --warn: #b87a1f;
+  --think: #6b7180;
 }
 
 /* ── faux workspace behind, to sell the takeover ── */
@@ -52,7 +70,7 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 .spec-creator .creator {
   position: fixed; top: 38px; left: 0; right: 0; bottom: 0;
   background:
-    linear-gradient(180deg, #14151b 0%, #101116 100%);
+    linear-gradient(180deg, var(--bg-elev) 0%, var(--bg) 100%);
   border: none;
   border-radius: 0;
   display: grid;
@@ -218,7 +236,7 @@ body.open .spec-creator .workspace { filter: blur(7px) brightness(.6); transform
 
 .spec-creator .composer .box {
   display:flex; gap:10px; align-items:flex-start;
-  background: linear-gradient(180deg, #16171e, #121319);
+  background: var(--bg-elev2);
   border:1px solid var(--line); border-radius: 14px; padding: 13px 13px 13px 14px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.02), 0 6px 20px -12px rgba(0,0,0,.6);
   transition: border-color .2s, box-shadow .2s;
@@ -315,6 +333,20 @@ body.theme-true-dark .spec-creator {
   --line-soft: #131313;
 }
 body.theme-true-dark .spec-creator .creator { background: #000; }
+
+/* ── Light theme: fix the hardcoded darks the vars don't cover (text grays
+   that'd vanish on a light bg, dark bubbles/dots). ── */
+body.theme-light .spec-creator .scrim { background: rgba(255,255,255,.5); }
+body.theme-light .spec-creator .workspace { color: #b6bcc8; }
+body.theme-light .spec-creator .node .dot { background: #dfe3ea; border-color: #c7cdd8; }
+body.theme-light .spec-creator .seg { background: #d6dae2; }
+body.theme-light .spec-creator .bubble.user { background: var(--bg-elev2); border-color: var(--line); color: var(--txt); }
+body.theme-light .spec-creator .think .body,
+body.theme-light .spec-creator .tool .path { color: var(--txt-dim); }
+body.theme-light .spec-creator .think .head .body { border-left-color: var(--line); }
+body.theme-light .spec-creator .bubble.asst pre { background: var(--bg-elev2); }
+body.theme-light .spec-creator .sec .badge { border-color: #c7cdd8; }
+body.theme-light .spec-creator .btn:hover { border-color: #c7cdd8; }
 
 /* persistent "done" state on the section nav spine */
 .spec-creator .spine .node.done .dot { background: var(--good); border-color: var(--good); }
