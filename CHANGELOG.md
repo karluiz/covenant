@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.96 — Spec Creator light-mode theming
+
+### Fixed
+
+- **Spec Creator light mode**: the immersive Spec Creator defined its palette
+  on `:root` with no light variant, so in light theme the panel stayed dark
+  with a bright white input box. Scoped the palette vars to `.spec-creator`,
+  added a `body.theme-light` override, and switched the hardcoded creator panel
+  and composer input backgrounds to those vars. `ui/src/spec-chat/immersive.css`.
+
 ## v0.8.95 — Covenant Cloud workspace sync + shell-prompt autodetect
 
 ### Added
