@@ -12,5 +12,5 @@ export function suffixSoulName(soulMd: string, existingLower: Set<string>): stri
   while (existingLower.has(candidate.toLowerCase())) {
     candidate = `${base} (community ${n++})`;
   }
-  return soulMd.replace(/^name:\s*.+$/m, `name: ${candidate}`);
+  return soulMd.replace(/^name:\s*.+$/m, () => `name: ${candidate}`);
 }

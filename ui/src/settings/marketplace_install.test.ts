@@ -15,4 +15,8 @@ describe("suffixSoulName", () => {
     const out = suffixSoulName(soul("Scout"), new Set(["scout", "scout (community)"]));
     expect(out).toContain("name: Scout (community 2)");
   });
+  it("preserves literal $& in candidate name without expanding regex match", () => {
+    const out = suffixSoulName(soul("A$&B"), new Set(["a$&b"]));
+    expect(out).toContain("name: A$&B (community)");
+  });
 });
