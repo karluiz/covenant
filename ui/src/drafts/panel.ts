@@ -17,13 +17,15 @@ export interface DraftsPanelOpenOpts {
   autoPublish?: boolean;
   /** Pre-fill the wizard body (used by existing chat-based flow). */
   initialBody?: string;
+  /** When true, publish to `.covenant/cdlc/context/` instead of `docs/specs/`. */
+  cdlcContext?: boolean;
 }
 
 export class DraftsPanel {
   private isOpenState = false;
   private wizard: DraftWizard | null = null;
   private currentSlug: string | null = null;
-  private wizardOpts: { autoPublish?: boolean; initialBody?: string } = {};
+  private wizardOpts: { autoPublish?: boolean; initialBody?: string; cdlcContext?: boolean } = {};
   public onClosed: (() => void) | null = null;
   public getRepoRoot: () => string = () => ".";
 
@@ -53,6 +55,7 @@ export class DraftsPanel {
     this.wizardOpts = {
       autoPublish: opts?.autoPublish,
       initialBody: opts?.initialBody,
+      cdlcContext: opts?.cdlcContext,
     };
     void this.renderWizard();
   }
@@ -80,6 +83,7 @@ export class DraftsPanel {
       slug: this.currentSlug,
       autoPublish: this.wizardOpts.autoPublish,
       initialBody: this.wizardOpts.initialBody,
+      cdlcContext: this.wizardOpts.cdlcContext,
       onBack: () => this.close(),
       onClose: () => this.close(),
     });

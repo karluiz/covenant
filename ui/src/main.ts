@@ -1669,8 +1669,8 @@ async function boot(): Promise<void> {
 
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");
   const specChat = mountSpecChat(specChatPage, {
-    openWizardWithBody: (body) => {
-      draftsPanel.open({ slug: null, initialBody: body });
+    openWizardWithBody: (body, opts) => {
+      draftsPanel.open({ slug: null, initialBody: body, cdlcContext: opts?.cdlcContext });
     },
     openBlankWizard: () => {
       draftsPanel.open({ slug: null });
@@ -1692,8 +1692,8 @@ async function boot(): Promise<void> {
   };
 
   window.addEventListener("spec-chat:open", (e: Event) => {
-    const draftId = (e as CustomEvent<{ draftId?: string }>).detail?.draftId;
-    specChat.open(draftId);
+    const detail = (e as CustomEvent<{ draftId?: string; cdlcContext?: boolean }>).detail;
+    specChat.open(detail?.draftId, { cdlcContext: detail?.cdlcContext });
   });
 
   // Open the spec-author wizard for a given repoRoot (no slug → fresh draft).

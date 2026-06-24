@@ -18,15 +18,19 @@ import type { EntranceInstance } from "./entrance";
 import { tauriEventSource } from "./tauri-event-source";
 
 export interface SpecChatDeps {
-  openWizardWithBody: (body: string) => void;
+  openWizardWithBody: (body: string, opts?: { cdlcContext?: boolean }) => void;
   openBlankWizard: () => void;
   /** Resolves the active workspace cwd so the agent gets repo grounding. */
   getCwd?: () => string | null;
 }
 
+export interface SpecChatOpenOpts {
+  cdlcContext?: boolean;
+}
+
 export interface SpecChatController {
   /** Open the entrance. Pass a draftId to resume that draft directly. */
-  open: (draftId?: string) => void;
+  open: (draftId?: string, opts?: SpecChatOpenOpts) => void;
   close: () => void;
   isOpen: () => boolean;
 }
@@ -73,6 +77,7 @@ export function mountSpecChat(
   const immersiveFactory = apis?.mountImmersive ?? mountImmersiveSpecCreator;
 
   let panelMounted = false;
+  let cdlcContext = false;
   // Sentinel panel — replaced by mountImmersive on first open.
   let currentPanel: SpecChatPanel = panelFactory(host, stateFactory());
 
@@ -96,7 +101,7 @@ export function mountSpecChat(
       onPublish: (markdown: string, id: string) => {
         // Exact same sequence as the old panel's onPublishRequest.
         void markPublished(id).catch(() => {/* best-effort */});
-        deps.openWizardWithBody(markdown);
+        deps.openWizardWithBody(markdown, { cdlcContext });
         controller.close();
       },
       onClose: () => {
@@ -157,7 +162,8 @@ export function mountSpecChat(
   const controller: SpecChatController = {
     isOpen: () => panelMounted || entranceMounted,
 
-    open(draftId?: string) {
+    open(draftId?: string, opts?: SpecChatOpenOpts) {
+      cdlcContext = opts?.cdlcContext ?? false;
       if (controller.isOpen()) return;
 
       // Direct resume: the drafts tab clicks straight into a known draft,

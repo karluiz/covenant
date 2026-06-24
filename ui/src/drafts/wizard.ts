@@ -27,6 +27,8 @@ export interface DraftWizardOpts {
   autoPublish?: boolean;
   /** Pre-populate the editor from a spec markdown string (e.g. emitted by the agent). */
   initialBody?: string;
+  /** When true, publish to `.covenant/cdlc/context/` instead of `docs/specs/`. */
+  cdlcContext?: boolean;
 }
 
 interface SectionDef {
@@ -573,7 +575,7 @@ export class DraftWizard {
         confirmBtn.disabled = true;
         apiErr.style.display = "none";
         try {
-          const dest = await draftsApi.publish(this.opts.repoRoot, this.slug!, id, finalSlug);
+          const dest = await draftsApi.publish(this.opts.repoRoot, this.slug!, id, finalSlug, this.opts.cdlcContext);
           document.removeEventListener("keydown", escHandler, true);
           backdrop.remove();
           this.showPublishedToast(dest, id, finalSlug);
