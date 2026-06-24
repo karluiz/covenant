@@ -91,7 +91,7 @@ export class CdlcPanel {
         const label = document.createElement("span");
         label.textContent = `${i.name}  ${i.version}  ${i.source}`;
         row.appendChild(label);
-        if (this.orgs.length > 0) {
+        if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
           const pub = document.createElement("button");
           pub.className = "cdlc-publish-btn";
           pub.textContent = "Publish";

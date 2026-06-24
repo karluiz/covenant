@@ -2311,7 +2311,7 @@ async fn cdlc_install_registry(
     let pkg_name = full.name.clone();
     let pkg_ver = full.version.clone();
     let r = tokio::task::spawn_blocking(move || {
-        let tmp = std::env::temp_dir().join(format!("cdlc-reg-{pkg_name}-{pkg_ver}"));
+        let tmp = std::env::temp_dir().join(format!("cdlc-reg-{}-{pkg_name}-{pkg_ver}", std::process::id()));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         std::fs::write(tmp.join("skill.toml"), toml_s.as_bytes()).map_err(|e| e.to_string())?;
         std::fs::write(tmp.join("SKILL.md"), md_s.as_bytes()).map_err(|e| e.to_string())?;
