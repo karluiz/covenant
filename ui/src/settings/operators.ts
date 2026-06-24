@@ -16,6 +16,7 @@ import {
   listModelsAnthropic,
   listModelsAzureFoundry,
   listModelsOpenAiCompat,
+  marketplacePublish,
   type ArchetypeView,
   type GithubAccess,
   type SoulView,
@@ -28,6 +29,7 @@ import { AVATAR_PACK_V2, parseAvatar, renderAvatarHtml } from "../operator/avata
 import { pushInfoToast } from "../notifications/toast";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
+import { MarketplacePanel } from "./operator_marketplace";
 import { scheduleCloudPush } from "./cloud_push";
 import { PersonaComposerModal } from "../operator/persona-composer";
 import { CustomSelect } from "../ui/select";
@@ -116,20 +118,44 @@ const DEFAULT_DRAFT: OperatorDraft = {
 export class OperatorsPane {
   private operators: Operator[] = [];
   private grid: HTMLElement | null = null;
+  private market: MarketplacePanel | null = null;
 
   constructor(private mount: HTMLElement) {
     this.mount.innerHTML = `
       <div class="operators-pane-v2">
-        <header class="operators-pane-v2__head">
+        <div class="operators-pane-v2__tabs">
+          <button class="op-tab is-active" data-tab="local" type="button">My operators</button>
+          <button class="op-tab" data-tab="market" type="button">Marketplace</button>
+        </div>
+        <header class="operators-pane-v2__head" data-role="local-head">
           <button type="button" class="operators-pane-v2__new" data-role="new">${Icons.plus({ size: 15 })}<span>New operator</span></button>
         </header>
         <div class="operators-pane-v2__grid" data-role="grid"></div>
+        <div class="operators-pane-v2__market" data-role="market" hidden></div>
       </div>
     `;
     this.grid = this.mount.querySelector<HTMLElement>('[data-role="grid"]');
     this.mount
       .querySelector<HTMLButtonElement>('[data-role="new"]')
       ?.addEventListener("click", () => this.startCreate());
+    this.mount.querySelectorAll<HTMLButtonElement>(".op-tab").forEach((b) =>
+      b.addEventListener("click", () => this.showTab(b.dataset.tab as "local" | "market")),
+    );
+  }
+
+  private showTab(tab: "local" | "market"): void {
+    const isLocal = tab === "local";
+    this.mount.querySelectorAll<HTMLButtonElement>(".op-tab").forEach((b) =>
+      b.classList.toggle("is-active", b.dataset.tab === tab),
+    );
+    this.mount.querySelector<HTMLElement>('[data-role="grid"]')!.hidden = !isLocal;
+    this.mount.querySelector<HTMLElement>('[data-role="local-head"]')!.hidden = !isLocal;
+    const marketEl = this.mount.querySelector<HTMLElement>('[data-role="market"]')!;
+    marketEl.hidden = isLocal;
+    if (!isLocal && !this.market) {
+      this.market = new MarketplacePanel(marketEl, () => void this.refresh());
+    }
+    if (!isLocal) void this.market!.open();
   }
 
   async open(): Promise<void> {
@@ -144,6 +170,7 @@ export class OperatorsPane {
       onEdit: (op) => this.startEdit(op),
       onDelete: (op) => void this.deleteOperator(op),
       onDuplicate: (op) => this.startDuplicate(op),
+      onPublish: (op) => void this.publishOperator(op),
     });
     this.grid.appendChild(list);
   }
@@ -269,6 +296,15 @@ export class OperatorsPane {
       scheduleCloudPush();
     } catch (e) {
       alert(`Delete failed: ${e}`);
+    }
+  }
+
+  private async publishOperator(op: Operator): Promise<void> {
+    try {
+      await marketplacePublish(op.id);
+      pushInfoToast({ message: `"${op.name}" submitted — pending review.` });
+    } catch (e) {
+      pushInfoToast({ message: `Publish failed: ${e}` });
     }
   }
 }
@@ -1709,6 +1745,7 @@ export interface ListHandlers {
   onEdit(op: Operator): void;
   onDelete(op: Operator): void;
   onDuplicate(op: Operator): void;
+  onPublish?(op: Operator): void;
 }
 
 export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElement {
@@ -1753,6 +1790,9 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     };
     actions.append(mk("Edit", Icons.pencil(), () => h.onEdit(op)));
     actions.append(mk("Duplicate", Icons.copy(), () => h.onDuplicate(op)));
+    if (h.onPublish) {
+      actions.append(mk("Publish", Icons.upload(), () => h.onPublish!(op)));
+    }
     actions.append(mk("Delete", Icons.trash(), () => h.onDelete(op), true));
     card.append(actions);
     root.append(card);

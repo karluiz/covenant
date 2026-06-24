@@ -28,6 +28,7 @@ mod file_search;
 mod fix_proposer;
 mod git_tools;
 mod history_import;
+mod marketplace;
 mod memory;
 mod mission_pair;
 mod mission_persistence;
@@ -4273,6 +4274,10 @@ pub fn run() {
             resources::resources_set_active,
             resources::resources_sample_now,
             theme::set_window_theme,
+            marketplace::marketplace_search,
+            marketplace::marketplace_publish,
+            marketplace::marketplace_install_count,
+            marketplace::marketplace_admin_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
