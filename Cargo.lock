@@ -864,6 +864,7 @@ dependencies = [
  "karl-agent",
  "karl-blocks",
  "karl-capabilities",
+ "karl-cdlc",
  "karl-familiar",
  "karl-metrics",
  "karl-pty",
@@ -3011,6 +3012,18 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml 0.8.2",
+ "tracing",
+]
+
+[[package]]
+name = "karl-cdlc"
+version = "0.8.96"
+dependencies = [
+ "chrono",
+ "serde",
+ "sha2",
+ "thiserror 2.0.18",
  "toml 0.8.2",
  "tracing",
 ]
