@@ -184,6 +184,22 @@ pub fn record_llm_call(
 
 pub use achievements::{BuildKind, RiskyOutcome};
 
+pub fn record_cdlc_install(name: &str, group: Option<String>, workspace: Option<String>) {
+    let now = chrono::Utc::now().timestamp_millis();
+    let exec = format!("cdlc:{name}");
+    let ctx = Context {
+        repo: None,
+        branch: None,
+        group_name: group,
+        workspace,
+    };
+    if let Ok(g) = slot().lock() {
+        if let Some(store) = g.as_ref() {
+            let _ = store.append_with_context(now, EventKind::CdlcInstall, &exec, None, &ctx);
+        }
+    }
+}
+
 pub fn record_task_verified(operator: &str, repo: Option<&str>, task_id: &str) {
     let _ = record_achievement_fact(achievements::task_verified_fact(operator, repo, task_id));
 }
@@ -262,6 +278,27 @@ mod emit_tests {
             awards.iter().any(|a| a.achievement_id == "finisher" && a.subject_id.as_deref() == Some("op-abc")),
             "expected a finisher award, got {awards:?}"
         );
+        clear_recorder_for_test();
+    }
+
+    #[test]
+    fn cdlc_install_event_records() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(ScoreStore::open(tmp.path()).unwrap());
+        set_recorder(store.clone());
+
+        record_cdlc_install("kyc-peru", Some("payments".into()), Some("main".into()));
+
+        // Query the event directly from the database
+        let conn = store.connection();
+        let c = conn.lock().unwrap();
+        let count: i64 = c.query_row(
+            "SELECT COUNT(*) FROM score_events WHERE kind = 'cdlc_install'",
+            [],
+            |r| r.get(0),
+        ).expect("query should succeed");
+        assert_eq!(count, 1, "exactly one cdlc_install event should be recorded");
+
         clear_recorder_for_test();
     }
 }

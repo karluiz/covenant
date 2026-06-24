@@ -257,6 +257,7 @@ impl ScoreStore {
         let kind_s = match kind {
             EventKind::Prompt => "prompt",
             EventKind::Commit => "commit",
+            EventKind::CdlcInstall => "cdlc_install",
         };
         let c = self.conn.lock().unwrap();
         c.execute(
@@ -278,6 +279,7 @@ impl ScoreStore {
         let kind_s = match kind {
             EventKind::Prompt => "prompt",
             EventKind::Commit => "commit",
+            EventKind::CdlcInstall => "cdlc_install",
         };
         let c = self.conn.lock().unwrap();
         // OR IGNORE: commits carry a unique (repo, executor) index so
@@ -343,10 +345,11 @@ impl ScoreStore {
         )?;
         let rows = stmt.query_map(params![after_id, limit as i64], |r| {
             let kind: String = r.get(2)?;
-            let kind = if kind == "prompt" {
-                EventKind::Prompt
-            } else {
-                EventKind::Commit
+            let kind = match kind.as_str() {
+                "prompt" => EventKind::Prompt,
+                "commit" => EventKind::Commit,
+                "cdlc_install" => EventKind::CdlcInstall,
+                _ => EventKind::Prompt, // fallback
             };
             Ok((
                 r.get::<_, i64>(0)?,
