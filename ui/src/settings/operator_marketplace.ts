@@ -71,20 +71,61 @@ export class MarketplacePanel {
   private card(r: MarketplaceListing): HTMLElement {
     const el = document.createElement("div");
     el.className = "mkt__card";
-    const tags = r.tags
-      .slice(0, 4)
-      .map((t) => `<span class="mkt__tag">${t}</span>`)
-      .join("");
-    el.innerHTML = `
-      <div class="mkt__top">
-        <span class="mkt__avatar" style="background:${r.color}">${renderAvatarHtml(r.emoji, 22)}</span>
-        <div class="mkt__id"><strong>${r.name}</strong><small>@${r.author_login} · ${r.installs} installs</small></div>
-      </div>
-      <p class="mkt__tagline">${r.tagline}</p>
-      <div class="mkt__tags">${tags}</div>
-      <button class="mkt__install" type="button">Install</button>`;
-    const btn = el.querySelector<HTMLButtonElement>(".mkt__install")!;
+
+    // ── top row ────────────────────────────────────────────────────────────
+    const top = document.createElement("div");
+    top.className = "mkt__top";
+
+    // Avatar: renderAvatarHtml is safe — pack/pack2 URLs come from local
+    // catalogs (unknown keys fall back to ❓ emoji), and the emoji branch
+    // already calls escapeHtml() before inserting into innerHTML.
+    // r.color is untrusted; validate strictly before using.
+    const avatarWrap = document.createElement("span");
+    avatarWrap.className = "mkt__avatar";
+    const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(r.color) ? r.color : "#6B7280";
+    avatarWrap.style.background = safeColor;
+    avatarWrap.innerHTML = renderAvatarHtml(r.emoji, 22);
+
+    const idBlock = document.createElement("div");
+    idBlock.className = "mkt__id";
+
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = r.name;
+
+    const metaEl = document.createElement("small");
+    metaEl.textContent = `@${r.author_login} · ${r.installs} installs`;
+
+    idBlock.appendChild(nameEl);
+    idBlock.appendChild(metaEl);
+    top.appendChild(avatarWrap);
+    top.appendChild(idBlock);
+
+    // ── tagline ────────────────────────────────────────────────────────────
+    const tagline = document.createElement("p");
+    tagline.className = "mkt__tagline";
+    tagline.textContent = r.tagline;
+
+    // ── tags ───────────────────────────────────────────────────────────────
+    const tagsEl = document.createElement("div");
+    tagsEl.className = "mkt__tags";
+    for (const t of r.tags.slice(0, 4)) {
+      const span = document.createElement("span");
+      span.className = "mkt__tag";
+      span.textContent = t;
+      tagsEl.appendChild(span);
+    }
+
+    // ── install button ─────────────────────────────────────────────────────
+    const btn = document.createElement("button");
+    btn.className = "mkt__install";
+    btn.type = "button";
+    btn.textContent = "Install";
     btn.addEventListener("click", () => void this.install(r, btn));
+
+    el.appendChild(top);
+    el.appendChild(tagline);
+    el.appendChild(tagsEl);
+    el.appendChild(btn);
     return el;
   }
 
