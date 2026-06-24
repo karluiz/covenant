@@ -39,7 +39,7 @@ pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef
     let r = InstalledRef {
         name: sm.name.clone(),
         version: sm.version.clone(),
-        source: format!("local:{}", source_dir.display()),
+        source: format!("local:{}", source_dir.canonicalize().unwrap_or_else(|_| source_dir.to_path_buf()).display()),
         sha,
         signer: sm.owner.clone(),
         installed_at: chrono::Utc::now().to_rfc3339(),

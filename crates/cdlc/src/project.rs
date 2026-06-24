@@ -13,7 +13,7 @@ pub fn project(repo_root: &Path) -> Result<(), CdlcError> {
     let mut blocks: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
-        let body = std::fs::read_to_string(&md).unwrap_or_default();
+        let body = std::fs::read_to_string(&md)?;
         blocks.push((i.name.clone(), i.version.clone(), body));
     }
 
@@ -51,9 +51,13 @@ fn upsert_file(repo_root: &Path, rel: &str, body: &str) -> Result<(), CdlcError>
 fn upsert_block(existing: &str, body: &str) -> String {
     let block = format!("{START}\n{body}\n{END}");
     if let (Some(s), Some(e)) = (existing.find(START), existing.find(END)) {
-        let end = e + END.len();
-        format!("{}{}{}", &existing[..s], block, &existing[end..])
-    } else if existing.trim().is_empty() {
+        if s < e {
+            let end = e + END.len();
+            return format!("{}{}{}", &existing[..s], block, &existing[end..]);
+        }
+        // malformed (END before START): fall through to append a fresh block
+    }
+    if existing.trim().is_empty() {
         format!("{block}\n")
     } else {
         format!("{}\n\n{block}\n", existing.trim_end())
