@@ -2246,6 +2246,32 @@ async fn git_changes(cwd: String) -> Result<git_tools::diff::Changes, String> {
 }
 
 #[tauri::command]
+async fn cdlc_local_status(cwd: String) -> Result<karl_cdlc::CdlcStatus, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || karl_cdlc::status(&repo))
+        .await
+        .map_err(|e| format!("cdlc_local_status join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn cdlc_install_local(
+    cwd: String,
+    source: String,
+    group: Option<String>,
+    workspace: Option<String>,
+) -> Result<karl_cdlc::InstalledRef, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let src = std::path::PathBuf::from(source);
+    let r = tokio::task::spawn_blocking(move || karl_cdlc::install_local(&repo, &src))
+        .await
+        .map_err(|e| format!("cdlc_install_local join: {e}"))?
+        .map_err(|e| e.to_string())?;
+    karl_score::record_cdlc_install(&r.name, group, workspace);
+    Ok(r)
+}
+
+#[tauri::command]
 async fn git_file_diff(cwd: String, path: String, staged: bool) -> Result<git_tools::diff::FileDiff, String> {
     let cwd = std::path::PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || git_tools::file_diff(&cwd, &path, staged))
@@ -4075,6 +4101,8 @@ pub fn run() {
             git_repo_summary,
             git_switch_branch,
             git_changes,
+            cdlc_local_status,
+            cdlc_install_local,
             git_file_diff,
             git_stage,
             git_unstage,

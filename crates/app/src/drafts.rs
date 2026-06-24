@@ -120,6 +120,15 @@ pub fn slugify(title: &str) -> String {
     }
 }
 
+/// Where a published spec is written, relative to repo root.
+pub fn publish_subdir(cdlc_context: bool) -> &'static str {
+    if cdlc_context {
+        ".covenant/cdlc/context"
+    } else {
+        "docs/specs"
+    }
+}
+
 /// Find max `<major>.<minor>` ID among `docs/specs/*.md` (excluding
 /// `_template.md` and `drafts/`) and return next minor (`major.(minor+1)`).
 /// If no spec exists, returns "1.0".
@@ -396,11 +405,15 @@ pub fn delete_draft_sync(repo_root: &Path, slug: &str) -> Result<(), DraftError>
 /// frontmatter, rewrite the `# Draft — X` heading to `# <id> — X`.
 /// Returns the published file path. Validates ID uniqueness against
 /// existing `docs/specs/*.md` and slug uniqueness.
+///
+/// When `cdlc_context` is `true`, the file is written to
+/// `.covenant/cdlc/context/` instead of `docs/specs/`.
 pub fn publish_draft_sync(
     repo_root: &Path,
     slug: &str,
     id: &str,
     final_slug: &str,
+    cdlc_context: bool,
 ) -> Result<PathBuf, DraftError> {
     // Validate ID format: `<u32>.<u32>`.
     let mut parts = id.split('.');
@@ -419,14 +432,12 @@ pub fn publish_draft_sync(
         )));
     }
 
-    let dest = repo_root
-        .join("docs/specs")
-        .join(format!("{id}-{final_slug}.md"));
+    let specs_dir = repo_root.join(publish_subdir(cdlc_context));
+    let dest = specs_dir.join(format!("{id}-{final_slug}.md"));
     if dest.exists() {
         return Err(DraftError::Collision(format!("{}", dest.display())));
     }
     // Also reject if any existing spec uses the same id prefix.
-    let specs_dir = repo_root.join("docs/specs");
     if specs_dir.exists() {
         for entry in std::fs::read_dir(&specs_dir)? {
             let entry = entry?;
@@ -623,7 +634,7 @@ mod tests {
         )
         .unwrap();
         let dest =
-            publish_draft_sync(tmp.path(), "mission-drafts", "3.10", "mission-drafts").unwrap();
+            publish_draft_sync(tmp.path(), "mission-drafts", "3.10", "mission-drafts", false).unwrap();
         assert!(dest.ends_with("docs/specs/3.10-mission-drafts.md"));
         let text = std::fs::read_to_string(&dest).unwrap();
         assert!(text.starts_with("# 3.10 — Mission Drafts\n"));
@@ -641,7 +652,7 @@ mod tests {
         std::fs::create_dir_all(&specs).unwrap();
         std::fs::write(specs.join("3.10-other.md"), "x").unwrap();
         save_draft_sync(tmp.path(), "a", "A", "## Goal\nx").unwrap();
-        let err = publish_draft_sync(tmp.path(), "a", "3.10", "a").unwrap_err();
+        let err = publish_draft_sync(tmp.path(), "a", "3.10", "a", false).unwrap_err();
         assert!(matches!(err, DraftError::Collision(_)));
     }
 
@@ -649,7 +660,7 @@ mod tests {
     fn publish_rejects_invalid_slug() {
         let tmp = tempfile::tempdir().unwrap();
         save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
-        let err = publish_draft_sync(tmp.path(), "a", "1.0", "Bad Slug!").unwrap_err();
+        let err = publish_draft_sync(tmp.path(), "a", "1.0", "Bad Slug!", false).unwrap_err();
         assert!(matches!(err, DraftError::Validation(_)));
     }
 
@@ -658,11 +669,11 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         save_draft_sync(tmp.path(), "a", "A", "x").unwrap();
         assert!(matches!(
-            publish_draft_sync(tmp.path(), "a", "abc", "a").unwrap_err(),
+            publish_draft_sync(tmp.path(), "a", "abc", "a", false).unwrap_err(),
             DraftError::Validation(_)
         ));
         assert!(matches!(
-            publish_draft_sync(tmp.path(), "a", "1.0.0", "a").unwrap_err(),
+            publish_draft_sync(tmp.path(), "a", "1.0.0", "a", false).unwrap_err(),
             DraftError::Validation(_)
         ));
     }
@@ -822,6 +833,26 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod cdlc_tests {
+    use super::*;
+
+    #[test]
+    fn cdlc_context_redirects_publish_dir() {
+        assert_eq!(publish_subdir(false), "docs/specs");
+        assert_eq!(publish_subdir(true), ".covenant/cdlc/context");
+    }
+
+    #[test]
+    fn publish_draft_sync_cdlc_writes_to_cdlc_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        save_draft_sync(tmp.path(), "my-context", "My Context", "# Draft — My Context\n\n## Goal\nfoo\n").unwrap();
+        let dest = publish_draft_sync(tmp.path(), "my-context", "1.0", "my-context", true).unwrap();
+        assert!(dest.to_string_lossy().contains(".covenant/cdlc/context"));
+        assert!(dest.exists());
+    }
+}
+
 // ── Tauri command wrappers ──────────────────────────────────────────────────
 
 #[tauri::command]
@@ -890,13 +921,16 @@ pub async fn publish_draft(
     slug: String,
     id: String,
     final_slug: String,
+    cdlc_context: Option<bool>,
 ) -> Result<String, String> {
     let path = PathBuf::from(repo_root);
-    let dest =
-        tokio::task::spawn_blocking(move || publish_draft_sync(&path, &slug, &id, &final_slug))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
+    let cdlc = cdlc_context.unwrap_or(false);
+    let dest = tokio::task::spawn_blocking(move || {
+        publish_draft_sync(&path, &slug, &id, &final_slug, cdlc)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().into_owned())
 }
 

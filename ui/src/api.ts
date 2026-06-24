@@ -1246,6 +1246,36 @@ export interface FileDiff { path: string; oldPath: string | null; body: FileDiff
 export async function gitChanges(cwd: string): Promise<Changes> {
   return invoke<Changes>("git_changes", { cwd });
 }
+
+// CDLC — local Covenant Dependency Lifecycle Catalog ------------------
+
+export interface InstalledRef {
+  name: string;
+  version: string;
+  source: string;
+  sha: string;
+  signer: string | null;
+  installedAt: string;
+}
+
+export interface CdlcStatus {
+  installed: InstalledRef[];
+  contextFiles: string[];
+}
+
+export async function cdlcLocalStatus(cwd: string): Promise<CdlcStatus> {
+  return invoke<CdlcStatus>("cdlc_local_status", { cwd });
+}
+
+export async function cdlcInstallLocal(
+  cwd: string,
+  source: string,
+  group: string | null,
+  workspace: string | null,
+): Promise<InstalledRef> {
+  return invoke<InstalledRef>("cdlc_install_local", { cwd, source, group, workspace });
+}
+
 export async function gitFileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff> {
   return invoke<FileDiff>("git_file_diff", { cwd, path, staged });
 }

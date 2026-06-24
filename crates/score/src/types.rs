@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum EventKind {
     Prompt,
     Commit,
+    CdlcInstall,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
