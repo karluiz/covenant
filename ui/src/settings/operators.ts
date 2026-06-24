@@ -16,6 +16,7 @@ import {
   listModelsAnthropic,
   listModelsAzureFoundry,
   listModelsOpenAiCompat,
+  marketplacePublish,
   type ArchetypeView,
   type GithubAccess,
   type SoulView,
@@ -169,6 +170,7 @@ export class OperatorsPane {
       onEdit: (op) => this.startEdit(op),
       onDelete: (op) => void this.deleteOperator(op),
       onDuplicate: (op) => this.startDuplicate(op),
+      onPublish: (op) => void this.publishOperator(op),
     });
     this.grid.appendChild(list);
   }
@@ -294,6 +296,15 @@ export class OperatorsPane {
       scheduleCloudPush();
     } catch (e) {
       alert(`Delete failed: ${e}`);
+    }
+  }
+
+  private async publishOperator(op: Operator): Promise<void> {
+    try {
+      await marketplacePublish(op.id);
+      pushInfoToast({ message: `"${op.name}" submitted — pending review.` });
+    } catch (e) {
+      pushInfoToast({ message: `Publish failed: ${e}` });
     }
   }
 }
@@ -1734,6 +1745,7 @@ export interface ListHandlers {
   onEdit(op: Operator): void;
   onDelete(op: Operator): void;
   onDuplicate(op: Operator): void;
+  onPublish?(op: Operator): void;
 }
 
 export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElement {
@@ -1778,6 +1790,9 @@ export function renderOperatorList(ops: Operator[], h: ListHandlers): HTMLElemen
     };
     actions.append(mk("Edit", Icons.pencil(), () => h.onEdit(op)));
     actions.append(mk("Duplicate", Icons.copy(), () => h.onDuplicate(op)));
+    if (h.onPublish) {
+      actions.append(mk("Publish", Icons.upload(), () => h.onPublish!(op)));
+    }
     actions.append(mk("Delete", Icons.trash(), () => h.onDelete(op), true));
     card.append(actions);
     root.append(card);
