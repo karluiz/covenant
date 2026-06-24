@@ -2,9 +2,13 @@
 
 pub mod manifest;
 pub mod types;
+pub mod install;
+pub mod project;
 
 pub use manifest::{cdlc_dir, read_manifest, write_manifest};
 pub use types::{CdlcManifest, InstalledRef, SkillManifest};
+pub use install::{install_local, status, CdlcStatus};
+pub use project::project;
 
 use thiserror::Error;
 
