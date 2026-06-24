@@ -7,6 +7,7 @@ export type RailTarget =
   | "activity"
   | "recall"
   | "notes"
+  | "cdlc"
   | "teammate"
   | "tasker"
   | "resources";

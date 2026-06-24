@@ -79,6 +79,7 @@ import { OperatorPicker } from "./operator/picker";
 import { mountSpecChat } from "./spec-chat/index";
 import { getPiPanel } from "./executors/pi/panel";
 import { ProjectNotesPanel } from "./project-notes/panel";
+import { CdlcPanel } from "./cdlc/panel";
 import { SpawnsChip } from "./spawns/chip";
 import { listSpawns } from "./spawns/api";
 import { buildSpawnCmdline } from "./spawns/shortcuts";
@@ -535,6 +536,7 @@ async function boot(): Promise<void> {
     activity: viewActivityBtn,
     recall: viewRecallBtn,
     notes: projectNotesBtn,
+    cdlc: null,
     teammate: teammateBtn,
     tasker: taskerBtn,
     resources: resourcesBtn,
@@ -563,6 +565,9 @@ async function boot(): Promise<void> {
       case "notes":
         mountProjectNotes();
         break;
+      case "cdlc":
+        mountCdlc();
+        break;
       case "teammate":
         void openTeammatePanel();
         break;
@@ -579,6 +584,9 @@ async function boot(): Promise<void> {
     switch (target) {
       case "notes":
         activeProjectNotesPanel?.close();
+        break;
+      case "cdlc":
+        activeCdlcPanel?.close();
         break;
       case "teammate":
         closeTeammatePanel();
@@ -1299,6 +1307,39 @@ async function boot(): Promise<void> {
     onOpenProjectNotes: requestProjectNotes,
   });
 
+  // CDLC panel — per-group sidebar, same lifecycle pattern as Project Notes.
+  let activeCdlcPanel: CdlcPanel | null = null;
+  let pendingCdlcArgs: { groupId: string; groupLabel: string; groupColor: string | null } | null = null;
+
+  function requestCdlc(groupId: string, groupLabel: string, groupColor: string | null): void {
+    pendingCdlcArgs = { groupId, groupLabel, groupColor };
+    rail.open("cdlc");
+  }
+
+  function mountCdlc(): void {
+    let args = pendingCdlcArgs;
+    pendingCdlcArgs = null;
+    if (!args) {
+      const g = manager.activeGroup();
+      if (!g) return;
+      args = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
+    }
+    if (activeCdlcPanel) activeCdlcPanel.close();
+    activeCdlcPanel = new CdlcPanel({
+      groupId: args.groupId,
+      groupLabel: args.groupLabel,
+      groupColor: args.groupColor,
+      groupRootDir: manager.groupRootDirFor(args.groupId),
+      onClose: () => {
+        activeCdlcPanel = null;
+        rail.handleExternalClose("cdlc");
+      },
+      onNewContext: () => {
+        window.dispatchEvent(new CustomEvent("spec-chat:open", { detail: { cdlcContext: true } }));
+      },
+    }).mount(document.body);
+  }
+
   void listen<{ repoRoot: string; slug: string; title: string }>("draft:saved", (e) => {
     const { repoRoot, slug, title } = e.payload;
     if (activeProjectNotesPanel) {
@@ -1327,6 +1368,15 @@ async function boot(): Promise<void> {
       if (g) {
         e.preventDefault();
         requestProjectNotes(g.id, g.name, g.color ?? null);
+      }
+    }
+    // ⌘⇧L — open CDLC panel for the active group.
+    // (⌘⇧K is taken by the Shortcuts modal.)
+    if (e.metaKey && e.shiftKey && !e.altKey && (e.key === "l" || e.key === "L")) {
+      const g = manager.activeGroup();
+      if (g) {
+        e.preventDefault();
+        requestCdlc(g.id, g.name, g.color ?? null);
       }
     }
   });
