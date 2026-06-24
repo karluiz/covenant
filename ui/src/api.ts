@@ -1304,6 +1304,43 @@ export async function cdlcInstallLocal(
   return invoke<InstalledRef>("cdlc_install_local", { cwd, source, group, workspace });
 }
 
+// CDLC — registry (Phase 2) -------------------------------------------
+
+export interface Org {
+  id: number;
+  slug: string;
+  name: string;
+  role: string;
+}
+export interface PkgMeta {
+  id: number;
+  name: string;
+  version: string;
+  description: string;
+  publisher_login: string;
+  installs: number;
+  sha: string;
+}
+export async function cdlcMyOrgs(): Promise<Org[]> {
+  return invoke<Org[]>("cdlc_my_orgs");
+}
+export async function cdlcSearch(org: string, query: string | null): Promise<PkgMeta[]> {
+  return invoke<PkgMeta[]>("cdlc_search", { org, query });
+}
+export async function cdlcPublish(cwd: string, org: string, name: string): Promise<unknown> {
+  return invoke<unknown>("cdlc_publish", { cwd, org, name });
+}
+export async function cdlcInstallRegistry(
+  cwd: string,
+  org: string,
+  name: string,
+  version: string,
+  group: string | null,
+  workspace: string | null,
+): Promise<InstalledRef> {
+  return invoke<InstalledRef>("cdlc_install_registry", { cwd, org, name, version, group, workspace });
+}
+
 export async function gitFileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff> {
   return invoke<FileDiff>("git_file_diff", { cwd, path, staged });
 }

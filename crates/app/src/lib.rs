@@ -11,6 +11,7 @@
 
 mod aom;
 mod browser;
+mod cdlc_registry;
 pub mod cloud_sync;
 mod capabilities_commands;
 mod connectivity;
@@ -2273,6 +2274,60 @@ async fn cdlc_install_local(
 }
 
 #[tauri::command]
+async fn cdlc_my_orgs() -> Result<Vec<cdlc_registry::Org>, String> {
+    cdlc_registry::list_orgs().await
+}
+
+#[tauri::command]
+async fn cdlc_search(org: String, query: Option<String>) -> Result<Vec<cdlc_registry::PkgMeta>, String> {
+    cdlc_registry::search(&org, query.as_deref()).await
+}
+
+#[tauri::command]
+async fn cdlc_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let (toml_s, md_s, sm) = tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
+        .await
+        .map_err(|e| format!("cdlc_publish join: {e}"))?
+        .map_err(|e| e.to_string())?;
+    cdlc_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s).await
+}
+
+#[tauri::command]
+async fn cdlc_install_registry(
+    cwd: String,
+    org: String,
+    name: String,
+    version: String,
+    group: Option<String>,
+    workspace: Option<String>,
+) -> Result<karl_cdlc::InstalledRef, String> {
+    let full = cdlc_registry::resolve(&org, &name, &version).await?;
+    let pkg_id = full.id;
+    let label = format!("registry:{}/{}@{}", org, full.name, full.version);
+    let repo = std::path::PathBuf::from(cwd);
+    let toml_s = full.skill_toml.clone();
+    let md_s = full.skill_md.clone();
+    let pkg_name = full.name.clone();
+    let pkg_ver = full.version.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        let tmp = std::env::temp_dir().join(format!("cdlc-reg-{}-{pkg_name}-{pkg_ver}", std::process::id()));
+        std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+        std::fs::write(tmp.join("skill.toml"), toml_s.as_bytes()).map_err(|e| e.to_string())?;
+        std::fs::write(tmp.join("SKILL.md"), md_s.as_bytes()).map_err(|e| e.to_string())?;
+        let res = karl_cdlc::install_from_dir(&repo, &tmp, &label).map_err(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&tmp);
+        res
+    })
+    .await
+    .map_err(|e| format!("cdlc_install_registry join: {e}"))??;
+    // best-effort adoption telemetry (don't fail the install if these error)
+    let _ = cdlc_registry::record_install(pkg_id).await;
+    karl_score::record_cdlc_install(&r.name, group, workspace);
+    Ok(r)
+}
+
+#[tauri::command]
 async fn git_file_diff(cwd: String, path: String, staged: bool) -> Result<git_tools::diff::FileDiff, String> {
     let cwd = std::path::PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || git_tools::file_diff(&cwd, &path, staged))
@@ -4104,6 +4159,10 @@ pub fn run() {
             git_changes,
             cdlc_local_status,
             cdlc_install_local,
+            cdlc_my_orgs,
+            cdlc_search,
+            cdlc_publish,
+            cdlc_install_registry,
             git_file_diff,
             git_stage,
             git_unstage,
