@@ -1,5 +1,12 @@
-import type { CdlcStatus } from "../api";
-import { cdlcLocalStatus } from "../api";
+import type { CdlcStatus, Org, PkgMeta } from "../api";
+import { cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry } from "../api";
+
+function errorLine(text: string): HTMLElement {
+  const p = document.createElement("p");
+  p.className = "cdlc-error";
+  p.textContent = text;
+  return p;
+}
 
 export interface CdlcPanelOpts {
   groupId: string;
@@ -13,6 +20,7 @@ export interface CdlcPanelOpts {
 export class CdlcPanel {
   private root: HTMLElement;
   private body: HTMLElement;
+  private orgs: Org[] = [];
 
   constructor(private opts: CdlcPanelOpts) {
     this.root = document.createElement("div");
@@ -35,9 +43,14 @@ export class CdlcPanel {
     this.root.append(head, this.body);
   }
 
+  setOrgs(orgs: Org[]): void {
+    this.orgs = orgs;
+  }
+
   mount(host: HTMLElement): this {
     host.appendChild(this.root);
     void this.refresh();
+    void cdlcMyOrgs().then((o) => { this.orgs = o; }).catch(() => { this.orgs = []; });
     return this;
   }
 
@@ -71,9 +84,46 @@ export class CdlcPanel {
       for (const i of s.installed) {
         const row = document.createElement("div");
         row.className = "cdlc-skill-row";
-        row.textContent = `${i.name}  ${i.version}  ${i.source}`;
+        const label = document.createElement("span");
+        label.textContent = `${i.name}  ${i.version}  ${i.source}`;
+        row.appendChild(label);
+        if (this.orgs.length > 0) {
+          const pub = document.createElement("button");
+          pub.className = "cdlc-publish-btn";
+          pub.textContent = "Publish";
+          pub.addEventListener("click", () => void this.publish(i.name));
+          row.appendChild(pub);
+        }
         skills.appendChild(row);
       }
+    }
+
+    if (this.orgs.length > 0) {
+      const searchRow = document.createElement("div");
+      searchRow.className = "cdlc-search-row";
+      const input = document.createElement("input");
+      input.placeholder = `Search ${this.orgs[0].slug} registry…`;
+      const go = document.createElement("button");
+      go.textContent = "Search";
+      const results = document.createElement("div");
+      results.className = "cdlc-search-results";
+      go.addEventListener("click", () => {
+        void cdlcSearch(this.orgs[0].slug, input.value || null).then((rows: PkgMeta[]) => {
+          results.replaceChildren();
+          for (const r of rows) {
+            const rr = document.createElement("div");
+            rr.className = "cdlc-search-result";
+            rr.textContent = `${r.name} ${r.version} (${r.installs} installs) — ${r.publisher_login}`;
+            const inst = document.createElement("button");
+            inst.textContent = "Install";
+            inst.addEventListener("click", () => void this.install(this.orgs[0].slug, r.name, r.version));
+            rr.appendChild(inst);
+            results.appendChild(rr);
+          }
+        }).catch((e) => { results.replaceChildren(errorLine(String(e))); });
+      });
+      searchRow.append(input, go);
+      skills.append(searchRow, results);
     }
 
     // Context section
@@ -108,6 +158,29 @@ export class CdlcPanel {
     loop.append(lh, lp);
 
     this.body.append(skills, ctx, loop);
+  }
+
+  private async publish(name: string): Promise<void> {
+    const cwd = this.opts.groupRootDir;
+    if (!cwd || this.orgs.length === 0) return;
+    const org = this.orgs[0].slug; // v1: publish to the caller's first org
+    try {
+      await cdlcPublish(cwd, org, name);
+      await this.refresh();
+    } catch (e) {
+      this.body.appendChild(errorLine(`Publish failed: ${String(e)}`));
+    }
+  }
+
+  private async install(org: string, name: string, version: string): Promise<void> {
+    const cwd = this.opts.groupRootDir;
+    if (!cwd) return;
+    try {
+      await cdlcInstallRegistry(cwd, org, name, version, this.opts.groupLabel ?? null, null);
+      await this.refresh();
+    } catch (e) {
+      this.body.appendChild(errorLine(`Install failed: ${String(e)}`));
+    }
   }
 
   close(): void {

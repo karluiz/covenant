@@ -4,6 +4,10 @@ import { CdlcPanel } from "./panel";
 // Mock the api module so tests don't invoke Tauri IPC.
 vi.mock("../api", () => ({
   cdlcLocalStatus: vi.fn().mockResolvedValue({ installed: [], contextFiles: [] }),
+  cdlcMyOrgs: vi.fn().mockResolvedValue([]),
+  cdlcSearch: vi.fn().mockResolvedValue([]),
+  cdlcPublish: vi.fn().mockResolvedValue({}),
+  cdlcInstallRegistry: vi.fn().mockResolvedValue({}),
 }));
 
 describe("CdlcPanel", () => {
@@ -78,5 +82,22 @@ describe("CdlcPanel", () => {
     const btn = host.querySelector(".cdlc-close-btn") as HTMLButtonElement;
     btn.click();
     expect(closed).toBe(true);
+  });
+
+  it("shows a Publish button per installed skill when orgs exist", async () => {
+    const host = document.createElement("div");
+    const panel = new CdlcPanel({
+      groupId: "g1", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo",
+    }).mount(host);
+    // simulate orgs loaded + a status with one installed skill
+    panel.setOrgs([{ id: 1, slug: "mibanco", name: "Mibanco", role: "owner" }]);
+    panel.renderStatus({
+      installed: [
+        { name: "kyc-peru", version: "1.0.0", source: "local:/x", sha: "a", signer: null, installedAt: "t" },
+      ],
+      contextFiles: [],
+    });
+    expect(host.querySelector("button.cdlc-publish-btn")).not.toBeNull();
+    expect(host.textContent).toContain("kyc-peru");
   });
 });
