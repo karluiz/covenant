@@ -1,4 +1,4 @@
-use crate::types::{CdlcManifest, InstalledRef};
+use crate::types::CdlcManifest;
 use crate::CdlcError;
 use std::path::{Path, PathBuf};
 
@@ -26,6 +26,7 @@ pub fn write_manifest(repo_root: &Path, m: &CdlcManifest) -> Result<(), CdlcErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::InstalledRef;
 
     #[test]
     fn roundtrip_manifest() {
