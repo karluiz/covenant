@@ -6,6 +6,58 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.97 — Operator Marketplace + CDLC context registry
+
+### Added
+
+- **Operator Marketplace**: a new **Marketplace** tab in Settings → Operators to
+  browse, search, and install community-published operators, plus a **Publish**
+  action on local operator cards that submits to a curated catalogue (listings
+  stay *pending* until approved by the curator). Desktop side adds
+  `crates/app/src/marketplace.rs` (HTTP client + `marketplace_search` /
+  `marketplace_publish` / `marketplace_install_count` / `marketplace_admin_url`
+  Tauri commands), `ui/src/settings/operator_marketplace.ts`,
+  `ui/src/settings/marketplace_install.ts`, and api wrappers in `ui/src/api.ts`.
+  Only the operator's SOUL.md travels — `github_access`, XP, and ids never leave,
+  and imported operators default to `github_access: Off`. Name collisions are
+  suffixed `(community)` on install. (Backend routes + curated review page ship
+  in `covenant-server`.)
+
+- **CDLC (Context Development Life Cycle) — Phase 1**: local install with
+  idempotent executor projection (`.claude` / `AGENTS` / `copilot`), a per-group
+  panel + rail entry with opener shortcut, Spec Creator publishing context specs
+  to `.covenant/cdlc/context`, a `cdlc.toml` manifest read/write crate, and
+  `CdlcInstall` telemetry. New `cdlc_local_status` / `cdlc_install_local` Tauri
+  commands + api wrappers.
+
+- **CDLC context registry (Phase 2)**: publish a local context-skill to an
+  organization and install one back, reusing your Covenant sign-in. The CDLC
+  panel gains an org-aware **Publish** action (gated to locally-authored skills)
+  and a registry **Search / Install** flow; installed packages carry a
+  `registry:<org>/<name>@<version>` provenance and fire executor projection on
+  install, so a fetched skill is immediately live for `claude` / `codex` /
+  `copilot`. Adds `crates/app/src/cdlc_registry.rs` (authed HTTP client) +
+  `cdlc_my_orgs` / `cdlc_search` / `cdlc_publish` / `cdlc_install_registry` Tauri
+  commands, `install_from_dir` / `read_skill_package` in the cdlc crate, and api
+  wrappers. (Org-scoped registry, membership, and per-package adoption telemetry
+  ship in `covenant-server`.)
+
+### Fixed
+
+- **Marketplace stored-XSS**: operator cards were built via `innerHTML` from
+  untrusted listing fields (name, tagline, author, tags, color); rebuilt to use
+  DOM `textContent` with a hex-validated color, closing a stored-XSS → RCE vector
+  in the webview. `ui/src/settings/operator_marketplace.ts`.
+
+- **Marketplace name-collision rewrite**: `suffixSoulName` used string-form
+  `String.replace`, so a `$&` / `` $` `` / `$'` / `$n` sequence in an untrusted
+  operator name could corrupt the rewritten SOUL frontmatter; switched to the
+  function-form replacement. `ui/src/settings/marketplace_install.ts`.
+
+- **CDLC skill safety**: sanitize skill names against path traversal, add Claude
+  frontmatter, strip empty managed blocks, and propagate skill-read errors
+  instead of swallowing them.
+
 ## v0.8.96 — Spec Creator light-mode theming
 
 ### Fixed
