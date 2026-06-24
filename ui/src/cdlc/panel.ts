@@ -50,7 +50,6 @@ export class CdlcPanel {
   mount(host: HTMLElement): this {
     host.appendChild(this.root);
     void this.refresh();
-    void cdlcMyOrgs().then((o) => { this.orgs = o; }).catch(() => { this.orgs = []; });
     return this;
   }
 
@@ -61,7 +60,12 @@ export class CdlcPanel {
       return;
     }
     try {
-      this.renderStatus(await cdlcLocalStatus(cwd));
+      const [status, orgs] = await Promise.all([
+        cdlcLocalStatus(cwd),
+        cdlcMyOrgs().catch(() => [] as Org[]),
+      ]);
+      this.orgs = orgs;
+      this.renderStatus(status);
     } catch (e) {
       this.body.textContent = `Failed to read CDLC: ${String(e)}`;
     }
