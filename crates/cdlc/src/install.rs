@@ -22,8 +22,12 @@ pub struct CdlcStatus {
     pub context_files: Vec<String>,
 }
 
-/// Install a skill package from a local directory containing `skill.toml` + `SKILL.md`.
-pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef, CdlcError> {
+/// Install a skill package from a local directory, recording `source_label` as provenance.
+pub fn install_from_dir(
+    repo_root: &Path,
+    source_dir: &Path,
+    source_label: &str,
+) -> Result<InstalledRef, CdlcError> {
     let skill_toml = source_dir.join("skill.toml");
     let skill_md = source_dir.join("SKILL.md");
     if !skill_toml.exists() || !skill_md.exists() {
@@ -66,7 +70,7 @@ pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef
     let r = InstalledRef {
         name: sm.name.clone(),
         version: sm.version.clone(),
-        source: format!("local:{}", source_dir.canonicalize().unwrap_or_else(|_| source_dir.to_path_buf()).display()),
+        source: source_label.to_string(),
         sha,
         signer: sm.owner.clone(),
         installed_at: chrono::Utc::now().to_rfc3339(),
@@ -78,6 +82,33 @@ pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef
 
     project(repo_root)?;
     Ok(r)
+}
+
+/// Install from a local directory, labeling provenance as `local:<canonical-path>`.
+pub fn install_local(repo_root: &Path, source_dir: &Path) -> Result<InstalledRef, CdlcError> {
+    let label = format!(
+        "local:{}",
+        source_dir
+            .canonicalize()
+            .unwrap_or_else(|_| source_dir.to_path_buf())
+            .display()
+    );
+    install_from_dir(repo_root, source_dir, &label)
+}
+
+/// Read an installed package's raw files + parsed manifest (for republish).
+pub fn read_skill_package(
+    repo_root: &Path,
+    name: &str,
+) -> Result<(String, String, SkillManifest), CdlcError> {
+    if !valid_pkg_name(name) {
+        return Err(CdlcError::InvalidPackage(format!("invalid skill name: {:?}", name)));
+    }
+    let dir = cdlc_dir(repo_root).join("skills").join(name);
+    let toml_s = std::fs::read_to_string(dir.join("skill.toml"))?;
+    let md_s = std::fs::read_to_string(dir.join("SKILL.md"))?;
+    let sm: SkillManifest = toml::from_str(&toml_s)?;
+    Ok((toml_s, md_s, sm))
 }
 
 fn write_lock(repo_root: &Path, m: &CdlcManifest) -> Result<(), CdlcError> {
@@ -169,6 +200,24 @@ mod tests {
         assert_eq!(agents1, agents2, "projection must be idempotent");
         assert_eq!(agents2.matches("<!-- cdlc:start -->").count(), 1);
 
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_from_dir_uses_custom_source_label() {
+        let base = std::env::temp_dir().join(format!("cdlc-srclabel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.join("repo");
+        let src = base.join("src");
+        std::fs::create_dir_all(&repo).unwrap();
+        write_pkg(&src, "kyc-peru");
+        let r = install_from_dir(&repo, &src, "registry:mibanco/kyc-peru@1.0.0").unwrap();
+        assert_eq!(r.source, "registry:mibanco/kyc-peru@1.0.0");
+        // read it back
+        let (toml_s, md_s, sm) = read_skill_package(&repo, "kyc-peru").unwrap();
+        assert!(toml_s.contains("kyc-peru"));
+        assert!(md_s.contains("KYC"));
+        assert_eq!(sm.name, "kyc-peru");
         let _ = std::fs::remove_dir_all(&base);
     }
 }
