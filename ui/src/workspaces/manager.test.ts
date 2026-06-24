@@ -14,6 +14,7 @@ interface MockTabManagerState {
   manifest: TabManifestV1;
   replaceCalls: TabManifestV1[];
   createTabCalls: number;
+  hibernated: Map<string, TabManifestV1>;
 }
 
 function makeMockTabManager(initial?: TabManifestV1): {
@@ -24,6 +25,7 @@ function makeMockTabManager(initial?: TabManifestV1): {
     manifest: initial ?? { version: 1, active_index: 0, tabs: [], groups: [] },
     replaceCalls: [],
     createTabCalls: 0,
+    hibernated: new Map(),
   };
   const manager = {
     serializeManifest(): TabManifestV1 {
@@ -32,6 +34,34 @@ function makeMockTabManager(initial?: TabManifestV1): {
     async replaceFromManifest(m: TabManifestV1): Promise<void> {
       state.replaceCalls.push(JSON.parse(JSON.stringify(m)));
       state.manifest = JSON.parse(JSON.stringify(m));
+    },
+    setActiveWorkspaceName(_name: string): void {
+      /* noop */
+    },
+    // Hibernation stash mirrors the real TabManager: hibernate stows the
+    // live body and clears it; unhibernate restores it; restoreFromManifest
+    // *appends* (the real impl preserves existing live tabs).
+    hibernate(id: string): void {
+      state.hibernated.set(id, JSON.parse(JSON.stringify(state.manifest)));
+      state.manifest = { version: 1, active_index: 0, tabs: [], groups: [] };
+    },
+    unhibernate(id: string): boolean {
+      const stash = state.hibernated.get(id);
+      if (!stash) return false;
+      state.hibernated.delete(id);
+      state.manifest = JSON.parse(JSON.stringify(stash));
+      return true;
+    },
+    hasHibernated(id: string): boolean {
+      return state.hibernated.has(id);
+    },
+    disposeHibernated(id: string): void {
+      state.hibernated.delete(id);
+    },
+    async restoreFromManifest(m: TabManifestV1): Promise<void> {
+      state.replaceCalls.push(JSON.parse(JSON.stringify(m)));
+      for (const g of m.groups ?? []) state.manifest.groups.push(JSON.parse(JSON.stringify(g)));
+      for (const t of m.tabs ?? []) state.manifest.tabs.push(JSON.parse(JSON.stringify(t)));
     },
     async createTab(): Promise<void> {
       state.createTabCalls += 1;
@@ -189,10 +219,11 @@ describe("WorkspaceManager.switchTo", () => {
     await ws.switchTo(secondId);
     expect(ws.list().find((w) => w.id === secondId)?.active).toBe(true);
 
-    // Switching back should restore the work we left in the first ws.
+    // Switching back restores the work we left in the first ws. The warm
+    // path comes back via the hibernation stash (PTYs survive), so assert
+    // on the live state rather than a manifest re-spawn.
     await ws.switchTo(firstId);
-    const restored = state.replaceCalls[state.replaceCalls.length - 1];
-    expect(restored.tabs.some((t) => t.custom_name === "first-tab")).toBe(true);
+    expect(state.manifest.tabs.some((t) => t.custom_name === "first-tab")).toBe(true);
   });
 });
 
@@ -317,6 +348,43 @@ describe("WorkspaceManager.moveGroupTo", () => {
     await ws.moveGroupTo("g1", sourceId);
     expect(state.manifest.groups).toHaveLength(1);
     expect(state.manifest.tabs).toHaveLength(1);
+  });
+
+  it("moved group survives switching into a target that was already hibernated", async () => {
+    const { manager, state } = makeMockTabManager();
+    const ws = new WorkspaceManager(manager);
+    await ws.boot(null);
+    const sourceId = ws.list()[0].id;
+    const targetId = ws.create("Target");
+
+    // Visit the target once (cold → live), then switch back so the target
+    // is now held in the hibernation stash, not the persisted body. This is
+    // the exact condition that used to drop the moved group.
+    await ws.switchTo(targetId);
+    await ws.switchTo(sourceId);
+    expect(manager.hasHibernated(targetId)).toBe(true);
+
+    // Seed the source with a group and move it into the hibernated target.
+    state.manifest.groups = [
+      { id: "g1", name: "Project", color: null, collapsed: false },
+    ];
+    state.manifest.tabs = [
+      {
+        custom_name: "moved",
+        cwd: "/work",
+        color: null,
+        group_id: "g1",
+        mission_path: null,
+        operator_id: null,
+      } as TabManifestV1["tabs"][number],
+    ];
+    await ws.moveGroupTo("g1", targetId);
+
+    // Switching into the target must replay the moved group into its live
+    // tabs — not silently swallow it via unhibernate.
+    await ws.switchTo(targetId);
+    expect(state.manifest.groups.map((g) => g.id)).toContain("g1");
+    expect(state.manifest.tabs.map((t) => t.custom_name)).toContain("moved");
   });
 });
 

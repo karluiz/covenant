@@ -82,6 +82,12 @@ export class WorkspaceManager {
   /// overwrite the incoming workspace's body with the still-empty
   /// outgoing state mid-flight.
   private suspendPersist = false;
+  /// Groups moved into a *hibernated* workspace this session. The move
+  /// writes them into the target's persisted body (durable across
+  /// restart), but `unhibernate` rebuilds from the in-memory stash and
+  /// would otherwise never see them. We replay them after unhibernate.
+  /// ponytail: in-session bridge only; persisted body is the durable copy.
+  private pendingMoves: Map<string, TabManifestV1> = new Map();
 
   constructor(private readonly tabManager: TabManager) {}
 
@@ -320,7 +326,14 @@ export class WorkspaceManager {
       // If we already hibernated this workspace earlier in the session,
       // restore the live Tab objects — PTYs survived the switch.
       if (this.tabManager.unhibernate(id)) {
-        // restored — done.
+        // Restored from the in-memory stash — PTYs survived. Replay any
+        // groups moved here while it was hibernated; restoreFromManifest
+        // appends them to the live tabs without tearing the rest down.
+        const pending = this.pendingMoves.get(id);
+        if (pending) {
+          this.pendingMoves.delete(id);
+          await this.tabManager.restoreFromManifest(pending);
+        }
       } else {
         // First time visiting this workspace this session: spawn from manifest.
         await this.tabManager.restoreFromManifest(workspaceAsV1Body(target));
@@ -384,6 +397,25 @@ export class WorkspaceManager {
     for (const t of snapshot.tabs) target.tabs.push(t);
     target.last_used_at = nowMs();
 
+    // If the target was visited this session its live state lives in the
+    // TabManager hibernation stash, which unhibernate restores instead of
+    // the persisted body above — so the moved group would vanish on switch.
+    // Queue it to be replayed after unhibernate.
+    if (this.tabManager.hasHibernated(targetWorkspaceId)) {
+      const queued = this.pendingMoves.get(targetWorkspaceId);
+      if (queued) {
+        queued.groups.push(snapshot.group);
+        for (const t of snapshot.tabs) queued.tabs.push(t);
+      } else {
+        this.pendingMoves.set(targetWorkspaceId, {
+          version: 1,
+          active_index: 0,
+          groups: [snapshot.group],
+          tabs: [...snapshot.tabs],
+        });
+      }
+    }
+
     // Tear down in the active workspace (kills PTYs, removes group).
     this.tabManager.removeGroupAndTabs(groupId);
 
@@ -419,6 +451,7 @@ export class WorkspaceManager {
     // hibernated in memory — close their PTYs now that the workspace
     // is gone for good.
     this.tabManager.disposeHibernated(id);
+    this.pendingMoves.delete(id);
     await this.saveAll();
     this.emitChange();
   }
