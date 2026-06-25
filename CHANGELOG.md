@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.102 — CDLC export to Hermes
+
+### Added
+
+- **CDLC export to Hermes**: Hermes already reads `AGENTS.md` (which CDLC
+  writes), but a project-local `.hermes.md` takes priority and shadows it — so
+  the multi-export now mirrors the managed block into `.hermes.md` **when it
+  already exists**, never creating one (which would hide the user's `AGENTS.md`
+  from Hermes). Completes opencode / pi / hermes coverage.
+  `crates/cdlc/src/project.rs`.
+
 ## v0.8.101 — CDLC panel scoping + opencode/pi export
 
 ### Added
