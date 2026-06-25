@@ -1,12 +1,29 @@
 import "./styles.css";
+import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 import type { CdlcStatus, Org, PkgMeta } from "../api";
-import { cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry } from "../api";
+import {
+  cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
+  cdlcPreview, cdlcReadLocal,
+} from "../api";
 
 function errorLine(text: string): HTMLElement {
   const p = document.createElement("p");
   p.className = "cdlc-error";
   p.textContent = text;
   return p;
+}
+
+/** Compact square action button: an icon + a tooltip (no visible text), so
+ *  rows stay legible in the narrow rail. The SVG string is trusted (from Icons). */
+function iconButton(svg: string, label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "cdlc-icon-btn";
+  b.innerHTML = svg;
+  b.setAttribute("aria-label", label);
+  attachTooltip(b, label);
+  b.addEventListener("click", onClick);
+  return b;
 }
 
 export interface CdlcPanelOpts {
@@ -74,6 +91,7 @@ export class CdlcPanel {
 
   renderStatus(s: CdlcStatus): void {
     this.body.replaceChildren();
+    const cwd = this.opts.groupRootDir ?? null;
 
     // Skills section
     const skills = document.createElement("section");
@@ -87,23 +105,17 @@ export class CdlcPanel {
       skills.appendChild(p);
     } else {
       for (const i of s.installed) {
-        const row = document.createElement("div");
-        row.className = "cdlc-skill-row";
-        const name = document.createElement("span");
-        name.className = "cdlc-name";
-        name.textContent = i.name;
-        const meta = document.createElement("span");
-        meta.className = "cdlc-meta";
-        meta.textContent = `${i.version} · ${i.source}`;
-        row.append(name, meta);
+        const actions: HTMLButtonElement[] = [];
         if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
-          const pub = document.createElement("button");
-          pub.className = "cdlc-publish-btn";
-          pub.textContent = "Publish";
-          pub.addEventListener("click", () => void this.publish(i.name));
-          row.appendChild(pub);
+          actions.push(iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => void this.publish(i.name)));
         }
-        skills.appendChild(row);
+        skills.appendChild(this.skillCard({
+          name: i.name,
+          meta: `${i.version} · ${i.source}`,
+          className: "cdlc-skill-row",
+          fetchPreview: () => (cwd ? cdlcReadLocal(cwd, i.name) : Promise.resolve("(no project folder)")),
+          actions,
+        }));
       }
     }
 
@@ -119,20 +131,25 @@ export class CdlcPanel {
       go.addEventListener("click", () => {
         void cdlcSearch(this.orgs[0].slug, input.value || null).then((rows: PkgMeta[]) => {
           results.replaceChildren();
+          if (rows.length === 0) {
+            results.replaceChildren();
+            const none = document.createElement("p");
+            none.className = "cdlc-empty";
+            none.textContent = "No packages found.";
+            results.appendChild(none);
+          }
+          const org = this.orgs[0].slug;
           for (const r of rows) {
-            const rr = document.createElement("div");
-            rr.className = "cdlc-search-result";
-            const rname = document.createElement("span");
-            rname.className = "cdlc-name";
-            rname.textContent = r.name;
-            const rmeta = document.createElement("span");
-            rmeta.className = "cdlc-meta";
-            rmeta.textContent = `${r.version} · ${r.installs} installs · ${r.publisher_login}`;
-            const inst = document.createElement("button");
-            inst.textContent = "Install";
-            inst.addEventListener("click", () => void this.install(this.orgs[0].slug, r.name, r.version));
-            rr.append(rname, rmeta, inst);
-            results.appendChild(rr);
+            const inst = iconButton(Icons.download({ size: 15 }), "Install", () => void this.install(org, r.name, r.version));
+            const installs = `${r.installs} ${r.installs === 1 ? "install" : "installs"}`;
+            results.appendChild(this.skillCard({
+              name: r.name,
+              meta: `${r.version} · ${installs} · ${r.publisher_login}`,
+              description: r.description,
+              className: "cdlc-search-result",
+              fetchPreview: () => cdlcPreview(org, r.name, r.version).then((p) => p.skill_md),
+              actions: [inst],
+            }));
           }
         }).catch((e) => { results.replaceChildren(errorLine(String(e))); });
       });
@@ -195,6 +212,64 @@ export class CdlcPanel {
     } catch (e) {
       this.body.appendChild(errorLine(`Install failed: ${String(e)}`));
     }
+  }
+
+  /** A skill/package card: name + meta + actions, a one-line description,
+   *  and a Preview toggle that lazy-loads the full SKILL.md (rendered as
+   *  plain text — registry content is untrusted, never innerHTML). */
+  private skillCard(opts: {
+    name: string;
+    meta: string;
+    description?: string;
+    className: string;
+    fetchPreview: () => Promise<string>;
+    actions: HTMLButtonElement[];
+  }): HTMLElement {
+    const card = document.createElement("div");
+    card.className = opts.className;
+
+    const head = document.createElement("div");
+    head.className = "cdlc-card-head";
+    const name = document.createElement("span");
+    name.className = "cdlc-name";
+    name.textContent = opts.name;
+    const meta = document.createElement("span");
+    meta.className = "cdlc-meta";
+    meta.textContent = opts.meta;
+    head.append(name, meta);
+
+    const pre = document.createElement("pre");
+    pre.className = "cdlc-preview";
+    pre.hidden = true;
+    let loaded = false;
+    const prev = document.createElement("button");
+    prev.className = "cdlc-preview-btn cdlc-icon-btn";
+    prev.innerHTML = Icons.eye({ size: 15 });
+    prev.setAttribute("aria-label", "Preview");
+    attachTooltip(prev, "Preview SKILL.md");
+    prev.addEventListener("click", () => {
+      const show = pre.hidden;
+      pre.hidden = !show;
+      prev.innerHTML = show ? Icons.eyeOff({ size: 15 }) : Icons.eye({ size: 15 });
+      if (show && !loaded) {
+        loaded = true;
+        pre.textContent = "Loading…";
+        void opts.fetchPreview()
+          .then((md) => { pre.textContent = md.trim() || "(empty)"; })
+          .catch((e) => { pre.textContent = `Failed to load: ${String(e)}`; loaded = false; });
+      }
+    });
+    head.append(prev, ...opts.actions);
+    card.appendChild(head);
+
+    if (opts.description?.trim()) {
+      const desc = document.createElement("p");
+      desc.className = "cdlc-result-desc";
+      desc.textContent = opts.description;
+      card.appendChild(desc);
+    }
+    card.appendChild(pre);
+    return card;
   }
 
   close(): void {

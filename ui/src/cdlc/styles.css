@@ -18,8 +18,6 @@
   color: var(--text-primary, #f5f6f7);
   border-left: 1px solid var(--border, #1c2027);
   border-top: 1px solid var(--border, #1c2027);
-  /* left accent bar in the group color */
-  box-shadow: inset 2px 0 0 0 var(--cdlc-accent, var(--accent, #7aa2f7));
   animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
   /* local lift tokens: neutral white in dark, opaque grays in True Dark */
@@ -161,10 +159,9 @@ body.theme-true-dark .cdlc-panel {
   font-size: 11px;
 }
 
-/* action buttons hug the right edge of their row */
-.cdlc-skill-row .cdlc-publish-btn,
-.cdlc-search-result button {
-  margin-left: auto;
+/* head action buttons never shrink (the cluster is right-aligned by the
+   margin-left:auto on .cdlc-preview-btn) */
+.cdlc-card-head button {
   flex-shrink: 0;
 }
 
@@ -175,10 +172,9 @@ body.theme-true-dark .cdlc-panel {
 }
 
 /* ── Buttons (secondary, house style) ── */
-.cdlc-publish-btn,
 .cdlc-new-context-btn,
 .cdlc-search-row button,
-.cdlc-search-result button {
+.cdlc-card-head button {
   background: transparent;
   color: var(--muted, #6c7280);
   border: 1px solid var(--cdlc-line);
@@ -189,15 +185,24 @@ body.theme-true-dark .cdlc-panel {
   white-space: nowrap;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
-.cdlc-publish-btn:hover,
 .cdlc-new-context-btn:hover,
 .cdlc-search-row button:hover,
-.cdlc-search-result button:hover {
+.cdlc-card-head button:hover {
   color: var(--text-primary, #f5f6f7);
   border-color: var(--cdlc-accent, var(--accent, #7aa2f7));
   background: var(--cdlc-lift-1);
 }
 .cdlc-new-context-btn { margin-bottom: 8px; }
+
+/* Compact square icon buttons (Preview / Install / Publish) */
+.cdlc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  line-height: 0;
+}
+.cdlc-icon-btn svg { display: block; }
 
 /* ── Registry search ── */
 .cdlc-search-row {
@@ -226,6 +231,52 @@ body.theme-true-dark .cdlc-panel {
   margin: 6px 0 0;
   font-size: 11px;
   color: var(--danger, #e85a5a);
+}
+
+/* Skill / registry cards: a head row (name + meta + actions), an optional
+   one-line description, and a collapsible SKILL.md preview underneath. */
+.cdlc-skill-row,
+.cdlc-search-result {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.cdlc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cdlc-card-head .cdlc-preview-btn {
+  margin-left: auto; /* push the action cluster to the right edge */
+}
+.cdlc-result-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-dim, #8b929b);
+}
+.cdlc-empty {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--muted, #6c7280);
+}
+
+/* Collapsible SKILL.md preview — the actual bundle content you're installing */
+.cdlc-preview {
+  margin: 2px 0 0;
+  padding: 10px 11px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--pn-code-bg, rgb(0 0 0 / 0.28));
+  border: 1px solid var(--cdlc-line);
+  border-radius: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-dim, #8b929b);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Loop is a Phase-2 placeholder — quiet it down */

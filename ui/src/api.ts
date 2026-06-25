@@ -1327,6 +1327,16 @@ export async function cdlcMyOrgs(): Promise<Org[]> {
 export async function cdlcSearch(org: string, query: string | null): Promise<PkgMeta[]> {
   return invoke<PkgMeta[]>("cdlc_search", { org, query });
 }
+export interface CdlcPreview {
+  description: string;
+  skill_md: string;
+}
+export async function cdlcPreview(org: string, name: string, version: string): Promise<CdlcPreview> {
+  return invoke<CdlcPreview>("cdlc_preview", { org, name, version });
+}
+export async function cdlcReadLocal(cwd: string, name: string): Promise<string> {
+  return invoke<string>("cdlc_read_local", { cwd, name });
+}
 export async function cdlcPublish(cwd: string, org: string, name: string): Promise<unknown> {
   return invoke<unknown>("cdlc_publish", { cwd, org, name });
 }

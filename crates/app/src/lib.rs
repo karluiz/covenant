@@ -2283,6 +2283,25 @@ async fn cdlc_search(org: String, query: Option<String>) -> Result<Vec<cdlc_regi
     cdlc_registry::search(&org, query.as_deref()).await
 }
 
+/// Resolve a registry package's full payload (description + SKILL.md) WITHOUT
+/// installing it — powers the pre-install preview.
+#[tauri::command]
+async fn cdlc_preview(org: String, name: String, version: String) -> Result<serde_json::Value, String> {
+    let full = cdlc_registry::resolve(&org, &name, &version).await?;
+    Ok(serde_json::json!({ "description": full.description, "skill_md": full.skill_md }))
+}
+
+/// Read an installed skill's SKILL.md from disk (preview of what's already in the repo).
+#[tauri::command]
+async fn cdlc_read_local(cwd: String, name: String) -> Result<String, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    let (_toml, md, _sm) = tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
+        .await
+        .map_err(|e| format!("cdlc_read_local join: {e}"))?
+        .map_err(|e| e.to_string())?;
+    Ok(md)
+}
+
 #[tauri::command]
 async fn cdlc_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
     let repo = std::path::PathBuf::from(cwd);
@@ -4161,6 +4180,8 @@ pub fn run() {
             cdlc_install_local,
             cdlc_my_orgs,
             cdlc_search,
+            cdlc_preview,
+            cdlc_read_local,
             cdlc_publish,
             cdlc_install_registry,
             git_file_diff,
