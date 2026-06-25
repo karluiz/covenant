@@ -1340,6 +1340,18 @@ export async function cdlcReadLocal(cwd: string, name: string): Promise<string> 
 export async function cdlcExport(cwd: string): Promise<void> {
   return invoke<void>("cdlc_export", { cwd });
 }
+
+export interface ScoreSummary {
+  total_prompts: number;
+  total_commits: number;
+  total_tokens: number;
+  total_specs: number;
+}
+/** Per-group score aggregate (prompts/commits/specs/tokens) for the CDLC Loop. */
+export async function scoreSummaryFiltered(groupName: string | null): Promise<ScoreSummary> {
+  const filter = { repo: null, branch: null, group_name: groupName, day: null, agent: null };
+  return invoke<ScoreSummary>("score_summary_filtered", { filter });
+}
 export async function cdlcPublish(cwd: string, org: string, name: string): Promise<unknown> {
   return invoke<unknown>("cdlc_publish", { cwd, org, name });
 }

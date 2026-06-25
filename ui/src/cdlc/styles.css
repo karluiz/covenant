@@ -322,5 +322,32 @@ body.theme-true-dark .cdlc-panel {
   word-break: break-word;
 }
 
-/* Loop is a Phase-2 placeholder — quiet it down */
-.cdlc-loop { opacity: 0.7; }
+/* ── Loop — Observe/Adapt: adoption + inference footprint ── */
+.cdlc-subhead {
+  margin: 12px 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #6c7280);
+}
+.cdlc-loop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: 12px;
+}
+.cdlc-loop-row .cdlc-meta { margin-left: auto; }
+.cdlc-loop .cdlc-loop-metric {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-primary, #f5f6f7);
+}
+.cdlc-loop .cdlc-loop-note {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--muted, #6c7280);
+  opacity: 0.8;
+}

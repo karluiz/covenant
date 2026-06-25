@@ -8,6 +8,10 @@ vi.mock("../api", () => ({
   cdlcSearch: vi.fn().mockResolvedValue([]),
   cdlcPublish: vi.fn().mockResolvedValue({}),
   cdlcInstallRegistry: vi.fn().mockResolvedValue({}),
+  cdlcPreview: vi.fn().mockResolvedValue({ description: "", skill_md: "" }),
+  cdlcReadLocal: vi.fn().mockResolvedValue(""),
+  cdlcExport: vi.fn().mockResolvedValue(undefined),
+  scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_prompts: 0, total_commits: 0, total_tokens: 0, total_specs: 0 }),
 }));
 
 describe("CdlcPanel", () => {
@@ -97,7 +101,7 @@ describe("CdlcPanel", () => {
       ],
       contextFiles: [],
     });
-    expect(host.querySelector("button.cdlc-publish-btn")).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Publish to registry"]')).not.toBeNull();
     expect(host.textContent).toContain("kyc-peru");
   });
 });

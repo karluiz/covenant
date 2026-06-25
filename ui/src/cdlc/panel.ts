@@ -2,11 +2,23 @@ import "./styles.css";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
-import type { CdlcStatus, Org, PkgMeta } from "../api";
+import type { CdlcStatus, Org, PkgMeta, ScoreSummary } from "../api";
 import {
   cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
-  cdlcPreview, cdlcReadLocal, cdlcExport,
+  cdlcPreview, cdlcReadLocal, cdlcExport, scoreSummaryFiltered,
 } from "../api";
+
+function loopSubhead(text: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "cdlc-subhead";
+  el.textContent = text;
+  return el;
+}
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
 
 function errorLine(text: string): HTMLElement {
   const p = document.createElement("p");
@@ -40,6 +52,8 @@ export class CdlcPanel {
   private root: HTMLElement;
   private body: HTMLElement;
   private orgs: Org[] = [];
+  private score: ScoreSummary | null = null;
+  private adoption = new Map<string, number>(); // package name → org-wide installs
 
   constructor(private opts: CdlcPanelOpts) {
     this.root = document.createElement("div");
@@ -97,11 +111,19 @@ export class CdlcPanel {
       return;
     }
     try {
-      const [status, orgs] = await Promise.all([
+      const [status, orgs, score] = await Promise.all([
         cdlcLocalStatus(cwd),
         cdlcMyOrgs().catch(() => [] as Org[]),
+        scoreSummaryFiltered(this.opts.groupLabel ?? null).catch(() => null),
       ]);
       this.orgs = orgs;
+      this.score = score;
+      // Adoption: org-wide install counts for skills installed from the registry.
+      this.adoption = new Map();
+      if (orgs.length > 0) {
+        const pkgs = await cdlcSearch(orgs[0].slug, null).catch(() => [] as PkgMeta[]);
+        for (const p of pkgs) this.adoption.set(p.name, p.installs);
+      }
       this.renderStatus(status);
     } catch (e) {
       this.body.textContent = `Failed to read CDLC: ${String(e)}`;
@@ -198,14 +220,47 @@ export class CdlcPanel {
       ctx.appendChild(row);
     }
 
-    // Loop section (Phase 2 placeholder)
+    // Loop section — Observe/Adapt: adoption + inference footprint.
     const loop = document.createElement("section");
     loop.className = "cdlc-loop";
     const lh = document.createElement("h3");
     lh.textContent = "Loop";
-    const lp = document.createElement("p");
-    lp.textContent = "Eval & adoption metrics arrive in Phase 2.";
-    loop.append(lh, lp);
+    loop.appendChild(lh);
+
+    // Adoption — org-wide installs for skills installed from the registry.
+    const registrySkills = s.installed.filter((i) => i.source.startsWith("registry:"));
+    if (registrySkills.length > 0) {
+      loop.appendChild(loopSubhead("Adoption"));
+      for (const i of registrySkills) {
+        const row = document.createElement("div");
+        row.className = "cdlc-loop-row";
+        const name = document.createElement("span");
+        name.className = "cdlc-name";
+        name.textContent = i.name;
+        const val = document.createElement("span");
+        val.className = "cdlc-meta";
+        const n = this.adoption.get(i.name);
+        val.textContent = n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`;
+        row.append(name, val);
+        loop.appendChild(row);
+      }
+    }
+
+    // Inference — this group's footprint from the four Covenant primitives.
+    if (this.score) {
+      loop.appendChild(loopSubhead("Inference · this group"));
+      const m = document.createElement("p");
+      m.className = "cdlc-loop-metric";
+      const sc = this.score;
+      m.textContent = `${sc.total_specs} specs · ${sc.total_prompts} prompts · ${sc.total_commits} commits · ${fmtTokens(sc.total_tokens)} tokens`;
+      loop.appendChild(m);
+    }
+
+    // Eval — deferred (the behavior-under-context TDD runner).
+    const evalNote = document.createElement("p");
+    evalNote.className = "cdlc-loop-note";
+    evalNote.textContent = "Eval pass-rate (context-TDD) arrives in a later phase.";
+    loop.appendChild(evalNote);
 
     this.body.append(skills, ctx, loop);
   }
