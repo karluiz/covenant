@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.101 — CDLC panel scoping + opencode/pi export
+
+### Added
+
+- **CDLC export to opencode and pi**: the multi-export now writes agents into
+  opencode's `.opencode/agent/` and skills/context into pi's
+  `.pi/skills/cdlc-<name>/SKILL.md`, alongside Claude and the codex/copilot
+  managed blocks. Targets are table-driven (`AGENT_DIRS` / `SKILL_DIRS`), so
+  adding an executor is a one-line change. `crates/cdlc/src/project.rs`.
+
+### Changed
+
+- **CDLC panel follows the active group**: the panel re-scopes when you switch
+  groups, so install / export always target the repo you're standing in (it
+  previously stayed pinned to the group it opened on). `ui/src/main.ts`.
+
+- **CDLC actions give feedback**: install, export, and publish now surface a
+  toast instead of refreshing silently. `ui/src/cdlc/panel.ts`.
+
+### Fixed
+
+- **CDLC panel rendered over full-page routes**: the fixed-position panel is now
+  hidden while Settings / Docs / Drafts / Mission / Operator / Capabilities are
+  open, mirroring the Project Notes panel. `ui/src/cdlc/styles.css`.
+
 ## v0.8.100 — CDLC Re-export button
 
 ### Added
