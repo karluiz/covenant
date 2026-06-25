@@ -234,7 +234,8 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     }
 
     if sections.is_empty() {
-        for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
+        // `.hermes.md` is stripped only if present (the loop guards on exists).
+        for rel in ["AGENTS.md", ".github/copilot-instructions.md", ".hermes.md"] {
             let path = repo_root.join(rel);
             if path.exists() {
                 let existing = std::fs::read_to_string(&path)?;
@@ -248,8 +249,17 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
         "# CDLC context (auto-generated — do not edit inside this block)\n\n{}",
         sections.join("\n\n")
     );
+    // codex + opencode read AGENTS.md; copilot reads its own file. Both are
+    // standard, so create-or-update them.
     for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
         upsert_file(repo_root, rel, &body)?;
+    }
+    // Hermes also reads AGENTS.md, BUT a project-local `.hermes.md` shadows it
+    // (higher priority — only one context file loads). Mirror the block into
+    // `.hermes.md` only when it already exists; creating one would hide the
+    // user's AGENTS.md from Hermes.
+    if repo_root.join(".hermes.md").exists() {
+        upsert_file(repo_root, ".hermes.md", &body)?;
     }
     Ok(())
 }
@@ -385,6 +395,32 @@ mod tests {
         // Claude targets unchanged (regression)
         assert!(repo.join(".claude/agents/kyc-reviewer.md").exists());
         assert!(repo.join(".claude/skills/cdlc-sbs-kyc/SKILL.md").exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn project_mirrors_block_into_existing_hermes_md_only() {
+        let base = std::env::temp_dir().join(format!("cdlc-hermes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+        let cdir = crate::cdlc_dir(&repo).join("context");
+        std::fs::create_dir_all(&cdir).unwrap();
+        std::fs::write(cdir.join("sbs.md"), "---\nsummary: Cite SBS.\n---\nbody\n").unwrap();
+        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+
+        // No .hermes.md → must NOT be created (Hermes falls back to AGENTS.md).
+        project(&repo).unwrap();
+        assert!(!repo.join(".hermes.md").exists(), "must not create .hermes.md");
+        assert!(repo.join("AGENTS.md").exists(), "AGENTS.md written (Hermes reads it)");
+
+        // Existing .hermes.md → block mirrored in, user content preserved.
+        std::fs::write(repo.join(".hermes.md"), "# My Hermes rules\n").unwrap();
+        project(&repo).unwrap();
+        let h = std::fs::read_to_string(repo.join(".hermes.md")).unwrap();
+        assert!(h.contains("# My Hermes rules"), "user content preserved");
+        assert!(h.contains("<!-- cdlc:start -->"), "cdlc block mirrored into .hermes.md");
+        assert!(h.contains("Cite SBS."), "context summary present");
 
         let _ = std::fs::remove_dir_all(&base);
     }
