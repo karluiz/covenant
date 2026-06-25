@@ -47,6 +47,41 @@ fn strip_covenant_block(md: &str) -> String {
     s
 }
 
+/// `(file_stem, contents)` for every `*.md` directly under `dir`, sorted by stem.
+/// Returns an empty Vec when `dir` does not exist.
+fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CdlcError> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    if !dir.exists() {
+        return Ok(out);
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
+        let stem = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        out.push((stem, std::fs::read_to_string(&path)?));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+/// Project operator personas into Claude's native multi-agent dir.
+fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), CdlcError> {
+    if agents.is_empty() {
+        return Ok(());
+    }
+    let dir = repo_root.join(".claude/agents");
+    std::fs::create_dir_all(&dir)?;
+    for (stem, raw) in agents {
+        std::fs::write(dir.join(format!("{stem}.md")), strip_covenant_block(raw))?;
+    }
+    Ok(())
+}
+
 /// First top-level `summary:` value inside the leading frontmatter, trimmed and
 /// dequoted. `None` if there is no frontmatter or no non-empty summary.
 /// ponytail: single-line summaries only; add block-scalar support if needed.
@@ -241,6 +276,33 @@ mod tests {
     fn parse_summary_none_when_absent() {
         let md = "---\nname: x\n---\nbody\n";
         assert_eq!(parse_summary(md), None);
+    }
+
+    #[test]
+    fn project_agents_writes_stripped_claude_files() {
+        let base = std::env::temp_dir().join(format!("cdlc-agents-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+        let src = crate::cdlc_dir(&repo).join("agents");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            src.join("kyc-reviewer.md"),
+            "---\nname: kyc-reviewer\nmodel: claude-sonnet-4-6\ncovenant:\n  voice: formal\n---\nReview KYC.\n",
+        )
+        .unwrap();
+
+        let agents = read_dir_md(&src).unwrap();
+        assert_eq!(agents.len(), 1);
+        project_agents(&repo, &agents).unwrap();
+
+        let out = repo.join(".claude/agents/kyc-reviewer.md");
+        assert!(out.exists());
+        let content = std::fs::read_to_string(&out).unwrap();
+        assert!(content.contains("name: kyc-reviewer"));
+        assert!(!content.contains("covenant:"), "covenant block must be stripped");
+        assert!(content.contains("Review KYC."));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
