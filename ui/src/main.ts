@@ -1665,6 +1665,15 @@ async function boot(): Promise<void> {
     if (missionPanel.isOpen()) missionPanel.close();
     if (operator.isOpen()) operator.close();
     if (specChat.isOpen()) specChat.close();
+    // The CDLC panel is per-group — follow the active group so install/export
+    // target the repo you're actually standing in, not the one it opened on.
+    if (activeCdlcPanel) {
+      const g = manager.activeGroup();
+      if (g && g.id !== activeCdlcPanel.groupId) {
+        pendingCdlcArgs = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
+        mountCdlc();
+      }
+    }
   };
 
   const specChatPage = requireEl<HTMLElement>("spec-chat-page");

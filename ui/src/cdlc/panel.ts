@@ -1,6 +1,7 @@
 import "./styles.css";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
+import { pushInfoToast } from "../notifications/toast";
 import type { CdlcStatus, Org, PkgMeta } from "../api";
 import {
   cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
@@ -76,6 +77,11 @@ export class CdlcPanel {
 
   setOrgs(orgs: Org[]): void {
     this.orgs = orgs;
+  }
+
+  /** The group this panel is scoped to — used to re-scope on group switch. */
+  get groupId(): string {
+    return this.opts.groupId;
   }
 
   mount(host: HTMLElement): this {
@@ -211,13 +217,9 @@ export class CdlcPanel {
     try {
       await cdlcExport(cwd);
       await this.refresh();
-      const ok = document.createElement("p");
-      ok.className = "cdlc-export-ok";
-      ok.textContent = "Exported to .claude / AGENTS.md / copilot.";
-      this.body.prepend(ok);
-      setTimeout(() => ok.remove(), 3000);
+      pushInfoToast({ message: `CDLC exported to .claude · AGENTS.md · copilot (${this.opts.groupLabel})` });
     } catch (e) {
-      this.body.prepend(errorLine(`Export failed: ${String(e)}`));
+      pushInfoToast({ message: `CDLC export failed: ${String(e)}` });
     } finally {
       btn.disabled = false;
     }
@@ -230,8 +232,9 @@ export class CdlcPanel {
     try {
       await cdlcPublish(cwd, org, name);
       await this.refresh();
+      pushInfoToast({ message: `Published ${name} to ${org}` });
     } catch (e) {
-      this.body.appendChild(errorLine(`Publish failed: ${String(e)}`));
+      pushInfoToast({ message: `Publish failed: ${String(e)}` });
     }
   }
 
@@ -241,8 +244,9 @@ export class CdlcPanel {
     try {
       await cdlcInstallRegistry(cwd, org, name, version, this.opts.groupLabel ?? null, null);
       await this.refresh();
+      pushInfoToast({ message: `Installed ${name} ${version} · projected to executors` });
     } catch (e) {
-      this.body.appendChild(errorLine(`Install failed: ${String(e)}`));
+      pushInfoToast({ message: `Install failed: ${String(e)}` });
     }
   }
 
