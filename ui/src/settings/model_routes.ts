@@ -4,6 +4,20 @@ import { CustomSelect, type SelectOption } from "../ui/select";
 
 type Role = "summary" | "chat" | "operator" | "triage" | "spec_creator";
 
+// ponytail: in-flight dedupe so the 5 role rows mounting at once collapse
+// identical provider probes into ONE request (Azure throttles 5 parallel
+// /openai/deployments calls past the backend's 8s timeout → false "unreachable").
+// Cleared on settle, so a later manual refresh still re-probes.
+const inflightProbes = new Map<string, Promise<{ id: string }[]>>();
+function probe(key: string, fn: () => Promise<{ id: string }[]>) {
+  let p = inflightProbes.get(key);
+  if (!p) {
+    p = fn().finally(() => inflightProbes.delete(key));
+    inflightProbes.set(key, p);
+  }
+  return p;
+}
+
 const ROLE_LABEL: Record<Role, string> = {
   summary:      "Summary",
   chat:         "Chat (⌘K)",
@@ -113,9 +127,9 @@ function renderRoleRow(
     let models;
     try {
       if (entry.kind === "anthropic") {
-        models = await listModelsAnthropic();
+        models = await probe(`anthropic:${providerId}`, () => listModelsAnthropic());
       } else if (entry.kind === "azure_foundry") {
-        models = await listModelsAzureFoundry({
+        const args = {
           endpoint: entry.base_url ?? "",
           apiKey: entry.api_key ?? "",
           mode: entry.azure_mode ?? "azure_open_ai",
@@ -124,9 +138,13 @@ function renderRoleRow(
             (entry.azure_mode === "ai_inference"
               ? "2024-05-01-preview"
               : "2024-10-21"),
-        });
+        };
+        models = await probe(`azure:${JSON.stringify(args)}`, () =>
+          listModelsAzureFoundry(args),
+        );
       } else {
-        models = await listModelsOpenAiCompat(entry.base_url ?? "");
+        const base = entry.base_url ?? "";
+        models = await probe(`compat:${base}`, () => listModelsOpenAiCompat(base));
       }
     } catch (e) {
       modelSel.setOptions([

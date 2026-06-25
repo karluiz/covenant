@@ -265,10 +265,10 @@ body.bg-translucent {
 body.theme-true-dark {
     --surface-alpha: 1;
     --bg: #000000;
-    --bg-panel: #060606;
-    --bg-tabbar: #050505;
-    --sidebar-bg: #0a0a0a;
-    --bg-overlay: #060606;
+    --bg-panel: #000000;
+    --bg-tabbar: #000000;
+    --sidebar-bg: #000000;
+    --bg-overlay: #000000;
     --border: #1a1a1a;
     --tab-bg-active: #0e0e0e;
 }
@@ -3847,6 +3847,10 @@ body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidde
    the border + rail/section tokens still carry the internal structure. */
 body.theme-true-dark .providers-md__frame,
 body.theme-true-dark .providers-md__rail { background: var(--bg); }
+/* ponytail: outer frame border recuadra el panel como tarjeta elevada sobre
+   near-black; en True Dark se disuelve para fundirse con la página. El
+   separador interno del rail y los section tokens mantienen la estructura. */
+body.theme-true-dark .providers-md__frame { border-color: transparent; }
 /* ponytail: settings nav flattens to page black; active item uses a neutral
    lift instead of the accent tint that jumps on near-black (text stays accent). */
 body.theme-true-dark .settings-nav { background: var(--bg) !important; }
@@ -18020,6 +18024,12 @@ body.theme-light .task-item.is-open {
 #activity-sidebar,
 #teammate-panel {
   border-left: 1px solid var(--border, #232831) !important;
+}
+
+/* Same reasoning for the Settings nav: keep the vertical divider between the
+   nav column and the content, matching the header/footer separators. */
+.settings-nav {
+  border-right: 1px solid var(--border, #232831) !important;
 }
 
 .blocks-header,

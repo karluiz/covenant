@@ -30,3 +30,17 @@ History follows Conventional Commits, for example `feat(pi-rpc): ...` and `chore
 ## Architecture & Safety Notes
 
 Respect the PTY-first architecture: do not reimplement VT parsing, do not bypass OSC 133 block handling, and do not call model providers outside the central safety/dispatch path. Never persist or send unmasked secrets or raw ANSI content to LLM code paths.
+
+<!-- cdlc:start -->
+# CDLC context (auto-generated — do not edit inside this block)
+
+## kyc-peru v1.0.0
+
+# KYC — Perú (SBS)
+
+Al evaluar onboarding o aprobación de productos:
+
+- **Exigir** documento de identidad vigente y verificación de identidad antes de aprobar.
+- Si falta KYC, **rechazar** y citar la resolución SBS aplicable.
+- Conservar evidencia de la verificación según el período de retención regulatorio.
+<!-- cdlc:end -->
