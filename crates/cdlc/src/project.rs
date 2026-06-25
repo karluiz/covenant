@@ -171,47 +171,66 @@ fn strip_block(existing: &str) -> String {
     }
 }
 
-/// Generate every executor's native instruction file from the installed skills.
+/// Generate every executor's native files from the repo's CDLC sources.
 pub fn project(repo_root: &Path) -> Result<(), CdlcError> {
+    project_with_active(repo_root, None)
+}
+
+/// Like `project`, but also folds the currently-attached operator's persona into
+/// the managed-block executors (codex/copilot run one persona at a time).
+pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Result<(), CdlcError> {
     let manifest = read_manifest(repo_root)?;
     let skills_dir = cdlc_dir(repo_root).join("skills");
 
-    // Collect each installed skill's payload once.
-    let mut blocks: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
+    // Sources.
+    let agents = read_dir_md(&cdlc_dir(repo_root).join("agents"))?;
+    let contexts = read_dir_md(&cdlc_dir(repo_root).join("context"))?;
+    let mut skills: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
-        let body = std::fs::read_to_string(&md)?;
-        blocks.push((i.name.clone(), i.version.clone(), body));
+        skills.push((i.name.clone(), i.version.clone(), std::fs::read_to_string(&md)?));
     }
 
-    if blocks.is_empty() {
-        // I2: strip the managed block from managed-block files if present; don't create new files.
-        for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
-            let path = repo_root.join(rel);
-            if path.exists() {
-                let existing = std::fs::read_to_string(&path)?;
-                let stripped = strip_block(&existing);
-                std::fs::write(&path, stripped)?;
-            }
-        }
-        return Ok(());
-    }
-
-    // I3: claude executor — one dir per skill with guaranteed YAML frontmatter.
-    for (name, _v, body) in &blocks {
+    // File-per-item executor (Claude): one file per artifact.
+    project_agents(repo_root, &agents)?;
+    project_context_skills(repo_root, &contexts)?;
+    for (name, _v, body) in &skills {
         let dir = repo_root.join(".claude/skills").join(format!("cdlc-{name}"));
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("SKILL.md"), ensure_frontmatter(name, body))?;
     }
 
-    // Managed-block executors: one concatenated block (raw body, no frontmatter).
-    let combined = blocks
-        .iter()
-        .map(|(n, v, b)| format!("## {n} v{v}\n\n{}", b.trim()))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let body = format!("# CDLC context (auto-generated — do not edit inside this block)\n\n{combined}");
+    // Managed-block executors (codex, copilot): one concatenated block.
+    let mut sections: Vec<String> = Vec::new();
+    if let Some(name) = active_agent {
+        if let Some((stem, raw)) = agents.iter().find(|(s, _)| s == name) {
+            sections.push(format!("## {stem} (operator)\n\n{}", body_after_frontmatter(raw).trim()));
+        }
+    }
+    for (name, v, body) in &skills {
+        sections.push(format!("## {name} v{v}\n\n{}", body.trim()));
+    }
+    for (stem, raw) in &contexts {
+        if let Some(sum) = parse_summary(raw) {
+            sections.push(format!("## {stem} (context)\n\n{sum}"));
+        }
+    }
 
+    if sections.is_empty() {
+        for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
+            let path = repo_root.join(rel);
+            if path.exists() {
+                let existing = std::fs::read_to_string(&path)?;
+                std::fs::write(&path, strip_block(&existing))?;
+            }
+        }
+        return Ok(());
+    }
+
+    let body = format!(
+        "# CDLC context (auto-generated — do not edit inside this block)\n\n{}",
+        sections.join("\n\n")
+    );
     for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
         upsert_file(repo_root, rel, &body)?;
     }
@@ -460,5 +479,66 @@ mod tests {
     fn strip_block_noop_when_no_block() {
         let input = "just some text\n";
         assert_eq!(strip_block(input), input);
+    }
+
+    #[test]
+    fn managed_block_includes_active_agent_and_context_summary() {
+        let base = std::env::temp_dir().join(format!("cdlc-full-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+
+        // an agent
+        let adir = crate::cdlc_dir(&repo).join("agents");
+        std::fs::create_dir_all(&adir).unwrap();
+        std::fs::write(
+            adir.join("kyc-reviewer.md"),
+            "---\nname: kyc-reviewer\ncovenant:\n  voice: formal\n---\nReview KYC carefully.\n",
+        )
+        .unwrap();
+
+        // a context doc with a summary
+        let cdir = crate::cdlc_dir(&repo).join("context");
+        std::fs::create_dir_all(&cdir).unwrap();
+        std::fs::write(
+            cdir.join("sbs-kyc.md"),
+            "---\nsummary: Mask PII; cite SBS article.\n---\n# SBS KYC\nfull text\n",
+        )
+        .unwrap();
+
+        // empty skills manifest
+        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+
+        project_with_active(&repo, Some("kyc-reviewer")).unwrap();
+
+        let agents_md = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
+        assert!(agents_md.contains("kyc-reviewer (operator)"), "active operator in block");
+        assert!(agents_md.contains("Review KYC carefully."), "operator body in block");
+        assert!(agents_md.contains("Mask PII; cite SBS article."), "context summary in block");
+        assert!(!agents_md.contains("full text"), "context FULL body must NOT be in managed block");
+        assert_eq!(agents_md.matches("<!-- cdlc:start -->").count(), 1);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn project_strips_block_when_everything_empty() {
+        let base = std::env::temp_dir().join(format!("cdlc-empty-all-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(
+            repo.join("AGENTS.md"),
+            "hand-written\n\n<!-- cdlc:start -->\nold\n<!-- cdlc:end -->\n",
+        )
+        .unwrap();
+        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+
+        project(&repo).unwrap();
+
+        let content = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
+        assert!(!content.contains("<!-- cdlc:start -->"), "block stripped when all sources empty");
+        assert!(content.contains("hand-written"), "surrounding content preserved");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
