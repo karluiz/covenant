@@ -70,7 +70,16 @@ fn handle_event(
         }
         seen.insert(path.clone(), now);
         let path_s = path.to_string_lossy().to_string();
-        let ctx = derive_context(&path);
+        let mut ctx = derive_context(&path);
+        // The path gives us the repo; inherit the active group/workspace from the
+        // current session so per-group Inference views count specs.
+        let cur = crate::current_context();
+        if ctx.group_name.is_none() {
+            ctx.group_name = cur.group_name;
+        }
+        if ctx.workspace.is_none() {
+            ctx.workspace = cur.workspace;
+        }
         crate::record_spec(&path_s, &ctx);
     }
 }

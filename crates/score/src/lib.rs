@@ -147,11 +147,14 @@ pub fn record_prompt(executor: &str) {
 pub fn record_commit_with_context(repo: &str, sha7: &str, branch: Option<String>) {
     let now = chrono::Utc::now().timestamp_millis();
     let exec = format!("{repo}:{sha7}");
+    // Keep the commit's own repo/branch, but inherit the active group/workspace
+    // from the current session (like prompts do) so per-group views see commits.
+    let cur = current_context();
     let ctx = Context {
         repo: Some(repo.to_string()),
         branch,
-        group_name: None,
-        workspace: None,
+        group_name: cur.group_name,
+        workspace: cur.workspace,
     };
     if let Ok(g) = slot().lock() {
         if let Some(store) = g.as_ref() {
