@@ -2,6 +2,7 @@ import "./styles.css";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
+import { renderMarkdown } from "../mission/preview";
 import type { CdlcStatus, Org, PkgMeta, ScoreSummary } from "../api";
 import {
   cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
@@ -18,6 +19,42 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+/** Drop a leading YAML frontmatter block (--- … ---) so it doesn't render as
+ *  a paragraph. The skill name already lives in the reader header. */
+function stripFrontmatter(md: string): string {
+  return md.replace(/^﻿?\s*---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "");
+}
+
+/** Full-screen rendered-markdown reader for a SKILL.md — same vibe as the
+ *  spec preview. renderMarkdown HTML-escapes every segment, so the untrusted
+ *  registry content is safe to innerHTML here. Esc / backdrop / × closes. */
+function openMarkdownReader(title: string, fetchMd: () => Promise<string>): void {
+  const overlay = document.createElement("div");
+  overlay.className = "cdlc-reader";
+  overlay.innerHTML = `
+    <header class="cdlc-reader-head">
+      <span class="cdlc-reader-title"></span>
+      <button type="button" class="cdlc-reader-close" aria-label="Close">×</button>
+    </header>
+    <article class="cdlc-reader-body mission-page-preview-body">Loading…</article>`;
+  (overlay.querySelector(".cdlc-reader-title") as HTMLElement).textContent = title;
+  const body = overlay.querySelector(".cdlc-reader-body") as HTMLElement;
+
+  const close = (): void => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
+  overlay.querySelector(".cdlc-reader-close")?.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", onKey);
+
+  document.body.appendChild(overlay);
+  void fetchMd()
+    .then((md) => { body.innerHTML = renderMarkdown(stripFrontmatter(md).trim() || "(empty)"); })
+    .catch((e) => { body.textContent = `Failed to load: ${String(e)}`; });
 }
 
 function errorLine(text: string): HTMLElement {
@@ -350,7 +387,12 @@ export class CdlcPanel {
           .catch((e) => { pre.textContent = `Failed to load: ${String(e)}`; loaded = false; });
       }
     });
-    head.append(prev, ...opts.actions);
+    const expand = iconButton(
+      Icons.maximize({ size: 14 }),
+      "Open full screen",
+      () => openMarkdownReader(opts.name, opts.fetchPreview),
+    );
+    head.append(prev, expand, ...opts.actions);
     card.appendChild(head);
 
     if (opts.description?.trim()) {
