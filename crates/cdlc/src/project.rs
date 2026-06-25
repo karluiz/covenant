@@ -4,6 +4,65 @@ use std::path::Path;
 const START: &str = "<!-- cdlc:start -->";
 const END: &str = "<!-- cdlc:end -->";
 
+/// Remove the top-level `covenant:` mapping from a doc's leading `---`…`---`
+/// frontmatter. The key line and every following indented (or blank) line up to
+/// the next top-level key (or the closing fence) is dropped. Body is untouched.
+/// ponytail: line-based, not a real YAML parse — handles single-level nesting,
+/// which is all the `covenant:` block uses. Swap to serde_yaml if it grows.
+fn strip_covenant_block(md: &str) -> String {
+    let lines: Vec<&str> = md.lines().collect();
+    let open = match lines.iter().position(|l| l.trim() == "---") {
+        Some(i) => i,
+        None => return md.to_string(),
+    };
+    let close = match lines.iter().skip(open + 1).position(|l| l.trim() == "---") {
+        Some(i) => open + 1 + i,
+        None => return md.to_string(),
+    };
+    let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let in_fm = i > open && i < close;
+        // top-level key (no indent) named exactly `covenant:`
+        if in_fm && line == line.trim_start() && line.trim_start().starts_with("covenant:") {
+            i += 1;
+            while i < close {
+                let child = lines[i];
+                if child.trim().is_empty() || child.starts_with(' ') || child.starts_with('\t') {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(line);
+        i += 1;
+    }
+    let mut s = out.join("\n");
+    if md.ends_with('\n') {
+        s.push('\n');
+    }
+    s
+}
+
+/// Markdown body after the closing `---` of a leading frontmatter block.
+/// Returns the input unchanged when there is no frontmatter.
+fn body_after_frontmatter(md: &str) -> &str {
+    let s = md.trim_start_matches('\n');
+    if let Some(rest) = s.strip_prefix("---") {
+        if let Some(idx) = rest.find("\n---") {
+            // skip past the closing fence line
+            let after = &rest[idx + 1..]; // at the "---" line
+            if let Some(nl) = after.find('\n') {
+                return after[nl + 1..].trim_start_matches('\n');
+            }
+        }
+    }
+    md
+}
+
 /// Ensure a SKILL.md body has YAML frontmatter required by Claude Code.
 /// If the body already starts with `---`, it is returned unchanged (idempotent).
 /// Otherwise, a minimal frontmatter block is prepended, deriving the description
@@ -123,6 +182,36 @@ fn upsert_block(existing: &str, body: &str) -> String {
 mod tests {
     use super::*;
     use crate::{write_manifest, CdlcManifest, InstalledRef};
+
+    #[test]
+    fn strip_covenant_removes_block_keeps_standard_keys() {
+        let md = "---\nname: kyc-reviewer\nmodel: claude-sonnet-4-6\ncovenant:\n  escalate_threshold: 0.7\n  voice: formal\ntools: [Read]\n---\nbody text\n";
+        let out = strip_covenant_block(md);
+        assert!(out.contains("name: kyc-reviewer"));
+        assert!(out.contains("model: claude-sonnet-4-6"));
+        assert!(out.contains("tools: [Read]"), "key after covenant block must survive");
+        assert!(!out.contains("covenant:"), "covenant key removed");
+        assert!(!out.contains("escalate_threshold"), "covenant children removed");
+        assert!(out.contains("body text"), "body untouched");
+    }
+
+    #[test]
+    fn strip_covenant_noop_without_block() {
+        let md = "---\nname: x\n---\nbody\n";
+        assert_eq!(strip_covenant_block(md), md);
+    }
+
+    #[test]
+    fn body_after_frontmatter_returns_body() {
+        let md = "---\nsummary: short\n---\nfull body here\n";
+        assert_eq!(body_after_frontmatter(md), "full body here\n");
+    }
+
+    #[test]
+    fn body_after_frontmatter_noop_when_no_frontmatter() {
+        let md = "no frontmatter here\n";
+        assert_eq!(body_after_frontmatter(md), md);
+    }
 
     #[test]
     fn upsert_is_idempotent_and_single_block() {
