@@ -82,6 +82,19 @@ fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), C
     Ok(())
 }
 
+/// Project the FULL body of each regulatory context doc into an on-demand Claude
+/// skill dir. The `summary:` frontmatter is dropped here (it rides the managed
+/// block instead — see project_managed_block) and Claude frontmatter is re-added.
+fn project_context_skills(repo_root: &Path, contexts: &[(String, String)]) -> Result<(), CdlcError> {
+    for (stem, raw) in contexts {
+        let body = body_after_frontmatter(raw);
+        let dir = repo_root.join(".claude/skills").join(format!("cdlc-{stem}"));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("SKILL.md"), ensure_frontmatter(stem, body))?;
+    }
+    Ok(())
+}
+
 /// First top-level `summary:` value inside the leading frontmatter, trimmed and
 /// dequoted. `None` if there is no frontmatter or no non-empty summary.
 /// ponytail: single-line summaries only; add block-scalar support if needed.
@@ -301,6 +314,32 @@ mod tests {
         assert!(content.contains("name: kyc-reviewer"));
         assert!(!content.contains("covenant:"), "covenant block must be stripped");
         assert!(content.contains("Review KYC."));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn project_context_writes_claude_skill_from_body() {
+        let base = std::env::temp_dir().join(format!("cdlc-ctx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+        let src = crate::cdlc_dir(&repo).join("context");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            src.join("sbs-kyc.md"),
+            "---\nsummary: Mask PII; cite SBS article.\n---\n# SBS KYC\nFull regulatory text.\n",
+        )
+        .unwrap();
+
+        let contexts = read_dir_md(&src).unwrap();
+        project_context_skills(&repo, &contexts).unwrap();
+
+        let out = repo.join(".claude/skills/cdlc-sbs-kyc/SKILL.md");
+        assert!(out.exists());
+        let content = std::fs::read_to_string(&out).unwrap();
+        assert!(content.starts_with("---\nname: cdlc-"), "must have Claude frontmatter");
+        assert!(content.contains("Full regulatory text."), "full body present");
+        assert!(!content.contains("summary: Mask PII"), "context frontmatter dropped");
 
         let _ = std::fs::remove_dir_all(&base);
     }
