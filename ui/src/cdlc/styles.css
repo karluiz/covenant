@@ -26,6 +26,18 @@
   --cdlc-line: var(--border, #1c2027);
 }
 
+/* Full-page routes (Settings/Docs/Drafts/Mission/Operator/Capabilities) must
+   cover the floating CDLC panel. It's position:fixed so it would otherwise sit
+   on top of these pages — mirrors the .pn-panel rule in styles.css. */
+body:has(#settings-page:not([hidden])) .cdlc-panel,
+body:has(#docs-page:not([hidden])) .cdlc-panel,
+body:has(#drafts-page:not([hidden])) .cdlc-panel,
+body:has(#mission-page:not([hidden])) .cdlc-panel,
+body:has(#operator-page:not([hidden])) .cdlc-panel,
+body:has(#capabilities-page:not([hidden])) .cdlc-panel {
+  display: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cdlc-panel { animation: none; }
 }
