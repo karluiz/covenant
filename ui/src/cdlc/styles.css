@@ -66,8 +66,39 @@ body.theme-true-dark .cdlc-panel {
   border-bottom: 1px solid var(--cdlc-line);
 }
 
+.cdlc-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Header icon buttons (Re-export) — match the close button's quiet style */
+.cdlc-head .cdlc-icon-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  color: var(--muted, #6c7280);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 120ms, background 120ms, color 120ms;
+}
+.cdlc-head .cdlc-icon-btn:hover {
+  opacity: 1;
+  color: var(--text-primary, #f5f6f7);
+  background: var(--cdlc-lift-1);
+}
+.cdlc-head .cdlc-icon-btn:disabled { opacity: 0.4; cursor: default; }
+
+.cdlc-export-ok {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--ok, #9ece6a);
+}
+
 .cdlc-close-btn {
-  margin-left: auto;
   flex-shrink: 0;
   background: transparent;
   border: 0;

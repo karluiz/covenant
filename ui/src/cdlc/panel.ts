@@ -4,7 +4,7 @@ import { attachTooltip } from "../tooltip/tooltip";
 import type { CdlcStatus, Org, PkgMeta } from "../api";
 import {
   cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
-  cdlcPreview, cdlcReadLocal,
+  cdlcPreview, cdlcReadLocal, cdlcExport,
 } from "../api";
 
 function errorLine(text: string): HTMLElement {
@@ -46,8 +46,21 @@ export class CdlcPanel {
 
     const head = document.createElement("div");
     head.className = "cdlc-head";
-    head.textContent = `CDLC — ${opts.groupLabel}`;
     if (opts.groupColor) head.style.setProperty("--cdlc-accent", opts.groupColor);
+    const title = document.createElement("span");
+    title.className = "cdlc-title";
+    title.textContent = `CDLC — ${opts.groupLabel}`;
+    head.appendChild(title);
+
+    // Re-export every CDLC source (agents/skills/context) to executor-native files.
+    if (opts.groupRootDir) {
+      const exportBtn = iconButton(
+        Icons.refresh({ size: 15 }),
+        "Re-export to executors (.claude, AGENTS.md, copilot)",
+        () => void this.exportNow(exportBtn),
+      );
+      head.appendChild(exportBtn);
+    }
 
     const closeBtn = document.createElement("button");
     closeBtn.className = "cdlc-close-btn";
@@ -189,6 +202,25 @@ export class CdlcPanel {
     loop.append(lh, lp);
 
     this.body.append(skills, ctx, loop);
+  }
+
+  private async exportNow(btn: HTMLButtonElement): Promise<void> {
+    const cwd = this.opts.groupRootDir;
+    if (!cwd) return;
+    btn.disabled = true;
+    try {
+      await cdlcExport(cwd);
+      await this.refresh();
+      const ok = document.createElement("p");
+      ok.className = "cdlc-export-ok";
+      ok.textContent = "Exported to .claude / AGENTS.md / copilot.";
+      this.body.prepend(ok);
+      setTimeout(() => ok.remove(), 3000);
+    } catch (e) {
+      this.body.prepend(errorLine(`Export failed: ${String(e)}`));
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   private async publish(name: string): Promise<void> {

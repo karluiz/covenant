@@ -1337,6 +1337,9 @@ export async function cdlcPreview(org: string, name: string, version: string): P
 export async function cdlcReadLocal(cwd: string, name: string): Promise<string> {
   return invoke<string>("cdlc_read_local", { cwd, name });
 }
+export async function cdlcExport(cwd: string): Promise<void> {
+  return invoke<void>("cdlc_export", { cwd });
+}
 export async function cdlcPublish(cwd: string, org: string, name: string): Promise<unknown> {
   return invoke<unknown>("cdlc_publish", { cwd, org, name });
 }

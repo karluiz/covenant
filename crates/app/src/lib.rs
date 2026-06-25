@@ -2302,6 +2302,18 @@ async fn cdlc_read_local(cwd: String, name: String) -> Result<String, String> {
     Ok(md)
 }
 
+/// Re-run the multi-export: write every CDLC source (agents, skills, context)
+/// into each executor's native files (.claude/*, AGENTS.md, copilot-instructions).
+/// Idempotent — safe to run any time after editing `.covenant/cdlc/`.
+#[tauri::command]
+async fn cdlc_export(cwd: String) -> Result<(), String> {
+    let repo = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || karl_cdlc::project_with_active(&repo, None))
+        .await
+        .map_err(|e| format!("cdlc_export join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn cdlc_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
     let repo = std::path::PathBuf::from(cwd);
@@ -4182,6 +4194,7 @@ pub fn run() {
             cdlc_search,
             cdlc_preview,
             cdlc_read_local,
+            cdlc_export,
             cdlc_publish,
             cdlc_install_registry,
             git_file_diff,
