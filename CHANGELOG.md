@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.105 — Per-group commit/spec attribution
+
+### Fixed
+
+- **Commits and specs now count toward the active group**: `record_commit_with_context`
+  hardcoded `group_name: None` and the spec watcher derived only the repo from the
+  file path, so the CDLC Loop's "Inference · this group" line showed `0 commits`
+  and `0 specs` even when they happened — only prompts and tokens were attributed.
+  Both now inherit the group/workspace from the current session, like prompts.
+  Applies to new activity (historical events keep their original attribution).
+  `crates/score/src/lib.rs`, `crates/score/src/spec_watcher.rs`.
+
 ## v0.8.104 — CDLC full-screen SKILL.md reader
 
 ### Added
