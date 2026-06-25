@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.104 — CDLC full-screen SKILL.md reader
+
+### Added
+
+- **Full-screen SKILL.md reader**: each CDLC skill/registry card gets a
+  maximize button that opens a full-screen reader rendering `SKILL.md` as
+  interpreted markdown (reuses `mission/preview` `renderMarkdown`, which
+  HTML-escapes every segment, so untrusted registry content is safe). The
+  reader insets to the title bar and status bar (`top: 76px`,
+  `bottom: statusbar-h`) like the CDLC panel, and strips leading YAML
+  frontmatter before rendering. `ui/src/cdlc/panel.ts`, `ui/src/cdlc/styles.css`.
+
+### Fixed
+
+- **CDLC panel overlapping full-page routes**: the `position: fixed` CDLC
+  panel floated over Settings/Docs/etc. It's now hidden under any full-page
+  route, mirroring the `.pn-panel` rule. `ui/src/cdlc/styles.css`.
+
 ## v0.8.103 — CDLC Loop metrics (adoption + inference)
 
 ### Added
