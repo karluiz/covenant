@@ -74,6 +74,13 @@ body.theme-dark .op-card .op-chip {
 .operators-pane-v2__grid {
   display: block;
 }
+/* Author display rules beat the UA [hidden] sheet, so the local grid/head
+   stayed visible on the Marketplace tab (op-cards bled into the mkt search
+   bar). Re-assert [hidden] explicitly. */
+.operators-pane-v2__grid[hidden],
+.operators-pane-v2__head[hidden] {
+  display: none;
+}
 
 .op-card-grid {
   display: grid;

@@ -16,7 +16,7 @@ const ROWS: { keys: string[]; label: string }[] = [
   { keys: ["mod", "K"], label: "ask the super-agent what's going on" },
   { keys: ["mod", "shift", "O"], label: "set an operator for this tab" },
   { keys: ["mod", "P"], label: "search history & recall commands" },
-  { keys: ["mod", "M"], label: "set a mission for this session" },
+  { keys: ["mod", "M"], label: "set a spec for this session" },
   { keys: ["mod", "shift", "K"], label: "see all keyboard shortcuts" },
 ];
 

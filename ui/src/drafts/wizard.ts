@@ -595,7 +595,7 @@ export class DraftWizard {
     toast.className = "drafts-toast";
     toast.innerHTML = `
       <span>Published as <strong>${escapeHtml(id)}</strong></span>
-      <button id="toast-open" type="button">Open in Set Mission</button>
+      <button id="toast-open" type="button">Open in Set Spec</button>
       <button class="drafts-toast-close" type="button" aria-label="Close">×</button>
     `;
     document.body.appendChild(toast);

@@ -49,8 +49,8 @@ export function renderTelegramSection(
     <fieldset class="settings-field settings-radio-group">
       <legend class="settings-label">Notify on</legend>
       <label class="settings-checkbox-row"><input type="checkbox" id="tg-ev-esc" ${t.events.escalations ? "checked" : ""}/> <span>Escalations</span></label>
-      <label class="settings-checkbox-row"><input type="checkbox" id="tg-ev-mc" ${t.events.mission_completed ? "checked" : ""}/> <span>Mission completed</span></label>
-      <label class="settings-checkbox-row"><input type="checkbox" id="tg-ev-mf" ${t.events.mission_failed ? "checked" : ""}/> <span>Mission failed</span></label>
+      <label class="settings-checkbox-row"><input type="checkbox" id="tg-ev-mc" ${t.events.mission_completed ? "checked" : ""}/> <span>Spec completed</span></label>
+      <label class="settings-checkbox-row"><input type="checkbox" id="tg-ev-mf" ${t.events.mission_failed ? "checked" : ""}/> <span>Spec failed</span></label>
     </fieldset>
   `;
 

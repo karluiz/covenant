@@ -20,8 +20,8 @@ export function mountSpecBadge(
   const badge = document.createElement("button");
   badge.type = "button";
   badge.className = "spec-badge hidden";
-  badge.title = "New mission spec detected";
-  badge.setAttribute("aria-label", "New mission spec detected");
+  badge.title = "New spec detected";
+  badge.setAttribute("aria-label", "New spec detected");
   badge.innerHTML = `<span class="spec-badge-icon">${Icons.target({ size: 13, strokeWidth: 2 })}</span><span class="spec-badge-count"></span>`;
   parent.appendChild(badge);
 
@@ -39,8 +39,8 @@ export function mountSpecBadge(
     }
     badge.classList.remove("hidden");
     const title = pending.length === 1
-      ? "1 new spec ready to set as mission"
-      : `${pending.length} new specs ready to set as missions`;
+      ? "1 new spec ready to set"
+      : `${pending.length} new specs ready to set`;
     badge.title = title;
     badge.setAttribute("aria-label", title);
     const count = badge.querySelector(".spec-badge-count")!;
@@ -82,7 +82,7 @@ export function mountSpecBadge(
           <div class="spec-badge-item-file">${escapeHtml(fileName)}</div>
           <div class="spec-badge-item-snippet">${escapeHtml(c.goal_snippet || "No Goal snippet yet.")}</div>
           <div class="spec-badge-item-actions">
-            <button type="button" class="spec-badge-set">Set mission</button>
+            <button type="button" class="spec-badge-set">Set spec</button>
             <button type="button" class="spec-badge-open">Open</button>
             <button type="button" class="spec-badge-dismiss">Dismiss</button>
           </div>
@@ -90,7 +90,7 @@ export function mountSpecBadge(
     }).join("");
     popover.innerHTML = `
       <div class="spec-badge-popover-head">
-        <div class="spec-badge-popover-title">Mission candidate</div>
+        <div class="spec-badge-popover-title">Spec candidate</div>
         <div class="spec-badge-popover-subtitle">Detected in this folder/worktree</div>
       </div>
       ${items}

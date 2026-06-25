@@ -4697,7 +4697,7 @@ export class TabManager {
           pickPane.mission?.path ??
           (pickPane.cwd ? `${pickPane.cwd}/docs/specs` : undefined);
         const picked = await openDialog({
-          title: "Pick mission spec",
+          title: "Pick a spec",
           multiple: false,
           directory: false,
           defaultPath: start,
@@ -6607,19 +6607,19 @@ export class TabManager {
     items.push({ divider: true });
     if (ctxPane.mission) {
       items.push({
-        label: "View mission…",
+        label: "View spec…",
         icon: Icons.lightbulb(),
         onClick: () => this.viewMission(tab.id),
       });
     }
     items.push({
-      label: ctxPane.mission ? "Change mission…" : "Set mission…",
+      label: ctxPane.mission ? "Change spec…" : "Set spec…",
       icon: Icons.pencil(),
       onClick: () => this.promptAndSetMission(tab.id),
     });
     if (ctxPane.mission) {
       items.push({
-        label: "Clear mission",
+        label: "Clear spec",
         icon: Icons.x(),
         onClick: () => this.clearMission(tab.id),
       });

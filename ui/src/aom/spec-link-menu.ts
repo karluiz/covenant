@@ -103,10 +103,10 @@ async function pickTab(
         <div class="spec-link-modal-title">Asignar a otra sesión</div>
         <div class="spec-link-modal-body">
           ${tabs.length === 0
-            ? `<div class="spec-link-modal-empty">No hay otras sesiones elegibles.</div>`
+            ? `<div class="spec-link-modal-empty">No other eligible sessions.</div>`
             : tabs.map((t) => `
               <button type="button" class="spec-link-modal-tab" data-id="${escapeAttr(t.id)}">
-                <div class="spec-link-modal-tab-label">${escapeHtml(t.label)}${t.hasMission ? " (tiene misión)" : ""}</div>
+                <div class="spec-link-modal-tab-label">${escapeHtml(t.label)}${t.hasMission ? " (has spec)" : ""}</div>
                 <div class="spec-link-modal-tab-cwd">${escapeHtml(t.cwd)}</div>
               </button>`).join("")}
         </div>

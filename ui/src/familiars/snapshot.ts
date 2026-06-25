@@ -41,7 +41,7 @@ export class SnapshotPanel {
         <pre class="snap-summary"></pre>
       </div>
       <div class="snap-section">
-        <h4>Recent missions</h4>
+        <h4>Recent specs</h4>
         <ul class="snap-missions"></ul>
       </div>`;
     (this.el.querySelector(".snap-summary") as HTMLElement).textContent =

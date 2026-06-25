@@ -1026,8 +1026,8 @@ export class StatusBar {
     menu.style.visibility = "hidden";
     menu.style.zIndex = "1001";
     menu.innerHTML = `
-      <div class="workspace-rowmenu-item" data-action="edit">Change mission…</div>
-      <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="clear">Remove mission</div>
+      <div class="workspace-rowmenu-item" data-action="edit">Change spec…</div>
+      <div class="workspace-rowmenu-item workspace-rowmenu-danger" data-action="clear">Remove spec</div>
     `;
     document.body.appendChild(menu);
     const rect = menu.getBoundingClientRect();
@@ -1409,10 +1409,10 @@ function missionSegment(
   const kindLabel = mission.kind === "superpowers" ? "Superpowers" : "Covenant";
   el.setAttribute(
     "aria-label",
-    `${kindLabel} mission: ${mission.path}. Click to view full spec.`,
+    `${kindLabel} spec: ${mission.path}. Click to view full spec.`,
   );
   attachTooltip(el, {
-    title: `${kindLabel} mission`,
+    title: `${kindLabel} spec`,
     subtitle: mission.path,
     meta: mission.plan
       ? `${mission.plan.tasks_done}/${mission.plan.tasks_total} tasks done`
@@ -1446,9 +1446,9 @@ function missionSegment(
   remove.className = "status-mission-remove";
   remove.setAttribute("role", "button");
   remove.setAttribute("tabindex", "0");
-  remove.setAttribute("aria-label", "Remove mission");
+  remove.setAttribute("aria-label", "Remove spec");
   remove.innerHTML = Icons.x({ size: 11 });
-  attachTooltip(remove, "Remove mission from this tab");
+  attachTooltip(remove, "Remove spec from this tab");
   const fireRemove = (e: Event) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1481,8 +1481,8 @@ function addMissionSegment(onClick: () => void): HTMLElement {
   const el = document.createElement("button");
   el.type = "button";
   el.className = "status-segment status-add-mission";
-  attachTooltip(el, "Set mission for this tab — anchor scope and constraints");
-  el.setAttribute("aria-label", "Set mission");
+  attachTooltip(el, "Set spec for this tab — anchor scope and constraints");
+  el.setAttribute("aria-label", "Set spec");
 
   const icon = document.createElement("span");
   icon.className = "status-icon";
@@ -1491,7 +1491,7 @@ function addMissionSegment(onClick: () => void): HTMLElement {
 
   const text = document.createElement("span");
   text.className = "status-text";
-  text.textContent = "Set mission";
+  text.textContent = "Set spec";
   el.appendChild(text);
 
   el.addEventListener("click", (e) => {
@@ -1738,7 +1738,7 @@ class MissionViewerModal {
     card.innerHTML = `
       <header class="mission-viewer-header">
         <div class="mission-viewer-titles">
-          <h2 class="mission-viewer-title">Mission</h2>
+          <h2 class="mission-viewer-title">Spec</h2>
           <code class="mission-viewer-path"></code>
         </div>
         <div class="mission-viewer-actions"></div>
@@ -1796,7 +1796,7 @@ class MissionViewerModal {
       editBtn.disabled = this.aomActive || this.sessionId === null;
       attachTooltip(
         editBtn,
-        this.aomActive ? "Mission locked while AOM is running" : "Edit mission",
+        this.aomActive ? "Spec locked while AOM is running" : "Edit spec",
       );
       editBtn.innerHTML = `${Icons.pencil({ size: 12 })}<span>Edit</span>`;
       editBtn.addEventListener("click", () => this.enterEdit());
@@ -1975,7 +1975,7 @@ class MissionViewerModal {
       // generic error so the user understands why.
       if (msg.includes("aom_active")) {
         this.aomActive = true;
-        this.setStatus("AOM started — mission locked.");
+        this.setStatus("AOM started — spec locked.");
         return;
       }
       this.setStatus(`save failed: ${msg}`);

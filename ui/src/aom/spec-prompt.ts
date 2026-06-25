@@ -133,7 +133,7 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
   el.dataset.tabId = tab.id;
   el.dataset.path = cand.path;
   const label =
-    cand.source === "covenant" ? "Mission published" : "New spec detected";
+    cand.source === "covenant" ? "Spec published" : "New spec detected";
   const fileName = cand.path.split("/").pop() ?? cand.path;
   const tabLabel = host.getTabLabel?.(tab.id) ?? tab.id;
   el.innerHTML = `
@@ -144,7 +144,7 @@ function renderToast(host: SpecPromptHost, tab: TabSnapshot, cand: SpecCandidate
     <div class="spec-prompt-toast-target">→ ${escapeHtml(tabLabel)}</div>
     <div class="spec-prompt-toast-snippet">${escapeHtml(cand.goal_snippet)}</div>
     <div class="spec-prompt-toast-actions">
-      <button type="button" class="spec-prompt-toast-set">Set as mission</button>
+      <button type="button" class="spec-prompt-toast-set">Set as spec</button>
       <button type="button" class="spec-prompt-toast-dismiss">Dismiss</button>
     </div>
   `;

@@ -3843,6 +3843,14 @@ body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidde
     min-height: 460px;
     position: relative;
 }
+/* ponytail: True Dark wants no elevation lift — flatten frame to page black;
+   the border + rail/section tokens still carry the internal structure. */
+body.theme-true-dark .providers-md__frame,
+body.theme-true-dark .providers-md__rail { background: var(--bg); }
+/* ponytail: settings nav flattens to page black; active item uses a neutral
+   lift instead of the accent tint that jumps on near-black (text stays accent). */
+body.theme-true-dark .settings-nav { background: var(--bg) !important; }
+body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0.07); }
 
 /* Rail */
 .providers-md__rail {

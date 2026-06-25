@@ -111,7 +111,7 @@ describe("StatusBar mission chip", () => {
     const x = chip!.querySelector<HTMLElement>(".status-mission-remove");
     expect(x).not.toBeNull();
     expect(x!.getAttribute("role")).toBe("button");
-    expect(x!.getAttribute("aria-label")).toBe("Remove mission");
+    expect(x!.getAttribute("aria-label")).toBe("Remove spec");
   });
 
   it("clicking remove fires onMissionClearRequested without opening the spec", () => {

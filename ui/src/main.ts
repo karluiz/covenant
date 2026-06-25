@@ -111,10 +111,10 @@ function showAomLastCallModal(cand: SpecCandidate): Promise<LastCallChoice> {
       <div class="spec-lastcall-modal">
         <h3>Detectamos <code>${escape(fileName)}</code></h3>
         <p>${escape(cand.goal_snippet)}</p>
-        <p>¿Usarlo como misión antes de dormir?</p>
+        <p>Use it as the spec before sleeping?</p>
         <div class="spec-lastcall-actions">
           <button data-choice="use">Use it</button>
-          <button data-choice="without">Engage without mission</button>
+          <button data-choice="without">Engage without spec</button>
           <button data-choice="cancel">Cancel</button>
         </div>
       </div>
