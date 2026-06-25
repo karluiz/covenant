@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.98 — True Dark flat surfaces + Marketplace tab fix
+
+### Fixed
+
+- **True Dark surfaces no longer lift to grey**: on the True Dark theme the
+  Settings → Providers frame/rail and the Settings nav column now render pure
+  page-black instead of the slightly-elevated `--bg-panel` / `--sidebar-bg`
+  tokens. The nav needed `!important` to win over the global flat-chrome block
+  (`ui/src/styles.css:18005`) that was silently forcing `--sidebar-bg`. The
+  active nav item also switches from an accent-blue tint to a neutral lift so
+  it doesn't jump on near-black. (`ui/src/styles.css`)
+
+- **Marketplace tab leaked the local operator grid**: author `display` rules on
+  `.operators-pane-v2__grid` / `__head` overrode the UA `[hidden]` sheet, so
+  switching to the Marketplace tab left the local op-cards and the "New
+  operator" button visible — they bled right up against the marketplace search
+  bar. Re-asserted `[hidden] { display: none }` explicitly.
+  (`ui/src/styles/operator_chip.css`)
+
 ## v0.8.97 — Operator Marketplace + CDLC context registry
 
 ### Added
