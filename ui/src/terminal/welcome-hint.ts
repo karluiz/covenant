@@ -2,6 +2,15 @@ import type { Terminal } from "@xterm/xterm";
 
 const DISMISS_KEY = "covenant.welcome-hint-dismissed";
 
+// Live hints, so non-keyboard activity (spawning an executor, running a
+// command) can dismiss them too — onKey alone misses those paths.
+const live = new Set<(persist: boolean) => void>();
+
+/** Dismiss any visible welcome hint(s) without persisting. */
+export function dismissWelcomeHint(): void {
+  for (const remove of [...live]) remove(false);
+}
+
 // Render modifier glyphs per-platform: macOS uses ⌘/⌥, Windows/Linux use the
 // word forms (Ctrl/Alt) since those keys carry no standard glyph there. The
 // actual handlers key off metaKey on macOS — Windows key handling is M8.
@@ -59,10 +68,12 @@ export function mountWelcomeHint(host: HTMLElement, term: Terminal): void {
   const remove = (persist: boolean): void => {
     if (disposed) return;
     disposed = true;
+    live.delete(remove);
     if (persist) localStorage.setItem(DISMISS_KEY, "1");
     keyDisposable?.dispose();
     card.remove();
   };
+  live.add(remove);
 
   card
     .querySelector(".term-welcome-dismiss")

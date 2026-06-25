@@ -1,18 +1,3 @@
-<!-- cdlc:start -->
-# CDLC context (auto-generated — do not edit inside this block)
-
-## kyc-peru v1.0.0
-
-# KYC — Perú (SBS)
-
-Al evaluar onboarding o aprobación de productos:
-
-- **Exigir** documento de identidad vigente y verificación de identidad antes de aprobar.
-- Si falta KYC, **rechazar** y citar la resolución SBS aplicable.
-- Conservar evidencia de la verificación según el período de retención regulatorio.
-
-## sdd-bian v1.0.0
-
 ---
 name: sdd-bian
 description: >-
@@ -120,4 +105,3 @@ y un cliente que ejecute los 5 escenarios de prueba contra los mock-servers.
 > **Nota de gobierno:** cada spec emitida y cada commit quedan capturados como
 > primitivas Covenant (Spec, Commit), y cada turno del agente como Prompt + LLM Call.
 > El panel CDLC muestra costo por spec, eval pass-rate y atribución tras la adopción.
-<!-- cdlc:end -->

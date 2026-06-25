@@ -7,3 +7,11 @@ source = "registry:cdlc-demo/kyc-peru@1.0.0"
 sha = "4e7274a3359a1018706cbc7c168aaaa58dee044a38400b7de6ac6ea44ea2417a"
 signer = "github:karluiz"
 installedAt = "2026-06-25T11:04:29.791043+00:00"
+
+[[installed]]
+name = "sdd-bian"
+version = "1.0.0"
+source = "registry:cdlc-demo/sdd-bian@1.0.0"
+sha = "ddf9acd037f324f6d60446ba6d9a6526e355b5423e265684ea019f4d8cda848f"
+signer = "github:karluiz"
+installedAt = "2026-06-25T17:22:26.407459+00:00"

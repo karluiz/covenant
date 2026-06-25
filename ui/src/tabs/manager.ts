@@ -22,7 +22,7 @@ import {
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
-import { mountWelcomeHint } from "../terminal/welcome-hint";
+import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -955,6 +955,7 @@ export class TabManager {
     p.piView = view;
     p.xterm = null;
     p.executor = "pi";
+    dismissWelcomeHint();
     p.aomExcluded = true; // Pi sessions never enter AOM
 
     this.updateActivePaneClass(tab);
@@ -3006,10 +3007,6 @@ export class TabManager {
       },
     });
     term.open(termHost);
-    // One-time discoverability card over the empty viewport. Skipped when a
-    // command is preloaded (the user already knows what they're doing) or once
-    // dismissed via "Don't show again". Self-removes on first keystroke.
-    if (!opts?.initialCommand) mountWelcomeHint(paneHost0, term);
     // Warp-style prose autodetect: a live hint that offers to route a
     // natural-language line at a bare shell to the super-agent. Anchored to
     // the terminal pane; updated from onData below.
@@ -3083,14 +3080,22 @@ export class TabManager {
     // Replay persisted scrollback into xterm BEFORE the live channel
     // attaches. Brand-new tabs see an empty array; reopened tabs see
     // the last ~2 MiB of bytes from their previous session.
+    let replayedBytes = 0;
     try {
       const tail = await replayScrollback(replayKey);
+      replayedBytes = tail.byteLength;
       if (tail.byteLength > 0) {
         term.write(tail);
       }
     } catch (err) {
       console.warn("replay_scrollback failed", err);
     }
+    // One-time discoverability card — only on a genuinely fresh, empty viewport.
+    // Skipped when a command is preloaded, when scrollback was replayed (a
+    // reopened session), or once dismissed via "Don't show again". Self-removes
+    // on first keystroke.
+    if (!opts?.initialCommand && replayedBytes === 0)
+      mountWelcomeHint(paneHost0, term);
     try {
       sessionId = await spawnSession(
         {
@@ -3110,6 +3115,7 @@ export class TabManager {
                 const p = tabRef.current.panes[0];
                 if (p.executor !== next) {
                   p.executor = next;
+                  if (next) dismissWelcomeHint();
                   if (tabRef.current.id === this.activeId && tabRef.current.layout.activePaneIdx === 0) {
                     this.statusBar?.setExecutor(next);
                     this.onActiveExecutorChange?.(next);
