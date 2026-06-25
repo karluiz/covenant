@@ -6,6 +6,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.99 — CDLC panel polish + multi-export to executors
+
+### Added
+
+- **CDLC multi-export**: the executor projection generalized from skills-only
+  into a multi-artifact exporter. Beyond installed skills, it now reads
+  `.covenant/cdlc/agents/*.md` (operator personas — the Covenant-only
+  `covenant:` frontmatter block is stripped on export) and
+  `.covenant/cdlc/context/*.md` (regulatory specs — the authored `summary:`
+  rides the always-on instruction file, the full body is deferred to an
+  on-demand skill dir), writing each into every executor's native format:
+  Claude file-per-item dirs (`.claude/agents/`, `.claude/skills/`) and
+  codex/copilot managed blocks (`AGENTS.md`, `.github/copilot-instructions.md`).
+  New `project_with_active(repo, active_agent)` folds the attached operator's
+  persona into the single-persona executors. `crates/cdlc/src/project.rs`.
+
+- **CDLC package detail + preview**: registry search results now show a
+  package description, and a **Preview** action lazy-loads the full `SKILL.md`
+  so you can read exactly what context you're installing before you add it.
+  Backed by new `cdlc_preview` / `cdlc_read_local` commands.
+  `ui/src/cdlc/panel.ts`, `crates/app/src/lib.rs`.
+
+### Changed
+
+- **CDLC panel actions are now icons**: Preview / Install / Publish became
+  compact icon buttons (eye / download / upload) with tooltips, so package
+  rows stay legible in the narrow rail. `ui/src/cdlc/panel.ts`.
+
+### Fixed
+
+- **CDLC panel styling**: the panel rendered unstyled as a full-width block at
+  the bottom of the window because it shipped without a stylesheet. It is now a
+  proper right-rail surface matching the system sidebars (theme tokens,
+  light / True-Dark overrides), with no stray accent line.
+  `ui/src/cdlc/styles.css`.
+
 ## v0.8.98 — True Dark flat surfaces + Marketplace tab fix
 
 ### Fixed
