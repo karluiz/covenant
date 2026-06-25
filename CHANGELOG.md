@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.103 — CDLC Loop metrics (adoption + inference)
+
+### Added
+
+- **CDLC Loop section**: the previously-placeholder Loop now shows live metrics.
+  **Adoption** lists org-wide install counts for skills installed from the
+  registry; **Inference · this group** shows the repo's footprint across the
+  four Covenant primitives (specs · prompts · commits · tokens), scoped to the
+  active group via `score_summary_filtered`. Eval pass-rate (the
+  behavior-under-context TDD runner) is noted as a later phase.
+  `ui/src/cdlc/panel.ts`.
+
 ## v0.8.102 — CDLC export to Hermes
 
 ### Added
