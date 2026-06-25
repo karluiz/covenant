@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.100 — CDLC Re-export button
+
+### Added
+
+- **CDLC Re-export action**: a one-click **Re-export** (↻) button in the CDLC
+  panel header re-runs the multi-export over the repo's `.covenant/cdlc/`
+  sources — agents, skills, and context — writing each executor's native files
+  (`.claude/`, `AGENTS.md`, `.github/copilot-instructions.md`) on demand,
+  instead of only as a side effect of installing a skill. New `cdlc_export`
+  command. A usage guide ships at `docs/cdlc-multi-export.md`.
+  `crates/app/src/lib.rs`, `ui/src/cdlc/panel.ts`.
+
 ## v0.8.99 — CDLC panel polish + multi-export to executors
 
 ### Added
