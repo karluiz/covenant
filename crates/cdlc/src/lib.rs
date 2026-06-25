@@ -8,7 +8,7 @@ pub mod project;
 pub use manifest::{cdlc_dir, read_manifest, write_manifest};
 pub use types::{CdlcManifest, InstalledRef, SkillManifest};
 pub use install::{install_from_dir, install_local, read_skill_package, status, CdlcStatus};
-pub use project::project;
+pub use project::{project, project_with_active};
 
 use thiserror::Error;
 
