@@ -70,14 +70,35 @@ fn read_dir_md(dir: &Path) -> Result<Vec<(String, String)>, CdlcError> {
 }
 
 /// Project operator personas into Claude's native multi-agent dir.
+/// Executors that read a multi-file AGENT dir (file-per-item). One persona per
+/// `.md`. Add an executor by adding its dir here.
+const AGENT_DIRS: &[&str] = &[".claude/agents", ".opencode/agent"];
+
+/// Executors that read multi-file SKILL dirs (the Superpowers `SKILL.md`
+/// convention). Skills and full context bodies land here as `cdlc-<name>/SKILL.md`.
+const SKILL_DIRS: &[&str] = &[".claude/skills", ".pi/skills"];
+
 fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), CdlcError> {
     if agents.is_empty() {
         return Ok(());
     }
-    let dir = repo_root.join(".claude/agents");
-    std::fs::create_dir_all(&dir)?;
-    for (stem, raw) in agents {
-        std::fs::write(dir.join(format!("{stem}.md")), strip_covenant_block(raw))?;
+    for base in AGENT_DIRS {
+        let dir = repo_root.join(base);
+        std::fs::create_dir_all(&dir)?;
+        for (stem, raw) in agents {
+            std::fs::write(dir.join(format!("{stem}.md")), strip_covenant_block(raw))?;
+        }
+    }
+    Ok(())
+}
+
+/// Write `cdlc-<name>/SKILL.md` (with content already prepared) into every
+/// executor SKILL dir.
+fn write_skill_dirs(repo_root: &Path, name: &str, content: &str) -> Result<(), CdlcError> {
+    for base in SKILL_DIRS {
+        let dir = repo_root.join(base).join(format!("cdlc-{name}"));
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("SKILL.md"), content)?;
     }
     Ok(())
 }
@@ -88,9 +109,7 @@ fn project_agents(repo_root: &Path, agents: &[(String, String)]) -> Result<(), C
 fn project_context_skills(repo_root: &Path, contexts: &[(String, String)]) -> Result<(), CdlcError> {
     for (stem, raw) in contexts {
         let body = body_after_frontmatter(raw);
-        let dir = repo_root.join(".claude/skills").join(format!("cdlc-{stem}"));
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("SKILL.md"), ensure_frontmatter(stem, body))?;
+        write_skill_dirs(repo_root, stem, &ensure_frontmatter(stem, body))?;
     }
     Ok(())
 }
@@ -191,13 +210,11 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
         skills.push((i.name.clone(), i.version.clone(), std::fs::read_to_string(&md)?));
     }
 
-    // File-per-item executor (Claude): one file per artifact.
+    // File-per-item executors (Claude, opencode, pi): one file per artifact.
     project_agents(repo_root, &agents)?;
     project_context_skills(repo_root, &contexts)?;
     for (name, _v, body) in &skills {
-        let dir = repo_root.join(".claude/skills").join(format!("cdlc-{name}"));
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("SKILL.md"), ensure_frontmatter(name, body))?;
+        write_skill_dirs(repo_root, name, &ensure_frontmatter(name, body))?;
     }
 
     // Managed-block executors (codex, copilot): one concatenated block.
@@ -333,6 +350,41 @@ mod tests {
         assert!(content.contains("name: kyc-reviewer"));
         assert!(!content.contains("covenant:"), "covenant block must be stripped");
         assert!(content.contains("Review KYC."));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn project_writes_opencode_and_pi_targets() {
+        let base = std::env::temp_dir().join(format!("cdlc-multi-exec-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+
+        let adir = crate::cdlc_dir(&repo).join("agents");
+        std::fs::create_dir_all(&adir).unwrap();
+        std::fs::write(
+            adir.join("kyc-reviewer.md"),
+            "---\nname: kyc-reviewer\ncovenant:\n  voice: formal\n---\nReview KYC.\n",
+        )
+        .unwrap();
+        let cdir = crate::cdlc_dir(&repo).join("context");
+        std::fs::create_dir_all(&cdir).unwrap();
+        std::fs::write(cdir.join("sbs-kyc.md"), "---\nsummary: Mask PII.\n---\n# SBS\nfull text\n").unwrap();
+        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+
+        project(&repo).unwrap();
+
+        // opencode gets the agent (covenant block stripped, same as Claude)
+        let oc = repo.join(".opencode/agent/kyc-reviewer.md");
+        assert!(oc.exists(), "opencode agent file written");
+        assert!(!std::fs::read_to_string(&oc).unwrap().contains("covenant:"), "stripped for opencode too");
+        // pi gets the context body as a skill
+        let pi = repo.join(".pi/skills/cdlc-sbs-kyc/SKILL.md");
+        assert!(pi.exists(), "pi skill file written from context");
+        assert!(std::fs::read_to_string(&pi).unwrap().contains("full text"));
+        // Claude targets unchanged (regression)
+        assert!(repo.join(".claude/agents/kyc-reviewer.md").exists());
+        assert!(repo.join(".claude/skills/cdlc-sbs-kyc/SKILL.md").exists());
 
         let _ = std::fs::remove_dir_all(&base);
     }
