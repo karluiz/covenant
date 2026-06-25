@@ -1,3 +1,4 @@
+import "./styles.css";
 import type { CdlcStatus, Org, PkgMeta } from "../api";
 import { cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry } from "../api";
 
@@ -88,9 +89,13 @@ export class CdlcPanel {
       for (const i of s.installed) {
         const row = document.createElement("div");
         row.className = "cdlc-skill-row";
-        const label = document.createElement("span");
-        label.textContent = `${i.name}  ${i.version}  ${i.source}`;
-        row.appendChild(label);
+        const name = document.createElement("span");
+        name.className = "cdlc-name";
+        name.textContent = i.name;
+        const meta = document.createElement("span");
+        meta.className = "cdlc-meta";
+        meta.textContent = `${i.version} · ${i.source}`;
+        row.append(name, meta);
         if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
           const pub = document.createElement("button");
           pub.className = "cdlc-publish-btn";
@@ -117,11 +122,16 @@ export class CdlcPanel {
           for (const r of rows) {
             const rr = document.createElement("div");
             rr.className = "cdlc-search-result";
-            rr.textContent = `${r.name} ${r.version} (${r.installs} installs) — ${r.publisher_login}`;
+            const rname = document.createElement("span");
+            rname.className = "cdlc-name";
+            rname.textContent = r.name;
+            const rmeta = document.createElement("span");
+            rmeta.className = "cdlc-meta";
+            rmeta.textContent = `${r.version} · ${r.installs} installs · ${r.publisher_login}`;
             const inst = document.createElement("button");
             inst.textContent = "Install";
             inst.addEventListener("click", () => void this.install(this.orgs[0].slug, r.name, r.version));
-            rr.appendChild(inst);
+            rr.append(rname, rmeta, inst);
             results.appendChild(rr);
           }
         }).catch((e) => { results.replaceChildren(errorLine(String(e))); });

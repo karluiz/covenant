@@ -1,0 +1,232 @@
+/* CDLC panel — context-skill registry & local skills.
+   Mirrors the Project Notes right-rail panel (ui/src/project-notes/styles.css):
+   a fixed panel inset over the right rail, themed from the app's tokens. */
+
+.cdlc-panel {
+  position: fixed;
+  top: 76px; /* titlebar (38) + horizontal tabbar (38) */
+  right: 0;
+  bottom: calc(var(--statusbar-h, 50px) + 1px);
+  width: min(var(--right-sidebar-w, 240px), calc(100vw - 32px));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  z-index: 30;
+
+  background: var(--sidebar-bg, #1a1c21);
+  color: var(--text-primary, #f5f6f7);
+  border-left: 1px solid var(--border, #1c2027);
+  border-top: 1px solid var(--border, #1c2027);
+  /* left accent bar in the group color */
+  box-shadow: inset 2px 0 0 0 var(--cdlc-accent, var(--accent, #7aa2f7));
+  animation: right-rail-panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  /* local lift tokens: neutral white in dark, opaque grays in True Dark */
+  --cdlc-lift-1: rgb(var(--ink-rgb, 255 255 255) / 0.03);
+  --cdlc-lift-2: rgb(var(--ink-rgb, 255 255 255) / 0.05);
+  --cdlc-line: var(--border, #1c2027);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdlc-panel { animation: none; }
+}
+
+body.tabbar-left .cdlc-panel { top: 38px; }
+
+body.theme-light .cdlc-panel {
+  border-left: 1px solid rgba(15, 23, 42, 0.14) !important;
+  border-top: 1px solid rgba(15, 23, 42, 0.14) !important;
+  box-shadow: none !important;
+}
+
+body.theme-true-dark .cdlc-panel {
+  --cdlc-lift-1: #141416;
+  --cdlc-lift-2: #1c1c1f;
+  --cdlc-line: #242427;
+}
+
+.cdlc-panel button,
+.cdlc-panel input {
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+/* ── Header ── */
+.cdlc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 11px 12px 10px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-primary, #f5f6f7);
+  border-bottom: 1px solid var(--cdlc-line);
+}
+
+.cdlc-close-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  color: var(--muted, #6c7280);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 120ms, background 120ms, color 120ms;
+}
+.cdlc-close-btn:hover {
+  opacity: 1;
+  color: var(--text-primary, #f5f6f7);
+  background: var(--cdlc-lift-1);
+}
+
+/* ── Body ── */
+.cdlc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 12px 16px;
+}
+
+/* Section headings with a trailing hairline */
+.cdlc-body h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted, #6c7280);
+}
+.cdlc-body h3::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--cdlc-line);
+  opacity: 0.6;
+}
+
+.cdlc-skills > p,
+.cdlc-loop > p {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted, #6c7280);
+}
+
+/* ── Rows: installed skills, context files, search results ── */
+.cdlc-skill-row,
+.cdlc-context-row,
+.cdlc-search-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: var(--cdlc-lift-1);
+  border: 1px solid var(--cdlc-line);
+  border-radius: 7px;
+  font-size: 12px;
+  transition: border-color 120ms, background 120ms;
+}
+.cdlc-skill-row:hover,
+.cdlc-search-result:hover {
+  border-color: color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 45%, var(--cdlc-line));
+  background: var(--cdlc-lift-2);
+}
+
+.cdlc-name {
+  font-weight: 600;
+  color: var(--text-primary, #f5f6f7);
+  flex-shrink: 0;
+}
+.cdlc-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted, #6c7280);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+/* action buttons hug the right edge of their row */
+.cdlc-skill-row .cdlc-publish-btn,
+.cdlc-search-result button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.cdlc-context-row {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-primary, #f5f6f7);
+}
+
+/* ── Buttons (secondary, house style) ── */
+.cdlc-publish-btn,
+.cdlc-new-context-btn,
+.cdlc-search-row button,
+.cdlc-search-result button {
+  background: transparent;
+  color: var(--muted, #6c7280);
+  border: 1px solid var(--cdlc-line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.cdlc-publish-btn:hover,
+.cdlc-new-context-btn:hover,
+.cdlc-search-row button:hover,
+.cdlc-search-result button:hover {
+  color: var(--text-primary, #f5f6f7);
+  border-color: var(--cdlc-accent, var(--accent, #7aa2f7));
+  background: var(--cdlc-lift-1);
+}
+.cdlc-new-context-btn { margin-bottom: 8px; }
+
+/* ── Registry search ── */
+.cdlc-search-row {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+.cdlc-search-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--cdlc-lift-1);
+  color: var(--text-primary, #f5f6f7);
+  border: 1px solid var(--cdlc-line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+  transition: border-color 120ms;
+}
+.cdlc-search-row input::placeholder { color: var(--muted, #6c7280); }
+.cdlc-search-row input:focus {
+  outline: none;
+  border-color: var(--cdlc-accent, var(--accent, #7aa2f7));
+}
+
+.cdlc-error {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--danger, #e85a5a);
+}
+
+/* Loop is a Phase-2 placeholder — quiet it down */
+.cdlc-loop { opacity: 0.7; }
