@@ -47,6 +47,24 @@ fn strip_covenant_block(md: &str) -> String {
     s
 }
 
+/// First top-level `summary:` value inside the leading frontmatter, trimmed and
+/// dequoted. `None` if there is no frontmatter or no non-empty summary.
+/// ponytail: single-line summaries only; add block-scalar support if needed.
+fn parse_summary(md: &str) -> Option<String> {
+    let lines: Vec<&str> = md.lines().collect();
+    let open = lines.iter().position(|l| l.trim() == "---")?;
+    let close = open + 1 + lines.iter().skip(open + 1).position(|l| l.trim() == "---")?;
+    for l in &lines[open + 1..close] {
+        if let Some(rest) = l.strip_prefix("summary:") {
+            let v = rest.trim().trim_matches('"').trim();
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Markdown body after the closing `---` of a leading frontmatter block.
 /// Returns the input unchanged when there is no frontmatter.
 fn body_after_frontmatter(md: &str) -> &str {
@@ -211,6 +229,18 @@ mod tests {
     fn body_after_frontmatter_noop_when_no_frontmatter() {
         let md = "no frontmatter here\n";
         assert_eq!(body_after_frontmatter(md), md);
+    }
+
+    #[test]
+    fn parse_summary_reads_frontmatter_line() {
+        let md = "---\nsummary: \"Mask all PII; cite SBS article.\"\n---\nfull text\n";
+        assert_eq!(parse_summary(md).as_deref(), Some("Mask all PII; cite SBS article."));
+    }
+
+    #[test]
+    fn parse_summary_none_when_absent() {
+        let md = "---\nname: x\n---\nbody\n";
+        assert_eq!(parse_summary(md), None);
     }
 
     #[test]
