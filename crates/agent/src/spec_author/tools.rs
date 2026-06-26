@@ -1,8 +1,8 @@
 //! Read-only repo tools for the streaming spec author. All file access is
 //! confined to a canonicalized repo root.
 
-use std::path::{Path, PathBuf};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -20,8 +20,18 @@ const SECRET_FRAGMENTS: &[&str] = &[".ssh", ".aws", ".gnupg", ".config/gh"];
 
 /// Filename patterns that are always rejected (secret-bearing files).
 const SECRET_FILENAMES: &[&str] = &[
-    ".env", ".envrc", ".npmrc", ".netrc", "id_rsa", "id_ed25519", "id_dsa",
-    ".pem", ".key", "credentials", ".pgpass", ".htpasswd",
+    ".env",
+    ".envrc",
+    ".npmrc",
+    ".netrc",
+    "id_rsa",
+    "id_ed25519",
+    "id_dsa",
+    ".pem",
+    ".key",
+    "credentials",
+    ".pgpass",
+    ".htpasswd",
 ];
 
 /// Resolve `rel` against canonical `root`, rejecting escapes and secret paths.
@@ -35,9 +45,9 @@ pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, ToolError> {
 
     if let Some(fname) = Path::new(&rel_norm).file_name().and_then(|f| f.to_str()) {
         let lower = fname.to_ascii_lowercase();
-        let blocked = SECRET_FILENAMES.iter().any(|s| {
-            lower == *s || (s.starts_with('.') && lower.ends_with(s))
-        });
+        let blocked = SECRET_FILENAMES
+            .iter()
+            .any(|s| lower == *s || (s.starts_with('.') && lower.ends_with(s)));
         if blocked {
             return Err(ToolError::Secret);
         }
@@ -114,7 +124,9 @@ pub fn grep(root: &Path, needle: &str, dir: Option<&str>) -> Result<Vec<String>,
         if hits.len() >= 50 {
             break;
         }
-        let Ok(text) = std::fs::read_to_string(&file) else { continue };
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
         for (i, line) in text.lines().enumerate() {
             if line.contains(needle) {
                 let rel = file.strip_prefix(root).unwrap_or(&file).display();
@@ -153,7 +165,9 @@ fn walk(base: &Path) -> Vec<PathBuf> {
         if files.len() > 5000 {
             break;
         }
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') || name == "target" || name == "node_modules" {
@@ -249,8 +263,11 @@ mod tests {
     fn root() -> PathBuf {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static N: AtomicUsize = AtomicUsize::new(0);
-        let unique = format!("spec-tools-test-{}-{}",
-            std::process::id(), N.fetch_add(1, Ordering::Relaxed));
+        let unique = format!(
+            "spec-tools-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        );
         let d = std::env::temp_dir().join(unique);
         std::fs::create_dir_all(d.join("src")).unwrap();
         std::fs::write(d.join("src/a.rs"), "fn main() {}").unwrap();
@@ -266,7 +283,10 @@ mod tests {
     #[test]
     fn rejects_parent_escape() {
         let r = root();
-        assert_eq!(safe_join(&r, "../../etc/passwd").unwrap_err(), ToolError::Escape);
+        assert_eq!(
+            safe_join(&r, "../../etc/passwd").unwrap_err(),
+            ToolError::Escape
+        );
     }
 
     #[test]
@@ -284,7 +304,10 @@ mod tests {
     #[test]
     fn missing_path_errors() {
         let r = root();
-        assert_eq!(safe_join(&r, "src/nope.rs").unwrap_err(), ToolError::NotFound);
+        assert_eq!(
+            safe_join(&r, "src/nope.rs").unwrap_err(),
+            ToolError::NotFound
+        );
     }
 
     #[test]
@@ -321,8 +344,11 @@ mod tests {
     #[test]
     fn run_tool_grep_summarizes() {
         let r = root();
-        let (text, summary) = run_tool(&r, "grep",
-            &serde_json::json!({"needle":"fn main","dir":"src"}));
+        let (text, summary) = run_tool(
+            &r,
+            "grep",
+            &serde_json::json!({"needle":"fn main","dir":"src"}),
+        );
         assert!(text.contains("a.rs"));
         assert_eq!(summary, "1 match");
     }

@@ -10,9 +10,9 @@ use std::path::Path;
 fn valid_pkg_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('.')
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-' || b == b'_')
+        && name.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-' || b == b'_'
+        })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,7 +102,10 @@ pub fn read_skill_package(
     name: &str,
 ) -> Result<(String, String, SkillManifest), CdlcError> {
     if !valid_pkg_name(name) {
-        return Err(CdlcError::InvalidPackage(format!("invalid skill name: {:?}", name)));
+        return Err(CdlcError::InvalidPackage(format!(
+            "invalid skill name: {:?}",
+            name
+        )));
     }
     let dir = cdlc_dir(repo_root).join("skills").join(name);
     let toml_s = std::fs::read_to_string(dir.join("skill.toml"))?;
@@ -136,7 +139,10 @@ pub fn status(repo_root: &Path) -> Result<CdlcStatus, CdlcError> {
         }
     }
     context_files.sort();
-    Ok(CdlcStatus { installed, context_files })
+    Ok(CdlcStatus {
+        installed,
+        context_files,
+    })
 }
 
 #[cfg(test)]
@@ -150,7 +156,11 @@ mod tests {
             format!("name = \"{name}\"\nversion = \"1.0.0\"\nowner = \"github:mibanco\"\n"),
         )
         .unwrap();
-        std::fs::write(dir.join("SKILL.md"), "# KYC Peru\nAlways require the doc.\n").unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "# KYC Peru\nAlways require the doc.\n",
+        )
+        .unwrap();
     }
 
     #[test]
@@ -190,7 +200,9 @@ mod tests {
 
         let r = install_local(&repo, &src).unwrap();
         assert_eq!(r.name, "kyc-peru");
-        assert!(repo.join(".covenant/cdlc/skills/kyc-peru/SKILL.md").exists());
+        assert!(repo
+            .join(".covenant/cdlc/skills/kyc-peru/SKILL.md")
+            .exists());
         assert!(repo.join(".claude/skills/cdlc-kyc-peru/SKILL.md").exists());
 
         let agents1 = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();

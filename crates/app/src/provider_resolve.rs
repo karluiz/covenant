@@ -118,8 +118,8 @@ mod tests {
         assert!(matches!(err, ResolveError::UnknownProvider(_)));
     }
 
-    use karl_agent::provider::azure_foundry::AzureMode;
     use crate::settings::ProviderEntry;
+    use karl_agent::provider::azure_foundry::AzureMode;
 
     fn settings_with_azure_route(mode: AzureMode, deployment: Option<&str>) -> Settings {
         let mut s = Settings::default();

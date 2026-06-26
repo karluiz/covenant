@@ -73,14 +73,17 @@ impl std::fmt::Debug for GithubCtx {
 
 impl ToolEnv {
     pub fn new(root: PathBuf, max_bytes_per_file: usize) -> Self {
-        Self { root, max_bytes_per_file, active_screen: None, github: None, available_skills: Vec::new() }
+        Self {
+            root,
+            max_bytes_per_file,
+            active_screen: None,
+            github: None,
+            available_skills: Vec::new(),
+        }
     }
 
     /// Attach the active tab's rendered-screen handle (builder style).
-    pub fn with_screen(
-        mut self,
-        screen: Option<std::sync::Arc<std::sync::Mutex<String>>>,
-    ) -> Self {
+    pub fn with_screen(mut self, screen: Option<std::sync::Arc<std::sync::Mutex<String>>>) -> Self {
         self.active_screen = screen;
         self
     }
@@ -113,8 +116,8 @@ pub struct ReadFileArgs {
 /// - Size is capped at `env.max_bytes_per_file`. We stat first so we
 ///   don't allocate a giant buffer just to reject it.
 pub fn read_file(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
-    let parsed: ReadFileArgs = serde_json::from_value(args.clone())
-        .map_err(|e| ToolError::InvalidArgs(e.to_string()))?;
+    let parsed: ReadFileArgs =
+        serde_json::from_value(args.clone()).map_err(|e| ToolError::InvalidArgs(e.to_string()))?;
     let trimmed = parsed.path.trim();
     if trimmed.is_empty() {
         return Err(ToolError::InvalidArgs("path is empty".into()));
@@ -129,12 +132,10 @@ pub fn read_file(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     } else {
         env.root.join(raw)
     };
-    let resolved = joined
-        .canonicalize()
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => ToolError::NotFound(trimmed.into()),
-            _ => ToolError::Io(e.to_string()),
-        })?;
+    let resolved = joined.canonicalize().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => ToolError::NotFound(trimmed.into()),
+        _ => ToolError::Io(e.to_string()),
+    })?;
     if !resolved.starts_with(&env.root) {
         return Err(ToolError::PathOutsideRoot);
     }
@@ -235,9 +236,7 @@ pub fn search_files(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     };
 
     if !search_root.is_dir() {
-        return Err(ToolError::NotADirectory(
-            search_root.display().to_string(),
-        ));
+        return Err(ToolError::NotADirectory(search_root.display().to_string()));
     }
 
     let hits = crate::structure::search(&search_root, query, SEARCH_MAX_HITS)
@@ -339,13 +338,16 @@ fn resolve_path_safe(env: &ToolEnv, rel: &str) -> Result<PathBuf, ToolError> {
     };
     // Try canonicalize first (works for existing paths).
     let resolved = if joined.exists() {
-        joined.canonicalize().map_err(|e| ToolError::Io(e.to_string()))?
+        joined
+            .canonicalize()
+            .map_err(|e| ToolError::Io(e.to_string()))?
     } else {
         // For non-existing paths, canonicalize the parent and append the filename.
         if let Some(parent) = joined.parent() {
             if parent.exists() {
-                let canonical_parent =
-                    parent.canonicalize().map_err(|e| ToolError::Io(e.to_string()))?;
+                let canonical_parent = parent
+                    .canonicalize()
+                    .map_err(|e| ToolError::Io(e.to_string()))?;
                 if let Some(name) = joined.file_name() {
                     canonical_parent.join(name)
                 } else {
@@ -487,9 +489,7 @@ pub fn run_command(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
         env.root.clone()
     };
 
-    let timeout = std::time::Duration::from_secs(
-        parsed.timeout_secs.unwrap_or(30).min(120),
-    );
+    let timeout = std::time::Duration::from_secs(parsed.timeout_secs.unwrap_or(30).min(120));
 
     // Spawn the command via sh -c for shell interpretation.
     let child = Command::new("sh")
@@ -549,16 +549,24 @@ fn wait_with_timeout(
         match child.try_wait() {
             Ok(Some(_status)) => {
                 // Process exited — collect output.
-                let stdout = child.stdout.take().map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).unwrap_or(0);
-                    buf
-                }).unwrap_or_default();
-                let stderr = child.stderr.take().map(|mut s| {
-                    let mut buf = Vec::new();
-                    std::io::Read::read_to_end(&mut s, &mut buf).unwrap_or(0);
-                    buf
-                }).unwrap_or_default();
+                let stdout = child
+                    .stdout
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).unwrap_or(0);
+                        buf
+                    })
+                    .unwrap_or_default();
+                let stderr = child
+                    .stderr
+                    .take()
+                    .map(|mut s| {
+                        let mut buf = Vec::new();
+                        std::io::Read::read_to_end(&mut s, &mut buf).unwrap_or(0);
+                        buf
+                    })
+                    .unwrap_or_default();
                 return Ok(std::process::Output {
                     status: _status,
                     stdout,
@@ -883,7 +891,10 @@ mod tests {
         let env = ToolEnv::new(root, 1024);
         let err = read_file(&env, &serde_json::json!({ "path": "../outside.txt" })).unwrap_err();
         let _ = fs::remove_file(&outside);
-        assert!(matches!(err, ToolError::PathOutsideRoot | ToolError::NotFound(_)));
+        assert!(matches!(
+            err,
+            ToolError::PathOutsideRoot | ToolError::NotFound(_)
+        ));
     }
 
     #[test]
@@ -894,7 +905,10 @@ mod tests {
         // Could be PathOutsideRoot or Io/NotFound depending on /etc/hosts existence,
         // but it must NOT be a successful read.
         assert!(!matches!(err, ToolError::InvalidArgs(_)) || true);
-        assert!(matches!(err, ToolError::PathOutsideRoot | ToolError::NotFound(_) | ToolError::Io(_)));
+        assert!(matches!(
+            err,
+            ToolError::PathOutsideRoot | ToolError::NotFound(_) | ToolError::Io(_)
+        ));
     }
 
     #[test]
@@ -951,8 +965,7 @@ mod tests {
     fn read_terminal_screen_returns_active_screen() {
         use std::sync::{Arc, Mutex};
         let screen = Arc::new(Mutex::new("$ cargo test\nrunning 3 tests".to_string()));
-        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
-            .with_screen(Some(screen));
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024).with_screen(Some(screen));
         let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
         assert!(out.contains("cargo test"));
         assert!(out.contains("running 3 tests"));
@@ -980,8 +993,7 @@ mod tests {
         let screen = Arc::new(Mutex::new(
             "$ export TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234".to_string(),
         ));
-        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024)
-            .with_screen(Some(screen));
+        let env = ToolEnv::new(std::path::PathBuf::from("/tmp"), 1024).with_screen(Some(screen));
         let out = read_terminal_screen(&env, &serde_json::json!({})).expect("ok");
         assert!(!out.contains("ghp_abcdefghijklmnopqrstuvwxyz1234"));
         assert!(out.contains("[REDACTED:github]"));
@@ -1000,7 +1012,8 @@ mod tests {
         assert!(required_keys.contains(&"deliverable"));
         assert!(required_keys.contains(&"rationale"));
         let archetype_enum = schema["properties"]["archetype"]["enum"]
-            .as_array().expect("archetype enum");
+            .as_array()
+            .expect("archetype enum");
         let values: Vec<&str> = archetype_enum.iter().filter_map(|v| v.as_str()).collect();
         assert_eq!(values, vec!["do", "review", "watch"]);
     }

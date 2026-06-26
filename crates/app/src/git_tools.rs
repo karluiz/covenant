@@ -259,7 +259,10 @@ pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
 
     let parse_side = |args: &[&str]| -> Result<HashMap<String, diff::NumStat>, String> {
         let raw = git(cwd, args)?;
-        Ok(diff::parse_numstat(&raw).into_iter().map(|n| (n.path.clone(), n)).collect())
+        Ok(diff::parse_numstat(&raw)
+            .into_iter()
+            .map(|n| (n.path.clone(), n))
+            .collect())
     };
     let unstaged_ns = parse_side(&["diff", "--numstat"])?;
     let staged_ns = parse_side(&["diff", "--cached", "--numstat"])?;
@@ -269,7 +272,9 @@ pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
     for line in porcelain.lines() {
-        if line.len() < 3 { continue; }
+        if line.len() < 3 {
+            continue;
+        }
         let x = line.as_bytes()[0] as char; // staged (index) status
         let y = line.as_bytes()[1] as char; // worktree status
         let rest = &line[3..];
@@ -278,7 +283,14 @@ pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
             None => (None, rest.to_string()),
         };
         if x == '?' && y == '?' {
-            unstaged.push(FileChange { path, old_path: None, status: ChangeStatus::Untracked, added: 0, removed: 0, binary: false });
+            unstaged.push(FileChange {
+                path,
+                old_path: None,
+                status: ChangeStatus::Untracked,
+                added: 0,
+                removed: 0,
+                binary: false,
+            });
             continue;
         }
         let map_status = |c: char| match c {
@@ -291,7 +303,9 @@ pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
         if let Some(status) = map_status(x) {
             let ns = staged_ns.get(&path);
             staged.push(FileChange {
-                path: path.clone(), old_path: old_path.clone(), status,
+                path: path.clone(),
+                old_path: old_path.clone(),
+                status,
                 added: ns.map(|n| n.added).unwrap_or(0),
                 removed: ns.map(|n| n.removed).unwrap_or(0),
                 binary: ns.map(|n| n.binary).unwrap_or(false),
@@ -300,7 +314,9 @@ pub fn changes(cwd: &Path) -> Result<diff::Changes, String> {
         if let Some(status) = map_status(y) {
             let ns = unstaged_ns.get(&path);
             unstaged.push(FileChange {
-                path: path.clone(), old_path, status,
+                path: path.clone(),
+                old_path,
+                status,
                 added: ns.map(|n| n.added).unwrap_or(0),
                 removed: ns.map(|n| n.removed).unwrap_or(0),
                 binary: ns.map(|n| n.binary).unwrap_or(false),
@@ -331,9 +347,12 @@ pub fn file_diff(cwd: &Path, path: &str, staged: bool) -> Result<diff::FileDiff,
             tracked
         } else {
             // --no-index returns exit code 1 on differences; capture stdout regardless.
-            let out = Command::new("git").arg("-C").arg(cwd)
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(cwd)
                 .args(["diff", "--no-index", "--", "/dev/null", path])
-                .output().map_err(|e| format!("git failed to start: {e}"))?;
+                .output()
+                .map_err(|e| format!("git failed to start: {e}"))?;
             String::from_utf8_lossy(&out.stdout).to_string()
         }
     };
@@ -349,7 +368,11 @@ pub mod diff {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "lowercase")]
-    pub enum LineKind { Context, Add, Del }
+    pub enum LineKind {
+        Context,
+        Add,
+        Del,
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -381,7 +404,13 @@ pub mod diff {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "lowercase")]
-    pub enum ChangeStatus { Modified, Added, Deleted, Renamed, Untracked }
+    pub enum ChangeStatus {
+        Modified,
+        Added,
+        Deleted,
+        Renamed,
+        Untracked,
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -396,7 +425,10 @@ pub mod diff {
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "camelCase")]
-    pub struct Changes { pub staged: Vec<FileChange>, pub unstaged: Vec<FileChange> }
+    pub struct Changes {
+        pub staged: Vec<FileChange>,
+        pub unstaged: Vec<FileChange>,
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -407,12 +439,19 @@ pub mod diff {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct NumStat { pub added: u32, pub removed: u32, pub binary: bool, pub path: String }
+    pub struct NumStat {
+        pub added: u32,
+        pub removed: u32,
+        pub binary: bool,
+        pub path: String,
+    }
 
     /// git `--numstat` encodes renames as `old => new` or `pre{old => new}post`.
     /// Reduce to the destination path so it matches `git status --porcelain` paths.
     pub fn numstat_dest_path(raw: &str) -> String {
-        let Some(arrow) = raw.find(" => ") else { return raw.to_string(); };
+        let Some(arrow) = raw.find(" => ") else {
+            return raw.to_string();
+        };
         // brace form: prefix{old => new}suffix
         if let (Some(open), Some(close)) = (
             raw[..arrow].rfind('{'),
@@ -427,23 +466,32 @@ pub mod diff {
     }
 
     pub fn parse_numstat(raw: &str) -> Vec<NumStat> {
-        raw.lines().filter_map(|line| {
-            let mut p = line.splitn(3, '\t');
-            let a = p.next()?; let r = p.next()?; let path = p.next()?;
-            if path.is_empty() { return None; }
-            let binary = a == "-" || r == "-";
-            Some(NumStat {
-                added: a.parse().unwrap_or(0),
-                removed: r.parse().unwrap_or(0),
-                binary,
-                path: numstat_dest_path(path),
+        raw.lines()
+            .filter_map(|line| {
+                let mut p = line.splitn(3, '\t');
+                let a = p.next()?;
+                let r = p.next()?;
+                let path = p.next()?;
+                if path.is_empty() {
+                    return None;
+                }
+                let binary = a == "-" || r == "-";
+                Some(NumStat {
+                    added: a.parse().unwrap_or(0),
+                    removed: r.parse().unwrap_or(0),
+                    binary,
+                    path: numstat_dest_path(path),
+                })
             })
-        }).collect()
+            .collect()
     }
 
     /// Pure: parse `git diff` text for ONE file into a renderable body.
     pub fn parse_unified_diff(raw: &str, max_lines: usize) -> FileDiffBody {
-        if raw.lines().any(|l| l.starts_with("Binary files") && l.ends_with("differ")) {
+        if raw
+            .lines()
+            .any(|l| l.starts_with("Binary files") && l.ends_with("differ"))
+        {
             return FileDiffBody::Binary { size_bytes: 0 };
         }
         let mut hunks: Vec<Hunk> = Vec::new();
@@ -459,15 +507,29 @@ pub mod diff {
                 };
                 let (mut os, mut ns) = (1u32, 1u32);
                 for tok in ranges.split_whitespace() {
-                    if let Some(v) = tok.strip_prefix('-') { os = v.split(',').next().unwrap_or("1").parse().unwrap_or(1); }
-                    if let Some(v) = tok.strip_prefix('+') { ns = v.split(',').next().unwrap_or("1").parse().unwrap_or(1); }
+                    if let Some(v) = tok.strip_prefix('-') {
+                        os = v.split(',').next().unwrap_or("1").parse().unwrap_or(1);
+                    }
+                    if let Some(v) = tok.strip_prefix('+') {
+                        ns = v.split(',').next().unwrap_or("1").parse().unwrap_or(1);
+                    }
                 }
-                old_no = os; new_no = ns;
-                hunks.push(Hunk { old_start: os, new_start: ns, header, lines: Vec::new() });
+                old_no = os;
+                new_no = ns;
+                hunks.push(Hunk {
+                    old_start: os,
+                    new_start: ns,
+                    header,
+                    lines: Vec::new(),
+                });
                 continue;
             }
-            if hunks.is_empty() { continue; } // file headers before first hunk
-            if line.starts_with("\\ No newline") { continue; }
+            if hunks.is_empty() {
+                continue;
+            } // file headers before first hunk
+            if line.starts_with("\\ No newline") {
+                continue;
+            }
             let (kind, text) = if let Some(t) = line.strip_prefix('+') {
                 (LineKind::Add, t)
             } else if let Some(t) = line.strip_prefix('-') {
@@ -479,15 +541,35 @@ pub mod diff {
             };
             total_lines += 1;
             if total_lines > max_lines {
-                return FileDiffBody::TooLarge { line_count: total_lines as u32 };
+                return FileDiffBody::TooLarge {
+                    line_count: total_lines as u32,
+                };
             }
             let (o, n) = match kind {
-                LineKind::Context => { let p = (Some(old_no), Some(new_no)); old_no += 1; new_no += 1; p }
-                LineKind::Add => { let p = (None, Some(new_no)); new_no += 1; p }
-                LineKind::Del => { let p = (Some(old_no), None); old_no += 1; p }
+                LineKind::Context => {
+                    let p = (Some(old_no), Some(new_no));
+                    old_no += 1;
+                    new_no += 1;
+                    p
+                }
+                LineKind::Add => {
+                    let p = (None, Some(new_no));
+                    new_no += 1;
+                    p
+                }
+                LineKind::Del => {
+                    let p = (Some(old_no), None);
+                    old_no += 1;
+                    p
+                }
             };
             if let Some(h) = hunks.last_mut() {
-                h.lines.push(DiffLine { kind, old_no: o, new_no: n, text: text.to_string() });
+                h.lines.push(DiffLine {
+                    kind,
+                    old_no: o,
+                    new_no: n,
+                    text: text.to_string(),
+                });
             }
         }
         FileDiffBody::Hunks { hunks }
@@ -499,8 +581,18 @@ mod tests {
     use super::*;
 
     fn git_run(cwd: &std::path::Path, args: &[&str]) {
-        let out = std::process::Command::new("git").arg("-C").arg(cwd).args(args).output().unwrap();
-        assert!(out.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(cwd)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     fn init_repo(dir: &std::path::Path) {
@@ -516,7 +608,13 @@ mod tests {
     #[test]
     fn stage_then_unstage_moves_file_between_groups() {
         use std::fs;
-        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
         let tmp = tempfile::TempDir::new().unwrap();
         let dir = tmp.path();
         init_repo(dir);
@@ -527,14 +625,23 @@ mod tests {
         assert!(!after_stage.unstaged.iter().any(|f| f.path == "tracked.txt"));
 
         let after_unstage = unstage(dir, "tracked.txt").unwrap();
-        assert!(after_unstage.unstaged.iter().any(|f| f.path == "tracked.txt"));
+        assert!(after_unstage
+            .unstaged
+            .iter()
+            .any(|f| f.path == "tracked.txt"));
         assert!(!after_unstage.staged.iter().any(|f| f.path == "tracked.txt"));
     }
 
     #[test]
     fn changes_groups_staged_unstaged_untracked() {
         use std::fs;
-        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
         let tmp = tempfile::TempDir::new().unwrap();
         let dir = tmp.path();
         init_repo(dir);
@@ -547,22 +654,43 @@ mod tests {
         fs::write(dir.join("new.txt"), "fresh\n").unwrap();
 
         let c = changes(dir).unwrap();
-        assert!(c.staged.iter().any(|f| f.path == "staged.txt" && f.status == diff::ChangeStatus::Added));
-        assert!(c.unstaged.iter().any(|f| f.path == "tracked.txt" && f.status == diff::ChangeStatus::Modified));
-        assert!(c.unstaged.iter().any(|f| f.path == "new.txt" && f.status == diff::ChangeStatus::Untracked));
+        assert!(c
+            .staged
+            .iter()
+            .any(|f| f.path == "staged.txt" && f.status == diff::ChangeStatus::Added));
+        assert!(c
+            .unstaged
+            .iter()
+            .any(|f| f.path == "tracked.txt" && f.status == diff::ChangeStatus::Modified));
+        assert!(c
+            .unstaged
+            .iter()
+            .any(|f| f.path == "new.txt" && f.status == diff::ChangeStatus::Untracked));
     }
 
     #[test]
     fn file_diff_untracked_is_all_additions() {
         use std::fs;
-        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
         let tmp = tempfile::TempDir::new().unwrap();
         let dir = tmp.path();
         init_repo(dir);
         fs::write(dir.join("new.txt"), "a\nb\n").unwrap();
         let d = file_diff(dir, "new.txt", false).unwrap();
-        let diff::FileDiffBody::Hunks { hunks } = d.body else { panic!("want hunks") };
-        let adds = hunks[0].lines.iter().filter(|l| l.kind == diff::LineKind::Add).count();
+        let diff::FileDiffBody::Hunks { hunks } = d.body else {
+            panic!("want hunks")
+        };
+        let adds = hunks[0]
+            .lines
+            .iter()
+            .filter(|l| l.kind == diff::LineKind::Add)
+            .count();
         assert_eq!(adds, 2);
     }
 
@@ -571,8 +699,24 @@ mod tests {
         let raw = "3\t1\tsrc/a.rs\n-\t-\tpublic/x.bmp\n";
         let v = diff::parse_numstat(raw);
         assert_eq!(v.len(), 2);
-        assert_eq!(v[0], diff::NumStat { added: 3, removed: 1, binary: false, path: "src/a.rs".into() });
-        assert_eq!(v[1], diff::NumStat { added: 0, removed: 0, binary: true, path: "public/x.bmp".into() });
+        assert_eq!(
+            v[0],
+            diff::NumStat {
+                added: 3,
+                removed: 1,
+                binary: false,
+                path: "src/a.rs".into()
+            }
+        );
+        assert_eq!(
+            v[1],
+            diff::NumStat {
+                added: 0,
+                removed: 0,
+                binary: true,
+                path: "public/x.bmp".into()
+            }
+        );
     }
 
     #[test]
@@ -588,12 +732,21 @@ index e69de29..0cfbf08 100644
 +new
 ";
         let body = diff::parse_unified_diff(raw, 5000);
-        let diff::FileDiffBody::Hunks { hunks } = body else { panic!("want hunks") };
+        let diff::FileDiffBody::Hunks { hunks } = body else {
+            panic!("want hunks")
+        };
         assert_eq!(hunks.len(), 1);
         let h = &hunks[0];
         assert_eq!((h.old_start, h.new_start), (1, 1));
         let kinds: Vec<_> = h.lines.iter().map(|l| l.kind).collect();
-        assert_eq!(kinds, vec![diff::LineKind::Context, diff::LineKind::Del, diff::LineKind::Add]);
+        assert_eq!(
+            kinds,
+            vec![
+                diff::LineKind::Context,
+                diff::LineKind::Del,
+                diff::LineKind::Add
+            ]
+        );
         // context line carries both numbers; del has only old; add has only new
         assert_eq!((h.lines[0].old_no, h.lines[0].new_no), (Some(1), Some(1)));
         assert_eq!((h.lines[1].old_no, h.lines[1].new_no), (Some(2), None));
@@ -604,21 +757,31 @@ index e69de29..0cfbf08 100644
     #[test]
     fn parse_unified_diff_swallows_no_newline_marker() {
         let raw = "@@ -1 +1 @@\n-a\n+b\n\\ No newline at end of file\n";
-        let diff::FileDiffBody::Hunks { hunks } = diff::parse_unified_diff(raw, 5000) else { panic!() };
+        let diff::FileDiffBody::Hunks { hunks } = diff::parse_unified_diff(raw, 5000) else {
+            panic!()
+        };
         assert_eq!(hunks[0].lines.len(), 2); // marker is not a diff line
     }
 
     #[test]
     fn parse_unified_diff_detects_binary() {
         let raw = "diff --git a/x.bmp b/x.bmp\nBinary files a/x.bmp and b/x.bmp differ\n";
-        assert!(matches!(diff::parse_unified_diff(raw, 5000), diff::FileDiffBody::Binary { .. }));
+        assert!(matches!(
+            diff::parse_unified_diff(raw, 5000),
+            diff::FileDiffBody::Binary { .. }
+        ));
     }
 
     #[test]
     fn parse_unified_diff_caps_large() {
         let mut raw = String::from("@@ -1,9999 +1,9999 @@\n");
-        for _ in 0..6000 { raw.push_str("+x\n"); }
-        assert!(matches!(diff::parse_unified_diff(&raw, 5000), diff::FileDiffBody::TooLarge { .. }));
+        for _ in 0..6000 {
+            raw.push_str("+x\n");
+        }
+        assert!(matches!(
+            diff::parse_unified_diff(&raw, 5000),
+            diff::FileDiffBody::TooLarge { .. }
+        ));
     }
 
     // ---- numstat_dest_path unit tests ----
@@ -643,7 +806,13 @@ index e69de29..0cfbf08 100644
     #[test]
     fn changes_staged_rename_has_nonzero_counts() {
         use std::fs;
-        if std::process::Command::new("git").arg("--version").output().is_err() { return; }
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
         let tmp = tempfile::TempDir::new().unwrap();
         let dir = tmp.path();
         init_repo(dir);
@@ -657,11 +826,18 @@ index e69de29..0cfbf08 100644
         git_run(dir, &["add", "renamed.txt"]);
 
         let c = changes(dir).unwrap();
-        let entry = c.staged.iter().find(|f| f.path == "renamed.txt")
+        let entry = c
+            .staged
+            .iter()
+            .find(|f| f.path == "renamed.txt")
             .expect("renamed.txt should appear in staged");
         assert_eq!(entry.status, diff::ChangeStatus::Renamed);
         // After adding a line the numstat should show at least 1 addition.
-        assert!(entry.added > 0, "staged rename should carry added count, got {}", entry.added);
+        assert!(
+            entry.added > 0,
+            "staged rename should carry added count, got {}",
+            entry.added
+        );
     }
 
     #[test]

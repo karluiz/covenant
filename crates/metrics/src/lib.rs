@@ -88,7 +88,11 @@ pub fn build_snapshot(
     roots: &[(String, u32)],
     machine: MachineTotals,
 ) -> ResourcesSnapshot {
-    let div = if machine.ncpus > 0 { machine.ncpus as f32 } else { 1.0 };
+    let div = if machine.ncpus > 0 {
+        machine.ncpus as f32
+    } else {
+        1.0
+    };
     let mut sessions = Vec::with_capacity(roots.len());
     let mut total_cpu = 0.0f32;
     let mut total_mem = 0u64;
@@ -97,7 +101,11 @@ pub fn build_snapshot(
         let cpu = m.cpu / div;
         total_cpu += cpu;
         total_mem += m.mem_bytes;
-        sessions.push(SessionMetric { id: id.clone(), cpu, mem_bytes: m.mem_bytes });
+        sessions.push(SessionMetric {
+            id: id.clone(),
+            cpu,
+            mem_bytes: m.mem_bytes,
+        });
     }
     let ram_share = if machine.mem_total_bytes > 0 {
         total_mem as f32 / machine.mem_total_bytes as f32 * 100.0
@@ -118,7 +126,12 @@ mod tests {
     use super::*;
 
     fn sample(pid: u32, parent: u32, cpu: f32, mem: u64) -> ProcSample {
-        ProcSample { pid, parent_pid: parent, cpu, mem_bytes: mem }
+        ProcSample {
+            pid,
+            parent_pid: parent,
+            cpu,
+            mem_bytes: mem,
+        }
     }
 
     #[test]
@@ -139,15 +152,18 @@ mod tests {
     fn missing_root_contributes_zero_but_sums_its_children() {
         let table = ProcessTable::from_samples(vec![sample(600, 500, 3.0, 30)]);
         let m = aggregate_subtree(&table, 500);
-        assert_eq!(m, ProcMetrics { cpu: 3.0, mem_bytes: 30 });
+        assert_eq!(
+            m,
+            ProcMetrics {
+                cpu: 3.0,
+                mem_bytes: 30
+            }
+        );
     }
 
     #[test]
     fn cycle_does_not_hang() {
-        let table = ProcessTable::from_samples(vec![
-            sample(1, 2, 1.0, 1),
-            sample(2, 1, 1.0, 1),
-        ]);
+        let table = ProcessTable::from_samples(vec![sample(1, 2, 1.0, 1), sample(2, 1, 1.0, 1)]);
         let m = aggregate_subtree(&table, 1);
         assert_eq!(m.mem_bytes, 2);
     }
@@ -161,7 +177,10 @@ mod tests {
         let snap = build_snapshot(
             &table,
             &[("a".into(), 10), ("b".into(), 20)],
-            MachineTotals { mem_total_bytes: 8_000_000_000, ncpus: 4 },
+            MachineTotals {
+                mem_total_bytes: 8_000_000_000,
+                ncpus: 4,
+            },
         );
         assert_eq!(snap.sessions[0].cpu, 50.0);
         assert_eq!(snap.sessions[0].mem_bytes, 100_000_000);
@@ -177,7 +196,10 @@ mod tests {
         let snap = build_snapshot(
             &table,
             &[("a".into(), 10)],
-            MachineTotals { mem_total_bytes: 0, ncpus: 0 },
+            MachineTotals {
+                mem_total_bytes: 0,
+                ncpus: 0,
+            },
         );
         assert_eq!(snap.sessions[0].cpu, 5.0);
         assert_eq!(snap.ram_share, 0.0);

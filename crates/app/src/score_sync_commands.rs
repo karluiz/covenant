@@ -26,9 +26,14 @@ pub async fn score_profile_set_publish(
     state: State<'_, ScoreState>,
     enabled: bool,
 ) -> Result<Option<String>, String> {
-    state.0.set_publish_profile(enabled).map_err(|e| e.to_string())?;
+    state
+        .0
+        .set_publish_profile(enabled)
+        .map_err(|e| e.to_string())?;
     if enabled {
-        let url = sync::publish_profile(&state.0).await.map_err(|e| e.to_string())?;
+        let url = sync::publish_profile(&state.0)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(Some(url))
     } else {
         sync::unpublish_profile().await.map_err(|e| e.to_string())?;
@@ -37,7 +42,9 @@ pub async fn score_profile_set_publish(
 }
 
 #[tauri::command]
-pub fn score_profile_preview(state: State<'_, ScoreState>) -> Result<Option<PublicProfileSnapshot>, String> {
+pub fn score_profile_preview(
+    state: State<'_, ScoreState>,
+) -> Result<Option<PublicProfileSnapshot>, String> {
     sync::current_snapshot(&state.0).map_err(|e| e.to_string())
 }
 

@@ -39,14 +39,24 @@ fn claude_code_parser_records_repo_context_from_cwd() {
     let m = store
         .breakdown_models(&filter, karl_score::ModelSource::External)
         .unwrap();
-    assert_eq!(m.len(), 1, "repo-filtered tokens must include the cwd-tagged call");
+    assert_eq!(
+        m.len(),
+        1,
+        "repo-filtered tokens must include the cwd-tagged call"
+    );
     assert_eq!(m[0].calls, 1);
     assert_eq!(m[0].input_tokens, 100);
 
     let all = store
-        .breakdown_models(&karl_score::ScoreFilter::default(), karl_score::ModelSource::External)
+        .breakdown_models(
+            &karl_score::ScoreFilter::default(),
+            karl_score::ModelSource::External,
+        )
         .unwrap();
-    assert_eq!(all[0].calls, 2, "cwd-less line is still recorded without repo");
+    assert_eq!(
+        all[0].calls, 2,
+        "cwd-less line is still recorded without repo"
+    );
 }
 
 #[test]

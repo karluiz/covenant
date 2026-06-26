@@ -220,8 +220,8 @@ pub async fn pull() -> Result<Option<SyncEnvelope>, String> {
     }
     let resp = resp.error_for_status().map_err(|e| e.to_string())?;
     let v: Value = resp.json().await.map_err(|e| e.to_string())?;
-    let env = serde_json::from_value::<SyncEnvelope>(v["state"].clone())
-        .map_err(|e| e.to_string())?;
+    let env =
+        serde_json::from_value::<SyncEnvelope>(v["state"].clone()).map_err(|e| e.to_string())?;
     Ok(Some(env))
 }
 

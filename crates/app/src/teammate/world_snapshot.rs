@@ -111,7 +111,9 @@ pub fn render(snapshots: &[SessionSnapshot]) -> String {
 
 fn render_session_full(out: &mut String, s: &SessionSnapshot) {
     let short = short_id(&s.id);
-    out.push_str(&format!("- internal id: `{short}` (machine-only, never show to user)\n"));
+    out.push_str(&format!(
+        "- internal id: `{short}` (machine-only, never show to user)\n"
+    ));
     if !s.cwd.is_empty() {
         out.push_str(&format!("- cwd: `{}`\n", s.cwd));
     }
@@ -147,23 +149,23 @@ fn render_session_full(out: &mut String, s: &SessionSnapshot) {
 
 fn render_session_brief(out: &mut String, s: &SessionSnapshot) {
     let short = short_id(&s.id);
-    let cwd = if s.cwd.is_empty() { "—" } else { s.cwd.as_str() };
-    let summary_line = s
-        .summary
-        .as_deref()
-        .map(first_line)
-        .unwrap_or_else(|| {
-            s.last_blocks
-                .last()
-                .map(|b| {
-                    let exit = b
-                        .exit_code
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| "?".into());
-                    format!("last: `$ {}` → exit {}", b.command, exit)
-                })
-                .unwrap_or_else(|| "idle".to_string())
-        });
+    let cwd = if s.cwd.is_empty() {
+        "—"
+    } else {
+        s.cwd.as_str()
+    };
+    let summary_line = s.summary.as_deref().map(first_line).unwrap_or_else(|| {
+        s.last_blocks
+            .last()
+            .map(|b| {
+                let exit = b
+                    .exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "?".into());
+                format!("last: `$ {}` → exit {}", b.command, exit)
+            })
+            .unwrap_or_else(|| "idle".to_string())
+    });
     out.push_str(&format!(
         "- session [id `{short}` — machine-only] · cwd `{cwd}` · {summary_line}\n"
     ));
@@ -241,10 +243,7 @@ mod tests {
         assert!(out.contains("/b"));
         assert!(out.contains("rm bad"));
         // The "Other open sessions" section must not expand into a full block list.
-        let other_section = out
-            .split("## Other open sessions")
-            .nth(1)
-            .unwrap_or("");
+        let other_section = out.split("## Other open sessions").nth(1).unwrap_or("");
         assert!(!other_section.contains("- recent blocks"));
     }
 

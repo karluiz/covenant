@@ -4,7 +4,9 @@ use serde_json::Value;
 /// Remove every secret field from a serialized `Settings` JSON value, in place.
 /// Keeps the surrounding non-secret structure intact.
 pub fn strip_secrets(prefs: &mut Value) {
-    let Some(obj) = prefs.as_object_mut() else { return };
+    let Some(obj) = prefs.as_object_mut() else {
+        return;
+    };
     obj.remove("anthropic_api_key");
     obj.remove("sendgrid_api_key");
     if let Some(tg) = obj.get_mut("telegram").and_then(|v| v.as_object_mut()) {
@@ -47,7 +49,10 @@ pub fn merge_preferences(local: &Settings, cloud_prefs: &Value) -> Settings {
             serde_json::to_value(&local.sendgrid_api_key).unwrap_or(Value::Null),
         );
         if let Some(tg) = b.get_mut("telegram").and_then(|v| v.as_object_mut()) {
-            tg.insert("bot_token".into(), Value::String(local.telegram.bot_token.clone()));
+            tg.insert(
+                "bot_token".into(),
+                Value::String(local.telegram.bot_token.clone()),
+            );
         }
         if let Some(providers) = b.get_mut("providers").and_then(|v| v.as_object_mut()) {
             for (id, p) in providers.iter_mut() {
@@ -165,10 +170,7 @@ mod tests {
         // Cloud prefs = stripped local, but with only "alpha" in providers (beta removed).
         let mut cloud = serde_json::to_value(&local).unwrap();
         strip_secrets(&mut cloud);
-        cloud["providers"]
-            .as_object_mut()
-            .unwrap()
-            .remove("beta");
+        cloud["providers"].as_object_mut().unwrap().remove("beta");
 
         let merged = merge_preferences(&local, &cloud);
 

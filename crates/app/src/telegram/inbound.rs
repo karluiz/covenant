@@ -244,7 +244,9 @@ mod confirmation_tests {
                 resolution,
             } => {
                 assert_eq!(escalation_id, "esc-7");
-                assert!(matches!(resolution, ResolutionFromTelegram::FreeText(t) if t == "usa --force"));
+                assert!(
+                    matches!(resolution, ResolutionFromTelegram::FreeText(t) if t == "usa --force")
+                );
             }
             _ => panic!("reply to open escalation must resolve as free text"),
         }

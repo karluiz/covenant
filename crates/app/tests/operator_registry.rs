@@ -182,7 +182,9 @@ async fn teammate_messages_roundtrip() {
 
     let listed = storage.teammate_list_messages(op_id, 50).await.unwrap();
     assert_eq!(listed.len(), 1, "message should round-trip");
-    let MessageContent::Text(t) = &listed[0].content else { panic!("wrong kind") };
+    let MessageContent::Text(t) = &listed[0].content else {
+        panic!("wrong kind")
+    };
     assert_eq!(t, "hola Mibli");
 }
 

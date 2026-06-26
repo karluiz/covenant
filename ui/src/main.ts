@@ -52,6 +52,7 @@ import { pushInfoToast, setSharedToastHost, ToastHost } from "./notifications/to
 import { OperatorPanel } from "./operator/panel";
 import { RecallPalette } from "./recall/palette";
 import { ReleasePanel } from "./release/panel";
+import { OnboardingPanel, shouldShowOnboarding, resetOnboarding } from "./onboarding/panel";
 import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { TaskerPanel } from "./tasker/panel";
@@ -523,6 +524,7 @@ async function boot(): Promise<void> {
   const teammateBtn = document.getElementById("titlebar-view-teammate");
   const taskerBtn = document.getElementById("titlebar-tasker");
   const resourcesBtn = document.getElementById("titlebar-resources");
+  const cdlcBtn = document.getElementById("titlebar-cdlc");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
   const BLOCKS_GLOBAL_KEY = "covenant.blocks-globally-collapsed";
@@ -536,7 +538,7 @@ async function boot(): Promise<void> {
     activity: viewActivityBtn,
     recall: viewRecallBtn,
     notes: projectNotesBtn,
-    cdlc: null,
+    cdlc: cdlcBtn,
     teammate: teammateBtn,
     tasker: taskerBtn,
     resources: resourcesBtn,
@@ -859,6 +861,12 @@ async function boot(): Promise<void> {
     resourcesBtn.innerHTML = Icons.boxes({ size: 14 });
     attachTooltip(resourcesBtn, "Resources");
     resourcesBtn.addEventListener("click", () => rail.toggle("resources"));
+  }
+
+  if (cdlcBtn) {
+    cdlcBtn.innerHTML = Icons.packageBox({ size: 14 });
+    attachTooltip(cdlcBtn, "CDLC (⌘⇧L)");
+    cdlcBtn.addEventListener("click", () => rail.toggle("cdlc"));
   }
 
   // Internal-browser globe launcher — gated by `experimental.internal_browser`.
@@ -1438,6 +1446,16 @@ async function boot(): Promise<void> {
   const release = new ReleasePanel(document.body);
   const shortcutsPanel = new ShortcutsPanel(document.body);
 
+  // First-run onboarding wizard. Auto-opens on a clean install and on
+  // `ONBOARDING_VERSION` bumps; the user can re-trigger it from
+  // Settings → "Show tour again", which calls `resetOnboarding()` and
+  // re-opens the panel.
+  const onboarding = new OnboardingPanel(document.body, {
+    openSettingsProviders: () => settings.open("providers"),
+    openShortcuts: () => shortcutsPanel.open(),
+    openAgentPanel: () => agent.open(),
+  });
+
   // Changes diff viewer — ⌘⇧C toggle. Host appended to body; ChangesSurface
   // manages its own fixed-overlay .cd-frame inside that host.
   const changesHost = document.createElement("div");
@@ -1482,12 +1500,25 @@ async function boot(): Promise<void> {
       });
     });
   });
-  // Auto-show "What's new" on the first launch after a version bump.
-  // Compares the persisted last-seen version with the running one;
-  // if missing or different, pop the modal once. Marked seen on close.
-  if (ReleasePanel.lastSeenVersion() !== __APP_VERSION__) {
+  // First-run onboarding takes precedence over the "What's new" modal:
+  // on a clean install we want the welcome wizard, not a changelog dump.
+  // `lastSeenVersion` is null on a clean install so the "What's new"
+  // branch *would* also fire — we suppress it here and let the
+  // onboarding wizard own the first-run experience. After the user
+  // completes onboarding and stamps the version, both `lastSeenVersion`
+  // and `onboarding_completed` are set, and a future version bump will
+  // surface "What's new" normally.
+  if (shouldShowOnboarding(initialSettings ?? null)) {
+    onboarding.open();
+  } else if (ReleasePanel.lastSeenVersion() !== __APP_VERSION__) {
     release.openWhatsNew();
   }
+  // Settings → "Show tour again" reaches the wizard through this
+  // hook. Decouples `SettingsPanel` from the onboarding module.
+  settings.onShowTour = async () => {
+    await resetOnboarding();
+    onboarding.open();
+  };
   const recallPalette = new RecallPalette(
     document.body,
     () => manager.activeSessionId(),

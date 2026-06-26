@@ -999,7 +999,12 @@ impl OperatorWatcher {
     /// `ensure_autonomy_pot` to decide whether the budget pot is
     /// already live before opening a fresh one.
     pub async fn any_solo_active(&self) -> bool {
-        self.inner.lock().await.sessions.values().any(|a| a.solo_aom)
+        self.inner
+            .lock()
+            .await
+            .sessions
+            .values()
+            .any(|a| a.solo_aom)
     }
 
     /// Per-tab AOM opt-out. When true, this tab is invisible to the
@@ -1468,24 +1473,41 @@ impl OperatorWatcher {
     pub async fn queue_aom_startup_actions_for(&self, session_id: SessionId) {
         let snap = {
             let inner = self.inner.lock().await;
-            inner.sessions.get(&session_id).filter(|a| a.enabled).map(|att| {
-                (att.mission.as_ref().map(|m| m.path.clone()), att.world.clone())
-            })
+            inner
+                .sessions
+                .get(&session_id)
+                .filter(|a| a.enabled)
+                .map(|att| {
+                    (
+                        att.mission.as_ref().map(|m| m.path.clone()),
+                        att.world.clone(),
+                    )
+                })
         };
-        let Some((mission_path, world_arc)) = snap else { return };
+        let Some((mission_path, world_arc)) = snap else {
+            return;
+        };
 
         let titles = self.tab_titles.lock().await.clone();
         let slug = if let Some(p) = mission_path.as_ref() {
             let s = slug_from_mission_path(p);
             if s.is_empty() {
                 let cwd = world_arc.lock().await.cwd.clone();
-                slug_fallback_covenant(titles.get(&session_id).map(String::as_str), &cwd, session_id)
+                slug_fallback_covenant(
+                    titles.get(&session_id).map(String::as_str),
+                    &cwd,
+                    session_id,
+                )
             } else {
                 s
             }
         } else {
             let cwd = world_arc.lock().await.cwd.clone();
-            slug_fallback_covenant(titles.get(&session_id).map(String::as_str), &cwd, session_id)
+            slug_fallback_covenant(
+                titles.get(&session_id).map(String::as_str),
+                &cwd,
+                session_id,
+            )
         };
 
         if !slug.is_empty() {
@@ -1595,7 +1617,11 @@ async fn detect_mission_completions(
     notifier: &crate::notify::Notifier,
     escalation_tx: &broadcast::Sender<SessionEvent>,
 ) {
-    let auto_stop = settings.lock().await.operator.auto_stop_on_mission_completed;
+    let auto_stop = settings
+        .lock()
+        .await
+        .operator
+        .auto_stop_on_mission_completed;
     let aom_active = aom.read().await.enabled;
     if !aom_active {
         // Even with AOM off, keep the per-session flag in sync with
@@ -2402,8 +2428,7 @@ async fn run_tick(
                     // loop-cooldown interval on a parked decision point, so
                     // the cheap free-Wait path can't strand an unanswered
                     // prompt forever. See `aom_force_real_attempt_due`.
-                    let since_last_real =
-                        att.last_real_attempt_at.map(|t| now.duration_since(t));
+                    let since_last_real = att.last_real_attempt_at.map(|t| now.duration_since(t));
                     let force_real = aom_force_real_attempt_due(
                         effective_aom,
                         is_decision,
@@ -4199,7 +4224,10 @@ fn render_user_message(cmd: &str, cwd: &str, idle_for: Duration, tail: &[u8]) ->
 /// operator may act.
 fn executor_is_working(phase: &karl_session::ExecutorPhase) -> bool {
     use karl_session::ExecutorPhase::*;
-    matches!(phase, Thinking | Running { .. } | Reading { .. } | Writing { .. })
+    matches!(
+        phase,
+        Thinking | Running { .. } | Reading { .. } | Writing { .. }
+    )
 }
 
 /// Suppress this operator tick when an executor agent is in foreground AND it
@@ -4445,9 +4473,7 @@ pub(crate) fn aom_force_real_attempt_due(
     since_last_real_attempt: Option<Duration>,
     min_interval: Duration,
 ) -> bool {
-    effective_aom
-        && is_decision
-        && since_last_real_attempt.map_or(true, |e| e >= min_interval)
+    effective_aom && is_decision && since_last_real_attempt.map_or(true, |e| e >= min_interval)
 }
 
 /// Strip animated-glyph and elapsed-time churn from already-ANSI-
@@ -4597,24 +4623,38 @@ fn reply_is_mutating(text: &str) -> bool {
     // punctuation.
     fn tokens(s: &str) -> Vec<&str> {
         s.split(|c: char| c.is_ascii_whitespace())
-            .map(|tok| tok.trim_matches(|c: char| {
-                !c.is_ascii_alphanumeric() && c != '-' && c != '_'
-            }))
+            .map(|tok| {
+                tok.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+            })
             .filter(|t| !t.is_empty())
             .collect()
     }
     static WORDS: &[&str] = &[
-        "merge", "push", "commit", "rebase",
-        "install", "uninstall", "publish", "deploy",
-        "rm", "sudo", "truncate",
+        "merge",
+        "push",
+        "commit",
+        "rebase",
+        "install",
+        "uninstall",
+        "publish",
+        "deploy",
+        "rm",
+        "sudo",
+        "truncate",
         "force-push",
     ];
     // Multi-word phrases that we match as substrings (case-insensitive).
     static PHRASES: &[&str] = &[
         "reset --hard",
-        "drop table", "delete from",
-        "git push", "git merge", "git commit", "git reset",
-        "npm install", "pip install", "cargo install",
+        "drop table",
+        "delete from",
+        "git push",
+        "git merge",
+        "git commit",
+        "git reset",
+        "npm install",
+        "pip install",
+        "cargo install",
     ];
     let toks = tokens(&t);
     if toks.iter().any(|tok| WORDS.contains(tok)) {
@@ -5094,19 +5134,30 @@ mod tests {
         use karl_session::ExecutorPhase::*;
         for p in [
             Thinking,
-            Running { cmd: "cargo test".into() },
+            Running {
+                cmd: "cargo test".into(),
+            },
             Reading { file: "x".into() },
             Writing { file: "y".into() },
         ] {
             let snap = (p, Some("claude".to_string()));
-            assert!(should_suppress_for_phase(Some(&snap)), "{snap:?} must suppress");
+            assert!(
+                should_suppress_for_phase(Some(&snap)),
+                "{snap:?} must suppress"
+            );
         }
     }
 
     #[test]
     fn at_rest_phases_do_not_suppress() {
         use karl_session::ExecutorPhase::*;
-        for p in [Idle, Waiting { reason: "y/n".into() }, Done { summary: None }] {
+        for p in [
+            Idle,
+            Waiting {
+                reason: "y/n".into(),
+            },
+            Done { summary: None },
+        ] {
             let snap = (p, Some("claude".to_string()));
             assert!(!should_suppress_for_phase(Some(&snap)));
         }
@@ -5138,7 +5189,10 @@ building project\n\
 esc to interrupt · ctrl+o to expand\n\
 error[E0382]: borrow of moved value\n";
         let out = normalize_executor_chrome(raw);
-        assert!(!out.contains("Whirlpooling"), "spinner line leaked: {out:?}");
+        assert!(
+            !out.contains("Whirlpooling"),
+            "spinner line leaked: {out:?}"
+        );
         assert!(!out.to_lowercase().contains("esc to interrupt"));
         assert!(!out.contains("ctrl+o"));
         assert!(!out.contains("Tip:"));
@@ -5252,8 +5306,8 @@ error[E0382]: borrow of moved value\n";
     #[test]
     fn do_archetype_preserves_mutating_reply() {
         let txt = "ACTION: REPLY\nTEXT: merge it\nRATIONALE: ok";
-        let a = parse_response(txt, Some(crate::teammate::types::TaskArchetype::Do))
-            .expect("parsed");
+        let a =
+            parse_response(txt, Some(crate::teammate::types::TaskArchetype::Do)).expect("parsed");
         match a {
             OperatorAction::Reply { text, .. } => assert_eq!(text, "merge it"),
             _ => panic!("expected Reply, got {a:?}"),
@@ -5932,7 +5986,8 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_learned_matches_baseline() {
         let persona = "Always say yes to test runs.";
-        let got = build_system_prompt(persona,
+        let got = build_system_prompt(
+            persona,
             false,
             None,
             &[],
@@ -5974,7 +6029,8 @@ What would you like to do?
             mem_hit(42, "executor asks to run tests", "y\\n"),
             mem_hit(43, "executor asks to push", "n\\n"),
         ];
-        let got = build_system_prompt(persona,
+        let got = build_system_prompt(
+            persona,
             false,
             None,
             &learned,
@@ -5997,7 +6053,8 @@ What would you like to do?
     #[test]
     fn build_system_prompt_with_project_context_renders_block() {
         let ctx = "## Project: my-app\n\nSome notes about the project.";
-        let got = build_system_prompt("persona",
+        let got = build_system_prompt(
+            "persona",
             false,
             None,
             &[],
@@ -6021,7 +6078,8 @@ What would you like to do?
     #[test]
     fn build_system_prompt_empty_project_is_byte_identical_to_baseline() {
         let persona = "Always say yes to test runs.";
-        let with_empty = build_system_prompt(persona,
+        let with_empty = build_system_prompt(
+            persona,
             false,
             None,
             &[],
@@ -6031,7 +6089,8 @@ What would you like to do?
             0.6,
             None,
         );
-        let baseline = build_system_prompt(persona,
+        let baseline = build_system_prompt(
+            persona,
             false,
             None,
             &[],
@@ -6527,7 +6586,10 @@ What would you like to do?
         {
             let i = inner.lock().await;
             let att = i.sessions.get(&sid).unwrap();
-            assert!(!att.enabled, "operator must be auto-disabled on completion when the gate is on");
+            assert!(
+                !att.enabled,
+                "operator must be auto-disabled on completion when the gate is on"
+            );
             assert!(!att.enabled_by_aom);
         }
 
@@ -6561,10 +6623,17 @@ What would you like to do?
         inner.lock().await.sessions.insert(sid, att);
 
         let fires = run_completion_check(&inner, false).await;
-        assert_eq!(fires.len(), 1, "completion event still fires when gate is off");
+        assert_eq!(
+            fires.len(),
+            1,
+            "completion event still fires when gate is off"
+        );
         let i = inner.lock().await;
         let att = i.sessions.get(&sid).unwrap();
-        assert!(att.enabled, "operator must stay enabled when the auto-stop gate is off");
+        assert!(
+            att.enabled,
+            "operator must stay enabled when the auto-stop gate is off"
+        );
     }
 
     /// Test-only mirror of the state half of `detect_mission_completions`

@@ -190,7 +190,11 @@ pub fn convert_tool_def(anthropic_def: &Value) -> Value {
 pub fn collect_tool_calls(tool_calls: &[Value]) -> Vec<(String, String, Value)> {
     let mut out = Vec::new();
     for tc in tool_calls {
-        let id = tc.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let id = tc
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let function = tc.get("function");
         let name = function
             .and_then(|f| f.get("name"))

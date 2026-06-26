@@ -219,6 +219,12 @@ export class SettingsPanel {
   /// visible again.
   public onClosed: (() => void) | null = null;
 
+  /// Optional callback fired when the user clicks "Show tour again"
+  /// from the Covenant section of Settings. Wired by main to the
+  /// onboarding wizard; main owns the reset + reopen flow so the
+  /// `SettingsPanel` stays decoupled from `onboarding/panel`.
+  public onShowTour: (() => Promise<void> | void) | null = null;
+
   /// Return the serialized tab manifest so the user can export their
   /// workspace from this panel. Wired by main.ts.
   public onExportWorkspace: (() => unknown) | null = null;
@@ -1041,6 +1047,17 @@ export class SettingsPanel {
         </section>
         <section class="settings-section" id="sec-telegram"></section>
         <section class="settings-section" id="sec-covenant">
+          <h3 class="settings-section-title">Onboarding</h3>
+          <p class="settings-section-desc">Re-run the first-run tour at any time. Useful if you skipped it on install or want a refresher on the keyboard shortcuts and the super-agent.</p>
+          <div class="settings-field">
+            <span class="settings-label">First-run tour</span>
+            <div class="settings-input-row">
+              <button type="button" class="settings-toggle" data-action="show-tour">${Icons.refresh({ size: 14 })}<span>Show tour again</span></button>
+            </div>
+            <small class="settings-hint">
+              Resets the completion flag and pops the 4-step welcome wizard. Completing it stamps a fresh version so future updates can re-show it.
+            </small>
+          </div>
           <h3 class="settings-section-title">Metrics</h3>
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
           <div id="covenant-page-root"></div>
@@ -1648,6 +1665,18 @@ export class SettingsPanel {
     const wsExportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="export"]');
     const wsImportBtn = form.querySelector<HTMLButtonElement>('button[data-ws-action="import"]');
     const wsFile = form.querySelector<HTMLInputElement>('input[data-ws-file]');
+    // "Show tour again" — fires the optional `onShowTour` hook wired
+    // by main.ts to the onboarding wizard. No-op if main hasn't wired
+    // it (defensive — the button is always present in the markup).
+    const showTourBtn = form.querySelector<HTMLButtonElement>('button[data-action="show-tour"]');
+    showTourBtn?.addEventListener("click", () => {
+      if (!this.onShowTour) {
+        pushInfoToast({ message: "Tour not available." });
+        return;
+      }
+      this.close();
+      void this.onShowTour();
+    });
     wsExportBtn?.addEventListener("click", async () => {
       if (!this.onExportWorkspace) {
         pushInfoToast({ message: "Export not available." });

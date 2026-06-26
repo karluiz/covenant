@@ -135,12 +135,12 @@ pub fn extract_sentiment(text: &str) -> (String, Option<Sentiment>) {
         // Also accept the English label as a last-ditch fallback in case
         // the model emits the gloss instead of the token.
         "ashamed" | "embarrassed" => Some(Sentiment::Ver),
-        "happy"       => Some(Sentiment::Feliz),
-        "sad"         => Some(Sentiment::Triste),
-        "angry"       => Some(Sentiment::Enojo),
-        "surprised"   => Some(Sentiment::Sorpresa),
+        "happy" => Some(Sentiment::Feliz),
+        "sad" => Some(Sentiment::Triste),
+        "angry" => Some(Sentiment::Enojo),
+        "surprised" => Some(Sentiment::Sorpresa),
         "unsure" | "doubtful" => Some(Sentiment::Duda),
-        "eager"       => Some(Sentiment::Expectacion),
+        "eager" => Some(Sentiment::Expectacion),
         "uneasy" | "uncomfortable" => Some(Sentiment::Incomodidad),
         other => Sentiment::from_token(other),
     };
@@ -298,15 +298,14 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         format!("{header}\n\n# Persona\n\n{persona}{SENTIMENT_DIRECTIVE}{CARD_DIRECTIVE}")
     };
     if operator.github_access != crate::operator_registry::GithubAccess::Off {
-        let write_line = if operator.github_access
-            == crate::operator_registry::GithubAccess::ReadWrite
-        {
-            " You may also write: `gh_create_issue`, `gh_comment`, `gh_create_pr`, \
+        let write_line =
+            if operator.github_access == crate::operator_registry::GithubAccess::ReadWrite {
+                " You may also write: `gh_create_issue`, `gh_comment`, `gh_create_pr`, \
              `gh_update_issue_state` (close/reopen). State plainly what you changed, \
              with the URL."
-        } else {
-            " Your GitHub access is READ-ONLY: you cannot create or modify anything."
-        };
+            } else {
+                " Your GitHub access is READ-ONLY: you cannot create or modify anything."
+            };
         prompt.push_str(&format!(
             "\n\n# GitHub access\n\
              You can act on the user's GitHub account via `gh_*` tools: `gh_list_repos`, \
@@ -336,9 +335,9 @@ pub fn build_user_message(
     }
     for msg in &thread[start..] {
         let role_label = match msg.role {
-            Role::User     => "User",
+            Role::User => "User",
             Role::Operator => operator.name.as_str(),
-            Role::System   => "System",
+            Role::System => "System",
         };
         let text = match &msg.content {
             MessageContent::Text(t) => t.as_str(),
@@ -349,12 +348,15 @@ pub fn build_user_message(
         out.push_str(text);
         out.push('\n');
     }
-    out.push_str(&format!("\n# Your turn\n\nReply as {} (one message).", operator.name));
+    out.push_str(&format!(
+        "\n# Your turn\n\nReply as {} (one message).",
+        operator.name
+    ));
     out
 }
 
-use karl_agent::AskRequest;
 use karl_agent::provider::collect_oneshot;
+use karl_agent::AskRequest;
 use thiserror::Error;
 
 use crate::provider_resolve::{resolve_route, ResolveError};
@@ -368,7 +370,10 @@ pub enum DispatchOutcome {
     /// Plain text reply. `sentiment` is the parsed `SENTIMENT:` tag from
     /// the tail of the model output (None when the model omitted or
     /// garbled the directive — UI falls back to a neutral pose).
-    Text { text: String, sentiment: Option<Sentiment> },
+    Text {
+        text: String,
+        sentiment: Option<Sentiment>,
+    },
     Propose(crate::teammate::MessageContent),
     Handoff(crate::teammate::types::HandoffRequest),
 }
@@ -399,10 +404,10 @@ pub async fn dispatch_reply(
         .map_err(|e: ResolveError| TeammateLlmError::NoRoute(e.to_string()))?;
     let req = AskRequest {
         api_key: String::new(),
-        model:   operator.model.clone(),
+        model: operator.model.clone(),
         system_prompt: build_system_prompt(operator),
-        user_message:  build_user_message(thread, operator, world_context),
-        max_tokens:    REPLY_MAX_TOKENS,
+        user_message: build_user_message(thread, operator, world_context),
+        max_tokens: REPLY_MAX_TOKENS,
         thinking_budget: None,
         force_tool: None,
     };
@@ -450,9 +455,18 @@ pub async fn generate_thread_title(
         .unwrap_or("")
         .trim()
         .to_string();
-    title = title.trim_matches('"').trim_matches('\'').trim().to_string();
+    title = title
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_string();
     if title.chars().count() > 48 {
-        title = title.chars().take(48).collect::<String>().trim().to_string();
+        title = title
+            .chars()
+            .take(48)
+            .collect::<String>()
+            .trim()
+            .to_string();
     }
     if title.is_empty() {
         return Err(TeammateLlmError::EmptyReply);
@@ -476,7 +490,12 @@ const MAX_TOOL_ITERATIONS: usize = 12;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolProgress {
     /// A tool call is about to start (or has just produced a result).
-    ToolCall { tool: String, args: serde_json::Value, ok: bool, error: Option<String> },
+    ToolCall {
+        tool: String,
+        args: serde_json::Value,
+        ok: bool,
+        error: Option<String>,
+    },
 }
 
 /// Execute one tool call. Shared by the Anthropic and OpenAI loops so the
@@ -505,7 +524,7 @@ async fn execute_tool(
                 "propose_task already considered; respond with text now.".into(),
                 false,
                 Some("propose_task in non-leading position".into()),
-            )
+            );
         }
         "handoff_task" => {
             return (
@@ -594,10 +613,9 @@ where
         .model_routes
         .get(&SettingsRole::Operator)
         .ok_or_else(|| TeammateLlmError::NoRoute("operator route missing".into()))?;
-    let provider_cfg = settings
-        .providers
-        .get(&route.provider_id)
-        .ok_or_else(|| TeammateLlmError::NoRoute(format!("unknown provider {}", route.provider_id)))?;
+    let provider_cfg = settings.providers.get(&route.provider_id).ok_or_else(|| {
+        TeammateLlmError::NoRoute(format!("unknown provider {}", route.provider_id))
+    })?;
     let api_key = provider_cfg
         .api_key
         .as_deref()
@@ -636,17 +654,17 @@ where
         if stop == "tool_use" {
             // Fast-path: handoff_task is "structured output". If the assistant
             // emitted one, end the loop and surface it as a Handoff outcome.
-            if let Some(req) = extract_handoff_from_content(
-                &serde_json::Value::Array(resp.content.clone())
-            ) {
+            if let Some(req) =
+                extract_handoff_from_content(&serde_json::Value::Array(resp.content.clone()))
+            {
                 return Ok(DispatchOutcome::Handoff(req));
             }
 
             // Fast-path: propose_task is "structured output". If the assistant
             // emitted one, end the loop and surface it as a Propose message.
-            if let Some(propose) = extract_propose_from_content(
-                &serde_json::Value::Array(resp.content.clone())
-            ) {
+            if let Some(propose) =
+                extract_propose_from_content(&serde_json::Value::Array(resp.content.clone()))
+            {
                 return Ok(DispatchOutcome::Propose(propose));
             }
 
@@ -681,7 +699,9 @@ where
 
         // Any other stop_reason ("end_turn", "stop_sequence", etc.):
         // the assistant emitted final text. Return it.
-        let raw = anthropic_http::extract_text(&resp.content).trim().to_string();
+        let raw = anthropic_http::extract_text(&resp.content)
+            .trim()
+            .to_string();
         if raw.is_empty() {
             return Err(TeammateLlmError::EmptyReply);
         }
@@ -712,19 +732,16 @@ async fn dispatch_reply_with_tools_openai<F>(
 where
     F: FnMut(ToolProgress) + Send,
 {
-    use crate::teammate::openai_http::{
-        self, AuthStyle, OpenAiHttpError, OpenAiMessage,
-    };
+    use crate::teammate::openai_http::{self, AuthStyle, OpenAiHttpError, OpenAiMessage};
     use karl_agent::provider::azure_foundry::{default_api_version, AzureMode};
 
     let route = settings
         .model_routes
         .get(&SettingsRole::Operator)
         .ok_or_else(|| TeammateLlmError::NoRoute("operator route missing".into()))?;
-    let provider_cfg = settings
-        .providers
-        .get(&route.provider_id)
-        .ok_or_else(|| TeammateLlmError::NoRoute(format!("unknown provider {}", route.provider_id)))?;
+    let provider_cfg = settings.providers.get(&route.provider_id).ok_or_else(|| {
+        TeammateLlmError::NoRoute(format!("unknown provider {}", route.provider_id))
+    })?;
     let api_key = provider_cfg
         .api_key
         .as_deref()
@@ -757,12 +774,9 @@ where
                 .unwrap_or_else(|| default_api_version(mode).to_string());
             match mode {
                 AzureMode::AzureOpenAi => {
-                    let dep = provider_cfg
-                        .azure_deployment
-                        .as_deref()
-                        .ok_or_else(|| {
-                            TeammateLlmError::NoRoute("azure deployment missing".into())
-                        })?;
+                    let dep = provider_cfg.azure_deployment.as_deref().ok_or_else(|| {
+                        TeammateLlmError::NoRoute("azure deployment missing".into())
+                    })?;
                     (
                         format!(
                             "{}/openai/deployments/{}/chat/completions?api-version={}",
@@ -773,7 +787,10 @@ where
                     )
                 }
                 AzureMode::AiInference => (
-                    format!("{}/models/chat/completions?api-version={}", base_url, api_version),
+                    format!(
+                        "{}/models/chat/completions?api-version={}",
+                        base_url, api_version
+                    ),
                     AuthStyle::AzureKey,
                     true,
                 ),
@@ -795,7 +812,11 @@ where
     ];
 
     for _ in 0..MAX_TOOL_ITERATIONS {
-        let model_arg = if send_model { Some(operator.model.as_str()) } else { None };
+        let model_arg = if send_model {
+            Some(operator.model.as_str())
+        } else {
+            None
+        };
         let resp = openai_http::post(
             auth,
             &api_key,
@@ -851,7 +872,12 @@ where
         }
 
         // No tool calls — final text turn.
-        let raw = choice.message.content.unwrap_or_default().trim().to_string();
+        let raw = choice
+            .message
+            .content
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         if raw.is_empty() {
             return Err(TeammateLlmError::EmptyReply);
         }
@@ -895,7 +921,10 @@ fn extract_propose_from_openai_tool_calls(
             .get("scope")
             .and_then(|s| serde_json::from_value::<crate::teammate::TaskScope>(s.clone()).ok())
             .unwrap_or_default();
-        let executor = input.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let executor = input
+            .get("executor")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         return Some(crate::teammate::MessageContent::Propose(
             crate::teammate::types::ProposeTask {
                 draft: crate::teammate::types::TaskDraft {
@@ -930,22 +959,30 @@ pub(crate) fn extract_propose_from_content(
         let input = block.get("input")?;
         let archetype_s = input.get("archetype")?.as_str()?;
         let archetype = match archetype_s {
-            "do"     => crate::teammate::TaskArchetype::Do,
+            "do" => crate::teammate::TaskArchetype::Do,
             "review" => crate::teammate::TaskArchetype::Review,
-            "watch"  => crate::teammate::TaskArchetype::Watch,
+            "watch" => crate::teammate::TaskArchetype::Watch,
             _ => return None,
         };
         let title = input.get("title")?.as_str()?.to_string();
         let deliverable = input.get("deliverable")?.as_str()?.to_string();
         let rationale = input.get("rationale")?.as_str()?.to_string();
-        let scope = input.get("scope")
+        let scope = input
+            .get("scope")
             .and_then(|s| serde_json::from_value::<crate::teammate::TaskScope>(s.clone()).ok())
             .unwrap_or_default();
-        let executor = input.get("executor").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let executor = input
+            .get("executor")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         return Some(crate::teammate::MessageContent::Propose(
             crate::teammate::types::ProposeTask {
                 draft: crate::teammate::types::TaskDraft {
-                    archetype, title, deliverable, scope, executor,
+                    archetype,
+                    title,
+                    deliverable,
+                    scope,
+                    executor,
                 },
                 rationale,
             },
@@ -962,8 +999,12 @@ pub(crate) fn extract_handoff_from_content(
 ) -> Option<crate::teammate::types::HandoffRequest> {
     let arr = content.as_array()?;
     for block in arr {
-        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") { continue; }
-        if block.get("name").and_then(|v| v.as_str()) != Some("handoff_task") { continue; }
+        if block.get("type").and_then(|v| v.as_str()) != Some("tool_use") {
+            continue;
+        }
+        if block.get("name").and_then(|v| v.as_str()) != Some("handoff_task") {
+            continue;
+        }
         let input = block.get("input")?;
         let required_skills: Vec<String> = input
             .get("required_skills")?
@@ -976,10 +1017,13 @@ pub(crate) fn extract_handoff_from_content(
         }
         return Some(crate::teammate::types::HandoffRequest {
             required_skills,
-            brief:       input.get("brief")?.as_str()?.to_string(),
+            brief: input.get("brief")?.as_str()?.to_string(),
             deliverable: input.get("deliverable")?.as_str()?.to_string(),
-            executor:    input.get("executor")?.as_str()?.to_string(),
-            context:     input.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            executor: input.get("executor")?.as_str()?.to_string(),
+            context: input
+                .get("context")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         });
     }
     None
@@ -1002,17 +1046,27 @@ fn extract_handoff_from_openai_tool_calls(
         let required_skills: Vec<String> = input
             .get("required_skills")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         if required_skills.is_empty() {
             continue; // malformed: a handoff with no skills can't be routed
         }
         return Some(crate::teammate::types::HandoffRequest {
             required_skills,
-            brief:       input.get("brief").and_then(|v| v.as_str())?.to_string(),
-            deliverable: input.get("deliverable").and_then(|v| v.as_str())?.to_string(),
-            executor:    input.get("executor").and_then(|v| v.as_str())?.to_string(),
-            context:     input.get("context").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            brief: input.get("brief").and_then(|v| v.as_str())?.to_string(),
+            deliverable: input
+                .get("deliverable")
+                .and_then(|v| v.as_str())?
+                .to_string(),
+            executor: input.get("executor").and_then(|v| v.as_str())?.to_string(),
+            context: input
+                .get("context")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         });
     }
     None
@@ -1096,7 +1150,10 @@ mod tests {
         let op = sample_op("Mibli", "");
         let p = build_system_prompt(&op);
         assert!(p.contains("```card"), "prompt must teach the card fence");
-        assert!(p.contains("# Cards"), "prompt must have the Cards section header");
+        assert!(
+            p.contains("# Cards"),
+            "prompt must have the Cards section header"
+        );
     }
 
     #[test]
@@ -1259,8 +1316,8 @@ mod tests {
                 }
             }
         ]);
-        let result = extract_propose_from_content(&content_blocks)
-            .expect("expected a Propose payload");
+        let result =
+            extract_propose_from_content(&content_blocks).expect("expected a Propose payload");
         use crate::teammate::types::{MessageContent, TaskArchetype};
         let MessageContent::Propose(p) = result else {
             panic!("expected Propose variant");
@@ -1293,7 +1350,10 @@ mod tests {
               } }
         ]);
         let req = extract_handoff_from_content(&content).expect("should parse");
-        assert_eq!(req.required_skills, vec!["rust".to_string(), "migrations".to_string()]);
+        assert_eq!(
+            req.required_skills,
+            vec!["rust".to_string(), "migrations".to_string()]
+        );
         assert_eq!(req.executor, "codex");
         assert!(req.context.is_none());
     }
@@ -1324,14 +1384,25 @@ mod tests {
 
         let ro = ToolEnv::new(std::env::temp_dir(), 1024)
             .with_skills(vec!["rust".into()])
-            .with_github(Some(GithubCtx { token: "t".into(), access: GithubAccess::ReadOnly, api_base: "x".into() }));
+            .with_github(Some(GithubCtx {
+                token: "t".into(),
+                access: GithubAccess::ReadOnly,
+                api_base: "x".into(),
+            }));
         assert_eq!(all_tool_defs(&ro).len(), 9 + 5);
 
         let rw = ToolEnv::new(std::env::temp_dir(), 1024)
             .with_skills(vec!["rust".into()])
-            .with_github(Some(GithubCtx { token: "t".into(), access: GithubAccess::ReadWrite, api_base: "x".into() }));
+            .with_github(Some(GithubCtx {
+                token: "t".into(),
+                access: GithubAccess::ReadWrite,
+                api_base: "x".into(),
+            }));
         let rw_defs = all_tool_defs(&rw);
-        let names: Vec<&str> = rw_defs.iter().map(|d| d["name"].as_str().unwrap()).collect();
+        let names: Vec<&str> = rw_defs
+            .iter()
+            .map(|d| d["name"].as_str().unwrap())
+            .collect();
         assert_eq!(names.len(), 9 + 9);
         assert!(names.contains(&"gh_create_issue"));
     }
@@ -1349,9 +1420,13 @@ mod tests {
     #[test]
     fn handoff_schema_enum_reflects_available_skills() {
         use crate::teammate::tools::ToolEnv;
-        let env = ToolEnv::new(std::env::temp_dir(), 1024).with_skills(vec!["rust".into(), "ui".into()]);
+        let env =
+            ToolEnv::new(std::env::temp_dir(), 1024).with_skills(vec!["rust".into(), "ui".into()]);
         let defs = all_tool_defs(&env);
-        let def = defs.into_iter().find(|d| d["name"] == "handoff_task").unwrap();
+        let def = defs
+            .into_iter()
+            .find(|d| d["name"] == "handoff_task")
+            .unwrap();
         let enm = &def["input_schema"]["properties"]["required_skills"]["items"]["enum"];
         assert_eq!(enm, &serde_json::json!(["rust", "ui"]));
     }

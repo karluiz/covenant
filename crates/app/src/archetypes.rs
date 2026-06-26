@@ -9,11 +9,26 @@ pub struct Archetype {
 }
 
 pub const ARCHETYPES: &[Archetype] = &[
-    Archetype { key: "guardian", raw: include_str!("../../../operator-souls/guardian.md") },
-    Archetype { key: "scout", raw: include_str!("../../../operator-souls/scout.md") },
-    Archetype { key: "surgeon", raw: include_str!("../../../operator-souls/surgeon.md") },
-    Archetype { key: "diplomat", raw: include_str!("../../../operator-souls/diplomat.md") },
-    Archetype { key: "archivist", raw: include_str!("../../../operator-souls/archivist.md") },
+    Archetype {
+        key: "guardian",
+        raw: include_str!("../../../operator-souls/guardian.md"),
+    },
+    Archetype {
+        key: "scout",
+        raw: include_str!("../../../operator-souls/scout.md"),
+    },
+    Archetype {
+        key: "surgeon",
+        raw: include_str!("../../../operator-souls/surgeon.md"),
+    },
+    Archetype {
+        key: "diplomat",
+        raw: include_str!("../../../operator-souls/diplomat.md"),
+    },
+    Archetype {
+        key: "archivist",
+        raw: include_str!("../../../operator-souls/archivist.md"),
+    },
 ];
 
 /// View sent to the UI: key + raw soul text + parsed display fields.

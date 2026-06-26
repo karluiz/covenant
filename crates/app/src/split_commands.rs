@@ -33,10 +33,7 @@ pub async fn swap_panes(_tab_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn set_pane_orientation(
-    _tab_id: String,
-    _orientation: String,
-) -> Result<(), String> {
+pub async fn set_pane_orientation(_tab_id: String, _orientation: String) -> Result<(), String> {
     Ok(())
 }
 

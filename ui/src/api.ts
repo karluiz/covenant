@@ -1190,6 +1190,12 @@ export interface Settings {
     internal_browser?: boolean;
     tab_styles?: TabStylesConfig;
   };
+  /// First-run onboarding wizard. `false` on a clean install so the
+  /// wizard auto-opens; the wizard flips it to `true` on Done/Skip.
+  /// Bumping `ONBOARDING_VERSION` re-shows the wizard for users who
+  /// have an older version stamped.
+  onboarding_completed?: boolean;
+  onboarding_version?: number;
 }
 
 export async function validateSendGridKey(apiKey: string): Promise<boolean> {

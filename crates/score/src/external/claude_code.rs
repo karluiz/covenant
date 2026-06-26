@@ -76,8 +76,17 @@ pub fn poll_one(store: &ScoreStore, path: &Path) -> Result<(), Box<dyn std::erro
                     .entry(cwd.to_string())
                     .or_insert_with(|| crate::context::repo_name_for_cwd(Path::new(cwd)))
                     .clone();
-                let branch = if repo.is_some() { parsed.git_branch.clone() } else { None };
-                Context { repo, branch, group_name: None, workspace: None }
+                let branch = if repo.is_some() {
+                    parsed.git_branch.clone()
+                } else {
+                    None
+                };
+                Context {
+                    repo,
+                    branch,
+                    group_name: None,
+                    workspace: None,
+                }
             }
             None => Context::default(),
         };

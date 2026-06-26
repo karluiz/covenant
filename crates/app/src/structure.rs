@@ -275,7 +275,10 @@ pub fn trash_path(path: &Path) -> Result<(), String> {
 ///   descendants (would recurse forever / corrupt).
 pub fn copy_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<String>, String> {
     if !dest_dir.is_dir() {
-        return Err(format!("destination is not a directory: {}", dest_dir.display()));
+        return Err(format!(
+            "destination is not a directory: {}",
+            dest_dir.display()
+        ));
     }
     let mut created = Vec::with_capacity(sources.len());
     for src in sources {
@@ -322,7 +325,10 @@ pub fn copy_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<
 /// back to copy-then-delete so moves across mount points still succeed.
 pub fn move_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<String>, String> {
     if !dest_dir.is_dir() {
-        return Err(format!("destination is not a directory: {}", dest_dir.display()));
+        return Err(format!(
+            "destination is not a directory: {}",
+            dest_dir.display()
+        ));
     }
     let dest_canon = dest_dir
         .canonicalize()
@@ -342,7 +348,10 @@ pub fn move_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<
 
         // Refuse to move a directory into itself or one of its descendants.
         if is_dir && (dest_canon == src_canon || dest_canon.starts_with(&src_canon)) {
-            return Err(format!("cannot move a directory into itself: {}", src.display()));
+            return Err(format!(
+                "cannot move a directory into itself: {}",
+                src.display()
+            ));
         }
         // Already living directly in the destination → nothing to do.
         if src_canon.parent() == Some(dest_canon.as_path()) {
@@ -358,8 +367,9 @@ pub fn move_into(sources: &[std::path::PathBuf], dest_dir: &Path) -> Result<Vec<
                 std::fs::remove_dir_all(src)
                     .map_err(|e| format!("remove moved dir {}: {e}", src.display()))?;
             } else {
-                std::fs::copy(src, &target)
-                    .map_err(|e| format!("move file (copy fallback): {e} (rename: {rename_err})"))?;
+                std::fs::copy(src, &target).map_err(|e| {
+                    format!("move file (copy fallback): {e} (rename: {rename_err})")
+                })?;
                 std::fs::remove_file(src)
                     .map_err(|e| format!("remove moved file {}: {e}", src.display()))?;
             }
@@ -656,10 +666,7 @@ pub fn find_files(root: &Path, query: &str, limit: u32) -> Result<Vec<FileHit>, 
         .build();
     for entry in dotfile_walker.flatten() {
         if entry.file_type().is_some_and(|ft| ft.is_file())
-            && entry
-                .file_name()
-                .to_str()
-                .is_some_and(is_finder_dotfile)
+            && entry.file_name().to_str().is_some_and(is_finder_dotfile)
         {
             consider(entry.path());
         }
@@ -1031,7 +1038,13 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         make_tree(
             &tmp,
-            &["src/main.rs", ".env", ".env.local", "secret.txt", ".gitignore"],
+            &[
+                "src/main.rs",
+                ".env",
+                ".env.local",
+                "secret.txt",
+                ".gitignore",
+            ],
         );
         fs::write(tmp.path().join(".gitignore"), ".env\n.env.*\nsecret.txt\n").unwrap();
 
@@ -1046,7 +1059,10 @@ mod tests {
         // .env and .env.local are gitignored but whitelisted → findable.
         let env_hits = rels(".env");
         assert!(env_hits.contains(&".env".to_string()), "got {env_hits:?}");
-        assert!(env_hits.iter().any(|r| r == ".env.local"), "got {env_hits:?}");
+        assert!(
+            env_hits.iter().any(|r| r == ".env.local"),
+            "got {env_hits:?}"
+        );
         // No duplicate entry for .env across the two passes.
         assert_eq!(env_hits.iter().filter(|r| *r == ".env").count(), 1);
         // A non-config gitignored file stays hidden.

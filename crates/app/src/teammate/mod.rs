@@ -13,12 +13,12 @@ pub mod build_classify;
 pub mod commands;
 pub mod github_tools;
 pub mod handoff;
+pub mod handoff_safety;
 pub mod llm;
 pub mod openai_http;
 pub mod runtime;
 pub mod sentiment_resolver;
 pub mod spec_edit_tracker;
-pub mod handoff_safety;
 pub mod task_supervisor;
 pub mod tools;
 pub mod types;
@@ -27,5 +27,6 @@ pub mod world_snapshot;
 pub use runtime::TeammateRuntime;
 pub use types::{
     ArtifactId, MessageContent, MessageId, OperatorState, Role, Sentiment, Task, TaskArchetype,
-    TaskArtifact, TaskMessage, TaskScope, TaskStatus, TaskId, ThreadId, TeammateThread, WatchPredicate,
+    TaskArtifact, TaskId, TaskMessage, TaskScope, TaskStatus, TeammateThread, ThreadId,
+    WatchPredicate,
 };

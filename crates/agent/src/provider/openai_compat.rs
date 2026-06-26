@@ -11,8 +11,8 @@
 use async_trait::async_trait;
 use futures_util::StreamExt;
 
-use crate::provider::{Capabilities, LlmProvider, ProviderConfig, ProviderKind};
 use crate::provider::openai_sse;
+use crate::provider::{Capabilities, LlmProvider, ProviderConfig, ProviderKind};
 use crate::{AgentError, AgentEvent, AskRequest};
 
 pub struct OpenAiCompatProvider {

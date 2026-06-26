@@ -17,8 +17,13 @@ use crate::operator_registry::OperatorId;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OperatorState {
     Idle,
-    Pinned { session: SessionId },
-    OnTask { task: TaskId, session: Option<SessionId> },
+    Pinned {
+        session: SessionId,
+    },
+    OnTask {
+        task: TaskId,
+        session: Option<SessionId>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -31,20 +36,28 @@ pub struct MessageId(pub Ulid);
 pub struct ArtifactId(pub Ulid);
 
 impl TaskId {
-    pub fn new() -> Self { Self(Ulid::new()) }
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
 }
 impl MessageId {
-    pub fn new() -> Self { Self(Ulid::new()) }
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
 }
 impl ArtifactId {
-    pub fn new() -> Self { Self(Ulid::new()) }
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ThreadId(pub Ulid);
 
 impl ThreadId {
-    pub fn new() -> Self { Self(Ulid::new()) }
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,25 +72,46 @@ pub struct TeammateThread {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TaskArchetype { Watch, Do, Review }
+pub enum TaskArchetype {
+    Watch,
+    Do,
+    Review,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TaskStatus { Draft, Active, Blocked, Done, Cancelled }
+pub enum TaskStatus {
+    Draft,
+    Active,
+    Blocked,
+    Done,
+    Cancelled,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WatchPredicate {
-    ExitCodeNonZero { in_sessions: Vec<SessionId> },
-    PathTouched     { paths: Vec<PathBuf> },
-    GhCheckStatus   { repo: String, branch: String, status: String },
+    ExitCodeNonZero {
+        in_sessions: Vec<SessionId>,
+    },
+    PathTouched {
+        paths: Vec<PathBuf>,
+    },
+    GhCheckStatus {
+        repo: String,
+        branch: String,
+        status: String,
+    },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskScope {
-    #[serde(default)] pub paths: Vec<PathBuf>,
-    #[serde(default)] pub tabs:  Vec<SessionId>,
-    #[serde(default)] pub watch_predicate: Option<WatchPredicate>,
+    #[serde(default)]
+    pub paths: Vec<PathBuf>,
+    #[serde(default)]
+    pub tabs: Vec<SessionId>,
+    #[serde(default)]
+    pub watch_predicate: Option<WatchPredicate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,7 +133,11 @@ pub struct Task {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Role { User, Operator, System }
+pub enum Role {
+    User,
+    Operator,
+    System,
+}
 
 /// Operator emotional state attached to a message at generation time.
 ///
@@ -126,30 +164,30 @@ impl Sentiment {
     /// caller can fall back to a neutral pose.
     pub fn from_token(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "neutral"      => Some(Self::Neutral),
-            "feliz"        => Some(Self::Feliz),
-            "triste"       => Some(Self::Triste),
-            "enojo"        => Some(Self::Enojo),
-            "sorpresa"     => Some(Self::Sorpresa),
-            "duda"         => Some(Self::Duda),
-            "expectacion"  => Some(Self::Expectacion),
-            "incomodidad"  => Some(Self::Incomodidad),
-            "ver"          => Some(Self::Ver),
+            "neutral" => Some(Self::Neutral),
+            "feliz" => Some(Self::Feliz),
+            "triste" => Some(Self::Triste),
+            "enojo" => Some(Self::Enojo),
+            "sorpresa" => Some(Self::Sorpresa),
+            "duda" => Some(Self::Duda),
+            "expectacion" => Some(Self::Expectacion),
+            "incomodidad" => Some(Self::Incomodidad),
+            "ver" => Some(Self::Ver),
             _ => None,
         }
     }
 
     pub fn as_token(self) -> &'static str {
         match self {
-            Self::Neutral     => "neutral",
-            Self::Feliz       => "feliz",
-            Self::Triste      => "triste",
-            Self::Enojo       => "enojo",
-            Self::Sorpresa    => "sorpresa",
-            Self::Duda        => "duda",
+            Self::Neutral => "neutral",
+            Self::Feliz => "feliz",
+            Self::Triste => "triste",
+            Self::Enojo => "enojo",
+            Self::Sorpresa => "sorpresa",
+            Self::Duda => "duda",
             Self::Expectacion => "expectacion",
             Self::Incomodidad => "incomodidad",
-            Self::Ver         => "ver",
+            Self::Ver => "ver",
         }
     }
 }
@@ -182,7 +220,14 @@ pub struct TaskDraft {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum UpdateKind { Started, Progress, Blocked, Resumed, Completed, Cancelled }
+pub enum UpdateKind {
+    Started,
+    Progress,
+    Blocked,
+    Resumed,
+    Completed,
+    Cancelled,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProposeTask {
@@ -221,7 +266,13 @@ pub struct TaskMessage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ArtifactKind { Diff, File, Link, Commit, Report }
+pub enum ArtifactKind {
+    Diff,
+    File,
+    Link,
+    Commit,
+    Report,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskArtifact {
@@ -234,15 +285,29 @@ pub struct TaskArtifact {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct HandoffId(pub Ulid);
-impl HandoffId { pub fn new() -> Self { Self(Ulid::new()) } }
+impl HandoffId {
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChainId(pub Ulid);
-impl ChainId { pub fn new() -> Self { Self(Ulid::new()) } }
+impl ChainId {
+    pub fn new() -> Self {
+        Self(Ulid::new())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum HandoffStatus { Running, Reported, Failed, Rejected, BlockedBySafety }
+pub enum HandoffStatus {
+    Running,
+    Reported,
+    Failed,
+    Rejected,
+    BlockedBySafety,
+}
 
 /// One operator→operator delegation edge. The work itself is an ordinary
 /// `Task` referenced by `task_id`; this row is the relationship + audit.

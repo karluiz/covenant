@@ -85,9 +85,7 @@ mod tests {
     fn agentless_sessions_are_skipped() {
         let evs = vec![SessionEvent::ExecutorStateChanged {
             session: SessionId::new(),
-            phase: ExecutorPhase::Running {
-                cmd: "make".into(),
-            },
+            phase: ExecutorPhase::Running { cmd: "make".into() },
             agent: None,
             tab_label: Some("build".into()),
         }];

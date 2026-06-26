@@ -1,6 +1,11 @@
 import type { Terminal } from "@xterm/xterm";
 
 const DISMISS_KEY = "covenant.welcome-hint-dismissed";
+// Onboarding completion flips this key as well (see
+// ui/src/onboarding/panel.ts → persistOnboardingCompleted). The hint is
+// redundant once the user has gone through the 4-step wizard, so we
+// suppress it on either signal.
+const ONBOARDING_KEY = "covenant.onboarding.completed";
 
 // Live hints, so non-keyboard activity (spawning an executor, running a
 // command) can dismiss them too — onKey alone misses those paths.
@@ -36,7 +41,10 @@ const ROWS: { keys: string[]; label: string }[] = [
  * on the first keystroke; "Don't show again" persists the dismissal.
  */
 export function mountWelcomeHint(host: HTMLElement, term: Terminal): void {
+  // Suppressed if the user has gone through the onboarding wizard OR
+  // previously hit "Don't show again" on this hint.
   if (localStorage.getItem(DISMISS_KEY) === "1") return;
+  if (localStorage.getItem(ONBOARDING_KEY) === "1") return;
 
   const card = document.createElement("div");
   card.className = "term-welcome";

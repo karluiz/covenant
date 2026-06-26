@@ -255,7 +255,9 @@ pub fn format_cached_summary(
         out.push('\n');
     }
 
-    out.push_str(&format!("## Costs\n${costs_usd:.4} USD in this window.\n\n"));
+    out.push_str(&format!(
+        "## Costs\n${costs_usd:.4} USD in this window.\n\n"
+    ));
 
     if !missions.is_empty() {
         out.push_str("## Missions\n");

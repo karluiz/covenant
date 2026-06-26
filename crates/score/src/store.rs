@@ -1,6 +1,6 @@
 use crate::achievements::{
     self, AchievementAward, AchievementCategory, AchievementFact, AchievementProgress,
-    CategoryRollup, AchievementSummary,
+    AchievementSummary, CategoryRollup,
 };
 use crate::types::{day_from_ms_local, Context, DailyCell, EventKind, Summary};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -455,7 +455,11 @@ impl ScoreStore {
         let conn = self.connection();
         let conn = conn.lock().unwrap();
         let v: Option<String> = conn
-            .query_row("SELECT value FROM kv WHERE key = 'publish_profile'", [], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM kv WHERE key = 'publish_profile'",
+                [],
+                |r| r.get(0),
+            )
             .optional()?;
         Ok(v.as_deref() == Some("1"))
     }
@@ -967,11 +971,12 @@ impl ScoreStore {
                     Some(r) => (Some(r.clone()), r),
                     None => continue,
                 },
-                achievements::ScopeKind::Operator
-                | achievements::ScopeKind::Orchestrator => match subject_id.clone() {
-                    Some(id) => (Some(id.clone()), id),
-                    None => continue,
-                },
+                achievements::ScopeKind::Operator | achievements::ScopeKind::Orchestrator => {
+                    match subject_id.clone() {
+                        Some(id) => (Some(id.clone()), id),
+                        None => continue,
+                    }
+                }
             };
 
             // Load current progress row.
@@ -996,9 +1001,7 @@ impl ScoreStore {
             let new_tier = achievements::tier_at(new_progress, def.tiers);
             let target = achievements::next_tier(new_progress, def.tiers)
                 .map(|(_, t)| t)
-                .unwrap_or_else(|| {
-                    def.tiers.last().map(|t| t.target).unwrap_or(0)
-                });
+                .unwrap_or_else(|| def.tiers.last().map(|t| t.target).unwrap_or(0));
 
             tx.execute(
                 "INSERT INTO achievement_progress
@@ -1049,11 +1052,7 @@ impl ScoreStore {
                     ],
                 )?;
                 if inserted > 0 {
-                    let id: i64 = tx.query_row(
-                        "SELECT last_insert_rowid()",
-                        [],
-                        |r| r.get(0),
-                    )?;
+                    let id: i64 = tx.query_row("SELECT last_insert_rowid()", [], |r| r.get(0))?;
                     new_awards.push(AchievementAward {
                         id,
                         achievement_id: def.id.to_string(),
@@ -1150,11 +1149,8 @@ impl ScoreStore {
         let awards = self.achievement_awards_recent(8)?;
         let total_awards: u32 = {
             let c = self.conn.lock().unwrap();
-            let n: i64 = c.query_row(
-                "SELECT COUNT(*) FROM achievement_awards",
-                [],
-                |r| r.get(0),
-            )?;
+            let n: i64 =
+                c.query_row("SELECT COUNT(*) FROM achievement_awards", [], |r| r.get(0))?;
             n as u32
         };
 
@@ -1163,9 +1159,7 @@ impl ScoreStore {
             std::collections::HashMap::new();
         {
             let c = self.conn.lock().unwrap();
-            let mut stmt = c.prepare(
-                "SELECT achievement_id, tier FROM achievement_awards",
-            )?;
+            let mut stmt = c.prepare("SELECT achievement_id, tier FROM achievement_awards")?;
             let rows = stmt.query_map([], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u8))
             })?;
@@ -1215,13 +1209,7 @@ impl ScoreStore {
         let tx = c.transaction()?;
         tx.execute("DELETE FROM achievement_progress", [])?;
         // Pull all facts in order.
-        let facts: Vec<(
-            i64,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        )> = {
+        let facts: Vec<(i64, String, String, Option<String>, Option<String>)> = {
             let mut stmt = tx.prepare(
                 "SELECT ts_ms, kind, subject_type, subject_id, repo
                  FROM achievement_facts ORDER BY id ASC",
@@ -1248,11 +1236,12 @@ impl ScoreStore {
                         Some(r) => (Some(r.clone()), r),
                         None => continue,
                     },
-                    achievements::ScopeKind::Operator
-                    | achievements::ScopeKind::Orchestrator => match sid.clone() {
-                        Some(id) => (Some(id.clone()), id),
-                        None => continue,
-                    },
+                    achievements::ScopeKind::Operator | achievements::ScopeKind::Orchestrator => {
+                        match sid.clone() {
+                            Some(id) => (Some(id.clone()), id),
+                            None => continue,
+                        }
+                    }
                 };
                 let cur: (u32, u32) = tx
                     .query_row(
@@ -1335,7 +1324,10 @@ mod kv_tests {
     fn publish_profile_flag_defaults_false_and_persists() {
         let tmp = tempfile::tempdir().unwrap();
         let store = ScoreStore::open(tmp.path()).unwrap();
-        assert!(!store.get_publish_profile().unwrap(), "default must be false");
+        assert!(
+            !store.get_publish_profile().unwrap(),
+            "default must be false"
+        );
         store.set_publish_profile(true).unwrap();
         assert!(store.get_publish_profile().unwrap());
         store.set_publish_profile(false).unwrap();
@@ -1372,7 +1364,10 @@ mod ach_tests {
         assert!(again.is_empty());
 
         let progress = s.achievement_progress_all().unwrap();
-        let p = progress.iter().find(|p| p.achievement_id == "finisher").unwrap();
+        let p = progress
+            .iter()
+            .find(|p| p.achievement_id == "finisher")
+            .unwrap();
         assert_eq!(p.progress, 1);
         assert_eq!(p.tier, 1);
         assert_eq!(p.next_tier, Some(2));
@@ -1383,9 +1378,10 @@ mod ach_tests {
         let (s, _d) = tmp_store();
         // good_delegate uses HARD_TIERS: 1,3,10,25,100 → 3 facts should award tiers I + II.
         for i in 0..3 {
-            let fact = AchievementFact::new("orchestrator_task_delegated", SubjectKind::Orchestrator)
-                .with_subject("teammate")
-                .with_dedupe(format!("orchestrator_task_delegated:t{i}"));
+            let fact =
+                AchievementFact::new("orchestrator_task_delegated", SubjectKind::Orchestrator)
+                    .with_subject("teammate")
+                    .with_dedupe(format!("orchestrator_task_delegated:t{i}"));
             s.record_achievement_fact(2_000 + i, &fact).unwrap();
         }
         let awards = s.achievement_awards_recent(10).unwrap();
@@ -1423,7 +1419,10 @@ mod ach_tests {
         // Awards already existed; recompute uses OR IGNORE so count is 0 here.
         let _ = recomputed;
         let progress = s.achievement_progress_all().unwrap();
-        let p = progress.iter().find(|p| p.achievement_id == "finisher").unwrap();
+        let p = progress
+            .iter()
+            .find(|p| p.achievement_id == "finisher")
+            .unwrap();
         assert_eq!(p.progress, 5);
     }
 }
@@ -1444,8 +1443,14 @@ mod group_breakdown_tests {
     }
 
     fn prompt(s: &ScoreStore, ts: i64, group: &str, workspace: Option<&str>) {
-        s.append_with_context(ts, EventKind::Prompt, "claude", None, &ctx(group, workspace))
-            .unwrap();
+        s.append_with_context(
+            ts,
+            EventKind::Prompt,
+            "claude",
+            None,
+            &ctx(group, workspace),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1475,9 +1480,15 @@ mod group_breakdown_tests {
             "single named workspace surfaces as the badge"
         );
 
-        let fluxa = rows.iter().find(|r| r.group_name == "Fluxa").expect("fluxa row");
+        let fluxa = rows
+            .iter()
+            .find(|r| r.group_name == "Fluxa")
+            .expect("fluxa row");
         assert_eq!(fluxa.prompts, 2);
-        assert_eq!(fluxa.workspace, None, "multiple named workspaces → no badge");
+        assert_eq!(
+            fluxa.workspace, None,
+            "multiple named workspaces → no badge"
+        );
 
         assert_eq!(rows.len(), 2, "no duplicate same-name rows");
     }

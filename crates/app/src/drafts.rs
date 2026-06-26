@@ -633,8 +633,14 @@ mod tests {
             "# Draft — Mission Drafts\n\n## Goal\nx\n",
         )
         .unwrap();
-        let dest =
-            publish_draft_sync(tmp.path(), "mission-drafts", "3.10", "mission-drafts", false).unwrap();
+        let dest = publish_draft_sync(
+            tmp.path(),
+            "mission-drafts",
+            "3.10",
+            "mission-drafts",
+            false,
+        )
+        .unwrap();
         assert!(dest.ends_with("docs/specs/3.10-mission-drafts.md"));
         let text = std::fs::read_to_string(&dest).unwrap();
         assert!(text.starts_with("# 3.10 — Mission Drafts\n"));
@@ -846,7 +852,13 @@ mod cdlc_tests {
     #[test]
     fn publish_draft_sync_cdlc_writes_to_cdlc_dir() {
         let tmp = tempfile::tempdir().unwrap();
-        save_draft_sync(tmp.path(), "my-context", "My Context", "# Draft — My Context\n\n## Goal\nfoo\n").unwrap();
+        save_draft_sync(
+            tmp.path(),
+            "my-context",
+            "My Context",
+            "# Draft — My Context\n\n## Goal\nfoo\n",
+        )
+        .unwrap();
         let dest = publish_draft_sync(tmp.path(), "my-context", "1.0", "my-context", true).unwrap();
         assert!(dest.to_string_lossy().contains(".covenant/cdlc/context"));
         assert!(dest.exists());

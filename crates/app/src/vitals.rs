@@ -352,7 +352,11 @@ impl VitalsHandle {
     /// emit per-phase token deltas.
     pub async fn session_tokens(&self, session: SessionId) -> u64 {
         let inner = self.inner.lock().await;
-        inner.per_session.get(&session).map(|s| s.total_tokens).unwrap_or(0)
+        inner
+            .per_session
+            .get(&session)
+            .map(|s| s.total_tokens)
+            .unwrap_or(0)
     }
 
     pub async fn snapshot(&self) -> VitalsPayload {

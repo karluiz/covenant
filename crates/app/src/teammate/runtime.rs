@@ -33,7 +33,9 @@ pub struct TeammateRuntime {
 
 impl TeammateRuntime {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn state(&self, op: OperatorId) -> Option<OperatorState> {
@@ -95,5 +97,7 @@ impl TeammateRuntime {
 }
 
 impl Default for TeammateRuntime {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

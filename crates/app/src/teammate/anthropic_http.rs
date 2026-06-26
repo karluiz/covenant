@@ -32,7 +32,9 @@ pub enum AnthropicHttpError {
 }
 
 impl From<reqwest::Error> for AnthropicHttpError {
-    fn from(e: reqwest::Error) -> Self { Self::Reqwest(e.to_string()) }
+    fn from(e: reqwest::Error) -> Self {
+        Self::Reqwest(e.to_string())
+    }
 }
 
 /// One inbound message in the Anthropic Messages API format. `content`
@@ -41,19 +43,28 @@ impl From<reqwest::Error> for AnthropicHttpError {
 /// turns carrying tool_result blocks).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicMessage {
-    pub role: String,        // "user" | "assistant"
-    pub content: Value,      // string | array of blocks
+    pub role: String,   // "user" | "assistant"
+    pub content: Value, // string | array of blocks
 }
 
 impl AnthropicMessage {
     pub fn user_text<S: Into<String>>(text: S) -> Self {
-        Self { role: "user".into(), content: Value::String(text.into()) }
+        Self {
+            role: "user".into(),
+            content: Value::String(text.into()),
+        }
     }
     pub fn assistant_blocks(blocks: Value) -> Self {
-        Self { role: "assistant".into(), content: blocks }
+        Self {
+            role: "assistant".into(),
+            content: blocks,
+        }
     }
     pub fn user_tool_results(blocks: Value) -> Self {
-        Self { role: "user".into(), content: blocks }
+        Self {
+            role: "user".into(),
+            content: blocks,
+        }
     }
 }
 
@@ -127,7 +138,10 @@ pub async fn post(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(AnthropicHttpError::Api { status: status.as_u16(), body });
+        return Err(AnthropicHttpError::Api {
+            status: status.as_u16(),
+            body,
+        });
     }
     let parsed: AnthropicResponse = resp
         .json()
@@ -144,7 +158,9 @@ pub fn extract_text(content: &[Value]) -> String {
     for block in content {
         if block.get("type").and_then(|t| t.as_str()) == Some("text") {
             if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                if !out.is_empty() { out.push('\n'); }
+                if !out.is_empty() {
+                    out.push('\n');
+                }
                 out.push_str(text);
             }
         }
@@ -157,9 +173,19 @@ pub fn extract_text(content: &[Value]) -> String {
 pub fn collect_tool_uses(content: &[Value]) -> Vec<(String, String, Value)> {
     let mut out = Vec::new();
     for block in content {
-        if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") { continue; }
-        let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
+            continue;
+        }
+        let id = block
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let name = block
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let input = block.get("input").cloned().unwrap_or(Value::Null);
         out.push((id, name, input));
     }

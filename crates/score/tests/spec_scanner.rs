@@ -43,7 +43,9 @@ fn spec_rows(store: &karl_score::ScoreStore, repo: &str) -> Vec<(String, String)
         .prepare("SELECT path, day FROM specs WHERE repo = ?1 ORDER BY path")
         .unwrap();
     let rows = stmt
-        .query_map([repo], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .query_map([repo], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
         .unwrap();
     rows.collect::<Result<Vec<_>, _>>().unwrap()
 }

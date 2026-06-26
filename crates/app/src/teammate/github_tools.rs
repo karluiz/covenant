@@ -22,9 +22,9 @@ fn parse_args<T: for<'de> Deserialize<'de>>(args: &Value) -> Result<T, ToolError
 }
 
 fn ctx(env: &ToolEnv) -> Result<&GithubCtx, ToolError> {
-    env.github
-        .as_ref()
-        .ok_or_else(|| ToolError::CommandFailed("GitHub access is not enabled for this operator".into()))
+    env.github.as_ref().ok_or_else(|| {
+        ToolError::CommandFailed("GitHub access is not enabled for this operator".into())
+    })
 }
 
 fn require_write(c: &GithubCtx) -> Result<(), ToolError> {
@@ -44,12 +44,15 @@ fn require_write(c: &GithubCtx) -> Result<(), ToolError> {
 fn segment(s: &str) -> Result<&str, ToolError> {
     let ok = !s.is_empty()
         && s.len() <= 100
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
         && s.chars().any(|c| c.is_ascii_alphanumeric());
     if ok {
         Ok(s)
     } else {
-        Err(ToolError::InvalidArgs(format!("invalid owner/repo segment: {s:?}")))
+        Err(ToolError::InvalidArgs(format!(
+            "invalid owner/repo segment: {s:?}"
+        )))
     }
 }
 
@@ -173,7 +176,9 @@ pub async fn gh_list_issues(env: &ToolEnv, args: &Value) -> Result<String, ToolE
     let repo = segment(&a.repo)?;
     let state = a.state.as_deref().unwrap_or("open");
     if !matches!(state, "open" | "closed" | "all") {
-        return Err(ToolError::InvalidArgs("state must be open|closed|all".into()));
+        return Err(ToolError::InvalidArgs(
+            "state must be open|closed|all".into(),
+        ));
     }
     let c = ctx(env)?;
     let v = gh_request(
@@ -219,13 +224,19 @@ pub async fn gh_get_issue(env: &ToolEnv, args: &Value) -> Result<String, ToolErr
     let comments = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{owner}/{repo}/issues/{}/comments?per_page={MAX_COMMENTS}", a.number),
+        &format!(
+            "/repos/{owner}/{repo}/issues/{}/comments?per_page={MAX_COMMENTS}",
+            a.number
+        ),
         None,
     )
     .await
     .unwrap_or(Value::Array(vec![]));
     let mut out = issue_summary(&issue);
-    out["body"] = Value::String(truncate(issue["body"].as_str().unwrap_or(""), MAX_BODY_CHARS));
+    out["body"] = Value::String(truncate(
+        issue["body"].as_str().unwrap_or(""),
+        MAX_BODY_CHARS,
+    ));
     out["recent_comments"] = Value::Array(
         comments
             .as_array()
@@ -252,7 +263,9 @@ pub async fn gh_list_prs(env: &ToolEnv, args: &Value) -> Result<String, ToolErro
     let repo = segment(&a.repo)?;
     let state = a.state.as_deref().unwrap_or("open");
     if !matches!(state, "open" | "closed" | "all") {
-        return Err(ToolError::InvalidArgs("state must be open|closed|all".into()));
+        return Err(ToolError::InvalidArgs(
+            "state must be open|closed|all".into(),
+        ));
     }
     let c = ctx(env)?;
     let v = gh_request(
@@ -300,7 +313,10 @@ pub async fn gh_get_pr(env: &ToolEnv, args: &Value) -> Result<String, ToolError>
     let files = gh_request(
         c,
         reqwest::Method::GET,
-        &format!("/repos/{owner}/{repo}/pulls/{}/files?per_page={MAX_PR_FILES}", a.number),
+        &format!(
+            "/repos/{owner}/{repo}/pulls/{}/files?per_page={MAX_PR_FILES}",
+            a.number
+        ),
         None,
     )
     .await
@@ -381,7 +397,9 @@ pub async fn gh_comment(env: &ToolEnv, args: &Value) -> Result<String, ToolError
         Some(serde_json::json!({"body": a.body})),
     )
     .await?;
-    Ok(render(&serde_json::json!({"created": true, "url": v["html_url"]})))
+    Ok(render(
+        &serde_json::json!({"created": true, "url": v["html_url"]}),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -430,7 +448,9 @@ struct UpdateIssueStateArgs {
 pub async fn gh_update_issue_state(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
     let a: UpdateIssueStateArgs = parse_args(args)?;
     if a.state != "open" && a.state != "closed" {
-        return Err(ToolError::InvalidArgs("state must be 'open' or 'closed'".into()));
+        return Err(ToolError::InvalidArgs(
+            "state must be 'open' or 'closed'".into(),
+        ));
     }
     let owner = segment(&a.owner)?;
     let repo = segment(&a.repo)?;
@@ -654,14 +674,37 @@ mod tests {
     fn tool_defs_gated_by_access() {
         assert!(github_tool_defs(GithubAccess::Off).is_empty());
         let ro: Vec<String> = github_tool_defs(GithubAccess::ReadOnly)
-            .iter().map(|d| d["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(ro, vec!["gh_list_repos", "gh_list_issues", "gh_get_issue", "gh_list_prs", "gh_get_pr"]);
+            .iter()
+            .map(|d| d["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            ro,
+            vec![
+                "gh_list_repos",
+                "gh_list_issues",
+                "gh_get_issue",
+                "gh_list_prs",
+                "gh_get_pr"
+            ]
+        );
         let rw: Vec<String> = github_tool_defs(GithubAccess::ReadWrite)
-            .iter().map(|d| d["name"].as_str().unwrap().to_string()).collect();
-        assert_eq!(rw, vec![
-            "gh_list_repos", "gh_list_issues", "gh_get_issue", "gh_list_prs", "gh_get_pr",
-            "gh_create_issue", "gh_comment", "gh_create_pr", "gh_update_issue_state",
-        ]);
+            .iter()
+            .map(|d| d["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            rw,
+            vec![
+                "gh_list_repos",
+                "gh_list_issues",
+                "gh_get_issue",
+                "gh_list_prs",
+                "gh_get_pr",
+                "gh_create_issue",
+                "gh_comment",
+                "gh_create_pr",
+                "gh_update_issue_state",
+            ]
+        );
     }
 
     #[tokio::test]
@@ -669,13 +712,15 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let _m = server
             .mock("GET", "/repos/karluiz/covenant/issues")
-            .match_query(mockito::Matcher::AllOf(vec![
-                mockito::Matcher::UrlEncoded("state".into(), "open".into()),
-            ]))
+            .match_query(mockito::Matcher::AllOf(vec![mockito::Matcher::UrlEncoded(
+                "state".into(),
+                "open".into(),
+            )]))
             .match_header("authorization", "Bearer tok")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"[
+            .with_body(
+                r#"[
                 {"number": 7, "title": "Real issue", "state": "open",
                  "user": {"login": "karluiz"}, "comments": 2,
                  "updated_at": "2026-06-01T00:00:00Z", "labels": []},
@@ -683,13 +728,17 @@ mod tests {
                  "user": {"login": "karluiz"}, "comments": 0,
                  "updated_at": "2026-06-01T00:00:00Z", "labels": [],
                  "pull_request": {"url": "x"}}
-            ]"#)
+            ]"#,
+            )
             .create_async()
             .await;
         let env = env_with(server.url(), GithubAccess::ReadOnly);
-        let out = gh_list_issues(&env, &serde_json::json!({"owner": "karluiz", "repo": "covenant"}))
-            .await
-            .unwrap();
+        let out = gh_list_issues(
+            &env,
+            &serde_json::json!({"owner": "karluiz", "repo": "covenant"}),
+        )
+        .await
+        .unwrap();
         assert!(out.contains("Real issue"));
         assert!(!out.contains("Actually a PR"));
     }
@@ -723,18 +772,24 @@ mod tests {
             .create_async()
             .await;
         let env = env_with(server.url(), GithubAccess::ReadWrite);
-        let out = gh_create_issue(&env, &serde_json::json!({"owner": "o", "repo": "r", "title": "T"}))
-            .await
-            .unwrap();
+        let out = gh_create_issue(
+            &env,
+            &serde_json::json!({"owner": "o", "repo": "r", "title": "T"}),
+        )
+        .await
+        .unwrap();
         assert!(out.contains("issues/42"));
     }
 
     #[tokio::test]
     async fn write_tool_rejected_for_readonly_ctx() {
         let env = env_with("http://127.0.0.1:9".into(), GithubAccess::ReadOnly);
-        let err = gh_create_issue(&env, &serde_json::json!({"owner": "o", "repo": "r", "title": "T"}))
-            .await
-            .unwrap_err();
+        let err = gh_create_issue(
+            &env,
+            &serde_json::json!({"owner": "o", "repo": "r", "title": "T"}),
+        )
+        .await
+        .unwrap_err();
         assert!(err.to_string().contains("read-only"));
     }
 
@@ -746,11 +801,14 @@ mod tests {
             .mock("GET", "/repos/o/r/issues/1")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(serde_json::json!({
-                "number": 1, "title": "t", "state": "open", "body": long,
-                "user": {"login": "u"}, "comments": 0,
-                "updated_at": "2026-06-01T00:00:00Z", "labels": []
-            }).to_string())
+            .with_body(
+                serde_json::json!({
+                    "number": 1, "title": "t", "state": "open", "body": long,
+                    "user": {"login": "u"}, "comments": 0,
+                    "updated_at": "2026-06-01T00:00:00Z", "labels": []
+                })
+                .to_string(),
+            )
             .create_async()
             .await;
         let _m2 = server
@@ -762,9 +820,12 @@ mod tests {
             .create_async()
             .await;
         let env = env_with(server.url(), GithubAccess::ReadOnly);
-        let out = gh_get_issue(&env, &serde_json::json!({"owner": "o", "repo": "r", "number": 1}))
-            .await
-            .unwrap();
+        let out = gh_get_issue(
+            &env,
+            &serde_json::json!({"owner": "o", "repo": "r", "number": 1}),
+        )
+        .await
+        .unwrap();
         assert!(out.contains("(truncated)"));
         assert!(out.len() < 4000);
     }
@@ -776,20 +837,29 @@ mod tests {
             let err = gh_list_issues(&env, &serde_json::json!({"owner": bad, "repo": "r"}))
                 .await
                 .unwrap_err();
-            assert!(matches!(err, ToolError::InvalidArgs(_)), "owner {bad:?} should be rejected");
+            assert!(
+                matches!(err, ToolError::InvalidArgs(_)),
+                "owner {bad:?} should be rejected"
+            );
             let err = gh_list_issues(&env, &serde_json::json!({"owner": "o", "repo": bad}))
                 .await
                 .unwrap_err();
-            assert!(matches!(err, ToolError::InvalidArgs(_)), "repo {bad:?} should be rejected");
+            assert!(
+                matches!(err, ToolError::InvalidArgs(_)),
+                "repo {bad:?} should be rejected"
+            );
         }
     }
 
     #[tokio::test]
     async fn list_state_validated() {
         let env = env_with("http://127.0.0.1:9".into(), GithubAccess::ReadOnly);
-        let err = gh_list_issues(&env, &serde_json::json!({"owner": "o", "repo": "r", "state": "open&per_page=100"}))
-            .await
-            .unwrap_err();
+        let err = gh_list_issues(
+            &env,
+            &serde_json::json!({"owner": "o", "repo": "r", "state": "open&per_page=100"}),
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(err, ToolError::InvalidArgs(_)));
     }
 
@@ -800,9 +870,11 @@ mod tests {
             .mock("GET", "/repos/o/r/pulls/3")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"number":3,"title":"PR","state":"open","user":{"login":"u"},
+            .with_body(
+                r#"{"number":3,"title":"PR","state":"open","user":{"login":"u"},
                 "head":{"ref":"feat"},"base":{"ref":"main"},"draft":false,"mergeable":true,
-                "additions":10,"deletions":2,"changed_files":1,"body":"desc"}"#)
+                "additions":10,"deletions":2,"changed_files":1,"body":"desc"}"#,
+            )
             .create_async()
             .await;
         let _files = server
@@ -814,9 +886,12 @@ mod tests {
             .create_async()
             .await;
         let env = env_with(server.url(), GithubAccess::ReadOnly);
-        let out = gh_get_pr(&env, &serde_json::json!({"owner": "o", "repo": "r", "number": 3}))
-            .await
-            .unwrap();
+        let out = gh_get_pr(
+            &env,
+            &serde_json::json!({"owner": "o", "repo": "r", "number": 3}),
+        )
+        .await
+        .unwrap();
         assert!(out.contains("src/x.rs"));
         assert!(out.contains("feat"));
         assert!(out.contains("@@ -1 +1 @@"));
@@ -824,7 +899,11 @@ mod tests {
 
     #[test]
     fn github_ctx_debug_redacts_token() {
-        let c = GithubCtx { token: "ghu_SECRET".into(), access: GithubAccess::ReadOnly, api_base: "x".into() };
+        let c = GithubCtx {
+            token: "ghu_SECRET".into(),
+            access: GithubAccess::ReadOnly,
+            api_base: "x".into(),
+        };
         let dbg = format!("{c:?}");
         assert!(!dbg.contains("ghu_SECRET"));
         assert!(dbg.contains("<redacted>"));

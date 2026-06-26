@@ -131,7 +131,13 @@ mod tests {
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         let me = std::process::id();
         let snap = snapshot(&sys, &[("self".into(), me)]);
-        assert!(snap.mem_total_bytes > 0, "machine RAM total should be known");
-        assert!(snap.sessions[0].mem_bytes > 0, "our own process uses memory");
+        assert!(
+            snap.mem_total_bytes > 0,
+            "machine RAM total should be known"
+        );
+        assert!(
+            snap.sessions[0].mem_bytes > 0,
+            "our own process uses memory"
+        );
     }
 }

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::State;
 
-use karl_score::auth;
 use crate::operator_registry::{OperatorId, OperatorRegistry};
+use karl_score::auth;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MarketplaceListing {
@@ -38,7 +38,9 @@ pub fn derive_tagline(soul_md: &str) -> String {
     };
     for line in body.lines() {
         let t = line.trim();
-        if t.is_empty() || t.starts_with('#') { continue; }
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
         return t.chars().take(120).collect();
     }
     String::new()
@@ -65,8 +67,11 @@ pub async fn publish_soul(soul_md: &str) -> Result<(), String> {
         .post(format!("{}/marketplace/operators", auth::backend_url()))
         .bearer_auth(&token)
         .json(&body)
-        .send().await.map_err(|e| e.to_string())?
-        .error_for_status().map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -79,11 +84,21 @@ pub async fn marketplace_search(
     let mut req = client()
         .get(format!("{}/marketplace/operators", auth::backend_url()))
         .bearer_auth(&token);
-    if let Some(q) = q.filter(|s| !s.is_empty()) { req = req.query(&[("q", q)]); }
-    if let Some(tag) = tag.filter(|s| !s.is_empty()) { req = req.query(&[("tag", tag)]); }
-    let rows = req.send().await.map_err(|e| e.to_string())?
-        .error_for_status().map_err(|e| e.to_string())?
-        .json::<Vec<MarketplaceListing>>().await.map_err(|e| e.to_string())?;
+    if let Some(q) = q.filter(|s| !s.is_empty()) {
+        req = req.query(&[("q", q)]);
+    }
+    if let Some(tag) = tag.filter(|s| !s.is_empty()) {
+        req = req.query(&[("tag", tag)]);
+    }
+    let rows = req
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json::<Vec<MarketplaceListing>>()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(rows)
 }
 
@@ -93,7 +108,9 @@ pub async fn marketplace_publish(
     registry: State<'_, Arc<OperatorRegistry>>,
 ) -> Result<(), String> {
     let oid: OperatorId = id.parse().map_err(|_| "bad operator id".to_string())?;
-    let soul = registry.read_soul(oid).ok_or_else(|| "operator not found".to_string())?;
+    let soul = registry
+        .read_soul(oid)
+        .ok_or_else(|| "operator not found".to_string())?;
     publish_soul(&soul).await
 }
 
@@ -101,16 +118,26 @@ pub async fn marketplace_publish(
 pub async fn marketplace_install_count(id: String) -> Result<(), String> {
     let token = jwt().await?;
     client()
-        .post(format!("{}/marketplace/operators/{}/install", auth::backend_url(), id))
+        .post(format!(
+            "{}/marketplace/operators/{}/install",
+            auth::backend_url(),
+            id
+        ))
         .bearer_auth(&token)
-        .send().await.map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn marketplace_admin_url() -> Result<String, String> {
     let token = jwt().await?;
-    Ok(format!("{}/marketplace/admin?token={}", auth::backend_url(), token))
+    Ok(format!(
+        "{}/marketplace/admin?token={}",
+        auth::backend_url(),
+        token
+    ))
 }
 
 #[cfg(test)]
@@ -119,7 +146,10 @@ mod tests {
     #[test]
     fn tagline_skips_frontmatter_and_headings() {
         let soul = "---\nname: X\ntags: [a]\n---\n\n# The Guardian\n\nI move so nothing you'd regret gets through.\n";
-        assert_eq!(derive_tagline(soul), "I move so nothing you'd regret gets through.");
+        assert_eq!(
+            derive_tagline(soul),
+            "I move so nothing you'd regret gets through."
+        );
     }
     #[test]
     fn tagline_empty_when_no_body() {

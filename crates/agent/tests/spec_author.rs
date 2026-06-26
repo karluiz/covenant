@@ -382,7 +382,10 @@ fn compose_system_grounds_tools_at_git_root_and_states_path_rule() {
 
     let (jail, system) = compose_system(Some(&nested), &fallback);
     let canon_root = std::fs::canonicalize(&root).unwrap();
-    assert_eq!(jail, canon_root, "tool jail must be the git root, not the raw cwd");
+    assert_eq!(
+        jail, canon_root,
+        "tool jail must be the git root, not the raw cwd"
+    );
     assert!(
         system.contains(&canon_root.display().to_string()),
         "system prompt must state the repo root path"

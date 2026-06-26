@@ -22,13 +22,17 @@ impl HandoffReject {
     pub fn message(&self) -> String {
         match self {
             HandoffReject::SelfHandoff => "cannot hand off to yourself".into(),
-            HandoffReject::NoCapableOperator => "no available teammate has the requested skills".into(),
+            HandoffReject::NoCapableOperator => {
+                "no available teammate has the requested skills".into()
+            }
             HandoffReject::ReceiverBusy => "receiver is busy on another task; retry later".into(),
-            HandoffReject::DepthExceeded { depth, max } =>
-                format!("delegation chain too deep ({depth} ≥ {max})"),
+            HandoffReject::DepthExceeded { depth, max } => {
+                format!("delegation chain too deep ({depth} ≥ {max})")
+            }
             HandoffReject::Cycle { .. } => "delegation would form a cycle".into(),
-            HandoffReject::ChainSaturated { inflight, max } =>
-                format!("delegation chain saturated ({inflight} ≥ {max} in flight)"),
+            HandoffReject::ChainSaturated { inflight, max } => {
+                format!("delegation chain saturated ({inflight} ≥ {max} in flight)")
+            }
         }
     }
 }
@@ -37,7 +41,7 @@ impl HandoffReject {
 /// `from_operator_id`s already in this chain (used for cycle detection).
 pub struct GateInput {
     pub from: OperatorId,
-    pub to: Option<OperatorId>,      // None = no operator matched the requested skills
+    pub to: Option<OperatorId>, // None = no operator matched the requested skills
     pub self_handoff: bool,
     pub receiver_busy: bool,
     pub next_depth: u8,
@@ -54,13 +58,19 @@ pub fn decide(i: &GateInput) -> Result<(), HandoffReject> {
         return Err(HandoffReject::SelfHandoff);
     }
     if i.next_depth >= MAX_DEPTH {
-        return Err(HandoffReject::DepthExceeded { depth: i.next_depth, max: MAX_DEPTH });
+        return Err(HandoffReject::DepthExceeded {
+            depth: i.next_depth,
+            max: MAX_DEPTH,
+        });
     }
     if i.chain_from_ops.contains(&to) {
         return Err(HandoffReject::Cycle { operator: to });
     }
     if i.chain_inflight >= MAX_CHAIN_INFLIGHT {
-        return Err(HandoffReject::ChainSaturated { inflight: i.chain_inflight, max: MAX_CHAIN_INFLIGHT });
+        return Err(HandoffReject::ChainSaturated {
+            inflight: i.chain_inflight,
+            max: MAX_CHAIN_INFLIGHT,
+        });
     }
     if i.receiver_busy {
         return Err(HandoffReject::ReceiverBusy);
@@ -71,11 +81,20 @@ pub fn decide(i: &GateInput) -> Result<(), HandoffReject> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn op() -> OperatorId { OperatorId(ulid::Ulid::new()) }
+    fn op() -> OperatorId {
+        OperatorId(ulid::Ulid::new())
+    }
 
     fn base(from: OperatorId, to: OperatorId) -> GateInput {
-        GateInput { from, to: Some(to), self_handoff: false, receiver_busy: false,
-                    next_depth: 0, chain_from_ops: vec![], chain_inflight: 0 }
+        GateInput {
+            from,
+            to: Some(to),
+            self_handoff: false,
+            receiver_busy: false,
+            next_depth: 0,
+            chain_from_ops: vec![],
+            chain_inflight: 0,
+        }
     }
 
     #[test]
@@ -102,7 +121,10 @@ mod tests {
         let (a, b) = (op(), op());
         let mut i = base(a, b);
         i.next_depth = MAX_DEPTH;
-        assert!(matches!(decide(&i), Err(HandoffReject::DepthExceeded { .. })));
+        assert!(matches!(
+            decide(&i),
+            Err(HandoffReject::DepthExceeded { .. })
+        ));
     }
     #[test]
     fn rejects_cycle() {
@@ -116,7 +138,10 @@ mod tests {
         let (a, b) = (op(), op());
         let mut i = base(a, b);
         i.chain_inflight = MAX_CHAIN_INFLIGHT;
-        assert!(matches!(decide(&i), Err(HandoffReject::ChainSaturated { .. })));
+        assert!(matches!(
+            decide(&i),
+            Err(HandoffReject::ChainSaturated { .. })
+        ));
     }
     #[test]
     fn rejects_busy_receiver() {

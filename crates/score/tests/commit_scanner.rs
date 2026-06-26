@@ -68,16 +68,14 @@ fn scan_known_repos_backfills_full_history_on_first_scan() {
     // filters on), not just author date. Catches "--since=@0 ≠ full history".
     std::fs::write(repo.join("g.txt"), "old").unwrap();
     run(&repo, &["add", "."]);
-    assert!(
-        Command::new("git")
-            .current_dir(&repo)
-            .env("GIT_COMMITTER_DATE", "2020-01-02T03:04:05")
-            .env("GIT_AUTHOR_DATE", "2020-01-02T03:04:05")
-            .args(["-c", "user.email=test@x.com", "commit", "-q", "-m", "old"])
-            .status()
-            .unwrap()
-            .success()
-    );
+    assert!(Command::new("git")
+        .current_dir(&repo)
+        .env("GIT_COMMITTER_DATE", "2020-01-02T03:04:05")
+        .env("GIT_AUTHOR_DATE", "2020-01-02T03:04:05")
+        .args(["-c", "user.email=test@x.com", "commit", "-q", "-m", "old"])
+        .status()
+        .unwrap()
+        .success());
 
     karl_score::register_cwd(&repo);
     karl_score::commit_scanner::scan_known_repos(&store, "test@x.com");

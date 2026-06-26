@@ -119,9 +119,8 @@ fn re_copilot_tool() -> &'static Regex {
 /// (so `re_thinking` misses it). The literal `esc cancel` anchors the match
 /// to the active spinner line rather than arbitrary prose.
 fn re_copilot_thinking() -> &'static Regex {
-    RE_COPILOT_THINKING.get_or_init(|| {
-        Regex::new(r"\b[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}\besc\s+cancel\b").unwrap()
-    })
+    RE_COPILOT_THINKING
+        .get_or_init(|| Regex::new(r"\b[A-Z][A-Za-z-]+ing\b[^\r\n]{0,80}\besc\s+cancel\b").unwrap())
 }
 /// Hermes (Nous Research) in-flight markers. Two anchors:
 ///
@@ -136,27 +135,23 @@ fn re_copilot_thinking() -> &'static Regex {
 /// is `⚕ <model-name> │ …` (no `Hermes` after the glyph). Neither
 /// false-positive case matches — covered by negative tests below.
 fn re_hermes_thinking() -> &'static Regex {
-    RE_HERMES_THINKING.get_or_init(|| {
-        Regex::new(r"(?:Initializing\s+agent\.{3}|╭─\s*⚕\s+Hermes\b)").unwrap()
-    })
+    RE_HERMES_THINKING
+        .get_or_init(|| Regex::new(r"(?:Initializing\s+agent\.{3}|╭─\s*⚕\s+Hermes\b)").unwrap())
 }
 /// Hermes kaomoji thinking indicator: `(¬_¬) mulling...`
 /// The TUI renders a kaomoji face followed by a gerund + `...` or `…`
 /// while the model is producing tokens. Matches both ASCII and Unicode
 /// ellipsis variants.
 fn re_hermes_mulling() -> &'static Regex {
-    RE_HERMES_MULLING.get_or_init(|| {
-        Regex::new(r"\([¬ᴗ^°·_o\-]{1,5}\)\s+[a-z]+ing(?:\.{3}|…)").unwrap()
-    })
+    RE_HERMES_MULLING
+        .get_or_init(|| Regex::new(r"\([¬ᴗ^°·_o\-]{1,5}\)\s+[a-z]+ing(?:\.{3}|…)").unwrap())
 }
 /// Hermes tool-call "preparing" line: `🔍preparing search_files…`
 /// Emitted when a tool call starts. The emoji varies by tool category
 /// (🔍 search, 📖 read, 🔮 vision, 📝 write, etc.). Captures the
 /// tool name so we can route to the right ExecutorPhase.
 fn re_hermes_preparing() -> &'static Regex {
-    RE_HERMES_PREPARING.get_or_init(|| {
-        Regex::new(r"preparing\s+([a-z_]+)(?:\.{3}|…)").unwrap()
-    })
+    RE_HERMES_PREPARING.get_or_init(|| Regex::new(r"preparing\s+([a-z_]+)(?:\.{3}|…)").unwrap())
 }
 /// Hermes completed tool line: `📖read      /path/to/file  0.1s`
 /// After a tool finishes, Hermes prints `<emoji><verb>  <target>  <duration>`.
@@ -300,10 +295,14 @@ impl ExecutorPhaseDetector {
                 let target = clamp_target(caps.get(0).unwrap().as_str());
                 // Determine phase from the verb prefix in the match.
                 if trimmed.contains("read") {
-                    return ExecutorPhase::Reading { file: clamp_target(caps.get(1).unwrap().as_str()) };
+                    return ExecutorPhase::Reading {
+                        file: clamp_target(caps.get(1).unwrap().as_str()),
+                    };
                 }
                 if trimmed.contains("write") || trimmed.contains("patch") {
-                    return ExecutorPhase::Writing { file: clamp_target(caps.get(1).unwrap().as_str()) };
+                    return ExecutorPhase::Writing {
+                        file: clamp_target(caps.get(1).unwrap().as_str()),
+                    };
                 }
                 return ExecutorPhase::Running { cmd: target };
             }
@@ -550,9 +549,8 @@ mod tests {
         // a model name (`claude-opus-4.6`) — not the literal `Hermes`.
         // It must not be misclassified as the assistant-panel start.
         let mut d = ExecutorPhaseDetector::new();
-        let changed = d.feed(
-            " ⚕ claude-opus-4.6 │ 18.5K/1M │ [░░░░░░░░░░] 2% │ 1m │ ⏲ 5s \n".as_bytes(),
-        );
+        let changed =
+            d.feed(" ⚕ claude-opus-4.6 │ 18.5K/1M │ [░░░░░░░░░░] 2% │ 1m │ ⏲ 5s \n".as_bytes());
         assert!(!changed);
         assert_eq!(d.phase(), &ExecutorPhase::Idle);
     }
@@ -622,9 +620,8 @@ mod tests {
     #[test]
     fn hermes_completed_read_triggers_reading() {
         let mut d = ExecutorPhaseDetector::new();
-        let changed = d.feed(
-            "📖read      /Users/user/Sources/project/src/main.rs  0.1s\n".as_bytes(),
-        );
+        let changed =
+            d.feed("📖read      /Users/user/Sources/project/src/main.rs  0.1s\n".as_bytes());
         assert!(changed);
         assert!(matches!(d.phase(), ExecutorPhase::Reading { .. }));
     }

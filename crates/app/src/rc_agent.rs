@@ -16,13 +16,29 @@ use crate::AppState;
 #[serde(tag = "t", rename_all = "snake_case")]
 enum InFrame {
     ListTabs,
-    SendInput { session_id: String, data: String },
-    WebPresence { web_count: u32 },
-    CloseTab { session_id: String },
-    FocusTab { session_id: String },
-    OpenTab { #[serde(default)] cwd: Option<String> },
-    MirrorStart { session_id: String },
-    MirrorStop { session_id: String },
+    SendInput {
+        session_id: String,
+        data: String,
+    },
+    WebPresence {
+        web_count: u32,
+    },
+    CloseTab {
+        session_id: String,
+    },
+    FocusTab {
+        session_id: String,
+    },
+    OpenTab {
+        #[serde(default)]
+        cwd: Option<String>,
+    },
+    MirrorStart {
+        session_id: String,
+    },
+    MirrorStop {
+        session_id: String,
+    },
     #[serde(other)]
     Unknown,
 }
@@ -178,8 +194,10 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
             }
         }
     });
-    let mut mirrors: std::collections::HashMap<karl_session::SessionId, tokio::task::JoinHandle<()>> =
-        std::collections::HashMap::new();
+    let mut mirrors: std::collections::HashMap<
+        karl_session::SessionId,
+        tokio::task::JoinHandle<()>,
+    > = std::collections::HashMap::new();
 
     while let Some(msg) = stream.next().await {
         match msg? {
@@ -205,14 +223,24 @@ async fn run_once(app: &AppHandle, url: &str, device_id: &str) -> anyhow::Result
                 }
                 Ok(InFrame::CloseTab { session_id }) => {
                     match lifecycle_gate(app, &session_id).await {
-                        Ok(id) => { use tauri::Emitter; let _ = app.emit("rc://tab/close", id.to_string()); }
-                        Err(rej) => { let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?)); }
+                        Ok(id) => {
+                            use tauri::Emitter;
+                            let _ = app.emit("rc://tab/close", id.to_string());
+                        }
+                        Err(rej) => {
+                            let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?));
+                        }
                     }
                 }
                 Ok(InFrame::FocusTab { session_id }) => {
                     match lifecycle_gate(app, &session_id).await {
-                        Ok(id) => { use tauri::Emitter; let _ = app.emit("rc://tab/focus", id.to_string()); }
-                        Err(rej) => { let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?)); }
+                        Ok(id) => {
+                            use tauri::Emitter;
+                            let _ = app.emit("rc://tab/focus", id.to_string());
+                        }
+                        Err(rej) => {
+                            let _ = out_tx.send(Message::Text(serde_json::to_string(&rej)?));
+                        }
                     }
                 }
                 Ok(InFrame::OpenTab { cwd }) => {
@@ -357,10 +385,15 @@ fn lifecycle_decision(armed: Option<bool>) -> Gate {
     }
 }
 
-async fn lifecycle_gate(app: &AppHandle, session_id: &str) -> Result<karl_session::SessionId, OutFrame> {
+async fn lifecycle_gate(
+    app: &AppHandle,
+    session_id: &str,
+) -> Result<karl_session::SessionId, OutFrame> {
     use std::str::FromStr;
     let make_reject = |reason: &'static str, message: String| OutFrame::Rejected {
-        session_id: session_id.to_string(), reason, message,
+        session_id: session_id.to_string(),
+        reason,
+        message,
     };
     let id = match ulid::Ulid::from_str(session_id) {
         Ok(u) => karl_session::SessionId(u),
@@ -371,7 +404,9 @@ async fn lifecycle_gate(app: &AppHandle, session_id: &str) -> Result<karl_sessio
     };
     let armed: Option<bool> = {
         let sessions = state.sessions.lock().await;
-        sessions.get(&id).map(|m| m.armed.load(std::sync::atomic::Ordering::Relaxed))
+        sessions
+            .get(&id)
+            .map(|m| m.armed.load(std::sync::atomic::Ordering::Relaxed))
     };
     match lifecycle_decision(armed) {
         Gate::Inject => Ok(id),
@@ -384,7 +419,10 @@ async fn lifecycle_gate(app: &AppHandle, session_id: &str) -> Result<karl_sessio
 
 /// Pure: build the (code, message) for a rejected send_input. The blocklist's
 /// own message is used when present; otherwise a humanized code.
-fn reject_payload(reason: RejectReason, blocklist_message: Option<String>) -> (&'static str, String) {
+fn reject_payload(
+    reason: RejectReason,
+    blocklist_message: Option<String>,
+) -> (&'static str, String) {
     match reason {
         RejectReason::Blocklisted => (
             "blocklisted",
@@ -396,7 +434,10 @@ fn reject_payload(reason: RejectReason, blocklist_message: Option<String>) -> (&
 
 async fn handle_open_tab(app: &AppHandle, cwd: Option<String>) -> Option<OutFrame> {
     let state = app.try_state::<crate::AppState>()?;
-    if !state.allow_remote_open.load(std::sync::atomic::Ordering::Relaxed) {
+    if !state
+        .allow_remote_open
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
         return Some(OutFrame::Rejected {
             session_id: String::new(),
             reason: "open_not_allowed",
@@ -504,11 +545,17 @@ mod tests {
     }
     #[test]
     fn gate_rejects_unarmed_tab() {
-        assert_eq!(gate(Some(false), false), Gate::Reject(RejectReason::NotArmed));
+        assert_eq!(
+            gate(Some(false), false),
+            Gate::Reject(RejectReason::NotArmed)
+        );
     }
     #[test]
     fn gate_rejects_blocklisted_even_when_armed() {
-        assert_eq!(gate(Some(true), true), Gate::Reject(RejectReason::Blocklisted));
+        assert_eq!(
+            gate(Some(true), true),
+            Gate::Reject(RejectReason::Blocklisted)
+        );
     }
     #[test]
     fn gate_injects_when_armed_and_clean() {
@@ -573,13 +620,25 @@ mod tests {
     }
     #[test]
     fn mirror_frames_parse() {
-        assert!(matches!(serde_json::from_str::<InFrame>(r#"{"t":"mirror_start","session_id":"s1"}"#).unwrap(), InFrame::MirrorStart { .. }));
-        assert!(matches!(serde_json::from_str::<InFrame>(r#"{"t":"mirror_stop","session_id":"s1"}"#).unwrap(), InFrame::MirrorStop { .. }));
+        assert!(matches!(
+            serde_json::from_str::<InFrame>(r#"{"t":"mirror_start","session_id":"s1"}"#).unwrap(),
+            InFrame::MirrorStart { .. }
+        ));
+        assert!(matches!(
+            serde_json::from_str::<InFrame>(r#"{"t":"mirror_stop","session_id":"s1"}"#).unwrap(),
+            InFrame::MirrorStop { .. }
+        ));
     }
     #[test]
     fn lifecycle_decision_matches_armed() {
-        assert_eq!(lifecycle_decision(None), Gate::Reject(RejectReason::NoSuchTab));
-        assert_eq!(lifecycle_decision(Some(false)), Gate::Reject(RejectReason::NotArmed));
+        assert_eq!(
+            lifecycle_decision(None),
+            Gate::Reject(RejectReason::NoSuchTab)
+        );
+        assert_eq!(
+            lifecycle_decision(Some(false)),
+            Gate::Reject(RejectReason::NotArmed)
+        );
         assert_eq!(lifecycle_decision(Some(true)), Gate::Inject);
     }
     #[test]
@@ -635,8 +694,14 @@ mod tests {
     #[test]
     fn backoff_doubles_and_caps_at_30s() {
         assert_eq!(backoff_next(Duration::from_secs(1)), Duration::from_secs(2));
-        assert_eq!(backoff_next(Duration::from_secs(16)), Duration::from_secs(30));
-        assert_eq!(backoff_next(Duration::from_secs(30)), Duration::from_secs(30));
+        assert_eq!(
+            backoff_next(Duration::from_secs(16)),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            backoff_next(Duration::from_secs(30)),
+            Duration::from_secs(30)
+        );
     }
     #[test]
     fn device_id_persists_across_calls() {

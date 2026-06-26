@@ -121,9 +121,7 @@ fn nearest_circle(color: &str) -> &'static str {
     };
     CIRCLES
         .iter()
-        .min_by_key(|(_, cr, cg, cb)| {
-            (cr - r).pow(2) + (cg - g).pow(2) + (cb - b).pow(2)
-        })
+        .min_by_key(|(_, cr, cg, cb)| (cr - r).pow(2) + (cg - g).pow(2) + (cb - b).pow(2))
         .map(|(e, ..)| *e)
         .unwrap_or("🔵")
 }

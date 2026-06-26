@@ -1407,6 +1407,7 @@ export class TabManager {
     // panes have no xterm → getSelection() is unavailable → item absent.
     const selection = pane?.xterm?.getSelection()?.trim() ?? "";
     if (selection.length > 0) {
+      addItem("Copy", () => void navigator.clipboard.writeText(selection));
       addItem("Run selection in new tab", () => {
         void this.createTab({
           cwd: pane?.cwd ?? null,

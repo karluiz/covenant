@@ -15,7 +15,10 @@ use crate::operator_registry::OperatorId;
 use crate::teammate::types::{Sentiment, TaskId};
 
 #[derive(Clone, Copy, Debug)]
-struct Last { sentiment: Sentiment, at: Instant }
+struct Last {
+    sentiment: Sentiment,
+    at: Instant,
+}
 
 #[derive(Default)]
 pub struct SentimentResolver {
@@ -25,7 +28,10 @@ pub struct SentimentResolver {
 
 impl SentimentResolver {
     pub fn new(min_interval: Duration) -> Self {
-        Self { inner: Mutex::new(HashMap::new()), min_interval }
+        Self {
+            inner: Mutex::new(HashMap::new()),
+            min_interval,
+        }
     }
 
     /// Returns true if the caller should emit a new TaskUpdate carrying
@@ -40,12 +46,20 @@ impl SentimentResolver {
     ) -> bool {
         let mut g = self.inner.lock();
         if let Some(last) = g.get(&(op, task)) {
-            if last.sentiment == candidate { return false; }
+            if last.sentiment == candidate {
+                return false;
+            }
             if !hard && now.duration_since(last.at) < self.min_interval {
                 return false;
             }
         }
-        g.insert((op, task), Last { sentiment: candidate, at: now });
+        g.insert(
+            (op, task),
+            Last {
+                sentiment: candidate,
+                at: now,
+            },
+        );
         true
     }
 
@@ -65,11 +79,13 @@ impl SentimentResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ulid::Ulid;
     use crate::operator_registry::OperatorId;
     use crate::teammate::types::{Sentiment, TaskId};
+    use ulid::Ulid;
 
-    fn ids() -> (OperatorId, TaskId) { (OperatorId(Ulid::new()), TaskId::new()) }
+    fn ids() -> (OperatorId, TaskId) {
+        (OperatorId(Ulid::new()), TaskId::new())
+    }
 
     #[test]
     fn first_emit_always_succeeds() {
@@ -84,7 +100,13 @@ mod tests {
         let (op, task) = ids();
         let t = Instant::now();
         assert!(r.decide(op, task, Sentiment::Duda, true, t));
-        assert!(!r.decide(op, task, Sentiment::Duda, true, t + Duration::from_secs(120)));
+        assert!(!r.decide(
+            op,
+            task,
+            Sentiment::Duda,
+            true,
+            t + Duration::from_secs(120)
+        ));
     }
 
     #[test]
@@ -93,8 +115,20 @@ mod tests {
         let (op, task) = ids();
         let t = Instant::now();
         assert!(r.decide(op, task, Sentiment::Duda, true, t));
-        assert!(!r.decide(op, task, Sentiment::Incomodidad, false, t + Duration::from_secs(30)));
-        assert!( r.decide(op, task, Sentiment::Incomodidad, false, t + Duration::from_secs(61)));
+        assert!(!r.decide(
+            op,
+            task,
+            Sentiment::Incomodidad,
+            false,
+            t + Duration::from_secs(30)
+        ));
+        assert!(r.decide(
+            op,
+            task,
+            Sentiment::Incomodidad,
+            false,
+            t + Duration::from_secs(61)
+        ));
     }
 
     #[test]
@@ -116,7 +150,13 @@ mod tests {
         assert_eq!(r.current(op, task), None);
         // After clear, the same candidate is treated as a fresh first emit
         // (the change-only suppression no longer sees the old state).
-        assert!(r.decide(op, task, Sentiment::Triste, true, t + Duration::from_secs(1)));
+        assert!(r.decide(
+            op,
+            task,
+            Sentiment::Triste,
+            true,
+            t + Duration::from_secs(1)
+        ));
     }
 
     #[test]

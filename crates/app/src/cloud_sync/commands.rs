@@ -76,8 +76,7 @@ pub async fn cloud_sync_push(
     state: State<'_, AppState>,
     registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
 ) -> Result<i64, String> {
-    let specs_base_dir =
-        karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
+    let specs_base_dir = karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
 
     // Build the envelope while holding the settings lock, then drop it
     // before the network call to avoid holding the lock across `.await`.
@@ -110,10 +109,11 @@ pub async fn cloud_sync_restore(
     state: State<'_, AppState>,
     registry: State<'_, std::sync::Arc<crate::operator_registry::OperatorRegistry>>,
 ) -> Result<ApplySummary, String> {
-    let env = pull().await?.ok_or_else(|| "nothing in cloud yet".to_string())?;
+    let env = pull()
+        .await?
+        .ok_or_else(|| "nothing in cloud yet".to_string())?;
 
-    let specs_base_dir =
-        karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
+    let specs_base_dir = karl_agent::spec_author::home_covenant_dir().map_err(|e| e.to_string())?;
 
     let mut merged: Option<crate::settings::Settings> = None;
 
@@ -142,8 +142,6 @@ pub async fn cloud_sync_restore(
 
 /// Delete the cloud-stored envelope.
 #[tauri::command]
-pub async fn cloud_sync_wipe(
-    _state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn cloud_sync_wipe(_state: State<'_, AppState>) -> Result<(), String> {
     wipe().await
 }

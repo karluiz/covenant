@@ -76,7 +76,11 @@ pub fn compute_score(dimensions: &[CategoryRollup], current_streak: u32) -> Scor
     let rep01 = 1.0 - (-(rep_total as f64) / REP_SCALE).exp();
     let act01 = 1.0 - (-(current_streak as f64) / STREAK_SCALE).exp();
     let headline = round1((W_REP * rep01 + W_ACT * act01) * 10.0);
-    ScoreBreakdown { headline, reputation01: rep01, activity01: act01 }
+    ScoreBreakdown {
+        headline,
+        reputation01: rep01,
+        activity01: act01,
+    }
 }
 
 /// Build the aggregates-only public snapshot. Explicitly constructs each field;
@@ -136,12 +140,15 @@ pub fn build_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::achievements::AchievementAward;
     use crate::achievements::{AchievementCategory, CategoryRollup};
     use crate::types::{Summary, User};
-    use crate::achievements::AchievementAward;
 
     fn rollup(cat: AchievementCategory, points: u32) -> CategoryRollup {
-        CategoryRollup { category: cat, points }
+        CategoryRollup {
+            category: cat,
+            points,
+        }
     }
 
     #[test]
@@ -155,7 +162,10 @@ mod tests {
     #[test]
     fn solid_user_lands_in_mid_high_band() {
         // ~900 reputation points + a 14-day streak
-        let dims = [rollup(AchievementCategory::Craft, 600), rollup(AchievementCategory::Reliability, 300)];
+        let dims = [
+            rollup(AchievementCategory::Craft, 600),
+            rollup(AchievementCategory::Reliability, 300),
+        ];
         let s = compute_score(&dims, 14);
         assert!(s.headline >= 6.0 && s.headline <= 9.0, "got {}", s.headline);
     }
@@ -177,10 +187,29 @@ mod tests {
 
     #[test]
     fn snapshot_has_all_six_dimensions_even_when_missing() {
-        let user = User { github_id: 1, login: "x".into(), avatar_url: "a".into(), connected_at_ms: 0 };
-        let summary = Summary { total_prompts: 10, total_commits: 2, today_prompts: 0, today_commits: 0,
-            current_streak: 3, longest_streak: 3, total_tokens: 0, total_specs: 0 };
-        let snap = build_snapshot(&user, &summary, &[rollup(AchievementCategory::Craft, 50)], &[], 123);
+        let user = User {
+            github_id: 1,
+            login: "x".into(),
+            avatar_url: "a".into(),
+            connected_at_ms: 0,
+        };
+        let summary = Summary {
+            total_prompts: 10,
+            total_commits: 2,
+            today_prompts: 0,
+            today_commits: 0,
+            current_streak: 3,
+            longest_streak: 3,
+            total_tokens: 0,
+            total_specs: 0,
+        };
+        let snap = build_snapshot(
+            &user,
+            &summary,
+            &[rollup(AchievementCategory::Craft, 50)],
+            &[],
+            123,
+        );
         assert_eq!(snap.dimensions.len(), 6);
         assert_eq!(snap.schema_version, 1);
         assert_eq!(snap.totals.current_streak, 3);
@@ -190,19 +219,42 @@ mod tests {
     fn snapshot_never_leaks_repo_or_branch() {
         // An award carries repo/branch internally; the snapshot must drop them.
         let award = AchievementAward {
-            id: 1, achievement_id: "finisher".into(), tier: 2, title: "The Finisher".into(),
-            subject_type: "operator".into(), subject_id: Some("op".into()),
-            scope_type: "operator".into(), scope_id: Some("op".into()),
-            repo: Some("SECRET-REPO".into()), branch: Some("SECRET-BRANCH".into()),
-            earned_at_ms: 99, seen_at_ms: None,
+            id: 1,
+            achievement_id: "finisher".into(),
+            tier: 2,
+            title: "The Finisher".into(),
+            subject_type: "operator".into(),
+            subject_id: Some("op".into()),
+            scope_type: "operator".into(),
+            scope_id: Some("op".into()),
+            repo: Some("SECRET-REPO".into()),
+            branch: Some("SECRET-BRANCH".into()),
+            earned_at_ms: 99,
+            seen_at_ms: None,
         };
-        let user = User { github_id: 1, login: "x".into(), avatar_url: "a".into(), connected_at_ms: 0 };
-        let summary = Summary { total_prompts: 0, total_commits: 0, today_prompts: 0, today_commits: 0,
-            current_streak: 0, longest_streak: 0, total_tokens: 0, total_specs: 0 };
+        let user = User {
+            github_id: 1,
+            login: "x".into(),
+            avatar_url: "a".into(),
+            connected_at_ms: 0,
+        };
+        let summary = Summary {
+            total_prompts: 0,
+            total_commits: 0,
+            today_prompts: 0,
+            today_commits: 0,
+            current_streak: 0,
+            longest_streak: 0,
+            total_tokens: 0,
+            total_specs: 0,
+        };
         let snap = build_snapshot(&user, &summary, &[], &[award], 1);
         let json = serde_json::to_string(&snap).unwrap();
         assert!(!json.contains("SECRET-REPO"), "repo leaked into snapshot");
-        assert!(!json.contains("SECRET-BRANCH"), "branch leaked into snapshot");
+        assert!(
+            !json.contains("SECRET-BRANCH"),
+            "branch leaked into snapshot"
+        );
         assert_eq!(snap.awards.len(), 1);
         assert_eq!(snap.awards[0].achievement_id, "finisher");
     }

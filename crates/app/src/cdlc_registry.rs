@@ -68,7 +68,11 @@ pub async fn list_orgs() -> Result<Vec<Org>, String> {
 
 pub async fn search(org: &str, q: Option<&str>) -> Result<Vec<PkgMeta>, String> {
     let j = jwt()?;
-    let mut url = format!("{}/cdlc/packages?org={}", auth::backend_url(), urlencoding(org));
+    let mut url = format!(
+        "{}/cdlc/packages?org={}",
+        auth::backend_url(),
+        urlencoding(org)
+    );
     if let Some(q) = q.filter(|s| !s.is_empty()) {
         url.push_str(&format!("&q={}", urlencoding(q)));
     }

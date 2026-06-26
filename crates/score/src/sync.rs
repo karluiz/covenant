@@ -1,7 +1,11 @@
 //! Push-only sync to covenant-server. Reads new local events, sends them
 //! in batches, advances the local cursor on success.
 
-use crate::{auth, profile_card::{build_snapshot, PublicProfileSnapshot}, EventKind, ScoreStore};
+use crate::{
+    auth,
+    profile_card::{build_snapshot, PublicProfileSnapshot},
+    EventKind, ScoreStore,
+};
 use chrono::TimeZone;
 use serde::{Deserialize, Serialize};
 
@@ -152,7 +156,9 @@ struct PublishResp {
 }
 
 /// Build the current public snapshot from local data. Returns None if not signed in.
-pub fn current_snapshot(store: &ScoreStore) -> std::result::Result<Option<PublicProfileSnapshot>, SyncError> {
+pub fn current_snapshot(
+    store: &ScoreStore,
+) -> std::result::Result<Option<PublicProfileSnapshot>, SyncError> {
     let user = match crate::session::current(store)? {
         Some(u) => u,
         None => return Ok(None),
@@ -161,7 +167,13 @@ pub fn current_snapshot(store: &ScoreStore) -> std::result::Result<Option<Public
     let ach = store.achievement_summary()?;
     let awards = store.achievement_awards_recent(10_000)?;
     let now = chrono::Utc::now().timestamp_millis();
-    Ok(Some(build_snapshot(&user, &summary, &ach.by_category, &awards, now)))
+    Ok(Some(build_snapshot(
+        &user,
+        &summary,
+        &ach.by_category,
+        &awards,
+        now,
+    )))
 }
 
 /// PUT the current snapshot to the backend. Returns the public profile URL.

@@ -304,6 +304,22 @@ pub struct Settings {
 
     #[serde(default)]
     pub cloud_sync: CloudSyncConfig,
+
+    /// First-run onboarding wizard. `false` on a clean install so the
+    /// wizard pops on the next launch. Set to `true` from the wizard's
+    /// "Done" / "Skip" actions (or from Settings → "Show tour again",
+    /// which flips it back to `false`). Bumping `onboarding_version`
+    /// re-shows the wizard for users who already completed an older
+    /// version of it.
+    #[serde(default)]
+    pub onboarding_completed: bool,
+
+    /// Bumped whenever the onboarding wizard's content changes
+    /// meaningfully. The frontend compares it to `ONBOARDING_VERSION`
+    /// and re-shows the wizard on a fresh launch if the user has an
+    /// older version stamped.
+    #[serde(default)]
+    pub onboarding_version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -599,6 +615,8 @@ impl Default for Settings {
             familiars_enabled: false,
             telegram: TelegramSettings::default(),
             cloud_sync: CloudSyncConfig::default(),
+            onboarding_completed: false,
+            onboarding_version: 0,
         }
     }
 }
@@ -1227,6 +1245,40 @@ mod tests {
         assert!(!c.mind_v2);
         assert_eq!(c.mind_thinking_budget, 2000);
     }
+
+    #[test]
+    fn onboarding_defaults_incomplete_for_fresh_install() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(
+            !s.onboarding_completed,
+            "fresh install has not completed the wizard"
+        );
+        assert_eq!(
+            s.onboarding_version, 0,
+            "fresh install has no stamped version"
+        );
+    }
+
+    #[test]
+    fn onboarding_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut s = Settings::default();
+        s.onboarding_completed = true;
+        s.onboarding_version = 2;
+        save(&path, &s).unwrap();
+        let loaded = load(&path);
+        assert!(loaded.onboarding_completed);
+        assert_eq!(loaded.onboarding_version, 2);
+    }
+
+    #[test]
+    fn onboarding_back_compat_legacy_settings_default_incomplete() {
+        let legacy = r#"{ "anthropic_api_key": null }"#;
+        let s: Settings = serde_json::from_str(legacy).unwrap();
+        assert!(!s.onboarding_completed);
+        assert_eq!(s.onboarding_version, 0);
+    }
 }
 
 #[cfg(test)]
@@ -1261,15 +1313,30 @@ mod tab_style_tests {
 
     #[test]
     fn deserializes_all_lowercase_variants() {
-        assert_eq!(serde_json::from_str::<TabStyle>("\"classic\"").unwrap(), TabStyle::Classic);
-        assert_eq!(serde_json::from_str::<TabStyle>("\"forge\"").unwrap(), TabStyle::Forge);
-        assert_eq!(serde_json::from_str::<TabStyle>("\"glass\"").unwrap(), TabStyle::Glass);
-        assert_eq!(serde_json::from_str::<TabStyle>("\"crt\"").unwrap(), TabStyle::Crt);
+        assert_eq!(
+            serde_json::from_str::<TabStyle>("\"classic\"").unwrap(),
+            TabStyle::Classic
+        );
+        assert_eq!(
+            serde_json::from_str::<TabStyle>("\"forge\"").unwrap(),
+            TabStyle::Forge
+        );
+        assert_eq!(
+            serde_json::from_str::<TabStyle>("\"glass\"").unwrap(),
+            TabStyle::Glass
+        );
+        assert_eq!(
+            serde_json::from_str::<TabStyle>("\"crt\"").unwrap(),
+            TabStyle::Crt
+        );
     }
 
     #[test]
     fn serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&TabStyle::Glass).unwrap(), "\"glass\"");
+        assert_eq!(
+            serde_json::to_string(&TabStyle::Glass).unwrap(),
+            "\"glass\""
+        );
         assert_eq!(serde_json::to_string(&TabStyle::Crt).unwrap(), "\"crt\"");
     }
 }
@@ -1280,42 +1347,102 @@ mod tab_styles_config_tests {
 
     #[test]
     fn deserializes_all_tab_shapes() {
-        assert_eq!(serde_json::from_str::<TabShape>("\"rectangle\"").unwrap(), TabShape::Rectangle);
-        assert_eq!(serde_json::from_str::<TabShape>("\"rounded\"").unwrap(), TabShape::Rounded);
-        assert_eq!(serde_json::from_str::<TabShape>("\"lofted\"").unwrap(), TabShape::Lofted);
-        assert_eq!(serde_json::from_str::<TabShape>("\"pill\"").unwrap(), TabShape::Pill);
+        assert_eq!(
+            serde_json::from_str::<TabShape>("\"rectangle\"").unwrap(),
+            TabShape::Rectangle
+        );
+        assert_eq!(
+            serde_json::from_str::<TabShape>("\"rounded\"").unwrap(),
+            TabShape::Rounded
+        );
+        assert_eq!(
+            serde_json::from_str::<TabShape>("\"lofted\"").unwrap(),
+            TabShape::Lofted
+        );
+        assert_eq!(
+            serde_json::from_str::<TabShape>("\"pill\"").unwrap(),
+            TabShape::Pill
+        );
     }
 
     #[test]
     fn deserializes_all_bg_modes() {
-        assert_eq!(serde_json::from_str::<TabBgMode>("\"solid\"").unwrap(), TabBgMode::Solid);
-        assert_eq!(serde_json::from_str::<TabBgMode>("\"translucent\"").unwrap(), TabBgMode::Translucent);
-        assert_eq!(serde_json::from_str::<TabBgMode>("\"off\"").unwrap(), TabBgMode::Off);
-        assert_eq!(serde_json::from_str::<TabBgMode>("\"gradient\"").unwrap(), TabBgMode::Gradient);
+        assert_eq!(
+            serde_json::from_str::<TabBgMode>("\"solid\"").unwrap(),
+            TabBgMode::Solid
+        );
+        assert_eq!(
+            serde_json::from_str::<TabBgMode>("\"translucent\"").unwrap(),
+            TabBgMode::Translucent
+        );
+        assert_eq!(
+            serde_json::from_str::<TabBgMode>("\"off\"").unwrap(),
+            TabBgMode::Off
+        );
+        assert_eq!(
+            serde_json::from_str::<TabBgMode>("\"gradient\"").unwrap(),
+            TabBgMode::Gradient
+        );
     }
 
     #[test]
     fn deserializes_all_indicators() {
-        assert_eq!(serde_json::from_str::<TabIndicator>("\"stripe\"").unwrap(), TabIndicator::Stripe);
-        assert_eq!(serde_json::from_str::<TabIndicator>("\"underline\"").unwrap(), TabIndicator::Underline);
-        assert_eq!(serde_json::from_str::<TabIndicator>("\"left-bar\"").unwrap(), TabIndicator::LeftBar);
-        assert_eq!(serde_json::from_str::<TabIndicator>("\"dot\"").unwrap(), TabIndicator::Dot);
-        assert_eq!(serde_json::from_str::<TabIndicator>("\"glow\"").unwrap(), TabIndicator::Glow);
-        assert_eq!(serde_json::from_str::<TabIndicator>("\"border\"").unwrap(), TabIndicator::Border);
+        assert_eq!(
+            serde_json::from_str::<TabIndicator>("\"stripe\"").unwrap(),
+            TabIndicator::Stripe
+        );
+        assert_eq!(
+            serde_json::from_str::<TabIndicator>("\"underline\"").unwrap(),
+            TabIndicator::Underline
+        );
+        assert_eq!(
+            serde_json::from_str::<TabIndicator>("\"left-bar\"").unwrap(),
+            TabIndicator::LeftBar
+        );
+        assert_eq!(
+            serde_json::from_str::<TabIndicator>("\"dot\"").unwrap(),
+            TabIndicator::Dot
+        );
+        assert_eq!(
+            serde_json::from_str::<TabIndicator>("\"glow\"").unwrap(),
+            TabIndicator::Glow
+        );
+        assert_eq!(
+            serde_json::from_str::<TabIndicator>("\"border\"").unwrap(),
+            TabIndicator::Border
+        );
     }
 
     #[test]
     fn deserializes_all_heights() {
-        assert_eq!(serde_json::from_str::<TabHeight>("\"normal\"").unwrap(), TabHeight::Normal);
-        assert_eq!(serde_json::from_str::<TabHeight>("\"compact\"").unwrap(), TabHeight::Compact);
-        assert_eq!(serde_json::from_str::<TabHeight>("\"spacious\"").unwrap(), TabHeight::Spacious);
+        assert_eq!(
+            serde_json::from_str::<TabHeight>("\"normal\"").unwrap(),
+            TabHeight::Normal
+        );
+        assert_eq!(
+            serde_json::from_str::<TabHeight>("\"compact\"").unwrap(),
+            TabHeight::Compact
+        );
+        assert_eq!(
+            serde_json::from_str::<TabHeight>("\"spacious\"").unwrap(),
+            TabHeight::Spacious
+        );
     }
 
     #[test]
     fn deserializes_all_gaps() {
-        assert_eq!(serde_json::from_str::<TabGap>("\"normal\"").unwrap(), TabGap::Normal);
-        assert_eq!(serde_json::from_str::<TabGap>("\"tight\"").unwrap(), TabGap::Tight);
-        assert_eq!(serde_json::from_str::<TabGap>("\"loose\"").unwrap(), TabGap::Loose);
+        assert_eq!(
+            serde_json::from_str::<TabGap>("\"normal\"").unwrap(),
+            TabGap::Normal
+        );
+        assert_eq!(
+            serde_json::from_str::<TabGap>("\"tight\"").unwrap(),
+            TabGap::Tight
+        );
+        assert_eq!(
+            serde_json::from_str::<TabGap>("\"loose\"").unwrap(),
+            TabGap::Loose
+        );
     }
 
     #[test]
@@ -1334,14 +1461,38 @@ mod tab_styles_config_tests {
 
     #[test]
     fn deserializes_all_group_shapes_and_bgs() {
-        assert_eq!(serde_json::from_str::<GroupShape>("\"match\"").unwrap(), GroupShape::Match);
-        assert_eq!(serde_json::from_str::<GroupShape>("\"rectangle\"").unwrap(), GroupShape::Rectangle);
-        assert_eq!(serde_json::from_str::<GroupShape>("\"rounded\"").unwrap(), GroupShape::Rounded);
-        assert_eq!(serde_json::from_str::<GroupShape>("\"lofted\"").unwrap(), GroupShape::Lofted);
-        assert_eq!(serde_json::from_str::<GroupShape>("\"pill\"").unwrap(), GroupShape::Pill);
-        assert_eq!(serde_json::from_str::<GroupBg>("\"tinted\"").unwrap(), GroupBg::Tinted);
-        assert_eq!(serde_json::from_str::<GroupBg>("\"solid\"").unwrap(), GroupBg::Solid);
-        assert_eq!(serde_json::from_str::<GroupBg>("\"off\"").unwrap(), GroupBg::Off);
+        assert_eq!(
+            serde_json::from_str::<GroupShape>("\"match\"").unwrap(),
+            GroupShape::Match
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupShape>("\"rectangle\"").unwrap(),
+            GroupShape::Rectangle
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupShape>("\"rounded\"").unwrap(),
+            GroupShape::Rounded
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupShape>("\"lofted\"").unwrap(),
+            GroupShape::Lofted
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupShape>("\"pill\"").unwrap(),
+            GroupShape::Pill
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupBg>("\"tinted\"").unwrap(),
+            GroupBg::Tinted
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupBg>("\"solid\"").unwrap(),
+            GroupBg::Solid
+        );
+        assert_eq!(
+            serde_json::from_str::<GroupBg>("\"off\"").unwrap(),
+            GroupBg::Off
+        );
     }
 
     #[test]

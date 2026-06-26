@@ -221,9 +221,16 @@ impl OperatorRegistry {
         };
         let mut n = 0;
         for (id, path, prev) in candidates {
-            let Some(mt) = crate::soul::mtime_of(&path) else { continue };
-            if mt == prev { continue; }
-            match std::fs::read_to_string(&path).ok().and_then(|r| crate::soul::parse(&r).ok()) {
+            let Some(mt) = crate::soul::mtime_of(&path) else {
+                continue;
+            };
+            if mt == prev {
+                continue;
+            }
+            match std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|r| crate::soul::parse(&r).ok())
+            {
                 Some(soul) => {
                     if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
                         crate::soul::hydrate_operator(op, &soul);
@@ -231,7 +238,9 @@ impl OperatorRegistry {
                         n += 1;
                     }
                 }
-                None => tracing::warn!(path = %path.display(), "SOUL.md reload parse failed; keeping last-good"),
+                None => {
+                    tracing::warn!(path = %path.display(), "SOUL.md reload parse failed; keeping last-good")
+                }
             }
         }
         n
@@ -426,11 +435,22 @@ impl OperatorRegistry {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         let mut op = Operator {
-            id: OperatorId(Ulid::new()), name: String::new(), emoji: String::new(),
-            color: String::new(), tags: vec![], persona: String::new(),
-            escalate_threshold: 0.6, model: String::new(), hard_constraints: String::new(),
-            is_default: false, created_at_unix_ms: now, updated_at_unix_ms: now, xp: 0,
-            voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+            id: OperatorId(Ulid::new()),
+            name: String::new(),
+            emoji: String::new(),
+            color: String::new(),
+            tags: vec![],
+            persona: String::new(),
+            escalate_threshold: 0.6,
+            model: String::new(),
+            hard_constraints: String::new(),
+            is_default: false,
+            created_at_unix_ms: now,
+            updated_at_unix_ms: now,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
         };
         crate::soul::hydrate_operator(&mut op, &soul);
@@ -467,7 +487,9 @@ impl OperatorRegistry {
                 return Some(raw);
             }
         }
-        Some(crate::soul::serialize(&crate::soul::soul_from_operator(&op)))
+        Some(crate::soul::serialize(&crate::soul::soul_from_operator(
+            &op,
+        )))
     }
 
     /// Upsert an operator from a synced cloud snapshot.
@@ -551,7 +573,9 @@ impl OperatorRegistry {
         if !self.by_id.read().unwrap().contains_key(&id) {
             return Err(RegistryError::NotFound(id));
         }
-        storage.operator_set_github_access(id.to_string(), access).await?;
+        storage
+            .operator_set_github_access(id.to_string(), access)
+            .await?;
         if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
             op.github_access = access;
         }
@@ -754,7 +778,8 @@ pub mod commands {
     }
 
     #[tauri::command]
-    pub async fn operator_list_archetypes() -> Result<Vec<crate::archetypes::ArchetypeView>, String> {
+    pub async fn operator_list_archetypes() -> Result<Vec<crate::archetypes::ArchetypeView>, String>
+    {
         Ok(crate::archetypes::list())
     }
 
@@ -764,7 +789,9 @@ pub mod commands {
         registry: State<'_, Arc<OperatorRegistry>>,
     ) -> Result<String, String> {
         let id: OperatorId = id.parse().map_err(map_err)?;
-        registry.read_soul(id).ok_or_else(|| format!("operator not found: {id}"))
+        registry
+            .read_soul(id)
+            .ok_or_else(|| format!("operator not found: {id}"))
     }
 
     /// Parse + validate raw SOUL.md text without persisting. Returns the parsed
@@ -793,7 +820,10 @@ pub mod commands {
         registry: State<'_, Arc<OperatorRegistry>>,
         storage: State<'_, Arc<Storage>>,
     ) -> Result<Operator, String> {
-        registry.create_from_soul(&storage, &raw).await.map_err(map_err)
+        registry
+            .create_from_soul(&storage, &raw)
+            .await
+            .map_err(map_err)
     }
 
     #[tauri::command]
@@ -804,7 +834,10 @@ pub mod commands {
         storage: State<'_, Arc<Storage>>,
     ) -> Result<Operator, String> {
         let id: OperatorId = id.parse().map_err(map_err)?;
-        registry.update_from_soul(&storage, id, &raw).await.map_err(map_err)
+        registry
+            .update_from_soul(&storage, id, &raw)
+            .await
+            .map_err(map_err)
     }
 
     #[tauri::command]
@@ -913,7 +946,10 @@ pub mod commands {
         storage: State<'_, Arc<Storage>>,
     ) -> Result<(), String> {
         let id: OperatorId = id.parse().map_err(map_err)?;
-        registry.set_github_access(&storage, id, access).await.map_err(map_err)
+        registry
+            .set_github_access(&storage, id, access)
+            .await
+            .map_err(map_err)
     }
 
     #[tauri::command]
@@ -1032,7 +1068,9 @@ mod soul_io_tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let souls = tmp.join("operators");
         let storage = temp_storage(&tmp).await;
-        let reg = OperatorRegistry::load(&storage, souls.clone()).await.unwrap();
+        let reg = OperatorRegistry::load(&storage, souls.clone())
+            .await
+            .unwrap();
 
         let op = Operator {
             id: OperatorId(ulid::Ulid::new()),
@@ -1097,7 +1135,9 @@ mod soul_io_tests {
         };
         storage.operator_insert(op.clone()).await.unwrap();
 
-        let reg = OperatorRegistry::load(&storage, souls.clone()).await.unwrap();
+        let reg = OperatorRegistry::load(&storage, souls.clone())
+            .await
+            .unwrap();
         let migrated = reg.migrate_personas_to_souls(&storage).await.unwrap();
         assert_eq!(migrated, 1);
 
@@ -1163,13 +1203,19 @@ mod soul_io_tests {
         let id = op.id;
 
         // First import = insert.
-        reg.import(&storage, op.clone(), "# SOUL\nbody").await.unwrap();
+        reg.import(&storage, op.clone(), "# SOUL\nbody")
+            .await
+            .unwrap();
         assert!(reg.get(id).is_some(), "imported operator should be present");
         assert_eq!(reg.read_soul(id).unwrap(), "# SOUL\nbody");
 
         // Locally-present operators are untouched.
         for e in &existing {
-            assert!(reg.get(e.id).is_some(), "existing operator {:?} should still exist", e.name);
+            assert!(
+                reg.get(e.id).is_some(),
+                "existing operator {:?} should still exist",
+                e.name
+            );
         }
 
         // Second import with same id = update (name + soul change).
@@ -1189,18 +1235,31 @@ mod soul_io_tests {
         let storage = temp_storage(&tmp).await;
         let reg = OperatorRegistry::load(&storage, souls).await.unwrap();
         let op = Operator {
-            id: OperatorId(ulid::Ulid::new()), name: "Hot".into(), emoji: "🟣".into(),
-            color: "#a855f7".into(), tags: vec![], persona: "before".into(),
-            escalate_threshold: 0.5, model: "m".into(), hard_constraints: "".into(),
-            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
-            voice: VoiceTone::Terse, soul_path: None, soul_mtime_unix_ms: 0,
+            id: OperatorId(ulid::Ulid::new()),
+            name: "Hot".into(),
+            emoji: "🟣".into(),
+            color: "#a855f7".into(),
+            tags: vec![],
+            persona: "before".into(),
+            escalate_threshold: 0.5,
+            model: "m".into(),
+            hard_constraints: "".into(),
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            voice: VoiceTone::Terse,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.unwrap();
         // Force the cached mtime to differ from the file so the reload triggers
         // regardless of filesystem mtime granularity.
-        let raw = std::fs::read_to_string(&path).unwrap().replace("before", "after");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("before", "after");
         let mut op2 = reg.get(created.id).unwrap();
         op2.soul_mtime_unix_ms = 0;
         reg.by_id.write().unwrap().insert(created.id, op2);

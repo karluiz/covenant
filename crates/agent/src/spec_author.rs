@@ -16,8 +16,8 @@ const SYSTEM_PROMPT: &str = include_str!("spec_author/prompt.md");
 /// Public re-export of the base system prompt for the app layer.
 pub const SYSTEM_PROMPT_PUB: &str = SYSTEM_PROMPT;
 
-pub mod tools;
 pub mod stream;
+pub mod tools;
 
 // ── Error type ───────────────────────────────────────────────────────────────
 
@@ -34,7 +34,11 @@ pub enum SpecAuthorError {
     #[error("http: {0}")]
     Http(#[from] reqwest::Error),
     #[error("{provider} api {status}: {body}")]
-    Api { provider: &'static str, status: u16, body: String },
+    Api {
+        provider: &'static str,
+        status: u16,
+        body: String,
+    },
     #[error("invalid spec — missing sections: {missing:?}")]
     InvalidSpec { missing: Vec<String> },
 }

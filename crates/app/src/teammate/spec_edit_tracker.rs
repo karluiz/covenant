@@ -65,13 +65,20 @@ impl SpecEditTracker {
 
     /// Did this session read/create a spec before its first code edit?
     pub fn satisfied(&self, session: SessionId) -> bool {
-        self.by_session.lock().get(&session).map(|s| s.satisfied).unwrap_or(false)
+        self.by_session
+            .lock()
+            .get(&session)
+            .map(|s| s.satisfied)
+            .unwrap_or(false)
     }
 
     /// The repo of the satisfying code edit, if known. Best-effort — None
     /// when the edit wasn't inside a resolvable git repo.
     pub fn satisfied_repo(&self, session: SessionId) -> Option<String> {
-        self.by_session.lock().get(&session).and_then(|s| s.repo.clone())
+        self.by_session
+            .lock()
+            .get(&session)
+            .and_then(|s| s.repo.clone())
     }
 
     pub fn forget(&self, session: SessionId) {
@@ -83,8 +90,12 @@ impl SpecEditTracker {
 mod tests {
     use super::*;
 
-    fn reading(f: &str) -> ExecutorPhase { ExecutorPhase::Reading { file: f.into() } }
-    fn writing(f: &str) -> ExecutorPhase { ExecutorPhase::Writing { file: f.into() } }
+    fn reading(f: &str) -> ExecutorPhase {
+        ExecutorPhase::Reading { file: f.into() }
+    }
+    fn writing(f: &str) -> ExecutorPhase {
+        ExecutorPhase::Writing { file: f.into() }
+    }
 
     #[test]
     fn spec_read_before_edit_is_satisfied() {

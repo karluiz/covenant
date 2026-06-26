@@ -80,18 +80,14 @@ impl NotchHub {
             notch_tx,
             enabled: AtomicBool::new(true),
             inline_mode: AtomicBool::new(false),
-            spec_edit_tracker: Arc::new(
-                crate::teammate::spec_edit_tracker::SpecEditTracker::new(),
-            ),
+            spec_edit_tracker: Arc::new(crate::teammate::spec_edit_tracker::SpecEditTracker::new()),
         })
     }
 
     /// The per-session spec-before-edit tracker fed from [`set_phase`].
     /// lib.rs manages a clone of this Arc so the completion command can
     /// query the same instance the hub feeds.
-    pub fn spec_edit_tracker(
-        &self,
-    ) -> Arc<crate::teammate::spec_edit_tracker::SpecEditTracker> {
+    pub fn spec_edit_tracker(&self) -> Arc<crate::teammate::spec_edit_tracker::SpecEditTracker> {
         self.spec_edit_tracker.clone()
     }
 
@@ -410,7 +406,8 @@ impl NotchHub {
         session: SessionId,
     ) -> Option<(karl_session::ExecutorPhase, Option<String>)> {
         let map = self.sessions.lock().await;
-        map.get(&session).map(|e| (e.display.clone(), e.agent.clone()))
+        map.get(&session)
+            .map(|e| (e.display.clone(), e.agent.clone()))
     }
 
     /// Snapshot every session's current phase + tab label. Used to seed
@@ -514,10 +511,15 @@ async fn emit_with_tokens(
     ev: &SessionEvent,
     last_token_total: &mut HashMap<SessionId, u64>,
 ) {
-    let SessionEvent::ExecutorStateChanged { session, .. } = ev else { return };
+    let SessionEvent::ExecutorStateChanged { session, .. } = ev else {
+        return;
+    };
     let mut value = match serde_json::to_value(ev) {
         Ok(v) => v,
-        Err(_) => { let _ = app.emit("notch:state", ev); return; }
+        Err(_) => {
+            let _ = app.emit("notch:state", ev);
+            return;
+        }
     };
     if let Some(handle) = app.try_state::<crate::vitals::VitalsHandle>() {
         let current = handle.session_tokens(*session).await;

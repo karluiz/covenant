@@ -113,9 +113,19 @@ fn groups_breakdown_collapses_casing_keeps_workspace_distinct() {
         seed_ws(&s, t, "Covenant", Some("ws-b"));
     }
     let rows = s.breakdown_groups(&ScoreFilter::default()).unwrap();
-    let ws_a: Vec<_> = rows.iter().filter(|g| g.workspace.as_deref() == Some("ws-a")).collect();
-    let ws_b: Vec<_> = rows.iter().filter(|g| g.workspace.as_deref() == Some("ws-b")).collect();
-    assert_eq!(ws_a.len(), 1, "casing variants in one workspace collapse to one row");
+    let ws_a: Vec<_> = rows
+        .iter()
+        .filter(|g| g.workspace.as_deref() == Some("ws-a"))
+        .collect();
+    let ws_b: Vec<_> = rows
+        .iter()
+        .filter(|g| g.workspace.as_deref() == Some("ws-b"))
+        .collect();
+    assert_eq!(
+        ws_a.len(),
+        1,
+        "casing variants in one workspace collapse to one row"
+    );
     assert_eq!(ws_a[0].prompts, 5);
     assert_eq!(ws_b.len(), 1);
     assert_eq!(ws_b[0].prompts, 7);

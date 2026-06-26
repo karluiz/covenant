@@ -1,8 +1,8 @@
 //! Streaming tool-loop for the premium spec author.
 
-use serde::Serialize;
-use crate::spec_author::{tools, DraftMessage, MessageRole, SpecDraft, DraftStatus};
+use crate::spec_author::{tools, DraftMessage, DraftStatus, MessageRole, SpecDraft};
 use async_trait::async_trait;
+use serde::Serialize;
 use std::path::Path;
 
 /// One model turn's parsed output from a streaming response.
@@ -16,7 +16,11 @@ pub struct ModelTurn {
 }
 
 #[derive(Clone)]
-pub struct ToolCall { pub id: String, pub name: String, pub input: serde_json::Value }
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub input: serde_json::Value,
+}
 
 /// Streams one model turn, pushing thinking/text/tool events into `sink` as they
 /// arrive, and returns the parsed turn.
@@ -42,24 +46,44 @@ pub async fn step_streaming(
     sink: &dyn StreamSink,
     max_tool_calls: usize,
 ) -> Result<(), String> {
-    draft.messages.push(DraftMessage { role: MessageRole::User, content: user_msg });
+    draft.messages.push(DraftMessage {
+        role: MessageRole::User,
+        content: user_msg,
+    });
     let mut tool_budget = max_tool_calls;
 
     loop {
-        let turn = dispatcher.stream_turn(system, &draft.messages, sink).await?;
+        let turn = dispatcher
+            .stream_turn(system, &draft.messages, sink)
+            .await?;
 
         if !turn.text.is_empty() {
             draft.messages.push(DraftMessage {
-                role: MessageRole::Assistant, content: turn.text.clone() });
+                role: MessageRole::Assistant,
+                content: turn.text.clone(),
+            });
         }
 
-        const KNOWN_SECTIONS: &[&str] = &["goal", "out_of_scope", "acceptance",
-            "file_boundaries", "complexity", "open_questions"];
+        const KNOWN_SECTIONS: &[&str] = &[
+            "goal",
+            "out_of_scope",
+            "acceptance",
+            "file_boundaries",
+            "complexity",
+            "open_questions",
+        ];
         for (key, md) in parse_section_markers(&turn.text) {
-            if !KNOWN_SECTIONS.contains(&key.as_str()) { continue; }
-            sink.emit(SpecStreamEvent::Phase { section: key.clone() });
+            if !KNOWN_SECTIONS.contains(&key.as_str()) {
+                continue;
+            }
+            sink.emit(SpecStreamEvent::Phase {
+                section: key.clone(),
+            });
             sink.emit(SpecStreamEvent::SectionUpdate {
-                section: key, markdown: md, status: "done".into() });
+                section: key,
+                markdown: md,
+                status: "done".into(),
+            });
         }
 
         if let Some(md) = turn.emitted_spec {
@@ -72,7 +96,9 @@ pub async fn step_streaming(
         }
 
         if turn.tool_calls.is_empty() {
-            sink.emit(SpecStreamEvent::TurnDone { awaiting_user: true });
+            sink.emit(SpecStreamEvent::TurnDone {
+                awaiting_user: true,
+            });
             return Ok(());
         }
 
@@ -80,39 +106,81 @@ pub async fn step_streaming(
         for call in turn.tool_calls {
             if tool_budget == 0 {
                 sink.emit(SpecStreamEvent::Error {
-                    message: "tool-call budget exhausted".into() });
-                sink.emit(SpecStreamEvent::TurnDone { awaiting_user: true });
+                    message: "tool-call budget exhausted".into(),
+                });
+                sink.emit(SpecStreamEvent::TurnDone {
+                    awaiting_user: true,
+                });
                 return Ok(());
             }
             tool_budget -= 1;
             let arg = call.input.to_string();
             sink.emit(SpecStreamEvent::ToolStart {
-                id: call.id.clone(), tool: call.name.clone(), arg: arg.clone() });
+                id: call.id.clone(),
+                tool: call.name.clone(),
+                arg: arg.clone(),
+            });
             let (result, summary) = tools::run_tool(repo_root, &call.name, &call.input);
             let ok = summary != "error";
             // Persist arg + summary on the header line so a resumed transcript can
             // rebuild the exact same chip (verb · arg · hit) the live stream showed.
-            feedback.push_str(&format!("[tool {} → {}] {} · {}\n{}\n\n",
-                call.name, call.id, arg, summary, mask_secrets(&result)));
+            feedback.push_str(&format!(
+                "[tool {} → {}] {} · {}\n{}\n\n",
+                call.name,
+                call.id,
+                arg,
+                summary,
+                mask_secrets(&result)
+            ));
             sink.emit(SpecStreamEvent::ToolResult {
-                id: call.id.clone(), summary, ok });
+                id: call.id.clone(),
+                summary,
+                ok,
+            });
         }
-        draft.messages.push(DraftMessage { role: MessageRole::User, content: feedback });
+        draft.messages.push(DraftMessage {
+            role: MessageRole::User,
+            content: feedback,
+        });
     }
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SpecStreamEvent {
-    ThinkingDelta { text: String },
-    TextDelta { text: String },
-    ToolStart { id: String, tool: String, arg: String },
-    ToolResult { id: String, summary: String, ok: bool },
-    SectionUpdate { section: String, markdown: String, status: String },
-    Phase { section: String },
-    TurnDone { awaiting_user: bool },
-    Final { markdown: String },
-    Error { message: String },
+    ThinkingDelta {
+        text: String,
+    },
+    TextDelta {
+        text: String,
+    },
+    ToolStart {
+        id: String,
+        tool: String,
+        arg: String,
+    },
+    ToolResult {
+        id: String,
+        summary: String,
+        ok: bool,
+    },
+    SectionUpdate {
+        section: String,
+        markdown: String,
+        status: String,
+    },
+    Phase {
+        section: String,
+    },
+    TurnDone {
+        awaiting_user: bool,
+    },
+    Final {
+        markdown: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Callback sink the dispatcher pushes events into.
@@ -125,10 +193,14 @@ pub(crate) fn parse_section_markers(text: &str) -> Vec<(String, String)> {
     let mut rest = text;
     while let Some(start) = rest.find("<!--section:") {
         let after = &rest[start + "<!--section:".len()..];
-        let Some(key_end) = after.find("-->") else { break };
+        let Some(key_end) = after.find("-->") else {
+            break;
+        };
         let key = after[..key_end].to_string();
         let body = &after[key_end + 3..];
-        let Some(end) = body.find("<!--/section-->") else { break };
+        let Some(end) = body.find("<!--/section-->") else {
+            break;
+        };
         out.push((key, body[..end].trim().to_string()));
         rest = &body[end + "<!--/section-->".len()..];
     }
@@ -164,14 +236,22 @@ pub(crate) fn mask_secrets(input: &str) -> String {
 }
 
 fn looks_secret(t: &str) -> bool {
-    let prefixes = ["sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "AKIA", "AIza", "xoxb-", "xoxp-", "xoxa-", "xoxr-"];
+    let prefixes = [
+        "sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "AKIA", "AIza", "xoxb-", "xoxp-", "xoxa-",
+        "xoxr-",
+    ];
     if prefixes.iter().any(|p| t.starts_with(p)) && t.len() >= 16 {
         return true;
     }
     // JWT-ish: three base64url segments separated by dots, each reasonably long
     let parts: Vec<&str> = t.split('.').collect();
-    if parts.len() == 3 && parts.iter().all(|p| p.len() >= 8
-        && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+    if parts.len() == 3
+        && parts.iter().all(|p| {
+            p.len() >= 8
+                && p.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+    {
         return true;
     }
     false
@@ -193,10 +273,16 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
         sink: &dyn StreamSink,
     ) -> Result<ModelTurn, String> {
         let client = reqwest::Client::new();
-        let api_messages: Vec<serde_json::Value> = messages.iter().map(|m| {
-            let role = match m.role { MessageRole::User => "user", MessageRole::Assistant => "assistant" };
-            serde_json::json!({ "role": role, "content": m.content })
-        }).collect();
+        let api_messages: Vec<serde_json::Value> = messages
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                };
+                serde_json::json!({ "role": role, "content": m.content })
+            })
+            .collect();
 
         // Opus 4.8 supports adaptive thinking only (`{type:"enabled", budget_tokens}`
         // 400s). `display:"summarized"` opts back into streamed thinking text (the
@@ -213,15 +299,22 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
             "messages": api_messages,
         });
 
-        let resp = client.post("https://api.anthropic.com/v1/messages")
+        let resp = client
+            .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
-            .json(&body).send().await.map_err(|e| e.to_string())?;
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
 
         if !resp.status().is_success() {
-            return Err(format!("anthropic {}: {}", resp.status(),
-                resp.text().await.unwrap_or_default()));
+            return Err(format!(
+                "anthropic {}: {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            ));
         }
 
         let mut stream = resp.bytes_stream();
@@ -237,8 +330,12 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
                 let frame = buf[..pos].to_string();
                 buf.drain(..pos + 2);
                 for line in frame.lines() {
-                    let Some(data) = line.strip_prefix("data: ") else { continue };
-                    let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                    let Some(data) = line.strip_prefix("data: ") else {
+                        continue;
+                    };
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else {
+                        continue;
+                    };
                     parse_sse_event(&v, sink, &mut text, &mut tool_json);
                 }
             }
@@ -250,7 +347,11 @@ impl StreamingDispatcher for AnthropicStreamingDispatcher {
             tool_calls.push(ToolCall { id, name, input });
         }
         let emitted_spec = crate::spec_author::extract_spec_pub(&text);
-        Ok(ModelTurn { tool_calls, text, emitted_spec })
+        Ok(ModelTurn {
+            tool_calls,
+            text,
+            emitted_spec,
+        })
     }
 }
 
@@ -264,10 +365,17 @@ fn parse_sse_event(
         Some("content_block_start") => {
             let idx = v["index"].as_u64().unwrap_or(0) as usize;
             if v["content_block"]["type"] == "tool_use" {
-                tool_json.insert(idx, (
-                    v["content_block"]["id"].as_str().unwrap_or("").to_string(),
-                    v["content_block"]["name"].as_str().unwrap_or("").to_string(),
-                    String::new()));
+                tool_json.insert(
+                    idx,
+                    (
+                        v["content_block"]["id"].as_str().unwrap_or("").to_string(),
+                        v["content_block"]["name"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string(),
+                        String::new(),
+                    ),
+                );
             }
         }
         Some("content_block_delta") => {
@@ -275,18 +383,24 @@ fn parse_sse_event(
             match v["delta"]["type"].as_str() {
                 Some("thinking_delta") => {
                     if let Some(t) = v["delta"]["thinking"].as_str() {
-                        sink.emit(SpecStreamEvent::ThinkingDelta { text: t.to_string() });
+                        sink.emit(SpecStreamEvent::ThinkingDelta {
+                            text: t.to_string(),
+                        });
                     }
                 }
                 Some("text_delta") => {
                     if let Some(t) = v["delta"]["text"].as_str() {
                         text.push_str(t);
-                        sink.emit(SpecStreamEvent::TextDelta { text: t.to_string() });
+                        sink.emit(SpecStreamEvent::TextDelta {
+                            text: t.to_string(),
+                        });
                     }
                 }
                 Some("input_json_delta") => {
                     if let Some(partial) = v["delta"]["partial_json"].as_str() {
-                        if let Some(entry) = tool_json.get_mut(&idx) { entry.2.push_str(partial); }
+                        if let Some(entry) = tool_json.get_mut(&idx) {
+                            entry.2.push_str(partial);
+                        }
                     }
                 }
                 _ => {}
@@ -333,7 +447,10 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
         let mut api_messages: Vec<serde_json::Value> =
             vec![serde_json::json!({ "role": "system", "content": system })];
         for m in messages {
-            let role = match m.role { MessageRole::User => "user", MessageRole::Assistant => "assistant" };
+            let role = match m.role {
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+            };
             api_messages.push(serde_json::json!({ "role": role, "content": m.content }));
         }
 
@@ -346,11 +463,14 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
             "messages": api_messages,
         });
         if let Some(model) = &self.model {
-            body.as_object_mut().unwrap()
+            body.as_object_mut()
+                .unwrap()
                 .insert("model".into(), serde_json::Value::String(model.clone()));
         }
 
-        let mut rb = client.post(&self.url).header("content-type", "application/json");
+        let mut rb = client
+            .post(&self.url)
+            .header("content-type", "application/json");
         rb = match self.auth {
             OpenAiAuth::ApiKeyHeader => rb.header("api-key", &self.api_key),
             OpenAiAuth::Bearer => rb.bearer_auth(&self.api_key),
@@ -358,8 +478,11 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
         let resp = rb.json(&body).send().await.map_err(|e| e.to_string())?;
 
         if !resp.status().is_success() {
-            return Err(format!("openai {}: {}", resp.status(),
-                resp.text().await.unwrap_or_default()));
+            return Err(format!(
+                "openai {}: {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            ));
         }
 
         let mut stream = resp.bytes_stream();
@@ -375,19 +498,32 @@ impl StreamingDispatcher for OpenAiStreamingDispatcher {
             while let Some(pos) = buf.find('\n') {
                 let line = buf[..pos].trim().to_string();
                 buf.drain(..pos + 1);
-                let Some(data) = line.strip_prefix("data: ") else { continue };
-                if data == "[DONE]" { continue; }
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                let Some(data) = line.strip_prefix("data: ") else {
+                    continue;
+                };
+                if data == "[DONE]" {
+                    continue;
+                }
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(data) else {
+                    continue;
+                };
                 parse_openai_chunk(&v, sink, &mut text, &mut tool_acc);
             }
         }
 
-        let tool_calls: Vec<ToolCall> = tool_acc.into_values().map(|(id, name, args)| {
-            let input = serde_json::from_str(&args).unwrap_or(serde_json::json!({}));
-            ToolCall { id, name, input }
-        }).collect();
+        let tool_calls: Vec<ToolCall> = tool_acc
+            .into_values()
+            .map(|(id, name, args)| {
+                let input = serde_json::from_str(&args).unwrap_or(serde_json::json!({}));
+                ToolCall { id, name, input }
+            })
+            .collect();
         let emitted_spec = crate::spec_author::extract_spec_pub(&text);
-        Ok(ModelTurn { tool_calls, text, emitted_spec })
+        Ok(ModelTurn {
+            tool_calls,
+            text,
+            emitted_spec,
+        })
     }
 }
 
@@ -397,22 +533,34 @@ fn parse_openai_chunk(
     text: &mut String,
     tool_acc: &mut std::collections::BTreeMap<usize, (String, String, String)>,
 ) {
-    let Some(delta) = v["choices"].get(0).and_then(|c| c.get("delta")) else { return };
+    let Some(delta) = v["choices"].get(0).and_then(|c| c.get("delta")) else {
+        return;
+    };
     if let Some(content) = delta["content"].as_str() {
         if !content.is_empty() {
             text.push_str(content);
-            sink.emit(SpecStreamEvent::TextDelta { text: content.to_string() });
+            sink.emit(SpecStreamEvent::TextDelta {
+                text: content.to_string(),
+            });
         }
     }
     if let Some(calls) = delta["tool_calls"].as_array() {
         for call in calls {
             let idx = call["index"].as_u64().unwrap_or(0) as usize;
             let entry = tool_acc.entry(idx).or_default();
-            if let Some(id) = call["id"].as_str() { if !id.is_empty() { entry.0 = id.to_string(); } }
-            if let Some(name) = call["function"]["name"].as_str() {
-                if !name.is_empty() { entry.1 = name.to_string(); }
+            if let Some(id) = call["id"].as_str() {
+                if !id.is_empty() {
+                    entry.0 = id.to_string();
+                }
             }
-            if let Some(args) = call["function"]["arguments"].as_str() { entry.2.push_str(args); }
+            if let Some(name) = call["function"]["name"].as_str() {
+                if !name.is_empty() {
+                    entry.1 = name.to_string();
+                }
+            }
+            if let Some(args) = call["function"]["arguments"].as_str() {
+                entry.2.push_str(args);
+            }
         }
     }
 }
@@ -424,38 +572,63 @@ mod tests {
 
     struct VecSink(Mutex<Vec<SpecStreamEvent>>);
     impl StreamSink for VecSink {
-        fn emit(&self, e: SpecStreamEvent) { self.0.lock().unwrap().push(e); }
+        fn emit(&self, e: SpecStreamEvent) {
+            self.0.lock().unwrap().push(e);
+        }
     }
 
-    use crate::spec_author::{SpecDraft, DraftStatus, Phase};
+    use crate::spec_author::{DraftStatus, Phase, SpecDraft};
     use ulid::Ulid;
 
     // Mock: first turn requests one list_dir; second turn answers with text.
-    struct ScriptedDispatcher { calls: Mutex<usize> }
+    struct ScriptedDispatcher {
+        calls: Mutex<usize>,
+    }
     #[async_trait]
     impl StreamingDispatcher for ScriptedDispatcher {
-        async fn stream_turn(&self, _sys: &str, _msgs: &[DraftMessage], sink: &dyn StreamSink)
-            -> Result<ModelTurn, String> {
+        async fn stream_turn(
+            &self,
+            _sys: &str,
+            _msgs: &[DraftMessage],
+            sink: &dyn StreamSink,
+        ) -> Result<ModelTurn, String> {
             let mut n = self.calls.lock().unwrap();
             *n += 1;
             if *n == 1 {
-                sink.emit(SpecStreamEvent::ThinkingDelta { text: "looking".into() });
+                sink.emit(SpecStreamEvent::ThinkingDelta {
+                    text: "looking".into(),
+                });
                 Ok(ModelTurn {
-                    tool_calls: vec![ToolCall { id: "t1".into(), name: "list_dir".into(),
-                        input: serde_json::json!({"path":"."}) }],
-                    text: String::new(), emitted_spec: None })
+                    tool_calls: vec![ToolCall {
+                        id: "t1".into(),
+                        name: "list_dir".into(),
+                        input: serde_json::json!({"path":"."}),
+                    }],
+                    text: String::new(),
+                    emitted_spec: None,
+                })
             } else {
-                sink.emit(SpecStreamEvent::TextDelta { text: "What's the goal?".into() });
-                Ok(ModelTurn { tool_calls: vec![], text: "What's the goal?".into(),
-                    emitted_spec: None })
+                sink.emit(SpecStreamEvent::TextDelta {
+                    text: "What's the goal?".into(),
+                });
+                Ok(ModelTurn {
+                    tool_calls: vec![],
+                    text: "What's the goal?".into(),
+                    emitted_spec: None,
+                })
             }
         }
     }
 
     fn fresh_draft() -> SpecDraft {
-        SpecDraft { id: Ulid::new(), messages: vec![], partial_md: None,
+        SpecDraft {
+            id: Ulid::new(),
+            messages: vec![],
+            partial_md: None,
             last_updated: chrono::Utc::now(),
-            status: DraftStatus::InProgress { phase: Phase::Goal }, repo_root: None }
+            status: DraftStatus::InProgress { phase: Phase::Goal },
+            repo_root: None,
+        }
     }
 
     #[tokio::test]
@@ -463,23 +636,46 @@ mod tests {
         let root = std::env::temp_dir();
         let sink = VecSink(Mutex::new(vec![]));
         let mut draft = fresh_draft();
-        let disp = ScriptedDispatcher { calls: Mutex::new(0) };
-        step_streaming(&disp, &mut draft, "hi".into(), &root, "sys", &sink, 40).await.unwrap();
+        let disp = ScriptedDispatcher {
+            calls: Mutex::new(0),
+        };
+        step_streaming(&disp, &mut draft, "hi".into(), &root, "sys", &sink, 40)
+            .await
+            .unwrap();
         let events = sink.0.lock().unwrap();
-        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::ToolStart { .. })));
-        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::ToolResult { .. })));
-        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::TurnDone { awaiting_user: true })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, SpecStreamEvent::ToolStart { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, SpecStreamEvent::ToolResult { .. })));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            SpecStreamEvent::TurnDone {
+                awaiting_user: true
+            }
+        )));
         assert!(draft.messages.len() >= 2);
     }
 
     struct AlwaysToolDispatcher;
     #[async_trait]
     impl StreamingDispatcher for AlwaysToolDispatcher {
-        async fn stream_turn(&self, _s: &str, _m: &[DraftMessage], _sink: &dyn StreamSink)
-            -> Result<ModelTurn, String> {
-            Ok(ModelTurn { tool_calls: vec![ToolCall { id: "x".into(),
-                name: "list_dir".into(), input: serde_json::json!({"path":"."}) }],
-                text: String::new(), emitted_spec: None })
+        async fn stream_turn(
+            &self,
+            _s: &str,
+            _m: &[DraftMessage],
+            _sink: &dyn StreamSink,
+        ) -> Result<ModelTurn, String> {
+            Ok(ModelTurn {
+                tool_calls: vec![ToolCall {
+                    id: "x".into(),
+                    name: "list_dir".into(),
+                    input: serde_json::json!({"path":"."}),
+                }],
+                text: String::new(),
+                emitted_spec: None,
+            })
         }
     }
 
@@ -487,16 +683,30 @@ mod tests {
     async fn budget_exhaustion_terminates() {
         let sink = VecSink(Mutex::new(vec![]));
         let mut draft = fresh_draft();
-        step_streaming(&AlwaysToolDispatcher, &mut draft, "hi".into(),
-            &std::env::temp_dir(), "sys", &sink, 2).await.unwrap();
+        step_streaming(
+            &AlwaysToolDispatcher,
+            &mut draft,
+            "hi".into(),
+            &std::env::temp_dir(),
+            "sys",
+            &sink,
+            2,
+        )
+        .await
+        .unwrap();
         let events = sink.0.lock().unwrap();
-        assert!(events.iter().any(|e| matches!(e, SpecStreamEvent::Error { .. })));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, SpecStreamEvent::Error { .. })));
     }
 
     #[test]
     fn event_serializes_snake_case_tag() {
         let e = SpecStreamEvent::ToolStart {
-            id: "1".into(), tool: "grep".into(), arg: "fn main".into() };
+            id: "1".into(),
+            tool: "grep".into(),
+            arg: "fn main".into(),
+        };
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["kind"], "tool_start");
         assert_eq!(v["tool"], "grep");
@@ -506,19 +716,26 @@ mod tests {
     fn extracts_section_markers() {
         let text = "Working on it.\n<!--section:goal-->Esc closes modals.<!--/section-->\nMore.";
         let secs = super::parse_section_markers(text);
-        assert_eq!(secs, vec![("goal".to_string(), "Esc closes modals.".to_string())]);
+        assert_eq!(
+            secs,
+            vec![("goal".to_string(), "Esc closes modals.".to_string())]
+        );
     }
 
     #[test]
     fn sink_collects() {
         let sink = VecSink(Mutex::new(vec![]));
-        sink.emit(SpecStreamEvent::TurnDone { awaiting_user: true });
+        sink.emit(SpecStreamEvent::TurnDone {
+            awaiting_user: true,
+        });
         assert_eq!(sink.0.lock().unwrap().len(), 1);
     }
 
     #[test]
     fn mask_secrets_redacts_common_tokens() {
-        let masked = super::mask_secrets("key=sk-ant-abc123def456ghi789 and jwt aaaaaaaa.bbbbbbbb.cccccccc end");
+        let masked = super::mask_secrets(
+            "key=sk-ant-abc123def456ghi789 and jwt aaaaaaaa.bbbbbbbb.cccccccc end",
+        );
         assert!(!masked.contains("sk-ant-abc123def456ghi789"));
         assert!(!masked.contains("aaaaaaaa.bbbbbbbb.cccccccc"));
         assert!(masked.contains("«redacted»"));

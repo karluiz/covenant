@@ -264,7 +264,8 @@ impl RiskyOutcome {
 fn short_hash(s: &str) -> u64 {
     const FNV_OFFSET: u64 = 14695981039346656037;
     const FNV_PRIME: u64 = 1099511628211;
-    s.bytes().fold(FNV_OFFSET, |h, b| (h ^ b as u64).wrapping_mul(FNV_PRIME))
+    s.bytes()
+        .fold(FNV_OFFSET, |h, b| (h ^ b as u64).wrapping_mul(FNV_PRIME))
 }
 
 // ─── Pure fact builders ─────────────────────────────────────────────────────
@@ -301,7 +302,12 @@ pub fn task_recovered_fact(orchestrator: &str, task_id: &str) -> AchievementFact
         .with_dedupe(format!("task_recovered:{task_id}"))
 }
 
-pub fn build_pass_fact(kind: BuildKind, operator: &str, repo: &str, command: &str) -> AchievementFact {
+pub fn build_pass_fact(
+    kind: BuildKind,
+    operator: &str,
+    repo: &str,
+    command: &str,
+) -> AchievementFact {
     let k = kind.passed_kind();
     AchievementFact::new(k, SubjectKind::Operator)
         .with_subject(operator)
@@ -340,12 +346,19 @@ pub fn task_delegated_fact(orchestrator: &str, task_id: &str) -> AchievementFact
 }
 
 /// `_kind` is retained for future metadata but does not affect the dedupe key.
-pub fn project_command_learned_fact(repo: &str, command: &str, _kind: BuildKind) -> AchievementFact {
+pub fn project_command_learned_fact(
+    repo: &str,
+    command: &str,
+    _kind: BuildKind,
+) -> AchievementFact {
     AchievementFact::new("project_command_learned", SubjectKind::Project)
         .with_subject(repo)
         .with_repo(repo)
         .with_verification(VerificationLevel::SelfReport)
-        .with_dedupe(format!("project_command_learned:{repo}:{}", short_hash(command)))
+        .with_dedupe(format!(
+            "project_command_learned:{repo}:{}",
+            short_hash(command)
+        ))
 }
 
 // ─── Tier point table (per spec §6.3) ─────────────────────────────────────────
@@ -387,35 +400,115 @@ pub fn next_tier(progress: u32, tiers: &[AchievementTier]) -> Option<(u32, u32)>
 // Common/hard/rare habit count targets per spec §6.1.
 
 const COMMON_TIERS: &[AchievementTier] = &[
-    AchievementTier { tier: 1, label: "Bronze",   target: 1   },
-    AchievementTier { tier: 2, label: "Silver",   target: 5   },
-    AchievementTier { tier: 3, label: "Gold",     target: 25  },
-    AchievementTier { tier: 4, label: "Platinum", target: 100 },
-    AchievementTier { tier: 5, label: "Diamond",  target: 500 },
+    AchievementTier {
+        tier: 1,
+        label: "Bronze",
+        target: 1,
+    },
+    AchievementTier {
+        tier: 2,
+        label: "Silver",
+        target: 5,
+    },
+    AchievementTier {
+        tier: 3,
+        label: "Gold",
+        target: 25,
+    },
+    AchievementTier {
+        tier: 4,
+        label: "Platinum",
+        target: 100,
+    },
+    AchievementTier {
+        tier: 5,
+        label: "Diamond",
+        target: 500,
+    },
 ];
 
 const HARD_TIERS: &[AchievementTier] = &[
-    AchievementTier { tier: 1, label: "Bronze",   target: 1   },
-    AchievementTier { tier: 2, label: "Silver",   target: 3   },
-    AchievementTier { tier: 3, label: "Gold",     target: 10  },
-    AchievementTier { tier: 4, label: "Platinum", target: 25  },
-    AchievementTier { tier: 5, label: "Diamond",  target: 100 },
+    AchievementTier {
+        tier: 1,
+        label: "Bronze",
+        target: 1,
+    },
+    AchievementTier {
+        tier: 2,
+        label: "Silver",
+        target: 3,
+    },
+    AchievementTier {
+        tier: 3,
+        label: "Gold",
+        target: 10,
+    },
+    AchievementTier {
+        tier: 4,
+        label: "Platinum",
+        target: 25,
+    },
+    AchievementTier {
+        tier: 5,
+        label: "Diamond",
+        target: 100,
+    },
 ];
 
 const FINISHER_TIERS: &[AchievementTier] = &[
-    AchievementTier { tier: 1, label: "Bronze",   target: 1    },
-    AchievementTier { tier: 2, label: "Silver",   target: 10   },
-    AchievementTier { tier: 3, label: "Gold",     target: 50   },
-    AchievementTier { tier: 4, label: "Platinum", target: 250  },
-    AchievementTier { tier: 5, label: "Diamond",  target: 1000 },
+    AchievementTier {
+        tier: 1,
+        label: "Bronze",
+        target: 1,
+    },
+    AchievementTier {
+        tier: 2,
+        label: "Silver",
+        target: 10,
+    },
+    AchievementTier {
+        tier: 3,
+        label: "Gold",
+        target: 50,
+    },
+    AchievementTier {
+        tier: 4,
+        label: "Platinum",
+        target: 250,
+    },
+    AchievementTier {
+        tier: 5,
+        label: "Diamond",
+        target: 1000,
+    },
 ];
 
 const PROJECT_TIERS: &[AchievementTier] = &[
-    AchievementTier { tier: 1, label: "Bronze",   target: 1   },
-    AchievementTier { tier: 2, label: "Silver",   target: 3   },
-    AchievementTier { tier: 3, label: "Gold",     target: 10  },
-    AchievementTier { tier: 4, label: "Platinum", target: 30  },
-    AchievementTier { tier: 5, label: "Diamond",  target: 100 },
+    AchievementTier {
+        tier: 1,
+        label: "Bronze",
+        target: 1,
+    },
+    AchievementTier {
+        tier: 2,
+        label: "Silver",
+        target: 3,
+    },
+    AchievementTier {
+        tier: 3,
+        label: "Gold",
+        target: 10,
+    },
+    AchievementTier {
+        tier: 4,
+        label: "Platinum",
+        target: 30,
+    },
+    AchievementTier {
+        tier: 5,
+        label: "Diamond",
+        target: 100,
+    },
 ];
 
 pub const CATALOG: &[AchievementDefinition] = &[
@@ -430,8 +523,14 @@ pub const CATALOG: &[AchievementDefinition] = &[
         hidden: false,
         tiers: COMMON_TIERS,
         reputation: &[
-            ReputationWeight { dimension: AchievementCategory::Craft, weight: 50 },
-            ReputationWeight { dimension: AchievementCategory::Reliability, weight: 50 },
+            ReputationWeight {
+                dimension: AchievementCategory::Craft,
+                weight: 50,
+            },
+            ReputationWeight {
+                dimension: AchievementCategory::Reliability,
+                weight: 50,
+            },
         ],
         trigger_kinds: &["clean_run"],
     },
@@ -445,7 +544,10 @@ pub const CATALOG: &[AchievementDefinition] = &[
         scope: ScopeKind::Operator,
         hidden: false,
         tiers: FINISHER_TIERS,
-        reputation: &[ReputationWeight { dimension: AchievementCategory::Reliability, weight: 100 }],
+        reputation: &[ReputationWeight {
+            dimension: AchievementCategory::Reliability,
+            weight: 100,
+        }],
         trigger_kinds: &["task_verified"],
     },
     AchievementDefinition {
@@ -458,8 +560,15 @@ pub const CATALOG: &[AchievementDefinition] = &[
         scope: ScopeKind::Global,
         hidden: false,
         tiers: COMMON_TIERS,
-        reputation: &[ReputationWeight { dimension: AchievementCategory::Safety, weight: 100 }],
-        trigger_kinds: &["risky_action_blocked", "risky_action_confirmed", "risky_action_rewritten"],
+        reputation: &[ReputationWeight {
+            dimension: AchievementCategory::Safety,
+            weight: 100,
+        }],
+        trigger_kinds: &[
+            "risky_action_blocked",
+            "risky_action_confirmed",
+            "risky_action_rewritten",
+        ],
     },
     AchievementDefinition {
         id: "secret_keeper",
@@ -471,7 +580,10 @@ pub const CATALOG: &[AchievementDefinition] = &[
         scope: ScopeKind::Global,
         hidden: false,
         tiers: COMMON_TIERS,
-        reputation: &[ReputationWeight { dimension: AchievementCategory::Safety, weight: 100 }],
+        reputation: &[ReputationWeight {
+            dimension: AchievementCategory::Safety,
+            weight: 100,
+        }],
         trigger_kinds: &["secret_redacted"],
     },
     AchievementDefinition {
@@ -485,8 +597,14 @@ pub const CATALOG: &[AchievementDefinition] = &[
         hidden: false,
         tiers: COMMON_TIERS,
         reputation: &[
-            ReputationWeight { dimension: AchievementCategory::Craft, weight: 50 },
-            ReputationWeight { dimension: AchievementCategory::Memory, weight: 50 },
+            ReputationWeight {
+                dimension: AchievementCategory::Craft,
+                weight: 50,
+            },
+            ReputationWeight {
+                dimension: AchievementCategory::Memory,
+                weight: 50,
+            },
         ],
         trigger_kinds: &["spec_kept"],
     },
@@ -500,7 +618,10 @@ pub const CATALOG: &[AchievementDefinition] = &[
         scope: ScopeKind::Repo,
         hidden: false,
         tiers: COMMON_TIERS,
-        reputation: &[ReputationWeight { dimension: AchievementCategory::Craft, weight: 100 }],
+        reputation: &[ReputationWeight {
+            dimension: AchievementCategory::Craft,
+            weight: 100,
+        }],
         trigger_kinds: &[
             "build_command_passed",
             "test_command_passed",
@@ -517,7 +638,10 @@ pub const CATALOG: &[AchievementDefinition] = &[
         scope: ScopeKind::Repo,
         hidden: false,
         tiers: PROJECT_TIERS,
-        reputation: &[ReputationWeight { dimension: AchievementCategory::Memory, weight: 100 }],
+        reputation: &[ReputationWeight {
+            dimension: AchievementCategory::Memory,
+            weight: 100,
+        }],
         trigger_kinds: &["project_note_created"],
     },
     AchievementDefinition {
@@ -531,8 +655,14 @@ pub const CATALOG: &[AchievementDefinition] = &[
         hidden: false,
         tiers: PROJECT_TIERS,
         reputation: &[
-            ReputationWeight { dimension: AchievementCategory::Memory, weight: 50 },
-            ReputationWeight { dimension: AchievementCategory::Craft, weight: 50 },
+            ReputationWeight {
+                dimension: AchievementCategory::Memory,
+                weight: 50,
+            },
+            ReputationWeight {
+                dimension: AchievementCategory::Craft,
+                weight: 50,
+            },
         ],
         trigger_kinds: &["project_command_learned"],
     },
@@ -547,8 +677,14 @@ pub const CATALOG: &[AchievementDefinition] = &[
         hidden: false,
         tiers: HARD_TIERS,
         reputation: &[
-            ReputationWeight { dimension: AchievementCategory::Orchestration, weight: 50 },
-            ReputationWeight { dimension: AchievementCategory::Reliability, weight: 50 },
+            ReputationWeight {
+                dimension: AchievementCategory::Orchestration,
+                weight: 50,
+            },
+            ReputationWeight {
+                dimension: AchievementCategory::Reliability,
+                weight: 50,
+            },
         ],
         trigger_kinds: &["task_recovered"],
     },
@@ -562,7 +698,10 @@ pub const CATALOG: &[AchievementDefinition] = &[
         scope: ScopeKind::Global,
         hidden: false,
         tiers: HARD_TIERS,
-        reputation: &[ReputationWeight { dimension: AchievementCategory::Orchestration, weight: 100 }],
+        reputation: &[ReputationWeight {
+            dimension: AchievementCategory::Orchestration,
+            weight: 100,
+        }],
         trigger_kinds: &["orchestrator_task_delegated"],
     },
 ];
@@ -591,7 +730,9 @@ mod tests {
         assert_eq!(f.repo.as_deref(), Some("myrepo"));
         assert_eq!(f.verification, Some(VerificationLevel::UserAccepted));
         assert_eq!(f.dedupe_key.as_deref(), Some("task_verified:task-9"));
-        assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "finisher"));
+        assert!(definitions_for_kind(&f.kind)
+            .iter()
+            .any(|d| d.id == "finisher"));
     }
 
     #[test]
@@ -600,7 +741,9 @@ mod tests {
         assert_eq!(f.kind, "clean_run");
         assert_eq!(f.subject_type, SubjectKind::Operator);
         assert_eq!(f.dedupe_key.as_deref(), Some("clean_run:t-1"));
-        assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "clean_run"));
+        assert!(definitions_for_kind(&f.kind)
+            .iter()
+            .any(|d| d.id == "clean_run"));
     }
 
     #[test]
@@ -610,7 +753,9 @@ mod tests {
         assert_eq!(f.subject_type, SubjectKind::Orchestrator);
         assert_eq!(f.subject_id.as_deref(), Some("op-1"));
         assert_eq!(f.dedupe_key.as_deref(), Some("task_recovered:t-1"));
-        assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "recovery_artist"));
+        assert!(definitions_for_kind(&f.kind)
+            .iter()
+            .any(|d| d.id == "recovery_artist"));
     }
 
     #[test]
@@ -625,7 +770,9 @@ mod tests {
             assert_eq!(f.subject_type, SubjectKind::Operator);
             assert_eq!(f.repo.as_deref(), Some("repo"));
             assert_eq!(f.verification, Some(VerificationLevel::CommandPassed));
-            assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "build_steward"));
+            assert!(definitions_for_kind(&f.kind)
+                .iter()
+                .any(|d| d.id == "build_steward"));
         }
     }
 
@@ -639,8 +786,13 @@ mod tests {
             let f = risky_action_fact(o, 1234);
             assert_eq!(f.kind, expect);
             assert_eq!(f.subject_type, SubjectKind::System);
-            assert_eq!(f.dedupe_key.as_deref(), Some(format!("{expect}:1234").as_str()));
-            assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "guardian"));
+            assert_eq!(
+                f.dedupe_key.as_deref(),
+                Some(format!("{expect}:1234").as_str())
+            );
+            assert!(definitions_for_kind(&f.kind)
+                .iter()
+                .any(|d| d.id == "guardian"));
         }
     }
 
@@ -649,8 +801,13 @@ mod tests {
         let f = secret_redacted_fact("operator_mind", 99);
         assert_eq!(f.kind, "secret_redacted");
         assert_eq!(f.subject_type, SubjectKind::System);
-        assert_eq!(f.dedupe_key.as_deref(), Some("secret_redacted:operator_mind:99"));
-        assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "secret_keeper"));
+        assert_eq!(
+            f.dedupe_key.as_deref(),
+            Some("secret_redacted:operator_mind:99")
+        );
+        assert!(definitions_for_kind(&f.kind)
+            .iter()
+            .any(|d| d.id == "secret_keeper"));
     }
 
     #[test]
@@ -660,7 +817,9 @@ mod tests {
         assert_eq!(f.subject_type, SubjectKind::Operator);
         assert_eq!(f.repo.as_deref(), Some("repo"));
         assert_eq!(f.dedupe_key.as_deref(), Some("spec_kept:repo:t-1"));
-        assert!(definitions_for_kind(&f.kind).iter().any(|d| d.id == "spec_keeper"));
+        assert!(definitions_for_kind(&f.kind)
+            .iter()
+            .any(|d| d.id == "spec_keeper"));
     }
 
     #[test]
@@ -668,7 +827,9 @@ mod tests {
         let d = task_delegated_fact("op-1", "t-1");
         assert_eq!(d.kind, "orchestrator_task_delegated");
         assert_eq!(d.subject_type, SubjectKind::Orchestrator);
-        assert!(definitions_for_kind(&d.kind).iter().any(|x| x.id == "good_delegate"));
+        assert!(definitions_for_kind(&d.kind)
+            .iter()
+            .any(|x| x.id == "good_delegate"));
     }
 
     #[test]
@@ -676,7 +837,9 @@ mod tests {
         let c = project_command_learned_fact("repo", "cargo test", BuildKind::Test);
         assert_eq!(c.kind, "project_command_learned");
         assert_eq!(c.subject_type, SubjectKind::Project);
-        assert!(definitions_for_kind(&c.kind).iter().any(|x| x.id == "command_librarian"));
+        assert!(definitions_for_kind(&c.kind)
+            .iter()
+            .any(|x| x.id == "command_librarian"));
     }
 
     #[test]

@@ -152,10 +152,7 @@ pub async fn probe_anthropic_key(api_key: &str) -> Result<AnthropicProbeResult, 
         /// Try to pull the human-readable message out of Anthropic's
         /// error shape: `{"type":"error","error":{"type":"...","message":"..."}}`
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(msg) = json
-                .pointer("/error/message")
-                .and_then(|v| v.as_str())
-            {
+            if let Some(msg) = json.pointer("/error/message").and_then(|v| v.as_str()) {
                 return Err(format!("{} — {}", status, msg));
             }
         }

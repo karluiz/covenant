@@ -139,11 +139,17 @@ pub async fn teammate_send_text_message(
         let operator = match registry_bg.get(operator_id) {
             Some(op) => op,
             None => {
-                tracing::warn!(?operator_id, "teammate: dispatch skipped — operator not found");
+                tracing::warn!(
+                    ?operator_id,
+                    "teammate: dispatch skipped — operator not found"
+                );
                 return;
             }
         };
-        let thread = match storage_bg.teammate_list_messages_in_thread(thread_id, 200).await {
+        let thread = match storage_bg
+            .teammate_list_messages_in_thread(thread_id, 200)
+            .await
+        {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(error = %e, "teammate: failed to load thread");
@@ -173,10 +179,9 @@ pub async fn teammate_send_text_message(
                     return;
                 }
                 let settings = settings_bg2.lock().await.clone();
-                if let Ok(title) = crate::teammate::llm::generate_thread_title(
-                    &settings, &model, &user_text2,
-                )
-                .await
+                if let Ok(title) =
+                    crate::teammate::llm::generate_thread_title(&settings, &model, &user_text2)
+                        .await
                 {
                     let _ = storage_bg2.teammate_rename_thread(thread_id, &title).await;
                     let _ = app_bg2.emit(
@@ -196,7 +201,10 @@ pub async fn teammate_send_text_message(
             let w = world_arc.lock().await;
             let is_active = Some(*sid) == active_session_id_parsed;
             snapshots.push(crate::teammate::world_snapshot::project(
-                *sid, &*w, is_active, now_ms(),
+                *sid,
+                &*w,
+                is_active,
+                now_ms(),
             ));
         }
         let world_context_str = crate::teammate::world_snapshot::render(&snapshots);
@@ -212,18 +220,19 @@ pub async fn teammate_send_text_message(
         // sandbox roots into that directory. If no cwd is known (no active
         // session id, or cwd not captured yet) we fall back to the no-tool
         // dispatch so the operator can still answer.
-        let active_cwd: Option<std::path::PathBuf> = if let Some(active_id) = active_session_id_parsed {
-            snapshots.iter().find(|s| s.id == active_id).and_then(|s| {
-                let raw = std::path::PathBuf::from(&s.cwd);
-                if raw.as_os_str().is_empty() {
-                    None
-                } else {
-                    raw.canonicalize().ok()
-                }
-            })
-        } else {
-            None
-        };
+        let active_cwd: Option<std::path::PathBuf> =
+            if let Some(active_id) = active_session_id_parsed {
+                snapshots.iter().find(|s| s.id == active_id).and_then(|s| {
+                    let raw = std::path::PathBuf::from(&s.cwd);
+                    if raw.as_os_str().is_empty() {
+                        None
+                    } else {
+                        raw.canonicalize().ok()
+                    }
+                })
+            } else {
+                None
+            };
 
         use crate::teammate::llm::DispatchOutcome;
         let outcome: DispatchOutcome = if let Some(root) = active_cwd {
@@ -240,18 +249,17 @@ pub async fn teammate_send_text_message(
             // GitHub access: attach the stored token only when this operator
             // is allowed to use it. Keychain reads are sync — keep them off
             // the async thread.
-            let tool_env = if operator.github_access
-                != crate::operator_registry::GithubAccess::Off
+            let tool_env = if operator.github_access != crate::operator_registry::GithubAccess::Off
             {
                 match tokio::task::spawn_blocking(karl_score::auth::load_token_from_keychain).await
                 {
-                    Ok(Ok(Some(token))) => tool_env.with_github(Some(
-                        crate::teammate::tools::GithubCtx {
+                    Ok(Ok(Some(token))) => {
+                        tool_env.with_github(Some(crate::teammate::tools::GithubCtx {
                             token,
                             access: operator.github_access,
                             api_base: karl_score::auth::GITHUB_API_BASE.to_string(),
-                        },
-                    )),
+                        }))
+                    }
                     Ok(Ok(None)) => {
                         tracing::warn!(
                             operator_id = %operator.id,
@@ -281,8 +289,15 @@ pub async fn teammate_send_text_message(
                 let _ = app_for_progress.emit("teammate-tool-call", payload);
             };
             match crate::teammate::llm::dispatch_reply_with_tools(
-                &operator, &thread, &settings, world_context_opt, tool_env, progress,
-            ).await {
+                &operator,
+                &thread,
+                &settings,
+                world_context_opt,
+                tool_env,
+                progress,
+            )
+            .await
+            {
                 Ok(o) => o,
                 Err(e) => {
                     tracing::warn!(error = %e, "teammate: tool-use dispatch failed");
@@ -292,8 +307,13 @@ pub async fn teammate_send_text_message(
             }
         } else {
             match crate::teammate::llm::dispatch_reply(
-                &operator, &thread, &settings, world_context_opt,
-            ).await {
+                &operator,
+                &thread,
+                &settings,
+                world_context_opt,
+            )
+            .await
+            {
                 Ok(raw) => {
                     let (text, sentiment) = crate::teammate::llm::extract_sentiment(&raw);
                     DispatchOutcome::Text { text, sentiment }
@@ -310,21 +330,30 @@ pub async fn teammate_send_text_message(
         let outcome = match outcome {
             DispatchOutcome::Handoff(req) => {
                 let routed = crate::teammate::handoff::route(
-                    &storage_bg, &runtime_bg, &registry_bg.list(),
-                    operator_id, thread_id, &req, now_ms(),
-                ).await;
+                    &storage_bg,
+                    &runtime_bg,
+                    &registry_bg.list(),
+                    operator_id,
+                    thread_id,
+                    &req,
+                    now_ms(),
+                )
+                .await;
                 match routed {
                     Ok(crate::teammate::handoff::RouteResult::Accepted(acc)) => {
-                        let _ = app_bg.emit("teammate-handoff-routed", serde_json::json!({
-                            "handoff_id":  acc.handoff.id.0.to_string(),
-                            "chain_id":    acc.handoff.chain_id.0.to_string(),
-                            "from_operator": operator_id,
-                            "to_operator": acc.task.operator_id,
-                            "task_id":     acc.task.id.0.to_string(),
-                            "executor":    acc.executor,
-                            "brief":       acc.handoff.brief,
-                            "deliverable": acc.task.deliverable,
-                        }));
+                        let _ = app_bg.emit(
+                            "teammate-handoff-routed",
+                            serde_json::json!({
+                                "handoff_id":  acc.handoff.id.0.to_string(),
+                                "chain_id":    acc.handoff.chain_id.0.to_string(),
+                                "from_operator": operator_id,
+                                "to_operator": acc.task.operator_id,
+                                "task_id":     acc.task.id.0.to_string(),
+                                "executor":    acc.executor,
+                                "brief":       acc.handoff.brief,
+                                "deliverable": acc.task.deliverable,
+                            }),
+                        );
                         let to_name = registry_bg
                             .get(acc.task.operator_id)
                             .map(|o| o.name)
@@ -420,16 +449,16 @@ pub async fn teammate_list_tasks(
     storage: State<'_, Arc<Storage>>,
     operator_id: OperatorId,
 ) -> Result<Vec<crate::teammate::Task>, String> {
-    storage.teammate_list_tasks_for_operator(operator_id).await
+    storage
+        .teammate_list_tasks_for_operator(operator_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
 // ── Task-lifecycle helpers + Tauri commands ───────────────────────────────────
 
 use crate::teammate::runtime::TeammateRuntime;
-use crate::teammate::types::{
-    ProposeTask, Task, TaskId, TaskStatus, UpdateKind,
-};
+use crate::teammate::types::{ProposeTask, Task, TaskId, TaskStatus, UpdateKind};
 
 fn now_unix_ms() -> u64 {
     std::time::SystemTime::now()
@@ -448,7 +477,9 @@ pub(crate) async fn confirm_task_inner(
     message_id: MessageId,
     now_ms: u64,
 ) -> Result<Task, String> {
-    let msg = storage.teammate_get_message(message_id).await
+    let msg = storage
+        .teammate_get_message(message_id)
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "message not found".to_string())?;
     if msg.confirmed_at_unix_ms.is_some() {
@@ -486,12 +517,20 @@ pub(crate) async fn confirm_task_inner(
     // message are not. Doing storage writes before this check used to leave
     // an orphan Active task + a confirmed-but-never-started proposal behind
     // every "operator already on task" rejection.
-    runtime.start_task(operator_id, task.id, None).map_err(|e| e.to_string())?;
+    runtime
+        .start_task(operator_id, task.id, None)
+        .map_err(|e| e.to_string())?;
     let persisted = async {
-        storage.teammate_insert_task(&task).await.map_err(|e| e.to_string())?;
-        storage.teammate_mark_message_confirmed(message_id, Some(task.id), now_ms).await
+        storage
+            .teammate_insert_task(&task)
+            .await
+            .map_err(|e| e.to_string())?;
+        storage
+            .teammate_mark_message_confirmed(message_id, Some(task.id), now_ms)
+            .await
             .map_err(|e| e.to_string())
-    }.await;
+    }
+    .await;
     if let Err(e) = persisted {
         let _ = runtime.finish_task(operator_id, task.id);
         return Err(e);
@@ -503,13 +542,19 @@ pub(crate) async fn confirm_task_inner(
         task_id: Some(task.id),
         thread_id: None,
         role: Role::System,
-        content: MessageContent::TaskUpdate { task: task.id, kind: UpdateKind::Started },
+        content: MessageContent::TaskUpdate {
+            task: task.id,
+            kind: UpdateKind::Started,
+        },
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
         sentiment: Some(crate::teammate::types::Sentiment::Expectacion),
     };
-    storage.teammate_insert_message(&started).await.map_err(|e| e.to_string())?;
+    storage
+        .teammate_insert_message(&started)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(task)
 }
 
@@ -554,12 +599,24 @@ pub(crate) async fn report_handoff_back(
     ok: bool,
     now_ms: u64,
 ) -> Result<(), String> {
-    let Some(h) = storage.teammate_get_handoff_by_task(task_id).await.map_err(|e| e.to_string())?
-    else { return Ok(()); };
-    if h.status != crate::teammate::types::HandoffStatus::Running { return Ok(()); }
+    let Some(h) = storage
+        .teammate_get_handoff_by_task(task_id)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    if h.status != crate::teammate::types::HandoffStatus::Running {
+        return Ok(());
+    }
 
-    let to_name = storage.operator_list().await.map_err(|e| e.to_string())?
-        .into_iter().find(|o| o.id == h.to_operator_id).map(|o| o.name)
+    let to_name = storage
+        .operator_list()
+        .await
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|o| o.id == h.to_operator_id)
+        .map(|o| o.name)
         .unwrap_or_else(|| "the operator".into());
     let body = build_handoff_report_body(&to_name, deliverable, ok);
 
@@ -583,20 +640,32 @@ pub(crate) async fn report_handoff_back(
         tracing::warn!(error = %e, "handoff report threaded-insert failed; retrying unthreaded");
         report.thread_id = None;
         report.task_id = None;
-        storage.teammate_insert_message(&report).await.map_err(|e| e.to_string())?;
+        storage
+            .teammate_insert_message(&report)
+            .await
+            .map_err(|e| e.to_string())?;
     }
-    storage.teammate_update_handoff_status(
-        h.id,
-        if ok { crate::teammate::types::HandoffStatus::Reported }
-        else  { crate::teammate::types::HandoffStatus::Failed },
-        Some(body),
-        Some(now_ms),
-    ).await.map_err(|e| e.to_string())?;
+    storage
+        .teammate_update_handoff_status(
+            h.id,
+            if ok {
+                crate::teammate::types::HandoffStatus::Reported
+            } else {
+                crate::teammate::types::HandoffStatus::Failed
+            },
+            Some(body),
+            Some(now_ms),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Only credit the good_delegate achievement on a successful handoff;
     // crediting a cancelled delegation would be wrong/gameable.
     if ok {
-        karl_score::record_task_delegated(&h.from_operator_id.0.to_string(), &task_id.0.to_string());
+        karl_score::record_task_delegated(
+            &h.from_operator_id.0.to_string(),
+            &task_id.0.to_string(),
+        );
     }
     Ok(())
 }
@@ -610,13 +679,18 @@ pub(crate) async fn complete_task_inner(
     task_id: TaskId,
     now_ms: u64,
 ) -> Result<(Task, TaskMessage), String> {
-    let task = storage.teammate_get_task(task_id).await
+    let task = storage
+        .teammate_get_task(task_id)
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "task not found".to_string())?;
     if matches!(task.status, TaskStatus::Done) {
         return Err("task already done".into());
     }
-    storage.teammate_mark_task_done(task_id, now_ms).await.map_err(|e| e.to_string())?;
+    storage
+        .teammate_mark_task_done(task_id, now_ms)
+        .await
+        .map_err(|e| e.to_string())?;
     // Best-effort release: after an app restart the in-memory runtime may
     // not know about this task (or may track a different one) — storage is
     // the source of truth, so a mismatch must not block completion.
@@ -627,13 +701,19 @@ pub(crate) async fn complete_task_inner(
         task_id: Some(task_id),
         thread_id: None,
         role: Role::System,
-        content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Completed },
+        content: MessageContent::TaskUpdate {
+            task: task_id,
+            kind: UpdateKind::Completed,
+        },
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
         sentiment: Some(crate::teammate::types::Sentiment::Feliz),
     };
-    storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    storage
+        .teammate_insert_message(&msg)
+        .await
+        .map_err(|e| e.to_string())?;
     if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, true, now_ms).await {
         tracing::warn!(error = %e, "handoff report-back (complete) failed");
     }
@@ -654,10 +734,14 @@ pub(crate) async fn cancel_active_task_inner(
     task_id: TaskId,
     now_ms: u64,
 ) -> Result<(Task, TaskMessage), String> {
-    let task = storage.teammate_get_task(task_id).await
+    let task = storage
+        .teammate_get_task(task_id)
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "task not found".to_string())?;
-    storage.teammate_update_task_status(task_id, TaskStatus::Cancelled, now_ms).await
+    storage
+        .teammate_update_task_status(task_id, TaskStatus::Cancelled, now_ms)
+        .await
         .map_err(|e| e.to_string())?;
     // Same best-effort semantics as complete_task_inner. Without this the
     // operator stayed OnTask forever after a Stop, and every subsequent
@@ -669,7 +753,10 @@ pub(crate) async fn cancel_active_task_inner(
         task_id: Some(task_id),
         thread_id: None,
         role: Role::System,
-        content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Cancelled },
+        content: MessageContent::TaskUpdate {
+            task: task_id,
+            kind: UpdateKind::Cancelled,
+        },
         created_at_unix_ms: now_ms,
         confirmed_at_unix_ms: None,
         dismissed_at_unix_ms: None,
@@ -679,11 +766,18 @@ pub(crate) async fn cancel_active_task_inner(
         // terminal task_update — this keeps stored history honest too.)
         sentiment: Some(crate::teammate::types::Sentiment::Neutral),
     };
-    storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+    storage
+        .teammate_insert_message(&msg)
+        .await
+        .map_err(|e| e.to_string())?;
     if let Err(e) = report_handoff_back(storage, task_id, &task.deliverable, false, now_ms).await {
         tracing::warn!(error = %e, "handoff report-back (cancel) failed");
     }
-    let task = Task { status: TaskStatus::Cancelled, updated_at_unix_ms: now_ms, ..task };
+    let task = Task {
+        status: TaskStatus::Cancelled,
+        updated_at_unix_ms: now_ms,
+        ..task
+    };
     Ok((task, msg))
 }
 
@@ -692,7 +786,9 @@ pub(crate) async fn cancel_task_proposal_inner(
     message_id: MessageId,
     now_ms: u64,
 ) -> Result<(), String> {
-    let msg = storage.teammate_get_message(message_id).await
+    let msg = storage
+        .teammate_get_message(message_id)
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "message not found".to_string())?;
     if msg.confirmed_at_unix_ms.is_some() {
@@ -701,7 +797,9 @@ pub(crate) async fn cancel_task_proposal_inner(
     if !matches!(msg.content, MessageContent::Propose(_)) {
         return Err("message is not a proposal".into());
     }
-    storage.teammate_mark_message_dismissed(message_id, now_ms).await
+    storage
+        .teammate_mark_message_dismissed(message_id, now_ms)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -710,7 +808,9 @@ pub(crate) async fn edit_task_proposal_inner(
     message_id: MessageId,
     new_draft: crate::teammate::types::TaskDraft,
 ) -> Result<(), String> {
-    let msg = storage.teammate_get_message(message_id).await
+    let msg = storage
+        .teammate_get_message(message_id)
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "message not found".to_string())?;
     let existing = match msg.content {
@@ -724,7 +824,9 @@ pub(crate) async fn edit_task_proposal_inner(
         draft: new_draft,
         rationale: existing.rationale,
     });
-    storage.teammate_update_message_content(message_id, &updated).await
+    storage
+        .teammate_update_message_content(message_id, &updated)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -738,7 +840,14 @@ pub async fn teammate_confirm_task(
 ) -> Result<Task, String> {
     use tauri::Emitter;
     let now = now_unix_ms();
-    let task = confirm_task_inner(storage.inner(), runtime.inner(), operator_id, message_id, now).await?;
+    let task = confirm_task_inner(
+        storage.inner(),
+        runtime.inner(),
+        operator_id,
+        message_id,
+        now,
+    )
+    .await?;
     let _ = app.emit("teammate-task", &task);
     if let Ok(thread) = storage.teammate_list_messages(operator_id, 1).await {
         if let Some(last) = thread.last() {
@@ -772,7 +881,10 @@ pub async fn teammate_cancel_active_task(
     if let Some(s) = task.spawned_session {
         supervisor.forget_task(s);
         spec_tracker.forget(s);
-        state.operator.disable_for_session(&app, s, "task_cancelled").await;
+        state
+            .operator
+            .disable_for_session(&app, s, "task_cancelled")
+            .await;
     }
     let _ = app.emit("teammate-task", &task);
     let _ = app.emit("teammate-message", &msg);
@@ -802,12 +914,15 @@ pub async fn teammate_complete_task(
         let task_id_str = task_id.0.to_string();
         for fact in plan_completion_emits(flags) {
             match fact {
-                CompletionFact::Finisher =>
-                    karl_score::record_task_verified(&operator, repo.as_deref(), &task_id_str),
-                CompletionFact::CleanRun =>
-                    karl_score::record_clean_run(&operator, repo.as_deref(), &task_id_str),
-                CompletionFact::Recovered =>
-                    karl_score::record_task_recovered(&operator, &task_id_str),
+                CompletionFact::Finisher => {
+                    karl_score::record_task_verified(&operator, repo.as_deref(), &task_id_str)
+                }
+                CompletionFact::CleanRun => {
+                    karl_score::record_clean_run(&operator, repo.as_deref(), &task_id_str)
+                }
+                CompletionFact::Recovered => {
+                    karl_score::record_task_recovered(&operator, &task_id_str)
+                }
             }
         }
         // spec_keeper: spec read/created before first code edit, this task.
@@ -819,7 +934,10 @@ pub async fn teammate_complete_task(
         }
         spec_tracker.forget(s);
         supervisor.forget_task(s);
-        state.operator.disable_for_session(&app, s, "task_completed").await;
+        state
+            .operator
+            .disable_for_session(&app, s, "task_completed")
+            .await;
     }
     let _ = app.emit("teammate-task", &task);
     let _ = app.emit("teammate-message", &msg);
@@ -857,7 +975,9 @@ pub async fn teammate_clear_for_operator(
     runtime: State<'_, Arc<TeammateRuntime>>,
     operator_id: OperatorId,
 ) -> Result<(), String> {
-    storage.teammate_clear_for_operator(operator_id).await
+    storage
+        .teammate_clear_for_operator(operator_id)
+        .await
         .map_err(|e| e.to_string())?;
     runtime.reset(operator_id);
     Ok(())
@@ -870,7 +990,9 @@ pub async fn teammate_clear_finished_tasks(
     storage: State<'_, Arc<Storage>>,
     operator_id: OperatorId,
 ) -> Result<usize, String> {
-    storage.teammate_clear_finished_tasks(operator_id).await
+    storage
+        .teammate_clear_finished_tasks(operator_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -881,7 +1003,9 @@ pub async fn teammate_delete_task(
     storage: State<'_, Arc<Storage>>,
     task_id: crate::teammate::TaskId,
 ) -> Result<(), String> {
-    storage.teammate_delete_task(task_id).await
+    storage
+        .teammate_delete_task(task_id)
+        .await
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -898,10 +1022,13 @@ pub async fn teammate_attach_session_to_task(
     session_id: String,
 ) -> Result<(), String> {
     use tauri::Emitter;
-    let session = session_id.parse::<karl_session::SessionId>()
+    let session = session_id
+        .parse::<karl_session::SessionId>()
         .map_err(|e| format!("bad session id: {e}"))?;
     let now = now_unix_ms();
-    storage.teammate_update_task_spawned_session(task_id, session, now).await
+    storage
+        .teammate_update_task_spawned_session(task_id, session, now)
+        .await
         .map_err(|e| e.to_string())?;
     // Propagate the Task's archetype into the per-session operator state so
     // the decision loop can apply archetype-specific contracts (e.g. the
@@ -909,7 +1036,10 @@ pub async fn teammate_attach_session_to_task(
     // operator just runs without archetype context.
     let existing = storage.teammate_get_task(task_id).await.ok().flatten();
     if let Some(task) = &existing {
-        state.operator.set_task_archetype(session, task.archetype).await;
+        state
+            .operator
+            .set_task_archetype(session, task.archetype)
+            .await;
     }
     // Re-attaching a session to a task that is no longer active — the user
     // reopened a cancelled/done task from the chat pill, which respawns the
@@ -925,7 +1055,9 @@ pub async fn teammate_attach_session_to_task(
             .map_err(|e| e.to_string())?;
     }
     let _ = runtime.finish_task(operator_id, task_id);
-    runtime.start_task(operator_id, task_id, Some(session)).map_err(|e| e.to_string())?;
+    runtime
+        .start_task(operator_id, task_id, Some(session))
+        .map_err(|e| e.to_string())?;
     supervisor.register_task(session, task_id, operator_id);
     if reactivated {
         let msg = TaskMessage {
@@ -934,19 +1066,28 @@ pub async fn teammate_attach_session_to_task(
             task_id: Some(task_id),
             thread_id: None,
             role: Role::System,
-            content: MessageContent::TaskUpdate { task: task_id, kind: UpdateKind::Resumed },
+            content: MessageContent::TaskUpdate {
+                task: task_id,
+                kind: UpdateKind::Resumed,
+            },
             created_at_unix_ms: now,
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
             sentiment: Some(crate::teammate::types::Sentiment::Feliz),
         };
-        storage.teammate_insert_message(&msg).await.map_err(|e| e.to_string())?;
+        storage
+            .teammate_insert_message(&msg)
+            .await
+            .map_err(|e| e.to_string())?;
         let _ = app.emit("teammate-message", &msg);
     }
-    let _ = app.emit("teammate-task", serde_json::json!({
-        "task_id": task_id,
-        "spawned_session": session.to_string(),
-    }));
+    let _ = app.emit(
+        "teammate-task",
+        serde_json::json!({
+            "task_id": task_id,
+            "spawned_session": session.to_string(),
+        }),
+    );
     Ok(())
 }
 
@@ -956,8 +1097,8 @@ mod task_lifecycle_tests {
     use crate::operator_registry::{Operator, OperatorId, VoiceTone};
     use crate::storage::Storage;
     use crate::teammate::types::{
-        MessageContent, MessageId, ProposeTask, Role, TaskArchetype,
-        TaskDraft, TaskMessage, TaskScope,
+        MessageContent, MessageId, ProposeTask, Role, TaskArchetype, TaskDraft, TaskMessage,
+        TaskScope,
     };
     use std::sync::Arc;
     use ulid::Ulid;
@@ -969,25 +1110,28 @@ mod task_lifecycle_tests {
         let storage = Arc::new(Storage::open(&path).unwrap());
 
         let op_id = OperatorId(Ulid::new());
-        storage.operator_insert(Operator {
-            id: op_id,
-            name: "T".into(),
-            emoji: "🤖".into(),
-            color: "#000".into(),
-            tags: vec![],
-            persona: "".into(),
-            escalate_threshold: 0.6,
-            model: "x".into(),
-            hard_constraints: "".into(),
-            voice: VoiceTone::Terse,
-            is_default: false,
-            created_at_unix_ms: 0,
-            updated_at_unix_ms: 0,
-            xp: 0,
-            soul_path: None,
-            soul_mtime_unix_ms: 0,
-            github_access: crate::operator_registry::GithubAccess::Off,
-        }).await.unwrap();
+        storage
+            .operator_insert(Operator {
+                id: op_id,
+                name: "T".into(),
+                emoji: "🤖".into(),
+                color: "#000".into(),
+                tags: vec![],
+                persona: "".into(),
+                escalate_threshold: 0.6,
+                model: "x".into(),
+                hard_constraints: "".into(),
+                voice: VoiceTone::Terse,
+                is_default: false,
+                created_at_unix_ms: 0,
+                updated_at_unix_ms: 0,
+                xp: 0,
+                soul_path: None,
+                soul_mtime_unix_ms: 0,
+                github_access: crate::operator_registry::GithubAccess::Off,
+            })
+            .await
+            .unwrap();
 
         let msg_id = MessageId::new();
         let msg = TaskMessage {
@@ -1024,9 +1168,18 @@ mod task_lifecycle_tests {
             .await
             .expect("confirm should succeed");
 
-        assert!(matches!(task.status, crate::teammate::types::TaskStatus::Active));
-        assert!(matches!(task.archetype, crate::teammate::types::TaskArchetype::Do));
-        assert_eq!(task.spawned_session, None, "spawn happens in UI; backend leaves it None initially");
+        assert!(matches!(
+            task.status,
+            crate::teammate::types::TaskStatus::Active
+        ));
+        assert!(matches!(
+            task.archetype,
+            crate::teammate::types::TaskArchetype::Do
+        ));
+        assert_eq!(
+            task.spawned_session, None,
+            "spawn happens in UI; backend leaves it None initially"
+        );
 
         let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
         assert_eq!(fetched.confirmed_at_unix_ms, Some(1_700_000_000_500));
@@ -1036,15 +1189,21 @@ mod task_lifecycle_tests {
     async fn confirm_twice_returns_error() {
         let (storage, op_id, msg_id) = seed_storage().await;
         let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
-        confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
-        let err = confirm_task_inner(&storage, &runtime, op_id, msg_id, 2).await.unwrap_err();
+        confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
+            .await
+            .unwrap();
+        let err = confirm_task_inner(&storage, &runtime, op_id, msg_id, 2)
+            .await
+            .unwrap_err();
         assert!(err.contains("already confirmed"), "got: {err}");
     }
 
     #[tokio::test]
     async fn cancel_proposal_sets_dismissed() {
         let (storage, _op_id, msg_id) = seed_storage().await;
-        cancel_task_proposal_inner(&storage, msg_id, 1_700_000_000_999).await.unwrap();
+        cancel_task_proposal_inner(&storage, msg_id, 1_700_000_000_999)
+            .await
+            .unwrap();
         let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
         assert_eq!(fetched.dismissed_at_unix_ms, Some(1_700_000_000_999));
     }
@@ -1053,7 +1212,9 @@ mod task_lifecycle_tests {
     async fn confirm_while_operator_busy_leaves_proposal_clean() {
         let (storage, op_id, msg_id) = seed_storage().await;
         let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
-        runtime.start_task(op_id, crate::teammate::types::TaskId::new(), None).unwrap();
+        runtime
+            .start_task(op_id, crate::teammate::types::TaskId::new(), None)
+            .unwrap();
 
         let err = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
             .await
@@ -1065,18 +1226,31 @@ mod task_lifecycle_tests {
         // is persisted.
         let fetched = storage.teammate_get_message(msg_id).await.unwrap().unwrap();
         assert_eq!(fetched.confirmed_at_unix_ms, None);
-        let tasks = storage.teammate_list_tasks_for_operator(op_id).await.unwrap();
-        assert!(tasks.is_empty(), "no task row should survive a failed confirm");
+        let tasks = storage
+            .teammate_list_tasks_for_operator(op_id)
+            .await
+            .unwrap();
+        assert!(
+            tasks.is_empty(),
+            "no task row should survive a failed confirm"
+        );
     }
 
     #[tokio::test]
     async fn complete_task_marks_done_and_frees_operator() {
         let (storage, op_id, msg_id) = seed_storage().await;
         let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
-        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
+            .await
+            .unwrap();
 
-        let (done, _msg) = complete_task_inner(&storage, &runtime, task.id, 99).await.unwrap();
-        assert!(matches!(done.status, crate::teammate::types::TaskStatus::Done));
+        let (done, _msg) = complete_task_inner(&storage, &runtime, task.id, 99)
+            .await
+            .unwrap();
+        assert!(matches!(
+            done.status,
+            crate::teammate::types::TaskStatus::Done
+        ));
         assert_eq!(done.completed_at_unix_ms, Some(99));
 
         // Operator must be free again: a fresh task can start immediately.
@@ -1089,9 +1263,15 @@ mod task_lifecycle_tests {
     async fn complete_task_twice_returns_error() {
         let (storage, op_id, msg_id) = seed_storage().await;
         let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
-        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
-        complete_task_inner(&storage, &runtime, task.id, 2).await.unwrap();
-        let err = complete_task_inner(&storage, &runtime, task.id, 3).await.unwrap_err();
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
+            .await
+            .unwrap();
+        complete_task_inner(&storage, &runtime, task.id, 2)
+            .await
+            .unwrap();
+        let err = complete_task_inner(&storage, &runtime, task.id, 3)
+            .await
+            .unwrap_err();
         assert!(err.contains("already done"), "got: {err}");
     }
 
@@ -1099,10 +1279,17 @@ mod task_lifecycle_tests {
     async fn cancel_active_task_frees_operator() {
         let (storage, op_id, msg_id) = seed_storage().await;
         let runtime = Arc::new(crate::teammate::runtime::TeammateRuntime::new());
-        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1).await.unwrap();
+        let task = confirm_task_inner(&storage, &runtime, op_id, msg_id, 1)
+            .await
+            .unwrap();
 
-        let (cancelled, _msg) = cancel_active_task_inner(&storage, &runtime, task.id, 2).await.unwrap();
-        assert!(matches!(cancelled.status, crate::teammate::types::TaskStatus::Cancelled));
+        let (cancelled, _msg) = cancel_active_task_inner(&storage, &runtime, task.id, 2)
+            .await
+            .unwrap();
+        assert!(matches!(
+            cancelled.status,
+            crate::teammate::types::TaskStatus::Cancelled
+        ));
 
         runtime
             .start_task(op_id, crate::teammate::types::TaskId::new(), None)
@@ -1119,11 +1306,22 @@ mod task_lifecycle_tests {
 
         // mirror seed_storage's Operator literal:
         let mk = |name: &str| Operator {
-            id: OperatorId(ulid::Ulid::new()), name: name.into(), emoji: "🤖".into(),
-            color: "#000".into(), tags: vec![], persona: "".into(), escalate_threshold: 0.6,
-            model: "x".into(), hard_constraints: "".into(), voice: VoiceTone::Terse,
-            is_default: false, created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
-            soul_path: None, soul_mtime_unix_ms: 0,
+            id: OperatorId(ulid::Ulid::new()),
+            name: name.into(),
+            emoji: "🤖".into(),
+            color: "#000".into(),
+            tags: vec![],
+            persona: "".into(),
+            escalate_threshold: 0.6,
+            model: "x".into(),
+            hard_constraints: "".into(),
+            voice: VoiceTone::Terse,
+            is_default: false,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            xp: 0,
+            soul_path: None,
+            soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
         };
         let zeta = mk("Zeta");
@@ -1133,26 +1331,50 @@ mod task_lifecycle_tests {
 
         // receiver task owned by Kiro
         let task = Task {
-            id: TaskId::new(), operator_id: kiro.id, archetype: TaskArchetype::Do,
-            title: "t".into(), body: "".into(), deliverable: "thing done".into(),
-            status: TaskStatus::Active, scope: TaskScope::default(), spawned_session: None,
-            created_at_unix_ms: 1, updated_at_unix_ms: 1, completed_at_unix_ms: None, cost_usd_cents: 0,
+            id: TaskId::new(),
+            operator_id: kiro.id,
+            archetype: TaskArchetype::Do,
+            title: "t".into(),
+            body: "".into(),
+            deliverable: "thing done".into(),
+            status: TaskStatus::Active,
+            scope: TaskScope::default(),
+            spawned_session: None,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 1,
+            completed_at_unix_ms: None,
+            cost_usd_cents: 0,
         };
         storage.teammate_insert_task(&task).await.unwrap();
 
         // Running handoff edge Zeta -> Kiro for that task
         let thread = ThreadId::new();
         let h = Handoff {
-            id: HandoffId::new(), chain_id: ChainId::new(), depth: 0,
-            from_operator_id: zeta.id, to_operator_id: kiro.id, task_id: Some(task.id),
-            origin_task_id: None, origin_thread_id: thread, status: HandoffStatus::Running,
-            brief: "do the thing".into(), result_summary: None, created_at_unix_ms: 1, reported_at_unix_ms: None,
+            id: HandoffId::new(),
+            chain_id: ChainId::new(),
+            depth: 0,
+            from_operator_id: zeta.id,
+            to_operator_id: kiro.id,
+            task_id: Some(task.id),
+            origin_task_id: None,
+            origin_thread_id: thread,
+            status: HandoffStatus::Running,
+            brief: "do the thing".into(),
+            result_summary: None,
+            created_at_unix_ms: 1,
+            reported_at_unix_ms: None,
         };
         storage.teammate_insert_handoff(&h).await.unwrap();
 
-        complete_task_inner(&storage, &runtime, task.id, 200).await.unwrap();
+        complete_task_inner(&storage, &runtime, task.id, 200)
+            .await
+            .unwrap();
 
-        let edge = storage.teammate_get_handoff_by_task(task.id).await.unwrap().unwrap();
+        let edge = storage
+            .teammate_get_handoff_by_task(task.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(edge.status, HandoffStatus::Reported);
         let summary = edge.result_summary.unwrap();
         assert!(summary.contains("Kiro") && summary.contains("completed"));
@@ -1167,13 +1389,19 @@ mod tests {
     #[test]
     fn completion_plan_emits_finisher_always_and_gates_others() {
         // clean, never blocked -> finisher + clean_run
-        let p = plan_completion_emits(TaskFlags { saw_failed_block: false, ever_blocked: false });
+        let p = plan_completion_emits(TaskFlags {
+            saw_failed_block: false,
+            ever_blocked: false,
+        });
         assert!(p.contains(&CompletionFact::Finisher));
         assert!(p.contains(&CompletionFact::CleanRun));
         assert!(!p.contains(&CompletionFact::Recovered));
 
         // had a failure, was blocked, recovered -> finisher + recovered, NO clean_run
-        let p = plan_completion_emits(TaskFlags { saw_failed_block: true, ever_blocked: true });
+        let p = plan_completion_emits(TaskFlags {
+            saw_failed_block: true,
+            ever_blocked: true,
+        });
         assert!(p.contains(&CompletionFact::Finisher));
         assert!(!p.contains(&CompletionFact::CleanRun));
         assert!(p.contains(&CompletionFact::Recovered));

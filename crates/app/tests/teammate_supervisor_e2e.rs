@@ -61,7 +61,10 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         soul_mtime_unix_ms: 0,
         github_access: covenant_lib::operator_registry::GithubAccess::Off,
     };
-    storage.operator_insert(operator).await.expect("insert operator");
+    storage
+        .operator_insert(operator)
+        .await
+        .expect("insert operator");
 
     // Insert a task in Active status.
     let task_id = TaskId::new();
@@ -80,12 +83,19 @@ async fn supervisor_emits_duda_then_enojo_on_repeated_failure() {
         completed_at_unix_ms: None,
         cost_usd_cents: 0,
     };
-    storage.teammate_insert_task(&task).await.expect("insert task");
+    storage
+        .teammate_insert_task(&task)
+        .await
+        .expect("insert task");
 
     let runtime = Arc::new(TeammateRuntime::new());
     let emitter: Arc<dyn MessageEmitter> = Arc::new(CapturingEmitter::default());
 
-    let supervisor = Arc::new(TaskSupervisor::new(storage.clone(), runtime.clone(), emitter));
+    let supervisor = Arc::new(TaskSupervisor::new(
+        storage.clone(),
+        runtime.clone(),
+        emitter,
+    ));
     let session = SessionId::new();
     supervisor.register_task(session, task_id, op_id);
 

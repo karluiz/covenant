@@ -176,7 +176,10 @@ mod tests {
         assert!(list.iter().any(|s| s.id == "claude" && s.default));
         assert!(list.iter().any(|s| s.id == "codex"));
         assert!(list.iter().any(|s| s.id == "copilot"));
-        let hermes = list.iter().find(|s| s.id == "hermes").expect("hermes preset");
+        let hermes = list
+            .iter()
+            .find(|s| s.id == "hermes")
+            .expect("hermes preset");
         assert_eq!(hermes.command, "hermes");
         assert!(!hermes.default, "hermes must not steal default from claude");
         assert!(dir.path().join("spawns.json").exists());
@@ -204,7 +207,10 @@ mod tests {
 
         let store = SpawnStore::open(dir.path()).unwrap();
         let list = store.list().unwrap();
-        assert!(list.iter().any(|s| s.id == "hermes"), "hermes must be backfilled");
+        assert!(
+            list.iter().any(|s| s.id == "hermes"),
+            "hermes must be backfilled"
+        );
         // Backfill must NOT restore presets the user has deleted.
         assert!(!list.iter().any(|s| s.id == "codex"));
         assert!(!list.iter().any(|s| s.id == "copilot"));

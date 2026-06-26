@@ -10,10 +10,8 @@ use std::time::{Duration, Instant};
 
 /// Hardcoded text-file extensions. Tight by design; expand on demand.
 const TEXT_EXTS: &[&str] = &[
-    "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs",
-    "py", "md", "mdx", "json", "toml", "yaml", "yml", "txt",
-    "css", "scss", "html", "sh", "bash", "zsh", "fish",
-    "go", "java", "kt", "rb", "php",
+    "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "md", "mdx", "json", "toml", "yaml", "yml",
+    "txt", "css", "scss", "html", "sh", "bash", "zsh", "fish", "go", "java", "kt", "rb", "php",
     "c", "h", "hpp", "cpp", "swift", "sql", "lua",
 ];
 
@@ -49,23 +47,37 @@ pub(crate) fn fuzzy_score(haystack: &str, query: &str) -> Option<i32> {
         let mut prev_match = false;
         let mut last_sep: isize = -1;
         for i in 0..start {
-            if h[i] == b'/' { last_sep = i as isize; }
+            if h[i] == b'/' {
+                last_sep = i as isize;
+            }
         }
         for i in start..h.len() {
             let hb = h[i];
-            if hb == b'/' { last_sep = i as isize; }
+            if hb == b'/' {
+                last_sep = i as isize;
+            }
             if qi < q.len() && hb.eq_ignore_ascii_case(&q[qi]) {
                 score += 1;
-                if prev_match { score += 3; }
-                if (i as isize) == last_sep + 1 { score += 4; }
-                if i == basename_start && qi == 0 { score += 10; }
+                if prev_match {
+                    score += 3;
+                }
+                if (i as isize) == last_sep + 1 {
+                    score += 4;
+                }
+                if i == basename_start && qi == 0 {
+                    score += 10;
+                }
                 qi += 1;
                 prev_match = true;
             } else {
                 prev_match = false;
             }
         }
-        if qi == q.len() { Some(score) } else { None }
+        if qi == q.len() {
+            Some(score)
+        } else {
+            None
+        }
     };
 
     // Try greedy from start and greedy from basename; take the higher score.
@@ -101,7 +113,9 @@ pub struct FileSearchCache {
 }
 
 impl FileSearchCache {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     fn get_or_walk(&self, sid: SessionId, cwd: &Path) -> Vec<String> {
         let mut guard = self.inner.lock().expect("cache poisoned");
@@ -111,11 +125,14 @@ impl FileSearchCache {
             }
         }
         let files = walk(cwd);
-        guard.insert(sid, CacheEntry {
-            cwd: cwd.to_path_buf(),
-            files: files.clone(),
-            at: Instant::now(),
-        });
+        guard.insert(
+            sid,
+            CacheEntry {
+                cwd: cwd.to_path_buf(),
+                files: files.clone(),
+                at: Instant::now(),
+            },
+        );
         files
     }
 }
@@ -130,21 +147,34 @@ fn walk(cwd: &Path) -> Vec<String> {
         .max_depth(Some(MAX_DEPTH))
         .build();
     for dent in walker.flatten() {
-        if !dent.file_type().map(|t| t.is_file()).unwrap_or(false) { continue; }
+        if !dent.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            continue;
+        }
         let p = dent.path();
-        if !is_text_path(p) { continue; }
+        if !is_text_path(p) {
+            continue;
+        }
         if let Ok(rel) = p.strip_prefix(cwd) {
             let s = rel.to_string_lossy().replace('\\', "/");
             out.push(s);
-            if out.len() >= MAX_FILES { break; }
+            if out.len() >= MAX_FILES {
+                break;
+            }
         }
     }
     out
 }
 
-pub fn search(cache: &FileSearchCache, sid: SessionId, cwd: &Path, query: &str, limit: usize) -> Vec<FileMatch> {
+pub fn search(
+    cache: &FileSearchCache,
+    sid: SessionId,
+    cwd: &Path,
+    query: &str,
+    limit: usize,
+) -> Vec<FileMatch> {
     let files = cache.get_or_walk(sid, cwd);
-    let mut scored: Vec<FileMatch> = files.into_iter()
+    let mut scored: Vec<FileMatch> = files
+        .into_iter()
         .filter_map(|p| fuzzy_score(&p, query).map(|s| FileMatch { path: p, score: s }))
         .collect();
     scored.sort_by(|a, b| b.score.cmp(&a.score).then(a.path.cmp(&b.path)));
@@ -184,9 +214,11 @@ mod tests {
     #[test]
     fn fuzzy_prefers_basename_prefix_over_deep_midpath() {
         let basename_hit = fuzzy_score("crates/app/src/api.ts", "api").unwrap();
-        let midpath_hit  = fuzzy_score("a/api-helpers/zzz.ts",   "api").unwrap();
-        assert!(basename_hit > midpath_hit,
-                "basename={basename_hit} midpath={midpath_hit}");
+        let midpath_hit = fuzzy_score("a/api-helpers/zzz.ts", "api").unwrap();
+        assert!(
+            basename_hit > midpath_hit,
+            "basename={basename_hit} midpath={midpath_hit}"
+        );
     }
 
     #[test]

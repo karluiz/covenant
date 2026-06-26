@@ -36,10 +36,7 @@ pub fn scan_known_repos(store: &ScoreStore) -> u32 {
 }
 
 fn scan_repo(root: &Path, store: &ScoreStore) -> u32 {
-    let repo = root
-        .file_name()
-        .and_then(|s| s.to_str())
-        .map(String::from);
+    let repo = root.file_name().and_then(|s| s.to_str()).map(String::from);
     let mut n = 0u32;
     let walk = walkdir::WalkDir::new(root)
         .into_iter()

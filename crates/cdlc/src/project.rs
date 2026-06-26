@@ -106,7 +106,10 @@ fn write_skill_dirs(repo_root: &Path, name: &str, content: &str) -> Result<(), C
 /// Project the FULL body of each regulatory context doc into an on-demand Claude
 /// skill dir. The `summary:` frontmatter is dropped here (it rides the managed
 /// block instead — see project_managed_block) and Claude frontmatter is re-added.
-fn project_context_skills(repo_root: &Path, contexts: &[(String, String)]) -> Result<(), CdlcError> {
+fn project_context_skills(
+    repo_root: &Path,
+    contexts: &[(String, String)],
+) -> Result<(), CdlcError> {
     for (stem, raw) in contexts {
         let body = body_after_frontmatter(raw);
         write_skill_dirs(repo_root, stem, &ensure_frontmatter(stem, body))?;
@@ -120,7 +123,12 @@ fn project_context_skills(repo_root: &Path, contexts: &[(String, String)]) -> Re
 fn parse_summary(md: &str) -> Option<String> {
     let lines: Vec<&str> = md.lines().collect();
     let open = lines.iter().position(|l| l.trim() == "---")?;
-    let close = open + 1 + lines.iter().skip(open + 1).position(|l| l.trim() == "---")?;
+    let close = open
+        + 1
+        + lines
+            .iter()
+            .skip(open + 1)
+            .position(|l| l.trim() == "---")?;
     for l in &lines[open + 1..close] {
         if let Some(rest) = l.strip_prefix("summary:") {
             let v = rest.trim().trim_matches('"').trim();
@@ -207,7 +215,11 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     let mut skills: Vec<(String, String, String)> = Vec::new(); // (name, version, body)
     for i in &manifest.installed {
         let md = skills_dir.join(&i.name).join("SKILL.md");
-        skills.push((i.name.clone(), i.version.clone(), std::fs::read_to_string(&md)?));
+        skills.push((
+            i.name.clone(),
+            i.version.clone(),
+            std::fs::read_to_string(&md)?,
+        ));
     }
 
     // File-per-item executors (Claude, opencode, pi): one file per artifact.
@@ -221,7 +233,10 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     let mut sections: Vec<String> = Vec::new();
     if let Some(name) = active_agent {
         if let Some((stem, raw)) = agents.iter().find(|(s, _)| s == name) {
-            sections.push(format!("## {stem} (operator)\n\n{}", body_after_frontmatter(raw).trim()));
+            sections.push(format!(
+                "## {stem} (operator)\n\n{}",
+                body_after_frontmatter(raw).trim()
+            ));
         }
     }
     for (name, v, body) in &skills {
@@ -301,9 +316,15 @@ mod tests {
         let out = strip_covenant_block(md);
         assert!(out.contains("name: kyc-reviewer"));
         assert!(out.contains("model: claude-sonnet-4-6"));
-        assert!(out.contains("tools: [Read]"), "key after covenant block must survive");
+        assert!(
+            out.contains("tools: [Read]"),
+            "key after covenant block must survive"
+        );
         assert!(!out.contains("covenant:"), "covenant key removed");
-        assert!(!out.contains("escalate_threshold"), "covenant children removed");
+        assert!(
+            !out.contains("escalate_threshold"),
+            "covenant children removed"
+        );
         assert!(out.contains("body text"), "body untouched");
     }
 
@@ -328,7 +349,10 @@ mod tests {
     #[test]
     fn parse_summary_reads_frontmatter_line() {
         let md = "---\nsummary: \"Mask all PII; cite SBS article.\"\n---\nfull text\n";
-        assert_eq!(parse_summary(md).as_deref(), Some("Mask all PII; cite SBS article."));
+        assert_eq!(
+            parse_summary(md).as_deref(),
+            Some("Mask all PII; cite SBS article.")
+        );
     }
 
     #[test]
@@ -358,7 +382,10 @@ mod tests {
         assert!(out.exists());
         let content = std::fs::read_to_string(&out).unwrap();
         assert!(content.contains("name: kyc-reviewer"));
-        assert!(!content.contains("covenant:"), "covenant block must be stripped");
+        assert!(
+            !content.contains("covenant:"),
+            "covenant block must be stripped"
+        );
         assert!(content.contains("Review KYC."));
 
         let _ = std::fs::remove_dir_all(&base);
@@ -379,15 +406,29 @@ mod tests {
         .unwrap();
         let cdir = crate::cdlc_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
-        std::fs::write(cdir.join("sbs-kyc.md"), "---\nsummary: Mask PII.\n---\n# SBS\nfull text\n").unwrap();
-        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+        std::fs::write(
+            cdir.join("sbs-kyc.md"),
+            "---\nsummary: Mask PII.\n---\n# SBS\nfull text\n",
+        )
+        .unwrap();
+        crate::write_manifest(
+            &repo,
+            &CdlcManifest {
+                version: 1,
+                installed: vec![],
+            },
+        )
+        .unwrap();
 
         project(&repo).unwrap();
 
         // opencode gets the agent (covenant block stripped, same as Claude)
         let oc = repo.join(".opencode/agent/kyc-reviewer.md");
         assert!(oc.exists(), "opencode agent file written");
-        assert!(!std::fs::read_to_string(&oc).unwrap().contains("covenant:"), "stripped for opencode too");
+        assert!(
+            !std::fs::read_to_string(&oc).unwrap().contains("covenant:"),
+            "stripped for opencode too"
+        );
         // pi gets the context body as a skill
         let pi = repo.join(".pi/skills/cdlc-sbs-kyc/SKILL.md");
         assert!(pi.exists(), "pi skill file written from context");
@@ -407,19 +448,35 @@ mod tests {
         let cdir = crate::cdlc_dir(&repo).join("context");
         std::fs::create_dir_all(&cdir).unwrap();
         std::fs::write(cdir.join("sbs.md"), "---\nsummary: Cite SBS.\n---\nbody\n").unwrap();
-        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+        crate::write_manifest(
+            &repo,
+            &CdlcManifest {
+                version: 1,
+                installed: vec![],
+            },
+        )
+        .unwrap();
 
         // No .hermes.md → must NOT be created (Hermes falls back to AGENTS.md).
         project(&repo).unwrap();
-        assert!(!repo.join(".hermes.md").exists(), "must not create .hermes.md");
-        assert!(repo.join("AGENTS.md").exists(), "AGENTS.md written (Hermes reads it)");
+        assert!(
+            !repo.join(".hermes.md").exists(),
+            "must not create .hermes.md"
+        );
+        assert!(
+            repo.join("AGENTS.md").exists(),
+            "AGENTS.md written (Hermes reads it)"
+        );
 
         // Existing .hermes.md → block mirrored in, user content preserved.
         std::fs::write(repo.join(".hermes.md"), "# My Hermes rules\n").unwrap();
         project(&repo).unwrap();
         let h = std::fs::read_to_string(repo.join(".hermes.md")).unwrap();
         assert!(h.contains("# My Hermes rules"), "user content preserved");
-        assert!(h.contains("<!-- cdlc:start -->"), "cdlc block mirrored into .hermes.md");
+        assert!(
+            h.contains("<!-- cdlc:start -->"),
+            "cdlc block mirrored into .hermes.md"
+        );
         assert!(h.contains("Cite SBS."), "context summary present");
 
         let _ = std::fs::remove_dir_all(&base);
@@ -444,9 +501,18 @@ mod tests {
         let out = repo.join(".claude/skills/cdlc-sbs-kyc/SKILL.md");
         assert!(out.exists());
         let content = std::fs::read_to_string(&out).unwrap();
-        assert!(content.starts_with("---\nname: cdlc-"), "must have Claude frontmatter");
-        assert!(content.contains("Full regulatory text."), "full body present");
-        assert!(!content.contains("summary: Mask PII"), "context frontmatter dropped");
+        assert!(
+            content.starts_with("---\nname: cdlc-"),
+            "must have Claude frontmatter"
+        );
+        assert!(
+            content.contains("Full regulatory text."),
+            "full body present"
+        );
+        assert!(
+            !content.contains("summary: Mask PII"),
+            "context frontmatter dropped"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -470,8 +536,14 @@ mod tests {
     fn ensure_frontmatter_adds_header_from_heading() {
         let body = "# KYC Peru\nrules";
         let out = ensure_frontmatter("kyc-peru", body);
-        assert!(out.starts_with("---\nname: cdlc-"), "must start with frontmatter");
-        assert!(out.contains("description: KYC Peru"), "must derive description from heading");
+        assert!(
+            out.starts_with("---\nname: cdlc-"),
+            "must start with frontmatter"
+        );
+        assert!(
+            out.contains("description: KYC Peru"),
+            "must derive description from heading"
+        );
         // Idempotent: a body already starting with --- is returned unchanged.
         let out2 = ensure_frontmatter("kyc-peru", &out);
         assert_eq!(out, out2, "must not add double frontmatter");
@@ -515,8 +587,14 @@ mod tests {
         let skill_md = repo.join(".claude/skills/cdlc-kyc-peru/SKILL.md");
         assert!(skill_md.exists());
         let content = std::fs::read_to_string(&skill_md).unwrap();
-        assert!(content.starts_with("---\nname: cdlc-"), "must have frontmatter");
-        assert!(content.contains("description: KYC Peru"), "must have description");
+        assert!(
+            content.starts_with("---\nname: cdlc-"),
+            "must have frontmatter"
+        );
+        assert!(
+            content.contains("description: KYC Peru"),
+            "must have description"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -538,7 +616,10 @@ mod tests {
         .unwrap();
 
         // Write an empty manifest.
-        let manifest = CdlcManifest { version: 1, installed: vec![] };
+        let manifest = CdlcManifest {
+            version: 1,
+            installed: vec![],
+        };
         write_manifest(&repo, &manifest).unwrap();
 
         project(&repo).unwrap();
@@ -548,7 +629,10 @@ mod tests {
             !content.contains("<!-- cdlc:start -->"),
             "managed block must be stripped when manifest is empty"
         );
-        assert!(content.contains("hand-written"), "surrounding content must be preserved");
+        assert!(
+            content.contains("hand-written"),
+            "surrounding content must be preserved"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -594,15 +678,34 @@ mod tests {
         .unwrap();
 
         // empty skills manifest
-        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+        crate::write_manifest(
+            &repo,
+            &CdlcManifest {
+                version: 1,
+                installed: vec![],
+            },
+        )
+        .unwrap();
 
         project_with_active(&repo, Some("kyc-reviewer")).unwrap();
 
         let agents_md = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
-        assert!(agents_md.contains("kyc-reviewer (operator)"), "active operator in block");
-        assert!(agents_md.contains("Review KYC carefully."), "operator body in block");
-        assert!(agents_md.contains("Mask PII; cite SBS article."), "context summary in block");
-        assert!(!agents_md.contains("full text"), "context FULL body must NOT be in managed block");
+        assert!(
+            agents_md.contains("kyc-reviewer (operator)"),
+            "active operator in block"
+        );
+        assert!(
+            agents_md.contains("Review KYC carefully."),
+            "operator body in block"
+        );
+        assert!(
+            agents_md.contains("Mask PII; cite SBS article."),
+            "context summary in block"
+        );
+        assert!(
+            !agents_md.contains("full text"),
+            "context FULL body must NOT be in managed block"
+        );
         assert_eq!(agents_md.matches("<!-- cdlc:start -->").count(), 1);
 
         let _ = std::fs::remove_dir_all(&base);
@@ -619,13 +722,26 @@ mod tests {
             "hand-written\n\n<!-- cdlc:start -->\nold\n<!-- cdlc:end -->\n",
         )
         .unwrap();
-        crate::write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+        crate::write_manifest(
+            &repo,
+            &CdlcManifest {
+                version: 1,
+                installed: vec![],
+            },
+        )
+        .unwrap();
 
         project(&repo).unwrap();
 
         let content = std::fs::read_to_string(repo.join("AGENTS.md")).unwrap();
-        assert!(!content.contains("<!-- cdlc:start -->"), "block stripped when all sources empty");
-        assert!(content.contains("hand-written"), "surrounding content preserved");
+        assert!(
+            !content.contains("<!-- cdlc:start -->"),
+            "block stripped when all sources empty"
+        );
+        assert!(
+            content.contains("hand-written"),
+            "surrounding content preserved"
+        );
 
         let _ = std::fs::remove_dir_all(&base);
     }

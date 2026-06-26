@@ -182,14 +182,19 @@ mod tests {
     #[test]
     fn ai_inference_url_uses_models_path() {
         let p = AzureFoundryProvider::new(cfg(AzureMode::AiInference, None));
-        assert!(p.url().ends_with("/models/chat/completions?api-version=2024-05-01-preview"));
+        assert!(p
+            .url()
+            .ends_with("/models/chat/completions?api-version=2024-05-01-preview"));
     }
 
     #[test]
     fn ai_inference_body_includes_model_field() {
         let p = AzureFoundryProvider::new(cfg(AzureMode::AiInference, None));
         let b = p.body(&req("Phi-3-medium"));
-        assert_eq!(b.get("model").and_then(|v| v.as_str()), Some("Phi-3-medium"));
+        assert_eq!(
+            b.get("model").and_then(|v| v.as_str()),
+            Some("Phi-3-medium")
+        );
     }
 
     #[test]
@@ -202,6 +207,9 @@ mod tests {
     #[test]
     fn default_api_versions_per_mode() {
         assert_eq!(default_api_version(AzureMode::AzureOpenAi), "2024-10-21");
-        assert_eq!(default_api_version(AzureMode::AiInference), "2024-05-01-preview");
+        assert_eq!(
+            default_api_version(AzureMode::AiInference),
+            "2024-05-01-preview"
+        );
     }
 }

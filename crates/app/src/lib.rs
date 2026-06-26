@@ -10,10 +10,11 @@
 //! the user's behalf.
 
 mod aom;
+mod archetypes;
 mod browser;
+mod capabilities_commands;
 mod cdlc_registry;
 pub mod cloud_sync;
-mod capabilities_commands;
 mod connectivity;
 mod context;
 pub mod convergence;
@@ -25,6 +26,7 @@ mod embedder;
 mod exec_vitals;
 mod executor_idle;
 mod familiar_commands;
+mod favorites_commands;
 mod file_search;
 mod fix_proposer;
 mod git_tools;
@@ -39,24 +41,22 @@ mod notify;
 mod operator;
 pub mod operator_mind;
 pub mod operator_registry;
-mod soul;
-mod archetypes;
 mod pane;
 mod pi_commands;
 mod project_notes;
-mod prompts;
 mod project_ref;
-mod resources;
+mod prompts;
 pub mod provider_resolve;
 mod providers_cmd;
 mod rc_agent;
+mod resources;
 mod safety;
 mod score_auth_commands;
 mod score_commands;
 mod score_sync_commands;
 mod scrollback;
 pub mod settings;
-mod favorites_commands;
+mod soul;
 mod spawns_commands;
 mod spawns_store;
 mod spec_detector;
@@ -900,25 +900,35 @@ async fn set_operator_enabled(
 }
 
 #[tauri::command]
-async fn rc_set_armed(state: State<'_, AppState>, session_id: String, armed: bool) -> Result<(), String> {
+async fn rc_set_armed(
+    state: State<'_, AppState>,
+    session_id: String,
+    armed: bool,
+) -> Result<(), String> {
     let id = parse_id(&session_id)?;
     let sessions = state.sessions.lock().await;
     let managed = sessions.get(&id).ok_or("session not found")?;
-    managed.armed.store(armed, std::sync::atomic::Ordering::Relaxed);
+    managed
+        .armed
+        .store(armed, std::sync::atomic::Ordering::Relaxed);
     tracing::info!(session = %id, armed, "remote arming toggled");
     Ok(())
 }
 
 #[tauri::command]
 async fn rc_set_allow_open(state: State<'_, AppState>, allow: bool) -> Result<(), String> {
-    state.allow_remote_open.store(allow, std::sync::atomic::Ordering::Relaxed);
+    state
+        .allow_remote_open
+        .store(allow, std::sync::atomic::Ordering::Relaxed);
     tracing::info!(allow, "remote tab creation toggled");
     Ok(())
 }
 
 #[tauri::command]
 async fn rc_get_allow_open(state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(state.allow_remote_open.load(std::sync::atomic::Ordering::Relaxed))
+    Ok(state
+        .allow_remote_open
+        .load(std::sync::atomic::Ordering::Relaxed))
 }
 
 #[tauri::command]
@@ -934,7 +944,9 @@ async fn rc_get_armed(state: State<'_, AppState>, session_id: String) -> Result<
 async fn rc_disarm_all(state: State<'_, AppState>) -> Result<(), String> {
     let sessions = state.sessions.lock().await;
     for managed in sessions.values() {
-        managed.armed.store(false, std::sync::atomic::Ordering::Relaxed);
+        managed
+            .armed
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
     tracing::info!("remote control: disarmed all tabs");
     Ok(())
@@ -2279,14 +2291,21 @@ async fn cdlc_my_orgs() -> Result<Vec<cdlc_registry::Org>, String> {
 }
 
 #[tauri::command]
-async fn cdlc_search(org: String, query: Option<String>) -> Result<Vec<cdlc_registry::PkgMeta>, String> {
+async fn cdlc_search(
+    org: String,
+    query: Option<String>,
+) -> Result<Vec<cdlc_registry::PkgMeta>, String> {
     cdlc_registry::search(&org, query.as_deref()).await
 }
 
 /// Resolve a registry package's full payload (description + SKILL.md) WITHOUT
 /// installing it — powers the pre-install preview.
 #[tauri::command]
-async fn cdlc_preview(org: String, name: String, version: String) -> Result<serde_json::Value, String> {
+async fn cdlc_preview(
+    org: String,
+    name: String,
+    version: String,
+) -> Result<serde_json::Value, String> {
     let full = cdlc_registry::resolve(&org, &name, &version).await?;
     Ok(serde_json::json!({ "description": full.description, "skill_md": full.skill_md }))
 }
@@ -2295,10 +2314,11 @@ async fn cdlc_preview(org: String, name: String, version: String) -> Result<serd
 #[tauri::command]
 async fn cdlc_read_local(cwd: String, name: String) -> Result<String, String> {
     let repo = std::path::PathBuf::from(cwd);
-    let (_toml, md, _sm) = tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
-        .await
-        .map_err(|e| format!("cdlc_read_local join: {e}"))?
-        .map_err(|e| e.to_string())?;
+    let (_toml, md, _sm) =
+        tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
+            .await
+            .map_err(|e| format!("cdlc_read_local join: {e}"))?
+            .map_err(|e| e.to_string())?;
     Ok(md)
 }
 
@@ -2317,10 +2337,11 @@ async fn cdlc_export(cwd: String) -> Result<(), String> {
 #[tauri::command]
 async fn cdlc_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
     let repo = std::path::PathBuf::from(cwd);
-    let (toml_s, md_s, sm) = tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
-        .await
-        .map_err(|e| format!("cdlc_publish join: {e}"))?
-        .map_err(|e| e.to_string())?;
+    let (toml_s, md_s, sm) =
+        tokio::task::spawn_blocking(move || karl_cdlc::read_skill_package(&repo, &name))
+            .await
+            .map_err(|e| format!("cdlc_publish join: {e}"))?
+            .map_err(|e| e.to_string())?;
     cdlc_registry::publish(&org, &sm.name, &sm.version, "", &toml_s, &md_s).await
 }
 
@@ -2342,7 +2363,10 @@ async fn cdlc_install_registry(
     let pkg_name = full.name.clone();
     let pkg_ver = full.version.clone();
     let r = tokio::task::spawn_blocking(move || {
-        let tmp = std::env::temp_dir().join(format!("cdlc-reg-{}-{pkg_name}-{pkg_ver}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "cdlc-reg-{}-{pkg_name}-{pkg_ver}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         std::fs::write(tmp.join("skill.toml"), toml_s.as_bytes()).map_err(|e| e.to_string())?;
         std::fs::write(tmp.join("SKILL.md"), md_s.as_bytes()).map_err(|e| e.to_string())?;
@@ -2359,7 +2383,11 @@ async fn cdlc_install_registry(
 }
 
 #[tauri::command]
-async fn git_file_diff(cwd: String, path: String, staged: bool) -> Result<git_tools::diff::FileDiff, String> {
+async fn git_file_diff(
+    cwd: String,
+    path: String,
+    staged: bool,
+) -> Result<git_tools::diff::FileDiff, String> {
     let cwd = std::path::PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || git_tools::file_diff(&cwd, &path, staged))
         .await
@@ -2938,8 +2966,11 @@ async fn spec_author_step(
     // backfill legacy drafts on resume) so the drafts tab can scope per group.
     if draft.repo_root.is_none() {
         if let Some(ref c) = cwd_path {
-            draft.repo_root =
-                Some(karl_agent::spec_author::resolve_repo_root(c).display().to_string());
+            draft.repo_root = Some(
+                karl_agent::spec_author::resolve_repo_root(c)
+                    .display()
+                    .to_string(),
+            );
         }
     }
     let output = karl_agent::spec_author::step_with_context(
@@ -2994,16 +3025,24 @@ async fn spec_author_stream_step(
         Some(ref id) => {
             let ulid = id.parse::<Ulid>().map_err(|e| e.to_string())?;
             sa::load_draft_default(ulid).unwrap_or_else(|_| sa::SpecDraft {
-                id: ulid, messages: vec![], partial_md: None,
+                id: ulid,
+                messages: vec![],
+                partial_md: None,
                 last_updated: chrono::Utc::now(),
-                status: sa::DraftStatus::InProgress { phase: sa::Phase::Goal },
+                status: sa::DraftStatus::InProgress {
+                    phase: sa::Phase::Goal,
+                },
                 repo_root: None,
             })
         }
         None => sa::SpecDraft {
-            id: Ulid::new(), messages: vec![], partial_md: None,
+            id: Ulid::new(),
+            messages: vec![],
+            partial_md: None,
             last_updated: chrono::Utc::now(),
-            status: sa::DraftStatus::InProgress { phase: sa::Phase::Goal },
+            status: sa::DraftStatus::InProgress {
+                phase: sa::Phase::Goal,
+            },
             repo_root: None,
         },
     };
@@ -3023,74 +3062,121 @@ async fn spec_author_stream_step(
     }
     let (repo_root, system) = sa::compose_system(cwd_path.as_deref(), &base_dir);
 
-    let sink = TauriSink { app: app.clone(), topic: topic.clone() };
+    let sink = TauriSink {
+        app: app.clone(),
+        topic: topic.clone(),
+    };
 
     // Resolve the Spec Creator role to a provider + model from settings, and
     // build the matching streaming dispatcher (Anthropic vs OpenAI/Azure).
     let dispatcher: Box<dyn sa::stream::StreamingDispatcher> = {
-        use karl_agent::provider::{azure_foundry::default_api_version, azure_foundry::AzureMode, ProviderKind};
+        use karl_agent::provider::{
+            azure_foundry::default_api_version, azure_foundry::AzureMode, ProviderKind,
+        };
         let s = state.settings.lock().await;
-        let route = s.model_routes.get(&crate::settings::Role::SpecCreator)
+        let route = s
+            .model_routes
+            .get(&crate::settings::Role::SpecCreator)
             .ok_or("no Spec Creator model route configured — open Settings → Models")?;
-        let entry = s.providers.get(&route.provider_id)
+        let entry = s
+            .providers
+            .get(&route.provider_id)
             .ok_or_else(|| format!("provider `{}` not configured", route.provider_id))?;
         let model = route.model.clone();
         match entry.kind {
             ProviderKind::Anthropic => {
-                let api_key = entry.api_key.clone()
+                let api_key = entry
+                    .api_key
+                    .clone()
                     .or_else(|| s.anthropic_api_key.clone())
                     .ok_or("Anthropic api key not configured — open Settings (⌘,)")?;
                 Box::new(sa::stream::AnthropicStreamingDispatcher { api_key, model })
             }
             ProviderKind::OpenAiCompat => {
-                let base = entry.base_url.clone()
+                let base = entry
+                    .base_url
+                    .clone()
                     .filter(|s| !s.trim().is_empty())
                     .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
                 let url = format!("{}/chat/completions", base.trim_end_matches('/'));
                 Box::new(sa::stream::OpenAiStreamingDispatcher {
-                    url, api_key: entry.api_key.clone().unwrap_or_default(),
-                    auth: sa::stream::OpenAiAuth::Bearer, model: Some(model),
+                    url,
+                    api_key: entry.api_key.clone().unwrap_or_default(),
+                    auth: sa::stream::OpenAiAuth::Bearer,
+                    model: Some(model),
                 })
             }
             ProviderKind::AzureFoundry => {
-                let mode = entry.azure_mode.ok_or("Azure provider missing azure_mode")?;
-                let endpoint = entry.base_url.clone()
+                let mode = entry
+                    .azure_mode
+                    .ok_or("Azure provider missing azure_mode")?;
+                let endpoint = entry
+                    .base_url
+                    .clone()
                     .filter(|s| !s.trim().is_empty())
                     .ok_or("Azure provider missing endpoint")?;
-                let api_key = entry.api_key.clone()
+                let api_key = entry
+                    .api_key
+                    .clone()
                     .filter(|s| !s.trim().is_empty())
                     .ok_or("Azure provider missing api_key")?;
-                let api_version = entry.azure_api_version.clone()
+                let api_version = entry
+                    .azure_api_version
+                    .clone()
                     .unwrap_or_else(|| default_api_version(mode).to_string());
                 let base = endpoint.trim_end_matches('/');
                 let (url, body_model) = match mode {
                     AzureMode::AzureOpenAi => {
-                        let dep = entry.azure_deployment.clone()
+                        let dep = entry
+                            .azure_deployment
+                            .clone()
                             .ok_or("Azure OpenAI mode requires a deployment name")?;
-                        (format!("{}/openai/deployments/{}/chat/completions?api-version={}",
-                            base, dep, api_version), None)
+                        (
+                            format!(
+                                "{}/openai/deployments/{}/chat/completions?api-version={}",
+                                base, dep, api_version
+                            ),
+                            None,
+                        )
                     }
                     AzureMode::AiInference => (
-                        format!("{}/models/chat/completions?api-version={}", base, api_version),
+                        format!(
+                            "{}/models/chat/completions?api-version={}",
+                            base, api_version
+                        ),
                         Some(model),
                     ),
                 };
                 Box::new(sa::stream::OpenAiStreamingDispatcher {
-                    url, api_key, auth: sa::stream::OpenAiAuth::ApiKeyHeader, model: body_model,
+                    url,
+                    api_key,
+                    auth: sa::stream::OpenAiAuth::ApiKeyHeader,
+                    model: body_model,
                 })
             }
         }
     };
 
     let result = sa::stream::step_streaming(
-        &*dispatcher, &mut draft, user_msg, &repo_root, &system, &sink, 40).await;
+        &*dispatcher,
+        &mut draft,
+        user_msg,
+        &repo_root,
+        &system,
+        &sink,
+        40,
+    )
+    .await;
 
     draft.last_updated = chrono::Utc::now();
     let _ = sa::save_draft(&base_dir, &draft);
 
     if let Err(e) = result {
         use tauri::Emitter;
-        let _ = app.emit(&topic, &sa::stream::SpecStreamEvent::Error { message: e.clone() });
+        let _ = app.emit(
+            &topic,
+            &sa::stream::SpecStreamEvent::Error { message: e.clone() },
+        );
         return Err(e);
     }
     Ok(draft_id_str)

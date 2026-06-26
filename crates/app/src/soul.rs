@@ -181,7 +181,10 @@ mod tests {
 
     #[test]
     fn rejects_missing_frontmatter() {
-        assert!(matches!(parse("# just a body\n"), Err(SoulError::NoFrontmatter)));
+        assert!(matches!(
+            parse("# just a body\n"),
+            Err(SoulError::NoFrontmatter)
+        ));
     }
 
     #[test]
@@ -196,10 +199,19 @@ mod tests {
 
     #[test]
     fn voice_parses_case_insensitively() {
-        assert!(matches!(voice_from_frontmatter(Some("Warm")), VoiceTone::Warm));
-        assert!(matches!(voice_from_frontmatter(Some("formal")), VoiceTone::Formal));
+        assert!(matches!(
+            voice_from_frontmatter(Some("Warm")),
+            VoiceTone::Warm
+        ));
+        assert!(matches!(
+            voice_from_frontmatter(Some("formal")),
+            VoiceTone::Formal
+        ));
         assert!(matches!(voice_from_frontmatter(None), VoiceTone::Terse));
-        assert!(matches!(voice_from_frontmatter(Some("nonsense")), VoiceTone::Terse));
+        assert!(matches!(
+            voice_from_frontmatter(Some("nonsense")),
+            VoiceTone::Terse
+        ));
     }
 
     #[test]
@@ -228,6 +240,9 @@ mod tests {
         assert_eq!(soul.frontmatter.avatar.as_deref(), Some("pack2:guardian"));
         assert_eq!(soul.frontmatter.voice.as_deref(), Some("warm"));
         assert_eq!(soul.body, "I was made to wait.");
-        assert_eq!(soul.frontmatter.hard_constraints.as_deref(), Some("^git push --force"));
+        assert_eq!(
+            soul.frontmatter.hard_constraints.as_deref(),
+            Some("^git push --force")
+        );
     }
 }

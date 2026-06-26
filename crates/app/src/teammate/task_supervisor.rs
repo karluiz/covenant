@@ -18,8 +18,7 @@ use crate::storage::Storage;
 use crate::teammate::runtime::TeammateRuntime;
 use crate::teammate::sentiment_resolver::SentimentResolver;
 use crate::teammate::types::{
-    MessageContent, MessageId, Role, Sentiment, TaskId, TaskMessage,
-    TaskStatus, UpdateKind,
+    MessageContent, MessageId, Role, Sentiment, TaskId, TaskMessage, TaskStatus, UpdateKind,
 };
 
 /// What the supervisor remembers per active task.
@@ -51,10 +50,17 @@ pub struct TaskCtx {
 pub enum Decision {
     /// Update status in storage to `new_status` and emit a TaskUpdate
     /// synth message with `(kind, sentiment)`.
-    Transition { new_status: TaskStatus, kind: UpdateKind, sentiment: Sentiment },
+    Transition {
+        new_status: TaskStatus,
+        kind: UpdateKind,
+        sentiment: Sentiment,
+    },
     /// Emit only a TaskUpdate with this sentiment; no status change.
     /// Used for `enojo` while already Blocked.
-    Sentiment { kind: UpdateKind, sentiment: Sentiment },
+    Sentiment {
+        kind: UpdateKind,
+        sentiment: Sentiment,
+    },
     /// No emit.
     Nothing,
 }
@@ -67,7 +73,10 @@ pub struct Inner {
 
 impl Inner {
     pub fn new(min_interval: Duration) -> Self {
-        Self { by_session: HashMap::new(), resolver: SentimentResolver::new(min_interval) }
+        Self {
+            by_session: HashMap::new(),
+            resolver: SentimentResolver::new(min_interval),
+        }
     }
 
     pub fn register(&mut self, session: SessionId, ctx: TaskCtx) {
@@ -103,13 +112,18 @@ impl Inner {
                 ctx.status_at = now;
                 ctx.retry_count = 0;
                 ctx.last_failed_cmd = None;
-                if self.resolver.decide(ctx.operator_id, ctx.task_id, Sentiment::Feliz, true, now) {
+                if self
+                    .resolver
+                    .decide(ctx.operator_id, ctx.task_id, Sentiment::Feliz, true, now)
+                {
                     Decision::Transition {
                         new_status: TaskStatus::Active,
                         kind: UpdateKind::Resumed,
                         sentiment: Sentiment::Feliz,
                     }
-                } else { Decision::Nothing }
+                } else {
+                    Decision::Nothing
+                }
             } else {
                 ctx.retry_count = 0;
                 ctx.last_failed_cmd = None;
@@ -126,22 +140,37 @@ impl Inner {
                 ctx.status = TaskStatus::Blocked;
                 ctx.ever_blocked = true;
                 ctx.status_at = now;
-                if self.resolver.decide(ctx.operator_id, ctx.task_id, Sentiment::Duda, true, now) {
+                if self
+                    .resolver
+                    .decide(ctx.operator_id, ctx.task_id, Sentiment::Duda, true, now)
+                {
                     Decision::Transition {
                         new_status: TaskStatus::Blocked,
                         kind: UpdateKind::Blocked,
                         sentiment: Sentiment::Duda,
                     }
-                } else { Decision::Nothing }
+                } else {
+                    Decision::Nothing
+                }
             } else if ctx.retry_count >= 3 {
-                if self.resolver.decide(ctx.operator_id, ctx.task_id, Sentiment::Enojo, true, now) {
-                    Decision::Sentiment { kind: UpdateKind::Blocked, sentiment: Sentiment::Enojo }
-                } else { Decision::Nothing }
+                if self
+                    .resolver
+                    .decide(ctx.operator_id, ctx.task_id, Sentiment::Enojo, true, now)
+                {
+                    Decision::Sentiment {
+                        kind: UpdateKind::Blocked,
+                        sentiment: Sentiment::Enojo,
+                    }
+                } else {
+                    Decision::Nothing
+                }
             } else {
                 Decision::Nothing
             }
         };
-        if matches!(decision, Decision::Nothing) { return None; }
+        if matches!(decision, Decision::Nothing) {
+            return None;
+        }
         Some((ctx.clone(), decision))
     }
 
@@ -150,7 +179,9 @@ impl Inner {
     pub fn tick(&mut self, now: Instant) -> Vec<(TaskCtx, Decision)> {
         let mut out = Vec::new();
         for ctx in self.by_session.values_mut() {
-            if !matches!(ctx.status, TaskStatus::Blocked) { continue; }
+            if !matches!(ctx.status, TaskStatus::Blocked) {
+                continue;
+            }
             let elapsed = now.duration_since(ctx.status_at);
             let candidate = if elapsed >= Duration::from_secs(15 * 60) || ctx.retry_count >= 3 {
                 Sentiment::Triste
@@ -159,11 +190,17 @@ impl Inner {
             } else {
                 continue;
             };
-            if self.resolver.decide(ctx.operator_id, ctx.task_id, candidate, false, now) {
-                out.push((ctx.clone(), Decision::Sentiment {
-                    kind: UpdateKind::Blocked,
-                    sentiment: candidate,
-                }));
+            if self
+                .resolver
+                .decide(ctx.operator_id, ctx.task_id, candidate, false, now)
+            {
+                out.push((
+                    ctx.clone(),
+                    Decision::Sentiment {
+                        kind: UpdateKind::Blocked,
+                        sentiment: candidate,
+                    },
+                ));
             }
         }
         out
@@ -227,21 +264,27 @@ impl TaskSupervisor {
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Inner::new(Duration::from_secs(60)))),
-            storage, runtime, app,
+            storage,
+            runtime,
+            app,
         }
     }
 
     /// Register a task once its session is attached. Idempotent.
     pub fn register_task(&self, session: SessionId, task_id: TaskId, op: OperatorId) {
-        self.inner.lock().register(session, TaskCtx {
-            task_id, operator_id: op,
-            status: TaskStatus::Active,
-            status_at: Instant::now(),
-            retry_count: 0,
-            last_failed_cmd: None,
-            saw_failed_block: false,
-            ever_blocked: false,
-        });
+        self.inner.lock().register(
+            session,
+            TaskCtx {
+                task_id,
+                operator_id: op,
+                status: TaskStatus::Active,
+                status_at: Instant::now(),
+                retry_count: 0,
+                last_failed_cmd: None,
+                saw_failed_block: false,
+                ever_blocked: false,
+            },
+        );
     }
 
     pub fn forget_task(&self, session: SessionId) {
@@ -252,25 +295,30 @@ impl TaskSupervisor {
 impl TaskSupervisor {
     /// Subscribe to the bus and run forever. Spawned at app boot.
     /// Owns two tokio tasks: the event drain + the 30s tick.
-    pub fn spawn(
-        self: Arc<Self>,
-        bus_rx: broadcast::Receiver<karl_session::SessionEvent>,
-    ) {
+    pub fn spawn(self: Arc<Self>, bus_rx: broadcast::Receiver<karl_session::SessionEvent>) {
         // Called from Tauri's `setup` callback, which runs before tokio's
         // runtime is bound to the current thread; `tokio::spawn` panics
         // with "no reactor running" there. `tauri::async_runtime::spawn`
         // resolves to the right executor regardless of context.
         let me = self.clone();
-        tauri::async_runtime::spawn(async move { me.run_bus(bus_rx).await; });
+        tauri::async_runtime::spawn(async move {
+            me.run_bus(bus_rx).await;
+        });
         let me = self.clone();
-        tauri::async_runtime::spawn(async move { me.run_tick().await; });
+        tauri::async_runtime::spawn(async move {
+            me.run_tick().await;
+        });
     }
 
     async fn run_bus(self: Arc<Self>, mut rx: broadcast::Receiver<karl_session::SessionEvent>) {
         loop {
             match rx.recv().await {
                 Ok(karl_session::SessionEvent::BlockFinished {
-                    session, command, exit_code, cwd, ..
+                    session,
+                    command,
+                    exit_code,
+                    cwd,
+                    ..
                 }) => {
                     let decision = {
                         let mut g = self.inner.lock();
@@ -280,11 +328,18 @@ impl TaskSupervisor {
                     // the task's operator. Resolve operator from the tracked
                     // TaskCtx; skip if the session isn't a tracked task.
                     if matches!(exit_code, Some(0)) {
-                        if let Some(kind) = crate::teammate::build_classify::classify_command(&command) {
+                        if let Some(kind) =
+                            crate::teammate::build_classify::classify_command(&command)
+                        {
                             let op = { self.inner.lock().operator_for(session) };
                             if let Some(op) = op {
                                 if let Some(repo) = karl_score::context::repo_name_for_cwd(&cwd) {
-                                    karl_score::record_build_pass(kind, &op.to_string(), &repo, &command);
+                                    karl_score::record_build_pass(
+                                        kind,
+                                        &op.to_string(),
+                                        &repo,
+                                        &command,
+                                    );
                                 }
                             }
                         }
@@ -324,11 +379,18 @@ impl TaskSupervisor {
     async fn apply_decision(&self, ctx: TaskCtx, d: Decision) {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64).unwrap_or(0);
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
         let (kind, sentiment) = match d {
-            Decision::Transition { new_status, kind, sentiment } => {
-                if let Err(e) = self.storage
-                    .teammate_update_task_status(ctx.task_id, new_status, now_ms).await
+            Decision::Transition {
+                new_status,
+                kind,
+                sentiment,
+            } => {
+                if let Err(e) = self
+                    .storage
+                    .teammate_update_task_status(ctx.task_id, new_status, now_ms)
+                    .await
                 {
                     warn!(target: "teammate::supervisor",
                         task_id = ?ctx.task_id, ?new_status, error = %e, "status update failed");
@@ -345,7 +407,10 @@ impl TaskSupervisor {
             task_id: Some(ctx.task_id),
             thread_id: None,
             role: Role::System,
-            content: MessageContent::TaskUpdate { task: ctx.task_id, kind },
+            content: MessageContent::TaskUpdate {
+                task: ctx.task_id,
+                kind,
+            },
             created_at_unix_ms: now_ms,
             confirmed_at_unix_ms: None,
             dismissed_at_unix_ms: None,
@@ -366,10 +431,13 @@ mod tests {
     use karl_session::SessionId;
     use ulid::Ulid;
 
-    fn op() -> OperatorId { OperatorId(Ulid::new()) }
+    fn op() -> OperatorId {
+        OperatorId(Ulid::new())
+    }
     fn ctx(op: OperatorId, task: TaskId) -> TaskCtx {
         TaskCtx {
-            task_id: task, operator_id: op,
+            task_id: task,
+            operator_id: op,
             status: TaskStatus::Active,
             status_at: Instant::now(),
             retry_count: 0,
@@ -383,7 +451,9 @@ mod tests {
     fn unknown_session_returns_none() {
         let mut inner = Inner::new(Duration::from_secs(60));
         let s = SessionId::new();
-        assert!(inner.observe_block_finished(s, "ls", Some(0), Instant::now()).is_none());
+        assert!(inner
+            .observe_block_finished(s, "ls", Some(0), Instant::now())
+            .is_none());
     }
 
     #[test]
@@ -392,12 +462,17 @@ mod tests {
         let (o, task) = (op(), TaskId::new());
         let s = SessionId::new();
         inner.register(s, ctx(o, task));
-        let (_c, d) = inner.observe_block_finished(s, "cargo test", Some(1), Instant::now()).unwrap();
-        assert_eq!(d, Decision::Transition {
-            new_status: TaskStatus::Blocked,
-            kind: UpdateKind::Blocked,
-            sentiment: Sentiment::Duda,
-        });
+        let (_c, d) = inner
+            .observe_block_finished(s, "cargo test", Some(1), Instant::now())
+            .unwrap();
+        assert_eq!(
+            d,
+            Decision::Transition {
+                new_status: TaskStatus::Blocked,
+                kind: UpdateKind::Blocked,
+                sentiment: Sentiment::Duda,
+            }
+        );
     }
 
     #[test]
@@ -407,12 +482,18 @@ mod tests {
         let s = SessionId::new();
         inner.register(s, ctx(o, task));
         let t = Instant::now();
-        inner.observe_block_finished(s, "cargo test", Some(1), t);        // duda
-        let _ = inner.observe_block_finished(s, "cargo test", Some(1), t);          // count=2, nothing
-        let (_c, d) = inner.observe_block_finished(s, "cargo test", Some(1), t).unwrap();
-        assert_eq!(d, Decision::Sentiment {
-            kind: UpdateKind::Blocked, sentiment: Sentiment::Enojo,
-        });
+        inner.observe_block_finished(s, "cargo test", Some(1), t); // duda
+        let _ = inner.observe_block_finished(s, "cargo test", Some(1), t); // count=2, nothing
+        let (_c, d) = inner
+            .observe_block_finished(s, "cargo test", Some(1), t)
+            .unwrap();
+        assert_eq!(
+            d,
+            Decision::Sentiment {
+                kind: UpdateKind::Blocked,
+                sentiment: Sentiment::Enojo,
+            }
+        );
     }
 
     #[test]
@@ -436,10 +517,17 @@ mod tests {
         inner.register(s, ctx(o, task));
         let t = Instant::now();
         inner.observe_block_finished(s, "cargo test", Some(1), t);
-        let (_c, d) = inner.observe_block_finished(s, "cargo test", Some(0), t).unwrap();
-        assert_eq!(d, Decision::Transition {
-            new_status: TaskStatus::Active, kind: UpdateKind::Resumed, sentiment: Sentiment::Feliz,
-        });
+        let (_c, d) = inner
+            .observe_block_finished(s, "cargo test", Some(0), t)
+            .unwrap();
+        assert_eq!(
+            d,
+            Decision::Transition {
+                new_status: TaskStatus::Active,
+                kind: UpdateKind::Resumed,
+                sentiment: Sentiment::Feliz,
+            }
+        );
     }
 
     #[test]
@@ -506,7 +594,10 @@ mod tests {
 
         inner.observe_block_finished(s, "cargo test", Some(0), t); // recover
         let f2 = inner.flags(s).unwrap();
-        assert!(f2.saw_failed_block, "failure flag is sticky for the task lifetime");
+        assert!(
+            f2.saw_failed_block,
+            "failure flag is sticky for the task lifetime"
+        );
         assert!(f2.ever_blocked, "ever_blocked is sticky");
     }
 

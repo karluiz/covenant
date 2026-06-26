@@ -1,11 +1,11 @@
 pub mod achievements;
 pub mod agent_label;
 pub mod auth;
-pub mod profile_card;
 pub mod commit_scanner;
 pub mod context;
 pub mod external;
 pub mod filter;
+pub mod profile_card;
 pub mod session;
 pub mod spec_scanner;
 pub mod spec_watcher;
@@ -13,8 +13,8 @@ pub mod store;
 pub mod sync;
 pub mod types;
 
-pub use sync::SyncStatus;
 pub use profile_card::{PublicProfileSnapshot, ScoreBreakdown};
+pub use sync::SyncStatus;
 
 pub use store::{ScoreError, ScoreStore};
 pub use types::{
@@ -240,7 +240,9 @@ pub fn record_task_delegated(orchestrator: &str, task_id: &str) {
 
 // Dormant — wired + tested, no production caller yet (command_librarian).
 pub fn record_project_command_learned(repo: &str, command: &str, kind: BuildKind) {
-    let _ = record_achievement_fact(achievements::project_command_learned_fact(repo, command, kind));
+    let _ = record_achievement_fact(achievements::project_command_learned_fact(
+        repo, command, kind,
+    ));
 }
 
 /// Record an achievement fact. Updates progress and inserts new awards atomically.
@@ -278,7 +280,9 @@ mod emit_tests {
 
         let awards = store.achievement_awards_recent(10).unwrap();
         assert!(
-            awards.iter().any(|a| a.achievement_id == "finisher" && a.subject_id.as_deref() == Some("op-abc")),
+            awards.iter().any(
+                |a| a.achievement_id == "finisher" && a.subject_id.as_deref() == Some("op-abc")
+            ),
             "expected a finisher award, got {awards:?}"
         );
         clear_recorder_for_test();
@@ -295,12 +299,17 @@ mod emit_tests {
         // Query the event directly from the database
         let conn = store.connection();
         let c = conn.lock().unwrap();
-        let count: i64 = c.query_row(
-            "SELECT COUNT(*) FROM score_events WHERE kind = 'cdlc_install'",
-            [],
-            |r| r.get(0),
-        ).expect("query should succeed");
-        assert_eq!(count, 1, "exactly one cdlc_install event should be recorded");
+        let count: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM score_events WHERE kind = 'cdlc_install'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("query should succeed");
+        assert_eq!(
+            count, 1,
+            "exactly one cdlc_install event should be recorded"
+        );
 
         clear_recorder_for_test();
     }
