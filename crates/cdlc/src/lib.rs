@@ -3,12 +3,20 @@
 pub mod install;
 pub mod manifest;
 pub mod project;
+<<<<<<< HEAD
 pub mod types;
+=======
+pub mod eval;
+>>>>>>> feat/cdlc-eval-runner-a
 
 pub use install::{install_from_dir, install_local, read_skill_package, status, CdlcStatus};
 pub use manifest::{cdlc_dir, read_manifest, write_manifest};
 pub use project::{project, project_with_active};
+<<<<<<< HEAD
 pub use types::{CdlcManifest, InstalledRef, SkillManifest};
+=======
+pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
+>>>>>>> feat/cdlc-eval-runner-a
 
 use thiserror::Error;
 

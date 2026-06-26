@@ -6,7 +6,7 @@
 // attached before any byte / event can be produced — no race.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 export type SessionId = string;
 export type BlockId = string;
@@ -1370,6 +1370,35 @@ export async function cdlcInstallRegistry(
   workspace: string | null,
 ): Promise<InstalledRef> {
   return invoke<InstalledRef>("cdlc_install_registry", { cwd, org, name, version, group, workspace });
+}
+
+// CDLC — eval runner (Task 4) -----------------------------------------
+
+export interface EvalSkillSummary {
+  skill: string;
+  passed: number;
+  total: number;
+}
+
+export interface CdlcEvalProgress {
+  skill: string;
+  eval_id: string;
+  status: "running" | "pass" | "fail" | "skipped" | "error" | "done";
+  reason: string;
+}
+
+export async function cdlcRunEvals(cwd: string, skill: string): Promise<void> {
+  return invoke<void>("cdlc_run_evals", { cwd, skill });
+}
+
+export async function cdlcEvalSummary(cwd: string): Promise<EvalSkillSummary[]> {
+  return invoke<EvalSkillSummary[]>("cdlc_eval_summary", { cwd });
+}
+
+export async function onCdlcEvalProgress(
+  handler: (e: CdlcEvalProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<CdlcEvalProgress>("cdlc-eval-progress", (e) => handler(e.payload));
 }
 
 export async function gitFileDiff(cwd: string, path: string, staged: boolean): Promise<FileDiff> {

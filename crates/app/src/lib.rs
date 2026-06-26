@@ -12,7 +12,11 @@
 mod aom;
 mod archetypes;
 mod browser;
+<<<<<<< HEAD
 mod capabilities_commands;
+=======
+mod cdlc_eval;
+>>>>>>> feat/cdlc-eval-runner-a
 mod cdlc_registry;
 pub mod cloud_sync;
 mod connectivity;
@@ -4274,6 +4278,8 @@ pub fn run() {
             git_repo_summary,
             git_switch_branch,
             git_changes,
+            cdlc_eval::cdlc_run_evals,
+            cdlc_eval::cdlc_eval_summary,
             cdlc_local_status,
             cdlc_install_local,
             cdlc_my_orgs,

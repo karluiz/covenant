@@ -1078,6 +1078,10 @@ async function boot(): Promise<void> {
   // Set by the spawns block below; the global keydown handler calls it for
   // Ctrl+1..9. Stays null (no-op) if the spawns chip didn't mount.
   let spawnByShortcut: ((index: number) => void) | null = null;
+  // Held so the onboarding wizard can open the spawns popover without
+  // having to re-resolve the DOM each time. Stays null when the chip
+  // mount point is missing.
+  let spawnsChip: SpawnsChip | null = null;
 
   // Spawns chip — titlebar chip + popover wired to backend.
   const spawnsMount = document.getElementById("spawns-chip-mount");
@@ -1125,6 +1129,7 @@ async function boot(): Promise<void> {
       onRun: runSpawn,
       onAdd: () => { void settingsRef.panel?.open("spawns"); },
     });
+    spawnsChip = chip;
     manager.onActiveSpawnChange = (_spawnId) => {
       void chip.refresh();
     };
@@ -1449,11 +1454,42 @@ async function boot(): Promise<void> {
   // First-run onboarding wizard. Auto-opens on a clean install and on
   // `ONBOARDING_VERSION` bumps; the user can re-trigger it from
   // Settings → "Show tour again", which calls `resetOnboarding()` and
-  // re-opens the panel.
+  // re-opens the panel. The handlers close over `rail`, `aomBanner`,
+  // and `chip` lazily — they're evaluated at click time, after the
+  // surrounding boot() has finished and all those refs are bound.
   const onboarding = new OnboardingPanel(document.body, {
     openSettingsProviders: () => settings.open("providers"),
     openShortcuts: () => shortcutsPanel.open(),
     openAgentPanel: () => agent.open(),
+    openBlocksRail: () => rail.open("blocks"),
+    // Preview-only: never engages AOM. Plays the entry splash with a
+    // synthetic $10-budget status so the user sees the "AOM ENGAGED"
+    // takeover without the Operator actually being live.
+    previewAomSplash: () => {
+      void playAomEntrySplash({
+        enabled: true,
+        started_at_unix_ms: Date.now(),
+        decisions_count: 0,
+        budget_usd: 10,
+        accumulated_cost_usd: 0,
+        cost_cap_hit_at_unix_ms: null,
+      });
+    },
+    openProjectNotes: () => rail.open("notes"),
+    openSpecChat: () => {
+      window.dispatchEvent(new CustomEvent("spec-chat:open"));
+    },
+    openSpawnsPicker: () => {
+      // Held in the spawns block above; the chip is created inside an
+      // `if (spawnsMount)` so this can be null when the DOM is bare
+      // (iframe previews, tests). Use the chip's own `openPopover` so
+      // we don't fight the chip's internal popover state.
+      if (!spawnsChip) {
+        pushInfoToast({ message: "Spawns chip is not available." });
+        return;
+      }
+      void spawnsChip.openPopover();
+    },
   });
 
   // Changes diff viewer — ⌘⇧C toggle. Host appended to body; ChangesSurface

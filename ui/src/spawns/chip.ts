@@ -101,6 +101,16 @@ export class SpawnsChip {
     this.open();
   }
 
+  /// Open the popover programmatically. Used by the onboarding wizard
+  /// to show the spawn picker without simulating a click on the chip
+  /// (which can race with the chip's own click handler if the popover
+  /// state is stale).
+  async openPopover(): Promise<void> {
+    if (this.popover) return;
+    await this.refresh();
+    this.open();
+  }
+
   private open(): void {
     const pop = document.createElement("div");
     pop.className = "spawns-popover";

@@ -15391,6 +15391,109 @@ body.theme-light .release-close:hover .settings-esc {
     color: var(--text-primary);
 }
 
+/* -------------------------------------------------------------------------
+   Onboarding wizard
+   Reuses .release-overlay / .release-card chrome. Layout-specific bits
+   (wider card, body padding, footer with progress dots + actions) live
+   here. Buttons reuse .settings-save / .settings-cancel so the wizard
+   looks identical to every other primary/secondary in the app.
+   ------------------------------------------------------------------------- */
+
+.onboarding-card {
+    width: 720px;
+}
+
+.onboarding-body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+.onboarding-body p {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.onboarding-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 22px 18px;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(
+        180deg,
+        transparent 0%,
+        rgba(var(--ink-rgb, 255 255 255), 0.015) 100%
+    );
+}
+
+.onboarding-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.onboarding-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(var(--ink-rgb, 255 255 255), 0.18);
+    transition:
+        width 160ms ease,
+        background 160ms ease;
+}
+
+.onboarding-dot.is-active {
+    width: 18px;
+    border-radius: 3px;
+    background: var(--accent, #7aa2f7);
+}
+
+.onboarding-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Inherit .settings-save / .settings-cancel from the shared button rule
+   set; only override the secondary's "Back" variant so it doesn't
+   collapse to ghost-text-button dimensions inherited elsewhere. */
+.onboarding-secondary.settings-cancel {
+    --btn-h: 30px;
+    padding: 0 14px;
+    font-size: 12px;
+}
+
+.onboarding-primary.settings-save {
+    --btn-h: 30px;
+    padding: 0 16px;
+    font-size: 12px;
+}
+
+/* Skip lives in the header (reuses .release-close) but reads as a
+   ghost-text link rather than an esc pill. */
+.onboarding-skip {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: color 120ms ease, background 120ms ease;
+}
+
+.onboarding-skip:hover {
+    color: var(--text-primary);
+    background: var(--settings-btn-fill-hover, rgba(var(--ink-rgb), 0.08));
+}
+
+body.theme-light .onboarding-dot {
+    background: rgba(0, 0, 0, 0.18);
+}
+
+body.theme-light .onboarding-skip:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
+
 /* Light-mode sidebar action hover: keep icon + kbd ink dark instead of
    inheriting the dark-mode white hover color. */
 body.theme-light #new-tab,

@@ -29,6 +29,21 @@ export type OnboardingHandlers = {
   openSettingsProviders: () => Promise<void> | void;
   openShortcuts: () => void;
   openAgentPanel: () => void;
+  /// Open the OSC 133 blocks rail on the right. The rail is folded by
+  /// default on first paint so users never see it unless they ask.
+  openBlocksRail: () => void;
+  /// Play a one-shot preview of the AOM entry splash with a synthetic
+  /// status. The wizard does NOT actually engage AOM — the real
+  /// engage is bound to ⌘⇧A, surfaced in the step copy.
+  previewAomSplash: () => void;
+  /// Open the Project Notes drawer for the active group.
+  openProjectNotes: () => void;
+  /// Open the Spec-chat entrance (the "Constellation" canvas for AI
+  /// spec drafting → mission).
+  openSpecChat: () => void;
+  /// Open the spawns picker so the user can see configured executors
+  /// (Claude Code, Codex, Pi, etc.) and quick-spawn one.
+  openSpawnsPicker: () => void;
 };
 
 /// Returns true when the wizard should auto-open. False on a clean
@@ -178,7 +193,7 @@ export class OnboardingPanel {
     return [
       {
         title: "Welcome to Covenant",
-        body: "Covenant is an AI-native terminal that watches every command you run across all tabs, can answer questions about what's going on, and — under your explicit policy — can type on your behalf. A short tour will get you from install to first magic moment in four steps.",
+        body: "Covenant is an AI-native terminal that watches every command you run across all tabs, can answer questions about what's going on, and — under your explicit policy — can type on your behalf. A short tour will get you from install to first magic moment in nine steps.",
         cta: { label: "Take the tour", run: () => this.next(), persist: false },
         secondary: { label: "Skip for now", run: () => void this.finish(false) },
       },
@@ -202,6 +217,70 @@ export class OnboardingPanel {
           label: "Open super-agent (⌘K)",
           run: () => {
             h.openAgentPanel();
+            void this.finish(true);
+          },
+          persist: true,
+        },
+        secondary: { label: "Back", run: () => this.prev() },
+      },
+      {
+        title: "See the Blocks sidebar",
+        body: "Every command you run becomes a structured block in the right rail — exit-code color, click-to-copy, right-click actions, and an inline fix-proposal from the agent when something fails. The rail is folded by default so first paint stays calm.",
+        cta: {
+          label: "Open Blocks rail",
+          run: () => {
+            h.openBlocksRail();
+            void this.finish(true);
+          },
+          persist: true,
+        },
+        secondary: { label: "Back", run: () => this.prev() },
+      },
+      {
+        title: "Try AOM in preview",
+        body: "AOM (Autonomous Operator Mode) is Covenant's overnight posture: a single ⌘⇧A engage turns the Operator loose across all tabs under a USD budget cap, then writes a morning report. We'll preview the engage splash now — AOM itself stays off until you press ⌘⇧A for real.",
+        cta: {
+          label: "Preview AOM splash",
+          run: () => {
+            h.previewAomSplash();
+          },
+          persist: false,
+        },
+        secondary: { label: "Back", run: () => this.prev() },
+      },
+      {
+        title: "Open Project Notes",
+        body: "Project Notes (⌘⇧J) is a per-group scratchpad with five tabs: Commands, Prompts, Notes, Docs, and Drafts. The Drafts tab is the on-ramp to Spec-chat — every spec you publish lands here as a draft that becomes a tab mission.",
+        cta: {
+          label: "Open Project Notes",
+          run: () => {
+            h.openProjectNotes();
+            void this.finish(true);
+          },
+          persist: true,
+        },
+        secondary: { label: "Back", run: () => this.prev() },
+      },
+      {
+        title: "Draft a spec with AI",
+        body: "Press ⌘N to open the Spec-chat entrance — a guided dialogue where the model helps you turn a vague goal into a structured spec (Goal, Acceptance criteria, Complexity, etc.). Published specs become tab missions the Operator uses to gate its decisions.",
+        cta: {
+          label: "Open Spec-chat (⌘N)",
+          run: () => {
+            h.openSpecChat();
+            void this.finish(true);
+          },
+          persist: true,
+        },
+        secondary: { label: "Back", run: () => this.prev() },
+      },
+      {
+        title: "Spawn an executor",
+        body: "The Spawns chip in the titlebar launches Claude Code, Codex, Pi, or any other configured executor into the active PTY. Click the caret to pick, click the play button to quick-run. Ctrl+1..9 are the keyboard shortcuts.",
+        cta: {
+          label: "Open spawns picker",
+          run: () => {
+            h.openSpawnsPicker();
             void this.finish(true);
           },
           persist: true,
@@ -242,12 +321,12 @@ export class OnboardingPanel {
       .join("");
 
     const cta = step.cta
-      ? `<button type="button" class="onboarding-primary">${esc(
+      ? `<button type="button" class="onboarding-primary settings-save">${esc(
           step.cta.label,
         )}</button>`
       : "";
     const secondary = step.secondary
-      ? `<button type="button" class="onboarding-secondary">${esc(
+      ? `<button type="button" class="onboarding-secondary settings-cancel">${esc(
           step.secondary.label,
         )}</button>`
       : "";
