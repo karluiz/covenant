@@ -37,6 +37,7 @@ describe("renderBeacon", () => {
   it("renders error message", () => {
     renderBeacon(root, { kind: "error", message: "boom" });
     expect(root.textContent).toContain("boom");
+    expect(root.querySelector(".beacon-notice.beacon-error")).not.toBeNull();
   });
 
   it("renders one card per environment with a state dot", () => {

@@ -116,7 +116,7 @@ export class BeaconPanel {
     const refresh = document.createElement("button");
     refresh.className = "beacon-refresh";
     refresh.textContent = "↻";
-    refresh.addEventListener("click", () => void this.fetch());
+    refresh.addEventListener("click", () => this.render());
     const close = document.createElement("button");
     close.className = "beacon-close";
     close.textContent = "✕";
@@ -126,7 +126,8 @@ export class BeaconPanel {
     this.body = document.createElement("div");
     this.body.className = "beacon-body";
 
-    host.replaceChildren(header, this.body);
+    this.root.append(header, this.body);
+    host.replaceChildren(this.root);
   }
 
   /// Fetch once and (re)start the visible-only poll loop.
