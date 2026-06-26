@@ -1,6 +1,6 @@
 //! Beacon: GitHub deployment status for the active session's repo.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// One environment's current deployment state, as the UI consumes it.
 #[derive(Debug, Clone, Serialize)]
@@ -56,11 +56,7 @@ pub fn latest_per_environment(deployments: Vec<RawDeployment>) -> Vec<RawDeploym
 
 // ── GitHub fetch ────────────────────────────────────────────────────
 
-async fn gh_get(token: &str, url: &str) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("http client init failed: {e}"))?;
+async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serde_json::Value, String> {
     let resp = client
         .get(url)
         .header("Accept", "application/vnd.github+json")
@@ -90,9 +86,10 @@ fn short_sha(sha: &str) -> String {
 /// token, and build the per-environment deployment state.
 pub async fn load_deployments(cwd: String) -> BeaconState {
     // 1. owner/repo from git remote.
-    let remote = match std::process::Command::new("git")
+    let remote = match tokio::process::Command::new("git")
         .args(["-C", &cwd, "remote", "get-url", "origin"])
         .output()
+        .await
     {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         _ => return BeaconState::NoRepo,
@@ -109,11 +106,19 @@ pub async fn load_deployments(cwd: String) -> BeaconState {
         Err(e) => return BeaconState::Error { message: format!("keychain: {e}") },
     };
 
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return BeaconState::Error { message: format!("http client init failed: {e}") },
+    };
+
     let api = "https://api.github.com";
 
     // 3. list deployments.
     let list_url = format!("{api}/repos/{owner}/{repo}/deployments?per_page=30");
-    let list = match gh_get(&token, &list_url).await {
+    let list = match gh_get(&client, &token, &list_url).await {
         Ok(v) => v,
         Err(e) => return BeaconState::Error { message: e },
     };
@@ -144,7 +149,7 @@ pub async fn load_deployments(cwd: String) -> BeaconState {
     let mut envs = Vec::with_capacity(kept.len());
     for d in kept {
         let status_url = format!("{api}/repos/{owner}/{repo}/deployments/{}/statuses?per_page=1", d.id);
-        let (state, description, target_url, updated_at) = match gh_get(&token, &status_url).await {
+        let (state, description, target_url, updated_at) = match gh_get(&client, &token, &status_url).await {
             Ok(v) => {
                 let latest = v.as_array().and_then(|a| a.first()).cloned();
                 match latest {
