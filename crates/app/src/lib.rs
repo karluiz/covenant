@@ -30,6 +30,7 @@ mod familiar_commands;
 mod favorites_commands;
 mod file_search;
 mod fix_proposer;
+mod beacon;
 mod git_tools;
 mod history_import;
 mod marketplace;
