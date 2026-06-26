@@ -1,6 +1,18 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { beaconDeployments, type BeaconState } from "../api";
 
 const POLL_MS = 25_000;
+
+/// Returns true only for absolute http: or https: URLs.
+export function isHttpUrl(u: string | null | undefined): u is string {
+  if (!u) return false;
+  try {
+    const parsed = new URL(u);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 /// Map a GitHub deployment state to a dot color class suffix.
 export function stateDotColor(state: string): string {
@@ -56,12 +68,24 @@ export function renderBeacon(root: HTMLElement, state: BeaconState): void {
         return;
       }
       for (const env of state.envs) {
-        const card = document.createElement(env.target_url ? "a" : "div");
-        card.className = "beacon-env";
-        if (env.target_url && card instanceof HTMLAnchorElement) {
-          card.href = env.target_url;
-          card.target = "_blank";
-          card.rel = "noopener noreferrer";
+        const clickable = isHttpUrl(env.target_url);
+        const card = document.createElement("div");
+        card.className = clickable ? "beacon-env beacon-env-link" : "beacon-env";
+        if (clickable) {
+          card.setAttribute("role", "link");
+          card.setAttribute("tabindex", "0");
+          card.addEventListener("click", () => {
+            void openUrl(env.target_url!).catch((e) =>
+              console.error("beacon openUrl failed", e),
+            );
+          });
+          card.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              void openUrl(env.target_url!).catch((err) =>
+                console.error("beacon openUrl failed", err),
+              );
+            }
+          });
         }
 
         const head = document.createElement("div");

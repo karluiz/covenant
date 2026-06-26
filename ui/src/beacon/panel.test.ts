@@ -1,5 +1,32 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { renderBeacon, stateDotColor } from "./panel";
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const { openUrl } = vi.hoisted(() => ({
+  openUrl: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
+
+import { renderBeacon, stateDotColor, isHttpUrl } from "./panel";
+
+describe("isHttpUrl", () => {
+  it("accepts http and https URLs", () => {
+    expect(isHttpUrl("https://example.com")).toBe(true);
+    expect(isHttpUrl("http://example.com")).toBe(true);
+  });
+
+  it("rejects non-http schemes", () => {
+    expect(isHttpUrl("javascript:alert(1)")).toBe(false);
+    expect(isHttpUrl("ftp://example.com")).toBe(false);
+    expect(isHttpUrl("data:text/html,<h1>x</h1>")).toBe(false);
+  });
+
+  it("rejects empty, null, and non-URL strings", () => {
+    expect(isHttpUrl(null)).toBe(false);
+    expect(isHttpUrl(undefined)).toBe(false);
+    expect(isHttpUrl("")).toBe(false);
+    expect(isHttpUrl("not a url")).toBe(false);
+  });
+});
 
 describe("stateDotColor", () => {
   it("maps deployment states to color classes", () => {
@@ -55,5 +82,50 @@ describe("renderBeacon", () => {
     expect(root.querySelector(".beacon-dot.busy")).not.toBeNull();
     expect(root.textContent).toContain("production");
     expect(root.textContent).toContain("abc1234");
+  });
+
+  it("does NOT produce a clickable link for a javascript: target_url", () => {
+    renderBeacon(root, {
+      kind: "ok",
+      repo: "o/r",
+      envs: [
+        { environment: "production", state: "success", description: null, target_url: "javascript:alert(1)", sha: "abc1234", creator: null, updated_at: "2026-06-26T00:00:00Z" },
+      ],
+    });
+    expect(root.querySelector(".beacon-env-link")).toBeNull();
+    // No element should carry the dangerous href
+    const all = root.querySelectorAll("[href]");
+    for (const el of all) {
+      expect(el.getAttribute("href")).not.toContain("javascript:");
+    }
+    // No attribute anywhere should contain the javascript: payload
+    expect(root.innerHTML).not.toContain("javascript:");
+  });
+
+  it("does NOT produce a clickable link when target_url is null", () => {
+    renderBeacon(root, {
+      kind: "ok",
+      repo: "o/r",
+      envs: [
+        { environment: "preview", state: "in_progress", description: null, target_url: null, sha: "def5678", creator: null, updated_at: "2026-06-26T00:00:00Z" },
+      ],
+    });
+    expect(root.querySelector(".beacon-env-link")).toBeNull();
+  });
+
+  it("produces a clickable element for an https:// target_url", () => {
+    renderBeacon(root, {
+      kind: "ok",
+      repo: "o/r",
+      envs: [
+        { environment: "production", state: "success", description: null, target_url: "https://app.example.com", sha: "abc1234", creator: null, updated_at: "2026-06-26T00:00:00Z" },
+      ],
+    });
+    const link = root.querySelector(".beacon-env-link");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("role")).toBe("link");
+    expect(link?.getAttribute("tabindex")).toBe("0");
+    // Must not expose the raw URL in an href
+    expect(link?.getAttribute("href")).toBeNull();
   });
 });

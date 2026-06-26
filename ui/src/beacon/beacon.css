@@ -59,7 +59,10 @@
   padding: 8px 10px;
   background: var(--bg-elevated, var(--bg-panel));
 }
-a.beacon-env:hover {
+.beacon-env-link {
+  cursor: pointer;
+}
+.beacon-env-link:hover {
   border-color: var(--text-primary);
 }
 .beacon-env-head {

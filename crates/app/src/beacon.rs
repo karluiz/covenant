@@ -202,6 +202,15 @@ pub fn parse_owner_repo(remote_url: &str) -> Option<(String, String)> {
     let mut parts = path.splitn(2, '/');
     let owner = parts.next().filter(|s| !s.is_empty())?;
     let repo = parts.next().filter(|s| !s.is_empty() && !s.contains('/'))?;
+    // Reject segments containing characters outside [A-Za-z0-9._-] and
+    // require at least one alphanumeric character (rules out "..", ".", etc.).
+    let is_safe = |s: &str| {
+        s.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+            && s.chars().any(|c| c.is_ascii_alphanumeric())
+    };
+    if !is_safe(owner) || !is_safe(repo) {
+        return None;
+    }
     Some((owner.to_string(), repo.to_string()))
 }
 
@@ -231,6 +240,10 @@ mod tests {
             ("ssh://git@github.com/karluiz/covenant.git", Some(("karluiz", "covenant"))),
             ("git@gitlab.com:karluiz/covenant.git", None),
             ("", None),
+            // Path traversal must be rejected.
+            ("https://github.com/../x", None),
+            // Owner with invalid chars must be rejected.
+            ("https://github.com/owner@evil/repo", None),
         ];
         for (input, want) in cases {
             let got = parse_owner_repo(input);
