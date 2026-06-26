@@ -1,0 +1,96 @@
+.beacon-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.beacon-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.beacon-title {
+  flex: 1;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.beacon-refresh,
+.beacon-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, var(--text-primary));
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.beacon-refresh:hover,
+.beacon-close:hover {
+  color: var(--text-primary);
+}
+.beacon-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.beacon-notice {
+  color: var(--text-secondary, var(--text-primary));
+  padding: 12px 6px;
+  text-align: center;
+}
+.beacon-notice.beacon-error {
+  color: var(--danger, #e5534b);
+  text-align: left;
+}
+.beacon-env {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg-elevated, var(--bg-panel));
+}
+a.beacon-env:hover {
+  border-color: var(--text-primary);
+}
+.beacon-env-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.beacon-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.beacon-dot.ok { background: #2ea043; }
+.beacon-dot.busy { background: #d29922; }
+.beacon-dot.bad { background: #e5534b; }
+.beacon-dot.idle { background: var(--text-secondary, #8b949e); }
+.beacon-env-name {
+  flex: 1;
+  font-weight: 600;
+}
+.beacon-env-when {
+  color: var(--text-secondary, #8b949e);
+  font-size: 11px;
+}
+.beacon-env-meta {
+  color: var(--text-secondary, #8b949e);
+  margin-top: 4px;
+  font-size: 11px;
+}
+.beacon-env-desc {
+  margin-top: 4px;
+  color: var(--text-primary);
+}
