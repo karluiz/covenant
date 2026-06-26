@@ -24,6 +24,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
+import { mountCdPicker } from "../terminal/cd-picker";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BrowserPane } from "../browser/pane";
@@ -3012,6 +3013,12 @@ export class TabManager {
     // natural-language line at a bare shell to the super-agent. Anchored to
     // the terminal pane; updated from onData below.
     const promptHint = mountPromptHint(termHost, term);
+    const cdPicker = mountCdPicker(termHost, term, {
+      writeBytes: (b) => void writeToSession(sessionId, b).catch((e) =>
+        // eslint-disable-next-line no-console
+        console.error("cd-picker write failed", e)),
+      syncRecall: (s) => recall?.notifyInput(s),
+    });
     // Suppress the macOS WebView native context menu (Cut/Copy/Paste/
     // Show Writing Tools/…) on right-click inside the terminal. xterm
     // doesn't preventDefault on contextmenu itself, so the OS menu
@@ -3154,6 +3161,7 @@ export class TabManager {
             if (event.kind === "prompt_start") {
               recall?.notifyPromptStart();
               promptHint.reset();
+              cdPicker.reset();
               if (initialCmdPending !== null) {
                 const cmd = initialCmdPending;
                 initialCmdPending = null;
@@ -3618,6 +3626,8 @@ export class TabManager {
     const dataDispose = term.onData((data) => {
       const tab = tabRef.current;
       const bare = !!tab && !activePane(tab).executor;
+      // cd-picker consumes its own navigation keys (↑/↓/Enter/Esc) before the PTY.
+      if (cdPicker.handleKey(data)) return;
       // Intercept Enter while the autodetect hint is showing: clear the typed
       // shell line and route it to the super-agent instead of running it.
       if (data === "\r" && promptHint.shown && !promptHint.overridden) {
@@ -3629,6 +3639,7 @@ export class TabManager {
         this.onAskAgent?.(line);
         recall?.notifyInput("\x15"); // resync Recall's shadow buffer with the line we just cleared
         promptHint.reset();
+        cdPicker.reset();
         return; // do NOT forward the carriage return to the shell
       }
       void writeToSession(sessionId, encoder.encode(data)).catch((e) =>
@@ -3643,8 +3654,10 @@ export class TabManager {
           shouldHint({ bareShell: true, recallVisible: !!recall?.isVisible(), line }),
           line,
         );
+        cdPicker.update(true, line, activePane(tab).cwd);
       } else {
         promptHint.update(false, "");
+        cdPicker.update(false, "", null);
       }
     });
     // Shift+Enter → Alt+Enter (`\x1b\r`). xterm.js's default for
@@ -3926,7 +3939,7 @@ export class TabManager {
       openEditor,
       wroteWhileHidden: true,
       sidebarView: "blocks",
-      disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose, promptHint],
+      disposers: [dataDispose, resizeDispose, roDispose, dprDispose, wheelDispose, promptHint, cdPicker],
       specBadge: null,
       panes: [] as unknown as [Pane],
       layout: { kind: "single", activePaneIdx: 0 },
