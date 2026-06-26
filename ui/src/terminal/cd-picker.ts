@@ -6,6 +6,11 @@ import { homeFromCwd, resolveCdArg, filterDirs } from "./cd-resolve";
 const CD_RE = /^cd\s+(.*)$/s;
 const DEBOUNCE_MS = 120;
 
+// POSIX single-quote escaping: ' -> '\''
+function shq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 export interface CdPicker {
   readonly visible: boolean;
   update(bare: boolean, line: string, cwd: string | null): void;
@@ -32,7 +37,7 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   host.appendChild(el);
 
   let visible = false;
-  let dirPart = ""; // text up to & including last slash of the current arg
+  let listDirAbs = ""; // resolved absolute dir currently being listed
   let entries: DirEntry[] = [];
   let active = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -57,6 +62,7 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   };
 
   const render = (listDir: string): void => {
+    listDirAbs = listDir;
     header.textContent = `CURRENT LOCATION · ${listDir}`;
     list.innerHTML = "";
     entries.forEach((e, i) => {
@@ -84,14 +90,16 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   const select = (): void => {
     const e = entries[active];
     if (!e) return;
-    const path = dirPart + e.name;
-    const seq = `\x15cd ${path}\n`; // ^U kill line, retype canonical cd, run
+    // Emit the RESOLVED ABSOLUTE path, single-quoted, so filesystem names
+    // with shell metacharacters/spaces can't inject or split args.
+    const target = `${listDirAbs.replace(/\/+$/, "")}/${e.name}`; // root "/" stays "/etc" etc.
+    const seq = `\x15cd ${shq(target)}\n`; // ^U kill line, retype canonical cd, run
     hooks.writeBytes(enc.encode(seq));
     hooks.syncRecall(seq);
     reset();
   };
 
-  const runQuery = (_arg: string, listDir: string, prefix: string): void => {
+  const runQuery = (listDir: string, prefix: string): void => {
     const id = ++queryId;
     void structureListDir(listDir, true) // showIgnored: dotfiles are valid cd targets
       .then((all) => {
@@ -122,10 +130,8 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
       const arg = m[1];
       const resolved = resolveCdArg(arg, cwd, homeFromCwd(cwd));
       if (!resolved) { cancel(); if (visible) hide(); return; }
-      const slash = arg.lastIndexOf("/");
-      dirPart = slash >= 0 ? arg.slice(0, slash + 1) : "";
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => runQuery(arg, resolved.listDir, resolved.prefix), DEBOUNCE_MS);
+      timer = setTimeout(() => runQuery(resolved.listDir, resolved.prefix), DEBOUNCE_MS);
     },
     handleKey(data): boolean {
       if (!visible) return false;
