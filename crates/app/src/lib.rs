@@ -11,6 +11,7 @@
 
 mod aom;
 mod browser;
+mod cdlc_eval;
 mod cdlc_registry;
 pub mod cloud_sync;
 mod capabilities_commands;
