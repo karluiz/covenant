@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, type Mock } from "vitest";
 import { CdlcPanel } from "./panel";
 
 // Mock the api module so tests don't invoke Tauri IPC.
@@ -12,6 +12,9 @@ vi.mock("../api", () => ({
   cdlcReadLocal: vi.fn().mockResolvedValue(""),
   cdlcExport: vi.fn().mockResolvedValue(undefined),
   scoreSummaryFiltered: vi.fn().mockResolvedValue({ total_prompts: 0, total_commits: 0, total_tokens: 0, total_specs: 0 }),
+  cdlcEvalSummary: vi.fn().mockResolvedValue([]),
+  cdlcRunEvals: vi.fn().mockResolvedValue(undefined),
+  onCdlcEvalProgress: vi.fn().mockResolvedValue(() => {}),
 }));
 
 describe("CdlcPanel", () => {
@@ -103,5 +106,32 @@ describe("CdlcPanel", () => {
     });
     expect(host.querySelector('button[aria-label="Publish to registry"]')).not.toBeNull();
     expect(host.textContent).toContain("kyc-peru");
+  });
+
+  it("exposes a Run evals action on each installed skill", async () => {
+    const { cdlcLocalStatus } = await import("../api");
+    (cdlcLocalStatus as Mock).mockResolvedValueOnce({
+      installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
+      contextFiles: [],
+    });
+    const panel = new CdlcPanel({ groupId: "g-eval-btn", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
+    await panel.refresh();
+    const btn = panel.element.querySelector('button[aria-label="Run evals"]');
+    expect(btn).not.toBeNull();
+  });
+
+  it("renders eval pass-rate in the Loop when results exist", async () => {
+    const { cdlcLocalStatus, cdlcEvalSummary } = await import("../api");
+    (cdlcLocalStatus as Mock).mockResolvedValueOnce({
+      installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
+      contextFiles: [],
+    });
+    (cdlcEvalSummary as Mock).mockResolvedValueOnce([
+      { skill: "kyc-peru", passed: 4, total: 5 },
+    ]);
+    const panel = new CdlcPanel({ groupId: "g-eval-rate", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
+    await panel.refresh();
+    expect(panel.element.textContent).toContain("4/5");
+    expect(panel.element.textContent).not.toContain("arrives in a later phase");
   });
 });

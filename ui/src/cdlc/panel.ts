@@ -3,10 +3,11 @@ import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 import { pushInfoToast } from "../notifications/toast";
 import { renderMarkdown } from "../mission/preview";
-import type { CdlcStatus, Org, PkgMeta, ScoreSummary } from "../api";
+import type { CdlcStatus, Org, PkgMeta, ScoreSummary, EvalSkillSummary, CdlcEvalProgress } from "../api";
 import {
   cdlcLocalStatus, cdlcMyOrgs, cdlcSearch, cdlcPublish, cdlcInstallRegistry,
   cdlcPreview, cdlcReadLocal, cdlcExport, scoreSummaryFiltered,
+  cdlcEvalSummary, cdlcRunEvals, onCdlcEvalProgress,
 } from "../api";
 
 function loopSubhead(text: string): HTMLElement {
@@ -91,6 +92,11 @@ export class CdlcPanel {
   private orgs: Org[] = [];
   private score: ScoreSummary | null = null;
   private adoption = new Map<string, number>(); // package name → org-wide installs
+  private evalRates = new Map<string, { passed: number; total: number }>();
+
+  /** The root element of the panel — used in tests and by callers that need
+   *  to query the rendered content without going through a host element. */
+  get element(): HTMLElement { return this.root; }
 
   constructor(private opts: CdlcPanelOpts) {
     this.root = document.createElement("div");
@@ -148,13 +154,15 @@ export class CdlcPanel {
       return;
     }
     try {
-      const [status, orgs, score] = await Promise.all([
+      const [status, orgs, score, evalSummary] = await Promise.all([
         cdlcLocalStatus(cwd),
         cdlcMyOrgs().catch(() => [] as Org[]),
         scoreSummaryFiltered(this.opts.groupLabel ?? null).catch(() => null),
+        cdlcEvalSummary(cwd).catch(() => [] as EvalSkillSummary[]),
       ]);
       this.orgs = orgs;
       this.score = score;
+      this.evalRates = new Map(evalSummary.map((s) => [s.skill, { passed: s.passed, total: s.total }]));
       // Adoption: org-wide install counts for skills installed from the registry.
       this.adoption = new Map();
       if (orgs.length > 0) {
@@ -187,6 +195,8 @@ export class CdlcPanel {
         if (this.orgs.length > 0 && !i.source.startsWith("registry:")) {
           actions.push(iconButton(Icons.upload({ size: 15 }), "Publish to registry", () => void this.publish(i.name)));
         }
+        const runBtn = iconButton(Icons.play({ size: 15 }), "Run evals", () => void this.runEvals(i.name, runBtn));
+        actions.push(runBtn);
         skills.appendChild(this.skillCard({
           name: i.name,
           meta: `${i.version} · ${i.source}`,
@@ -293,13 +303,60 @@ export class CdlcPanel {
       loop.appendChild(m);
     }
 
-    // Eval — deferred (the behavior-under-context TDD runner).
-    const evalNote = document.createElement("p");
-    evalNote.className = "cdlc-loop-note";
-    evalNote.textContent = "Eval pass-rate (context-TDD) arrives in a later phase.";
-    loop.appendChild(evalNote);
+    // Eval — context-TDD pass-rate from the local runner.
+    const skillsWithEvals = s.installed.filter((i) => this.evalRates.has(i.name));
+    if (skillsWithEvals.length > 0) {
+      loop.appendChild(loopSubhead("Eval pass-rate"));
+      for (const i of skillsWithEvals) {
+        const r = this.evalRates.get(i.name)!;
+        const row = document.createElement("div");
+        row.className = "cdlc-loop-row";
+        const name = document.createElement("span");
+        name.className = "cdlc-name";
+        name.textContent = i.name;
+        const val = document.createElement("span");
+        val.className = "cdlc-meta";
+        const pct = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
+        val.textContent = `${r.passed}/${r.total} · ${pct}%`;
+        row.append(name, val);
+        loop.appendChild(row);
+      }
+    } else {
+      const evalNote = document.createElement("p");
+      evalNote.className = "cdlc-loop-note";
+      evalNote.textContent = "Run evals on a skill to measure its context-TDD pass-rate.";
+      loop.appendChild(evalNote);
+    }
 
     this.body.append(skills, ctx, loop);
+  }
+
+  private async runEvals(skill: string, btn: HTMLButtonElement): Promise<void> {
+    const cwd = this.opts.groupRootDir;
+    if (!cwd) return;
+    if (!window.confirm(`Run evals for "${skill}"? Each eval is a full agent run plus a judge call — this can take minutes and costs tokens.`)) {
+      return;
+    }
+    btn.disabled = true;
+    let unlisten: (() => void) | undefined;
+    try {
+      unlisten = await onCdlcEvalProgress((e: CdlcEvalProgress) => {
+        if (e.skill !== skill) return;
+        if (e.status === "running") pushInfoToast({ message: `Eval ${e.eval_id}: running…` });
+        else if (e.status === "pass") pushInfoToast({ message: `Eval ${e.eval_id}: PASS` });
+        else if (e.status === "fail") pushInfoToast({ message: `Eval ${e.eval_id}: FAIL — ${e.reason}` });
+        else if (e.status === "skipped") pushInfoToast({ message: `Evals skipped: ${e.reason}` });
+        else if (e.status === "error") pushInfoToast({ message: `Eval ${e.eval_id}: error — ${e.reason}` });
+      });
+      await cdlcRunEvals(cwd, skill);
+      pushInfoToast({ message: `Evals finished for ${skill}` });
+      await this.refresh();
+    } catch (e) {
+      pushInfoToast({ message: `Run evals failed: ${String(e)}` });
+    } finally {
+      unlisten?.();
+      btn.disabled = false;
+    }
   }
 
   private async exportNow(btn: HTMLButtonElement): Promise<void> {
