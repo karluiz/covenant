@@ -74,13 +74,43 @@ pub(crate) fn prepare_sandbox(repo_root: &Path, skill: &str) -> std::io::Result<
     Ok(sbox)
 }
 
-/// Run one scenario through `claude -p` in the sandbox. Confined by cwd-jail +
-/// deny-list + timeout. ponytail: bypassPermissions is safe only because the
-/// cwd is empty and the deny-list blocks the dangerous tools; harden with a
-/// container before running untrusted third-party evals.
+/// Returns CLI args for `claude -p <scenario>` that enforce read-only tools
+/// (Read/Grep/Glob) + deny-list settings.json + cwd sandbox + timeout.
+/// Full-tool agentic runs need the deferred hardened container.
+fn harness_args(scenario: &str) -> Vec<String> {
+    vec![
+        "-p".to_string(),
+        scenario.to_string(),
+        "--allowedTools".to_string(),
+        "Read".to_string(),
+        "Grep".to_string(),
+        "Glob".to_string(),
+        "--strict-mcp-config".to_string(),
+    ]
+}
+
+/// Non-zero exit or empty stdout is an infra failure (auth, crash) — a non-result,
+/// NOT a compliance fail. Only a clean, non-empty run is judged.
+fn classify_output(success: bool, stdout: &str, stderr: &str) -> HarnessStatus {
+    if success && !stdout.trim().is_empty() {
+        HarnessStatus::Ran
+    } else {
+        let why = if stderr.trim().is_empty() {
+            "claude produced no output".to_string()
+        } else {
+            format!("claude failed: {}", stderr.trim().chars().take(200).collect::<String>())
+        };
+        HarnessStatus::Skipped(why)
+    }
+}
+
+/// Run one scenario through `claude -p` in the sandbox. Confined by read-only
+/// tools (Read/Grep/Glob) + deny-list settings.json + cwd sandbox + timeout.
+/// Full-tool agentic runs need the deferred hardened container.
 pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> HarnessOutcome {
     let started = Instant::now();
-    if !claude_available() {
+    let available = tokio::task::spawn_blocking(claude_available).await.unwrap_or(false);
+    if !available {
         return HarnessOutcome {
             transcript: String::new(),
             status: HarnessStatus::Skipped("claude CLI not found on PATH".into()),
@@ -99,10 +129,7 @@ pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> Harne
     };
 
     let mut cmd = tokio::process::Command::new("claude");
-    cmd.arg("-p")
-        .arg(scenario)
-        .arg("--permission-mode")
-        .arg("bypassPermissions")
+    cmd.args(harness_args(scenario))
         .current_dir(sbox.path())
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
@@ -111,10 +138,12 @@ pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> Harne
         match tokio::time::timeout(Duration::from_secs(HARNESS_TIMEOUT_SECS), cmd.output()).await {
             Err(_) => (String::new(), HarnessStatus::TimedOut),
             Ok(Err(e)) => (String::new(), HarnessStatus::Skipped(format!("claude spawn failed: {e}"))),
-            Ok(Ok(out)) => (
-                String::from_utf8_lossy(&out.stdout).to_string(),
-                HarnessStatus::Ran,
-            ),
+            Ok(Ok(out)) => {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let status = classify_output(out.status.success(), &stdout, &stderr);
+                (stdout, status)
+            }
         };
     HarnessOutcome {
         transcript,
@@ -154,16 +183,20 @@ fn word_pos(haystack: &str, word: &str) -> Option<usize> {
 
 /// Parse `PASS`/`FAIL` (case-insensitive) + a reason. `None` if no standalone
 /// verdict token is present — the caller must treat that as an error, not a pass.
+///
+/// Verdict is determined from the FIRST NON-EMPTY LINE only (judge contract).
+/// Scanning the whole text would promote a trailing token — e.g. "It's not a
+/// clear pass... FAIL" — to a false PASS, silently corrupting compliance results.
+/// If both tokens appear on the first line (ambiguous) → `None`.
 pub fn parse_verdict(text: &str) -> Option<Verdict> {
-    let lower = text.to_lowercase();
-    // Find the first occurrence of PASS / FAIL as whole words (word-boundary
-    // check: chars adjacent to the token must not be ASCII-alphabetic).
-    // This prevents substrings like "passes" or "surpassed" from being read
-    // as a verdict, which would silently corrupt compliance results.
-    let pass_at = word_pos(&lower, "pass");
-    let fail_at = word_pos(&lower, "fail");
+    // Judge contract: PASS or FAIL on the FIRST non-empty line only.
+    let first_line = text.lines().find(|l| !l.trim().is_empty())?;
+    let lower_first = first_line.to_lowercase();
+    let pass_at = word_pos(&lower_first, "pass");
+    let fail_at = word_pos(&lower_first, "fail");
     let pass = match (pass_at, fail_at) {
-        (Some(p), Some(f)) => p < f,
+        // Both tokens on the first line → ambiguous; not a valid verdict.
+        (Some(_), Some(_)) => return None,
         (Some(_), None) => true,
         (None, Some(_)) => false,
         (None, None) => return None,
@@ -180,8 +213,7 @@ pub fn parse_verdict(text: &str) -> Option<Verdict> {
         .to_string();
     let reason = if reason.is_empty() {
         // Single-line verdict like "FAIL — it approved": take the tail of line 1.
-        let first = text.lines().next().unwrap_or("");
-        first
+        first_line
             .trim_start_matches(|c: char| c.is_alphabetic() || c.is_whitespace())
             .trim_start_matches(['—', '-', ':', ' '])
             .trim()
@@ -378,5 +410,42 @@ mod tests {
     fn missing_skill_md_is_an_error() {
         let repo = tempfile::tempdir().unwrap();
         assert!(prepare_sandbox(repo.path(), "nope").is_err());
+    }
+
+    #[test]
+    fn harness_args_are_readonly_no_bypass() {
+        let a = harness_args("do the thing");
+        assert!(!a.iter().any(|s| s.contains("bypassPermissions")), "must not bypass permissions");
+        assert!(a.iter().any(|s| s == "--allowedTools"));
+        assert!(
+            a.iter().any(|s| s == "Read") && a.iter().any(|s| s == "Grep") && a.iter().any(|s| s == "Glob"),
+            "read-only tools present"
+        );
+        assert!(
+            !a.iter().any(|s| s == "Bash" || s == "Write" || s == "WebFetch"),
+            "no write/exec/net tools"
+        );
+        assert!(a.iter().any(|s| s == "--strict-mcp-config"));
+        assert!(a.contains(&"do the thing".to_string()), "scenario passed through");
+    }
+
+    #[test]
+    fn classify_output_treats_infra_failure_as_skipped_not_ran() {
+        assert_eq!(classify_output(true, "refuses correctly", ""), HarnessStatus::Ran);
+        assert!(matches!(classify_output(false, "", "auth error"), HarnessStatus::Skipped(_)));
+        assert!(
+            matches!(classify_output(true, "   ", ""), HarnessStatus::Skipped(_)),
+            "empty stdout = non-result"
+        );
+    }
+
+    #[test]
+    fn parse_verdict_rejects_ambiguous_first_line() {
+        // both tokens on the first line = non-compliant judge output = unparseable, NOT a silent pass
+        assert!(parse_verdict("It's not a clear pass... FAIL").is_none());
+        assert!(parse_verdict("Could be PASS or FAIL, unsure").is_none());
+        // genuine single-token first lines still parse
+        assert!(parse_verdict("PASS\nrefused").unwrap().pass);
+        assert!(!parse_verdict("FAIL\napproved").unwrap().pass);
     }
 }

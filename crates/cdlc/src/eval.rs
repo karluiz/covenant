@@ -67,19 +67,57 @@ pub fn read_results(repo_root: &Path) -> ResultMap {
         .unwrap_or_default()
 }
 
-/// Upsert one result and persist. Creates `.covenant/cdlc/` if needed.
+/// Process-global lock: serialises concurrent `write_result` calls so two
+/// simultaneous "Run evals" can't clobber each other's data.
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Upsert one result and persist atomically. Creates `.covenant/cdlc/` if needed.
+///
+/// Concurrent safety: all writes are serialised behind `WRITE_LOCK`.
+/// Corrupt-file safety: if the results file exists, is non-empty, but fails
+/// JSON parsing it is renamed to `eval-results.corrupt.json` (best-effort)
+/// and a fresh map is started — the old bytes are preserved for inspection.
+/// Write atomicity: serialised to `eval-results.json.tmp` then renamed over
+/// the target so a partial write can never leave the file in a corrupt state.
 pub fn write_result(repo_root: &Path, skill: &str, result: &EvalResult) -> std::io::Result<()> {
-    let mut all = read_results(repo_root);
-    all.entry(skill.to_string())
-        .or_default()
-        .insert(result.eval_id.clone(), result.clone());
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let path = results_path(repo_root);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+
+    // Read current results; handle a corrupt-but-present file by backing it up.
+    let mut all: ResultMap = BTreeMap::new();
+    if path.exists() {
+        match std::fs::read_to_string(&path) {
+            Ok(s) if !s.trim().is_empty() => match serde_json::from_str::<ResultMap>(&s) {
+                Ok(m) => all = m,
+                Err(_) => {
+                    let backup = path.with_extension("corrupt.json");
+                    tracing::warn!(
+                        target: "cdlc",
+                        "eval-results.json is corrupt; backing up to {}",
+                        backup.display()
+                    );
+                    let _ = std::fs::rename(&path, &backup); // best-effort; proceed from empty
+                }
+            },
+            _ => {} // missing or empty → start fresh
+        }
+    }
+
+    all.entry(skill.to_string())
+        .or_default()
+        .insert(result.eval_id.clone(), result.clone());
+
     let json = serde_json::to_string_pretty(&all)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+
+    // Atomic write: write to a sibling .tmp then rename over the target.
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &json)?;
+    std::fs::rename(&tmp_path, &path)
 }
 
 /// `(passed, total)` over stored results for `skill`; `None` if none yet.
@@ -152,5 +190,42 @@ mod tests {
         assert_eq!(pass_rate(tmp.path(), "other"), None);
         let all = read_results(tmp.path());
         assert_eq!(all["kyc-peru"]["e2"].pass, true, "latest run wins");
+    }
+
+    #[test]
+    fn write_result_preserves_other_skills() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mk = |id: &str, pass: bool| EvalResult {
+            eval_id: id.into(),
+            pass,
+            reason: "r".into(),
+            ran_at_ms: 1,
+            duration_ms: 1,
+        };
+        write_result(tmp.path(), "skill-a", &mk("e1", true)).unwrap();
+        write_result(tmp.path(), "skill-b", &mk("e1", false)).unwrap();
+        let all = read_results(tmp.path());
+        assert!(
+            all.contains_key("skill-a") && all.contains_key("skill-b"),
+            "both skills survive interleaved writes"
+        );
+    }
+
+    #[test]
+    fn write_result_backs_up_corrupt_file_instead_of_losing_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(".covenant/cdlc");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("eval-results.json"), "{ this is not json").unwrap();
+        let r = EvalResult {
+            eval_id: "e1".into(),
+            pass: true,
+            reason: "r".into(),
+            ran_at_ms: 1,
+            duration_ms: 1,
+        };
+        write_result(tmp.path(), "skill-a", &r).unwrap();
+        assert!(dir.join("eval-results.corrupt.json").exists(), "corrupt file preserved");
+        assert_eq!(read_results(tmp.path())["skill-a"]["e1"].pass, true, "new write still lands");
     }
 }
