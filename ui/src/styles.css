@@ -1742,6 +1742,45 @@ body:not(.tabbar-left) #new-group {
 }
 .prompt-hint-sep { opacity: 0.5; margin: 0 2px; }
 
+.cd-picker {
+  position: absolute;
+  z-index: 7;
+  pointer-events: auto;
+  min-width: 260px;
+  max-width: 520px;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--bg-elev, #1b1d24) 92%, transparent);
+  border: 1px solid var(--line-soft, #2a2d37);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  font-size: 12px;
+}
+.cd-picker-header {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.45;
+  padding: 5px 8px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cd-picker-row svg { opacity: 0.7; flex: none; }
+.cd-picker-row.is-active {
+  background: rgba(var(--ink-rgb), 0.1);
+}
+
 /* ─── Block sidebar (per-tab) ──────────────────────── */
 
 .tab-blocks {
