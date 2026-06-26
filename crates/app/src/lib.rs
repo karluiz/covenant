@@ -4189,6 +4189,8 @@ pub fn run() {
             git_repo_summary,
             git_switch_branch,
             git_changes,
+            cdlc_eval::cdlc_run_evals,
+            cdlc_eval::cdlc_eval_summary,
             cdlc_local_status,
             cdlc_install_local,
             cdlc_my_orgs,

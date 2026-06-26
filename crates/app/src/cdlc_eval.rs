@@ -232,6 +232,96 @@ pub async fn judge(
     Err("judge did not return a PASS/FAIL verdict".into())
 }
 
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, State};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EvalSkillSummary {
+    pub skill: String,
+    pub passed: usize,
+    pub total: usize,
+}
+
+fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reason: &str) {
+    let _ = app.emit(
+        "cdlc-eval-progress",
+        serde_json::json!({
+            "skill": skill,
+            "eval_id": eval_id,
+            "status": status,
+            "reason": reason,
+        }),
+    );
+}
+
+/// Run every eval for `skill`: harness → judge → persist → emit. Sequential
+/// (each eval is a full agent run + a judge call — slow and expensive on
+/// purpose). Aborts the remaining evals if claude is unavailable.
+#[tauri::command]
+pub async fn cdlc_run_evals(
+    app: AppHandle,
+    state: State<'_, crate::AppState>,
+    cwd: String,
+    skill: String,
+) -> Result<(), String> {
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let evals = karl_cdlc::read_evals(&repo_root, &skill);
+    if evals.is_empty() {
+        emit_progress(&app, &skill, "", "done", "no evals found");
+        return Ok(());
+    }
+    let settings = state.settings.clone();
+    for ev in evals {
+        emit_progress(&app, &skill, &ev.id, "running", "");
+        let outcome = run_harness(&repo_root, &skill, &ev.scenario).await;
+        match outcome.status {
+            HarnessStatus::Skipped(reason) => {
+                emit_progress(&app, &skill, &ev.id, "skipped", &reason);
+                // claude missing / sandbox failure applies to all evals — stop.
+                emit_progress(&app, &skill, "", "done", "");
+                return Ok(());
+            }
+            HarnessStatus::TimedOut => {
+                emit_progress(&app, &skill, &ev.id, "error", "harness timed out");
+                continue;
+            }
+            HarnessStatus::Ran => {}
+        }
+        match judge(&settings, &ev.scenario, &ev.rubric, &outcome.transcript).await {
+            Ok(v) => {
+                let result = karl_cdlc::EvalResult {
+                    eval_id: ev.id.clone(),
+                    pass: v.pass,
+                    reason: v.reason.clone(),
+                    ran_at_ms: chrono::Utc::now().timestamp_millis(),
+                    duration_ms: outcome.duration_ms,
+                };
+                if let Err(e) = karl_cdlc::write_result(&repo_root, &skill, &result) {
+                    tracing::warn!(target: "cdlc", error = %e, "write_result failed");
+                }
+                emit_progress(&app, &skill, &ev.id, if v.pass { "pass" } else { "fail" }, &v.reason);
+            }
+            Err(e) => emit_progress(&app, &skill, &ev.id, "error", &e),
+        }
+    }
+    emit_progress(&app, &skill, "", "done", "");
+    Ok(())
+}
+
+/// Per-skill `(passed,total)` for the Loop, read from eval-results.json.
+#[tauri::command]
+pub async fn cdlc_eval_summary(cwd: String) -> Result<Vec<EvalSkillSummary>, String> {
+    let repo_root = std::path::PathBuf::from(&cwd);
+    let all = karl_cdlc::read_results(&repo_root);
+    Ok(all
+        .into_iter()
+        .map(|(skill, inner)| {
+            let passed = inner.values().filter(|r| r.pass).count();
+            EvalSkillSummary { skill, passed, total: inner.len() }
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
