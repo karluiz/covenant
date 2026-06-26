@@ -1281,6 +1281,28 @@ export async function gitChanges(cwd: string): Promise<Changes> {
   return invoke<Changes>("git_changes", { cwd });
 }
 
+// Beacon — GitHub deployments sidebar ----------------------------------
+
+export type BeaconEnv = {
+  environment: string;
+  state: string; // success | failure | in_progress | pending | error | inactive
+  description: string | null;
+  target_url: string | null;
+  sha: string;
+  creator: string | null;
+  updated_at: string;
+};
+
+export type BeaconState =
+  | { kind: "not_authed" }
+  | { kind: "no_repo" }
+  | { kind: "ok"; repo: string; envs: BeaconEnv[] }
+  | { kind: "error"; message: string };
+
+export async function beaconDeployments(cwd: string): Promise<BeaconState> {
+  return invoke<BeaconState>("beacon_deployments", { cwd });
+}
+
 // CDLC — local Covenant Dependency Lifecycle Catalog ------------------
 
 export interface InstalledRef {
