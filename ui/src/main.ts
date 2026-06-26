@@ -57,6 +57,8 @@ import { ShortcutsPanel } from "./shortcuts/panel";
 import { GlobalSearchPalette } from "./search/palette";
 import { TaskerPanel } from "./tasker/panel";
 import { mountResourcesPanel } from "./resources/panel";
+import "./beacon/beacon.css";
+import { BeaconPanel } from "./beacon/panel";
 import { resourcesSetActive, resourcesSampleNow, onResourcesUpdate } from "./api";
 import { SettingsPanel } from "./settings/panel";
 import { CapabilitiesPanel } from "./capabilities/panel";
@@ -524,6 +526,7 @@ async function boot(): Promise<void> {
   const teammateBtn = document.getElementById("titlebar-view-teammate");
   const taskerBtn = document.getElementById("titlebar-tasker");
   const resourcesBtn = document.getElementById("titlebar-resources");
+  const beaconBtn = document.getElementById("titlebar-beacon");
   const cdlcBtn = document.getElementById("titlebar-cdlc");
   type SidebarTitlebarView = "blocks" | "structure" | "activity" | "recall";
   const ACTIVITY_KEY = "covenant.sidebar-view-activity";
@@ -542,6 +545,7 @@ async function boot(): Promise<void> {
     teammate: teammateBtn,
     tasker: taskerBtn,
     resources: resourcesBtn,
+    beacon: beaconBtn,
   };
 
   const highlightRail = (target: RailTarget | null): void => {
@@ -579,6 +583,9 @@ async function boot(): Promise<void> {
       case "resources":
         openResourcesPanel();
         break;
+      case "beacon":
+        openBeaconPanel();
+        break;
     }
   };
 
@@ -598,6 +605,9 @@ async function boot(): Promise<void> {
         break;
       case "resources":
         closeResourcesPanel();
+        break;
+      case "beacon":
+        closeBeaconPanel();
         break;
       // Views (blocks/structure/activity/recall) need no teardown — folding
       // hides the rail; the view content stays rendered underneath.
@@ -826,6 +836,30 @@ async function boot(): Promise<void> {
     taskerBtn.innerHTML = Icons.checklist({ size: 14 });
     attachTooltip(taskerBtn, "Tasker (⌘⌥K)");
     taskerBtn.addEventListener("click", () => rail.toggle("tasker"));
+  }
+
+  // Beacon sidebar — GitHub deployment status for the active repo.
+  const beaconPanelHost = requireEl<HTMLElement>("beacon-panel");
+  const beaconPanel = new BeaconPanel(beaconPanelHost, {
+    getCwd: () => manager.activeCwd(),
+    onClose: () => rail.toggle("beacon"),
+  });
+  const closeBeaconPanel = (): void => {
+    if (!document.body.classList.contains("sidebar-view-beacon")) return;
+    document.body.classList.remove("sidebar-view-beacon");
+    beaconPanelHost.classList.add("hidden");
+    beaconPanel.close();
+  };
+  const openBeaconPanel = (): void => {
+    document.body.classList.add("sidebar-view-beacon");
+    beaconPanelHost.classList.remove("hidden");
+    beaconPanel.render();
+  };
+
+  if (beaconBtn) {
+    beaconBtn.innerHTML = Icons.radioTower({ size: 14 });
+    attachTooltip(beaconBtn, "Beacon");
+    beaconBtn.addEventListener("click", () => rail.toggle("beacon"));
   }
 
   // Resources sidebar — per-session CPU/memory usage. Mirrors the Tasker
