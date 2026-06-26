@@ -201,10 +201,14 @@ pub fn parse_verdict(text: &str) -> Option<Verdict> {
         (None, Some(_)) => false,
         (None, None) => return None,
     };
-    // Reason: the remainder after the first line, trimmed of separators.
+    // Reason: the remainder after the first NON-EMPTY line, trimmed of separators.
+    // Using skip(1) would be wrong if there are leading blank lines — it would
+    // include the verdict line itself in the reason. Instead we find the index
+    // of the first non-empty line and skip past it.
+    let first_non_empty_idx = text.lines().position(|l| !l.trim().is_empty()).unwrap_or(0);
     let reason = text
         .lines()
-        .skip(1)
+        .skip(first_non_empty_idx + 1)
         .collect::<Vec<_>>()
         .join(" ")
         .trim()
@@ -288,7 +292,8 @@ fn emit_progress(app: &AppHandle, skill: &str, eval_id: &str, status: &str, reas
 
 /// Run every eval for `skill`: harness → judge → persist → emit. Sequential
 /// (each eval is a full agent run + a judge call — slow and expensive on
-/// purpose). Aborts the remaining evals if claude is unavailable.
+/// purpose). Aborts the whole run only if claude is not installed; a per-eval
+/// transient failure (non-zero exit, empty stdout) skips that eval and continues.
 #[tauri::command]
 pub async fn cdlc_run_evals(
     app: AppHandle,
@@ -302,16 +307,24 @@ pub async fn cdlc_run_evals(
         emit_progress(&app, &skill, "", "done", "no evals found");
         return Ok(());
     }
+    // Global precondition: claude must be on PATH. Check once so a missing CLI
+    // gives a single clean abort instead of N per-eval skips.
+    let available = tokio::task::spawn_blocking(claude_available).await.unwrap_or(false);
+    if !available {
+        emit_progress(&app, &skill, "", "skipped", "claude CLI not found on PATH");
+        emit_progress(&app, &skill, "", "done", "");
+        return Ok(());
+    }
     let settings = state.settings.clone();
     for ev in evals {
         emit_progress(&app, &skill, &ev.id, "running", "");
         let outcome = run_harness(&repo_root, &skill, &ev.scenario).await;
         match outcome.status {
             HarnessStatus::Skipped(reason) => {
+                // Per-eval transient (non-zero exit, empty stdout, sandbox failure):
+                // skip this one eval and continue with the rest.
                 emit_progress(&app, &skill, &ev.id, "skipped", &reason);
-                // claude missing / sandbox failure applies to all evals — stop.
-                emit_progress(&app, &skill, "", "done", "");
-                return Ok(());
+                continue;
             }
             HarnessStatus::TimedOut => {
                 emit_progress(&app, &skill, &ev.id, "error", "harness timed out");

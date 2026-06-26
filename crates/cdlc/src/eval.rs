@@ -115,9 +115,13 @@ pub fn write_result(repo_root: &Path, skill: &str, result: &EvalResult) -> std::
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
     // Atomic write: write to a sibling .tmp then rename over the target.
+    // On rename failure, best-effort remove the .tmp so it does not linger.
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, &json)?;
-    std::fs::rename(&tmp_path, &path)
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        e
+    })
 }
 
 /// `(passed, total)` over stored results for `skill`; `None` if none yet.
