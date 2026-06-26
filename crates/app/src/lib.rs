@@ -12,11 +12,8 @@
 mod aom;
 mod archetypes;
 mod browser;
-<<<<<<< HEAD
 mod capabilities_commands;
-=======
 mod cdlc_eval;
->>>>>>> feat/cdlc-eval-runner-a
 mod cdlc_registry;
 pub mod cloud_sync;
 mod connectivity;
