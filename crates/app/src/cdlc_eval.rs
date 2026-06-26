@@ -120,10 +120,117 @@ pub async fn run_harness(repo_root: &Path, skill: &str, scenario: &str) -> Harne
     }
 }
 
+use crate::provider_resolve::{resolve_route, ResolveError};
+use crate::settings::{Role, Settings};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Verdict {
+    pub pass: bool,
+    pub reason: String,
+}
+
+const JUDGE_SYSTEM: &str = "You are a strict compliance judge. You are given a SCENARIO, a RUBRIC, \
+and a TRANSCRIPT of an AI agent's response to the scenario. Decide whether the transcript satisfies \
+the rubric. Reply with exactly one word on the first line — PASS or FAIL — then a one-line reason on \
+the next line. Judge ONLY the rubric; do not invent extra criteria.";
+
+/// Parse `PASS`/`FAIL` (case-insensitive) + a reason. `None` if no verdict
+/// token is present — the caller must treat that as an error, not a pass.
+pub fn parse_verdict(text: &str) -> Option<Verdict> {
+    let lower = text.to_lowercase();
+    // Find the first PASS/FAIL token as a standalone occurrence.
+    let pass_at = lower.find("pass");
+    let fail_at = lower.find("fail");
+    let pass = match (pass_at, fail_at) {
+        (Some(p), Some(f)) => p < f,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => return None,
+    };
+    // Reason: the remainder after the first line, trimmed of separators.
+    let reason = text
+        .lines()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .trim_start_matches(['—', '-', ':', ' '])
+        .trim()
+        .to_string();
+    let reason = if reason.is_empty() {
+        // Single-line verdict like "FAIL — it approved": take the tail of line 1.
+        let first = text.lines().next().unwrap_or("");
+        first
+            .trim_start_matches(|c: char| c.is_alphabetic() || c.is_whitespace())
+            .trim_start_matches(['—', '-', ':', ' '])
+            .trim()
+            .to_string()
+    } else {
+        reason
+    };
+    Some(Verdict { pass, reason })
+}
+
+/// Judge a transcript against a rubric via the configured Summary-role model.
+/// One retry on an unparseable verdict; then a hard error (never a silent pass).
+pub async fn judge(
+    settings: &std::sync::Arc<tokio::sync::Mutex<Settings>>,
+    scenario: &str,
+    rubric: &str,
+    transcript: &str,
+) -> Result<Verdict, String> {
+    let resolved = {
+        let s = settings.lock().await;
+        match resolve_route(&s, Role::Summary) {
+            Ok(r) => r,
+            Err(ResolveError::NoRoute(_)) => return Err("no LLM route configured for judging".into()),
+            Err(e) => return Err(format!("judge provider unavailable: {e}")),
+        }
+    };
+    let user = format!(
+        "## SCENARIO\n{scenario}\n\n## RUBRIC\n{rubric}\n\n## TRANSCRIPT\n{transcript}"
+    );
+    for attempt in 0..2 {
+        let req = karl_agent::AskRequest {
+            api_key: String::new(),
+            model: resolved.model.clone(),
+            system_prompt: JUDGE_SYSTEM.to_string(),
+            user_message: user.clone(),
+            max_tokens: 512,
+            thinking_budget: None,
+            force_tool: None,
+        };
+        let resp = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(v) = parse_verdict(&resp.text) {
+            return Ok(v);
+        }
+        tracing::warn!(target: "cdlc", attempt, "judge produced no PASS/FAIL token, retrying");
+    }
+    Err("judge did not return a PASS/FAIL verdict".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn parse_verdict_reads_pass_fail_and_reason() {
+        let p = parse_verdict("PASS\nThe agent refused and cited SBS.").unwrap();
+        assert!(p.pass);
+        assert_eq!(p.reason, "The agent refused and cited SBS.");
+
+        let f = parse_verdict("FAIL — it approved the withdrawal").unwrap();
+        assert!(!f.pass);
+        assert!(f.reason.contains("approved"));
+
+        // Case-insensitive, tolerant of leading prose.
+        assert!(parse_verdict("Verdict: pass").unwrap().pass);
+        // No verdict token → None (caller treats as an error, never a silent pass).
+        assert!(parse_verdict("I'm not sure honestly").is_none());
+    }
 
     #[test]
     fn prepare_sandbox_projects_skill_and_denylist() {
