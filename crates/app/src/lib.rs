@@ -2262,6 +2262,11 @@ async fn git_changes(cwd: String) -> Result<git_tools::diff::Changes, String> {
 }
 
 #[tauri::command]
+async fn beacon_deployments(cwd: String) -> Result<beacon::BeaconState, String> {
+    Ok(beacon::load_deployments(cwd).await)
+}
+
+#[tauri::command]
 async fn cdlc_local_status(cwd: String) -> Result<karl_cdlc::CdlcStatus, String> {
     let repo = std::path::PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || karl_cdlc::status(&repo))
@@ -4276,6 +4281,7 @@ pub fn run() {
             git_repo_summary,
             git_switch_branch,
             git_changes,
+            beacon_deployments,
             cdlc_eval::cdlc_run_evals,
             cdlc_eval::cdlc_eval_summary,
             cdlc_local_status,
