@@ -220,10 +220,15 @@ export class SettingsPanel {
   public onClosed: (() => void) | null = null;
 
   /// Optional callback fired when the user clicks "Show tour again"
-  /// from the Covenant section of Settings. Wired by main to the
-  /// onboarding wizard; main owns the reset + reopen flow so the
-  /// `SettingsPanel` stays decoupled from `onboarding/panel`.
-  public onShowTour: (() => Promise<void> | void) | null = null;
+  /// or "Preview" in the Covenant section of Settings. Wired by main
+  /// to the onboarding wizard; main owns the reset + reopen flow so
+  /// the `SettingsPanel` stays decoupled from `onboarding/panel`.
+  /// `opts.preview: true` opens the wizard without clearing the
+  /// completion flag — used by the QA / demo button so a tester can
+  /// replay the tour without losing their "I've done this" stamp.
+  public onShowTour:
+    | ((opts?: { preview?: boolean }) => Promise<void> | void)
+    | null = null;
 
   /// Return the serialized tab manifest so the user can export their
   /// workspace from this panel. Wired by main.ts.
@@ -1052,10 +1057,13 @@ export class SettingsPanel {
           <div class="settings-field">
             <span class="settings-label">First-run tour</span>
             <div class="settings-input-row">
-              <button type="button" class="settings-toggle" data-action="show-tour">${Icons.refresh({ size: 14 })}<span>Show tour again</span></button>
+              <button type="button" class="settings-save onboarding-replay" data-action="show-tour">${Icons.refresh({ size: 14 })}<span>Show tour again</span></button>
+              <button type="button" class="settings-toggle" data-action="preview-tour">${Icons.play({ size: 14 })}<span>Preview (no reset)</span></button>
             </div>
             <small class="settings-hint">
-              Resets the completion flag and pops the 4-step welcome wizard. Completing it stamps a fresh version so future updates can re-show it.
+              <strong>Show tour again</strong> clears your completion flag and pops the 10-step welcome wizard — finishing it stamps a fresh version so future updates can re-show it.
+              <br />
+              <strong>Preview</strong> opens the wizard without touching persisted state, for QA and demos.
             </small>
           </div>
           <h3 class="settings-section-title">Metrics</h3>
@@ -1120,6 +1128,15 @@ export class SettingsPanel {
               tuned, so expect occasional redraw glitches when resizing panes.
             </small>
           </label>
+          <div class="settings-field settings-field-row">
+            <span class="settings-label">Onboarding wizard</span>
+            <div class="settings-input-row">
+              <button type="button" class="settings-toggle" data-action="start-onboarding">${Icons.play({ size: 14 })}<span>Start onboarding</span></button>
+            </div>
+            <small class="settings-hint">
+              Pops the 10-step welcome wizard in preview mode — your completion flag is preserved so you can replay this as many times as you want without re-sealing. For QA + leave-feedback workflow.
+            </small>
+          </div>
         </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
@@ -1676,6 +1693,31 @@ export class SettingsPanel {
       }
       this.close();
       void this.onShowTour();
+    });
+    // "Preview (no reset)" — same hook but without the persisted
+    // reset. Lets QA / demos replay the wizard without losing the
+    // user's "I've done this" stamp.
+    const previewTourBtn = form.querySelector<HTMLButtonElement>('button[data-action="preview-tour"]');
+    previewTourBtn?.addEventListener("click", () => {
+      if (!this.onShowTour) {
+        pushInfoToast({ message: "Tour not available." });
+        return;
+      }
+      this.close();
+      void this.onShowTour({ preview: true });
+    });
+    // "Start onboarding" — Experimental entry point. Same preview
+    // behavior as the Covenant tab's Preview button. Surfaced here so
+    // QA + leave-feedback can find it in one click without scrolling
+    // through the rest of the settings tree.
+    const startOnboardingBtn = form.querySelector<HTMLButtonElement>('button[data-action="start-onboarding"]');
+    startOnboardingBtn?.addEventListener("click", () => {
+      if (!this.onShowTour) {
+        pushInfoToast({ message: "Tour not available." });
+        return;
+      }
+      this.close();
+      void this.onShowTour({ preview: true });
     });
     wsExportBtn?.addEventListener("click", async () => {
       if (!this.onExportWorkspace) {

@@ -1549,10 +1549,14 @@ async function boot(): Promise<void> {
   } else if (ReleasePanel.lastSeenVersion() !== __APP_VERSION__) {
     release.openWhatsNew();
   }
-  // Settings → "Show tour again" reaches the wizard through this
-  // hook. Decouples `SettingsPanel` from the onboarding module.
-  settings.onShowTour = async () => {
-    await resetOnboarding();
+  // Settings → "Show tour again" / "Preview" reach the wizard through
+  // this hook. `preview: true` skips the reset so QA + demos can
+  // replay without nuking the user's completion stamp. Decouples
+  // `SettingsPanel` from the onboarding module.
+  settings.onShowTour = async (opts) => {
+    if (!opts?.preview) {
+      await resetOnboarding();
+    }
     onboarding.open();
   };
   const recallPalette = new RecallPalette(

@@ -154,35 +154,49 @@ describe("OnboardingPanel", () => {
     expect(panel.isOpen()).toBe(true);
     const card = document.querySelector(".onboarding-card");
     expect(card).not.toBeNull();
-    expect(card?.textContent).toContain("Welcome to Covenant");
+    expect(card?.textContent).toContain("Meet Covenant");
     expect(card?.querySelector(".onboarding-primary")).not.toBeNull();
     expect(card?.querySelector(".onboarding-skip")).not.toBeNull();
+    // Hero icon rendered as inline SVG inside the hero container.
+    expect(card?.querySelector(".onboarding-hero svg")).not.toBeNull();
   });
 
-  it("uses the shared settings-save / settings-cancel classes on step buttons", () => {
-    // Regression guard: the wizard's primary/secondary actions must
-    // re-use the same button styling as every other primary/secondary
-    // in the app, so the wizard looks like part of Covenant and not a
-    // bolted-on third-party dialog.
+  it("primary CTA has its own bespoke class (not a shared settings button)", () => {
+    // The wizard's primary button is the marketing CTA — it has its
+    // own visual identity (gradient + halo + arrow icon) and must NOT
+    // regress to a shared .settings-save pill. Regression guard.
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
-    // Welcome step has a primary + secondary.
     const card = document.querySelector(".onboarding-card")!;
     const primary = card.querySelector<HTMLButtonElement>(".onboarding-primary");
     const secondary = card.querySelector<HTMLButtonElement>(".onboarding-secondary");
-    expect(primary?.classList.contains("settings-save")).toBe(true);
-    expect(secondary?.classList.contains("settings-cancel")).toBe(true);
+    expect(primary).not.toBeNull();
+    expect(secondary).not.toBeNull();
+    expect(primary?.classList.contains("settings-save")).toBe(false);
+    expect(secondary?.classList.contains("settings-cancel")).toBe(false);
   });
 
-  it("exposes all 9 steps in the expected order", () => {
+  it("renders 10 steps with a progress bar that fills as we advance", () => {
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
-    const card = document.querySelector(".onboarding-card")!;
-    // 9 steps → 9 dots. Sanity check on the chrome.
-    const dots = card.querySelectorAll(".onboarding-dot");
-    expect(dots.length).toBe(9);
+    // Re-query after each render — renderStep replaces innerHTML, so
+    // the previously-cached `.onboarding-progress` node is orphaned.
+    const readProgress = (): string | null => {
+      const el = document.querySelector<HTMLElement>(".onboarding-progress");
+      return el?.style.getPropertyValue("--progress") ?? null;
+    };
+    // Step 1 of 10 → 10%
+    expect(readProgress()).toBe("10%");
+
+    for (let i = 0; i < 5; i += 1) {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    }
+    // Step 6 of 10 → 60%
+    expect(readProgress()).toBe("60%");
   });
 
   it("arrow keys navigate between steps", () => {
@@ -190,7 +204,7 @@ describe("OnboardingPanel", () => {
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
     const card = document.querySelector(".onboarding-card")!;
-    expect(card.textContent).toContain("Welcome to Covenant");
+    expect(card.textContent).toContain("Meet Covenant");
 
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
@@ -367,7 +381,7 @@ describe("OnboardingPanel", () => {
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
 
-    // 0 → ... → 8 (Keyboard, last step)
+    // 0 → ... → 8 (Keyboard, second-to-last step)
     for (let i = 0; i < 8; i += 1) {
       document.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
@@ -375,7 +389,7 @@ describe("OnboardingPanel", () => {
     }
     const card = document.querySelector(".onboarding-card")!;
     expect(card.textContent).toContain("Learn the keyboard");
-    expect(card.textContent).toContain("last step");
+    expect(card.textContent).toContain("Step 8 of 9");
 
     card
       .querySelector<HTMLButtonElement>(".onboarding-primary")!
@@ -386,39 +400,57 @@ describe("OnboardingPanel", () => {
     expect(panel.isOpen()).toBe(false);
   });
 
-  it("step progress text reflects the current step number", () => {
+  it("step 10 (Done) closes the wizard without firing a handler", async () => {
+    // The final step is a "you're set up" moment with no CTA handler —
+    // clicking it just calls `next()`, which on the last step calls
+    // `finish(true)`. No handler counter should increment.
+    const h = makeHandlers();
+    const panel = new OnboardingPanel(document.body, h);
+    panel.open();
+
+    // Step 0 (Welcome) → 1 → 2 → ... → 9 (final).
+    for (let i = 0; i < 9; i += 1) {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    }
+    const card = document.querySelector(".onboarding-card")!;
+    expect(card.textContent).toContain("You're set up");
+    expect(card.textContent).toContain("Step 9 of 9");
+
+    card
+      .querySelector<HTMLButtonElement>(".onboarding-primary")!
+      .click();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(panel.isOpen()).toBe(false);
+  });
+
+  it("footer step counter shows N / 10 for every step", () => {
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
     const card = document.querySelector(".onboarding-card")!;
-    expect(card.textContent).toContain("Step 1 of 9");
+    expect(card.querySelector(".onboarding-step")?.textContent).toBe("1 / 10");
 
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
     );
-    expect(card.textContent).toContain("Step 2 of 9");
+    expect(card.querySelector(".onboarding-step")?.textContent).toBe("2 / 10");
+  });
+
+  it("eyebrow reflects the current step context", () => {
+    const h = makeHandlers();
+    const panel = new OnboardingPanel(document.body, h);
+    panel.open();
+    const card = document.querySelector(".onboarding-card")!;
+    expect(card.querySelector(".onboarding-eyebrow")?.textContent).toBe("Welcome");
 
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
     );
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    expect(card.querySelector(".onboarding-eyebrow")?.textContent).toBe(
+      "Step 1 of 9 · Setup",
     );
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    );
-    expect(card.textContent).toContain("Step 9 of 9");
   });
 });

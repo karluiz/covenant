@@ -10,6 +10,7 @@
 // completed an older version of it.
 
 import { getSettings, type Settings } from "../api";
+import { Icons } from "../icons";
 
 /// Bump this whenever the wizard's content changes meaningfully. Existing
 /// users with a lower stamped `onboarding_version` will see the wizard
@@ -19,8 +20,17 @@ export const ONBOARDING_VERSION = 1;
 const STORAGE_KEY = "covenant.onboarding.completed";
 
 type Step = {
+  /// Short label rendered as an "eyebrow" tag above the title.
+  /// Example: "STEP 1 OF 9" or "GET STARTED".
+  eyebrow: string;
   title: string;
   body: string;
+  /// Inline SVG markup for the hero icon. Rendered at 28px.
+  icon: string;
+  /// Tint applied to the icon via `color-mix` from `--accent`. Default
+  /// `100%` (full accent). The last step uses `60%` to read as
+  /// "completion" rather than "call to action".
+  iconTint?: number;
   cta: { label: string; run: () => void; persist: boolean } | null;
   secondary: { label: string; run: () => void } | null;
 };
@@ -192,14 +202,18 @@ export class OnboardingPanel {
     const h = this.handlers;
     return [
       {
-        title: "Welcome to Covenant",
-        body: "Covenant is an AI-native terminal that watches every command you run across all tabs, can answer questions about what's going on, and — under your explicit policy — can type on your behalf. A short tour will get you from install to first magic moment in nine steps.",
+        eyebrow: "Welcome",
+        title: "Meet Covenant",
+        body: "Covenant is an AI-native terminal that watches every command you run across all tabs, answers questions about what's going on, and — under your explicit policy — can type on your behalf. This nine-step tour will get you from install to first magic moment in under two minutes.",
+        icon: Icons.covenant({ size: 28 }),
         cta: { label: "Take the tour", run: () => this.next(), persist: false },
         secondary: { label: "Skip for now", run: () => void this.finish(false) },
       },
       {
+        eyebrow: "Step 1 of 9 · Setup",
         title: "Connect a model provider",
         body: "Covenant is BYOK: you bring your own Anthropic, OpenAI, OpenRouter, or local-Ollama key. The super-agent, Operator decisions, and AOM all use whatever you configure here.",
+        icon: Icons.gear({ size: 28 }),
         cta: {
           label: "Open Settings → Providers",
           run: () => {
@@ -211,8 +225,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 2 of 9 · Ask anything",
         title: "Meet the super-agent",
         body: "Press ⌘K from anywhere to ask natural-language questions about your sessions, errors, and recent commands. The agent streams an explanation and proposes the next command when it makes sense.",
+        icon: Icons.sparkles({ size: 28 }),
         cta: {
           label: "Open super-agent (⌘K)",
           run: () => {
@@ -224,8 +240,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 3 of 9 · History",
         title: "See the Blocks sidebar",
         body: "Every command you run becomes a structured block in the right rail — exit-code color, click-to-copy, right-click actions, and an inline fix-proposal from the agent when something fails. The rail is folded by default so first paint stays calm.",
+        icon: Icons.terminalSquare({ size: 28 }),
         cta: {
           label: "Open Blocks rail",
           run: () => {
@@ -237,8 +255,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 4 of 9 · Autonomous",
         title: "Try AOM in preview",
         body: "AOM (Autonomous Operator Mode) is Covenant's overnight posture: a single ⌘⇧A engage turns the Operator loose across all tabs under a USD budget cap, then writes a morning report. We'll preview the engage splash now — AOM itself stays off until you press ⌘⇧A for real.",
+        icon: Icons.zap({ size: 28 }),
         cta: {
           label: "Preview AOM splash",
           run: () => {
@@ -249,8 +269,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 5 of 9 · Per-group",
         title: "Open Project Notes",
         body: "Project Notes (⌘⇧J) is a per-group scratchpad with five tabs: Commands, Prompts, Notes, Docs, and Drafts. The Drafts tab is the on-ramp to Spec-chat — every spec you publish lands here as a draft that becomes a tab mission.",
+        icon: Icons.clipboard({ size: 28 }),
         cta: {
           label: "Open Project Notes",
           run: () => {
@@ -262,8 +284,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 6 of 9 · AI-assisted",
         title: "Draft a spec with AI",
         body: "Press ⌘N to open the Spec-chat entrance — a guided dialogue where the model helps you turn a vague goal into a structured spec (Goal, Acceptance criteria, Complexity, etc.). Published specs become tab missions the Operator uses to gate its decisions.",
+        icon: Icons.fileText({ size: 28 }),
         cta: {
           label: "Open Spec-chat (⌘N)",
           run: () => {
@@ -275,8 +299,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 7 of 9 · One-click",
         title: "Spawn an executor",
         body: "The Spawns chip in the titlebar launches Claude Code, Codex, Pi, or any other configured executor into the active PTY. Click the caret to pick, click the play button to quick-run. Ctrl+1..9 are the keyboard shortcuts.",
+        icon: Icons.play({ size: 28 }),
         cta: {
           label: "Open spawns picker",
           run: () => {
@@ -288,8 +314,10 @@ export class OnboardingPanel {
         secondary: { label: "Back", run: () => this.prev() },
       },
       {
+        eyebrow: "Step 8 of 9 · You're almost done",
         title: "Learn the keyboard",
         body: "Everything in Covenant is reachable from the keyboard. The shortcuts modal groups them by Navigation, Tabs, Panels, Operator & AI, AOM, and Misc — open it any time.",
+        icon: Icons.check({ size: 28 }),
         cta: {
           label: "Show all shortcuts",
           run: () => {
@@ -299,6 +327,15 @@ export class OnboardingPanel {
           persist: true,
         },
         secondary: { label: "Back", run: () => this.prev() },
+      },
+      {
+        eyebrow: "Step 9 of 9 · Ready",
+        title: "You're set up",
+        body: "That's the tour. The full keyboard reference is one ⌘⇧K away, the docs hub is ⌘?, and Settings → Covenant → Show tour again will replay this if you want a refresher later. Welcome aboard.",
+        icon: Icons.check({ size: 28 }),
+        iconTint: 60,
+        cta: { label: "Start using Covenant", run: () => this.next(), persist: false },
+        secondary: null,
       },
     ];
   }
@@ -311,42 +348,38 @@ export class OnboardingPanel {
     const card = this.modal.querySelector(".onboarding-card");
     if (!card) return;
 
-    const dots = steps
-      .map(
-        (_, i) =>
-          `<span class="onboarding-dot${
-            i === this.stepIndex ? " is-active" : ""
-          }"></span>`,
-      )
-      .join("");
+    // Step progress as a thin fill bar. Width driven by
+    // `--progress` so CSS can animate it on transition.
+    const progressPct = ((this.stepIndex + 1) / total) * 100;
 
     const cta = step.cta
-      ? `<button type="button" class="onboarding-primary settings-save">${esc(
-          step.cta.label,
-        )}</button>`
+      ? `<button type="button" class="onboarding-primary">${Icons.arrowRight(
+          { size: 14 },
+        )}<span>${esc(step.cta.label)}</span></button>`
       : "";
     const secondary = step.secondary
-      ? `<button type="button" class="onboarding-secondary settings-cancel">${esc(
+      ? `<button type="button" class="onboarding-secondary">${esc(
           step.secondary.label,
         )}</button>`
       : "";
 
+    const tint = step.iconTint ?? 100;
     card.innerHTML = `
-      <header class="release-header">
-        <div>
-          <h2>${esc(step.title)}</h2>
-          <small class="release-subtitle">Step ${this.stepIndex + 1} of ${total} · ${
-            this.stepIndex + 1 === total ? "last step" : "use ← → to navigate"
-          }</small>
-        </div>
-        <button type="button" class="release-close onboarding-skip" aria-label="Skip onboarding">Skip</button>
+      <div class="onboarding-progress" style="--progress:${progressPct}%"></div>
+      <header class="onboarding-header">
+        <span class="onboarding-eyebrow">${esc(step.eyebrow)}</span>
+        <button type="button" class="onboarding-skip" aria-label="Skip onboarding">Skip</button>
       </header>
-      <div class="release-body onboarding-body">
-        <p>${esc(step.body)}</p>
+      <div class="onboarding-body">
+        <div class="onboarding-hero" style="--icon-tint:${tint}%">
+          ${step.icon}
+        </div>
+        <h2 class="onboarding-title">${esc(step.title)}</h2>
+        <p class="onboarding-copy">${esc(step.body)}</p>
       </div>
       <footer class="onboarding-footer">
-        <div class="onboarding-dots">${dots}</div>
         <div class="onboarding-actions">${secondary}${cta}</div>
+        <span class="onboarding-step">${this.stepIndex + 1} / ${total}</span>
       </footer>
     `;
 
