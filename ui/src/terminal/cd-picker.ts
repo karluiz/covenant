@@ -1,9 +1,8 @@
 import type { Terminal } from "@xterm/xterm";
 import { structureListDir, type DirEntry } from "../api";
 import { Icons } from "../icons";
-import { homeFromCwd, resolveCdArg, filterDirs } from "./cd-resolve";
+import { homeFromCwd, resolveCdArg, filterDirs, parseCdLine } from "./cd-resolve";
 
-const CD_RE = /^cd\s+(.*)$/s;
 const DEBOUNCE_MS = 120;
 
 // POSIX single-quote escaping: ' -> '\''
@@ -125,9 +124,8 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   return {
     get visible() { return visible; },
     update(bare, line, cwd): void {
-      const m = bare ? CD_RE.exec(line) : null;
-      if (!m) { cancel(); if (visible) hide(); return; }
-      const arg = m[1];
+      const arg = bare ? parseCdLine(line) : null;
+      if (arg === null) { cancel(); if (visible) hide(); return; }
       const resolved = resolveCdArg(arg, cwd, homeFromCwd(cwd));
       if (!resolved) { cancel(); if (visible) hide(); return; }
       if (timer) clearTimeout(timer);

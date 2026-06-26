@@ -1,5 +1,15 @@
 import type { DirEntry } from "../api";
 
+/**
+ * Parse a shell line into the `cd` argument, or null if it isn't a `cd`
+ * command. Must run on the RAW (untrimmed) line: `cd ` (trailing space) is
+ * the browse-current-dir trigger and yields "". `cd`/`cdk deploy` → null.
+ */
+export function parseCdLine(line: string): string | null {
+  const m = /^cd\s+(.*)$/s.exec(line);
+  return m ? m[1] : null;
+}
+
 /** Derive the home dir from a cwd under /Users/<n> or /home/<n>. No $HOME env on the frontend. */
 // ponytail: derive ~ from cwd prefix instead of a Tauri round-trip; covers the only two macOS/Linux shapes.
 export function homeFromCwd(cwd: string | null): string | null {

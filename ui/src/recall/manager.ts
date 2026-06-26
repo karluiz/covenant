@@ -158,6 +158,12 @@ export class RecallManager {
     return this.buffer.trim();
   }
 
+  /// The raw shadow buffer, untrimmed. The cd-picker needs the trailing
+  /// space (`cd ` triggers the browse-current-dir case, which trim() eats).
+  rawLine(): string {
+    return this.buffer;
+  }
+
   /// Whether the Recall sidebar is currently showing results.
   isVisible(): boolean {
     return this.visible;

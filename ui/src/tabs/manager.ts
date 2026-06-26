@@ -3654,7 +3654,9 @@ export class TabManager {
           shouldHint({ bareShell: true, recallVisible: !!recall?.isVisible(), line }),
           line,
         );
-        cdPicker.update(true, line, activePane(tab).cwd);
+        // cd-picker needs the UNtrimmed line: `cd ` (trailing space) is the
+        // browse-current-dir trigger that currentLine()'s trim() would eat.
+        cdPicker.update(true, recall?.rawLine() ?? "", activePane(tab).cwd);
       } else {
         promptHint.update(false, "");
         cdPicker.update(false, "", null);

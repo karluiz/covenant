@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { homeFromCwd, resolveCdArg, filterDirs } from "./cd-resolve";
+import { homeFromCwd, resolveCdArg, filterDirs, parseCdLine } from "./cd-resolve";
 import type { DirEntry } from "../api";
+
+describe("parseCdLine", () => {
+  it("bare 'cd ' (trailing space) triggers with empty arg", () => expect(parseCdLine("cd ")).toBe(""));
+  it("captures the path arg", () => expect(parseCdLine("cd src/comp")).toBe("src/comp"));
+  it("'cd' without a space is not a trigger", () => expect(parseCdLine("cd")).toBeNull());
+  it("does not match other commands starting with cd", () => expect(parseCdLine("cdk deploy")).toBeNull());
+  it("non-cd line is null", () => expect(parseCdLine("ls -la")).toBeNull());
+});
 
 const dir = (name: string): DirEntry => ({ name, path: `/x/${name}`, kind: "dir", is_symlink: false });
 const file = (name: string): DirEntry => ({ name, path: `/x/${name}`, kind: "file", is_symlink: false });
