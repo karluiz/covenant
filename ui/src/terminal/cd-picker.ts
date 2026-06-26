@@ -62,7 +62,10 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     entries.forEach((e, i) => {
       const row = document.createElement("div");
       row.className = "cd-picker-row" + (i === active ? " is-active" : "");
-      row.innerHTML = `${Icons.folder({ size: 14 })}<span>${e.name}</span>`;
+      row.innerHTML = Icons.folder({ size: 14 });
+      const span = document.createElement("span");
+      span.textContent = e.name; // escape: a dir named `<foo>` must not parse as HTML
+      row.appendChild(span);
       row.addEventListener("mousemove", () => {
         if (active !== i) { active = i; paint(); }
       });
@@ -101,9 +104,13 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
       .catch(() => { if (id === queryId) hide(); }); // bad/partial path → silent hide
   };
 
-  const reset = (): void => {
+  const cancel = (): void => {
     if (timer) { clearTimeout(timer); timer = null; }
-    queryId++;
+    queryId++; // invalidate any in-flight async query
+  };
+
+  const reset = (): void => {
+    cancel();
     hide();
   };
 
@@ -111,10 +118,10 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     get visible() { return visible; },
     update(bare, line, cwd): void {
       const m = bare ? CD_RE.exec(line) : null;
-      if (!m) { if (visible) hide(); queryId++; return; }
+      if (!m) { cancel(); if (visible) hide(); return; }
       const arg = m[1];
       const resolved = resolveCdArg(arg, cwd, homeFromCwd(cwd));
-      if (!resolved) { if (visible) hide(); queryId++; return; }
+      if (!resolved) { cancel(); if (visible) hide(); return; }
       const slash = arg.lastIndexOf("/");
       dirPart = slash >= 0 ? arg.slice(0, slash + 1) : "";
       if (timer) clearTimeout(timer);
@@ -130,7 +137,7 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
     },
     reset,
     dispose(): void {
-      if (timer) clearTimeout(timer);
+      cancel(); // clear timer + invalidate in-flight async before detaching
       el.remove();
     },
   };
