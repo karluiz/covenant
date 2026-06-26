@@ -3359,7 +3359,13 @@ body:not(.tabbar-left) #layout > #capabilities-page:not([hidden]) {
 #layout:has(> #drafts-page:not([hidden])) #tasker-panel,
 #layout:has(> #mission-page:not([hidden])) #tasker-panel,
 #layout:has(> #operator-page:not([hidden])) #tasker-panel,
-#layout:has(> #capabilities-page:not([hidden])) #tasker-panel {
+#layout:has(> #capabilities-page:not([hidden])) #tasker-panel,
+#layout:has(> #settings-page:not([hidden])) #beacon-panel,
+#layout:has(> #docs-page:not([hidden])) #beacon-panel,
+#layout:has(> #drafts-page:not([hidden])) #beacon-panel,
+#layout:has(> #mission-page:not([hidden])) #beacon-panel,
+#layout:has(> #operator-page:not([hidden])) #beacon-panel,
+#layout:has(> #capabilities-page:not([hidden])) #beacon-panel {
     display: none !important;
 }
 
@@ -3406,7 +3412,13 @@ body.tabbar-left.sidebar-view-tasker #layout:has(> #docs-page:not([hidden])),
 body.tabbar-left.sidebar-view-tasker #layout:has(> #drafts-page:not([hidden])),
 body.tabbar-left.sidebar-view-tasker #layout:has(> #mission-page:not([hidden])),
 body.tabbar-left.sidebar-view-tasker #layout:has(> #operator-page:not([hidden])),
-body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidden])) {
+body.tabbar-left.sidebar-view-tasker #layout:has(> #capabilities-page:not([hidden])),
+body.tabbar-left.sidebar-view-beacon #layout:has(> #settings-page:not([hidden])),
+body.tabbar-left.sidebar-view-beacon #layout:has(> #docs-page:not([hidden])),
+body.tabbar-left.sidebar-view-beacon #layout:has(> #drafts-page:not([hidden])),
+body.tabbar-left.sidebar-view-beacon #layout:has(> #mission-page:not([hidden])),
+body.tabbar-left.sidebar-view-beacon #layout:has(> #operator-page:not([hidden])),
+body.tabbar-left.sidebar-view-beacon #layout:has(> #capabilities-page:not([hidden])) {
     grid-template-columns: var(--tabbar-w) minmax(0, 1fr) !important;
 }
 
@@ -15679,6 +15691,34 @@ body.sidebar-view-tasker:not(.blocks-globally-collapsed) .tab-blocks {
   display: none !important;
 }
 body.sidebar-view-tasker .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
+  right: 0 !important;
+}
+
+/* Beacon sidebar — GitHub deployment status (same layout as tasker) */
+body.sidebar-view-beacon:not(.blocks-globally-collapsed):not(.tabbar-left) #layout {
+  grid-template-columns: minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-beacon:not(.blocks-globally-collapsed):not(.tabbar-left) #tabbar-host,
+body.sidebar-view-beacon:not(.blocks-globally-collapsed):not(.tabbar-left) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-beacon.tabbar-left:not(.blocks-globally-collapsed) #layout {
+  grid-template-columns: var(--tabbar-w) minmax(0, 1fr) var(--right-sidebar-w);
+}
+body.sidebar-view-beacon.tabbar-left:not(.blocks-globally-collapsed) #beacon-panel {
+  grid-row: 1 / 2;
+  grid-column: 3 / 4;
+}
+body.sidebar-view-beacon.tabbar-left:not(.blocks-globally-collapsed) #status-bar {
+  grid-column: 1 / -1;
+}
+body.sidebar-view-beacon:not(.blocks-globally-collapsed) .tab-pane {
+  grid-template-columns: 1fr 0 0 0 !important;
+}
+body.sidebar-view-beacon:not(.blocks-globally-collapsed) .tab-blocks {
+  display: none !important;
+}
+body.sidebar-view-beacon .tab-pane:has(.editor-host:not([hidden])) > .editor-host {
   right: 0 !important;
 }
 
