@@ -1752,8 +1752,8 @@ body:not(.tabbar-left) #new-group {
   pointer-events: auto;
   height: 40vh;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--bg-elev, #1b1d24) 96%, transparent);
-  border-top: 1px solid var(--line-soft, #2a2d37);
+  background: var(--bg-panel);
+  border-top: 1px solid rgba(var(--ink-rgb), 0.08);
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
   padding: 6px 8px 8px;
   font-size: 12px;
