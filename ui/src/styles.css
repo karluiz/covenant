@@ -1752,7 +1752,7 @@ body:not(.tabbar-left) #new-group {
   pointer-events: auto;
   height: 40vh;
   overflow-y: auto;
-  background: var(--bg-panel);
+  background: var(--bg-overlay);
   border-top: 1px solid rgba(var(--ink-rgb), 0.08);
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
   padding: 6px 8px 8px;
@@ -1761,7 +1761,8 @@ body:not(.tabbar-left) #new-group {
 .cd-picker-header {
   position: sticky;
   top: 0;
-  background: inherit;
+  z-index: 1;
+  background: var(--bg-overlay);
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
