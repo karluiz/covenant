@@ -1742,27 +1742,31 @@ body:not(.tabbar-left) #new-group {
 }
 .prompt-hint-sep { opacity: 0.5; margin: 0 2px; }
 
+/* Docked to the bottom of the terminal pane (not floating at the cursor). */
 .cd-picker {
   position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 7;
   pointer-events: auto;
-  min-width: 260px;
-  max-width: 520px;
-  max-height: 40vh;
+  height: 40vh;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--bg-elev, #1b1d24) 92%, transparent);
-  border: 1px solid var(--line-soft, #2a2d37);
-  border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
-  padding: 4px;
+  background: color-mix(in srgb, var(--bg-elev, #1b1d24) 96%, transparent);
+  border-top: 1px solid var(--line-soft, #2a2d37);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
+  padding: 6px 8px 8px;
   font-size: 12px;
 }
 .cd-picker-header {
+  position: sticky;
+  top: 0;
+  background: inherit;
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   opacity: 0.45;
-  padding: 5px 8px 6px;
+  padding: 4px 4px 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

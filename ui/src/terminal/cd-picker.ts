@@ -23,7 +23,9 @@ export interface CdPickerHooks {
   syncRecall: (s: string) => void;
 }
 
-export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPickerHooks): CdPicker {
+// ponytail: docked at the bottom of the term pane via CSS — no cursor anchoring,
+// so the xterm `term` handle is no longer needed.
+export function mountCdPicker(host: HTMLElement, _term: Terminal, hooks: CdPickerHooks): CdPicker {
   const enc = new TextEncoder();
   const el = document.createElement("div");
   el.className = "cd-picker";
@@ -41,17 +43,6 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   let active = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let queryId = 0; // guards against out-of-order async results
-
-  const reposition = (): void => {
-    // ponytail: same private-renderer cell read as prompt-detect.ts.
-    const core = (term as unknown as {
-      _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } };
-    })._core;
-    const cellH = core?._renderService?.dimensions?.css?.cell?.height ?? 17;
-    const cy = term.buffer.active.cursorY;
-    el.style.top = `${(cy + 1) * cellH + 4}px`;
-    el.style.left = "8px";
-  };
 
   const hide = (): void => {
     el.hidden = true;
@@ -77,7 +68,6 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
       row.addEventListener("mousedown", (ev) => { ev.preventDefault(); select(); });
       list.appendChild(row);
     });
-    reposition();
     el.hidden = false;
     visible = true;
   };
