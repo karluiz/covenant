@@ -88,6 +88,26 @@ describe("renderBeacon", () => {
     expect(root.textContent).toContain("No workflows");
   });
 
+  it("renders a sub-repo picker and fires onPick with the dir path", () => {
+    const picked: string[] = [];
+    renderBeacon(
+      root,
+      {
+        kind: "repos",
+        dirs: [
+          { path: "/x/backend", repo: "o/backend" },
+          { path: "/x/frontend", repo: "o/frontend" },
+        ],
+      },
+      (p) => picked.push(p),
+    );
+    const cards = root.querySelectorAll(".beacon-env-link");
+    expect(cards.length).toBe(2);
+    expect(root.textContent).toContain("2 sub-repos found");
+    (cards[1] as HTMLElement).click();
+    expect(picked).toEqual(["/x/frontend"]);
+  });
+
   it("renders error message", () => {
     renderBeacon(root, { kind: "error", message: "boom" });
     expect(root.textContent).toContain("boom");

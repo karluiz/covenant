@@ -24,12 +24,23 @@ pub struct WorkflowRun {
     pub updated_at: String,
 }
 
+/// A child directory that is itself a GitHub repo (for the picker).
+#[derive(Debug, Clone, Serialize)]
+pub struct SubRepo {
+    /// Absolute path to the child dir — fed back to `load_workflow_runs`.
+    pub path: String,
+    /// owner/repo label.
+    pub repo: String,
+}
+
 /// Tagged so the frontend can switch on `kind`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BeaconState {
     NotAuthed,
     NoRepo,
+    /// cwd has no GitHub remote but contains sub-repos — let the user pick one.
+    Repos { dirs: Vec<SubRepo> },
     Ok { repo: String, runs: Vec<WorkflowRun> },
     Error { message: String },
 }
@@ -73,21 +84,58 @@ fn short_sha(sha: &str) -> String {
     sha.chars().take(7).collect()
 }
 
+/// owner/repo from a directory's `origin` remote, or None (no/non-GitHub remote).
+async fn resolve_owner_repo(dir: &str) -> Option<(String, String)> {
+    let out = tokio::process::Command::new("git")
+        .args(["-C", dir, "remote", "get-url", "origin"])
+        .output()
+        .await
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let remote = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    parse_owner_repo(&remote)
+}
+
+/// Immediate child dirs of `cwd` that are GitHub repos, sorted by name.
+/// Only dirs containing a `.git` entry are probed (avoids a git spawn per folder).
+async fn scan_subrepos(cwd: &str) -> Vec<SubRepo> {
+    let Ok(rd) = std::fs::read_dir(cwd) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<std::path::PathBuf> = rd
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.join(".git").exists())
+        .collect();
+    dirs.sort();
+    let mut out = Vec::new();
+    for p in dirs.into_iter().take(50) {
+        // ponytail: bound scan; project umbrellas rarely hold >50 repos
+        let path = p.to_string_lossy().to_string();
+        if let Some((owner, repo)) = resolve_owner_repo(&path).await {
+            out.push(SubRepo { path, repo: format!("{owner}/{repo}") });
+        }
+    }
+    out
+}
+
 /// Resolve owner/repo from `cwd`'s `origin` remote, load the keychain token,
 /// and build the latest-run-per-Actions-workflow state.
 pub async fn load_workflow_runs(cwd: String) -> BeaconState {
-    // 1. owner/repo from git remote.
-    let remote = match tokio::process::Command::new("git")
-        .args(["-C", &cwd, "remote", "get-url", "origin"])
-        .output()
-        .await
-    {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        _ => return BeaconState::NoRepo,
-    };
-    let (owner, repo) = match parse_owner_repo(&remote) {
+    // 1. owner/repo from git remote. No GitHub remote here? Fall back to
+    //    offering the sub-repos under this folder (umbrella-dir case).
+    let (owner, repo) = match resolve_owner_repo(&cwd).await {
         Some(v) => v,
-        None => return BeaconState::NoRepo,
+        None => {
+            let dirs = scan_subrepos(&cwd).await;
+            return if dirs.is_empty() {
+                BeaconState::NoRepo
+            } else {
+                BeaconState::Repos { dirs }
+            };
+        }
     };
 
     // 2. token.

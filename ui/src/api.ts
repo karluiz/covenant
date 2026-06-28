@@ -1294,9 +1294,12 @@ export type BeaconRun = {
   updated_at: string;
 };
 
+export type BeaconSubRepo = { path: string; repo: string };
+
 export type BeaconState =
   | { kind: "not_authed" }
   | { kind: "no_repo" }
+  | { kind: "repos"; dirs: BeaconSubRepo[] }
   | { kind: "ok"; repo: string; runs: BeaconRun[] }
   | { kind: "error"; message: string };
 

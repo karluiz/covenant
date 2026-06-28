@@ -54,6 +54,19 @@ function notice(text: string, cls = ""): HTMLElement {
   return el;
 }
 
+/// Centered empty state for repos with no Actions workflows.
+function emptyState(title: string, hint: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "beacon-empty";
+  el.innerHTML =
+    `<div class="beacon-empty-glyph" aria-hidden="true">◎</div>` +
+    `<div class="beacon-empty-title"></div>` +
+    `<div class="beacon-empty-hint"></div>`;
+  el.querySelector(".beacon-empty-title")!.textContent = title;
+  el.querySelector(".beacon-empty-hint")!.textContent = hint;
+  return el;
+}
+
 /// Loading placeholder — shown only on the first fetch (empty body) so the
 /// 25s poll doesn't blank existing cards on every refresh.
 export function renderLoading(root: HTMLElement): void {
@@ -61,7 +74,12 @@ export function renderLoading(root: HTMLElement): void {
 }
 
 /// Pure render of a state into `root`. No fetching, no polling.
-export function renderBeacon(root: HTMLElement, state: BeaconState): void {
+/// `onPick(path)` is invoked when the user selects a sub-repo (`repos` state).
+export function renderBeacon(
+  root: HTMLElement,
+  state: BeaconState,
+  onPick?: (path: string) => void,
+): void {
   root.replaceChildren();
   switch (state.kind) {
     case "not_authed":
@@ -70,12 +88,38 @@ export function renderBeacon(root: HTMLElement, state: BeaconState): void {
     case "no_repo":
       root.appendChild(notice("No GitHub remote in this folder."));
       return;
+    case "repos": {
+      root.appendChild(
+        notice(
+          `No remote here — ${state.dirs.length} sub-repo${state.dirs.length === 1 ? "" : "s"} found. Pick one:`,
+        ),
+      );
+      for (const dir of state.dirs) {
+        const card = document.createElement("div");
+        card.className = "beacon-env beacon-env-link";
+        card.setAttribute("role", "button");
+        card.setAttribute("tabindex", "0");
+        card.textContent = dir.repo;
+        const open = () => onPick?.(dir.path);
+        card.addEventListener("click", open);
+        card.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") open();
+        });
+        root.appendChild(card);
+      }
+      return;
+    }
     case "error":
       root.appendChild(notice(state.message, "beacon-error"));
       return;
     case "ok": {
       if (state.runs.length === 0) {
-        root.appendChild(notice(`No workflows in ${state.repo}.`));
+        root.appendChild(
+          emptyState(
+            "No workflows yet",
+            `${state.repo} has no GitHub Actions. Add a workflow under .github/workflows to light up Beacon.`,
+          ),
+        );
         return;
       }
       for (const run of state.runs) {
@@ -136,6 +180,10 @@ export class BeaconPanel {
   private timer: number | null = null;
   private generation = 0;
   private body: HTMLElement;
+  /// Sub-repo the user drilled into (overrides cwd), and the cwd it was
+  /// chosen under — if cwd changes (tab switch / cd), the drill-down resets.
+  private selectedPath: string | null = null;
+  private baseCwd: string | null = null;
 
   constructor(
     host: HTMLElement,
@@ -175,7 +223,13 @@ export class BeaconPanel {
 
   private async fetch(): Promise<void> {
     const gen = ++this.generation;
-    const cwd = this.opts.getCwd();
+    const base = this.opts.getCwd();
+    // cwd moved → drop any sub-repo drill-down.
+    if (base !== this.baseCwd) {
+      this.baseCwd = base;
+      this.selectedPath = null;
+    }
+    const cwd = this.selectedPath ?? base;
     if (!cwd) {
       renderBeacon(this.body, { kind: "no_repo" });
       return;
@@ -184,11 +238,28 @@ export class BeaconPanel {
     try {
       const state = await beaconWorkflowRuns(cwd);
       if (gen !== this.generation) return; // superseded
-      renderBeacon(this.body, state);
+      renderBeacon(this.body, state, (path) => {
+        this.selectedPath = path;
+        void this.fetch();
+      });
+      if (this.selectedPath) this.prependBack();
     } catch (e) {
       if (gen !== this.generation) return;
       renderBeacon(this.body, { kind: "error", message: String(e) });
+      if (this.selectedPath) this.prependBack();
     }
+  }
+
+  /// "← sub-repos" link shown while drilled into a sub-repo.
+  private prependBack(): void {
+    const back = document.createElement("button");
+    back.className = "beacon-back";
+    back.textContent = "← sub-repos";
+    back.addEventListener("click", () => {
+      this.selectedPath = null;
+      void this.fetch();
+    });
+    this.body.prepend(back);
   }
 
   private stopTimer(): void {
