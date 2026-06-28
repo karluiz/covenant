@@ -6835,6 +6835,19 @@ export class TabManager {
       ...(group.rootDir
         ? [
             {
+              label: /Mac|iPod|iPhone|iPad/i.test(navigator.userAgent)
+                ? "Reveal in Finder"
+                : "Show in Explorer",
+              icon: Icons.folder(),
+              onClick: () => {
+                const dir = group.rootDir;
+                if (dir)
+                  void import("@tauri-apps/plugin-opener").then((m) =>
+                    m.revealItemInDir(dir),
+                  );
+              },
+            },
+            {
               label: "Clear root dir",
               icon: Icons.folderMinus(),
               onClick: () => this.clearGroupRootDir(group.id),
