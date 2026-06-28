@@ -6,6 +6,35 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.106 — Beacon Actions sidebar + cd autocomplete + eval runner
+
+### Added
+
+- **Beacon sidebar**: right-rail panel showing the latest GitHub Actions
+  workflow run per workflow for the active tab's repo, polling every 25s while
+  open. Owner/repo is parsed from the git remote; deploy URLs open via `openUrl`
+  with scheme validation. `crates/app/src/beacon.rs`, `ui/src/beacon/`.
+
+- **cd-picker autocomplete**: typing `cd <partial>` at a bare prompt docks an
+  inline directory picker (current location + folders + dotfiles) navigable with
+  ↑/↓/Enter/Esc. Resolved absolute paths are POSIX-shell-quoted before being sent
+  to the shell to prevent `cd` command injection. Frontend-only, wired into the
+  terminal `onData` flow in `ui/src/tabs/manager.ts`.
+
+- **CDLC eval runner**: sandboxed `claude -p` eval harness with an LLM judge
+  (PASS/FAIL contract) and a Loop pass-rate surfaced in the panel via a
+  "Run evals" button. The eval sandbox is read-only; a per-eval skip no longer
+  aborts the whole run. `cdlc_run_evals`/`eval_summary` Tauri commands.
+
+- **Reveal in Finder/Explorer**: group root-dir context menu can now open the
+  group's directory in the OS file manager (`ui/src/tabs/manager.ts`).
+
+### Fixed
+
+- **Onboarding entry transition**: force a reflow before adding `is-shown` so the
+  card's initial state commits and the entry animation plays
+  (`ui/src/onboarding/panel.ts`).
+
 ## v0.8.105 — Per-group commit/spec attribution
 
 ### Fixed
