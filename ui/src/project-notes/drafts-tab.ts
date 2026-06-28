@@ -98,9 +98,6 @@ export class DraftsTab {
     item.className = "rail-row";
     item.setAttribute("role", "button");
     item.tabIndex = 0;
-    // Make room on the right for the absolutely-positioned delete button so a
-    // long title ellipsizes before it rather than running underneath.
-    item.style.paddingRight = "32px";
 
     const line = document.createElement("div");
     line.className = "rail-row-line";
@@ -116,7 +113,7 @@ export class DraftsTab {
 
     const del = document.createElement("button");
     del.type = "button";
-    del.className = "pn-drafts-del";
+    del.className = "rail-row-action";
     del.setAttribute("aria-label", "Delete draft");
     del.innerHTML = Icons.trash({ size: 13 });
     del.addEventListener("click", async (e) => {
@@ -130,15 +127,6 @@ export class DraftsTab {
         del.disabled = false;
       }
     });
-
-    // The delete button reveals on row hover / its own focus. The CSS reveal
-    // selector targeted the old item class, so drive it from JS now.
-    const showDel = (): void => { del.style.opacity = "1"; };
-    const hideDel = (): void => { del.style.opacity = ""; };
-    item.addEventListener("mouseenter", showDel);
-    item.addEventListener("mouseleave", hideDel);
-    del.addEventListener("focus", showDel);
-    del.addEventListener("blur", hideDel);
 
     item.appendChild(line);
     item.appendChild(meta);

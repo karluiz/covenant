@@ -13,7 +13,7 @@ describe("renderLoading", () => {
   it("renders a loading notice", () => {
     const root = document.createElement("div");
     renderLoading(root);
-    const el = root.querySelector(".beacon-notice.beacon-loading");
+    const el = root.querySelector(".rail-notice.is-loading");
     expect(el).not.toBeNull();
     expect(el?.textContent).toContain("Loading");
   });
@@ -111,7 +111,7 @@ describe("renderBeacon", () => {
   it("renders error message", () => {
     renderBeacon(root, { kind: "error", message: "boom" });
     expect(root.textContent).toContain("boom");
-    expect(root.querySelector(".beacon-notice.beacon-error")).not.toBeNull();
+    expect(root.querySelector(".rail-notice.is-error")).not.toBeNull();
   });
 
   it("renders one row per workflow run with a status spine", () => {

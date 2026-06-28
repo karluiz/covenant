@@ -1829,20 +1829,6 @@ body:not(.tabbar-left) #new-group {
     position: relative;
 }
 
-.blocks-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    min-height: 28px;
-    box-sizing: border-box;
-}
-
 .blocks-toggle {
     background: transparent;
     border: none;
@@ -1867,28 +1853,9 @@ body:not(.tabbar-left) #new-group {
     display: block;
 }
 
-.blocks-header-label {
-    flex: 1;
-}
-
-.blocks-count {
-    font-variant-numeric: tabular-nums;
-    background: rgba(var(--ink-rgb), 0.06);
-    padding: 1px 6px;
-    border-radius: 8px;
-    font-size: 9px;
-}
-
-/* Collapsed state: only the toggle visible, label/count hidden. The
-   Blocks/Files nav strip is also hidden — at 28px it would overflow
-   visibly past the rail (the labels poke into the workspace). */
-.blocks-collapsed .blocks-header {
-    padding: 6px 4px;
-    justify-content: center;
-}
-
-.blocks-collapsed .blocks-header-label,
-.blocks-collapsed .blocks-count,
+/* Collapsed state: the Blocks/Files nav strip is hidden — at 28px it
+   would overflow visibly past the rail (the labels poke into the
+   workspace). */
 .blocks-collapsed .sidebar-nav {
     display: none;
 }
@@ -2087,45 +2054,6 @@ body:not(.tabbar-left) #new-group {
   border-radius: 2px;
 }
 
-.blocks-list {
-    list-style: none;
-    margin: 0;
-    padding: 4px 0;
-    overflow-y: auto;
-    flex: 1;
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-    transition: scrollbar-color 200ms ease;
-}
-
-.blocks-list:hover,
-.blocks-list:focus-within {
-    scrollbar-color: rgba(var(--ink-rgb), 0.12) transparent;
-}
-
-.blocks-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.blocks-list::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.blocks-list::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 3px;
-    transition: background 200ms ease;
-}
-
-.blocks-list:hover::-webkit-scrollbar-thumb,
-.blocks-list:focus-within::-webkit-scrollbar-thumb {
-    background: rgba(var(--ink-rgb), 0.12);
-}
-
-.blocks-list::-webkit-scrollbar-thumb:hover {
-    background: rgba(var(--ink-rgb), 0.2);
-}
-
 /* Hover-only scrollbars for any scrolling descendant inside .tab-blocks
    (covers .blocks-list, .blocks-list-history, .blocks-content, .recall-list,
    anything that might be the actual scroll container). The visible thumb
@@ -2173,133 +2101,6 @@ body:not(.tabbar-left) #new-group {
 .tab-blocks:focus-within ::-webkit-scrollbar-thumb,
 .tab-blocks:focus-within::-webkit-scrollbar-thumb {
     background: rgba(var(--ink-rgb), 0.18);
-}
-
-.block-item {
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-/* Historical blocks (from previous sessions in this dir). Visually
-   distinct from live blocks: faded colors + italics, so the user
-   reads them as past context, not current activity. */
-.blocks-history-sep {
-    padding: 6px 10px 4px;
-    font-size: 9.5px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted);
-    background: rgba(var(--ink-rgb), 0.02);
-    border-bottom: 1px solid var(--border);
-}
-
-.blocks-list-history {
-    border-bottom: 1px dashed var(--border);
-    padding-bottom: 6px;
-}
-
-.block-item-history {
-    opacity: 0.6;
-    font-style: italic;
-}
-
-.block-item-history .block-cmd {
-    font-style: italic;
-    color: #98a0a8;
-}
-
-.block-history-tab,
-.block-history-when {
-    font-size: 9.5px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-}
-
-.block-cwd {
-    color: var(--muted);
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 9px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    line-height: 1.3;
-}
-
-.block-cmd {
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11px;
-    color: var(--accent);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    line-height: 1.4;
-}
-
-.block-meta {
-    display: flex;
-    gap: 6px;
-    font-size: 10px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.3;
-}
-
-.block-exit.ok {
-    color: var(--ok);
-}
-
-.block-exit.fail {
-    color: var(--fail);
-}
-
-.block-running {
-    color: var(--running);
-}
-
-.block-dur {
-    margin-left: auto;
-}
-
-/* Light mode: historical command rows were double-muted (opacity + pale
-   gray), which made the previous-session context hard to scan. Keep them
-   visually secondary via italics/background, but restore readable contrast. */
-body.theme-light .blocks-history-sep {
-    background: rgba(0, 0, 0, 0.035);
-    color: color-mix(in srgb, var(--text-primary) 68%, transparent);
-    border-top: 1px solid var(--border);
-    border-bottom-color: var(--border);
-    font-weight: 700;
-}
-body.theme-light .blocks-list-history {
-    border-bottom-color: color-mix(in srgb, var(--border) 82%, var(--text-primary));
-}
-body.theme-light .block-item-history {
-    opacity: 1;
-    background: rgba(0, 0, 0, 0.012);
-}
-body.theme-light .block-item-history:hover {
-    background: rgba(0, 0, 0, 0.035);
-}
-body.theme-light .block-item-history .block-cmd {
-    color: color-mix(in srgb, var(--text-primary) 58%, transparent);
-    font-weight: 550;
-}
-body.theme-light .block-item-history .block-meta,
-body.theme-light .block-history-tab,
-body.theme-light .block-history-when,
-body.theme-light .block-item-history .block-dur {
-    color: color-mix(in srgb, var(--text-primary) 52%, transparent);
-}
-body.theme-light .block-item-history .block-exit.ok {
-    color: color-mix(in srgb, var(--ok) 82%, #000);
-}
-body.theme-light .block-item-history .block-exit.fail {
-    color: color-mix(in srgb, var(--fail) 84%, #000);
 }
 
 .block-fix {
@@ -5249,161 +5050,6 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 
 .recall-host[hidden] {
     display: none;
-}
-
-.recall-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    min-height: 28px;
-    box-sizing: border-box;
-}
-
-.recall-header-search {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: 0;
-    outline: 0;
-    color: var(--fg);
-    font-family: var(--ui-font);
-    font-size: 12px;
-    letter-spacing: 0;
-    text-transform: none;
-    padding: 2px 0;
-}
-
-.recall-header-search::placeholder {
-    color: var(--muted);
-    text-transform: none;
-    letter-spacing: 0;
-}
-
-.recall-header-icon {
-    display: inline-flex;
-    align-items: center;
-    color: var(--accent);
-}
-
-.recall-header-label {
-    flex: 1;
-}
-
-.recall-header-query {
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    text-transform: none;
-    letter-spacing: 0;
-    color: #d8dee9;
-    background: rgba(var(--ink-rgb), 0.05);
-    padding: 1px 6px;
-    border-radius: 4px;
-    max-width: 130px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.recall-list {
-    list-style: none;
-    margin: 0;
-    padding: 4px 0;
-    overflow-y: auto;
-    flex: 1;
-}
-
-.recall-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.recall-list::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
-}
-
-.recall-empty {
-    padding: 16px;
-    color: var(--muted);
-    font-style: italic;
-    text-align: center;
-}
-
-.recall-empty--idle {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 56px 20px;
-    font-style: normal;
-    font-family: var(--ui-font);
-    list-style: none;
-}
-.recall-empty--idle svg {
-    opacity: 0.28;
-    color: var(--accent);
-}
-.recall-empty-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text, var(--fg));
-    opacity: 0.7;
-}
-.recall-empty-hint {
-    font-size: 11px;
-    color: var(--muted);
-    max-width: 200px;
-    line-height: 1.4;
-}
-
-.recall-item {
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    transition: background 0.08s;
-    outline: none;
-}
-
-.recall-item:hover,
-.recall-item:focus {
-    background: rgba(var(--ink-rgb), 0.04);
-}
-
-.recall-cmd {
-    font-family:
-        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 11px;
-    color: var(--accent);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    line-height: 1.4;
-}
-
-.recall-cmd mark {
-    background: rgba(122, 162, 247, 0.25);
-    color: #fff;
-    padding: 0;
-    border-radius: 2px;
-}
-
-.recall-stats {
-    font-size: 9.5px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.3;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .recall-fail {
@@ -14554,10 +14200,8 @@ body.blocks-globally-collapsed .tab-pane:has(.editor-host:not([hidden])) > .edit
     }
 }
 
-/* Hide the in-sidebar Blocks/Files switcher row and the inner BLOCKS
-   label — both moved to the title bar. */
+/* Hide the in-sidebar Blocks/Files switcher row — moved to the title bar. */
 .sidebar-nav { display: none !important; }
-.blocks-header { display: none !important; }
 
 /* Titlebar Blocks/Files view-switch buttons. Active state mirrors
    the currently-shown view. */
@@ -14969,14 +14613,6 @@ body.theme-light .settings-field textarea {
 body.theme-light input::placeholder,
 body.theme-light textarea::placeholder {
     color: color-mix(in srgb, var(--text-primary) 35%, transparent);
-}
-
-/* Inputs that live flush inside a chrome row (no card affordance of
-   their own) must stay transparent — the blanket rule above paints
-   them a stark #fff that looks like an unintended inset rectangle. */
-body.theme-light .recall-header-search {
-    background: transparent;
-    border: 0;
 }
 
 /* ── Mission picker: it used hardcoded dark surfaces, so light mode
@@ -16110,34 +15746,6 @@ body.tasker-board #tasker-panel .tasker-panel-board {
   min-height: 0;
 }
 
-/* TASKER List/Board view toggle (segmented control in the header) */
-.tasker-view-toggle {
-  display: inline-flex;
-  margin-right: 6px;
-  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  overflow: hidden;
-}
-.tasker-view-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 9px;
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  transition: color 120ms, background 120ms;
-}
-.tasker-view-btn:hover {
-  color: var(--text-primary);
-}
-.tasker-view-btn.on {
-  background: var(--accent);
-  color: #0b0d10;
-}
-
 /* Project Notes is a position:fixed overlay (right:0, width:240) — NOT an
    in-grid rail like Activity/Teammate. So it must NOT reserve a #layout
    column. Two failure modes that reserving caused:
@@ -16199,7 +15807,6 @@ body.project-notes-open .tab-pane:has(.editor-host:not([hidden])) > .editor-host
    .titlebar-view-btn.titlebar-view-active rule. */
 
 #activity-sidebar.is-collapsed .inline-notch-body { display: none; }
-#activity-sidebar.is-collapsed .inline-notch-chev { transform: rotate(-90deg); }
 
 .sidebar-resizer {
   position: absolute;
@@ -16266,32 +15873,6 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   display: none !important;
 }
 
-.inline-notch .inline-notch-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 14px 12px;
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  width: 100%;
-  height: 64px;
-  min-height: 64px;
-  max-height: 64px;
-  flex: 0 0 64px;
-  overflow: hidden;
-}
-.inline-notch .inline-notch-head:hover {
-  background: transparent;
-}
-.inline-notch .inline-notch-chev {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--muted, #8a93a0);
-  transition: transform 150ms ease;
-}
 .inline-notch .inline-notch-body {
   display: flex; flex-direction: column;
   gap: 6px;
@@ -16299,78 +15880,12 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   flex: 1 1 auto;
   overflow: hidden;
 }
-.inline-notch .inline-notch-av {
-  width: 28px; height: 28px; flex: 0 0 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #87a7ff, #c7a8ff);
-}
-.inline-notch .inline-notch-meta {
-  display: flex; flex-direction: column; min-width: 0;
-  min-height: 0;
-  gap: 2px;
-  overflow: hidden;
-}
-.inline-notch .inline-notch-name {
-  font-size: 12px; font-weight: 600;
-  color: var(--text, #d5d9de);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.inline-notch .inline-notch-sub {
-  font-size: 11px; color: var(--muted, #8a93a0);
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Multi-agent picker — sits above the activity stream. Default state =
-   "All agents" (combined); click → dropdown to filter by one or many. */
-.inline-notch .inline-notch-picker {
-  padding: 0 0 8px;
-}
-.inline-notch .inline-notch-picker-btn {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  background: rgba(var(--ink-rgb, 255 255 255),0.04);
-  border: 1px solid rgba(var(--ink-rgb, 255 255 255),0.08);
-  border-radius: 8px;
-  color: var(--muted, #8a93a0);
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.inline-notch .inline-notch-picker-btn:hover {
-  background: rgba(var(--ink-rgb, 255 255 255),0.07);
-  color: var(--text, #d5d9de);
-}
-.inline-notch .inline-notch-picker-stack {
-  display: inline-flex; align-items: center;
-}
 .inline-notch .inline-notch-av-dot {
   width: 12px; height: 12px;
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset;
   flex-shrink: 0;
 }
-.inline-notch .inline-notch-picker-stack .inline-notch-av-dot {
-  margin-left: -4px;
-  box-shadow: 0 0 0 1.5px var(--bg-panel, #0f1014);
-}
-.inline-notch .inline-notch-picker-stack .inline-notch-av-dot:first-child { margin-left: 0; }
-.inline-notch .inline-notch-picker-more {
-  font-size: 10px; color: var(--muted, #8a93a0);
-  margin-left: 4px; font-variant-numeric: tabular-nums;
-}
-.inline-notch .inline-notch-picker-label {
-  flex: 1; min-width: 0;
-  color: var(--text, #d5d9de); font-weight: 500;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.inline-notch .inline-notch-picker-arrow {
-  color: var(--muted, #8a93a0); margin-left: auto;
-}
-
 .inline-notch-picker-drop {
   position: fixed;
   z-index: 1000;
@@ -16407,135 +15922,8 @@ body.blocks-globally-collapsed #right-sidebar-resizer {
   flex-shrink: 0;
 }
 
-/* Per-row "who did this" badge — shown in combined / multi-agent mode. */
-.inline-notch .inline-notch-stream .row .who {
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-right: 6px;
-  color: var(--muted, #8a93a0); font-weight: 500;
-  font-size: 11px;
-}
-.inline-notch .inline-notch-stream .row .who .who-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  display: inline-block;
-}
-
-.inline-notch .inline-notch-stream-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 0 4px;
-  font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted, #8a93a0);
-}
-.inline-notch .inline-notch-stream-head .clear {
-  background: transparent; border: 0;
-  color: var(--muted, #8a93a0); cursor: pointer;
-  font: inherit; font-size: 10px;
-  padding: 0;
-}
-.inline-notch .inline-notch-stream-head .clear:hover {
-  color: var(--text, #d5d9de);
-}
-
-.inline-notch .inline-notch-stream {
-  display: flex; flex-direction: column; gap: 1px;
-  overflow: auto;
-  flex: 1 1 auto; min-height: 0;
-}
-.inline-notch .inline-notch-stream .row {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  column-gap: 8px;
-  align-items: start;
-  font-size: 11px;
-  padding: 5px 6px;
-  border-left: 2px solid transparent;
-  color: var(--muted, #8a93a0);
-}
-.inline-notch .inline-notch-stream .row.run  { border-left-color: #a8c3ff; }
-.inline-notch .inline-notch-stream .row.ok   { border-left-color: #6ee7a8; }
-.inline-notch .inline-notch-stream .row.warn { border-left-color: #f5c66a; }
-.inline-notch .inline-notch-stream .row.err  { border-left-color: #ff7676; }
-.inline-notch .inline-notch-stream .row .ts {
-  font-size: 10px;
-  line-height: 1.35;
-  color: var(--muted, #8a93a0);
-  opacity: 0.7;
-}
-.inline-notch .inline-notch-stream .row .row-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.inline-notch .inline-notch-stream .row .msg {
-  color: var(--text, #d5d9de);
-  line-height: 1.25;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.inline-notch .inline-notch-stream .row .row-meta {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  min-width: 0;
-  font-size: 10px;
-  color: var(--muted, #8a93a0);
-}
-.inline-notch .inline-notch-stream .row .tag {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.inline-notch .inline-notch-stream .row .count,
-.inline-notch .inline-notch-stream .row .dur,
-.inline-notch .inline-notch-stream .row .tok {
-  flex: 0 0 auto;
-  opacity: 0.75;
-}
-.inline-notch .inline-notch-stream .row .tok {
-  color: #ffd166;
-  opacity: 0.85;
-  font-variant-numeric: tabular-nums;
-}
-body.theme-light .inline-notch .inline-notch-stream .row .tok {
-  color: #b45309;
-  opacity: 1;
-}
-.inline-notch .inline-notch-name .tab-id {
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 /* ── Light-mode: card surface + readable ink ─────────────────── */
 body.theme-light .inline-notch {
-  color: var(--text-primary);
-}
-body.theme-light .inline-notch .inline-notch-head {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-body.theme-light .inline-notch .inline-notch-head:hover {
-  background: transparent;
-}
-body.theme-light .inline-notch .inline-notch-name {
-  color: var(--text-primary);
-}
-body.theme-light .inline-notch .inline-notch-sub,
-body.theme-light .inline-notch .inline-notch-stream-head,
-body.theme-light .inline-notch .inline-notch-stream-head .clear,
-body.theme-light .inline-notch .inline-notch-stream .row,
-body.theme-light .inline-notch .inline-notch-stream .row .ts,
-body.theme-light .inline-notch .inline-notch-stream .row .tag {
-  color: var(--muted);
-}
-body.theme-light .inline-notch .inline-notch-stream .row .msg {
-  color: var(--text-primary);
-}
-body.theme-light .inline-notch .inline-notch-stream-head .clear:hover {
   color: var(--text-primary);
 }
 
@@ -18542,7 +17930,6 @@ body.theme-light .task-item.is-open {
   border-right: 1px solid var(--border, #232831) !important;
 }
 
-.blocks-header,
 .sidebar-nav,
 .structure-header,
 .teammate-panel-header,
@@ -19667,3 +19054,21 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 
 /* —— slot 5: optional footer —— */
 .rail-footer { flex: 0 0 var(--rail-footer-h); height: var(--rail-footer-h); display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--border); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-tertiary); }
+
+/* —— inline notice (non-row states: sign-in / no-data / loading / error) —— */
+.rail-notice { padding: 12px var(--rail-pad-x); text-align: center; color: var(--fg-dim); font-size: var(--fs-meta); line-height: 1.45; }
+.rail-notice.is-error { color: var(--danger); text-align: left; }
+.rail-notice.is-loading { opacity: .7; }
+
+/* —— hover-revealed trailing action on a row (delete / etc.) —— */
+.rail-row:has(.rail-row-action) { padding-right: 32px; }
+.rail-row-action {
+  position: absolute; top: 6px; right: 6px; width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--text-tertiary);
+  border-radius: 5px; opacity: 0; cursor: pointer; padding: 0;
+  transition: opacity .1s, color .1s, background .1s;
+}
+.rail-row:hover .rail-row-action, .rail-row:focus-within .rail-row-action, .rail-row-action:focus-visible { opacity: 1; }
+.rail-row-action:hover { color: var(--danger); background: rgba(var(--ink-rgb), 0.06); }
+.rail-row-action svg { width: 13px; height: 13px; }

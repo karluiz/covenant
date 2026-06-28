@@ -56,58 +56,6 @@ body.sidebar-view-tasker #tasker-panel {
   font-family: var(--ui-font);
 }
 
-.tasker-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  gap: 8px;
-  flex-shrink: 0;
-  color: var(--text-primary);
-  background: transparent;
-}
-
-.tasker-title {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: inherit;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.tasker-header-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.tasker-btn-icon {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-0);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 120ms ease;
-  font-family: inherit;
-}
-
-.tasker-btn-icon:hover {
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
-}
-
-.tasker-btn-icon:active {
-  transform: scale(0.95);
-}
-
 /* Bare button; the visible pill is the inner .settings-esc, shared with
    Settings / Changes / Release log for a consistent esc affordance. */
 .tasker-esc-btn {
@@ -125,67 +73,6 @@ body.sidebar-view-tasker #tasker-panel {
   border-color: rgba(var(--ink-rgb), 0.16);
 }
 
-.tasker-filters {
-  display: flex;
-  gap: 4px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tasker-filters::-webkit-scrollbar {
-  display: none;
-}
-
-.tasker-filter-btn {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--surface-0);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 120ms ease;
-  font-family: inherit;
-}
-
-.tasker-filter-btn:hover {
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
-  color: var(--text-primary);
-}
-
-.tasker-filter-btn.active {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
-}
-
-.tasker-task-add-quick {
-  display: block;
-  width: auto;
-  background: transparent;
-  border: 1px dashed var(--border);
-  color: var(--muted, var(--text-secondary));
-  border-radius: 6px;
-  padding: 8px 12px;
-  margin: 6px 8px 4px;
-  font-family: var(--font-mono, var(--ui-font));
-  font-size: 11px;
-  cursor: pointer;
-  text-align: left;
-  transition: color 120ms, border-color 120ms;
-}
-
-.tasker-task-add-quick:hover {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
 .tasker-projects {
   flex: 1;
   overflow-y: auto;
@@ -193,34 +80,10 @@ body.sidebar-view-tasker #tasker-panel {
   color: var(--text-primary);
 }
 
-.tasker-project {
-  border-bottom: 1px solid var(--border);
-}
-
 .tasker-project-headrow {
   position: relative;
   display: flex;
   align-items: center;
-}
-
-.tasker-project-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-weight: 600;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background 120ms ease;
-  font-family: inherit;
-}
-
-.tasker-project-header:hover {
-  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
 }
 
 .tasker-project-delete {
@@ -254,20 +117,6 @@ body.sidebar-view-tasker #tasker-panel {
 .tasker-project-delete:hover {
   color: #f87171;
   background: color-mix(in srgb, #f87171 12%, transparent);
-}
-
-.tasker-project-toggle {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-  transition: transform 140ms ease;
-}
-.tasker-project-toggle-open {
-  transform: rotate(90deg);
 }
 
 .tasker-project-name {
@@ -465,77 +314,8 @@ body.theme-true-dark .tasker-task-selected {
   position: relative;
 }
 
-.tasker-task-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-  padding: 10px 12px;
-  padding-left: 6px;
-  cursor: pointer;
-  outline: none;
-}
-
-.tasker-task-main:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
 .tasker-task-status-done {
   opacity: 0.58;
-}
-
-.tasker-task-status-done .tasker-task-title {
-  text-decoration: line-through;
-  color: var(--text-secondary);
-}
-
-.tasker-task-checkbox {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 120ms, background 120ms;
-  font-family: inherit;
-  flex-shrink: 0;
-}
-
-.tasker-task-checkbox:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.tasker-task-status-done .tasker-task-checkbox {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
-  border-color: var(--accent);
-}
-
-.tasker-task-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: inherit;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tasker-note-indicator {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 14px;
-  color: var(--text-secondary);
-  opacity: 0.65;
 }
 
 .tasker-task-chevron {
@@ -546,22 +326,6 @@ body.theme-true-dark .tasker-task-selected {
   font-size: 11px;
   opacity: 0.7;
 }
-
-.tasker-due {
-  flex-shrink: 0;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  color: var(--text-secondary);
-  font-family: var(--font-mono, var(--ui-font));
-  font-size: 10px;
-}
-
-.tasker-due-overdue {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-}
-
 
 .tasker-task-start {
   display: inline-flex;
@@ -652,13 +416,6 @@ body.theme-true-dark .tasker-edit-note .md-editor {
 .tasker-chip:hover {
   border-color: color-mix(in srgb, var(--text-primary) 14%, var(--border));
 }
-
-.tasker-status-dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-}
-.tasker-status-pending { background: var(--text-tertiary); }
-.tasker-status-active { background: var(--accent); }
-.tasker-status-done { background: #22c55e; }
 
 /* Custom calendar popover (replaces the native date picker).
    Fixed-positioned (coords set in JS) so it escapes the .tasker-task /
@@ -816,21 +573,6 @@ body.theme-true-dark .tasker-edit-note .md-editor {
   font-size: 12px;
   font-weight: 500;
   outline: none;
-}
-
-.tasker-footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-  background: transparent;
-}
-
-.tasker-stats {
-  font-size: 10px;
-  color: var(--text-tertiary);
 }
 
 /* Scrollbar styling to match Covenant theme */

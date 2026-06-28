@@ -65,7 +65,7 @@ function relTime(iso: string): string {
 
 function notice(text: string, cls = ""): HTMLElement {
   const el = document.createElement("div");
-  el.className = `beacon-notice ${cls}`.trim();
+  el.className = `rail-notice ${cls}`.trim();
   el.textContent = text;
   return el;
 }
@@ -86,7 +86,7 @@ function emptyState(title: string, hint: string): HTMLElement {
 /// Loading placeholder — shown only on the first fetch (empty body) so the
 /// 25s poll doesn't blank existing cards on every refresh.
 export function renderLoading(root: HTMLElement): void {
-  root.replaceChildren(notice("Loading workflows", "beacon-loading"));
+  root.replaceChildren(notice("Loading workflows", "is-loading"));
 }
 
 /// Pure render of a state into `root`. No fetching, no polling.
@@ -133,7 +133,7 @@ export function renderBeacon(
       return;
     }
     case "error":
-      root.appendChild(notice(state.message, "beacon-error"));
+      root.appendChild(notice(state.message, "is-error"));
       return;
     case "ok": {
       if (state.runs.length === 0) {

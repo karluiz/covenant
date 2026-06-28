@@ -112,7 +112,7 @@ describe("DraftsTab", () => {
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
 
-    (host.querySelector(".pn-drafts-del") as HTMLButtonElement).click();
+    (host.querySelector(".rail-row-action") as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(deleteDraft).toHaveBeenCalledWith("kill-me");
