@@ -2262,8 +2262,8 @@ async fn git_changes(cwd: String) -> Result<git_tools::diff::Changes, String> {
 }
 
 #[tauri::command]
-async fn beacon_deployments(cwd: String) -> Result<beacon::BeaconState, String> {
-    Ok(beacon::load_deployments(cwd).await)
+async fn beacon_workflow_runs(cwd: String) -> Result<beacon::BeaconState, String> {
+    Ok(beacon::load_workflow_runs(cwd).await)
 }
 
 #[tauri::command]
@@ -4281,7 +4281,7 @@ pub fn run() {
             git_repo_summary,
             git_switch_branch,
             git_changes,
-            beacon_deployments,
+            beacon_workflow_runs,
             cdlc_eval::cdlc_run_evals,
             cdlc_eval::cdlc_eval_summary,
             cdlc_local_status,

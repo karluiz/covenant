@@ -1281,26 +1281,27 @@ export async function gitChanges(cwd: string): Promise<Changes> {
   return invoke<Changes>("git_changes", { cwd });
 }
 
-// Beacon — GitHub deployments sidebar ----------------------------------
+// Beacon — GitHub Actions workflow status sidebar ----------------------
 
-export type BeaconEnv = {
-  environment: string;
-  state: string; // success | failure | in_progress | pending | error | inactive
-  description: string | null;
-  target_url: string | null;
+export type BeaconRun = {
+  name: string; // workflow name, e.g. "Release macOS"
+  state: string; // success | failure | in_progress | queued | cancelled | ...
+  run_number: number;
+  branch: string | null;
   sha: string;
-  creator: string | null;
+  actor: string | null;
+  url: string | null;
   updated_at: string;
 };
 
 export type BeaconState =
   | { kind: "not_authed" }
   | { kind: "no_repo" }
-  | { kind: "ok"; repo: string; envs: BeaconEnv[] }
+  | { kind: "ok"; repo: string; runs: BeaconRun[] }
   | { kind: "error"; message: string };
 
-export async function beaconDeployments(cwd: string): Promise<BeaconState> {
-  return invoke<BeaconState>("beacon_deployments", { cwd });
+export async function beaconWorkflowRuns(cwd: string): Promise<BeaconState> {
+  return invoke<BeaconState>("beacon_workflow_runs", { cwd });
 }
 
 // CDLC — local Covenant Dependency Lifecycle Catalog ------------------

@@ -6,7 +6,18 @@ const { openUrl } = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl }));
 
-import { renderBeacon, stateDotColor, isHttpUrl } from "./panel";
+import { renderBeacon, renderLoading, stateDotColor, isHttpUrl } from "./panel";
+import type { BeaconState } from "../api";
+
+describe("renderLoading", () => {
+  it("renders a loading notice", () => {
+    const root = document.createElement("div");
+    renderLoading(root);
+    const el = root.querySelector(".beacon-notice.beacon-loading");
+    expect(el).not.toBeNull();
+    expect(el?.textContent).toContain("Loading");
+  });
+});
 
 describe("isHttpUrl", () => {
   it("accepts http and https URLs", () => {
@@ -29,16 +40,32 @@ describe("isHttpUrl", () => {
 });
 
 describe("stateDotColor", () => {
-  it("maps deployment states to color classes", () => {
+  it("maps Actions run states to color classes", () => {
     expect(stateDotColor("success")).toBe("ok");
     expect(stateDotColor("in_progress")).toBe("busy");
-    expect(stateDotColor("pending")).toBe("busy");
+    expect(stateDotColor("queued")).toBe("busy");
     expect(stateDotColor("failure")).toBe("bad");
-    expect(stateDotColor("error")).toBe("bad");
-    expect(stateDotColor("inactive")).toBe("idle");
+    expect(stateDotColor("timed_out")).toBe("bad");
+    expect(stateDotColor("cancelled")).toBe("idle");
+    expect(stateDotColor("skipped")).toBe("idle");
     expect(stateDotColor("anything-else")).toBe("idle");
   });
 });
+
+type Run = Extract<BeaconState, { kind: "ok" }>["runs"][number];
+function run(over: Partial<Run> = {}): Run {
+  return {
+    name: "Release macOS",
+    state: "success",
+    run_number: 42,
+    branch: "main",
+    sha: "abc1234",
+    actor: "karluiz",
+    url: "https://github.com/o/r/actions/runs/1",
+    updated_at: "2026-06-26T00:00:00Z",
+    ...over,
+  };
+}
 
 describe("renderBeacon", () => {
   let root: HTMLElement;
@@ -56,9 +83,9 @@ describe("renderBeacon", () => {
     expect(root.textContent).toContain("No GitHub remote");
   });
 
-  it("renders empty state when no deployments", () => {
-    renderBeacon(root, { kind: "ok", repo: "o/r", envs: [] });
-    expect(root.textContent).toContain("No deployments");
+  it("renders empty state when no workflows", () => {
+    renderBeacon(root, { kind: "ok", repo: "o/r", runs: [] });
+    expect(root.textContent).toContain("No workflows");
   });
 
   it("renders error message", () => {
@@ -67,65 +94,57 @@ describe("renderBeacon", () => {
     expect(root.querySelector(".beacon-notice.beacon-error")).not.toBeNull();
   });
 
-  it("renders one card per environment with a state dot", () => {
+  it("renders one card per workflow run with a state dot", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
-      envs: [
-        { environment: "production", state: "success", description: null, target_url: "https://x", sha: "abc1234", creator: "karluiz", updated_at: "2026-06-26T00:00:00Z" },
-        { environment: "preview", state: "in_progress", description: null, target_url: null, sha: "def5678", creator: null, updated_at: "2026-06-26T00:00:00Z" },
+      runs: [
+        run({ name: "Release macOS", state: "success" }),
+        run({ name: "Release Windows", state: "in_progress", url: null }),
       ],
     });
     const cards = root.querySelectorAll(".beacon-env");
     expect(cards.length).toBe(2);
     expect(root.querySelector(".beacon-dot.ok")).not.toBeNull();
     expect(root.querySelector(".beacon-dot.busy")).not.toBeNull();
-    expect(root.textContent).toContain("production");
+    expect(root.textContent).toContain("Release macOS");
+    expect(root.textContent).toContain("#42");
     expect(root.textContent).toContain("abc1234");
   });
 
-  it("does NOT produce a clickable link for a javascript: target_url", () => {
+  it("does NOT produce a clickable link for a javascript: url", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
-      envs: [
-        { environment: "production", state: "success", description: null, target_url: "javascript:alert(1)", sha: "abc1234", creator: null, updated_at: "2026-06-26T00:00:00Z" },
-      ],
+      runs: [run({ url: "javascript:alert(1)" })],
     });
     expect(root.querySelector(".beacon-env-link")).toBeNull();
-    // No element should carry the dangerous href
     const all = root.querySelectorAll("[href]");
     for (const el of all) {
       expect(el.getAttribute("href")).not.toContain("javascript:");
     }
-    // No attribute anywhere should contain the javascript: payload
     expect(root.innerHTML).not.toContain("javascript:");
   });
 
-  it("does NOT produce a clickable link when target_url is null", () => {
+  it("does NOT produce a clickable link when url is null", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
-      envs: [
-        { environment: "preview", state: "in_progress", description: null, target_url: null, sha: "def5678", creator: null, updated_at: "2026-06-26T00:00:00Z" },
-      ],
+      runs: [run({ url: null })],
     });
     expect(root.querySelector(".beacon-env-link")).toBeNull();
   });
 
-  it("produces a clickable element for an https:// target_url", () => {
+  it("produces a clickable element for an https:// url", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
-      envs: [
-        { environment: "production", state: "success", description: null, target_url: "https://app.example.com", sha: "abc1234", creator: null, updated_at: "2026-06-26T00:00:00Z" },
-      ],
+      runs: [run({ url: "https://github.com/o/r/actions/runs/9" })],
     });
     const link = root.querySelector(".beacon-env-link");
     expect(link).not.toBeNull();
     expect(link?.getAttribute("role")).toBe("link");
     expect(link?.getAttribute("tabindex")).toBe("0");
-    // Must not expose the raw URL in an href
     expect(link?.getAttribute("href")).toBeNull();
   });
 });

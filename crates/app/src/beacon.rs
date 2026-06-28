@@ -1,17 +1,26 @@
-//! Beacon: GitHub deployment status for the active session's repo.
+//! Beacon: GitHub Actions workflow status for the active session's repo.
+//!
+//! Shows the latest run of each Actions workflow (CI/CD pipelines like
+//! "Release macOS", "Deploy Landing"). This is the Actions API, not the
+//! Deployments API — Release-style workflows publish GitHub Releases, not
+//! deployments, so they only show up here.
 
 use serde::Serialize;
 
-/// One environment's current deployment state, as the UI consumes it.
+/// The latest run of one Actions workflow, as the UI consumes it.
 #[derive(Debug, Clone, Serialize)]
-pub struct EnvDeploy {
-    pub environment: String,
-    /// success | failure | in_progress | pending | error | inactive
+pub struct WorkflowRun {
+    /// Workflow name, e.g. "Release macOS".
+    pub name: String,
+    /// Collapsed state token (see `run_state`): success | failure |
+    /// in_progress | queued | cancelled | ...
     pub state: String,
-    pub description: Option<String>,
-    pub target_url: Option<String>,
+    pub run_number: u64,
+    pub branch: Option<String>,
     pub sha: String, // short (7)
-    pub creator: Option<String>,
+    pub actor: Option<String>,
+    /// html_url of the run (web UI).
+    pub url: Option<String>,
     pub updated_at: String,
 }
 
@@ -21,37 +30,19 @@ pub struct EnvDeploy {
 pub enum BeaconState {
     NotAuthed,
     NoRepo,
-    Ok { repo: String, envs: Vec<EnvDeploy> },
+    Ok { repo: String, runs: Vec<WorkflowRun> },
     Error { message: String },
 }
 
-/// Minimal shape we keep from the deployments list response.
-#[derive(Debug, Clone)]
-pub struct RawDeployment {
-    pub id: u64,
-    pub environment: String,
-    pub sha: String,
-    pub creator: Option<String>,
-    pub created_at: String,
-}
-
-/// Keep only the newest deployment per environment (by `created_at`,
-/// ISO-8601 sorts lexically), capped at 10 environments.
-pub fn latest_per_environment(deployments: Vec<RawDeployment>) -> Vec<RawDeployment> {
-    use std::collections::HashMap;
-    let mut by_env: HashMap<String, RawDeployment> = HashMap::new();
-    for d in deployments {
-        match by_env.get(&d.environment) {
-            Some(existing) if existing.created_at >= d.created_at => {}
-            _ => {
-                by_env.insert(d.environment.clone(), d);
-            }
-        }
+/// Collapse Actions (status, conclusion) into one state token the UI colors.
+/// A `completed` run reports its conclusion (success/failure/cancelled/…);
+/// any other status (queued, in_progress, requested, waiting) is the state.
+pub fn run_state(status: &str, conclusion: Option<&str>) -> String {
+    if status == "completed" {
+        conclusion.unwrap_or("unknown").to_string()
+    } else {
+        status.to_string()
     }
-    let mut kept: Vec<RawDeployment> = by_env.into_values().collect();
-    kept.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    kept.truncate(10);
-    kept
 }
 
 // ── GitHub fetch ────────────────────────────────────────────────────
@@ -82,9 +73,9 @@ fn short_sha(sha: &str) -> String {
     sha.chars().take(7).collect()
 }
 
-/// Resolve owner/repo from `cwd`'s `origin` remote, load the keychain
-/// token, and build the per-environment deployment state.
-pub async fn load_deployments(cwd: String) -> BeaconState {
+/// Resolve owner/repo from `cwd`'s `origin` remote, load the keychain token,
+/// and build the latest-run-per-Actions-workflow state.
+pub async fn load_workflow_runs(cwd: String) -> BeaconState {
     // 1. owner/repo from git remote.
     let remote = match tokio::process::Command::new("git")
         .args(["-C", &cwd, "remote", "get-url", "origin"])
@@ -116,70 +107,65 @@ pub async fn load_deployments(cwd: String) -> BeaconState {
 
     let api = "https://api.github.com";
 
-    // 3. list deployments.
-    let list_url = format!("{api}/repos/{owner}/{repo}/deployments?per_page=30");
-    let list = match gh_get(&client, &token, &list_url).await {
+    // 3. list workflows (active ones only). Driving off the workflow list —
+    // not a global runs window — guarantees every workflow's latest run shows,
+    // even a rarely-triggered one.
+    let wf_url = format!("{api}/repos/{owner}/{repo}/actions/workflows?per_page=100");
+    let wf = match gh_get(&client, &token, &wf_url).await {
         Ok(v) => v,
         Err(e) => return BeaconState::Error { message: e },
     };
-    let raw: Vec<RawDeployment> = list
-        .as_array()
+    let workflows: Vec<(u64, String)> = wf
+        .get("workflows")
+        .and_then(|w| w.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|d| {
-                    Some(RawDeployment {
-                        id: d.get("id")?.as_u64()?,
-                        environment: d.get("environment")?.as_str().unwrap_or("").to_string(),
-                        sha: short_sha(d.get("sha").and_then(|s| s.as_str()).unwrap_or("")),
-                        creator: d
-                            .get("creator")
-                            .and_then(|c| c.get("login"))
-                            .and_then(|l| l.as_str())
-                            .map(|s| s.to_string()),
-                        created_at: d.get("created_at").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                    })
+                .filter(|w| w.get("state").and_then(|s| s.as_str()) == Some("active"))
+                .filter_map(|w| {
+                    let id = w.get("id")?.as_u64()?;
+                    let name = w.get("name")?.as_str().unwrap_or("").to_string();
+                    Some((id, name))
                 })
+                .take(25) // ponytail: bound requests; repos rarely have >25 workflows
                 .collect()
         })
         .unwrap_or_default();
 
-    let kept = latest_per_environment(raw);
-
-    // 4. latest status per kept deployment.
-    let mut envs = Vec::with_capacity(kept.len());
-    for d in kept {
-        let status_url = format!("{api}/repos/{owner}/{repo}/deployments/{}/statuses?per_page=1", d.id);
-        let (state, description, target_url, updated_at) = match gh_get(&client, &token, &status_url).await {
-            Ok(v) => {
-                let latest = v.as_array().and_then(|a| a.first()).cloned();
-                match latest {
-                    Some(s) => (
-                        s.get("state").and_then(|x| x.as_str()).unwrap_or("pending").to_string(),
-                        s.get("description").and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(|x| x.to_string()),
-                        s.get("environment_url")
-                            .and_then(|x| x.as_str())
-                            .or_else(|| s.get("target_url").and_then(|x| x.as_str()))
-                            .filter(|x| !x.is_empty())
-                            .map(|x| x.to_string()),
-                        s.get("created_at").and_then(|x| x.as_str()).unwrap_or(&d.created_at).to_string(),
-                    ),
-                    None => ("pending".to_string(), None, None, d.created_at.clone()),
-                }
-            }
+    // 4. latest run per workflow.
+    let mut runs = Vec::with_capacity(workflows.len());
+    for (id, name) in workflows {
+        let runs_url = format!("{api}/repos/{owner}/{repo}/actions/workflows/{id}/runs?per_page=1");
+        let body = match gh_get(&client, &token, &runs_url).await {
+            Ok(v) => v,
             Err(e) => return BeaconState::Error { message: e },
         };
-        envs.push(EnvDeploy {
-            environment: d.environment,
-            state,
-            description,
-            target_url,
-            sha: d.sha,
-            creator: d.creator,
-            updated_at,
+        let latest = body
+            .get("workflow_runs")
+            .and_then(|a| a.as_array())
+            .and_then(|a| a.first());
+        let Some(r) = latest else { continue }; // workflow with no runs yet
+        let status = r.get("status").and_then(|x| x.as_str()).unwrap_or("");
+        let conclusion = r.get("conclusion").and_then(|x| x.as_str());
+        runs.push(WorkflowRun {
+            name,
+            state: run_state(status, conclusion),
+            run_number: r.get("run_number").and_then(|x| x.as_u64()).unwrap_or(0),
+            branch: r.get("head_branch").and_then(|x| x.as_str()).map(|s| s.to_string()),
+            sha: short_sha(r.get("head_sha").and_then(|x| x.as_str()).unwrap_or("")),
+            actor: r
+                .get("actor")
+                .and_then(|a| a.get("login"))
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string()),
+            url: r.get("html_url").and_then(|x| x.as_str()).map(|s| s.to_string()),
+            updated_at: r.get("updated_at").and_then(|x| x.as_str()).unwrap_or("").to_string(),
         });
     }
 
-    BeaconState::Ok { repo: format!("{owner}/{repo}"), envs }
+    // Most recently updated first.
+    runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+    BeaconState::Ok { repo: format!("{owner}/{repo}"), runs }
 }
 
 /// Parse a GitHub `owner/repo` out of a `git remote` URL. Handles
@@ -219,16 +205,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keeps_only_newest_deployment_per_environment() {
-        let raw = vec![
-            RawDeployment { id: 1, environment: "production".into(), sha: "aaaaaaa".into(), creator: None, created_at: "2026-06-01T00:00:00Z".into() },
-            RawDeployment { id: 2, environment: "production".into(), sha: "bbbbbbb".into(), creator: None, created_at: "2026-06-02T00:00:00Z".into() },
-            RawDeployment { id: 3, environment: "preview".into(), sha: "ccccccc".into(), creator: None, created_at: "2026-06-01T00:00:00Z".into() },
-        ];
-        let kept = latest_per_environment(raw);
-        assert_eq!(kept.len(), 2);
-        let prod = kept.iter().find(|d| d.environment == "production").unwrap();
-        assert_eq!(prod.id, 2, "should keep the newest production deployment");
+    fn run_state_collapses_status_and_conclusion() {
+        // Completed runs report their conclusion.
+        assert_eq!(run_state("completed", Some("success")), "success");
+        assert_eq!(run_state("completed", Some("failure")), "failure");
+        assert_eq!(run_state("completed", Some("cancelled")), "cancelled");
+        // Completed with no conclusion (shouldn't happen) → unknown.
+        assert_eq!(run_state("completed", None), "unknown");
+        // In-flight runs report their status, ignoring the (null) conclusion.
+        assert_eq!(run_state("in_progress", None), "in_progress");
+        assert_eq!(run_state("queued", None), "queued");
     }
 
     #[test]
