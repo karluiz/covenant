@@ -175,6 +175,13 @@ export class OnboardingPanel {
     this.modal = overlay;
     document.addEventListener("keydown", this.onKeydown, true);
     this.renderStep();
+
+    // Force a reflow so the card's initial state (opacity:0, scale:0.96)
+    // is committed before we add `is-shown` — without this the browser
+    // batches both states into a single paint and the entry transition
+    // never plays. (Same pattern as AOM splash / command palette.)
+    void overlay.offsetWidth;
+    overlay.classList.add("is-shown");
   }
 
   close(): void {

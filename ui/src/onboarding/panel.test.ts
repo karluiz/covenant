@@ -161,6 +161,23 @@ describe("OnboardingPanel", () => {
     expect(card?.querySelector(".onboarding-hero svg")).not.toBeNull();
   });
 
+  it("adds is-shown to the overlay so the card's entry transition plays", () => {
+    // Regression guard: the card has `opacity: 0` by default and only
+    // becomes visible via the `.onboarding-overlay.is-shown .onboarding-card`
+    // rule. Forgetting to add `is-shown` makes the user see the scrim
+    // with the backdrop blur and nothing else — symptom: "I only see
+    // the blur, the card never appears". open() MUST add the class.
+    const h = makeHandlers();
+    const panel = new OnboardingPanel(document.body, h);
+    panel.open();
+    const overlay = document.querySelector(".onboarding-overlay");
+    expect(overlay?.classList.contains("is-shown")).toBe(true);
+    // And the card itself must be at opacity:1, not stuck at opacity:0.
+    const card = document.querySelector<HTMLElement>(".onboarding-card");
+    const computed = card ? getComputedStyle(card).opacity : null;
+    expect(computed).toBe("1");
+  });
+
   it("primary CTA has its own bespoke class (not a shared settings button)", () => {
     // The wizard's primary button is the marketing CTA — it has its
     // own visual identity (gradient + halo + arrow icon) and must NOT
