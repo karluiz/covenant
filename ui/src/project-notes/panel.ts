@@ -4,6 +4,8 @@ import { NotesTab } from "./notes-tab";
 import { DocsTab } from "./docs-tab";
 import { DraftsTab } from "./drafts-tab";
 import { PromptsTab } from "./prompts-tab";
+import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 
 export type PanelTab = "commands" | "prompts" | "notes" | "docs" | "drafts";
 
@@ -55,41 +57,73 @@ export class ProjectNotesPanel {
       this.root.style.setProperty("--pn-accent", opts.groupColor);
     }
 
-    const header = document.createElement("div");
-    header.className = "pn-header";
-    header.innerHTML = `
-      <span class="pn-title">
-        <span class="pn-title-dot" aria-hidden="true"></span>
-        <span class="pn-title-label"></span>
-      </span>
-      <div class="pn-actions">
-        <button class="pn-fs" aria-label="Toggle fullscreen">⤢</button>
-        <button class="pn-close" aria-label="Close">×</button>
-      </div>
-    `;
-    (header.querySelector(".pn-title-label") as HTMLElement).textContent =
-      opts.groupLabel;
-    header.querySelector(".pn-close")!.addEventListener("click", () => this.close());
-    header.querySelector(".pn-fs")!.addEventListener("click", () => this.toggleFullscreen());
+    // Inner flex container adopts the shared rail design system. The root
+    // .pn-panel keeps its fixed overlay positioning; this wrapper carries the
+    // rail chrome (header / controls / body). Transparent background so
+    // .pn-panel's left accent bar (inset box-shadow) still shows through.
+    const inner = document.createElement("div");
+    inner.className = "rail-panel";
+    inner.style.background = "transparent";
 
+    const header = document.createElement("div");
+    header.className = "rail-header";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "rail-title";
+    const dot = document.createElement("span");
+    dot.className = "rail-dot";
+    dot.setAttribute("aria-hidden", "true");
+    // The dot carries the per-group accent color (was the title dot before).
+    if (opts.groupColor) dot.style.background = opts.groupColor;
+    const titleLabel = document.createElement("span");
+    titleLabel.className = "rail-title-label";
+    titleLabel.textContent = opts.groupLabel;
+    titleEl.appendChild(dot);
+    titleEl.appendChild(titleLabel);
+
+    const actions = document.createElement("div");
+    actions.className = "rail-actions";
+    const fsBtn = document.createElement("button");
+    fsBtn.className = "rail-btn";
+    fsBtn.setAttribute("aria-label", "Toggle fullscreen");
+    fsBtn.innerHTML = Icons.maximize({ size: 15 });
+    fsBtn.addEventListener("click", () => this.toggleFullscreen());
+    attachTooltip(fsBtn, "Toggle fullscreen");
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "rail-btn";
+    closeBtn.setAttribute("aria-label", "Close");
+    closeBtn.innerHTML = Icons.x({ size: 15 });
+    closeBtn.addEventListener("click", () => this.close());
+    attachTooltip(closeBtn, "Close");
+    actions.appendChild(fsBtn);
+    actions.appendChild(closeBtn);
+
+    header.appendChild(titleEl);
+    header.appendChild(actions);
+
+    const controls = document.createElement("div");
+    controls.className = "rail-controls";
     const tabs = document.createElement("div");
-    tabs.className = "pn-tabs";
+    tabs.className = "rail-tabs";
     this.tabButtons = {} as Record<PanelTab, HTMLButtonElement>;
     for (const t of ["commands", "prompts", "notes", "docs", "drafts"] as PanelTab[]) {
       const b = document.createElement("button");
-      b.textContent = t[0].toUpperCase() + t.slice(1);
+      b.className = "rail-tab";
+      b.textContent = t;
       b.dataset.tab = t;
       b.addEventListener("click", () => this.switchTab(t));
       tabs.appendChild(b);
       this.tabButtons[t] = b;
     }
+    controls.appendChild(tabs);
 
     this.body = document.createElement("div");
     this.body.className = "pn-body";
 
-    this.root.appendChild(header);
-    this.root.appendChild(tabs);
-    this.root.appendChild(this.body);
+    inner.appendChild(header);
+    inner.appendChild(controls);
+    inner.appendChild(this.body);
+    this.root.appendChild(inner);
 
     this.updateTabUI();
   }
@@ -123,7 +157,7 @@ export class ProjectNotesPanel {
 
   private updateTabUI(): void {
     for (const t of Object.keys(this.tabButtons) as PanelTab[]) {
-      this.tabButtons[t].classList.toggle("active", t === this.currentTab);
+      this.tabButtons[t].classList.toggle("is-active", t === this.currentTab);
     }
     this.body.replaceChildren();
     if (this.currentTab === "commands") {

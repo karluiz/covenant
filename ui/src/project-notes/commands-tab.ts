@@ -45,11 +45,11 @@ export class CommandsTab {
     this.list.replaceChildren();
     if (this.commands.length === 0) {
       const empty = document.createElement("div");
-      empty.className = "pn-empty";
+      empty.className = "rail-empty";
       empty.innerHTML = `
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-        <div class="pn-empty-title">No commands yet</div>
-        <div class="pn-empty-hint">Click <span class="pn-kbd">+ New command</span> to add one</div>
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <div class="rail-empty-title">No commands yet</div>
+        <div class="rail-empty-hint">Click <kbd>+ New command</kbd> to add one</div>
       `;
       this.list.appendChild(empty);
       return;
@@ -126,7 +126,7 @@ export class CommandsTab {
     // surface the editor inline at the top, right under the "+ New command"
     // button — so the form appears where the user is already looking.
     const isCreating = !existing;
-    const empty = this.list.querySelector<HTMLElement>(".pn-empty");
+    const empty = this.list.querySelector<HTMLElement>(".rail-empty");
     if (isCreating && empty) empty.style.display = "none";
 
     const restoreEmpty = () => {

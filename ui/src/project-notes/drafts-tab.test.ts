@@ -39,7 +39,7 @@ describe("DraftsTab", () => {
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
 
-    const items = host.querySelectorAll(".pn-drafts-item");
+    const items = host.querySelectorAll(".rail-row");
     expect(items.length).toBe(2);
     expect(items[0].textContent).toContain("Foo spec");
   });
@@ -81,7 +81,7 @@ describe("DraftsTab", () => {
       deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
-    expect(host.querySelector(".pn-drafts-title")?.textContent).toBe("Untitled draft");
+    expect(host.querySelector(".rail-name")?.textContent).toBe("Untitled draft");
   });
 
   it("calls onOpenDraft with the draft id when an item is clicked", async () => {
@@ -95,7 +95,7 @@ describe("DraftsTab", () => {
       deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
-    (host.querySelector(".pn-drafts-item") as HTMLElement).click();
+    (host.querySelector(".rail-row") as HTMLElement).click();
     expect(opened).toEqual(["xyz"]);
   });
 
@@ -117,7 +117,7 @@ describe("DraftsTab", () => {
 
     expect(deleteDraft).toHaveBeenCalledWith("kill-me");
     expect(opened).toEqual([]); // click must not bubble to the item
-    expect(host.querySelectorAll(".pn-drafts-item").length).toBe(0);
+    expect(host.querySelectorAll(".rail-row").length).toBe(0);
     expect(host.textContent).toContain("No drafts yet");
   });
 
@@ -132,7 +132,7 @@ describe("DraftsTab", () => {
       deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
-    (host.querySelector(".pn-drafts-new") as HTMLElement).click();
+    (host.querySelector(".rail-new") as HTMLElement).click();
     expect(called).toBe(true);
   });
 
@@ -150,9 +150,9 @@ describe("DraftsTab", () => {
       deleteDraft: vi.fn(),
     }).mount(host);
     await new Promise((r) => setTimeout(r, 0));
-    expect(host.querySelectorAll(".pn-drafts-item").length).toBe(1);
+    expect(host.querySelectorAll(".rail-row").length).toBe(1);
 
     await tab.refresh();
-    expect(host.querySelectorAll(".pn-drafts-item").length).toBe(2);
+    expect(host.querySelectorAll(".rail-row").length).toBe(2);
   });
 });

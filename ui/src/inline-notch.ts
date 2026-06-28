@@ -9,6 +9,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import type { ExecutorPhase } from "../notch/store";
 import { attachTooltip } from "./tooltip/tooltip";
+import { Icons } from "./icons";
 
 const MAX_ROWS = 40;
 
@@ -57,14 +58,24 @@ function hash(s: string): number {
   for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
   return Math.abs(h);
 }
-const tabColorFor = (sid: string) => TAB_COLORS[hash(sid) % TAB_COLORS.length];
-
 function phaseKind(p: ExecutorPhase): Row["kind"] {
   switch (p.kind) {
     case "done": return "ok";
     case "waiting": return "warn";
     case "idle": return "info";
     default: return "run";
+  }
+}
+
+/// Map a row kind onto the shared rail `data-spine` vocabulary
+/// (live | run | ok | fail | idle) that colours the left spine.
+function spineFor(kind: Row["kind"]): string {
+  switch (kind) {
+    case "run": return "live";
+    case "ok": return "ok";
+    case "warn": return "run";
+    case "err": return "fail";
+    case "info": return "idle";
   }
 }
 
@@ -120,57 +131,70 @@ function fmtAgent(agent: string | null | undefined): string {
 /// `notch:inline-mode` events from the backend (true when main window is
 /// fullscreen, false otherwise).
 export function mountInlineNotch(host: HTMLElement): void {
+  // Keep `.inline-notch` on the host: the shared collapse rule
+  // (`#activity-sidebar.is-collapsed .inline-notch-body`) and the body's
+  // flex layout (`.inline-notch .inline-notch-body`) still drive the
+  // collapsible region. Zero the host's own padding so the rail panel is
+  // edge-to-edge (hairline borders reach the rail's sides).
   host.classList.add("inline-notch");
+  host.style.padding = "0";
   host.innerHTML = `
-    <button class="inline-notch-head" type="button" aria-expanded="true">
-      <div class="inline-notch-av" aria-hidden="true"></div>
-      <div class="inline-notch-meta">
-        <div class="inline-notch-name">no agent</div>
-        <div class="inline-notch-sub">idle</div>
+    <div class="rail-panel">
+      <div class="rail-header">
+        <div class="rail-title">
+          <span class="rail-dot"></span>
+          <span class="rail-title-label">Activity</span>
+        </div>
+        <div class="rail-actions">
+          <button class="rail-btn rail-collapse" type="button" aria-expanded="true"></button>
+        </div>
       </div>
-      <span class="inline-notch-chev" aria-hidden="true">▾</span>
-    </button>
-    <div class="inline-notch-body">
-      <div class="inline-notch-picker">
-        <button class="inline-notch-picker-btn" type="button">
-          <span class="inline-notch-picker-stack"></span>
-          <span class="inline-notch-picker-label">All agents</span>
-          <span class="inline-notch-picker-arrow">▾</span>
-        </button>
+      <div class="inline-notch-body" style="gap:0">
+        <div class="rail-controls">
+          <div class="rail-select" role="button" tabindex="0">
+            <span class="rail-select-stack"></span>
+            <span class="rail-select-label">All agents</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </div>
+        </div>
+        <div class="rail-substream">
+          <span>activity</span>
+          <button class="clear" type="button">clear</button>
+        </div>
+        <div class="rail-body"></div>
       </div>
-      <div class="inline-notch-stream-head">
-        <span class="label">activity</span>
-        <button class="clear" type="button">clear</button>
-      </div>
-      <div class="inline-notch-stream"></div>
     </div>
   `;
   host.hidden = true;
 
+  const railDot = host.querySelector<HTMLElement>(".rail-dot")!;
+  const collapseBtn = host.querySelector<HTMLButtonElement>(".rail-collapse")!;
+  const streamEl = host.querySelector<HTMLElement>(".rail-body")!;
+  const clearBtn = host.querySelector<HTMLButtonElement>(".clear")!;
+  const selectEl = host.querySelector<HTMLElement>(".rail-select")!;
+  const pickerStack = host.querySelector<HTMLElement>(".rail-select-stack")!;
+  const pickerLabel = host.querySelector<HTMLElement>(".rail-select-label")!;
+
   const COLLAPSED_KEY = "covenant.inlineNotch.collapsed";
+  const setCollapseIcon = (collapsed: boolean): void => {
+    // chevrons-up-down = "expand" (currently collapsed);
+    // chevrons-down-up = "collapse" (currently expanded).
+    collapseBtn.innerHTML = collapsed
+      ? Icons.chevronsUpDown({ size: 15 })
+      : Icons.chevronsDownUp({ size: 15 });
+  };
   const initialCollapsed = localStorage.getItem(COLLAPSED_KEY) === "1";
   host.classList.toggle("is-collapsed", initialCollapsed);
-  const headBtn = host.querySelector<HTMLButtonElement>(".inline-notch-head")!;
-  headBtn.setAttribute("aria-expanded", initialCollapsed ? "false" : "true");
-  attachTooltip(headBtn, "Collapse notifications");
-  headBtn.addEventListener("click", (ev) => {
-    // Don't toggle when the user clicks the "clear" button inside the body —
-    // that's handled separately. (The button isn't a child of head, but be safe.)
-    if ((ev.target as HTMLElement).closest(".clear")) return;
+  collapseBtn.setAttribute("aria-expanded", initialCollapsed ? "false" : "true");
+  setCollapseIcon(initialCollapsed);
+  attachTooltip(collapseBtn, "Collapse activity");
+  collapseBtn.addEventListener("click", () => {
     const next = !host.classList.contains("is-collapsed");
     host.classList.toggle("is-collapsed", next);
-    headBtn.setAttribute("aria-expanded", next ? "false" : "true");
+    collapseBtn.setAttribute("aria-expanded", next ? "false" : "true");
+    setCollapseIcon(next);
     localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
   });
-
-  const headName = host.querySelector<HTMLElement>(".inline-notch-name")!;
-  const headSub = host.querySelector<HTMLElement>(".inline-notch-sub")!;
-  const headAv = host.querySelector<HTMLElement>(".inline-notch-av")!;
-  const streamEl = host.querySelector<HTMLElement>(".inline-notch-stream")!;
-  const clearBtn = host.querySelector<HTMLButtonElement>(".clear")!;
-  const pickerBtn = host.querySelector<HTMLButtonElement>(".inline-notch-picker-btn")!;
-  const pickerStack = host.querySelector<HTMLElement>(".inline-notch-picker-stack")!;
-  const pickerLabel = host.querySelector<HTMLElement>(".inline-notch-picker-label")!;
 
   /// Multi-agent filter. `null` = combined ("All agents"). Empty set
   /// falls back to null so the user can't land in a no-rows view.
@@ -197,7 +221,7 @@ export function mountInlineNotch(host: HTMLElement): void {
     }
 
     const streamRect = streamEl.getBoundingClientRect();
-    for (const row of streamEl.querySelectorAll<HTMLElement>(".row[data-row-id]")) {
+    for (const row of streamEl.querySelectorAll<HTMLElement>(".rail-row[data-row-id]")) {
       const rowRect = row.getBoundingClientRect();
       if (rowRect.bottom > streamRect.top && rowRect.top < streamRect.bottom) {
         return {
@@ -226,7 +250,7 @@ export function mountInlineNotch(host: HTMLElement): void {
     }
 
     if (anchor.rowId) {
-      const row = streamEl.querySelector<HTMLElement>(`.row[data-row-id="${anchor.rowId}"]`);
+      const row = streamEl.querySelector<HTMLElement>(`.rail-row[data-row-id="${anchor.rowId}"]`);
       if (row) {
         const streamRect = streamEl.getBoundingClientRect();
         const rowRect = row.getBoundingClientRect();
@@ -285,15 +309,16 @@ export function mountInlineNotch(host: HTMLElement): void {
     pickerStack.innerHTML = "";
     const show = visible.slice(0, 3);
     for (const a of show) {
-      const dot = document.createElement("span");
-      dot.className = "inline-notch-av-dot";
+      // `.rail-select-stack i` carries the shared size/border; only the
+      // per-agent gradient is set inline.
+      const dot = document.createElement("i");
       dot.style.background = `linear-gradient(135deg, ${agentColor(a)}, #c7a8ff)`;
       pickerStack.appendChild(dot);
     }
     if (visible.length > show.length) {
       const more = document.createElement("span");
-      more.className = "inline-notch-picker-more";
       more.textContent = `+${visible.length - show.length}`;
+      more.style.cssText = "font-size:10px;color:var(--fg-dim);margin-left:4px;align-self:center;";
       pickerStack.appendChild(more);
     }
     pickerLabel.textContent = selectedAgents === null
@@ -390,28 +415,37 @@ export function mountInlineNotch(host: HTMLElement): void {
     }
 
     document.body.appendChild(drop);
-    const r = pickerBtn.getBoundingClientRect();
+    const r = selectEl.getBoundingClientRect();
     drop.style.top = `${r.bottom + 6}px`;
     drop.style.left = `${r.left}px`;
     drop.style.minWidth = `${r.width}px`;
     dropdownEl = drop;
     dismissDropdown = (e: Event) => {
       const t = e.target as Node;
-      if (drop.contains(t) || pickerBtn.contains(t)) return;
+      if (drop.contains(t) || selectEl.contains(t)) return;
       closeDropdown();
     };
     setTimeout(() => document.addEventListener("mousedown", dismissDropdown!), 0);
   }
 
-  pickerBtn.addEventListener("click", (e) => {
+  selectEl.addEventListener("click", (e) => {
     e.stopPropagation();
     if (dropdownEl) closeDropdown();
     else openDropdown();
   });
+  selectEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (dropdownEl) closeDropdown();
+      else openDropdown();
+    }
+  });
 
   function render(): void {
-    // Header reflects the active session's executor, falling back to
-    // any running session if no active one is set.
+    // The header no longer carries the per-agent identity (that moved to the
+    // picker below). It only drives the live status dot: `is-run` when the
+    // focused executor is actively thinking/running, default otherwise. We
+    // still compute the same focus session as before to decide that.
     const activePhase = activeSession ? phases.get(activeSession) : null;
     const focus =
       (activePhase && (activePhase.phase.kind !== "idle" || activePhase.agent)
@@ -419,23 +453,13 @@ export function mountInlineNotch(host: HTMLElement): void {
         : null) ??
       [...phases.values()].find((p) => p.phase.kind !== "idle") ??
       (activeMeta?.agent ? { ...activeMeta, phase: { kind: "idle" } as ExecutorPhase } : null);
-    if (focus) {
-      headName.innerHTML = `${escapeHtml(fmtAgent(focus.agent))} · <span class="tab-id">${escapeHtml(focus.tab)}</span>`;
-      headSub.textContent = `▸ ${phaseLabel(focus.phase)}`;
-      // Use the per-agent color so the head avatar matches the picker
-      // stack and the per-row "who" dots. Fall back to tab color only
-      // for shell-only sessions with no foreground agent.
-      const swatch = focus.agent ? agentColor(focus.agent) : tabColorFor(focus.tab);
-      headAv.style.background = `linear-gradient(135deg, ${swatch}, #c7a8ff)`;
-    } else {
-      headName.textContent = "no agent";
-      headSub.textContent = "idle";
-      headAv.style.background = "";
-    }
+    const active = !!focus && phaseKind(focus.phase) === "run";
+    railDot.className = "rail-dot" + (active ? " is-run" : "");
+
     const scrollAnchor = captureStreamScrollAnchor();
 
-    // Show the "who" badge only when the user is looking at combined /
-    // multi-agent view — otherwise it's redundant noise.
+    // Show the agent name in the row only when the user is looking at the
+    // combined / multi-agent view — otherwise it's redundant noise.
     const showWho = selectedAgents === null || selectedAgents.size > 1;
 
     // Stream: reverse-chrono, most recent first. Filter by selected agents.
@@ -445,26 +469,28 @@ export function mountInlineNotch(host: HTMLElement): void {
       .reverse()
       .map((r) => {
         const agent = phases.get(r.session)?.agent ?? null;
-        const who = showWho && agent
-          ? `<span class="who"><span class="who-dot" style="background:${agentColor(agent)}"></span>${escapeHtml(fmtAgent(agent))}</span>`
+        // "[agent] · message" inside rail-name; the agent fragment keeps its
+        // per-agent colour as the only identity cue (replacing the old dot).
+        const namePrefix = showWho && agent
+          ? `<span style="color:${agentColor(agent)}">${escapeHtml(fmtAgent(agent))}</span> · `
           : "";
+        const metaParts = [escapeHtml(r.tag)];
+        if (r.count > 1) metaParts.push(`×${r.count}`);
+        if (r.ts > r.firstTs) metaParts.push(fmtDuration(r.ts - r.firstTs));
+        let meta = metaParts.join(" · ");
+        if (r.tokens > 0) meta += ` · <span class="rail-num">${fmtTokens(r.tokens)} tok</span>`;
         return `
-          <div class="row ${r.kind}" data-row-id="${escapeHtml(r.id)}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}">
-            <span class="ts">${fmtTime(r.ts)}</span>
-            <span class="row-copy">
-              ${who}<span class="msg">${escapeHtml(r.message)}</span>
-              <span class="row-meta">
-                <span class="tag">${escapeHtml(r.tag)}</span>
-                ${r.count > 1 ? `<span class="count">×${r.count}</span>` : ""}
-                ${r.ts > r.firstTs ? `<span class="dur">${fmtDuration(r.ts - r.firstTs)}</span>` : ""}
-                ${r.tokens > 0 ? `<span class="tok">${fmtTokens(r.tokens)} tok</span>` : ""}
-              </span>
-            </span>
+          <div class="rail-row" data-spine="${spineFor(r.kind)}" data-row-id="${escapeHtml(r.id)}" data-tip-message="${escapeHtml(r.message)}" data-tip-tag="${escapeHtml(r.tag)}" tabindex="0">
+            <div class="rail-row-line">
+              <span class="rail-name">${namePrefix}${escapeHtml(r.message)}</span>
+              <span class="rail-when">${fmtTime(r.ts)}</span>
+            </div>
+            <div class="rail-meta">${meta}</div>
           </div>`;
       })
       .join("");
 
-    streamEl.querySelectorAll<HTMLElement>(".row").forEach((row) => {
+    streamEl.querySelectorAll<HTMLElement>(".rail-row").forEach((row) => {
       attachTooltip(row, {
         title: row.dataset.tipMessage ?? "",
         meta: row.dataset.tipTag ?? "",

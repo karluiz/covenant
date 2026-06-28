@@ -40,12 +40,12 @@ export class DraftsTab {
 
     this.newBtn = document.createElement("button");
     this.newBtn.type = "button";
-    this.newBtn.className = "pn-drafts-new";
+    this.newBtn.className = "rail-new";
     this.newBtn.textContent = "+ New spec (AI-assisted)";
     this.newBtn.addEventListener("click", () => this.opts.onNewSpec());
 
+    // Plain list: rail-row carries its own hairline separators, so no gap.
     this.listEl = document.createElement("div");
-    this.listEl.className = "pn-drafts-list";
 
     this.container.appendChild(this.newBtn);
     this.container.appendChild(this.listEl);
@@ -65,12 +65,13 @@ export class DraftsTab {
       console.error("drafts list failed", err);
       this.listEl.replaceChildren();
       const wrap = document.createElement("div");
-      wrap.className = "pn-empty pn-empty-inline";
+      wrap.className = "rail-empty";
+      wrap.innerHTML = Icons.alertTriangle({ size: 28 });
       const title = document.createElement("div");
-      title.className = "pn-empty-title";
+      title.className = "rail-empty-title";
       title.textContent = "Failed to load drafts";
       const hint = document.createElement("div");
-      hint.className = "pn-empty-hint";
+      hint.className = "rail-empty-hint";
       hint.textContent = (err as Error)?.message ?? "Unknown error";
       wrap.appendChild(title);
       wrap.appendChild(hint);
@@ -82,10 +83,10 @@ export class DraftsTab {
     this.listEl.replaceChildren();
     if (drafts.length === 0) {
       this.listEl.innerHTML =
-        `<div class="pn-empty">
-           <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M14 4v4h4"/><path d="M8 13h8M8 17h5"/></svg>
-           <div class="pn-empty-title">No drafts yet</div>
-           <div class="pn-empty-hint">Click <span class="pn-kbd">+ New spec (AI-assisted)</span> to start one</div>
+        `<div class="rail-empty">
+           <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M14 4v4h4"/><path d="M8 13h8M8 17h5"/></svg>
+           <div class="rail-empty-title">No drafts yet</div>
+           <div class="rail-empty-hint">Click <kbd>+ New spec</kbd> to start one</div>
          </div>`;
       return;
     }
@@ -94,16 +95,22 @@ export class DraftsTab {
 
   private buildItem(d: SpecDraftSummary): HTMLElement {
     const item = document.createElement("div");
-    item.className = "pn-drafts-item";
+    item.className = "rail-row";
     item.setAttribute("role", "button");
     item.tabIndex = 0;
+    // Make room on the right for the absolutely-positioned delete button so a
+    // long title ellipsizes before it rather than running underneath.
+    item.style.paddingRight = "32px";
 
+    const line = document.createElement("div");
+    line.className = "rail-row-line";
     const title = document.createElement("span");
-    title.className = "pn-drafts-title";
+    title.className = "rail-name";
     title.textContent = draftTitle(d);
+    line.appendChild(title);
 
-    const meta = document.createElement("span");
-    meta.className = "pn-drafts-meta";
+    const meta = document.createElement("div");
+    meta.className = "rail-meta";
     const n = d.messages.length;
     meta.textContent = `${n} message${n === 1 ? "" : "s"} · ${relTime(d.last_updated)}`;
 
@@ -118,13 +125,22 @@ export class DraftsTab {
       try {
         await this.deleteDraft(d.id);
         item.remove();
-        if (this.listEl.querySelectorAll(".pn-drafts-item").length === 0) this.renderList([]);
+        if (this.listEl.querySelectorAll(".rail-row").length === 0) this.renderList([]);
       } catch {
         del.disabled = false;
       }
     });
 
-    item.appendChild(title);
+    // The delete button reveals on row hover / its own focus. The CSS reveal
+    // selector targeted the old item class, so drive it from JS now.
+    const showDel = (): void => { del.style.opacity = "1"; };
+    const hideDel = (): void => { del.style.opacity = ""; };
+    item.addEventListener("mouseenter", showDel);
+    item.addEventListener("mouseleave", hideDel);
+    del.addEventListener("focus", showDel);
+    del.addEventListener("blur", hideDel);
+
+    item.appendChild(line);
     item.appendChild(meta);
     item.appendChild(del);
 

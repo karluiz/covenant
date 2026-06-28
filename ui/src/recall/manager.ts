@@ -39,7 +39,7 @@ const MAX_RESULTS = 12;
 
 export class RecallManager {
   private readonly root: HTMLElement;
-  private readonly listEl: HTMLUListElement;
+  private readonly listEl: HTMLElement;
   private readonly headerEl: HTMLElement;
   private readonly searchInput: HTMLInputElement;
   private buffer = "";
@@ -55,23 +55,41 @@ export class RecallManager {
     private readonly inject: InjectFn,
     private readonly callbacks: RecallCallbacks,
   ) {
+    // Outer wrapper keeps `recall-host` (grid placement + `[hidden]`
+    // toggling + `recall-active` column override all key off it) and
+    // gains `rail-panel` so it's the shared-rail flex container.
     this.root = document.createElement("div");
-    this.root.className = "recall-host";
+    this.root.className = "recall-host rail-panel";
     this.root.hidden = true;
 
-    this.headerEl = document.createElement("header");
-    this.headerEl.className = "recall-header";
+    // Header (40px): title only — the panel exposes no close affordance
+    // of its own (it's toggled from the titlebar), so no rail-actions.
+    this.headerEl = document.createElement("div");
+    this.headerEl.className = "rail-header";
     this.headerEl.innerHTML = `
-      <span class="recall-header-icon">${Icons.history({ size: 12 })}</span>
-      <input
-        type="text"
-        class="recall-header-search"
-        placeholder="search history…"
-        spellcheck="false"
-        autocomplete="off"
-      />
+      <div class="rail-title">
+        <span class="rail-dot"></span>
+        <span class="rail-title-label">History</span>
+      </div>
     `;
-    this.searchInput = this.headerEl.querySelector<HTMLInputElement>(".recall-header-search")!;
+    this.root.appendChild(this.headerEl);
+
+    // Controls (36px): the search row lives here now (history icon +
+    // the existing search input, handlers unchanged).
+    const controls = document.createElement("div");
+    controls.className = "rail-controls";
+    controls.innerHTML = `
+      <div class="rail-search">
+        ${Icons.history({ size: 14 })}
+        <input
+          type="text"
+          placeholder="search history…"
+          spellcheck="false"
+          autocomplete="off"
+        />
+      </div>
+    `;
+    this.searchInput = controls.querySelector<HTMLInputElement>("input")!;
     // Typing in the search input drives the same query path the shell
     // shadow buffer uses. When this input owns focus we treat it as
     // authoritative — input.value replaces this.buffer entirely.
@@ -93,7 +111,7 @@ export class RecallManager {
         e.preventDefault();
       } else if (e.key === "Enter") {
         // Inject the first match (if any) like clicking the top item.
-        const first = this.listEl.querySelector<HTMLElement>(".recall-item");
+        const first = this.listEl.querySelector<HTMLElement>(".rail-row");
         const cmd = first?.dataset.cmd ?? "";
         if (cmd) {
           e.preventDefault();
@@ -101,10 +119,10 @@ export class RecallManager {
         }
       }
     });
-    this.root.appendChild(this.headerEl);
+    this.root.appendChild(controls);
 
-    this.listEl = document.createElement("ul");
-    this.listEl.className = "recall-list";
+    this.listEl = document.createElement("div");
+    this.listEl.className = "rail-body";
     this.root.appendChild(this.listEl);
 
     this.host.appendChild(this.root);
@@ -115,10 +133,10 @@ export class RecallManager {
   /// isn't a black void (mirrors the Project Notes `.pn-empty` look).
   private renderIdle(): void {
     this.listEl.innerHTML = `
-      <li class="recall-empty recall-empty--idle">
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><path d="M3 4v5h5"/></svg>
-        <div class="recall-empty-title">Search your history</div>
-        <div class="recall-empty-hint">Type a command to find past runs across sessions</div>
+      <li class="rail-empty">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 2"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><path d="M3 4v5h5"/></svg>
+        <div class="rail-empty-title">Search your history</div>
+        <div class="rail-empty-hint">Type a command to find past runs across sessions</div>
       </li>`;
   }
 
@@ -320,7 +338,7 @@ export class RecallManager {
 
   private render(matches: RecallMatch[], query: string): void {
     if (matches.length === 0) {
-      this.listEl.innerHTML = `<li class="recall-empty">no past commands match</li>`;
+      this.listEl.innerHTML = `<li class="rail-empty"><div class="rail-empty-hint">no past commands match</div></li>`;
       return;
     }
 
@@ -330,16 +348,16 @@ export class RecallManager {
         const stats = formatStats(m, now);
         const cmd = highlightMatch(m.command, query);
         return `
-          <li class="recall-item" data-cmd="${escapeHtml(m.command)}" tabindex="0">
-            <div class="recall-cmd">${cmd}</div>
-            <div class="recall-stats">${stats}</div>
+          <li class="rail-row" data-cmd="${escapeHtml(m.command)}" tabindex="0">
+            <div class="rail-row-line"><span class="rail-cmd">${cmd}</span></div>
+            <div class="rail-meta">${stats}</div>
           </li>
         `;
       })
       .join("");
     this.listEl.innerHTML = items;
 
-    this.listEl.querySelectorAll<HTMLElement>(".recall-item").forEach((el) => {
+    this.listEl.querySelectorAll<HTMLElement>(".rail-row").forEach((el) => {
       const cmd = el.dataset.cmd ?? "";
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -389,7 +407,7 @@ function formatStats(m: RecallMatch, now: number): string {
   }
   if (m.count > 0 && m.success_count < m.count) {
     const failed = m.count - m.success_count;
-    parts.push(`<span class="recall-fail">${failed} failed</span>`);
+    parts.push(`<span style="color:var(--fail)">${failed} failed</span>`);
   }
   return parts.join(" · ");
 }

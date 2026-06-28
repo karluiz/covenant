@@ -42,7 +42,7 @@ beforeEach(() => {
 describe("view toggle + fullscreen", () => {
   it("switches to board mode and adds body.tasker-board", () => {
     const { host } = mount();
-    const boardBtn = host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!;
+    const boardBtn = host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!;
     expect(boardBtn).toBeTruthy();
     boardBtn.click();
     expect(document.body.classList.contains("tasker-board")).toBe(true);
@@ -51,16 +51,16 @@ describe("view toggle + fullscreen", () => {
 
   it("switches back to list and removes body.tasker-board", () => {
     const { host } = mount();
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="list"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="list"]')!.click();
     expect(document.body.classList.contains("tasker-board")).toBe(false);
-    expect(host.querySelector(".tasker-filters")).toBeTruthy();
+    expect(host.querySelector(".rail-pills")).toBeTruthy();
   });
 
   it("Escape closes the panel via onClose", () => {
     let closed = 0;
     const { host } = mount(() => { closed++; });
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     expect(closed).toBe(1);
   });
@@ -74,7 +74,7 @@ describe("view toggle + fullscreen", () => {
 
   it("persists view mode across re-mount", () => {
     const { host } = mount();
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
     // remount with a fresh panel against the same localStorage
     document.body.innerHTML = `<div id="tasker-panel"></div>`;
     const host2 = document.getElementById("tasker-panel")!;
@@ -137,7 +137,7 @@ describe("board selection + checkbox", () => {
     storage.createTask(pid, "Pick me", { status: "pending" });
     (panel as unknown as { boardProjectId: string }).boardProjectId = pid;
     panel.render();
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
 
     host.querySelector<HTMLElement>(".kb-card")!.click();
     const dock = host.querySelector(".tasker-board-dock .tasker-edit");
@@ -218,7 +218,7 @@ describe("board project switcher", () => {
     const panel = new TaskerPanel(host);
     const storage = (panel as unknown as { storage: TaskStorage }).storage;
     panel.render();
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
     return { panel, host, storage };
   }
 
@@ -229,8 +229,8 @@ describe("board project switcher", () => {
     storage.createTask(a.id, "task in A", { status: "pending" });
     storage.createTask(b.id, "task in B", { status: "pending" });
     // re-render board after creating data
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="list"]')!.click();
-    host.querySelector<HTMLButtonElement>('.tasker-view-btn[data-view="board"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="list"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-btn[data-view="board"]')!.click();
 
     const trigger = host.querySelector<HTMLButtonElement>(".kb-project-select")!;
     expect(trigger).toBeTruthy();

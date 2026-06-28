@@ -55,7 +55,9 @@ export class BlockManager {
     this.host.classList.add("blocks-host");
     this.menu = new ContextMenu(document.body);
     this.content = document.createElement("div");
-    this.content.className = "blocks-content";
+    // `blocks-content` keeps the in-place re-render / hide() semantics;
+    // `rail-panel` is the shared rail design-system inner flex container.
+    this.content.className = "blocks-content rail-panel";
     this.host.appendChild(this.content);
     // Persisted across sessions — once you collapse it, it stays
     // collapsed for new tabs too. localStorage is shared per-origin.
@@ -167,60 +169,58 @@ export class BlockManager {
           b.exit_code === null || b.exit_code === undefined
             ? "?"
             : String(b.exit_code);
-        const ok = b.exit_code === 0;
+        const spine = b.exit_code === 0 ? "ok" : "fail";
         const dur = formatDuration(b.duration_ms);
         const when = formatRelativeAge(Date.now() - b.finished_at_unix_ms);
         return `
-          <li class="block-item block-item-history" data-history-idx="${idx}">
-            <div class="block-cmd">$ ${escapeHtml(b.command)}</div>
-            <div class="block-meta">
-              <span class="block-exit ${ok ? "ok" : "fail"}">exit ${escapeHtml(codeText)}</span>
-              <span class="block-history-tab">…${escapeHtml(b.session_id_short)}</span>
-              <span class="block-history-when">${when}</span>
-              <span class="block-dur">${dur}</span>
-            </div>
-          </li>
+          <div class="rail-row" data-spine="${spine}" data-history-idx="${idx}" tabindex="0">
+            <div class="rail-row-line"><span class="rail-cmd">$ ${escapeHtml(b.command)}</span></div>
+            <div class="rail-meta">exit ${escapeHtml(codeText)} · …${escapeHtml(b.session_id_short)} · ${when}<span class="rail-when">${dur}</span></div>
+          </div>
         `;
       })
       .join("");
     return `
-      <div class="blocks-history-sep">from previous sessions in this dir</div>
-      <ul class="blocks-list blocks-list-history">${items}</ul>
+      <div class="rail-divider">From previous sessions · this dir</div>
+      ${items}
     `;
   }
 
   private renderHeader(count: number): string {
     return `
-      <header class="blocks-header">
-        <span class="blocks-header-label">blocks</span>
-        ${count > 0 ? `<span class="blocks-count">${count}</span>` : ""}
-      </header>
+      <div class="rail-header">
+        <div class="rail-title">
+          <span class="rail-dot"></span>
+          <span class="rail-title-label">Blocks</span>
+          ${count > 0 ? `<span class="rail-title-sub">${count}</span>` : ""}
+        </div>
+      </div>
     `;
   }
 
   private renderEmpty(): void {
-    this.content.innerHTML = this.renderHeader(0);
-    if (!this.collapsed) {
-      const history = this.renderHistoricalSection();
-      const empty = document.createElement("div");
-      if (history.length > 0) {
-        // History exists but no current-session blocks yet. The history
-        // list expands to fill the sidebar (flex:1, scrolls); the
-        // "(new commands appear below)" hint is a small inline line
-        // beneath it — NOT a flex:1 block, otherwise it competes with
-        // the history list for vertical space and the layout looks
-        // half-empty.
-        this.content.insertAdjacentHTML("beforeend", history);
-        empty.className = "blocks-empty blocks-empty-inline";
-        empty.textContent = "(new commands will appear below)";
-      } else {
-        // Truly empty (fresh tab, no history yet) — center the
-        // friendly hint in the whole sidebar.
-        empty.className = "blocks-empty";
-        empty.textContent = "run a command to see it here";
-      }
-      this.content.appendChild(empty);
+    if (this.collapsed) {
+      this.content.innerHTML = this.renderHeader(0);
+      this.wireToggle();
+      this.wireBlockContextMenus();
+      return;
     }
+    const history = this.renderHistoricalSection();
+    // History exists but no current-session blocks yet → the history
+    // list fills the rail and the "(new commands appear below)" hint is
+    // a small inline line beneath it. Truly empty (fresh tab, no
+    // history) → center the friendly hint in the whole rail body.
+    const empty =
+      history.length > 0
+        ? `<div class="blocks-empty blocks-empty-inline">(new commands will appear below)</div>`
+        : `<div class="blocks-empty">run a command to see it here</div>`;
+    this.content.innerHTML = `
+      ${this.renderHeader(0)}
+      <div class="rail-body">
+        ${history}
+        ${empty}
+      </div>
+    `;
     this.wireToggle();
     this.wireBlockContextMenus();
   }
@@ -235,25 +235,34 @@ export class BlockManager {
       .map((id) => {
         const b = this.blocksById.get(id);
         if (!b) return "";
-        const status = renderStatus(b);
-        const cwd = b.cwd ? escapeHtml(shortenCwd(b.cwd)) : "";
+        const { spine, meta } = renderStatus(b);
         const fix = renderFix(b);
         return `
-          <li class="block-item" data-block-id="${escapeHtml(b.id)}">
-            ${cwd ? `<div class="block-cwd">${cwd}</div>` : ""}
-            <div class="block-cmd">$ ${escapeHtml(b.command)}</div>
-            <div class="block-meta">${status}</div>
+          <div class="rail-row" data-spine="${spine}" data-block-id="${escapeHtml(b.id)}" tabindex="0">
+            <div class="rail-row-line"><span class="rail-cmd">$ ${escapeHtml(b.command)}</span></div>
+            <div class="rail-meta">${meta}</div>
             ${fix}
-          </li>
+          </div>
         `;
       })
       .join("");
 
     const history = this.collapsed ? "" : this.renderHistoricalSection();
+    // Current-session blocks sit under a dashed "Current · <cwd>" divider;
+    // the live block is the trailing row with data-spine="run".
+    const cwd = this.currentCwd ? escapeHtml(shortenCwd(this.currentCwd)) : "";
+    const current = this.collapsed
+      ? ""
+      : `
+        <div class="rail-divider dashed">Current${cwd ? ` · ${cwd}` : ""}</div>
+        ${items}
+      `;
     this.content.innerHTML = `
       ${this.renderHeader(this.order.length)}
-      ${history}
-      ${this.collapsed ? "" : `<ul class="blocks-list">${items}</ul>`}
+      <div class="rail-body">
+        ${history}
+        ${current}
+      </div>
     `;
     this.wireToggle();
 
@@ -292,15 +301,15 @@ export class BlockManager {
 
     this.wireBlockContextMenus();
 
-    const list = this.content.querySelector<HTMLUListElement>(".blocks-list");
-    if (list) list.scrollTop = list.scrollHeight;
+    const body = this.content.querySelector<HTMLElement>(".rail-body");
+    if (body) body.scrollTop = body.scrollHeight;
   }
 
   /// Wires right-click handlers on both current-session and historical
   /// block items. Called after every render path that produces items.
   private wireBlockContextMenus(): void {
     this.content
-      .querySelectorAll<HTMLElement>(".block-item:not(.block-item-history)")
+      .querySelectorAll<HTMLElement>(".rail-row[data-block-id]")
       .forEach((el) => {
         el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -312,7 +321,7 @@ export class BlockManager {
       });
 
     this.content
-      .querySelectorAll<HTMLElement>(".block-item-history")
+      .querySelectorAll<HTMLElement>(".rail-row[data-history-idx]")
       .forEach((el) => {
         el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -408,18 +417,18 @@ export class BlockManager {
   }
 }
 
-function renderStatus(b: Block): string {
+function renderStatus(b: Block): { spine: string; meta: string } {
   if (b.finishedAtMs === undefined) {
-    return `<span class="block-running">running…</span>`;
+    return { spine: "run", meta: "running…" };
   }
   const dur = Math.max(0, Math.round(b.finishedAtMs - b.startedAtMs));
   const code = b.exitCode;
   const codeText = code === null || code === undefined ? "?" : String(code);
   const ok = code === 0;
-  return `
-    <span class="block-exit ${ok ? "ok" : "fail"}">exit ${escapeHtml(codeText)}</span>
-    <span class="block-dur">${formatDuration(dur)}</span>
-  `;
+  return {
+    spine: ok ? "ok" : "fail",
+    meta: `exit ${escapeHtml(codeText)}<span class="rail-when">${formatDuration(dur)}</span>`,
+  };
 }
 
 function renderFix(b: Block): string {

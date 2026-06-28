@@ -52,7 +52,7 @@ describe("TaskerPanel status lifecycle", () => {
     panel.render();
 
     host
-      .querySelector<HTMLButtonElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-checkbox`)!
+      .querySelector<HTMLButtonElement>(`.tasker-task[data-task-id="${tid}"] .rail-cb`)!
       .click();
 
     const t = storageOf(panel).getTask(pid, tid);
@@ -68,7 +68,7 @@ describe("TaskerPanel status lifecycle", () => {
     panel.render();
 
     host
-      .querySelector<HTMLButtonElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-checkbox`)!
+      .querySelector<HTMLButtonElement>(`.tasker-task[data-task-id="${tid}"] .rail-cb`)!
       .click();
 
     const t = storageOf(panel).getTask(pid, tid);
@@ -89,7 +89,7 @@ describe("TaskerPanel filters", () => {
   }
 
   function visibleTitles(host: HTMLElement): string[] {
-    return Array.from(host.querySelectorAll(".tasker-task-title")).map(
+    return Array.from(host.querySelectorAll(".rail-ttl")).map(
       (el) => el.textContent ?? "",
     );
   }
@@ -97,21 +97,21 @@ describe("TaskerPanel filters", () => {
   it("Active filter shows only active tasks", () => {
     const { panel, host } = mount();
     setupThree(panel);
-    host.querySelector<HTMLButtonElement>('.tasker-filter-btn[data-filter="active"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-pill[data-filter="active"]')!.click();
     expect(visibleTitles(host)).toEqual(["active one"]);
   });
 
   it("Pending filter shows only pending tasks", () => {
     const { panel, host } = mount();
     setupThree(panel);
-    host.querySelector<HTMLButtonElement>('.tasker-filter-btn[data-filter="pending"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-pill[data-filter="pending"]')!.click();
     expect(visibleTitles(host)).toEqual(["pending one"]);
   });
 
   it("All filter shows every task", () => {
     const { panel, host } = mount();
     setupThree(panel);
-    host.querySelector<HTMLButtonElement>('.tasker-filter-btn[data-filter="all"]')!.click();
+    host.querySelector<HTMLButtonElement>('.rail-pill[data-filter="all"]')!.click();
     expect(visibleTitles(host).sort()).toEqual(["active one", "done one", "pending one"]);
   });
 });
@@ -119,7 +119,7 @@ describe("TaskerPanel filters", () => {
 describe("TaskerPanel inline edit", () => {
   function openTask(host: HTMLElement, tid: string): void {
     host
-      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-main`)!
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .rail-task`)!
       .click();
   }
 
@@ -188,7 +188,7 @@ describe("TaskerPanel inline edit", () => {
     panel.render();
 
     host
-      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-title`)!
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .rail-ttl`)!
       .click();
     const input = host.querySelector<HTMLInputElement>(
       `.tasker-task[data-task-id="${tid}"] .tasker-title-input`,
@@ -207,7 +207,7 @@ describe("TaskerPanel inline edit", () => {
     panel.render();
 
     host
-      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .tasker-task-title`)!
+      .querySelector<HTMLElement>(`.tasker-task[data-task-id="${tid}"] .rail-ttl`)!
       .click();
     const input = host.querySelector<HTMLInputElement>(
       `.tasker-task[data-task-id="${tid}"] .tasker-title-input`,
@@ -227,7 +227,7 @@ describe("TaskerPanel inline edit", () => {
 describe("TaskerPanel project rename", () => {
   function projectNameEl(host: HTMLElement, pid: string): HTMLElement {
     return host.querySelector<HTMLElement>(
-      `.tasker-project-header[data-project-id="${pid}"] .tasker-project-name`,
+      `.rail-group-head[data-project-id="${pid}"] .tasker-project-name`,
     )!;
   }
 

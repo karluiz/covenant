@@ -46,11 +46,11 @@ export class PromptsTab {
     this.list.replaceChildren();
     if (this.prompts.length === 0) {
       const empty = document.createElement("div");
-      empty.className = "pn-empty";
+      empty.className = "rail-empty";
       empty.innerHTML = `
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
-        <div class="pn-empty-title">No prompts yet</div>
-        <div class="pn-empty-hint">Click <span class="pn-kbd">+ New prompt</span> to add one</div>
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg>
+        <div class="rail-empty-title">No prompts yet</div>
+        <div class="rail-empty-hint">Click <kbd>+ New prompt</kbd> to add one</div>
       `;
       this.list.appendChild(empty);
       return;
@@ -180,7 +180,7 @@ export class PromptsTab {
     }
 
     const isCreating = !existing;
-    const empty = this.list.querySelector<HTMLElement>(".pn-empty");
+    const empty = this.list.querySelector<HTMLElement>(".rail-empty");
     if (isCreating && empty) empty.style.display = "none";
 
     const restoreEmpty = () => {

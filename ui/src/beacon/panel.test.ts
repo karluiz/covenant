@@ -101,7 +101,7 @@ describe("renderBeacon", () => {
       },
       (p) => picked.push(p),
     );
-    const cards = root.querySelectorAll(".beacon-env-link");
+    const cards = root.querySelectorAll(".rail-row");
     expect(cards.length).toBe(2);
     expect(root.textContent).toContain("2 sub-repos found");
     (cards[1] as HTMLElement).click();
@@ -114,7 +114,7 @@ describe("renderBeacon", () => {
     expect(root.querySelector(".beacon-notice.beacon-error")).not.toBeNull();
   });
 
-  it("renders one card per workflow run with a state dot", () => {
+  it("renders one row per workflow run with a status spine", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
@@ -123,10 +123,10 @@ describe("renderBeacon", () => {
         run({ name: "Release Windows", state: "in_progress", url: null }),
       ],
     });
-    const cards = root.querySelectorAll(".beacon-env");
-    expect(cards.length).toBe(2);
-    expect(root.querySelector(".beacon-dot.ok")).not.toBeNull();
-    expect(root.querySelector(".beacon-dot.busy")).not.toBeNull();
+    const rows = root.querySelectorAll(".rail-row");
+    expect(rows.length).toBe(2);
+    expect(root.querySelector('.rail-row[data-spine="ok"]')).not.toBeNull();
+    expect(root.querySelector('.rail-row[data-spine="run"]')).not.toBeNull();
     expect(root.textContent).toContain("Release macOS");
     expect(root.textContent).toContain("#42");
     expect(root.textContent).toContain("abc1234");
@@ -138,7 +138,7 @@ describe("renderBeacon", () => {
       repo: "o/r",
       runs: [run({ url: "javascript:alert(1)" })],
     });
-    expect(root.querySelector(".beacon-env-link")).toBeNull();
+    expect(root.querySelector('.rail-row[role="link"]')).toBeNull();
     const all = root.querySelectorAll("[href]");
     for (const el of all) {
       expect(el.getAttribute("href")).not.toContain("javascript:");
@@ -152,16 +152,16 @@ describe("renderBeacon", () => {
       repo: "o/r",
       runs: [run({ url: null })],
     });
-    expect(root.querySelector(".beacon-env-link")).toBeNull();
+    expect(root.querySelector('.rail-row[role="link"]')).toBeNull();
   });
 
-  it("produces a clickable element for an https:// url", () => {
+  it("produces a clickable row for an https:// url", () => {
     renderBeacon(root, {
       kind: "ok",
       repo: "o/r",
       runs: [run({ url: "https://github.com/o/r/actions/runs/9" })],
     });
-    const link = root.querySelector(".beacon-env-link");
+    const link = root.querySelector('.rail-row[role="link"]');
     expect(link).not.toBeNull();
     expect(link?.getAttribute("role")).toBe("link");
     expect(link?.getAttribute("tabindex")).toBe("0");

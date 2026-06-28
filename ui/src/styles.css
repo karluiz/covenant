@@ -131,6 +131,29 @@ body.tabbar-left #tabs:focus-within::-webkit-scrollbar-thumb,
     --settings-btn-fill: transparent;
     --settings-btn-fill-hover: color-mix(in srgb, var(--fg) 6%, transparent);
     --op-card-fill: color-mix(in srgb, currentColor 3%, transparent);
+
+    /* ── Rail design system (homologation v1) ──────────────────────────
+       Shared chrome for every right-rail panel. Tokens here; the .rail-*
+       component classes live at the end of this file. Two formerly-phantom
+       tokens (--text-secondary, --bg-elevated) are defined so panels stop
+       falling back to random literals. */
+    --bg-elevated: #0c0e12;            /* elevated/card surface */
+    --text-secondary: var(--fg-dim);   /* secondary text (was undefined) */
+    --text-tertiary: #5c626c;          /* faint third tier */
+    --num: var(--running);             /* numeric / token-count emphasis */
+    --rail-header-h: 40px;
+    --rail-controls-h: 36px;
+    --rail-footer-h: 30px;
+    --rail-pad-x: 12px;
+    --rail-row-py: 8px;
+    --rail-radius: 6px;
+    --rail-spine: 2px;
+    --fs-title: 11.5px;
+    --fs-body: 12px;
+    --fs-meta: 11px;
+    --fs-micro: 10px;
+    --ls-title: 0.09em;
+
     /* Status bar height — two-row default. Override to 26px in single-row
        mode so dependent panels (project-notes, etc.) resize automatically. */
     --statusbar-h: 50px;
@@ -178,6 +201,8 @@ body.theme-light {
     --ok: #2f9e44;
     --fail: #e0395a;
     --running: #c98a2c;
+    --bg-elevated: #ffffff;
+    --text-tertiary: #9aa1ab;
 
     --tab-bg-rest: rgba(0, 0, 0, 0.03);
     --tab-bg-hover: rgba(0, 0, 0, 0.06);
@@ -271,6 +296,8 @@ body.theme-true-dark {
     --bg-overlay: #000000;
     --border: #1a1a1a;
     --tab-bg-active: #0e0e0e;
+    --bg-elevated: #0b0b0d;
+    --text-tertiary: #565b63;
 }
 
 #layout {
@@ -19436,3 +19463,207 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .cloud-status.is-ok { color: color-mix(in srgb, #4ade80 75%, var(--fg)); }
 .cloud-status.is-err { color: var(--danger, #ff6b6b); }
 .cloud-status.is-busy { color: var(--muted); }
+
+/* ============================================================
+   RAIL DESIGN SYSTEM (homologation v1)
+   Shared chrome for every right-rail panel. Five stackable slots:
+   header(40) · controls(36) · body · empty · footer(30).
+   Panels keep their own outer wrapper (grid placement) and add
+   `.rail-panel` for the inner flex; everything inside is .rail-*.
+   Tokens defined in :root. Reference mock: scratchpad/rail-homologation.html
+   ============================================================ */
+.rail-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--sidebar-bg);
+  font-family: var(--ui-font);
+  font-size: var(--fs-body);
+  color: var(--fg);
+}
+
+/* —— slot 1: header (fixed 40px, title-left + actions-right) —— */
+.rail-header {
+  flex: 0 0 var(--rail-header-h);
+  height: var(--rail-header-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 var(--rail-pad-x);
+  border-bottom: 1px solid var(--border);
+}
+.rail-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.rail-title-label {
+  font-family: var(--ui-font);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: var(--ls-title);
+  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail-title-sub {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.rail-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--accent); }
+.rail-dot.is-ok { background: var(--ok); }
+.rail-dot.is-run { background: var(--running); }
+.rail-dot.is-fail { background: var(--fail); }
+.rail-dot.is-idle { background: var(--text-tertiary); }
+.rail-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.rail-btn {
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--fg-dim);
+  border-radius: 5px; cursor: pointer; padding: 0;
+  transition: background .1s, color .1s;
+}
+.rail-btn:hover { color: var(--fg); background: rgba(var(--ink-rgb), 0.06); }
+.rail-btn.is-on { color: var(--fg); }
+.rail-btn svg { width: 15px; height: 15px; display: block; }
+
+/* —— slot 2: controls (optional; one of tabs|pills|search|select) —— */
+.rail-controls {
+  flex: 0 0 auto;
+  min-height: var(--rail-controls-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--rail-pad-x);
+  border-bottom: 1px solid var(--border);
+}
+.rail-tabs { display: flex; gap: 14px; height: 100%; align-items: stretch; }
+.rail-tab {
+  display: inline-flex; align-items: center;
+  font-family: var(--ui-font); font-size: var(--fs-meta);
+  text-transform: lowercase; letter-spacing: .02em; color: var(--fg-dim);
+  background: none; border: 0; cursor: pointer; padding: 0;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.rail-tab:hover { color: var(--fg); }
+.rail-tab.is-active { color: var(--fg); border-bottom-color: var(--accent); }
+.rail-pills { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.rail-pills::-webkit-scrollbar { display: none; }
+.rail-pill {
+  font-family: var(--ui-font); font-size: var(--fs-meta); color: var(--fg-dim);
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; cursor: pointer; white-space: nowrap;
+}
+.rail-pill:hover { color: var(--fg); }
+.rail-pill.is-active {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.rail-search { display: flex; align-items: center; gap: 8px; width: 100%; color: var(--fg-dim); }
+.rail-search svg { width: 14px; height: 14px; flex: none; }
+.rail-search input {
+  flex: 1; background: none; border: 0; outline: 0; color: var(--fg);
+  font-family: var(--ui-font); font-size: var(--fs-body); padding: 8px 0;
+}
+.rail-search input::placeholder { color: var(--fg-dim); }
+.rail-select {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--rail-radius);
+  background: rgba(var(--ink-rgb), 0.04); cursor: pointer; color: var(--fg);
+}
+.rail-select:hover { background: rgba(var(--ink-rgb), 0.07); }
+.rail-select-stack { display: inline-flex; }
+.rail-select-stack i {
+  width: 14px; height: 14px; border-radius: 50%; margin-left: -4px;
+  border: 1.5px solid var(--bg-panel); background: linear-gradient(135deg, var(--accent), #c7a8ff);
+}
+.rail-select-stack i:first-child { margin-left: 0; }
+.rail-select-label { font-size: var(--fs-meta); color: var(--fg); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-select svg { width: 13px; height: 13px; color: var(--fg-dim); margin-left: auto; }
+
+/* sub-section header inside a body (e.g. "activity / clear") */
+.rail-substream {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px var(--rail-pad-x) 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.rail-substream button { background: none; border: 0; color: var(--text-tertiary); font: inherit; cursor: pointer; padding: 0; }
+.rail-substream button:hover { color: var(--fg); }
+
+/* —— slot 3: body (scroll) —— */
+.rail-body { flex: 1; min-height: 0; overflow-y: auto; }
+.rail-body::-webkit-scrollbar { width: 6px; }
+.rail-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.rail-divider {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-micro); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-tertiary); padding: 10px var(--rail-pad-x) 6px;
+}
+.rail-divider.dashed { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 10px; }
+
+/* —— THE row primitive: flat, hairline-separated, optional left spine —— */
+.rail-row {
+  position: relative; display: flex; flex-direction: column; gap: 3px;
+  padding: var(--rail-row-py) var(--rail-pad-x);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background .08s; outline: none;
+}
+.rail-row:hover, .rail-row:focus-visible { background: rgba(var(--ink-rgb), 0.04); }
+.rail-row[data-spine]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--rail-spine); }
+.rail-row[data-spine="ok"]::before { background: var(--ok); }
+.rail-row[data-spine="run"]::before { background: var(--running); }
+.rail-row[data-spine="fail"]::before { background: var(--fail); }
+.rail-row[data-spine="live"]::before { background: var(--accent); }
+.rail-row[data-spine="idle"]::before { background: var(--text-tertiary); }
+.rail-row-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rail-cmd { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-meta); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.rail-name { font-family: var(--ui-font); font-size: var(--fs-body); font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.rail-meta { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--fg-dim); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.rail-when { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--fg-dim); margin-left: auto; white-space: nowrap; }
+.rail-num { color: var(--num); font-variant-numeric: tabular-nums; }
+.rail-row mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--fg); border-radius: 2px; padding: 0; }
+
+/* —— grouped / collapsible (tasker) —— */
+.rail-group { border-bottom: 1px solid var(--border); }
+.rail-group-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px var(--rail-pad-x); background: none; border: 0; color: var(--fg); cursor: pointer; font-family: var(--ui-font); }
+.rail-group-head:hover { background: rgba(var(--ink-rgb), 0.04); }
+.rail-chev { width: 14px; height: 14px; color: var(--fg-dim); transition: transform .14s; display: inline-flex; flex: none; }
+.rail-group-head.open .rail-chev { transform: rotate(90deg); }
+.rail-gname { font-size: var(--fs-meta); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-gcount { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); font-weight: 600; color: var(--fg-dim); min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; border-radius: 4px; background: rgba(var(--ink-rgb), 0.07); }
+.rail-task { display: flex; align-items: center; gap: 8px; padding: 8px var(--rail-pad-x) 8px 10px; position: relative; border-bottom: 1px solid var(--border); cursor: pointer; }
+.rail-task:hover { background: rgba(var(--ink-rgb), 0.035); }
+.rail-task::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; }
+.rail-task[data-pri="urgent"]::before { background: var(--fail); }
+.rail-task[data-pri="high"]::before { background: #f0a35e; }
+.rail-task[data-pri="normal"]::before { background: var(--running); }
+.rail-task[data-pri="low"]::before { background: var(--ok); }
+.rail-cb { width: 18px; height: 18px; border: 1px solid var(--border); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; flex: none; color: transparent; background: transparent; cursor: pointer; }
+.rail-cb:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.rail-task.done .rail-cb { background: color-mix(in srgb, var(--accent) 28%, transparent); border-color: var(--accent); color: var(--fg); }
+.rail-ttl { font-size: var(--fs-body); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-task.done .rail-ttl { text-decoration: line-through; color: var(--fg-dim); }
+.rail-due { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--fg-dim); padding: 2px 6px; border-radius: 4px; background: rgba(var(--ink-rgb), 0.07); }
+.rail-due.over { color: var(--fail); background: color-mix(in srgb, var(--fail) 16%, transparent); }
+.rail-doc { width: 13px; height: 13px; color: var(--text-tertiary); flex: none; display: inline-flex; }
+
+/* —— dashed "new" action (drafts / add-task) —— */
+.rail-new { display: block; width: calc(100% - 2 * var(--rail-pad-x)); margin: 10px var(--rail-pad-x); padding: 9px 12px; background: transparent; border: 1px dashed var(--border); border-radius: var(--rail-radius); color: var(--fg-dim); font-family: var(--ui-font); font-size: var(--fs-meta); text-align: left; cursor: pointer; }
+.rail-new:hover { border-color: var(--accent); color: var(--fg); }
+.rail-new:disabled { opacity: .5; cursor: default; }
+
+/* —— slot 4: the one empty state —— */
+.rail-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 32px 18px; text-align: center; }
+.rail-empty svg { width: 28px; height: 28px; color: var(--fg-dim); opacity: .4; }
+.rail-empty-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+.rail-empty-hint { font-size: var(--fs-meta); color: var(--fg-dim); max-width: 200px; line-height: 1.45; }
+.rail-empty-hint kbd { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); background: rgba(var(--ink-rgb), 0.07); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--fg); }
+
+/* —— slot 5: optional footer —— */
+.rail-footer { flex: 0 0 var(--rail-footer-h); height: var(--rail-footer-h); display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--border); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-tertiary); }

@@ -79,11 +79,11 @@ export class NotesTab {
     this.sectionLabel.style.display = empty ? "none" : "";
     if (empty) {
       const e = document.createElement("li");
-      e.className = "pn-empty";
+      e.className = "rail-empty";
       e.innerHTML = `
-        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M12 2v4"/><path d="M16 2v4"/><rect width="16" height="18" x="4" y="4" rx="2"/><path d="M8 10h6"/><path d="M8 14h8"/><path d="M8 18h5"/></svg>
-        <div class="pn-empty-title">No notes yet</div>
-        <div class="pn-empty-hint">Type above and press <span class="pn-kbd">⌘↵</span> to save</div>
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4"/><path d="M12 2v4"/><path d="M16 2v4"/><rect width="16" height="18" x="4" y="4" rx="2"/><path d="M8 10h6"/><path d="M8 14h8"/><path d="M8 18h5"/></svg>
+        <div class="rail-empty-title">No notes yet</div>
+        <div class="rail-empty-hint">Type above and press <kbd>⌘↵</kbd> to save</div>
       `;
       this.list.appendChild(e);
       return;

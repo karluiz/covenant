@@ -63,8 +63,10 @@ describe("mountInlineNotch", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the active Pi tab as idle before any phase event arrives", () => {
+  it("renders the Activity rail header and keeps the dot idle before any phase event", () => {
     const host = mount();
+
+    expect(host.querySelector(".rail-title-label")?.textContent).toContain("Activity");
 
     window.dispatchEvent(
       new CustomEvent("ui:active-session", {
@@ -76,9 +78,10 @@ describe("mountInlineNotch", () => {
       }),
     );
 
-    expect(host.querySelector(".inline-notch-name")?.textContent).toContain("Pi");
-    expect(host.querySelector(".inline-notch-name")?.textContent).toContain("COVENANT › pi 1");
-    expect(host.querySelector(".inline-notch-sub")?.textContent).toContain("idle");
+    const dot = host.querySelector(".rail-dot");
+    expect(dot).toBeTruthy();
+    // No phase event yet → the active session is idle → dot is not "is-run".
+    expect(dot?.classList.contains("is-run")).toBe(false);
   });
 
   it("tracks Pi notch state events in the activity stream", () => {
@@ -92,15 +95,18 @@ describe("mountInlineNotch", () => {
       phase: { kind: "thinking" },
     });
 
-    expect(host.querySelector(".inline-notch-name")?.textContent).toContain("Pi");
-    expect(host.querySelector(".inline-notch-sub")?.textContent).toContain("thinking");
-    expect(host.querySelector(".inline-notch-stream")?.textContent).toContain("thinking");
-    expect(host.querySelector(".inline-notch-stream")?.textContent).toContain("pi 1");
+    // Active thinking executor lights the header status dot.
+    expect(host.querySelector(".rail-dot")?.classList.contains("is-run")).toBe(true);
+    const body = host.querySelector(".rail-body");
+    expect(body?.textContent).toContain("thinking");
+    expect(body?.textContent).toContain("pi 1");
+    // Combined view composes "<agent> · <message>" into the rail name.
+    expect(body?.querySelector(".rail-name")?.textContent).toContain("Pi");
   });
 
   it("keeps the activity stream anchored while new rows arrive", () => {
     const host = mount();
-    const stream = host.querySelector<HTMLElement>(".inline-notch-stream")!;
+    const stream = host.querySelector<HTMLElement>(".rail-body")!;
 
     for (let i = 0; i < 5; i++) {
       fireNotchState({
@@ -128,8 +134,8 @@ describe("mountInlineNotch", () => {
 
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const el = this as HTMLElement;
-      if (el.classList?.contains("inline-notch-stream")) return rect(0, 100);
-      if (el.classList?.contains("row")) {
+      if (el.classList?.contains("rail-body")) return rect(0, 100);
+      if (el.classList?.contains("rail-row")) {
         const parent = el.parentElement;
         const index = parent ? Array.from(parent.children).indexOf(el) : 0;
         return rect(index * 20 - stream.scrollTop, 20);

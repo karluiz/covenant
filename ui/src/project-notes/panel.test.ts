@@ -69,7 +69,7 @@ describe("ProjectNotesPanel", () => {
   it("renders five tab buttons and the default tab", () => {
     const p = new ProjectNotesPanel({ groupId: "g1", groupLabel: "COVENANT" });
     p.mount(host);
-    const buttons = host.querySelectorAll(".pn-tabs button");
+    const buttons = host.querySelectorAll(".rail-tab");
     expect(buttons.length).toBe(5);
     expect(host.querySelector(".pn-cmd-tab")).not.toBeNull();
   });
@@ -115,7 +115,7 @@ describe("ProjectNotesPanel", () => {
     }).mount(host);
     p.switchTab("drafts");
     expect(host.querySelector(".pn-drafts-tab")).not.toBeNull();
-    const buttons = host.querySelectorAll(".pn-tabs button");
+    const buttons = host.querySelectorAll(".rail-tab");
     expect(buttons.length).toBe(5);
   });
 

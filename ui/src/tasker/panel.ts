@@ -5,6 +5,7 @@ import { TaskStorage } from "./storage";
 import { Icons } from "../icons";
 import { BoardView } from "./board";
 import { MarkdownEditor } from "../ui/markdown-editor";
+import { attachTooltip } from "../tooltip/tooltip";
 
 const EXPANDED_PROJECTS_KEY = "covenant.tasker.expanded-projects";
 const VIEW_KEY = "covenant.tasker.view";
@@ -179,14 +180,15 @@ export class TaskerPanel {
 
   private renderHeader(): string {
     return `
-    <div class="tasker-header">
-      <h2 class="tasker-title">Tasker</h2>
-      <div class="tasker-header-actions">
-        <div class="tasker-view-toggle" role="group" aria-label="View">
-          <button class="tasker-view-btn${this.viewMode === "list" ? " on" : ""}" type="button" data-view="list" aria-label="List view">${Icons.listView({ size: 15 })}</button>
-          <button class="tasker-view-btn${this.viewMode === "board" ? " on" : ""}" type="button" data-view="board" aria-label="Board view">${Icons.boardView({ size: 15 })}</button>
-        </div>
-        <button class="tasker-btn-icon tasker-btn-new-project" type="button" title="New project">${Icons.folder({ size: 14 })}</button>
+    <div class="rail-header">
+      <div class="rail-title">
+        <span class="rail-dot is-run"></span>
+        <span class="rail-title-label">Tasker</span>
+      </div>
+      <div class="rail-actions">
+        <button class="rail-btn${this.viewMode === "list" ? " is-on" : ""}" type="button" data-view="list" aria-label="List view">${Icons.listView({ size: 15 })}</button>
+        <button class="rail-btn${this.viewMode === "board" ? " is-on" : ""}" type="button" data-view="board" aria-label="Board view">${Icons.boardView({ size: 15 })}</button>
+        <button class="rail-btn tasker-btn-new-project" type="button" aria-label="New project">${Icons.folder({ size: 15 })}</button>
         <button class="tasker-esc-btn" type="button" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
       </div>
     </div>`;
@@ -195,11 +197,13 @@ export class TaskerPanel {
   private renderListBody(): string {
     const projects = this.storage.getProjects();
     return `
-        <div class="tasker-filters">
-          <button class="tasker-filter-btn${this.currentFilter === "all" ? " active" : ""}" data-filter="all">All</button>
-          <button class="tasker-filter-btn${this.currentFilter === "active" ? " active" : ""}" data-filter="active">Active</button>
-          <button class="tasker-filter-btn${this.currentFilter === "pending" ? " active" : ""}" data-filter="pending">Pending</button>
-          <button class="tasker-filter-btn${this.currentFilter === "done" ? " active" : ""}" data-filter="done">Done</button>
+        <div class="rail-controls">
+          <div class="rail-pills">
+            <button class="rail-pill${this.currentFilter === "all" ? " is-active" : ""}" data-filter="all">All</button>
+            <button class="rail-pill${this.currentFilter === "active" ? " is-active" : ""}" data-filter="active">Active</button>
+            <button class="rail-pill${this.currentFilter === "pending" ? " is-active" : ""}" data-filter="pending">Pending</button>
+            <button class="rail-pill${this.currentFilter === "done" ? " is-active" : ""}" data-filter="done">Done</button>
+          </div>
         </div>
 
         ${this.composingList ? `
@@ -209,13 +213,11 @@ export class TaskerPanel {
           </form>
         ` : ""}
 
-        <div class="tasker-projects">
+        <div class="tasker-projects rail-body">
           ${projects.map((p) => this.renderProject(p)).join("")}
         </div>
 
-        <div class="tasker-footer">
-          <small class="tasker-stats">${this.getStats()}</small>
-        </div>`;
+        <div class="rail-footer">${this.getStats()}</div>`;
   }
 
   private renderProjectSwitcher(): string {
@@ -290,7 +292,7 @@ export class TaskerPanel {
       </div>`;
     } else {
       this.host.innerHTML = `
-      <div class="tasker-panel">
+      <div class="tasker-panel rail-panel">
         ${this.renderHeader()}
         ${this.renderListBody()}
       </div>`;
@@ -324,29 +326,28 @@ export class TaskerPanel {
       : "";
 
     return `
-      <div class="tasker-project">
+      <div class="rail-group">
         <div class="tasker-project-headrow">
           ${this.renamingProjectId === project.id
             ? `
-          <div class="tasker-project-header tasker-project-header-renaming">
-            <span class="tasker-project-toggle${isExpanded ? " tasker-project-toggle-open" : ""}">${Icons.chevronRight({ size: 14 })}</span>
+          <div class="rail-group-head${isExpanded ? " open" : ""} tasker-project-header-renaming">
+            <span class="rail-chev">${Icons.chevronRight({ size: 14 })}</span>
             <input class="tasker-project-rename-input" data-project-id="${project.id}" type="text" value="${escapeAttr(project.name)}" autocomplete="off" aria-label="Rename project" />
           </div>`
             : `
-          <button class="tasker-project-header" data-project-id="${project.id}">
-            <span class="tasker-project-toggle${isExpanded ? " tasker-project-toggle-open" : ""}">${Icons.chevronRight({ size: 14 })}</span>
-            <span class="tasker-project-name">${escapeHtml(project.name)}</span>
-            <span class="tasker-project-count">${tasks.length}</span>
+          <button class="rail-group-head${isExpanded ? " open" : ""}" data-project-id="${project.id}">
+            <span class="rail-chev">${Icons.chevronRight({ size: 14 })}</span>
+            <span class="rail-gname tasker-project-name">${escapeHtml(project.name)}</span>
+            <span class="rail-gcount tasker-project-count">${tasks.length}</span>
           </button>
           ${project.name === "Inbox" ? "" : `<button class="tasker-project-delete" type="button" data-project-id="${project.id}" aria-label="Delete project">${Icons.trash({ size: 13 })}</button>`}`}
         </div>
         ${isExpanded ? `
           <div class="tasker-tasks">
             ${isComposing ? this.renderComposer(project.id) : ""}
-            ${!isComposing && tasks.length === 0 ? `<button class="tasker-task-add-quick" data-project-id="${project.id}" type="button">+ New task</button>` : ""}
             ${emptyHtml}
             ${tasks.map((t) => this.renderTask(project.id, t)).join("")}
-            ${!isComposing && tasks.length > 0 ? `<button class="tasker-task-add-quick" data-project-id="${project.id}" type="button">${Icons.plus({ size: 12 })}<span>Add task</span></button>` : ""}
+            ${!isComposing ? `<button class="rail-new" data-project-id="${project.id}" type="button">+ Add task</button>` : ""}
           </div>
         ` : ""}
       </div>
@@ -369,20 +370,20 @@ export class TaskerPanel {
     const selected = this.selectedTask?.projectId === projectId && this.selectedTask.taskId === task.id;
     const priorityClass = getPriorityClass(task.priority);
     const statusClass = `tasker-task-status-${task.status}`;
-    const checkboxIcon = task.status === "done" ? Icons.check({ size: 12 }) : Icons.square({ size: 12 });
+    const checkboxIcon = task.status === "done" ? Icons.check({ size: 12 }) : "";
 
     const dueDateHtml = task.dueDate
-      ? `<span class="tasker-due ${isOverdue(task.dueDate) && task.status !== "done" ? "tasker-due-overdue" : ""}">${formatDueDate(task.dueDate)}</span>`
+      ? `<span class="rail-due${isOverdue(task.dueDate) && task.status !== "done" ? " over" : ""}">${formatDueDate(task.dueDate)}</span>`
       : "";
 
     return `
       <div class="tasker-task ${statusClass} ${priorityClass}${selected ? " tasker-task-selected" : ""}" data-project-id="${projectId}" data-task-id="${task.id}">
-        <div class="tasker-task-main" role="button" tabindex="0" aria-expanded="${selected}">
-          <button class="tasker-task-checkbox" type="button" title="Toggle task">${checkboxIcon}</button>
+        <div class="rail-task${task.status === "done" ? " done" : ""}" data-pri="${task.priority}" role="button" tabindex="0" aria-expanded="${selected}">
+          <button class="rail-cb" type="button" aria-label="Toggle task">${checkboxIcon}</button>
           ${this.editingTitle?.taskId === task.id && this.editingTitle.projectId === projectId
             ? `<input class="tasker-title-input" type="text" value="${escapeAttr(task.title)}" autocomplete="off" />`
-            : `<span class="tasker-task-title" role="button" tabindex="0">${escapeHtml(task.title)}</span>`}
-          ${task.description?.trim() ? `<span class="tasker-note-indicator" title="Has description">${Icons.noteText({ size: 12 })}</span>` : ""}
+            : `<span class="rail-ttl" role="button" tabindex="0">${escapeHtml(task.title)}</span>`}
+          ${task.description?.trim() ? `<span class="rail-doc" aria-label="Has description">${Icons.noteText({ size: 13 })}</span>` : ""}
           ${dueDateHtml}
           ${task.status === "pending"
             ? `<button class="tasker-task-start" type="button" data-project-id="${projectId}" data-task-id="${task.id}" aria-label="Start task">${Icons.play({ size: 12 })}<span>start</span></button>`
@@ -596,7 +597,8 @@ export class TaskerPanel {
   }
 
   private setupEventListeners(): void {
-    this.host.querySelectorAll<HTMLButtonElement>(".tasker-view-btn").forEach((btn) => {
+    this.host.querySelectorAll<HTMLButtonElement>(".rail-header [data-view]").forEach((btn) => {
+      attachTooltip(btn, btn.dataset.view === "board" ? "Board view" : "List view");
       btn.addEventListener("click", () => {
         const mode = btn.dataset.view === "board" ? "board" : "list";
         this.switchView(mode);
@@ -631,7 +633,7 @@ export class TaskerPanel {
       this.mountBoard();
     }
 
-    this.host.querySelectorAll<HTMLButtonElement>(".tasker-filter-btn").forEach((btn) => {
+    this.host.querySelectorAll<HTMLButtonElement>(".rail-pill[data-filter]").forEach((btn) => {
       btn.addEventListener("click", () => {
         this.currentFilter = (btn.dataset.filter as TaskStatus | "all") || "all";
         this.selectedTask = null;
@@ -639,7 +641,7 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelectorAll<HTMLButtonElement>(".tasker-project-header").forEach((btn) => {
+    this.host.querySelectorAll<HTMLButtonElement>(".rail-group-head").forEach((btn) => {
       btn.addEventListener("click", () => {
         const projectId = btn.dataset.projectId;
         if (!projectId) return;
@@ -650,10 +652,10 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelectorAll<HTMLElement>(".tasker-project-header .tasker-project-name").forEach((nameEl) => {
+    this.host.querySelectorAll<HTMLElement>(".rail-group-head .tasker-project-name").forEach((nameEl) => {
       nameEl.addEventListener("dblclick", (e) => {
         e.stopPropagation();
-        const projectId = nameEl.closest<HTMLElement>(".tasker-project-header")?.dataset.projectId;
+        const projectId = nameEl.closest<HTMLElement>(".rail-group-head")?.dataset.projectId;
         if (!projectId) return;
         const project = this.storage.getProject(projectId);
         if (!project || project.name === "Inbox") return;
@@ -711,9 +713,13 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelector<HTMLButtonElement>(".tasker-btn-new-project")?.addEventListener("click", () => {
-      this.showNewProjectDialog();
-    });
+    const newProjectBtn = this.host.querySelector<HTMLButtonElement>(".tasker-btn-new-project");
+    if (newProjectBtn) {
+      attachTooltip(newProjectBtn, "New project");
+      newProjectBtn.addEventListener("click", () => {
+        this.showNewProjectDialog();
+      });
+    }
 
     this.host.querySelector<HTMLButtonElement>(".tasker-esc-btn")?.addEventListener("click", () => {
       this.onClose?.();
@@ -760,7 +766,7 @@ export class TaskerPanel {
     });
     if (newListInput) queueMicrotask(() => newListInput.focus());
 
-    this.host.querySelectorAll<HTMLButtonElement>(".tasker-task-checkbox").forEach((btn) => {
+    this.host.querySelectorAll<HTMLButtonElement>(".rail-cb").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const taskEl = (e.currentTarget as HTMLElement).closest<HTMLElement>(".tasker-task");
@@ -789,7 +795,7 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelectorAll<HTMLElement>(".tasker-task-main").forEach((row) => {
+    this.host.querySelectorAll<HTMLElement>(".rail-task").forEach((row) => {
       const toggle = (): void => {
         const taskEl = row.closest<HTMLElement>(".tasker-task");
         const projectId = taskEl?.dataset.projectId;
@@ -808,7 +814,7 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelectorAll<HTMLButtonElement>(".tasker-task-add-quick").forEach((btn) => {
+    this.host.querySelectorAll<HTMLButtonElement>(".rail-new").forEach((btn) => {
       btn.addEventListener("click", () => {
         const projectId = btn.dataset.projectId;
         if (projectId) this.openComposer(projectId);
@@ -848,7 +854,7 @@ export class TaskerPanel {
       });
     });
 
-    this.host.querySelectorAll<HTMLElement>(".tasker-task-title").forEach((titleEl) => {
+    this.host.querySelectorAll<HTMLElement>(".rail-ttl").forEach((titleEl) => {
       const enter = (e: Event): void => {
         e.stopPropagation();
         const taskEl = (e.currentTarget as HTMLElement).closest<HTMLElement>(".tasker-task");

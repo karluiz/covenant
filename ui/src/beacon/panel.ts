@@ -1,5 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { beaconWorkflowRuns, type BeaconState } from "../api";
+import { Icons } from "../icons";
+import { attachTooltip } from "../tooltip/tooltip";
 
 const POLL_MS = 25_000;
 
@@ -35,6 +37,20 @@ export function stateDotColor(state: string): string {
   }
 }
 
+/// Map a run state to a rail-row `data-spine` value (ok|run|fail|idle).
+function stateSpine(state: string): string {
+  switch (stateDotColor(state)) {
+    case "ok":
+      return "ok";
+    case "busy":
+      return "run";
+    case "bad":
+      return "fail";
+    default:
+      return "idle";
+  }
+}
+
 function relTime(iso: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
@@ -57,13 +73,13 @@ function notice(text: string, cls = ""): HTMLElement {
 /// Centered empty state for repos with no Actions workflows.
 function emptyState(title: string, hint: string): HTMLElement {
   const el = document.createElement("div");
-  el.className = "beacon-empty";
+  el.className = "rail-empty";
   el.innerHTML =
-    `<div class="beacon-empty-glyph" aria-hidden="true">◎</div>` +
-    `<div class="beacon-empty-title"></div>` +
-    `<div class="beacon-empty-hint"></div>`;
-  el.querySelector(".beacon-empty-title")!.textContent = title;
-  el.querySelector(".beacon-empty-hint")!.textContent = hint;
+    Icons.radioTower({ size: 28 }) +
+    `<div class="rail-empty-title"></div>` +
+    `<div class="rail-empty-hint"></div>`;
+  el.querySelector(".rail-empty-title")!.textContent = title;
+  el.querySelector(".rail-empty-hint")!.textContent = hint;
   return el;
 }
 
@@ -95,17 +111,24 @@ export function renderBeacon(
         ),
       );
       for (const dir of state.dirs) {
-        const card = document.createElement("div");
-        card.className = "beacon-env beacon-env-link";
-        card.setAttribute("role", "button");
-        card.setAttribute("tabindex", "0");
-        card.textContent = dir.repo;
+        const row = document.createElement("div");
+        row.className = "rail-row";
+        row.setAttribute("data-spine", "idle");
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
+        const line = document.createElement("div");
+        line.className = "rail-row-line";
+        const name = document.createElement("span");
+        name.className = "rail-name";
+        name.textContent = dir.repo;
+        line.append(name);
+        row.append(line);
         const open = () => onPick?.(dir.path);
-        card.addEventListener("click", open);
-        card.addEventListener("keydown", (e) => {
+        row.addEventListener("click", open);
+        row.addEventListener("keydown", (e) => {
           if (e.key === "Enter" || e.key === " ") open();
         });
-        root.appendChild(card);
+        root.appendChild(row);
       }
       return;
     }
@@ -124,39 +147,41 @@ export function renderBeacon(
       }
       for (const run of state.runs) {
         const clickable = isHttpUrl(run.url);
-        const card = document.createElement("div");
-        card.className = clickable ? "beacon-env beacon-env-link" : "beacon-env";
+        const row = document.createElement("div");
+        row.className = "rail-row";
+        row.setAttribute("data-spine", stateSpine(run.state));
         if (clickable) {
-          card.setAttribute("role", "link");
-          card.setAttribute("tabindex", "0");
-          card.addEventListener("click", () => {
+          row.setAttribute("role", "link");
+          row.setAttribute("tabindex", "0");
+          row.addEventListener("click", () => {
             void openUrl(run.url!).catch((e) =>
               console.error("beacon openUrl failed", e),
             );
           });
-          card.addEventListener("keydown", (e) => {
+          row.addEventListener("keydown", (e) => {
             if (e.key === "Enter" || e.key === " ") {
               void openUrl(run.url!).catch((err) =>
                 console.error("beacon openUrl failed", err),
               );
             }
           });
+        } else {
+          // Non-interactive row: don't imply it's clickable.
+          row.style.cursor = "default";
         }
 
-        const head = document.createElement("div");
-        head.className = "beacon-env-head";
-        const dot = document.createElement("span");
-        dot.className = `beacon-dot ${stateDotColor(run.state)}`;
+        const line = document.createElement("div");
+        line.className = "rail-row-line";
         const name = document.createElement("span");
-        name.className = "beacon-env-name";
+        name.className = "rail-name";
         name.textContent = run.name || "(workflow)";
         const when = document.createElement("span");
-        when.className = "beacon-env-when";
+        when.className = "rail-when";
         when.textContent = relTime(run.updated_at);
-        head.append(dot, name, when);
+        line.append(name, when);
 
         const meta = document.createElement("div");
-        meta.className = "beacon-env-meta";
+        meta.className = "rail-meta";
         const runLabel = run.run_number ? `#${run.run_number}` : "";
         const bits = [
           run.state.replace(/_/g, " "),
@@ -167,8 +192,8 @@ export function renderBeacon(
         ].filter(Boolean) as string[];
         meta.textContent = bits.join(" · ");
 
-        card.append(head, meta);
-        root.appendChild(card);
+        row.append(line, meta);
+        root.appendChild(row);
       }
       return;
     }
@@ -190,25 +215,40 @@ export class BeaconPanel {
     private opts: { getCwd: () => string | null; onClose: () => void },
   ) {
     this.root = document.createElement("div");
-    this.root.className = "beacon-root";
+    this.root.className = "rail-panel";
 
     const header = document.createElement("div");
-    header.className = "beacon-header";
-    const title = document.createElement("span");
-    title.className = "beacon-title";
-    title.textContent = "Beacon";
+    header.className = "rail-header";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "rail-title";
+    const dot = document.createElement("span");
+    dot.className = "rail-dot is-ok";
+    const label = document.createElement("span");
+    label.className = "rail-title-label";
+    label.textContent = "Beacon";
+    titleWrap.append(dot, label);
+
+    const actions = document.createElement("div");
+    actions.className = "rail-actions";
     const refresh = document.createElement("button");
-    refresh.className = "beacon-refresh";
-    refresh.textContent = "↻";
+    refresh.className = "rail-btn";
+    refresh.setAttribute("aria-label", "Refresh");
+    refresh.innerHTML = Icons.refresh({ size: 15 });
     refresh.addEventListener("click", () => this.render());
+    attachTooltip(refresh, "Refresh");
     const close = document.createElement("button");
-    close.className = "beacon-close";
-    close.textContent = "✕";
+    close.className = "rail-btn";
+    close.setAttribute("aria-label", "Close");
+    close.innerHTML = Icons.x({ size: 15 });
     close.addEventListener("click", () => this.opts.onClose());
-    header.append(title, refresh, close);
+    attachTooltip(close, "Close");
+    actions.append(refresh, close);
+
+    header.append(titleWrap, actions);
 
     this.body = document.createElement("div");
-    this.body.className = "beacon-body";
+    this.body.className = "rail-body";
 
     this.root.append(header, this.body);
     host.replaceChildren(this.root);
@@ -250,16 +290,20 @@ export class BeaconPanel {
     }
   }
 
-  /// "← sub-repos" link shown while drilled into a sub-repo.
+  /// "← all repos" sub-stream shown while drilled into a sub-repo.
   private prependBack(): void {
+    const bar = document.createElement("div");
+    bar.className = "rail-substream";
+    const label = document.createElement("span");
+    label.textContent = "sub-repo";
     const back = document.createElement("button");
-    back.className = "beacon-back";
-    back.textContent = "← sub-repos";
+    back.textContent = "← all repos";
     back.addEventListener("click", () => {
       this.selectedPath = null;
       void this.fetch();
     });
-    this.body.prepend(back);
+    bar.append(label, back);
+    this.body.prepend(bar);
   }
 
   private stopTimer(): void {
