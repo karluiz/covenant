@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.107 — Beacon sub-repo picker + empty state
+
+### Added
+
+- **Beacon sub-repo picker**: opening an umbrella folder that has no GitHub
+  remote of its own but contains git sub-repos (e.g. a `groowcity/` holding
+  `groowcity-backend`, `groowcity-frontend`) now lists those sub-repos as a
+  clickable picker instead of a flat "No GitHub remote". Selecting one loads its
+  workflows with a `← sub-repos` back link; `cd`-ing elsewhere resets the
+  drill-down. Backend scans immediate children for a `.git` (capped at 50) in
+  `crates/app/src/beacon.rs` via the new `Repos` state; UI in `ui/src/beacon/`.
+
+- **Beacon empty state**: repos with zero GitHub Actions workflows now render a
+  centered empty state with a glyph and a hint to add `.github/workflows`,
+  replacing the previous one-line notice (`ui/src/beacon/panel.ts`,
+  `beacon.css`).
+
 ## v0.8.106 — Beacon Actions sidebar + cd autocomplete + eval runner
 
 ### Added
