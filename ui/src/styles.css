@@ -7448,6 +7448,33 @@ mark.mv-find-hit.is-active {
     margin: 0;
 }
 
+/* Indicators checklist — grouped show/hide toggles in Appearance. */
+.settings-indicator-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.settings-indicator-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.settings-sublabel {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-dim, #8b8f96);
+}
+
+/* Inside the checklist each toggle gets its own row, not inline flow. */
+.settings-indicator-group .settings-checkbox-row {
+    display: flex;
+}
+
 /* 3.3 Structure — sidebar nav strip. Icon-only (Zed-style); the
    textual meaning lives in title/aria-label. */
 .sidebar-nav {
