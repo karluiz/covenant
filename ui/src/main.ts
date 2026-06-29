@@ -843,6 +843,7 @@ async function boot(): Promise<void> {
   const beaconPanel = new BeaconPanel(beaconPanelHost, {
     getCwd: () => manager.activeCwd(),
     onClose: () => rail.toggle("beacon"),
+    onReconnect: () => void settingsRef.panel?.open("covenant"),
   });
   const closeBeaconPanel = (): void => {
     if (!document.body.classList.contains("sidebar-view-beacon")) return;

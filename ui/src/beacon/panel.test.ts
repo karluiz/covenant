@@ -108,10 +108,52 @@ describe("renderBeacon", () => {
     expect(picked).toEqual(["/x/frontend"]);
   });
 
-  it("renders error message", () => {
+  it("renders error message as a structured error state", () => {
     renderBeacon(root, { kind: "error", message: "boom" });
     expect(root.textContent).toContain("boom");
-    expect(root.querySelector(".rail-notice.is-error")).not.toBeNull();
+    expect(root.querySelector(".rail-empty.is-error")).not.toBeNull();
+  });
+
+  it("splits 'github: cause — remedy' into title/hint and offers Retry", () => {
+    const retried: number[] = [];
+    renderBeacon(
+      root,
+      {
+        kind: "error",
+        message: "github: forbidden — rate-limited or missing repo permission",
+      },
+      undefined,
+      { onRetry: () => retried.push(1) },
+    );
+    expect(root.querySelector(".rail-empty-title")!.textContent).toBe(
+      "forbidden",
+    );
+    expect(root.querySelector(".rail-empty-hint")!.textContent).toContain(
+      "rate-limited",
+    );
+    const btn = root.querySelector(".rail-empty-btn") as HTMLButtonElement;
+    expect(btn.textContent).toBe("Retry");
+    btn.click();
+    expect(retried).toEqual([1]);
+  });
+
+  it("offers Reconnect GitHub on auth errors", () => {
+    const reconnected: number[] = [];
+    renderBeacon(
+      root,
+      {
+        kind: "error",
+        message: "github: token invalid or expired — reconnect GitHub in Settings",
+      },
+      undefined,
+      { onReconnect: () => reconnected.push(1), onRetry: () => {} },
+    );
+    const btns = [...root.querySelectorAll(".rail-empty-btn")].map(
+      (b) => b.textContent,
+    );
+    expect(btns).toEqual(["Reconnect GitHub", "Retry"]);
+    (root.querySelector(".rail-empty-btn") as HTMLButtonElement).click();
+    expect(reconnected).toEqual([1]);
   });
 
   it("renders one row per workflow run with a status spine", () => {

@@ -83,6 +83,48 @@ function emptyState(title: string, hint: string): HTMLElement {
   return el;
 }
 
+/// Structured, actionable error state. Backend messages are shaped
+/// "github: <cause> — <remedy>" (beacon.rs) — split on " — " into
+/// title/hint, then offer Reconnect (auth errors) or Retry (transient).
+function errorState(
+  message: string,
+  actions?: { onRetry?: () => void; onReconnect?: () => void },
+): HTMLElement {
+  const clean = message.replace(/^github:\s*/i, "");
+  const dash = clean.indexOf(" — ");
+  const title = dash === -1 ? clean : clean.slice(0, dash);
+  const hint = dash === -1 ? "" : clean.slice(dash + 3);
+  const needsAuth = /token (invalid|expired)|reconnect/i.test(message);
+
+  const el = document.createElement("div");
+  el.className = "rail-empty is-error";
+  el.innerHTML =
+    Icons.alertTriangle({ size: 28 }) +
+    `<div class="rail-empty-title"></div>` +
+    `<div class="rail-empty-hint"></div>`;
+  el.querySelector(".rail-empty-title")!.textContent = title;
+  el.querySelector(".rail-empty-hint")!.textContent = hint;
+
+  const act = document.createElement("div");
+  act.className = "rail-empty-actions";
+  if (needsAuth && actions?.onReconnect) {
+    const b = document.createElement("button");
+    b.className = "rail-empty-btn";
+    b.textContent = "Reconnect GitHub";
+    b.addEventListener("click", actions.onReconnect);
+    act.append(b);
+  }
+  if (actions?.onRetry) {
+    const b = document.createElement("button");
+    b.className = "rail-empty-btn";
+    b.textContent = "Retry";
+    b.addEventListener("click", actions.onRetry);
+    act.append(b);
+  }
+  if (act.childElementCount) el.append(act);
+  return el;
+}
+
 /// Loading placeholder — shown only on the first fetch (empty body) so the
 /// 25s poll doesn't blank existing cards on every refresh.
 export function renderLoading(root: HTMLElement): void {
@@ -95,6 +137,7 @@ export function renderBeacon(
   root: HTMLElement,
   state: BeaconState,
   onPick?: (path: string) => void,
+  errorActions?: { onRetry?: () => void; onReconnect?: () => void },
 ): void {
   root.replaceChildren();
   switch (state.kind) {
@@ -133,7 +176,7 @@ export function renderBeacon(
       return;
     }
     case "error":
-      root.appendChild(notice(state.message, "is-error"));
+      root.appendChild(errorState(state.message, errorActions));
       return;
     case "ok": {
       if (state.runs.length === 0) {
@@ -212,7 +255,11 @@ export class BeaconPanel {
 
   constructor(
     host: HTMLElement,
-    private opts: { getCwd: () => string | null; onClose: () => void },
+    private opts: {
+      getCwd: () => string | null;
+      onClose: () => void;
+      onReconnect?: () => void;
+    },
   ) {
     this.root = document.createElement("div");
     this.root.className = "rail-panel";
@@ -278,14 +325,22 @@ export class BeaconPanel {
     try {
       const state = await beaconWorkflowRuns(cwd);
       if (gen !== this.generation) return; // superseded
-      renderBeacon(this.body, state, (path) => {
-        this.selectedPath = path;
-        void this.fetch();
-      });
+      renderBeacon(
+        this.body,
+        state,
+        (path) => {
+          this.selectedPath = path;
+          void this.fetch();
+        },
+        { onRetry: () => this.render(), onReconnect: this.opts.onReconnect },
+      );
       if (this.selectedPath) this.prependBack();
     } catch (e) {
       if (gen !== this.generation) return;
-      renderBeacon(this.body, { kind: "error", message: String(e) });
+      renderBeacon(this.body, { kind: "error", message: String(e) }, undefined, {
+        onRetry: () => this.render(),
+        onReconnect: this.opts.onReconnect,
+      });
       if (this.selectedPath) this.prependBack();
     }
   }

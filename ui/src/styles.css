@@ -19070,13 +19070,16 @@ body.fav-rail-collapsed .fav-rail-expand { display: block; }
 .rail-empty-title { font-size: 13px; font-weight: 600; color: var(--fg); }
 .rail-empty-hint { font-size: var(--fs-meta); color: var(--fg-dim); max-width: 200px; line-height: 1.45; }
 .rail-empty-hint kbd { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); background: rgba(var(--ink-rgb), 0.07); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--fg); }
+.rail-empty.is-error svg { color: var(--danger); opacity: .85; }
+.rail-empty-actions { display: flex; gap: 8px; margin-top: 4px; }
+.rail-empty-btn { font: inherit; font-size: var(--fs-meta); font-weight: 600; cursor: pointer; padding: 5px 12px; border-radius: 7px; color: var(--fg); background: rgba(var(--ink-rgb), 0.06); border: 1px solid var(--border); transition: background 120ms ease, border-color 120ms ease; }
+.rail-empty-btn:hover { background: rgba(var(--ink-rgb), 0.12); border-color: color-mix(in srgb, var(--accent, #7aa2f7) 50%, var(--border)); }
 
 /* —— slot 5: optional footer —— */
 .rail-footer { flex: 0 0 var(--rail-footer-h); height: var(--rail-footer-h); display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--border); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-tertiary); }
 
 /* —— inline notice (non-row states: sign-in / no-data / loading / error) —— */
 .rail-notice { padding: 12px var(--rail-pad-x); text-align: center; color: var(--fg-dim); font-size: var(--fs-meta); line-height: 1.45; }
-.rail-notice.is-error { color: var(--danger); text-align: left; }
 .rail-notice.is-loading { opacity: .7; }
 
 /* —— hover-revealed trailing action on a row (delete / etc.) —— */
