@@ -4079,6 +4079,18 @@ body.theme-true-dark .settings-nav a.active { background: rgba(var(--ink-rgb), 0
 .providers-md__empty-title { font-size: 14px; color: var(--text-primary); margin-bottom: 6px; }
 .providers-md__empty-sub { font-size: 12px; }
 
+/* "Setup guide →" — links to the forge how-to. In the empty pane and the
+   add-provider dialog title, so the guide is reachable past onboarding. */
+.providers-md__guide-link {
+    color: color-mix(in srgb, var(--accent, #6ea8fe) 85%, var(--text-primary));
+    text-decoration: none;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.providers-md__guide-link:hover { text-decoration: underline; }
+.providers-md__empty .providers-md__guide-link { display: inline-block; margin-top: 10px; }
+.providers-md__add-guide { margin-left: 8px; font-weight: 400; }
+
 /* Add-provider dialog (overlay inside the frame) */
 .providers-md__add-dialog {
     position: absolute;

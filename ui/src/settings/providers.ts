@@ -1,7 +1,13 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Settings, ProviderEntry } from "../api";
 import { listModelsOpenAiCompat, listModelsAzureFoundry, testAnthropicKey } from "../api";
 import { CustomSelect } from "../ui/select";
 import { Icons } from "../icons";
+
+/// The forge how-to: getting a free model (Ollama or a free-tier cloud
+/// key) into Covenant. Linked from the providers empty-state and the
+/// add-provider dialog so it's reachable past first-run onboarding.
+const SETUP_GUIDE_URL = "https://forge.covenant.uno/start";
 
 /// Master/detail providers settings: left rail lists providers (with
 /// status dots), right pane edits the selected one. State (selected id +
@@ -185,8 +191,15 @@ function renderEmptyPane(pane: HTMLElement): void {
   empty.className = "providers-md__empty";
   empty.innerHTML = `
     <div class="providers-md__empty-title">No provider selected</div>
-    <div class="providers-md__empty-sub">Add a provider from the rail to get started.</div>
+    <div class="providers-md__empty-sub">Add a provider from the rail to get started — local Ollama or a free-tier cloud key both work.</div>
+    <a href="#" class="providers-md__guide-link">Setup guide →</a>
   `;
+  empty
+    .querySelector<HTMLAnchorElement>(".providers-md__guide-link")
+    ?.addEventListener("click", (e) => {
+      e.preventDefault();
+      void openUrl(SETUP_GUIDE_URL);
+    });
   pane.appendChild(empty);
 }
 
@@ -546,7 +559,7 @@ function openAddDialog(
   backdrop.className = "providers-md__add-dialog";
   backdrop.innerHTML = `
     <div class="providers-md__add-card">
-      <div class="providers-md__add-title">Add provider</div>
+      <div class="providers-md__add-title">Add provider <a href="#" class="providers-md__guide-link providers-md__add-guide">Free providers? Setup guide →</a></div>
       <div class="providers-md__add-field">
         <label>Preset</label>
         <span class="providers-md__add-preset-host"></span>
@@ -604,6 +617,13 @@ function openAddDialog(
   };
   applyPreset();
   preset.element.addEventListener("change", applyPreset);
+
+  backdrop
+    .querySelector<HTMLAnchorElement>(".providers-md__add-guide")
+    ?.addEventListener("click", (e) => {
+      e.preventDefault();
+      void openUrl(SETUP_GUIDE_URL);
+    });
 
   const close = () => backdrop.remove();
   cancelBtn.onclick = close;
