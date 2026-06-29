@@ -6,6 +6,45 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.111 — First-run model setup + customizable indicators
+
+### Added
+
+- **Zero-config first-run providers**: a fresh install has no API key, so
+  nothing agentic worked on first run. The onboarding card now detects a
+  locally-running Ollama and offers one-click adoption, and adds a "Try
+  Covenant free" hosted trial that wires a metered `covenant-trial`
+  provider — so the super-agent works out of the box. New
+  `ui/src/onboarding/ollama.ts` (`detectOllama`/`buildOllamaSettings`),
+  `crates/app/src/settings.rs` (`build_trial_settings`), and the
+  `adopt_trial_provider` command in `crates/app/src/lib.rs`. The trial is
+  served by a metered Anthropic reverse-proxy on the Covenant backend.
+
+- **Customizable toolbar/sidebar indicators**: an Indicators checklist in
+  Appearance settings toggles which status indicators are shown; the
+  selection (`hidden_indicators`) applies at boot and on save. Touches
+  `ui/src/settings/panel.ts` and `crates/app/src/settings.rs`.
+
+- **Skills in the pane context menu**: a curated slash-command list
+  (`respawn`, `code-review`, `verify`) that types `/<name>` + Enter into a
+  pane, reusing the Prompts send+submit path. `ui/src/tabs/manager.ts`.
+
+### Changed
+
+- **Simpler onboarding card**: replaced the 9-step panel-opening tour with
+  a single welcome card (`ONBOARDING_VERSION` bumped to 2), alongside CDLC
+  panel polish. `ui/src/onboarding/panel.ts`, `ui/src/cdlc/panel.ts`.
+
+- **Indicators settings layout**: grouped 3-column checklist with a live
+  preview of toggles. `ui/src/settings/panel.ts`.
+
+### Fixed
+
+- **True Dark surfaces**: the editor overlay (`rgb 17 20 26`) and structure
+  context menu (`rgb 20 24 30`) hardcoded slate greys that floated over
+  near-black on True Dark/OLED; pinned them to `#000` / the true-dark
+  surface token. `ui/src/styles.css`.
+
 ## v0.8.110 — Terraform highlighting + editor right-click menu
 
 ### Added
