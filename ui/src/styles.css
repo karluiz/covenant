@@ -15413,6 +15413,24 @@ body.theme-light .release-close:hover .settings-esc {
     align-self: flex-start;
 }
 
+.onboarding-provider__key {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 12.5px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    color: var(--text-primary);
+    background: rgba(var(--ink-rgb, 255 255 255), 0.05);
+    border: 1px solid var(--border);
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.onboarding-provider__key:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--accent, #6ea8fe) 55%, var(--border));
+}
+
 .onboarding-footer {
     display: flex;
     align-items: center;

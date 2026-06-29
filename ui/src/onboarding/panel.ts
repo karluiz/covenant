@@ -13,10 +13,11 @@
 // (`onboarding_completed`, `onboarding_version`). A bump of
 // `ONBOARDING_VERSION` re-shows the card for existing users.
 
-import { getSettings, adoptTrialProvider, type Settings } from "../api";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { getSettings, type Settings } from "../api";
 import { Icons } from "../icons";
 import { detectOllama, adoptOllama } from "./ollama";
-import { runDeviceFlow } from "../score/signin";
+import { adoptFreeKey, GEMINI_KEY_URL } from "./freekey";
 
 /// Bump this whenever the card's content changes meaningfully. Existing
 /// users with a lower stamped `onboarding_version` see it again once.
@@ -227,9 +228,9 @@ export class OnboardingPanel {
   }
 
   /// Fresh installs have no LLM credentials, so nothing agentic works.
-  /// Offer the two zero-setup paths: adopt a locally-running Ollama (if
-  /// one is detected — free, local, no sign-in), and a hosted Covenant
-  /// trial (a few free calls against a real frontier model). Skipped
+  /// Offer the two zero-COST paths: adopt a locally-running Ollama (if
+  /// detected — free, local), and "use a free cloud key" (paste a key
+  /// from a provider with a real free tier — we host nothing). Skipped
   /// silently when a provider is already configured — i.e. a version
   /// bump re-showing the card for an existing user.
   private async offerProviderBootstrap(): Promise<void> {
@@ -262,7 +263,7 @@ export class OnboardingPanel {
       <p class="onboarding-provider__copy">Covenant needs a model to act. Pick a zero-setup option — or add your own key in Settings → Providers.</p>
       <div class="onboarding-provider__actions">
         ${ollamaRow}
-        <button type="button" class="onboarding-secondary onboarding-provider__use" data-act="trial"><span>Try Covenant free</span></button>
+        <button type="button" class="onboarding-secondary onboarding-provider__use" data-act="freekey"><span>Use a free cloud key</span></button>
       </div>
     `;
     host.hidden = false;
@@ -275,10 +276,45 @@ export class OnboardingPanel {
         );
     }
     host
-      .querySelector<HTMLButtonElement>('[data-act="trial"]')
-      ?.addEventListener("click", (e) =>
-        this.runAdopt(e.currentTarget as HTMLButtonElement, () => adoptTrial()),
-      );
+      .querySelector<HTMLButtonElement>('[data-act="freekey"]')
+      ?.addEventListener("click", () => this.renderFreeKeyForm(host));
+  }
+
+  /// Swap the banner for a tiny paste-a-free-key form. Gemini's free tier
+  /// needs no credit card and rides the existing openai_compat path, so a
+  /// fresh install gets a hosted model with zero cost to us.
+  private renderFreeKeyForm(host: HTMLElement): void {
+    host.innerHTML = `
+      <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Use a free cloud key</span></div>
+      <p class="onboarding-provider__copy">Gemini's free tier needs no credit card. Grab a key, paste it, and the agent runs on it — nothing to host.</p>
+      <div class="onboarding-provider__actions">
+        <button type="button" class="onboarding-secondary" data-act="getkey"><span>Get a free key →</span></button>
+      </div>
+      <input class="onboarding-provider__key" type="password" placeholder="Paste your Gemini API key" autocomplete="off" spellcheck="false" />
+      <div class="onboarding-provider__actions">
+        <button type="button" class="onboarding-primary onboarding-provider__use" data-act="savekey"><span>Save &amp; start</span></button>
+      </div>
+    `;
+
+    host
+      .querySelector<HTMLButtonElement>('[data-act="getkey"]')
+      ?.addEventListener("click", () => void openUrl(GEMINI_KEY_URL));
+
+    const input = host.querySelector<HTMLInputElement>(".onboarding-provider__key");
+    const save = host.querySelector<HTMLButtonElement>('[data-act="savekey"]');
+    const submit = () => {
+      const key = input?.value.trim();
+      if (!key) {
+        input?.focus();
+        return;
+      }
+      this.runAdopt(save!, () => adoptFreeKey(key));
+    };
+    save?.addEventListener("click", submit);
+    input?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    setTimeout(() => input?.focus(), 0);
   }
 
   /// Shared button-state machine for a provider-adoption action: disable,
@@ -308,19 +344,6 @@ export class OnboardingPanel {
       this.modal = null;
     }
     if (mode !== "abandon") await persistOnboardingCompleted();
-  }
-}
-
-/// Adopt the hosted trial. Requires a Covenant sign-in (the JWT meters
-/// usage), so on the first failure — the user almost certainly isn't
-/// signed in yet — run the GitHub device flow and retry once.
-async function adoptTrial(): Promise<void> {
-  try {
-    await adoptTrialProvider();
-  } catch {
-    const user = await runDeviceFlow();
-    if (!user) throw new Error("sign-in cancelled");
-    await adoptTrialProvider();
   }
 }
 

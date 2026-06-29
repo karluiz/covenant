@@ -20,6 +20,26 @@ const OLLAMA_PROVIDER_ID = "ollama";
 /// every role, so this fallback only matters for an empty registry.
 const FALLBACK_ROLES = ["summary", "chat", "operator", "triage", "spec_creator"];
 
+/// Point EVERY model route at `providerId`+`model`. On a fresh install one
+/// provider drives the whole agent, so we don't guess which roles matter.
+/// Existing route keys are preserved; if none are seeded we fall back to
+/// the known role set. Returns a new Settings; does not mutate the input.
+/// Shared by the Ollama and free-cloud-key onboarding paths.
+export function repointAllRoles(
+  current: Settings,
+  providerId: string,
+  model: string,
+): Settings {
+  const next: Settings = JSON.parse(JSON.stringify(current));
+  const seeded = Object.keys(next.model_routes ?? {});
+  const roles = seeded.length ? seeded : FALLBACK_ROLES;
+  next.model_routes = {};
+  for (const r of roles) {
+    next.model_routes[r] = { provider_id: providerId, model };
+  }
+  return next;
+}
+
 /// Probe a locally-running Ollama. Returns its model ids (in the order
 /// Ollama reports them), or null if nothing is listening or the call
 /// fails. Reuses the existing `list_models_openai_compat` command — a
@@ -44,19 +64,13 @@ export function buildOllamaSettings(
   model: string,
   baseUrl: string = OLLAMA_BASE_URL,
 ): Settings {
-  const next: Settings = JSON.parse(JSON.stringify(current));
+  const next = repointAllRoles(current, OLLAMA_PROVIDER_ID, model);
   next.providers = { ...(next.providers ?? {}) };
   next.providers[OLLAMA_PROVIDER_ID] = {
     kind: "openai_compat",
     label: "Ollama (local)",
     base_url: baseUrl,
   };
-  const seeded = Object.keys(next.model_routes ?? {});
-  const roles = seeded.length ? seeded : FALLBACK_ROLES;
-  next.model_routes = {};
-  for (const r of roles) {
-    next.model_routes[r] = { provider_id: OLLAMA_PROVIDER_ID, model };
-  }
   return next;
 }
 
