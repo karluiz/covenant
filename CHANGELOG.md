@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.109 — Onboarding tour advances per-step instead of abandoning
+
+### Changed
+
+- **Per-step CTAs advance the tour**: each onboarding step's CTA now opens the
+  feature *and* advances to the next step (`this.next()` replacing the old
+  `finish("abandon")`), so a single button keeps the tour moving instead of
+  closing the wizard mid-flow. The footer counter switches to a "Welcome" +
+  `N / 9` scheme. Also tightens contrast on the `cp-current` command-palette
+  chip and the release-close glyph. Touches `ui/src/onboarding/panel.ts` and
+  `ui/src/styles.css`.
+
 ## v0.8.108 — Unified rail design system across all sidebar panels
 
 ### Added
