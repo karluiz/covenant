@@ -66,6 +66,7 @@ import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { activePane } from "./tabs/pane";
 import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "./tabs/custom-style";
+import { applyIndicatorVisibility } from "./indicators";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
 
@@ -1225,6 +1226,7 @@ async function boot(): Promise<void> {
   const statusBarHost = requireEl<HTMLElement>("status-bar");
   const statusBar = new StatusBar(statusBarHost);
   statusBar.setEnabled(initialSettings?.status_bar_enabled ?? true);
+  applyIndicatorVisibility(initialSettings?.hidden_indicators ?? []);
   // Activity sidebar — single global instance, rendered into the right
   // column when the user picks the Activity view (and always available
   // when fullscreen hides the floating notch). Same D-combo layout as
@@ -1637,6 +1639,7 @@ async function boot(): Promise<void> {
     applyCustomTabStyle(next.experimental?.tab_styles);
     applyUiFont(next.ui_font_family);
     statusBar.setEnabled(next.status_bar_enabled ?? true);
+    applyIndicatorVisibility(next.hidden_indicators ?? []);
     manager.setSplitPanesEnabled(next.experimental?.split_panes ?? false);
     manager.setStatusbarTwoRow(next.experimental?.statusbar_two_row ?? true);
     applyInternalBrowserFlag(next.experimental?.internal_browser ?? false);
