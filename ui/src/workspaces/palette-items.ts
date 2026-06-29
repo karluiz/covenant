@@ -15,6 +15,7 @@ export interface PaletteItem {
   subtitle?: string;
   color?: string | null;
   icon?: string;
+  current?: boolean;
   score: number;
   run: () => void | Promise<void>;
 }
@@ -63,6 +64,7 @@ function wsItem(w: WorkspaceView, ctx: BuildCtx, score: number): PaletteItem {
     title: w.name,
     subtitle: `${w.tab_count} ${unit} · ${relTime(w.last_used_at)}`,
     color: w.color,
+    current: w.id === ctx.activeWorkspaceId,
     score,
     run: () => {
       if (w.id !== ctx.activeWorkspaceId) return ctx.switchWorkspace?.(w.id);
@@ -78,6 +80,7 @@ function tabItem(r: TabRow, ctx: BuildCtx, score: number): PaletteItem {
     title: r.title,
     subtitle: where ? `in ${where}` : undefined,
     color: r.groupColor ?? r.workspaceColor,
+    current: r.workspaceActive && r.isActiveTabInWorkspace,
     score,
     run: async () => {
       if (r.workspaceId !== ctx.activeWorkspaceId) {

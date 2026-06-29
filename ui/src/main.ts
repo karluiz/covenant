@@ -1147,6 +1147,13 @@ async function boot(): Promise<void> {
         if (spec) runSpawn(spec.id, sid);
       })();
     };
+    // Group context menu → "Start new agent": preload the default spawn's
+    // command line into a fresh tab (runs on the shell's first prompt).
+    manager.defaultAgentCmdline = async (): Promise<string | null> => {
+      const specs = await listSpawns();
+      const spec = specs.find((s) => s.default) ?? specs[0];
+      return spec && spec.command ? buildSpawnCmdline(spec, claudeTheme()) : null;
+    };
     // Ctrl+N quick-spawn: launch the Nth executor (list order) in the
     // CURRENT terminal — same as clicking it in the picker (runSpawn).
     spawnByShortcut = (index: number): void => {

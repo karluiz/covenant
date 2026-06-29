@@ -208,10 +208,11 @@ export class CommandPalette {
     const sub = item.subtitle
       ? `<span class="cp-sub">${escapeHtml(item.subtitle)}</span>`
       : "";
+    const badge = item.current ? `<span class="cp-current">current</span>` : "";
     return `
       <div class="command-palette-item${active}" role="option" data-index="${idx}">
         ${dot}
-        <span class="cp-title">${escapeHtml(item.title)}</span>
+        <span class="cp-main"><span class="cp-title">${escapeHtml(item.title)}</span>${badge}</span>
         ${sub}
       </div>`;
   }

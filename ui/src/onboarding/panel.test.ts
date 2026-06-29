@@ -254,7 +254,12 @@ describe("OnboardingPanel", () => {
     expect(panel.isOpen()).toBe(false);
   });
 
-  it("step 2 (Providers) CTA opens Settings → Providers and persists completion", async () => {
+  it("step 2 (Providers) CTA opens Settings → Providers and abandons (no seal)", async () => {
+    // Per-step CTAs use the "abandon" mode: the wizard closes so the
+    // user can interact with the feature they just opened, but
+    // completion is NOT sealed. The wizard will re-auto-show on next
+    // launch (and can be re-opened from Settings → Experimental) so
+    // the user can finish the remaining 8 steps.
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
@@ -273,8 +278,10 @@ describe("OnboardingPanel", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.providers.count).toBe(1);
     expect(panel.isOpen()).toBe(false);
-    // localStorage guard written even without Tauri.
-    expect(localStorage.getItem(STORAGE_KEY)).toBe("1");
+    // CRITICAL: "abandon" must NOT write the localStorage guard, or
+    // the next launch will skip the wizard and the user never gets to
+    // see steps 3-10.
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("step 4 (Blocks) CTA opens the blocks rail", async () => {
@@ -417,10 +424,12 @@ describe("OnboardingPanel", () => {
     expect(panel.isOpen()).toBe(false);
   });
 
-  it("step 10 (Done) closes the wizard without firing a handler", async () => {
-    // The final step is a "you're set up" moment with no CTA handler —
-    // clicking it just calls `next()`, which on the last step calls
-    // `finish(true)`. No handler counter should increment.
+  it("step 10 (Done) seals completion and closes the wizard", async () => {
+    // The final step is a "you're set up" moment — clicking it calls
+    // `next()`, which on the last step calls `finish("complete")`.
+    // That seals `onboarding_completed` so the auto-show on next
+    // launch skips the wizard. The user can still re-open it from
+    // Settings → Experimental → "Start onboarding" (preview mode).
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
@@ -441,6 +450,51 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(panel.isOpen()).toBe(false);
+    // "complete" must seal completion so the wizard doesn't auto-show
+    // on next launch.
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("1");
+  });
+
+  it("Esc on any step seals completion (skip mode)", async () => {
+    // Esc is the explicit "I want out" gesture. Don't auto-show again
+    // on next launch — the user opted out of the tour. They can still
+    // re-open it from Settings → Experimental.
+    const h = makeHandlers();
+    const panel = new OnboardingPanel(document.body, h);
+    panel.open();
+
+    // Halfway through: navigate to step 5, then Esc.
+    for (let i = 0; i < 5; i += 1) {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    }
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(panel.isOpen()).toBe(false);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe("1");
+  });
+
+  it("clicking outside the card abandons without sealing", async () => {
+    // Click on the scrim (not the card) means "dismiss for now" — we
+    // keep the completion flag clear so the wizard auto-shows again.
+    const h = makeHandlers();
+    const panel = new OnboardingPanel(document.body, h);
+    panel.open();
+
+    // Dispatch a click on the overlay (not the card) to simulate
+    // clicking the scrim. The card and overlay are siblings, so we
+    // target the overlay directly.
+    const overlay = document.querySelector(".onboarding-overlay")!;
+    overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(panel.isOpen()).toBe(false);
+    // "abandon" does NOT seal.
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
   it("footer step counter shows N / 10 for every step", () => {

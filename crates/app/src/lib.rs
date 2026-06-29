@@ -2418,6 +2418,55 @@ async fn git_unstage(cwd: String, path: String) -> Result<git_tools::diff::Chang
 }
 
 #[tauri::command]
+async fn git_commit(cwd: String, message: String) -> Result<git_tools::diff::Changes, String> {
+    let cwd = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || git_tools::commit(&cwd, &message))
+        .await
+        .map_err(|e| format!("git_commit join: {e}"))?
+}
+
+/// AI-assisted commit message from the staged diff. One-shot, non-streaming.
+#[tauri::command]
+async fn generate_commit_message(
+    state: State<'_, AppState>,
+    cwd: String,
+) -> Result<String, String> {
+    let resolved = {
+        let s = state.settings.lock().await;
+        provider_resolve::resolve_route(&s, settings::Role::Chat)
+            .map_err(|_| "provider unavailable".to_string())?
+    };
+
+    let path = std::path::PathBuf::from(cwd);
+    let diff = tokio::task::spawn_blocking(move || git_tools::staged_diff(&path))
+        .await
+        .map_err(|e| format!("staged_diff join: {e}"))??;
+    if diff.trim().is_empty() {
+        return Err("nothing staged".into());
+    }
+    // ponytail: cap the diff fed to the model; huge diffs blow the context budget.
+    let diff: String = diff.chars().take(24_000).collect();
+
+    let req = karl_agent::AskRequest {
+        api_key: String::new(),
+        model: resolved.model.clone(),
+        system_prompt: "You write git commit messages. Reply with ONLY the message: a \
+            Conventional Commits subject line (<=72 chars), optionally a blank line and a \
+            short body. No backticks, no preamble, no explanation."
+            .to_string(),
+        user_message: format!("Staged diff:\n\n{diff}"),
+        max_tokens: 300,
+        thinking_budget: None,
+        force_tool: None,
+    };
+    let text = karl_agent::provider::collect_oneshot(&*resolved.provider, req)
+        .await
+        .map_err(|e| e.to_string())?
+        .text;
+    Ok(text.trim().to_string())
+}
+
+#[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String> {
     Ok(state.settings.lock().await.clone())
 }
@@ -4296,6 +4345,8 @@ pub fn run() {
             git_file_diff,
             git_stage,
             git_unstage,
+            git_commit,
+            generate_commit_message,
             resolve_existing_path,
             structure_list_dir,
             structure_create_path,

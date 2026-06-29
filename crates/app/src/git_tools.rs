@@ -337,6 +337,20 @@ pub fn unstage(cwd: &Path, path: &str) -> Result<diff::Changes, String> {
     changes(cwd)
 }
 
+pub fn commit(cwd: &Path, message: &str) -> Result<diff::Changes, String> {
+    let msg = message.trim();
+    if msg.is_empty() {
+        return Err("commit message is empty".into());
+    }
+    git(cwd, &["commit", "-m", msg])?;
+    changes(cwd)
+}
+
+/// Full staged diff (`git diff --cached`) — fed to the LLM for message generation.
+pub fn staged_diff(cwd: &Path) -> Result<String, String> {
+    git(cwd, &["diff", "--cached"])
+}
+
 pub fn file_diff(cwd: &Path, path: &str, staged: bool) -> Result<diff::FileDiff, String> {
     // Untracked file isn't known to git diff; use --no-index against /dev/null.
     let raw = if staged {
@@ -630,6 +644,30 @@ mod tests {
             .iter()
             .any(|f| f.path == "tracked.txt"));
         assert!(!after_unstage.staged.iter().any(|f| f.path == "tracked.txt"));
+    }
+
+    #[test]
+    fn commit_clears_staged_and_rejects_empty_message() {
+        use std::fs;
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path();
+        init_repo(dir);
+        fs::write(dir.join("tracked.txt"), "one\ntwo\nthree\n").unwrap();
+        stage(dir, "tracked.txt").unwrap();
+
+        assert!(!staged_diff(dir).unwrap().trim().is_empty());
+        assert!(commit(dir, "   ").is_err());
+
+        let after = commit(dir, "feat: third line").unwrap();
+        assert!(after.staged.is_empty());
+        assert!(staged_diff(dir).unwrap().trim().is_empty());
     }
 
     #[test]

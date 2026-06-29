@@ -38,6 +38,18 @@ describe("buildSections", () => {
     expect(s.actions).toEqual([]);
   });
 
+  it("marks the active workspace and active tab as current", () => {
+    const workspaces = [ws({ id: "a", name: "alpha" }), ws({ id: "b", name: "beta" })];
+    const tabs = [
+      row({ workspaceId: "b", workspaceActive: true, isActiveTabInWorkspace: true, title: "active", tabIndex: 0 }),
+      row({ workspaceId: "b", workspaceActive: true, isActiveTabInWorkspace: false, title: "other", tabIndex: 1 }),
+    ];
+    const s = buildSections("", { workspaces, tabs, actions: [], activeWorkspaceId: "b" });
+    const cur = Object.fromEntries(s.workspaces.map((i) => [i.title, !!i.current]));
+    expect(cur).toEqual({ alpha: false, beta: true });
+    expect(s.tabs.map((i) => [i.title, !!i.current])).toEqual([["active", true], ["other", false]]);
+  });
+
   it("non-empty query: fuzzy match across kinds, drops non-matches", () => {
     const workspaces = [ws({ id: "a", name: "migration" }), ws({ id: "b", name: "scratch" })];
     const tabs = [row({ title: "run-migrate", tabIndex: 1 }), row({ title: "tests", tabIndex: 2 })];

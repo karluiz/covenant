@@ -49,17 +49,21 @@ body.changes-fullscreen .cd-frame {
 .cd-body { flex: 1; display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
 
 .cd-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: 1px solid var(--border);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   padding: 10px;
   background: var(--bg-panel);
 }
+.cd-rail-host { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .cd-search {
   box-sizing: border-box;
   width: 100%;
   padding: 6px 10px;
   margin-bottom: 10px;
+  flex-shrink: 0;
   background: rgba(var(--ink-rgb), 0.05);
   color: var(--text-primary);
   border: 1px solid var(--border);
@@ -107,6 +111,58 @@ body.changes-fullscreen .cd-frame {
 }
 .cd-file:hover .cd-stage-btn { opacity: 1; }
 .cd-stage-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Commit footer — pinned at the bottom of the left column. */
+.cd-commit {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.cd-commit-msg {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  min-height: 52px;
+  padding: 7px 9px;
+  background: rgba(var(--ink-rgb), 0.05);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+.cd-commit-msg:focus { border-color: var(--accent); }
+.cd-commit-msg::placeholder { color: var(--muted); }
+.cd-commit-status { font-size: 11px; color: var(--muted); min-height: 13px; }
+.cd-commit-status--err { color: #f85149; }
+.cd-commit-actions { display: flex; gap: 8px; }
+.cd-summarize, .cd-commit-btn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.cd-summarize {
+  flex: 1;
+  background: rgba(var(--ink-rgb), 0.04);
+  color: var(--text-primary);
+}
+.cd-summarize:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cd-commit-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.cd-commit-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.cd-summarize:disabled, .cd-commit-btn:disabled { opacity: 0.45; cursor: default; }
 
 .cd-clean, .cd-diff-empty {
   color: var(--muted);

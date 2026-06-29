@@ -1554,6 +1554,11 @@ export class TabManager {
   /// context menu's "Start agent" item.
   public runDefaultAgent: ((sessionId: SessionId) => void) | null = null;
 
+  /// Returns the command line that launches the default agent/executor, or
+  /// null if no spawn is configured. Wired from main.ts; used by the group
+  /// context menu's "Start new agent" item to preload a fresh tab.
+  public defaultAgentCmdline: (() => Promise<string | null>) | null = null;
+
   /// Fires whenever the *active* tab's identity (name, color, or
   /// group membership/color) changes — including activation. Lets the
   /// status bar render a leading chip so the user always knows which
@@ -6811,6 +6816,21 @@ export class TabManager {
         onClick: () => {
           if (group.collapsed) this.toggleGroupCollapsed(group.id);
           void this.createTab({ groupId: group.id, color: group.color });
+        },
+      },
+      {
+        label: "Start new agent",
+        icon: Icons.sparkles(),
+        onClick: () => {
+          if (group.collapsed) this.toggleGroupCollapsed(group.id);
+          void (async () => {
+            const cmd = (await this.defaultAgentCmdline?.()) ?? null;
+            await this.createTab({
+              groupId: group.id,
+              color: group.color,
+              initialCommand: cmd,
+            });
+          })();
         },
       },
       { divider: true },

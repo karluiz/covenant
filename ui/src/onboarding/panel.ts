@@ -134,7 +134,7 @@ export class OnboardingPanel {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      void this.finish(false);
+      void this.finish("skip");
       return;
     }
     if (e.key === "ArrowRight") {
@@ -164,7 +164,7 @@ export class OnboardingPanel {
     const overlay = document.createElement("div");
     overlay.className = "release-overlay onboarding-overlay";
     overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) void this.finish(false);
+      if (e.target === overlay) void this.finish("abandon");
     });
 
     const card = document.createElement("div");
@@ -185,7 +185,7 @@ export class OnboardingPanel {
   }
 
   close(): void {
-    void this.finish(true);
+    void this.finish("abandon");
   }
 
   private next(): void {
@@ -194,7 +194,10 @@ export class OnboardingPanel {
       this.stepIndex += 1;
       this.renderStep();
     } else {
-      void this.finish(true);
+      // Reached the final step via "Start using Covenant" — the user
+      // completed the tour, so seal completion so we don't auto-show
+      // on next launch.
+      void this.finish("complete");
     }
   }
 
@@ -214,7 +217,7 @@ export class OnboardingPanel {
         body: "Covenant is an AI-native terminal that watches every command you run across all tabs, answers questions about what's going on, and — under your explicit policy — can type on your behalf. This nine-step tour will get you from install to first magic moment in under two minutes.",
         icon: Icons.covenant({ size: 28 }),
         cta: { label: "Take the tour", run: () => this.next(), persist: false },
-        secondary: { label: "Skip for now", run: () => void this.finish(false) },
+        secondary: { label: "Skip for now", run: () => void this.finish("skip") },
       },
       {
         eyebrow: "Step 1 of 9 · Setup",
@@ -225,7 +228,7 @@ export class OnboardingPanel {
           label: "Open Settings → Providers",
           run: () => {
             void h.openSettingsProviders();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -240,7 +243,7 @@ export class OnboardingPanel {
           label: "Open super-agent (⌘K)",
           run: () => {
             h.openAgentPanel();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -255,7 +258,7 @@ export class OnboardingPanel {
           label: "Open Blocks rail",
           run: () => {
             h.openBlocksRail();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -284,7 +287,7 @@ export class OnboardingPanel {
           label: "Open Project Notes",
           run: () => {
             h.openProjectNotes();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -299,7 +302,7 @@ export class OnboardingPanel {
           label: "Open Spec-chat (⌘N)",
           run: () => {
             h.openSpecChat();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -314,7 +317,7 @@ export class OnboardingPanel {
           label: "Open spawns picker",
           run: () => {
             h.openSpawnsPicker();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -329,7 +332,7 @@ export class OnboardingPanel {
           label: "Show all shortcuts",
           run: () => {
             h.openShortcuts();
-            void this.finish(true);
+            void this.finish("abandon");
           },
           persist: true,
         },
@@ -398,16 +401,28 @@ export class OnboardingPanel {
       ?.addEventListener("click", () => step.secondary?.run());
     card
       .querySelector<HTMLButtonElement>(".onboarding-skip")
-      ?.addEventListener("click", () => void this.finish(false));
+      ?.addEventListener("click", () => void this.finish("skip"));
   }
 
-  private async finish(closeHost: boolean): Promise<void> {
+  /// Close the wizard and optionally seal completion.
+  ///
+  /// `mode` is one of:
+  /// - `"abandon"` — close without sealing. Used by per-step CTAs
+  ///   that open a feature (Settings, Blocks, AOM, …). The user
+  ///   didn't say they're done with the tour — they just opened
+  ///   something. The auto-show on next launch still fires, and the
+  ///   wizard can be re-opened manually from Settings → Experimental.
+  /// - `"skip"` — close AND seal. The user explicitly opted out
+  ///   (Esc, Skip link). Don't pop the wizard at boot again.
+  /// - `"complete"` — close AND seal. The user reached the final
+  ///   step and clicked "Start using Covenant".
+  private async finish(mode: "abandon" | "skip" | "complete"): Promise<void> {
     if (this.modal) {
       document.removeEventListener("keydown", this.onKeydown, true);
       this.modal.remove();
       this.modal = null;
     }
-    if (closeHost) await persistOnboardingCompleted();
+    if (mode !== "abandon") await persistOnboardingCompleted();
   }
 }
 

@@ -5278,10 +5278,27 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
   opacity: 0.7;
   text-align: center;
 }
+.command-palette-item .cp-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .command-palette-item .cp-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.command-palette-item .cp-current {
+  flex: none;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: rgba(var(--ink-rgb), 0.7);
+  background: rgba(var(--ink-rgb), 0.1);
 }
 .command-palette-item .cp-sub {
   font-size: 11px;
@@ -17920,7 +17937,8 @@ body.theme-light .task-item.is-open {
    terminal area — same treatment as the folder tree (.tab-blocks). The
    flat-chrome rule above zeroes border-color, so re-assert it here. */
 #activity-sidebar,
-#teammate-panel {
+#teammate-panel,
+#beacon-panel {
   border-left: 1px solid var(--border, #232831) !important;
 }
 
