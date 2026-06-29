@@ -6,6 +6,40 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.108 — Unified rail design system across all sidebar panels
+
+### Added
+
+- **Unified rail design system**: all six right-rail panels (Blocks, Recall,
+  Activity, Covenant/Project Notes, Tasker, Beacon) now share one `.rail-*`
+  chrome — a fixed 40px header (title + icon-button actions), an optional
+  controls row (tabs / pills / search / select), a single flat row primitive
+  with a status spine, one empty-state, and one footer. Tokens + component
+  classes live in `ui/src/styles.css`; status colors are consolidated to
+  `--ok/--running/--fail/--accent/--idle`, and the formerly-undefined
+  `--text-secondary` / `--bg-elevated` tokens are now defined.
+
+### Changed
+
+- **Rail contract + dead-CSS purge**: added a `.rail-notice` primitive (sign-in
+  / loading / error states) and a hover-revealed `.rail-row-action`; Beacon's
+  bordered cards became flat rows with a status spine; ~800 net lines of
+  now-dead bespoke CSS were removed across `ui/src/beacon/beacon.css`,
+  `ui/src/tasker/styles.css`, `ui/src/project-notes/styles.css`, and
+  `ui/src/styles.css` (mixed selector lists split to keep live members).
+
+- **In-progress polish (carried)**: working-tree changes to the changes viewer
+  (`ui/src/changes/`), onboarding (`ui/src/onboarding/`), workspaces palette
+  (`ui/src/workspaces/`), tabs manager (`ui/src/tabs/manager.ts`), `ui/src/api.ts`,
+  and `crates/app/src/git_tools.rs`, plus the `cdlc-kyc-peru` / `cdlc-sdd-bian`
+  skills.
+
+### Fixed
+
+- **Beacon left divider**: restored the rail's left border on Beacon, which was
+  lost when `beacon.css` was purged during the homologation; the divider now
+  lives on the `#beacon-panel` host (`ui/src/styles.css`).
+
 ## v0.8.107 — Beacon sub-repo picker + empty state
 
 ### Added
