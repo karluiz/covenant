@@ -18143,7 +18143,8 @@ body.theme-light .task-item.is-open {
 
 /* Same reasoning for the Settings nav: keep the vertical divider between the
    nav column and the content, matching the header/footer separators. */
-.settings-nav {
+.settings-nav,
+.capabilities-nav {
   border-right: 1px solid var(--border, #232831) !important;
 }
 
