@@ -7457,12 +7457,13 @@ mark.mv-find-hit.is-active {
 }
 
 .settings-indicator-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 16px;
 }
 
 .settings-sublabel {
+    grid-column: 1 / -1;
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.06em;

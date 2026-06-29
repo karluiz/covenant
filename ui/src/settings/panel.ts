@@ -26,7 +26,7 @@ import { CustomSelect } from "../ui/select";
 import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
 import { renderPublicProfileCard } from "../score/profile";
 import { scheduleCloudPush } from "./cloud_push";
-import { INDICATORS } from "../indicators";
+import { INDICATORS, applyIndicatorVisibility } from "../indicators";
 
 function renderIndicatorChecklist(): string {
   const groups = [...new Set(INDICATORS.map((i) => i.group))];
@@ -367,6 +367,7 @@ export class SettingsPanel {
       applyTabbarPosition(this.current.tabbar_position ?? "top");
       applyPresetTabStyle(this.current.window?.tab_style ?? "classic");
       applyCustomTabStyle(this.current.experimental?.tab_styles ?? null);
+      applyIndicatorVisibility(this.current.hidden_indicators ?? []);
     }
 
     // Be defensive: Settings.open()/render() does async work, and other
@@ -1361,6 +1362,19 @@ export class SettingsPanel {
       // dataset.indicatorId is safe: we rendered data-indicator-id ourselves above
       cb.checked = !hidden.has(cb.dataset.indicatorId!);
     });
+    // Live preview: hide/show indicators as the user toggles, so they see
+    // what they're leaving behind. close() reverts to the persisted set if
+    // they bail without saving; submit() persists.
+    const previewIndicators = (): void => {
+      applyIndicatorVisibility(
+        Array.from(indicatorChecks)
+          .filter((cb) => !cb.checked)
+          .map((cb) => cb.dataset.indicatorId!),
+      );
+    };
+    indicatorChecks.forEach((cb) =>
+      cb.addEventListener("change", previewIndicators),
+    );
     notchEnabled.checked = this.current.notch_enabled ?? true;
     notchCorner.value = this.current.notch_corner ?? "bottom-right";
     notchSoundOnDone.checked = this.current.notch_sound_on_done ?? true;
