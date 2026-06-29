@@ -7788,6 +7788,13 @@ body.structure-dragging * {
 .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
     background: rgb(17 20 26);
 }
+/* True Dark/OLED: the editor overlay hardcodes rgb(17 20 26) slate to stay
+   solid over xterm; on true black that reads as a grey topbar. Pin to #000. */
+body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host,
+body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-header,
+body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .structure-editor-body {
+    background: #000000;
+}
 .tab-pane:has(.editor-host:not([hidden])):has(.blocks-collapsed) > .editor-host {
     right: 28px;
 }
@@ -8484,6 +8491,12 @@ body.structure-dragging * {
 }
 .structure-context-menu-item.danger:hover {
     background: rgba(247, 118, 142, 0.14);
+}
+/* True Dark/OLED: the menu hardcodes rgb(20 24 30) slate which floats grey
+   on near-black. Drop to the true-dark surface token. */
+body.theme-true-dark .structure-context-menu {
+    background: rgb(8 8 10 / 0.98);
+    border-color: var(--border);
 }
 /* Light theme: the structure file-tree menu, rename input, and confirm
    dialog ship hardcoded dark surfaces (rgb(20 24 30) / black overlays)
