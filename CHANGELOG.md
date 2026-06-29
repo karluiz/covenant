@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.112 — Capabilities: executor agents + CDLC projection
+
+### Added
+
+- **Claude agents & memory in Capabilities**: the Claude adapter now discovers
+  subagents (`~/.claude/agents`, `<repo>/.claude/agents`) under a new **Agents**
+  section, and `CLAUDE.md` instructions (user + project) under **Memory** —
+  editable like any other capability. `crates/capabilities/src/adapters/claude.rs`.
+- **Covenant CDLC tool**: a new top-level tool that surfaces `.covenant/cdlc/`
+  (manifest + skill packages, project-scoped) and exposes **Project to
+  executors**, fanning the governed context out to Claude, opencode, Pi, Codex,
+  Copilot and Hermes via the existing `cdlc_export` engine. New
+  `crates/capabilities/src/adapters/covenant.rs`, `ui/src/capabilities/panel.ts`.
+- **Free inference providers as presets**: the add-provider dialog ships
+  free-tier presets and a persistent "Setup guide →" link to the forge how-to.
+  `ui/src/settings/providers.ts`, `crates/app/src/providers_cmd.rs`.
+
+### Changed
+
+- **First-run onboarding**: swapped the hosted trial for a free-tier cloud key
+  flow and linked the forge `/start` guide from the provider card.
+  `ui/src/onboarding/freekey.ts`, `ui/src/onboarding/panel.ts`.
+- **Executor capability matrix docs**: documented which executor natively
+  supports skills/agents/commands/hooks/mcps/memory and where each lives.
+  `docs/executor-capabilities.md`.
+
+### Fixed
+
+- **Capabilities nav divider on True Dark**: the flat-chrome rule zeroed
+  `.capabilities-nav` border-color; re-assert the vertical divider like
+  `.settings-nav` already does. `ui/src/styles.css`.
+
 ## v0.8.111 — First-run model setup + customizable indicators
 
 ### Added
