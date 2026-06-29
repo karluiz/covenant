@@ -15344,6 +15344,55 @@ body.theme-light .release-close:hover .settings-esc {
     color: color-mix(in srgb, var(--text-primary) 80%, transparent);
 }
 
+/* Ollama auto-detect banner — only shown on a fresh install when a
+   local Ollama is reachable. A faint accent-tinted card with a one-click
+   "Use Ollama" CTA so the agent works with zero setup. */
+.onboarding-provider {
+    width: 100%;
+    max-width: 320px;
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--accent, #6ea8fe) 35%, var(--border));
+    background: color-mix(in srgb, var(--accent, #6ea8fe) 8%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.onboarding-provider__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.onboarding-provider__copy {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: color-mix(in srgb, var(--text-primary) 78%, transparent);
+}
+
+.onboarding-provider__copy code {
+    font-family:
+        ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: rgba(var(--ink-rgb, 255 255 255), 0.06);
+}
+
+.onboarding-provider__more {
+    color: var(--muted);
+}
+
+.onboarding-provider__use {
+    align-self: flex-start;
+}
+
 .onboarding-footer {
     display: flex;
     align-items: center;

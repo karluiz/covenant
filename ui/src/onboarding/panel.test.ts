@@ -4,11 +4,39 @@ import {
   shouldShowOnboarding,
   persistOnboardingCompleted,
   resetOnboarding,
+  hasConfiguredProvider,
   OnboardingPanel,
   type OnboardingHandlers,
 } from "./panel";
 
 const STORAGE_KEY = "covenant.onboarding.completed";
+
+describe("hasConfiguredProvider", () => {
+  it("is false for a clean install (keyless anthropic only)", () => {
+    expect(
+      hasConfiguredProvider({
+        providers: { anthropic: { kind: "anthropic", label: "Anthropic", api_key: null, base_url: null } },
+      } as never),
+    ).toBe(false);
+  });
+  it("is false with no providers", () => {
+    expect(hasConfiguredProvider({ providers: undefined } as never)).toBe(false);
+  });
+  it("is true once a key is set", () => {
+    expect(
+      hasConfiguredProvider({
+        providers: { anthropic: { kind: "anthropic", label: "Anthropic", api_key: "sk-x" } },
+      } as never),
+    ).toBe(true);
+  });
+  it("is true once a local endpoint is configured", () => {
+    expect(
+      hasConfiguredProvider({
+        providers: { ollama: { kind: "openai_compat", label: "Ollama", base_url: "http://localhost:11434/v1" } },
+      } as never),
+    ).toBe(true);
+  });
+});
 
 /// All handlers wired as no-ops with a counter. The returned object
 /// exposes both the handlers (typed as `OnboardingHandlers` so the

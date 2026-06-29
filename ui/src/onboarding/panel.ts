@@ -15,6 +15,7 @@
 
 import { getSettings, type Settings } from "../api";
 import { Icons } from "../icons";
+import { detectOllama, adoptOllama } from "./ollama";
 
 /// Bump this whenever the card's content changes meaningfully. Existing
 /// users with a lower stamped `onboarding_version` see it again once.
@@ -196,6 +197,7 @@ export class OnboardingPanel {
         <h2 class="onboarding-title">Meet Covenant</h2>
         <p class="onboarding-copy">An AI-native terminal that watches every command across your tabs and — on your terms — can act on them. A few keys to know:</p>
         <ul class="onboarding-keys">${rows}</ul>
+        <div class="onboarding-provider" hidden></div>
       </div>
       <footer class="onboarding-footer">
         <div class="onboarding-actions">
@@ -219,6 +221,54 @@ export class OnboardingPanel {
     card
       .querySelector<HTMLButtonElement>(".onboarding-skip")
       ?.addEventListener("click", () => void this.finish("skip"));
+
+    void this.offerOllamaIfDetected();
+  }
+
+  /// Fresh installs have no LLM credentials, so nothing agentic works.
+  /// If the user already runs Ollama locally, surface a one-click
+  /// adoption banner so the super-agent works out of the box. Skipped
+  /// silently when a provider is already configured (a version-bump
+  /// re-show for an existing user) or when Ollama isn't running.
+  private async offerOllamaIfDetected(): Promise<void> {
+    let settings: Settings;
+    try {
+      settings = await getSettings();
+    } catch {
+      return;
+    }
+    if (hasConfiguredProvider(settings)) return;
+
+    const models = await detectOllama();
+    if (!models || !this.modal) return;
+
+    // ponytail: adopt the first model; users with several pick another
+    // in Settings → Providers. Add a model picker here if that chafes.
+    const model = models[0];
+    const host = this.modal.querySelector<HTMLElement>(".onboarding-provider");
+    if (!host) return;
+
+    const extra = models.length > 1 ? ` <span class="onboarding-provider__more">+${models.length - 1} more</span>` : "";
+    host.innerHTML = `
+      <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Ollama detected locally</span></div>
+      <p class="onboarding-provider__copy">Use <code>${esc(model)}</code> for the agent — no API key needed.${extra}</p>
+      <button type="button" class="onboarding-primary onboarding-provider__use"><span>Use Ollama</span></button>
+    `;
+    host.hidden = false;
+
+    host
+      .querySelector<HTMLButtonElement>(".onboarding-provider__use")
+      ?.addEventListener("click", (e) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        btn.disabled = true;
+        btn.querySelector("span")!.textContent = "Setting up…";
+        void adoptOllama(model)
+          .then(() => this.finish("complete"))
+          .catch(() => {
+            btn.disabled = false;
+            btn.querySelector("span")!.textContent = "Retry";
+          });
+      });
   }
 
   /// Close the card and optionally seal completion.
@@ -235,6 +285,20 @@ export class OnboardingPanel {
     }
     if (mode !== "abandon") await persistOnboardingCompleted();
   }
+}
+
+/// True when any provider already has a usable credential or endpoint.
+/// A clean install seeds only a keyless Anthropic entry (api_key null,
+/// base_url null), so this returns false there — which is exactly when
+/// we want to offer Ollama. Pure, no DOM.
+export function hasConfiguredProvider(
+  settings: Pick<Settings, "providers"> | null,
+): boolean {
+  const providers = settings?.providers;
+  if (!providers) return false;
+  return Object.values(providers).some(
+    (p) => Boolean(p.api_key?.trim()) || Boolean(p.base_url?.trim()),
+  );
 }
 
 function esc(s: string): string {
