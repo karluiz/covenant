@@ -2090,8 +2090,11 @@ export async function listModelsAnthropic(): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("list_models_anthropic");
 }
 
-export async function listModelsOpenAiCompat(baseUrl: string): Promise<ModelInfo[]> {
-  return invoke<ModelInfo[]>("list_models_openai_compat", { baseUrl });
+export async function listModelsOpenAiCompat(
+  baseUrl: string,
+  apiKey?: string | null,
+): Promise<ModelInfo[]> {
+  return invoke<ModelInfo[]>("list_models_openai_compat", { baseUrl, apiKey: apiKey ?? null });
 }
 
 export async function listModelsAzureFoundry(args: {

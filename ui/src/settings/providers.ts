@@ -406,9 +406,17 @@ function renderOpenAiCompatFields(
   grid.appendChild(makeLabel("Base URL"));
   grid.appendChild(urlInput);
 
+  // Optional: local providers (Ollama, LM Studio) need no key; cloud ones
+  // (Cerebras, Groq, Mistral, …) require it. Sent as a bearer token.
+  const keyInput = makeInput("password", entry.api_key ?? "");
+  keyInput.placeholder = "Leave empty for local (Ollama / LM Studio)";
+  keyInput.oninput = () => { entry.api_key = keyInput.value || null; };
+  grid.appendChild(makeLabel("API key"));
+  grid.appendChild(keyInput);
+
   return async () => {
     const t0 = performance.now();
-    const models = await listModelsOpenAiCompat(urlInput.value);
+    const models = await listModelsOpenAiCompat(urlInput.value, keyInput.value);
     return {
       status: "ok",
       count: models.length,
@@ -510,6 +518,22 @@ function renderFoundryFields(
 // Add-provider dialog (inline below the rail header)
 // ─────────────────────────────────────────────────────────────────────
 
+/// Prefilled presets for the add dialog. Local (Ollama/LM Studio) need no
+/// key; the cloud entries are OpenAI-compatible providers with a no-card
+/// free tier — pick one, then paste your key in the provider's API-key
+/// field. All become `openai_compat` entries. See forge.covenant.uno/start.
+const ADD_PRESETS: ReadonlyArray<{ value: string; label: string; id: string; url: string }> = [
+  { value: "ollama", label: "Ollama (local)", id: "ollama", url: "http://localhost:11434/v1" },
+  { value: "lmstudio", label: "LM Studio (local)", id: "lmstudio", url: "http://localhost:1234/v1" },
+  { value: "gemini", label: "Gemini (free tier)", id: "gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai" },
+  { value: "cerebras", label: "Cerebras (free tier)", id: "cerebras", url: "https://api.cerebras.ai/v1" },
+  { value: "groq", label: "Groq (free tier)", id: "groq", url: "https://api.groq.com/openai/v1" },
+  { value: "mistral", label: "Mistral (free tier)", id: "mistral", url: "https://api.mistral.ai/v1" },
+  { value: "sambanova", label: "SambaNova (free tier)", id: "sambanova", url: "https://api.sambanova.ai/v1" },
+  { value: "openrouter", label: "OpenRouter (free models)", id: "openrouter", url: "https://openrouter.ai/api/v1" },
+  { value: "github", label: "GitHub Models (free)", id: "github", url: "https://models.github.ai/inference" },
+];
+
 function openAddDialog(
   root: HTMLElement,
   settings: Settings,
@@ -549,8 +573,7 @@ function openAddDialog(
     ariaLabel: "Provider preset",
     value: "ollama",
     options: [
-      { value: "ollama", label: "Ollama (http://localhost:11434/v1)" },
-      { value: "lmstudio", label: "LM Studio (http://localhost:1234/v1)" },
+      ...ADD_PRESETS.map((p) => ({ value: p.value, label: p.label })),
       { value: "azure_foundry", label: "Azure Foundry" },
       { value: "custom", label: "Custom OpenAI-compatible…" },
     ],
@@ -564,13 +587,10 @@ function openAddDialog(
   const confirmBtn = backdrop.querySelector<HTMLButtonElement>(".providers-md__add-confirm")!;
 
   const applyPreset = () => {
-    if (preset.value === "ollama") {
-      idInput.value = "ollama";
-      urlInput.value = "http://localhost:11434/v1";
-      urlField.style.display = "";
-    } else if (preset.value === "lmstudio") {
-      idInput.value = "lmstudio";
-      urlInput.value = "http://localhost:1234/v1";
+    const hit = ADD_PRESETS.find((p) => p.value === preset.value);
+    if (hit) {
+      idInput.value = hit.id;
+      urlInput.value = hit.url;
       urlField.style.display = "";
     } else if (preset.value === "azure_foundry") {
       idInput.value = "azure";

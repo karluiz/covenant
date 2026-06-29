@@ -25,13 +25,22 @@ pub fn anthropic_models() -> Vec<ModelInfo> {
     .collect::<Vec<_>>()
 }
 
-pub async fn probe_openai_compat_models(base_url: &str) -> Result<Vec<ModelInfo>, String> {
+pub async fn probe_openai_compat_models(
+    base_url: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<ModelInfo>, String> {
     let url = format!("{}/models", base_url.trim_end_matches('/'));
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    // Cloud providers (Cerebras, Groq, Mistral, …) require a bearer key to
+    // list models; local ones (Ollama, LM Studio) ignore it.
+    let mut req = client.get(&url);
+    if let Some(k) = api_key.filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(k);
+    }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("{}: {}", resp.status(), url));
     }
@@ -186,8 +195,11 @@ pub async fn test_anthropic_key(api_key: String) -> Result<AnthropicProbeResult,
 }
 
 #[tauri::command]
-pub async fn list_models_openai_compat(base_url: String) -> Result<Vec<ModelInfo>, String> {
-    probe_openai_compat_models(&base_url).await
+pub async fn list_models_openai_compat(
+    base_url: String,
+    api_key: Option<String>,
+) -> Result<Vec<ModelInfo>, String> {
+    probe_openai_compat_models(&base_url, api_key.as_deref()).await
 }
 
 #[cfg(test)]
