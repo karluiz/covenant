@@ -274,6 +274,13 @@ pub struct Settings {
     #[serde(default = "default_notch_sound_on_done")]
     pub notch_sound_on_done: bool,
 
+    /// Ids of indicators (titlebar buttons, status-bar chips, left
+    /// widgets) the user has hidden via Settings → Appearance →
+    /// Indicators. Empty = everything visible. Ids are defined in the
+    /// frontend registry `ui/src/indicators.ts`; unknown ids are ignored.
+    #[serde(default)]
+    pub hidden_indicators: Vec<String>,
+
     /// Layout of the tabbar — horizontal across the top (default) or a
     /// fixed vertical column on the left, à la Wave Terminal. Frontend
     /// toggles `body.tabbar-left` from this value.
@@ -609,6 +616,7 @@ impl Default for Settings {
             notch_enabled: default_notch_enabled(),
             notch_corner: NotchCorner::default(),
             notch_sound_on_done: default_notch_sound_on_done(),
+            hidden_indicators: Vec::new(),
             tabbar_position: TabbarPosition::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
@@ -1278,6 +1286,20 @@ mod tests {
         let s: Settings = serde_json::from_str(legacy).unwrap();
         assert!(!s.onboarding_completed);
         assert_eq!(s.onboarding_version, 0);
+    }
+
+    #[test]
+    fn hidden_indicators_defaults_empty_and_roundtrips() {
+        // Missing field deserializes to an empty vec.
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.hidden_indicators.is_empty());
+
+        // Round-trips through JSON.
+        let mut s2 = Settings::default();
+        s2.hidden_indicators = vec!["beacon".to_string(), "sb-git".to_string()];
+        let json = serde_json::to_string(&s2).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.hidden_indicators, vec!["beacon", "sb-git"]);
     }
 }
 

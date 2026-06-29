@@ -1160,6 +1160,7 @@ export interface Settings {
   window: WindowConfig;
   aom: AomConfig;
   notifications?: NotificationConfig;
+  hidden_indicators: string[];
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
   /// Floating executor notch overlay (pills showing Claude/Codex/Pi
