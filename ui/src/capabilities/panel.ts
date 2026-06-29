@@ -18,11 +18,12 @@ import {
   capabilitiesRead,
   capabilitiesScaffold,
   capabilitiesWrite,
+  cdlcExport,
 } from "../api";
 import { pushInfoToast } from "../notifications/toast";
 import { CustomSelect } from "../ui/select";
 
-type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared";
+type ToolKey = "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared" | "covenant";
 type SectionKey =
   | "skills"
   | "commands"
@@ -45,9 +46,11 @@ interface SectionDef {
 const SECTIONS_BY_TOOL: Record<ToolKey, SectionDef[]> = {
   claude: [
     { key: "skills", label: "Skills", kinds: ["skill"] },
+    { key: "agents", label: "Agents", kinds: ["agent"] },
     { key: "commands", label: "Commands", kinds: ["command"] },
     { key: "hooks", label: "Hooks", kinds: ["hook"] },
     { key: "mcps", label: "MCPs", kinds: ["mcp"] },
+    { key: "memory", label: "Memory", kinds: ["memory"] },
   ],
   copilot: [
     { key: "mcps", label: "MCPs", kinds: ["mcp"] },
@@ -69,6 +72,10 @@ const SECTIONS_BY_TOOL: Record<ToolKey, SectionDef[]> = {
     { key: "config", label: "Config", kinds: ["config"] },
   ],
   shared: [{ key: "skills", label: "Skills", kinds: ["skill"] }],
+  covenant: [
+    { key: "config", label: "Manifest", kinds: ["config"] },
+    { key: "skills", label: "Skills", kinds: ["skill"] },
+  ],
 };
 
 export class CapabilitiesPanel {
@@ -152,7 +159,7 @@ export class CapabilitiesPanel {
     } catch (err) {
       console.error("capabilities refresh failed", err);
       pushInfoToast({ message: `Capabilities: ${String(err)}` });
-      this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false };
+      this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false, covenant: false };
       this.items = [];
     }
     // Reset selection if it's no longer present.
@@ -208,7 +215,7 @@ export class CapabilitiesPanel {
       <div class="capabilities-header-actions">
         <button type="button" class="cap-btn" data-act="refresh">Refresh</button>
         <button type="button" class="cap-btn cap-btn-primary" data-act="new">+ New</button>
-        <button type="button" class="cap-btn cap-close" data-act="close" aria-label="Close" title="Close (Esc)">×</button>
+        <button type="button" class="cap-btn cap-close" data-act="close" aria-label="Close (Esc)"><kbd class="settings-esc">esc</kbd></button>
       </div>
     `;
     header.querySelector<HTMLButtonElement>('[data-act="refresh"]')!.onclick = () => {
@@ -234,6 +241,7 @@ export class CapabilitiesPanel {
       { key: "codex", label: "Codex" },
       { key: "pi", label: "Pi" },
       { key: "shared", label: "Shared" },
+      { key: "covenant", label: "Covenant" },
     ];
     for (const t of tools) {
       const installed = this.detect ? this.detect[t.key] : true;
@@ -324,10 +332,44 @@ export class CapabilitiesPanel {
     };
     main.appendChild(searchBar);
 
+    if (this.activeTool === "covenant") main.appendChild(this.renderCovenantBar());
+
     if (this.newFormOpen) main.appendChild(this.renderNewForm());
 
     main.appendChild(this.renderSplit());
     return main;
+  }
+
+  // Covenant is the source of truth: editing `.covenant/cdlc/` and then
+  // projecting fans the changes out to every executor's native files
+  // (.claude/agents, .opencode/agent, .pi/skills, AGENTS.md, copilot, hermes).
+  // This affordance is what distinguishes Covenant from the passive viewers.
+  private renderCovenantBar(): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "cap-covenant-bar";
+    const hasRoot = !!this.projectRoot;
+    bar.innerHTML = `
+      <span class="cap-covenant-msg">CDLC is the source of truth — projects to Claude · opencode · Pi · Codex · Copilot · Hermes.</span>
+      <button type="button" class="cap-btn cap-btn-primary" data-act="project" ${hasRoot ? "" : "disabled"}>Project to executors →</button>
+    `;
+    const btn = bar.querySelector<HTMLButtonElement>('[data-act="project"]')!;
+    if (!hasRoot) btn.title = "Set a project root first";
+    btn.onclick = async () => {
+      if (!this.projectRoot) return;
+      btn.disabled = true;
+      btn.textContent = "Projecting…";
+      try {
+        await cdlcExport(this.projectRoot);
+        pushInfoToast({ message: "CDLC projected to all executors" });
+      } catch (e) {
+        pushInfoToast({ message: `Projection failed: ${String(e)}` });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Project to executors →";
+        await this.refresh();
+      }
+    };
+    return bar;
   }
 
   private renderSplit(): HTMLElement {

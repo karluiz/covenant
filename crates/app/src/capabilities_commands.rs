@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use karl_capabilities::adapters::{claude, codex, copilot, opencode, pi, shared};
+use karl_capabilities::adapters::{claude, codex, copilot, covenant, opencode, pi, shared};
 use karl_capabilities::model::{Kind, Tool};
 use karl_capabilities::scaffold::{render, ScaffoldRequest};
 use karl_capabilities::writer::{delete_with_backup, write_atomic};
@@ -35,6 +35,7 @@ pub struct DetectResult {
     pub codex: bool,
     pub pi: bool,
     pub shared: bool,
+    pub covenant: bool,
 }
 
 fn home() -> Result<PathBuf, String> {
@@ -131,6 +132,50 @@ fn item_from_claude(c: claude::Capability) -> CapabilityListItem {
                 read_only,
             }
         }
+        claude::Capability::Agent(a) => {
+            let (scope_label, read_only) = scope_label_claude(&a.scope);
+            let path = a.path.to_string_lossy().into_owned();
+            CapabilityListItem {
+                id: format!("claude:agent:{path}"),
+                tool: "claude".into(),
+                kind: "agent".into(),
+                name: a.name,
+                description: Some(a.description),
+                path,
+                scope_label,
+                read_only,
+            }
+        }
+        claude::Capability::Memory(m) => {
+            let (scope_label, read_only) = scope_label_claude(&m.scope);
+            let path = m.path.to_string_lossy().into_owned();
+            CapabilityListItem {
+                id: format!("claude:memory:{path}"),
+                tool: "claude".into(),
+                kind: "memory".into(),
+                name: m.name,
+                description: Some("CLAUDE.md instructions".to_string()),
+                path,
+                scope_label,
+                read_only,
+            }
+        }
+    }
+}
+
+fn item_from_covenant(a: covenant::Artifact, repo_name: &str) -> CapabilityListItem {
+    let path = a.path.to_string_lossy().into_owned();
+    // Manifest files share their UI section ("config"); skills use the skill section.
+    let section_kind = if a.kind == "skill" { "skill" } else { "config" };
+    CapabilityListItem {
+        id: format!("covenant:{path}"),
+        tool: "covenant".into(),
+        kind: section_kind.into(),
+        name: a.name,
+        description: Some(a.description),
+        path,
+        scope_label: format!("project:{repo_name}"),
+        read_only: false,
     }
 }
 
@@ -458,6 +503,17 @@ fn aggregate(project_root: Option<String>) -> Result<Vec<CapabilityListItem>, St
                     .into_iter()
                     .map(item_from_codex),
             );
+            let repo_name = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("project")
+                .to_string();
+            out.extend(
+                covenant::scan_project(&p)
+                    .map_err(|e| format!("covenant scan_project: {e}"))?
+                    .into_iter()
+                    .map(|a| item_from_covenant(a, &repo_name)),
+            );
         }
     }
 
@@ -653,6 +709,9 @@ pub async fn capabilities_detect() -> Result<DetectResult, String> {
         codex: codex::detect(&h_clone),
         pi: pi::detect(&h_clone),
         shared: shared::detect(&h_clone),
+        // Covenant is a project-scoped concept; always available — the list is
+        // simply empty until a project root with `.covenant/cdlc` is selected.
+        covenant: true,
     })
     .await
     .map_err(|e| e.to_string())

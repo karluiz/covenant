@@ -2025,6 +2025,7 @@ export interface CapabilitiesDetect {
   codex: boolean;
   pi: boolean;
   shared: boolean;
+  covenant: boolean;
 }
 
 export async function capabilitiesList(

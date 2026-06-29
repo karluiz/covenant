@@ -66,12 +66,31 @@ pub struct McpServer {
     pub scope: ClaudeScope,
 }
 
+/// A subagent definition under `~/.claude/agents/*.md` or `<repo>/.claude/agents/*.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Agent {
+    pub name: String,
+    pub description: String,
+    pub path: PathBuf,
+    pub scope: ClaudeScope,
+}
+
+/// An instruction/memory file (`CLAUDE.md`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Memory {
+    pub name: String,
+    pub path: PathBuf,
+    pub scope: ClaudeScope,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Capability {
     Skill(Skill),
     SlashCommand(SlashCommand),
     Hook(Hook),
     McpServer(McpServer),
+    Agent(Agent),
+    Memory(Memory),
 }
 
 /// Scan the user scope (`~/.claude`) for everything we know how to find.
@@ -80,7 +99,9 @@ pub fn scan_user(home: &Path) -> CapabilityResult<Vec<Capability>> {
     let mut out = Vec::new();
     scan_skills_dir(&root.join("skills"), ClaudeScope::User, &mut out)?;
     scan_commands_dir(&root.join("commands"), ClaudeScope::User, &mut out)?;
+    scan_agents_dir(&root.join("agents"), ClaudeScope::User, &mut out)?;
     scan_settings_json(&root.join("settings.json"), ClaudeScope::User, &mut out)?;
+    scan_memory(&root.join("CLAUDE.md"), ClaudeScope::User, &mut out)?;
     Ok(out)
 }
 
@@ -91,7 +112,10 @@ pub fn scan_project(repo: &Path) -> CapabilityResult<Vec<Capability>> {
     let mut out = Vec::new();
     scan_skills_dir(&root.join("skills"), scope.clone(), &mut out)?;
     scan_commands_dir(&root.join("commands"), scope.clone(), &mut out)?;
-    scan_settings_json(&root.join("settings.json"), scope, &mut out)?;
+    scan_agents_dir(&root.join("agents"), scope.clone(), &mut out)?;
+    scan_settings_json(&root.join("settings.json"), scope.clone(), &mut out)?;
+    // Project memory lives at the repo root (`<repo>/CLAUDE.md`), not under `.claude`.
+    scan_memory(&repo.join("CLAUDE.md"), scope, &mut out)?;
     Ok(out)
 }
 
@@ -246,6 +270,51 @@ fn scan_commands_dir(
             scope: scope.clone(),
         }));
     }
+    Ok(())
+}
+
+fn scan_agents_dir(
+    dir: &Path,
+    scope: ClaudeScope,
+    out: &mut Vec<Capability>,
+) -> CapabilityResult<()> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path)?;
+        let fm = frontmatter::parse(&raw);
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let name = fm.name().map(str::to_string).unwrap_or(stem);
+        let description = fm.description().unwrap_or("").to_string();
+        out.push(Capability::Agent(Agent {
+            name,
+            description,
+            path,
+            scope: scope.clone(),
+        }));
+    }
+    Ok(())
+}
+
+fn scan_memory(path: &Path, scope: ClaudeScope, out: &mut Vec<Capability>) -> CapabilityResult<()> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    out.push(Capability::Memory(Memory {
+        name: "CLAUDE.md".to_string(),
+        path: path.to_path_buf(),
+        scope,
+    }));
     Ok(())
 }
 
@@ -488,6 +557,28 @@ mod tests {
         let names: Vec<&str> = mcps.iter().map(|m| m.name.as_str()).collect();
         assert!(names.contains(&"ctx7"));
         assert!(names.contains(&"remote"));
+    }
+
+    #[test]
+    fn scan_user_finds_agents_and_memory() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        std::fs::create_dir_all(home.join(".claude/agents")).unwrap();
+        std::fs::write(
+            home.join(".claude/agents/reviewer.md"),
+            "---\nname: reviewer\ndescription: reviews code\n---\nbody",
+        )
+        .unwrap();
+        std::fs::write(home.join(".claude/CLAUDE.md"), "# memory\n").unwrap();
+        let caps = scan_user(home).unwrap();
+        let agent = caps.iter().find_map(|c| match c {
+            Capability::Agent(a) => Some(a),
+            _ => None,
+        });
+        assert_eq!(agent.unwrap().name, "reviewer");
+        assert!(caps
+            .iter()
+            .any(|c| matches!(c, Capability::Memory(m) if m.name == "CLAUDE.md")));
     }
 
     #[test]
