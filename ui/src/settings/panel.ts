@@ -26,6 +26,28 @@ import { CustomSelect } from "../ui/select";
 import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
 import { renderPublicProfileCard } from "../score/profile";
 import { scheduleCloudPush } from "./cloud_push";
+import { INDICATORS } from "../indicators";
+
+function renderIndicatorChecklist(): string {
+  const groups = [...new Set(INDICATORS.map((i) => i.group))];
+  return groups
+    .map(
+      (g) => `
+        <div class="settings-indicator-group">
+          <span class="settings-sublabel">${g}</span>
+          ${INDICATORS.filter((i) => i.group === g)
+            .map(
+              (i) => `
+            <label class="settings-checkbox-row">
+              <input type="checkbox" data-indicator-id="${i.id}" />
+              <span>${i.label}</span>
+            </label>`,
+            )
+            .join("")}
+        </div>`,
+    )
+    .join("");
+}
 
 function clampBudget(n: number): number {
   if (!Number.isFinite(n) || isNaN(n)) return 2000;
@@ -134,6 +156,7 @@ interface Settings {
   window: WindowConfig;
   aom: AomConfig;
   notifications?: NotificationConfig;
+  hidden_indicators: string[];
   /// 3.7 — render the bottom status bar (git + runtime). Default true.
   status_bar_enabled: boolean;
   /// Floating bottom-right notch overlay showing executor phase pills
@@ -302,6 +325,7 @@ export class SettingsPanel {
           email_to: null,
           email_digest_window_minutes: 15,
         },
+        hidden_indicators: [],
         status_bar_enabled: true,
         notch_enabled: true,
         notch_corner: "bottom-right",
@@ -532,6 +556,17 @@ export class SettingsPanel {
               Server-side deduped so a single agent turn never chimes
               twice, even if the agent emits multiple end-of-output
               markers.
+            </small>
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Indicators</span>
+            <div class="settings-indicator-list">
+              ${renderIndicatorChecklist()}
+            </div>
+            <small class="settings-hint">
+              Uncheck an indicator to hide it from the titlebar, status
+              bar, or left toolbar. Hidden indicators stop rendering; the
+              features themselves keep working.
             </small>
           </label>
           <fieldset class="settings-field settings-radio-group">
@@ -1206,6 +1241,9 @@ export class SettingsPanel {
     const statusBarEnabled = form.querySelector<HTMLInputElement>(
       'input[name="status_bar_enabled"]',
     )!;
+    const indicatorChecks = form.querySelectorAll<HTMLInputElement>(
+      "input[data-indicator-id]",
+    );
     const notchEnabled = form.querySelector<HTMLInputElement>(
       'input[name="notch_enabled"]',
     )!;
@@ -1318,6 +1356,11 @@ export class SettingsPanel {
       r.checked = r.value === currentTheme;
     });
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
+    const hidden = new Set(this.current.hidden_indicators ?? []);
+    indicatorChecks.forEach((cb) => {
+      // dataset.indicatorId is safe: we rendered data-indicator-id ourselves above
+      cb.checked = !hidden.has(cb.dataset.indicatorId!);
+    });
     notchEnabled.checked = this.current.notch_enabled ?? true;
     notchCorner.value = this.current.notch_corner ?? "bottom-right";
     notchSoundOnDone.checked = this.current.notch_sound_on_done ?? true;
@@ -1902,6 +1945,9 @@ export class SettingsPanel {
           email_to: notifEmailTo.value.trim() || null,
           email_digest_window_minutes: Math.max(5, Math.min(60, Number(notifEmailDigest.value) || 15)),
         },
+        hidden_indicators: Array.from(indicatorChecks)
+          .filter((cb) => !cb.checked)
+          .map((cb) => cb.dataset.indicatorId!),
         status_bar_enabled: statusBarEnabled.checked,
         notch_enabled: notchEnabled.checked,
         notch_corner: notchCorner.value as Settings["notch_corner"],
