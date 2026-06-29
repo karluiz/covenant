@@ -228,7 +228,7 @@ export class OnboardingPanel {
           label: "Open Settings → Providers",
           run: () => {
             void h.openSettingsProviders();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -243,7 +243,7 @@ export class OnboardingPanel {
           label: "Open super-agent (⌘K)",
           run: () => {
             h.openAgentPanel();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -258,7 +258,7 @@ export class OnboardingPanel {
           label: "Open Blocks rail",
           run: () => {
             h.openBlocksRail();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -273,6 +273,7 @@ export class OnboardingPanel {
           label: "Preview AOM splash",
           run: () => {
             h.previewAomSplash();
+            this.next();
           },
           persist: false,
         },
@@ -287,7 +288,7 @@ export class OnboardingPanel {
           label: "Open Project Notes",
           run: () => {
             h.openProjectNotes();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -302,7 +303,7 @@ export class OnboardingPanel {
           label: "Open Spec-chat (⌘N)",
           run: () => {
             h.openSpecChat();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -317,7 +318,7 @@ export class OnboardingPanel {
           label: "Open spawns picker",
           run: () => {
             h.openSpawnsPicker();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -332,7 +333,7 @@ export class OnboardingPanel {
           label: "Show all shortcuts",
           run: () => {
             h.openShortcuts();
-            void this.finish("abandon");
+            this.next();
           },
           persist: true,
         },
@@ -389,7 +390,9 @@ export class OnboardingPanel {
       </div>
       <footer class="onboarding-footer">
         <div class="onboarding-actions">${secondary}${cta}</div>
-        <span class="onboarding-step">${this.stepIndex + 1} / ${total}</span>
+        <span class="onboarding-step">${
+          this.stepIndex === 0 ? "Welcome" : `${this.stepIndex} / ${total - 1}`
+        }</span>
       </footer>
     `;
 

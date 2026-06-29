@@ -5292,13 +5292,14 @@ body.theme-light .providers-md__pane-glyph { color: #fff; }
 .command-palette-item .cp-current {
   flex: none;
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 999px;
-  color: rgba(var(--ink-rgb), 0.7);
-  background: rgba(var(--ink-rgb), 0.1);
+  color: color-mix(in srgb, var(--accent, #7aa2f7) 60%, white 40%);
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #7aa2f7) 45%, transparent);
 }
 .command-palette-item .cp-sub {
   font-size: 11px;
@@ -15320,7 +15321,7 @@ body.theme-light .release-close:hover .settings-esc {
     line-height: 1;
     cursor: pointer;
     user-select: none;
-    color: color-mix(in srgb, #0b0d10 92%, black 8%);
+    color: #fff;
     background:
         linear-gradient(
             180deg,
@@ -15339,7 +15340,7 @@ body.theme-light .release-close:hover .settings-esc {
         0 1px 1px rgba(0, 0, 0, 0.35),
         0 8px 22px -8px
             color-mix(in srgb, var(--accent, #7aa2f7) 80%, transparent);
-    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.22);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.28);
     transition:
         transform 100ms ease,
         box-shadow 160ms ease,

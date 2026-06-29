@@ -254,12 +254,10 @@ describe("OnboardingPanel", () => {
     expect(panel.isOpen()).toBe(false);
   });
 
-  it("step 2 (Providers) CTA opens Settings → Providers and abandons (no seal)", async () => {
-    // Per-step CTAs use the "abandon" mode: the wizard closes so the
-    // user can interact with the feature they just opened, but
-    // completion is NOT sealed. The wizard will re-auto-show on next
-    // launch (and can be re-opened from Settings → Experimental) so
-    // the user can finish the remaining 8 steps.
+  it("step 2 (Providers) CTA opens Settings → Providers and advances the tour", async () => {
+    // Per-step CTAs open the feature AND advance to the next step, so a
+    // single button keeps the tour moving instead of ending it. Nothing
+    // is sealed mid-tour.
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
@@ -277,10 +275,11 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(h.providers.count).toBe(1);
-    expect(panel.isOpen()).toBe(false);
-    // CRITICAL: "abandon" must NOT write the localStorage guard, or
-    // the next launch will skip the wizard and the user never gets to
-    // see steps 3-10.
+    // Tour keeps going: still open, now showing the next step.
+    expect(panel.isOpen()).toBe(true);
+    expect(document.querySelector(".onboarding-card")!.textContent).toContain(
+      "Meet the super-agent",
+    );
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
@@ -304,7 +303,7 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(h.blocks.count).toBe(1);
-    expect(panel.isOpen()).toBe(false);
+    expect(panel.isOpen()).toBe(true);
   });
 
   it("step 5 (AOM) CTA plays a preview splash without closing the wizard", () => {
@@ -351,7 +350,7 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(h.notes.count).toBe(1);
-    expect(panel.isOpen()).toBe(false);
+    expect(panel.isOpen()).toBe(true);
   });
 
   it("step 7 (Spec-chat) CTA opens spec-chat", async () => {
@@ -374,7 +373,7 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(h.spec.count).toBe(1);
-    expect(panel.isOpen()).toBe(false);
+    expect(panel.isOpen()).toBe(true);
   });
 
   it("step 8 (Spawns) CTA opens the spawns picker", async () => {
@@ -397,10 +396,10 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(h.spawns.count).toBe(1);
-    expect(panel.isOpen()).toBe(false);
+    expect(panel.isOpen()).toBe(true);
   });
 
-  it("step 9 (Keyboard) CTA opens the shortcuts modal and closes the wizard", async () => {
+  it("step 9 (Keyboard) CTA opens the shortcuts modal and advances to the final step", async () => {
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
@@ -421,7 +420,11 @@ describe("OnboardingPanel", () => {
 
     await new Promise((r) => setTimeout(r, 0));
     expect(h.shortcuts.count).toBe(1);
-    expect(panel.isOpen()).toBe(false);
+    // Advances to the final "You're set up" step rather than closing.
+    expect(panel.isOpen()).toBe(true);
+    expect(document.querySelector(".onboarding-card")!.textContent).toContain(
+      "You're set up",
+    );
   });
 
   it("step 10 (Done) seals completion and closes the wizard", async () => {
@@ -497,17 +500,17 @@ describe("OnboardingPanel", () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  it("footer step counter shows N / 10 for every step", () => {
+  it("footer counter matches the 9-step eyebrow scheme", () => {
     const h = makeHandlers();
     const panel = new OnboardingPanel(document.body, h);
     panel.open();
     const card = document.querySelector(".onboarding-card")!;
-    expect(card.querySelector(".onboarding-step")?.textContent).toBe("1 / 10");
+    expect(card.querySelector(".onboarding-step")?.textContent).toBe("Welcome");
 
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
     );
-    expect(card.querySelector(".onboarding-step")?.textContent).toBe("2 / 10");
+    expect(card.querySelector(".onboarding-step")?.textContent).toBe("1 / 9");
   });
 
   it("eyebrow reflects the current step context", () => {
