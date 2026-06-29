@@ -104,6 +104,68 @@ const dotenv: StreamParser<DotenvState> = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// HCL / Terraform grammar
+// ---------------------------------------------------------------------------
+//
+// No upstream CodeMirror grammar ships for HCL (`.tf`, `.tfvars`, `.hcl`),
+// and none of the legacy modes is close enough. HCL is small enough to
+// tokenize directly: `#`//`//` line comments, `/* */` block comments,
+// double-quoted strings, numbers, the block/expression keywords, and bare
+// identifiers (block types, attribute keys, references).
+//
+// ponytail: stream tokenizer, not a real parser — no string interpolation
+// (`${...}`) or heredoc (`<<EOT`) awareness. Swap in `codemirror-lang-hcl`
+// if those need proper highlighting.
+
+const HCL_KEYWORDS = new Set([
+  "resource", "variable", "provider", "module", "data", "output", "locals",
+  "terraform", "for", "in", "if", "else", "endfor", "endif", "dynamic",
+]);
+const HCL_ATOMS = new Set(["true", "false", "null"]);
+
+interface HclState {
+  inComment: boolean;
+}
+
+const hcl: StreamParser<HclState> = {
+  name: "hcl",
+  startState: () => ({ inComment: false }),
+  token(stream, state) {
+    if (state.inComment) {
+      if (stream.match(/^.*?\*\//)) state.inComment = false;
+      else stream.skipToEnd();
+      return "comment";
+    }
+    if (stream.eatSpace()) return null;
+
+    if (stream.match("/*")) {
+      if (!stream.match(/^.*?\*\//)) {
+        state.inComment = true;
+        stream.skipToEnd();
+      }
+      return "comment";
+    }
+    if (stream.match("//") || stream.match("#")) {
+      stream.skipToEnd();
+      return "comment";
+    }
+    if (stream.match(/^"(?:[^"\\]|\\.)*"?/)) return "string";
+    if (stream.match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)) return "number";
+    if (stream.match(/^[A-Za-z_][\w-]*/)) {
+      const w = stream.current();
+      if (HCL_KEYWORDS.has(w)) return "keyword";
+      if (HCL_ATOMS.has(w)) return "atom";
+      return "variableName";
+    }
+    if (stream.match(/^[{}[\]()]/)) return "bracket";
+    if (stream.match(/^[=:,.?&|<>+*/%!-]+/)) return "operator";
+    stream.next();
+    return null;
+  },
+  languageData: { commentTokens: { line: "#" } },
+};
+
 /// Match dotenv files by basename: `.env`, `.env.<stage>` (e.g.
 /// `.env.local`, `.env.production`), and `*.env`. Excludes lookalikes
 /// such as `.environment`.
@@ -245,6 +307,9 @@ const BY_EXT: Record<string, () => Extension> = {
   toml: () => StreamLanguage.define(tomlMode),
   cs: () => StreamLanguage.define(csharpMode),
   csx: () => StreamLanguage.define(csharpMode),
+  tf: () => StreamLanguage.define(hcl),
+  tfvars: () => StreamLanguage.define(hcl),
+  hcl: () => StreamLanguage.define(hcl),
 };
 
 /// Filename fallback — exact (case-sensitive) match against the

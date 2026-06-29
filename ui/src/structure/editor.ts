@@ -33,6 +33,7 @@ import {
   indentWithTab,
   toggleComment,
   toggleBlockComment,
+  selectAll,
 } from "@codemirror/commands";
 import {
   bracketMatching,
@@ -45,6 +46,8 @@ import {
   search,
   searchKeymap,
   highlightSelectionMatches,
+  openSearchPanel,
+  selectSelectionMatches,
 } from "@codemirror/search";
 import {
   autocompletion,
@@ -82,6 +85,7 @@ import {
 } from "./png-export";
 import { editorHighlight, editorTheme, currentEditorMode } from "./theme";
 import { CustomSelect } from "../ui/select";
+import { ContextMenu } from "../menu/context-menu";
 
 export interface EditorCallbacks {
   onSave?: (path: string) => void;
@@ -165,6 +169,10 @@ export class StructureEditor {
   /// rarely useful for the kind of files this editor handles.
   private view: EditorView | null = null;
   private readonly languageCompartment = new Compartment();
+
+  /// Right-click editing menu (Cut/Copy/Paste, Select All, etc.).
+  /// Reuses the shared floating ContextMenu used by tabs/blocks.
+  private readonly contextMenu = new ContextMenu(document.body);
 
   /// Preview state. `previewKind` is null when the open file has no
   /// preview available (the toggle hides). `currentPreview` holds the
@@ -297,6 +305,9 @@ export class StructureEditor {
     // placeholder can sit alongside without colliding with CM6's layout.
     this.editorHostEl = document.createElement("div");
     this.editorHostEl.className = "structure-editor-cm";
+    this.editorHostEl.addEventListener("contextmenu", (e) =>
+      this.showContextMenu(e),
+    );
     this.bodyEl.appendChild(this.editorHostEl);
 
     // Preview host — sibling to the CM6 host. Each view-mode shows
@@ -640,6 +651,84 @@ export class StructureEditor {
   private handleSave(): boolean {
     void this.save();
     return true;
+  }
+
+  /// Right-click menu over the CM6 editor. Source mode only — in
+  /// preview mode the browser default applies. Items map straight to
+  /// CM6 commands / the clipboard; nothing here needs app-level wiring.
+  private showContextMenu(e: MouseEvent): void {
+    const view = this.view;
+    if (this.viewMode !== "source" || !view) return;
+    e.preventDefault();
+
+    const sel = view.state.selection.main;
+    const hasSelection = !sel.empty;
+    const run = (cmd: (v: EditorView) => boolean) => {
+      view.focus();
+      cmd(view);
+    };
+
+    this.contextMenu.show(e.clientX, e.clientY, [
+      {
+        label: "Cut",
+        shortcut: "⌘X",
+        disabled: !hasSelection,
+        onClick: () => void this.clipboardCut(),
+      },
+      {
+        label: "Copy",
+        shortcut: "⌘C",
+        disabled: !hasSelection,
+        onClick: () => void this.clipboardCopy(),
+      },
+      { label: "Paste", shortcut: "⌘V", onClick: () => void this.clipboardPaste() },
+      { divider: true },
+      { label: "Select All", shortcut: "⌘A", onClick: () => run(selectAll) },
+      {
+        label: "Change All Occurrences",
+        shortcut: "⌘F2",
+        disabled: !hasSelection,
+        onClick: () => run(selectSelectionMatches),
+      },
+      { divider: true },
+      { label: "Find…", shortcut: "⌘F", onClick: () => run(openSearchPanel) },
+    ]);
+  }
+
+  private selectedText(): string {
+    const view = this.view;
+    if (!view) return "";
+    const { from, to } = view.state.selection.main;
+    return view.state.sliceDoc(from, to);
+  }
+
+  private async clipboardCopy(): Promise<void> {
+    const text = this.selectedText();
+    if (text) await navigator.clipboard.writeText(text).catch(() => {});
+  }
+
+  private async clipboardCut(): Promise<void> {
+    const view = this.view;
+    if (!view) return;
+    await this.clipboardCopy();
+    const { from, to } = view.state.selection.main;
+    if (from !== to) {
+      view.dispatch({ changes: { from, to, insert: "" } });
+    }
+    view.focus();
+  }
+
+  private async clipboardPaste(): Promise<void> {
+    const view = this.view;
+    if (!view) return;
+    const text = await navigator.clipboard.readText().catch(() => "");
+    if (!text) return;
+    const { from, to } = view.state.selection.main;
+    view.dispatch({
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length },
+    });
+    view.focus();
   }
 
   isVisible(): boolean {
@@ -1068,6 +1157,7 @@ export class StructureEditor {
     this.pngBtn.hidden = true;
     this.pngScaleSelect.element.hidden = true;
     if (this.findOpen) this.closeFind();
+    this.contextMenu.dismiss();
     this.callbacks.onClose?.();
   }
 

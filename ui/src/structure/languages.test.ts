@@ -30,6 +30,23 @@ describe("isDotenvPath", () => {
   });
 });
 
+describe("languageForPath grammars", () => {
+  it("resolves YAML for .yml/.yaml (covers Ansible playbooks)", () => {
+    expect(languageForPath("playbook.yml")).not.toBeNull();
+    expect(languageForPath("site.yaml")).not.toBeNull();
+  });
+
+  it("resolves HCL for Terraform files", () => {
+    expect(languageForPath("main.tf")).not.toBeNull();
+    expect(languageForPath("prod.tfvars")).not.toBeNull();
+    expect(languageForPath("config.hcl")).not.toBeNull();
+  });
+
+  it("returns null for unknown extensions", () => {
+    expect(languageForPath("x.unknownext")).toBeNull();
+  });
+});
+
 describe("sqlDialectFor", () => {
   it("returns PostgreSQL for .psql extension regardless of content", () => {
     expect(sqlDialectFor("/x/foo.psql", "SELECT 1;").name).toBe("PostgreSQL");
