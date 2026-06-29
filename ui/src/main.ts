@@ -1380,6 +1380,10 @@ async function boot(): Promise<void> {
       args = { groupId: g.id, groupLabel: g.name, groupColor: g.color ?? null };
     }
     if (activeCdlcPanel) activeCdlcPanel.close();
+    // Reflow the terminal to the panel's left edge (don't overlay it) —
+    // CDLC is position:fixed like Project Notes, so it needs the same
+    // body-class reflow. See body.cdlc-open rules in cdlc/styles.css.
+    document.body.classList.add("cdlc-open");
     activeCdlcPanel = new CdlcPanel({
       groupId: args.groupId,
       groupLabel: args.groupLabel,
@@ -1387,6 +1391,7 @@ async function boot(): Promise<void> {
       groupRootDir: manager.groupRootDirFor(args.groupId),
       onClose: () => {
         activeCdlcPanel = null;
+        document.body.classList.remove("cdlc-open");
         rail.handleExternalClose("cdlc");
       },
       onNewContext: () => {

@@ -22,6 +22,45 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
+/** One labelled cell of the inference stat strip. `hero` tints the value with
+ *  the group accent — the loop's standout number. */
+function statCell(value: string, label: string, hero = false): HTMLElement {
+  const cell = document.createElement("div");
+  cell.className = hero ? "cdlc-stat is-hero" : "cdlc-stat";
+  const v = document.createElement("span");
+  v.className = "cdlc-stat-val";
+  v.textContent = value;
+  const l = document.createElement("span");
+  l.className = "cdlc-stat-lbl";
+  l.textContent = label;
+  cell.append(v, l);
+  return cell;
+}
+
+/** A labelled progress meter: name + value on top, a thin accent bar below.
+ *  Used for adoption (installs, scaled to the busiest skill) and eval pass-rate. */
+function meterRow(name: string, value: string, pct: number, ok = false): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "cdlc-meter";
+  const top = document.createElement("div");
+  top.className = "cdlc-meter-top";
+  const n = document.createElement("span");
+  n.className = "cdlc-name";
+  n.textContent = name;
+  const v = document.createElement("span");
+  v.className = "cdlc-meta";
+  v.textContent = value;
+  top.append(n, v);
+  const track = document.createElement("div");
+  track.className = "cdlc-bar";
+  const fill = document.createElement("div");
+  fill.className = ok ? "cdlc-bar-fill is-ok" : "cdlc-bar-fill";
+  fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  track.appendChild(fill);
+  row.append(top, track);
+  return row;
+}
+
 /** Drop a leading YAML frontmatter block (--- … ---) so it doesn't render as
  *  a paragraph. The skill name already lives in the reader header. */
 function stripFrontmatter(md: string): string {
@@ -105,6 +144,9 @@ export class CdlcPanel {
     const head = document.createElement("div");
     head.className = "cdlc-head";
     if (opts.groupColor) head.style.setProperty("--cdlc-accent", opts.groupColor);
+    const mark = document.createElement("span");
+    mark.className = "cdlc-mark";
+    head.appendChild(mark);
     const title = document.createElement("span");
     title.className = "cdlc-title";
     title.textContent = `CDLC — ${opts.groupLabel}`;
@@ -152,6 +194,14 @@ export class CdlcPanel {
     if (!cwd) {
       this.body.textContent = "This group has no project folder.";
       return;
+    }
+    // Loading notice — same treatment as Beacon, shown only on first fetch
+    // (empty body) so background refreshes don't blank existing content.
+    if (this.body.childElementCount === 0) {
+      const loading = document.createElement("div");
+      loading.className = "rail-notice is-loading";
+      loading.textContent = "Loading…";
+      this.body.replaceChildren(loading);
     }
     try {
       const [status, orgs, score, evalSummary] = await Promise.all([
@@ -278,29 +328,27 @@ export class CdlcPanel {
     const registrySkills = s.installed.filter((i) => i.source.startsWith("registry:"));
     if (registrySkills.length > 0) {
       loop.appendChild(loopSubhead("Adoption"));
+      const maxInstalls = Math.max(1, ...registrySkills.map((i) => this.adoption.get(i.name) ?? 0));
       for (const i of registrySkills) {
-        const row = document.createElement("div");
-        row.className = "cdlc-loop-row";
-        const name = document.createElement("span");
-        name.className = "cdlc-name";
-        name.textContent = i.name;
-        const val = document.createElement("span");
-        val.className = "cdlc-meta";
         const n = this.adoption.get(i.name);
-        val.textContent = n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`;
-        row.append(name, val);
-        loop.appendChild(row);
+        const value = n === undefined ? "—" : `${n} ${n === 1 ? "install" : "installs"}`;
+        loop.appendChild(meterRow(i.name, value, ((n ?? 0) / maxInstalls) * 100));
       }
     }
 
     // Inference — this group's footprint from the four Covenant primitives.
     if (this.score) {
       loop.appendChild(loopSubhead("Inference · this group"));
-      const m = document.createElement("p");
-      m.className = "cdlc-loop-metric";
       const sc = this.score;
-      m.textContent = `${sc.total_specs} specs · ${sc.total_prompts} prompts · ${sc.total_commits} commits · ${fmtTokens(sc.total_tokens)} tokens`;
-      loop.appendChild(m);
+      const stats = document.createElement("div");
+      stats.className = "cdlc-stats";
+      stats.append(
+        statCell(fmtTokens(sc.total_tokens), "tokens", true),
+        statCell(sc.total_prompts.toLocaleString(), "prompts"),
+        statCell(String(sc.total_specs), "specs"),
+        statCell(String(sc.total_commits), "commits"),
+      );
+      loop.appendChild(stats);
     }
 
     // Eval — context-TDD pass-rate from the local runner.
@@ -309,17 +357,8 @@ export class CdlcPanel {
       loop.appendChild(loopSubhead("Eval pass-rate"));
       for (const i of skillsWithEvals) {
         const r = this.evalRates.get(i.name)!;
-        const row = document.createElement("div");
-        row.className = "cdlc-loop-row";
-        const name = document.createElement("span");
-        name.className = "cdlc-name";
-        name.textContent = i.name;
-        const val = document.createElement("span");
-        val.className = "cdlc-meta";
         const pct = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
-        val.textContent = `${r.passed}/${r.total} · ${pct}%`;
-        row.append(name, val);
-        loop.appendChild(row);
+        loop.appendChild(meterRow(i.name, `${r.passed}/${r.total} · ${pct}%`, pct, true));
       }
     } else {
       const evalNote = document.createElement("p");
