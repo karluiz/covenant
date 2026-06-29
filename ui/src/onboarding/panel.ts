@@ -17,7 +17,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { getSettings, type Settings } from "../api";
 import { Icons } from "../icons";
 import { detectOllama, adoptOllama } from "./ollama";
-import { adoptFreeKey, GEMINI_KEY_URL } from "./freekey";
+import { adoptFreeKey, GEMINI_KEY_URL, START_GUIDE_URL } from "./freekey";
 
 /// Bump this whenever the card's content changes meaningfully. Existing
 /// users with a lower stamped `onboarding_version` see it again once.
@@ -260,7 +260,7 @@ export class OnboardingPanel {
 
     host.innerHTML = `
       <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Get a model running</span></div>
-      <p class="onboarding-provider__copy">Covenant needs a model to act. Pick a zero-setup option — or add your own key in Settings → Providers.</p>
+      <p class="onboarding-provider__copy">Covenant needs a model to act. Pick a zero-setup option — or add your own key in Settings → Providers. <a href="#" class="onboarding-provider__help" data-act="guide">How this works →</a></p>
       <div class="onboarding-provider__actions">
         ${ollamaRow}
         <button type="button" class="onboarding-secondary onboarding-provider__use" data-act="freekey"><span>Use a free cloud key</span></button>
@@ -278,6 +278,12 @@ export class OnboardingPanel {
     host
       .querySelector<HTMLButtonElement>('[data-act="freekey"]')
       ?.addEventListener("click", () => this.renderFreeKeyForm(host));
+    host
+      .querySelector<HTMLAnchorElement>('[data-act="guide"]')
+      ?.addEventListener("click", (e) => {
+        e.preventDefault();
+        void openUrl(START_GUIDE_URL);
+      });
   }
 
   /// Swap the banner for a tiny paste-a-free-key form. Gemini's free tier

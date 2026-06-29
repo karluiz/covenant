@@ -17,6 +17,8 @@ import { repointAllRoles } from "./ollama";
 export const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 /// Where the user grabs a free key (no credit card).
 export const GEMINI_KEY_URL = "https://aistudio.google.com/apikey";
+/// The forge how-to that walks through both zero-cost paths.
+export const START_GUIDE_URL = "https://forge.covenant.uno/start";
 const GEMINI_MODEL = "gemini-2.0-flash";
 const GEMINI_PROVIDER_ID = "gemini";
 

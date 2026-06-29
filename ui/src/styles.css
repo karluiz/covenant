@@ -15402,6 +15402,16 @@ body.theme-light .release-close:hover .settings-esc {
     color: var(--muted);
 }
 
+.onboarding-provider__help {
+    color: color-mix(in srgb, var(--accent, #6ea8fe) 85%, var(--text-primary));
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.onboarding-provider__help:hover {
+    text-decoration: underline;
+}
+
 .onboarding-provider__actions {
     display: flex;
     flex-wrap: wrap;
