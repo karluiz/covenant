@@ -573,6 +573,51 @@ fn default_anthropic_entry(api_key: Option<String>) -> ProviderEntry {
     }
 }
 
+/// Provider id for the hosted first-run trial.
+pub const TRIAL_PROVIDER_ID: &str = "covenant-trial";
+/// Model the trial sends. The trial backend forces its own model, so
+/// this is mostly cosmetic — kept honest about what actually runs.
+pub const TRIAL_MODEL: &str = "claude-haiku-4-5-20251001";
+
+/// Adopt the hosted Covenant trial as the provider for every role. The
+/// JWT is stored as the provider api_key — the desktop Anthropic client
+/// sends it as `x-api-key` and the trial backend validates it.
+///
+/// ponytail: the JWT has a 30-day TTL. When it lapses, trial calls 401
+/// and the user re-runs adoption to refresh it. Inject the live keychain
+/// JWT at call time instead if that round-trip ever chafes.
+pub fn build_trial_settings(mut s: Settings, backend_url: &str, jwt: &str) -> Settings {
+    let base = format!("{}/trial", backend_url.trim_end_matches('/'));
+    s.providers.insert(
+        TRIAL_PROVIDER_ID.to_string(),
+        ProviderEntry {
+            kind: ProviderKind::Anthropic,
+            label: "Covenant Trial".into(),
+            api_key: Some(jwt.to_string()),
+            base_url: Some(base),
+            azure_mode: None,
+            azure_api_version: None,
+            azure_deployment: None,
+        },
+    );
+    for role in [
+        Role::Summary,
+        Role::Chat,
+        Role::Operator,
+        Role::Triage,
+        Role::SpecCreator,
+    ] {
+        s.model_routes.insert(
+            role,
+            RouteEntry {
+                provider_id: TRIAL_PROVIDER_ID.to_string(),
+                model: TRIAL_MODEL.to_string(),
+            },
+        );
+    }
+    s
+}
+
 fn migrate_legacy(mut s: Settings) -> Settings {
     if !s.providers.contains_key("anthropic") {
         s.providers.insert(
@@ -1001,6 +1046,21 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trial_adoption_wires_provider_and_all_routes() {
+        let s = build_trial_settings(Settings::default(), "https://forge.covenant.uno/", "jwt.abc");
+        let p = s.providers.get(TRIAL_PROVIDER_ID).expect("trial provider");
+        assert!(matches!(p.kind, ProviderKind::Anthropic));
+        assert_eq!(p.api_key.as_deref(), Some("jwt.abc"));
+        // Trailing slash trimmed; /trial appended (no double slash).
+        assert_eq!(p.base_url.as_deref(), Some("https://forge.covenant.uno/trial"));
+        for role in [Role::Summary, Role::Chat, Role::Operator, Role::Triage, Role::SpecCreator] {
+            let r = s.model_routes.get(&role).expect("route");
+            assert_eq!(r.provider_id, TRIAL_PROVIDER_ID);
+            assert_eq!(r.model, TRIAL_MODEL);
+        }
+    }
 
     #[test]
     fn experimental_split_panes_defaults_false() {

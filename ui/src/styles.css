@@ -15389,6 +15389,13 @@ body.theme-light .release-close:hover .settings-esc {
     color: var(--muted);
 }
 
+.onboarding-provider__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
 .onboarding-provider__use {
     align-self: flex-start;
 }

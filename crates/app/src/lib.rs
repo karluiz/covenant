@@ -2518,6 +2518,25 @@ async fn set_settings(
     Ok(())
 }
 
+/// Adopt the hosted Covenant trial as the provider for every role, so a
+/// fresh install can exercise the agent before bringing its own key.
+/// Reads the Covenant JWT from the keychain (must be signed in), wires
+/// it into Settings, and persists. The JWT never touches the webview.
+#[tauri::command]
+async fn adopt_trial_provider(state: State<'_, AppState>) -> Result<(), String> {
+    let jwt = tokio::task::spawn_blocking(karl_score::auth::load_jwt)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Sign in to Covenant first".to_string())?;
+    let current = state.settings.lock().await.clone();
+    let next =
+        settings::build_trial_settings(current, &karl_score::auth::backend_url(), &jwt);
+    settings::save(&state.settings_path, &next).map_err(|e| e.to_string())?;
+    *state.settings.lock().await = next;
+    Ok(())
+}
+
 const SYSTEM_PROMPT: &str = "\
 You are the super-agent for Covenant, a macOS terminal that coordinates \
 between the user and executor agents (Claude Code, Copilot CLI, opencode, \
@@ -4469,6 +4488,7 @@ pub fn run() {
             score_auth_commands::score_signin_start,
             score_auth_commands::score_signin_poll,
             score_auth_commands::score_current_user,
+            adopt_trial_provider,
             score_auth_commands::score_signout,
             score_auth_commands::score_token_scope,
             score_sync_commands::score_sync_now,

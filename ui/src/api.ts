@@ -2121,6 +2121,14 @@ export async function testAnthropicKey(apiKey: string): Promise<AnthropicProbeRe
   return invoke<AnthropicProbeResult>("test_anthropic_key", { apiKey });
 }
 
+/// Adopt the hosted Covenant trial as the provider for every role. Reads
+/// the Covenant JWT from the keychain in Rust (must be signed in) and
+/// wires it into Settings — the JWT never reaches the webview. Rejects
+/// with "Sign in to Covenant first" when signed out.
+export async function adoptTrialProvider(): Promise<void> {
+  return invoke<void>("adopt_trial_provider");
+}
+
 // ---------------------------------------------------------------------------
 // Pi RPC executor — see crates/agent/src/pi_rpc/* and crates/app/src/pi_commands.rs
 //

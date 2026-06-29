@@ -13,9 +13,10 @@
 // (`onboarding_completed`, `onboarding_version`). A bump of
 // `ONBOARDING_VERSION` re-shows the card for existing users.
 
-import { getSettings, type Settings } from "../api";
+import { getSettings, adoptTrialProvider, type Settings } from "../api";
 import { Icons } from "../icons";
 import { detectOllama, adoptOllama } from "./ollama";
+import { runDeviceFlow } from "../score/signin";
 
 /// Bump this whenever the card's content changes meaningfully. Existing
 /// users with a lower stamped `onboarding_version` see it again once.
@@ -222,15 +223,16 @@ export class OnboardingPanel {
       .querySelector<HTMLButtonElement>(".onboarding-skip")
       ?.addEventListener("click", () => void this.finish("skip"));
 
-    void this.offerOllamaIfDetected();
+    void this.offerProviderBootstrap();
   }
 
   /// Fresh installs have no LLM credentials, so nothing agentic works.
-  /// If the user already runs Ollama locally, surface a one-click
-  /// adoption banner so the super-agent works out of the box. Skipped
-  /// silently when a provider is already configured (a version-bump
-  /// re-show for an existing user) or when Ollama isn't running.
-  private async offerOllamaIfDetected(): Promise<void> {
+  /// Offer the two zero-setup paths: adopt a locally-running Ollama (if
+  /// one is detected — free, local, no sign-in), and a hosted Covenant
+  /// trial (a few free calls against a real frontier model). Skipped
+  /// silently when a provider is already configured — i.e. a version
+  /// bump re-showing the card for an existing user.
+  private async offerProviderBootstrap(): Promise<void> {
     let settings: Settings;
     try {
       settings = await getSettings();
@@ -240,34 +242,56 @@ export class OnboardingPanel {
     if (hasConfiguredProvider(settings)) return;
 
     const models = await detectOllama();
-    if (!models || !this.modal) return;
-
-    // ponytail: adopt the first model; users with several pick another
-    // in Settings → Providers. Add a model picker here if that chafes.
-    const model = models[0];
+    if (!this.modal) return;
     const host = this.modal.querySelector<HTMLElement>(".onboarding-provider");
     if (!host) return;
 
-    const extra = models.length > 1 ? ` <span class="onboarding-provider__more">+${models.length - 1} more</span>` : "";
+    // ponytail: adopt the first Ollama model; users with several pick
+    // another in Settings → Providers. Add a model picker if it chafes.
+    const ollama = models?.[0];
+    const ollamaExtra =
+      models && models.length > 1
+        ? ` <span class="onboarding-provider__more">+${models.length - 1} more</span>`
+        : "";
+    const ollamaRow = ollama
+      ? `<button type="button" class="onboarding-primary onboarding-provider__use" data-act="ollama"><span>Use Ollama · ${esc(ollama)}</span></button>${ollamaExtra}`
+      : "";
+
     host.innerHTML = `
-      <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Ollama detected locally</span></div>
-      <p class="onboarding-provider__copy">Use <code>${esc(model)}</code> for the agent — no API key needed.${extra}</p>
-      <button type="button" class="onboarding-primary onboarding-provider__use"><span>Use Ollama</span></button>
+      <div class="onboarding-provider__title">${Icons.check({ size: 13 })}<span>Get a model running</span></div>
+      <p class="onboarding-provider__copy">Covenant needs a model to act. Pick a zero-setup option — or add your own key in Settings → Providers.</p>
+      <div class="onboarding-provider__actions">
+        ${ollamaRow}
+        <button type="button" class="onboarding-secondary onboarding-provider__use" data-act="trial"><span>Try Covenant free</span></button>
+      </div>
     `;
     host.hidden = false;
 
+    if (ollama) {
+      host
+        .querySelector<HTMLButtonElement>('[data-act="ollama"]')
+        ?.addEventListener("click", (e) =>
+          this.runAdopt(e.currentTarget as HTMLButtonElement, () => adoptOllama(ollama)),
+        );
+    }
     host
-      .querySelector<HTMLButtonElement>(".onboarding-provider__use")
-      ?.addEventListener("click", (e) => {
-        const btn = e.currentTarget as HTMLButtonElement;
-        btn.disabled = true;
-        btn.querySelector("span")!.textContent = "Setting up…";
-        void adoptOllama(model)
-          .then(() => this.finish("complete"))
-          .catch(() => {
-            btn.disabled = false;
-            btn.querySelector("span")!.textContent = "Retry";
-          });
+      .querySelector<HTMLButtonElement>('[data-act="trial"]')
+      ?.addEventListener("click", (e) =>
+        this.runAdopt(e.currentTarget as HTMLButtonElement, () => adoptTrial()),
+      );
+  }
+
+  /// Shared button-state machine for a provider-adoption action: disable,
+  /// show progress, finish the card on success, offer retry on failure.
+  private runAdopt(btn: HTMLButtonElement, adopt: () => Promise<void>): void {
+    const label = btn.querySelector("span")!;
+    btn.disabled = true;
+    label.textContent = "Setting up…";
+    void adopt()
+      .then(() => this.finish("complete"))
+      .catch(() => {
+        btn.disabled = false;
+        label.textContent = "Retry";
       });
   }
 
@@ -284,6 +308,19 @@ export class OnboardingPanel {
       this.modal = null;
     }
     if (mode !== "abandon") await persistOnboardingCompleted();
+  }
+}
+
+/// Adopt the hosted trial. Requires a Covenant sign-in (the JWT meters
+/// usage), so on the first failure — the user almost certainly isn't
+/// signed in yet — run the GitHub device flow and retry once.
+async function adoptTrial(): Promise<void> {
+  try {
+    await adoptTrialProvider();
+  } catch {
+    const user = await runDeviceFlow();
+    if (!user) throw new Error("sign-in cancelled");
+    await adoptTrialProvider();
   }
 }
 
