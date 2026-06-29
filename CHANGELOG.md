@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.110 — Terraform highlighting + editor right-click menu
+
+### Added
+
+- **Terraform/HCL syntax highlighting**: a compact hand-rolled HCL
+  `StreamLanguage` (no new dependency, same pattern as the existing dotenv
+  grammar) now highlights `.tf`, `.tfvars`, and `.hcl` files — comments,
+  strings, numbers, block/expression keywords, and references. YAML/YML
+  already covered Ansible playbooks. Touches `ui/src/structure/languages.ts`
+  and `languages.test.ts`.
+
+- **Editor right-click context menu**: the in-app CodeMirror editor now has a
+  right-click menu (Cut/Copy/Paste, Select All, Change All Occurrences, Find…)
+  backed by CM6 commands and the clipboard, reusing the shared `ContextMenu`.
+  Source mode only. Touches `ui/src/structure/editor.ts`.
+
+- **Beacon reconnect action**: the Beacon rail's error/disconnected state now
+  surfaces a reconnect button that opens the Covenant settings panel, plus
+  restyled rail empty/error states. Touches `ui/src/beacon/panel.ts`,
+  `ui/src/main.ts`, and `ui/src/styles.css`.
+
 ## v0.8.109 — Onboarding tour advances per-step instead of abandoning
 
 ### Changed
