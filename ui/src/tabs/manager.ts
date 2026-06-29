@@ -1318,6 +1318,14 @@ export class TabManager {
   /// the panel — keeps the menu from growing taller than the viewport.
   private static readonly PANE_MENU_SECTION_CAP = 8;
 
+  /// Curated skills surfaced in the pane menu. Clicking types `/<name>` + Enter
+  /// into the pane (only useful when an agent like `claude` is running there).
+  private static readonly PANE_MENU_SKILLS: ReadonlyArray<{ title: string; body: string }> = [
+    { title: "respawn", body: "/respawn" },
+    { title: "code-review", body: "/code-review" },
+    { title: "verify", body: "/verify" },
+  ];
+
   private async showPaneContextMenu(
     x: number,
     y: number,
@@ -1461,6 +1469,14 @@ export class TabManager {
             void sendPromptToSession(sessionId, p.body);
           }),
         );
+      }
+      // Skills: same send+submit path as Prompts, just a curated slash-command
+      // list. ponytail: hardcoded — the app has no skill registry, and a skill
+      // from a pane is just `/<name>` + Enter. Promote to a data source if this
+      // list needs to be user-editable.
+      addSection("Skills");
+      for (const s of TabManager.PANE_MENU_SKILLS) {
+        addItem(s.title, () => void sendPromptToSession(sessionId, s.body));
       }
     }
 
