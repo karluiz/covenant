@@ -41,6 +41,27 @@ export function latencyBand(ms: number): "ok" | "warn" | "bad" {
   return "bad";
 }
 
+/// Compact token count: 14370 → "14.4k", 980 → "980".
+export function formatTokensShort(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+/// Context-fill % → color band. Executors auto-compact near ~95%, so
+/// amber warns from 80% and red from 92%.
+export function contextBand(pct: number): "ok" | "warn" | "bad" {
+  if (pct >= 92) return "bad";
+  if (pct >= 80) return "warn";
+  return "ok";
+}
+
+/// Pill text for the context chip. `%` when the window is known, else the
+/// absolute occupancy (pi/opencode on providers we can't size).
+export function formatContext(tokens: number, pct: number | null): string {
+  if (pct !== null) return `ctx ${pct}%`;
+  return `ctx ${formatTokensShort(tokens)}`;
+}
+
 function renderSparkPath(spark: number[]): string {
   const max = Math.max(1, ...spark);
   const step = (SPARK_W - SPARK_PAD * 2) / (spark.length - 1);
@@ -59,6 +80,7 @@ export class VitalsCluster {
   private spark: SVGPolylineElement;
   private rateText: HTMLElement;
   private cachePill: HTMLElement;
+  private ctxPill: HTMLElement;
   private modelPill: HTMLElement;
   private sep: HTMLElement;
   private latDot: HTMLElement;
@@ -122,6 +144,18 @@ export class VitalsCluster {
     );
     el.appendChild(cache);
 
+    // Context-window fill pill.
+    const ctx = document.createElement("span");
+    ctx.className = "sb-vitals-pill sb-vitals-pill--ctx";
+    attachTooltip(
+      ctx,
+      "Context-window fill of the most recent call — prompt tokens " +
+        "(input + cache) vs the model's window. Shows absolute tokens when " +
+        "the provider's window isn't known. Amber ≥80%, red ≥92% " +
+        "(executors auto-compact near 95%).",
+    );
+    el.appendChild(ctx);
+
     // Model pill.
     const model = document.createElement("span");
     model.className = "sb-vitals-pill sb-vitals-pill--model";
@@ -155,6 +189,7 @@ export class VitalsCluster {
     this.spark = poly;
     this.rateText = rate;
     this.cachePill = cache;
+    this.ctxPill = ctx;
     this.modelPill = model;
     this.sep = sep;
     this.latDot = dot;
@@ -196,6 +231,21 @@ export class VitalsCluster {
     } else {
       this.cachePill.classList.remove("is-hidden");
       this.cachePill.textContent = `cache ${v.cache_hit_pct}%`;
+    }
+
+    // Context pill. Hidden until we've seen a call (context_tokens > 0).
+    if (v.context_tokens <= 0) {
+      this.ctxPill.classList.add("is-hidden");
+    } else {
+      this.ctxPill.classList.remove("is-hidden");
+      this.ctxPill.textContent = formatContext(v.context_tokens, v.context_pct);
+      const band = v.context_pct !== null ? contextBand(v.context_pct) : "ok";
+      this.ctxPill.classList.remove(
+        "sb-vitals-pill--ctx-ok",
+        "sb-vitals-pill--ctx-warn",
+        "sb-vitals-pill--ctx-bad",
+      );
+      this.ctxPill.classList.add(`sb-vitals-pill--ctx-${band}`);
     }
 
     // Model pill (omit when null). During a session's first in-flight

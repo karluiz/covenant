@@ -5,6 +5,9 @@ import {
   prettifyModel,
   formatTokPerMin,
   latencyBand,
+  formatTokensShort,
+  contextBand,
+  formatContext,
 } from "./vitals";
 import type { Vitals } from "../api";
 
@@ -18,6 +21,8 @@ function fixture(overrides: Partial<Vitals> = {}): Vitals {
     in_flight: null,
     idle_secs: 0,
     is_idle: false,
+    context_tokens: 0,
+    context_pct: null,
     ...overrides,
   };
 }
@@ -45,6 +50,42 @@ describe("latencyBand", () => {
     expect(latencyBand(50)).toBe("ok");
     expect(latencyBand(300)).toBe("warn");
     expect(latencyBand(800)).toBe("bad");
+  });
+});
+
+describe("context pill", () => {
+  it("formats % when window known, absolute when not", () => {
+    expect(formatContext(50_000, 25)).toBe("ctx 25%");
+    expect(formatContext(14_370, null)).toBe("ctx 14.4k");
+    expect(formatContext(980, null)).toBe("ctx 980");
+  });
+  it("formatTokensShort compacts thousands", () => {
+    expect(formatTokensShort(14_370)).toBe("14.4k");
+    expect(formatTokensShort(980)).toBe("980");
+  });
+  it("contextBand escalates at 80/92", () => {
+    expect(contextBand(40)).toBe("ok");
+    expect(contextBand(80)).toBe("warn");
+    expect(contextBand(92)).toBe("bad");
+  });
+  it("renders pill and hides at zero tokens", () => {
+    const c = new VitalsCluster();
+    c.setVitals(
+      fixture({
+        last_model: "claude-opus-4-8",
+        context_tokens: 50_000,
+        context_pct: 25,
+      }),
+    );
+    const pill = c.el.querySelector(".sb-vitals-pill--ctx") as HTMLElement;
+    expect(pill.textContent).toBe("ctx 25%");
+    expect(pill.classList.contains("sb-vitals-pill--ctx-ok")).toBe(true);
+    expect(pill.classList.contains("is-hidden")).toBe(false);
+
+    c.setVitals(
+      fixture({ last_model: "m", context_tokens: 0, context_pct: null }),
+    );
+    expect(pill.classList.contains("is-hidden")).toBe(true);
   });
 });
 
