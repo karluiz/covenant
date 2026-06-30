@@ -46,13 +46,12 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 const LATENCY_MAX_MS: u64 = 600_000;
 const LATENCY_MIN_MS: u64 = 50;
 
-/// Window during which we wait for a freshly-created jsonl to appear in
-/// the project dir before falling back to "newest existing in dir." If
-/// two Claude Code sessions share a cwd, the older one shouldn't shadow
-/// the just-spawned one — discovery binds to the file that appears (or
-/// gets touched) AFTER the tab was attached.
-const DISCOVERY_WINDOW: Duration = Duration::from_secs(10);
+/// How often discovery re-scans the project dir for transcript growth.
 const DISCOVERY_POLL: Duration = Duration::from_millis(500);
+/// After the user presses Enter in this tab's PTY, a new `user` line in a
+/// jsonl is attributed to this tab if it appears within this window.
+/// Generous — covers Claude's think-then-write latency plus missed ticks.
+const INPUT_CORRELATION_WINDOW: Duration = Duration::from_secs(12);
 
 /// Per-line shape we care about. Everything else in Claude Code's JSONL
 /// (parentUuid, sessionId, content blocks, etc.) is ignored.
@@ -92,6 +91,13 @@ pub struct ExecVitals {
 struct Inner {
     vitals: VitalsHandle,
     tasks: Mutex<HashMap<SessionId, JoinHandle<()>>>,
+    /// Wall-clock of the last time the user pressed Enter into each
+    /// session's PTY. Used to bind a tab to the *right* jsonl when several
+    /// Claude Code sessions share a cwd: only the jsonl that gains a `user`
+    /// line shortly after a local submit belongs to this tab. A background
+    /// session (e.g. an AI assistant running Claude in the same repo) never
+    /// receives this tab's keystrokes, so it's excluded automatically.
+    last_input: std::sync::Mutex<HashMap<SessionId, std::time::Instant>>,
 }
 
 impl ExecVitals {
@@ -100,7 +106,19 @@ impl ExecVitals {
             inner: Arc::new(Inner {
                 vitals,
                 tasks: Mutex::new(HashMap::new()),
+                last_input: std::sync::Mutex::new(HashMap::new()),
             }),
+        }
+    }
+
+    /// Record that the user submitted input (pressed Enter) into `session`'s
+    /// PTY. Called from `write_to_session`. Only Enter (`\r`) counts — plain
+    /// keystrokes don't trigger a transcript turn.
+    pub fn note_input(&self, session: SessionId, data: &[u8]) {
+        if data.contains(&b'\r') {
+            if let Ok(mut m) = self.inner.last_input.lock() {
+                m.insert(session, std::time::Instant::now());
+            }
         }
     }
 
@@ -115,8 +133,9 @@ impl ExecVitals {
     /// shadow the just-spawned one), then tails it.
     pub async fn attach(&self, session: SessionId, cwd: PathBuf) {
         let vitals = self.inner.vitals.clone();
+        let inner = self.inner.clone();
         let handle = tokio::spawn(async move {
-            let (jsonl, start_pos) = match discover_jsonl_for_session(&cwd).await {
+            let (jsonl, start_pos) = match discover_jsonl_for_session(&cwd, session, &inner).await {
                 Some(pair) => pair,
                 None => {
                     tracing::debug!(
@@ -166,132 +185,107 @@ fn claude_projects_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("projects"))
 }
 
-/// Snapshot of a candidate jsonl at attach time. `size` is the byte
-/// position the tail should start from when this file's mtime advances
-/// (so we catch the line that triggered detection, instead of seeking
-/// past it to EOF).
-#[derive(Clone)]
-struct BaselineEntry {
-    mtime: std::time::SystemTime,
-    size: u64,
-}
-
-/// Pick the jsonl to tail for a freshly-attached Claude Code session.
+/// Bind a freshly-attached Claude Code session to the *correct* jsonl by
+/// correlating the user's PTY input with transcript writes.
 ///
-/// Snapshots the project dir at attach time (file set + each file's
-/// size + mtime), then polls every DISCOVERY_POLL for up to
-/// DISCOVERY_WINDOW looking for either:
-///   • a new jsonl whose path wasn't in the snapshot — tail from 0,
-///     since every byte arrived after attach
-///   • an existing jsonl whose mtime advanced past the snapshot
-///     baseline — tail from the snapshotted size, so the just-appended
-///     line that triggered detection is the first one read
+/// Several Claude Code sessions can share one project dir (e.g. an AI
+/// assistant running Claude inside the same repo as the user's tab). The
+/// old "newest by mtime" heuristic grabbed whichever session was hottest —
+/// wrong, and it could leak another session's tokens. Instead: poll the
+/// dir and bind to the first jsonl that gains a `user` line within
+/// INPUT_CORRELATION_WINDOW of the user pressing Enter in *this* PTY. A
+/// background session never receives this tab's keystrokes, so it can't
+/// satisfy the correlation.
 ///
-/// First match wins. If nothing new appears within the window we fall
-/// back to the old "newest by mtime" (seeking to EOF) so the user
-/// still gets a tailer when they're the only `cc` in this cwd.
-///
-/// Returns `(path, start_byte_position)`.
-async fn discover_jsonl_for_session(cwd: &Path) -> Option<(PathBuf, u64)> {
+/// `start_byte_position` is the file's size just before the correlated
+/// growth, so `tail_file` re-reads the `user` line and the assistant usage
+/// that follows. Waits indefinitely (the task is aborted on detach); the
+/// cluster stays empty until the user interacts, which is honest.
+async fn discover_jsonl_for_session(
+    cwd: &Path,
+    session: SessionId,
+    inner: &Inner,
+) -> Option<(PathBuf, u64)> {
     let dir = claude_projects_dir()?.join(slugify_cwd(cwd));
 
-    let baseline: HashMap<PathBuf, BaselineEntry> = std::fs::read_dir(&dir)
-        .ok()
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let path = e.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-                return None;
-            }
-            let meta = e.metadata().ok()?;
-            let mtime = meta.modified().ok()?;
-            Some((
-                path,
-                BaselineEntry {
-                    mtime,
-                    size: meta.len(),
-                },
-            ))
-        })
-        .collect();
-    let attach_wall = std::time::SystemTime::now();
-    let deadline = attach_wall + DISCOVERY_WINDOW;
+    // Baseline size for every jsonl present at attach — we only react to
+    // bytes appended afterwards (no replay of history).
+    let mut sizes: HashMap<PathBuf, u64> = dir_jsonl_sizes(&dir);
 
     let mut interval = tokio::time::interval(DISCOVERY_POLL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         interval.tick().await;
-        if let Ok(read) = std::fs::read_dir(&dir) {
-            for entry in read.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-                    continue;
-                }
-                let Ok(meta) = entry.metadata() else { continue };
-                let Ok(mtime) = meta.modified() else { continue };
-                let prior = baseline.get(&path);
-                match prior {
-                    None => {
-                        tracing::debug!(
-                            target: "exec_vitals",
-                            path = %path.display(),
-                            "discovered new transcript for session"
-                        );
-                        // Brand-new file — every byte is post-attach.
-                        return Some((path, 0));
-                    }
-                    Some(prev) if mtime > prev.mtime && mtime >= attach_wall => {
-                        tracing::debug!(
-                            target: "exec_vitals",
-                            path = %path.display(),
-                            start_pos = prev.size,
-                            "discovered transcript via mtime advance"
-                        );
-                        // Start at the size we recorded — that's the
-                        // beginning of the line(s) appended after attach.
-                        return Some((path, prev.size));
-                    }
-                    _ => {}
-                }
+        let current = dir_jsonl_sizes(&dir);
+        for (path, &new_size) in &current {
+            let old = sizes.get(path).copied().unwrap_or(0);
+            if new_size <= old {
+                continue;
             }
-        }
-        if std::time::SystemTime::now() > deadline {
-            // Couldn't disambiguate within the window — accept the
-            // historical degraded behavior (newest by mtime, EOF tail).
-            if let Some(p) = newest_jsonl_for_cwd(cwd) {
-                let end = std::fs::metadata(&p).ok().map(|m| m.len()).unwrap_or(0);
+            if grew_with_user_line(path, old, new_size) && input_recent(inner, session) {
                 tracing::debug!(
                     target: "exec_vitals",
-                    path = %p.display(),
-                    "discovery window expired; falling back to newest existing jsonl (tail from EOF)"
+                    session = %session,
+                    path = %path.display(),
+                    start_pos = old,
+                    "bound transcript via PTY input correlation"
                 );
-                return Some((p, end));
+                return Some((path.clone(), old));
             }
-            return None;
         }
+        // Advance baselines so we don't re-scan the same appended bytes.
+        sizes = current;
     }
 }
 
-fn newest_jsonl_for_cwd(cwd: &Path) -> Option<PathBuf> {
-    let dir = claude_projects_dir()?.join(slugify_cwd(cwd));
-    let read = std::fs::read_dir(&dir).ok()?;
-    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
-    for entry in read.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let Ok(meta) = entry.metadata() else { continue };
-        let Ok(mtime) = meta.modified() else { continue };
-        match &best {
-            Some((cur, _)) if *cur >= mtime => {}
-            _ => best = Some((mtime, path)),
+fn dir_jsonl_sizes(dir: &Path) -> HashMap<PathBuf, u64> {
+    let mut out = HashMap::new();
+    if let Ok(read) = std::fs::read_dir(dir) {
+        for e in read.flatten() {
+            let path = e.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if let Ok(meta) = e.metadata() {
+                out.insert(path, meta.len());
+            }
         }
     }
-    best.map(|(_, p)| p)
+    out
+}
+
+/// True if the bytes appended to `path` in `[start, end)` contain at least
+/// one `user`-type transcript line — the marker that a new turn began.
+fn grew_with_user_line(path: &Path, start: u64, end: u64) -> bool {
+    use std::io::{Read, Seek};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return false;
+    }
+    let cap = (end.saturating_sub(start)).min(1 << 20) as usize;
+    let mut buf = vec![0u8; cap];
+    let Ok(n) = f.read(&mut buf) else {
+        return false;
+    };
+    String::from_utf8_lossy(&buf[..n]).lines().any(|line| {
+        serde_json::from_str::<TranscriptLine>(line)
+            .ok()
+            .and_then(|p| p.kind)
+            .as_deref()
+            == Some("user")
+    })
+}
+
+fn input_recent(inner: &Inner, session: SessionId) -> bool {
+    inner
+        .last_input
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&session).map(|t| t.elapsed() < INPUT_CORRELATION_WINDOW))
+        .unwrap_or(false)
 }
 
 async fn tail_file(
@@ -394,7 +388,7 @@ fn handle_line(
                 .saturating_add(usage.cache_creation_input_tokens)
                 .saturating_add(usage.cache_read_input_tokens);
             vitals.record_executor_context(session, model.clone(), ctx);
-            vitals.record_complete(session, model, tu, latency_ms);
+            vitals.record_executor_complete(session, model, tu, latency_ms);
         }
         _ => {}
     }
@@ -484,5 +478,26 @@ mod tests {
         assert_eq!(parsed.kind.as_deref(), Some("assistant"));
         let usage = parsed.message.unwrap().usage.unwrap();
         assert_eq!(usage.input_tokens, 0);
+    }
+
+    #[test]
+    fn grew_with_user_line_detects_only_user_turns() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let assistant = "{\"type\":\"assistant\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n";
+        let user = "{\"type\":\"user\",\"timestamp\":\"2026-05-18T06:50:57Z\"}\n";
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(assistant.as_bytes()).unwrap();
+        let after_assistant = assistant.len() as u64;
+        f.write_all(user.as_bytes()).unwrap();
+        f.write_all(assistant.as_bytes()).unwrap();
+        let end = f.metadata().unwrap().len();
+        drop(f);
+
+        // Growth that contains a user line → true.
+        assert!(grew_with_user_line(&path, after_assistant, end));
+        // Growth that is only the first assistant line → false.
+        assert!(!grew_with_user_line(&path, 0, after_assistant));
     }
 }

@@ -789,6 +789,9 @@ async fn write_to_session(
     // escalation. The prompt the operator might have been about to
     // answer just got answered by the human. No-op when not attached.
     state.operator.note_user_input(id).await;
+    // Same keystrokes tell exec_vitals which Claude Code jsonl belongs to
+    // this tab (Enter → expect a `user` line in the right transcript).
+    state.exec_vitals.note_input(id, &data);
     let mut sessions = state.sessions.lock().await;
     let managed = sessions.get_mut(&id).ok_or("session not found")?;
     managed.session.write(&data).map_err(|e| e.to_string())
