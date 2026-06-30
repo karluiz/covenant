@@ -18,6 +18,7 @@ const SPARK_PAD = 1;
 export function prettifyModel(raw: string): string {
   const id = raw.toLowerCase();
   if (id.startsWith("claude-sonnet-4-6")) return "Sonnet 4.6";
+  if (id.startsWith("claude-opus-4-8")) return "Opus 4.8";
   if (id.startsWith("claude-opus-4-7")) return "Opus 4.7";
   if (id.startsWith("claude-haiku-4-5")) return "Haiku 4.5";
   if (id.startsWith("claude-sonnet-4-5")) return "Sonnet 4.5";
