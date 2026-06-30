@@ -55,6 +55,16 @@ pub(crate) enum VitalsEvent {
     /// Frontend tab change — switches which session's snapshot drives
     /// the `vitals_update` event stream.
     ActiveChanged { session: Option<SessionId> },
+    /// Executor context-window occupancy, sourced ONLY from the transcript
+    /// tailers (Claude Code jsonl / OpenCode sqlite / pi RPC) — never from
+    /// Covenant's own internal calls. Kept separate from `CallCompleted` so
+    /// an interleaved internal summariser/operator call can't overwrite the
+    /// executor's context number.
+    ExecutorContext {
+        session: SessionId,
+        model: String,
+        context_tokens: u32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,31 +93,18 @@ pub(crate) struct VitalsPayload {
     pub context_pct: Option<u8>,
 }
 
-/// Best-effort context-window size for a model id, given the observed
-/// occupancy. Returns `None` for models whose window we can't name (the
-/// UI shows absolute tokens instead of a %). Claude's 1M-context beta
-/// isn't distinguishable from the model id alone, so we auto-bump the
-/// tier when observed usage exceeds the smaller window.
-fn context_window(model: &str, used: u32) -> Option<u32> {
-    let id = model.to_ascii_lowercase();
-    let base = if id.contains("claude")
-        || id.starts_with("opus")
-        || id.starts_with("sonnet")
-        || id.starts_with("haiku")
-    {
-        200_000u32
-    } else {
-        // ponytail: claude-only for now; pi/opencode running arbitrary
-        // providers (gpt-5.5, dynamic/*) show absolute tokens. Add a tier
-        // here when a provider's window is worth naming.
-        return None;
-    };
-    Some(
-        [base, 1_000_000, 2_000_000]
-            .into_iter()
-            .find(|&t| used <= t)
-            .unwrap_or(2_000_000),
-    )
+/// Context-window size for a model id, when we can name it *reliably*.
+/// Returns `None` today for every executor we read: Claude Code's jsonl
+/// doesn't encode whether a session is the 200k or 1M-context tier (the
+/// model id is identical), and pi/opencode run arbitrary providers. We
+/// refuse to guess — a wrong window cries "95%!" on a session that's
+/// actually at 17%. The UI shows absolute tokens whenever this is `None`.
+///
+/// Wire a real window here per-source once one is available: codex's
+/// transcript carries `model_context_window`; a per-tab override could
+/// supply it for Claude.
+fn context_window(_model: &str, _used: u32) -> Option<u32> {
+    None
 }
 
 impl VitalsPayload {
@@ -208,14 +205,15 @@ pub(crate) struct VitalsState {
     /// notch bridge to attach "+N tok" annotations to phase events.
     total_tokens: u64,
 
-    /// Context-window occupancy from the most recent completed call:
-    /// input + cache_creation + cache_read (the prompt that was sent).
-    /// Point-in-time, NOT cumulative — it grows across a conversation and
-    /// drops when the executor compacts. Reflects whatever the last call
-    /// on this session was; for a tab running an executor that's almost
-    /// always the executor, but Covenant's own interleaved calls
-    /// (summariser, etc.) can momentarily move it.
-    last_context_tokens: u32,
+    /// Executor context-window occupancy: input + cache_creation +
+    /// cache_read of the executor's most recent turn. Set ONLY via
+    /// `ExecutorContext` events from the transcript tailers — Covenant's
+    /// own interleaved calls don't touch it, so the gauge stays pinned to
+    /// the executor rather than flickering to a summariser's tiny prompt.
+    exec_context_tokens: u32,
+    /// Model behind `exec_context_tokens` (drives the window lookup,
+    /// independent of `last_model` which tracks any/all calls).
+    exec_context_model: Option<String>,
 }
 
 impl VitalsState {
@@ -229,7 +227,8 @@ impl VitalsState {
             last_call_unix_ms: None,
             in_flight: None,
             total_tokens: 0,
-            last_context_tokens: 0,
+            exec_context_tokens: 0,
+            exec_context_model: None,
         }
     }
 
@@ -264,13 +263,6 @@ impl VitalsState {
         self.buckets[last] = self.buckets[last].saturating_add(counted);
         self.total_tokens = self.total_tokens.saturating_add(counted as u64);
 
-        // Context occupancy = the whole prompt that was sent (cache reads
-        // included — they still occupy the window). Overwrites, not adds.
-        self.last_context_tokens = usage
-            .input_tokens
-            .saturating_add(usage.cache_creation_input_tokens)
-            .saturating_add(usage.cache_read_input_tokens);
-
         self.cache_window.push_back(CacheSample {
             unix_ms: now_ms,
             cache_read: usage.cache_read_input_tokens,
@@ -283,6 +275,11 @@ impl VitalsState {
         self.last_latency_ms = Some(latency_ms);
         self.last_call_unix_ms = Some(now_ms);
         self.in_flight = None;
+    }
+
+    fn set_executor_context(&mut self, model: String, context_tokens: u32) {
+        self.exec_context_tokens = context_tokens;
+        self.exec_context_model = Some(model);
     }
 
     fn purge_cache_window(&mut self, now_ms: u64) {
@@ -332,8 +329,8 @@ impl VitalsState {
         };
         let is_idle = self.in_flight.is_none() && idle_secs >= IDLE_THRESHOLD_SECS;
 
-        let context_tokens = self.last_context_tokens;
-        let context_pct = self.last_model.as_deref().and_then(|m| {
+        let context_tokens = self.exec_context_tokens;
+        let context_pct = self.exec_context_model.as_deref().and_then(|m| {
             context_window(m, context_tokens)
                 .map(|w| ((context_tokens as u64 * 100) / w as u64).min(100) as u8)
         });
@@ -399,6 +396,17 @@ impl VitalsHandle {
             model,
             usage,
             latency_ms,
+        });
+    }
+
+    /// Report the executor's context-window occupancy for `session`. Only
+    /// the transcript tailers call this; it never mixes with Covenant's
+    /// own LLM calls, so the context gauge stays pinned to the executor.
+    pub fn record_executor_context(&self, session: SessionId, model: String, context_tokens: u32) {
+        let _ = self.tx.send(VitalsEvent::ExecutorContext {
+            session,
+            model,
+            context_tokens,
         });
     }
 
@@ -523,6 +531,11 @@ pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
                             VitalsEvent::ActiveChanged { session } => {
                                 agg.active = *session;
                                 None
+                            }
+                            VitalsEvent::ExecutorContext { session, model, context_tokens } => {
+                                let s = agg.touch_session(*session, now);
+                                s.set_executor_context(model.clone(), *context_tokens);
+                                Some(*session)
                             }
                         };
                         // Emit when either the event matched the active
@@ -670,48 +683,41 @@ mod tests {
     }
 
     #[test]
-    fn context_window_claude_base_and_autobump() {
-        // Small occupancy on a claude model → 200k window.
-        assert_eq!(context_window("claude-opus-4-8", 50_000), Some(200_000));
-        // Exceeds 200k → auto-bumps to the 1M tier.
-        assert_eq!(context_window("claude-opus-4-8", 450_000), Some(1_000_000));
-        // Exceeds 1M → 2M tier.
-        assert_eq!(context_window("claude-sonnet-4-6", 1_500_000), Some(2_000_000));
-    }
-
-    #[test]
-    fn context_window_unknown_model_is_none() {
+    fn context_window_unknown_until_a_reliable_source_exists() {
+        // We refuse to guess Claude's 200k-vs-1M tier from the model id.
+        assert_eq!(context_window("claude-opus-4-8", 50_000), None);
         assert_eq!(context_window("dynamic/balanced", 14_000), None);
-        assert_eq!(context_window("gpt-5.5", 14_000), None);
     }
 
     #[test]
-    fn context_pct_computed_for_known_model() {
+    fn executor_context_sets_tokens_pct_none_for_now() {
         let mut s = VitalsState::new(0);
-        // input 2 + creation 0 + read 49_998 = 50_000 of 200_000 = 25%.
-        s.record_complete("claude-opus-4-8".into(), mk_usage(2, 100, 0, 49_998), 1, 0);
+        s.set_executor_context("claude-opus-4-8".into(), 171_280);
         let p = s.snapshot(0);
-        assert_eq!(p.context_tokens, 50_000);
-        assert_eq!(p.context_pct, Some(25));
-    }
-
-    #[test]
-    fn context_pct_none_but_tokens_set_for_unknown_model() {
-        let mut s = VitalsState::new(0);
-        s.record_complete("dynamic/balanced".into(), mk_usage(14_370, 17, 0, 0), 1, 0);
-        let p = s.snapshot(0);
-        assert_eq!(p.context_tokens, 14_370);
+        assert_eq!(p.context_tokens, 171_280);
+        // No reliable window → absolute tokens, no (possibly-wrong) %.
         assert_eq!(p.context_pct, None);
     }
 
     #[test]
-    fn context_tokens_overwrite_not_accumulate() {
+    fn internal_calls_do_not_touch_executor_context() {
         let mut s = VitalsState::new(0);
-        s.record_complete("claude-opus-4-8".into(), mk_usage(2, 50, 0, 100_000), 1, 0);
-        // A compaction drops the next prompt back down — gauge follows it.
-        s.record_complete("claude-opus-4-8".into(), mk_usage(2, 50, 0, 20_000), 1, 1000);
-        let p = s.snapshot(1000);
-        assert_eq!(p.context_tokens, 20_002);
+        s.set_executor_context("claude-opus-4-8".into(), 171_280);
+        // An interleaved internal gpt-4o call must NOT overwrite the
+        // executor's context number (the bug the screenshot caught).
+        s.record_complete("gpt-4o".into(), mk_usage(200, 69, 0, 0), 1, 10);
+        let p = s.snapshot(10);
+        assert_eq!(p.context_tokens, 171_280);
+    }
+
+    #[test]
+    fn executor_context_overwrites_on_compaction() {
+        let mut s = VitalsState::new(0);
+        s.set_executor_context("claude-opus-4-8".into(), 171_280);
+        // Compaction drops the next prompt — gauge follows it down.
+        s.set_executor_context("claude-opus-4-8".into(), 22_000);
+        let p = s.snapshot(0);
+        assert_eq!(p.context_tokens, 22_000);
     }
 
     #[test]

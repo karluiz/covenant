@@ -149,10 +149,11 @@ export class VitalsCluster {
     ctx.className = "sb-vitals-pill sb-vitals-pill--ctx";
     attachTooltip(
       ctx,
-      "Context-window fill of the most recent call — prompt tokens " +
-        "(input + cache) vs the model's window. Shows absolute tokens when " +
-        "the provider's window isn't known. Amber ≥80%, red ≥92% " +
-        "(executors auto-compact near 95%).",
+      "Executor context-window occupancy — prompt tokens (input + cache) " +
+        "of the active executor's most recent turn (Claude Code / OpenCode / " +
+        "pi), NOT Covenant's own calls. Shown as an absolute count: the " +
+        "model id doesn't reveal whether the window is 200k or 1M, so we " +
+        "don't fake a %.",
     );
     el.appendChild(ctx);
 

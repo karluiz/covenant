@@ -385,6 +385,15 @@ fn handle_line(
                 cache_creation_input_tokens: usage.cache_creation_input_tokens,
                 cache_read_input_tokens: usage.cache_read_input_tokens,
             };
+            // Context occupancy = the whole prompt that was sent (cache
+            // reads included — they still occupy the window). Reported on
+            // the dedicated executor channel so internal Covenant calls
+            // can't clobber it.
+            let ctx = usage
+                .input_tokens
+                .saturating_add(usage.cache_creation_input_tokens)
+                .saturating_add(usage.cache_read_input_tokens);
+            vitals.record_executor_context(session, model.clone(), ctx);
             vitals.record_complete(session, model, tu, latency_ms);
         }
         _ => {}
