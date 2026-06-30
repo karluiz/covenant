@@ -1341,9 +1341,10 @@ function executorSegment(name: string, online: boolean = true): HTMLElement {
   }
 
   if (brand) {
-    // Branded form: vendor SVG (or a pulsing color dot fallback if we
-    // don't ship a glyph for this vendor) + brand-tinted name. The
-    // SVG inherits color from --executor-brand via currentColor.
+    // Branded form: vendor SVG only — the logo is identity enough, so we
+    // drop the name to save status-bar width (the name still lives in the
+    // tooltip + aria-label set above). The SVG inherits color from
+    // --executor-brand via currentColor.
     const svg = brandIconSvg(name, 12);
     if (svg) {
       const iconWrap = document.createElement("span");
@@ -1351,15 +1352,16 @@ function executorSegment(name: string, online: boolean = true): HTMLElement {
       iconWrap.innerHTML = svg;
       el.appendChild(iconWrap);
     } else {
+      // No glyph for this vendor → keep the dot AND the name, since a
+      // bare dot can't identify which executor is running.
       const dot = document.createElement("span");
       dot.className = "status-executor__dot";
       el.appendChild(dot);
+      const text = document.createElement("span");
+      text.className = "status-text";
+      text.textContent = brand.label;
+      el.appendChild(text);
     }
-
-    const text = document.createElement("span");
-    text.className = "status-text";
-    text.textContent = brand.label;
-    el.appendChild(text);
   } else {
     // Fallback: keep the original bot+name treatment for unknown agents.
     const icon = document.createElement("span");
