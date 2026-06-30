@@ -152,7 +152,7 @@ async fn poll_loop(session: SessionId, db: PathBuf, cwd: PathBuf, vitals: Vitals
                 .saturating_add(row.usage.cache_creation_input_tokens)
                 .saturating_add(row.usage.cache_read_input_tokens);
             vitals.record_executor_context(session, row.model.clone(), ctx);
-            vitals.record_complete(session, row.model, row.usage, NOMINAL_LATENCY_MS);
+            vitals.record_executor_complete(session, row.model, row.usage, NOMINAL_LATENCY_MS);
         }
         seeded = true;
     }

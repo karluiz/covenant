@@ -263,7 +263,7 @@ pub async fn spawn_pi_session(
                         PiEvent::AgentStart | PiEvent::TurnStart => {
                             if vitals_call.is_none() {
                                 vitals_call =
-                                    Some(vitals.record_started(session_id, "pi".to_string()));
+                                    Some(vitals.record_executor_started(session_id, "pi".to_string()));
                                 vitals_started = Some(Instant::now());
                             }
                         }
@@ -287,7 +287,7 @@ pub async fn spawn_pi_session(
                                 if let Some(call) = vitals_call.take() {
                                     call.complete_with_model(model, usage, latency_ms);
                                 } else {
-                                    vitals.record_complete(session_id, model, usage, latency_ms);
+                                    vitals.record_executor_complete(session_id, model, usage, latency_ms);
                                 }
                             }
                         }

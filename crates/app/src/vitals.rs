@@ -42,16 +42,23 @@ pub(crate) enum VitalsEvent {
         session: SessionId,
         model: String,
         started_unix_ms: u64,
+        /// True only for the agent executor's own calls (the transcript
+        /// tailers / pi RPC). Covenant's internal workers (summariser,
+        /// operator triage, fix-proposer, cross-session) pass false and
+        /// are ignored by the aggregator — the status-bar cluster is
+        /// executor stats, not system/operator activity.
+        executor: bool,
     },
     CallCompleted {
         session: SessionId,
         model: String,
         usage: TokenUsage,
         latency_ms: u32,
+        executor: bool,
     },
     /// Cancelled, errored, or dropped without completion. Clears
     /// in-flight without writing into the bucket / cache window.
-    CallAbandoned { session: SessionId },
+    CallAbandoned { session: SessionId, executor: bool },
     /// Frontend tab change — switches which session's snapshot drives
     /// the `vitals_update` event stream.
     ActiveChanged { session: Option<SessionId> },
@@ -370,15 +377,28 @@ pub struct VitalsHandle {
 }
 
 impl VitalsHandle {
-    /// Begin tracking an in-flight call. Returns a `CallHandle`; on drop
-    /// without `.complete()` or `.abandon()` the in-flight slot is cleared.
+    /// Begin tracking an in-flight call by Covenant's own internal workers
+    /// (summariser / operator / fix-proposer). Flagged non-executor, so the
+    /// status-bar cluster ignores it. Returns a `CallHandle`; on drop
+    /// without `.complete()`/`.abandon()` the in-flight slot is cleared.
     #[must_use]
     pub fn record_started(&self, session: SessionId, model: String) -> CallHandle {
+        self.record_started_inner(session, model, false)
+    }
+
+    /// Executor variant of `record_started` — drives the cluster.
+    #[must_use]
+    pub fn record_executor_started(&self, session: SessionId, model: String) -> CallHandle {
+        self.record_started_inner(session, model, true)
+    }
+
+    fn record_started_inner(&self, session: SessionId, model: String, executor: bool) -> CallHandle {
         let started = now_unix_ms();
         let _ = self.tx.send(VitalsEvent::CallStarted {
             session,
             model: model.clone(),
             started_unix_ms: started,
+            executor,
         });
         CallHandle {
             tx: self.tx.clone(),
@@ -386,12 +406,12 @@ impl VitalsHandle {
             model,
             started_unix_ms: started,
             consumed: false,
+            executor,
         }
     }
 
-    /// Direct one-shot record (skips in-flight tracking). Use when a call
-    /// has no meaningful "started" boundary the caller can wrap with a
-    /// CallHandle (e.g. retries inside `provider::collect_oneshot`).
+    /// Direct one-shot record for Covenant's internal workers. Flagged
+    /// non-executor → ignored by the cluster.
     pub fn record_complete(
         &self,
         session: SessionId,
@@ -399,11 +419,36 @@ impl VitalsHandle {
         usage: TokenUsage,
         latency_ms: u32,
     ) {
+        self.record_complete_inner(session, model, usage, latency_ms, false);
+    }
+
+    /// Executor variant of `record_complete` — drives the cluster
+    /// (tok/min, cache, model, latency). Called by the transcript tailers
+    /// and pi's RPC bridge.
+    pub fn record_executor_complete(
+        &self,
+        session: SessionId,
+        model: String,
+        usage: TokenUsage,
+        latency_ms: u32,
+    ) {
+        self.record_complete_inner(session, model, usage, latency_ms, true);
+    }
+
+    fn record_complete_inner(
+        &self,
+        session: SessionId,
+        model: String,
+        usage: TokenUsage,
+        latency_ms: u32,
+        executor: bool,
+    ) {
         let _ = self.tx.send(VitalsEvent::CallCompleted {
             session,
             model,
             usage,
             latency_ms,
+            executor,
         });
     }
 
@@ -461,6 +506,9 @@ pub struct CallHandle {
     model: String,
     started_unix_ms: u64,
     consumed: bool,
+    /// Carries the executor flag from `record_started` through to the
+    /// completion / abandonment event so the aggregator gates consistently.
+    executor: bool,
 }
 
 impl CallHandle {
@@ -476,6 +524,7 @@ impl CallHandle {
             model,
             usage,
             latency_ms,
+            executor: self.executor,
         });
     }
 
@@ -483,6 +532,7 @@ impl CallHandle {
         self.consumed = true;
         let _ = self.tx.send(VitalsEvent::CallAbandoned {
             session: self.session,
+            executor: self.executor,
         });
     }
 }
@@ -492,6 +542,7 @@ impl Drop for CallHandle {
         if !self.consumed {
             let _ = self.tx.send(VitalsEvent::CallAbandoned {
                 session: self.session,
+                executor: self.executor,
             });
         }
     }
@@ -518,7 +569,13 @@ pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
                         let mut agg = inner_for_task.lock().await;
                         let now = now_unix_ms();
                         let touched_session = match &ev {
-                            VitalsEvent::CallStarted { session, model, started_unix_ms } => {
+                            // Non-executor calls (Covenant's summariser /
+                            // operator / fix-proposer) are dropped here — the
+                            // cluster reflects executor stats only.
+                            VitalsEvent::CallStarted { executor: false, .. }
+                            | VitalsEvent::CallCompleted { executor: false, .. }
+                            | VitalsEvent::CallAbandoned { executor: false, .. } => None,
+                            VitalsEvent::CallStarted { session, model, started_unix_ms, .. } => {
                                 let s = agg.touch_session(*session, now);
                                 s.in_flight = Some(InFlight {
                                     model: model.clone(),
@@ -526,12 +583,12 @@ pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
                                 });
                                 Some(*session)
                             }
-                            VitalsEvent::CallCompleted { session, model, usage, latency_ms } => {
+                            VitalsEvent::CallCompleted { session, model, usage, latency_ms, .. } => {
                                 let s = agg.touch_session(*session, now);
                                 s.record_complete(model.clone(), *usage, *latency_ms, now);
                                 Some(*session)
                             }
-                            VitalsEvent::CallAbandoned { session } => {
+                            VitalsEvent::CallAbandoned { session, .. } => {
                                 let s = agg.touch_session(*session, now);
                                 s.in_flight = None;
                                 Some(*session)
@@ -756,6 +813,7 @@ mod tests {
             model: "m".into(),
             started_unix_ms: 0,
             consumed: false,
+            executor: true,
         };
         drop(h);
         let recvd = rx.try_recv().expect("should have received an event");
@@ -771,6 +829,7 @@ mod tests {
             model: "m".into(),
             started_unix_ms: 0,
             consumed: false,
+            executor: true,
         };
         h.complete(mk_usage(10, 10, 0, 0), 50);
         // Expect exactly one CallCompleted, no CallAbandoned.
