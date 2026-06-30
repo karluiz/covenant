@@ -339,7 +339,15 @@ impl VitalsState {
             tok_per_min,
             spark: self.buckets,
             cache_hit_pct: self.cache_hit_pct(),
-            last_model: self.last_model.clone(),
+            // Prefer the executor's model so the pill names what the user
+            // is actually working with (e.g. Opus 4.8), not whichever of
+            // Covenant's background workers (summariser/operator on gpt-4o)
+            // happened to fire last. Falls back to the last call's model
+            // when no executor is running in this tab.
+            last_model: self
+                .exec_context_model
+                .clone()
+                .or_else(|| self.last_model.clone()),
             last_latency_ms: self.last_latency_ms,
             in_flight: self.in_flight.as_ref().map(|f| InFlightPayload {
                 model: f.model.clone(),
@@ -697,6 +705,25 @@ mod tests {
         assert_eq!(p.context_tokens, 171_280);
         // No reliable window → absolute tokens, no (possibly-wrong) %.
         assert_eq!(p.context_pct, None);
+    }
+
+    #[test]
+    fn model_pill_prefers_executor_over_internal_calls() {
+        let mut s = VitalsState::new(0);
+        s.set_executor_context("claude-opus-4-8".into(), 50_000);
+        // A background Covenant call on gpt-4o fires last...
+        s.record_complete("gpt-4o".into(), mk_usage(200, 69, 0, 0), 1, 10);
+        // ...but the pill still names the executor.
+        let p = s.snapshot(10);
+        assert_eq!(p.last_model.as_deref(), Some("claude-opus-4-8"));
+    }
+
+    #[test]
+    fn model_pill_falls_back_when_no_executor() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("gpt-4o".into(), mk_usage(200, 69, 0, 0), 1, 10);
+        let p = s.snapshot(10);
+        assert_eq!(p.last_model.as_deref(), Some("gpt-4o"));
     }
 
     #[test]

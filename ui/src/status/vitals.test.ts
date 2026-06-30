@@ -30,6 +30,7 @@ function fixture(overrides: Partial<Vitals> = {}): Vitals {
 describe("prettifyModel", () => {
   it("maps known prefixes", () => {
     expect(prettifyModel("claude-sonnet-4-6")).toBe("Sonnet 4.6");
+    expect(prettifyModel("claude-opus-4-8")).toBe("Opus 4.8");
     expect(prettifyModel("claude-opus-4-7")).toBe("Opus 4.7");
     expect(prettifyModel("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
   });
