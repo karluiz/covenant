@@ -2455,6 +2455,8 @@ export interface Vitals {
   in_flight: VitalsInFlight | null;
   idle_secs: number;
   is_idle: boolean;
+  context_tokens: number;
+  context_pct: number | null;
 }
 
 export async function getVitals(): Promise<Vitals> {

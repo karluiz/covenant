@@ -26,6 +26,7 @@ pub mod email;
 mod embedder;
 mod exec_vitals;
 mod executor_idle;
+mod opencode_vitals;
 mod familiar_commands;
 mod favorites_commands;
 mod file_search;
@@ -211,6 +212,9 @@ pub(crate) struct AppState {
     /// what the user's actual Claude session is doing, not just Covenant's
     /// internal summariser / fix-proposer calls.
     pub(crate) exec_vitals: exec_vitals::ExecVitals,
+    /// OpenCode counterpart of `exec_vitals` — polls OpenCode's SQLite DB
+    /// for the active tab's session and feeds the same `VitalsHandle`.
+    pub(crate) opencode_vitals: opencode_vitals::OpenCodeVitals,
     /// Live on/off switch for the Resources panel sampler loop.
     pub(crate) resources: resources::ResourcesState,
     /// Per-session fuzzy file search cache. Populated on first `search_session_files`
@@ -455,23 +459,48 @@ async fn spawn_session(
     // CwdChanged so a `cd` mid-session re-resolves the project dir.
     {
         let exec_vitals = state.exec_vitals.clone();
+        let opencode_vitals = state.opencode_vitals.clone();
         let mut rx = session.subscribe();
         let start_cwd = initial_launch_cwd
             .clone()
             .unwrap_or_else(|| std::path::PathBuf::new());
         tauri::async_runtime::spawn(async move {
+            // Which transcript reader (if any) is currently tailing this
+            // tab's executor. Routed by the foreground CLI name: Claude
+            // Code → per-cwd JSONL (`exec_vitals`), OpenCode → SQLite
+            // (`opencode_vitals`). pi feeds vitals over its own RPC, so it
+            // needs no foreground reader here.
+            #[derive(PartialEq)]
+            enum Attached {
+                None,
+                Claude,
+                OpenCode,
+            }
             let mut cwd = start_cwd;
-            let mut attached = false;
+            let mut attached = Attached::None;
             while let Ok(ev) = rx.recv().await {
                 match ev {
                     karl_session::SessionEvent::ForegroundChanged { session, name } => {
-                        let is_claude = matches!(name.as_deref(), Some("claude"));
-                        if is_claude && !cwd.as_os_str().is_empty() {
-                            exec_vitals.attach(session, cwd.clone()).await;
-                            attached = true;
-                        } else if attached {
-                            exec_vitals.detach(session).await;
-                            attached = false;
+                        let want = match name.as_deref() {
+                            Some("claude") if !cwd.as_os_str().is_empty() => Attached::Claude,
+                            Some("opencode") if !cwd.as_os_str().is_empty() => Attached::OpenCode,
+                            _ => Attached::None,
+                        };
+                        if want != attached {
+                            // Detach whatever was running before switching.
+                            match attached {
+                                Attached::Claude => exec_vitals.detach(session).await,
+                                Attached::OpenCode => opencode_vitals.detach(session).await,
+                                Attached::None => {}
+                            }
+                            match want {
+                                Attached::Claude => exec_vitals.attach(session, cwd.clone()).await,
+                                Attached::OpenCode => {
+                                    opencode_vitals.attach(session, cwd.clone()).await
+                                }
+                                Attached::None => {}
+                            }
+                            attached = want;
                         }
                     }
                     karl_session::SessionEvent::CwdChanged {
@@ -479,14 +508,20 @@ async fn spawn_session(
                         cwd: new_cwd,
                     } => {
                         cwd = new_cwd;
-                        if attached {
-                            // Re-resolve transcript dir from the new cwd.
-                            exec_vitals.attach(session, cwd.clone()).await;
+                        // Re-resolve from the new cwd for whichever is live.
+                        match attached {
+                            Attached::Claude => exec_vitals.attach(session, cwd.clone()).await,
+                            Attached::OpenCode => {
+                                opencode_vitals.attach(session, cwd.clone()).await
+                            }
+                            Attached::None => {}
                         }
                     }
                     karl_session::SessionEvent::Closed { session } => {
-                        if attached {
-                            exec_vitals.detach(session).await;
+                        match attached {
+                            Attached::Claude => exec_vitals.detach(session).await,
+                            Attached::OpenCode => opencode_vitals.detach(session).await,
+                            Attached::None => {}
                         }
                         break;
                     }
@@ -3765,6 +3800,7 @@ pub fn run() {
             let vitals = vitals::spawn(app.handle().clone());
             app.manage(vitals.clone());
             let exec_vitals = exec_vitals::ExecVitals::new(vitals.clone());
+            let opencode_vitals = opencode_vitals::OpenCodeVitals::new(vitals.clone());
 
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone(), vitals.clone());
             let mission_store = dir.join("session_missions.json");
@@ -4165,6 +4201,7 @@ pub fn run() {
                 notch_hub,
                 vitals,
                 exec_vitals,
+                opencode_vitals,
                 resources: resources::ResourcesState::default(),
                 file_search_cache: crate::file_search::FileSearchCache::new(),
                 allow_remote_open: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

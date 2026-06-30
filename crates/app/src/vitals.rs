@@ -73,6 +73,41 @@ pub(crate) struct VitalsPayload {
     pub in_flight: Option<InFlightPayload>,
     pub idle_secs: u32,
     pub is_idle: bool,
+    /// Tokens occupying the model's context window as of the most recent
+    /// completed call (input + cache_creation + cache_read — i.e. the
+    /// prompt that was sent, not cumulative throughput). 0 before any call.
+    pub context_tokens: u32,
+    /// `context_tokens` as a percentage of the model's context window.
+    /// `None` when we can't name the window for `last_model` (the UI then
+    /// shows the absolute token count instead of a %).
+    pub context_pct: Option<u8>,
+}
+
+/// Best-effort context-window size for a model id, given the observed
+/// occupancy. Returns `None` for models whose window we can't name (the
+/// UI shows absolute tokens instead of a %). Claude's 1M-context beta
+/// isn't distinguishable from the model id alone, so we auto-bump the
+/// tier when observed usage exceeds the smaller window.
+fn context_window(model: &str, used: u32) -> Option<u32> {
+    let id = model.to_ascii_lowercase();
+    let base = if id.contains("claude")
+        || id.starts_with("opus")
+        || id.starts_with("sonnet")
+        || id.starts_with("haiku")
+    {
+        200_000u32
+    } else {
+        // ponytail: claude-only for now; pi/opencode running arbitrary
+        // providers (gpt-5.5, dynamic/*) show absolute tokens. Add a tier
+        // here when a provider's window is worth naming.
+        return None;
+    };
+    Some(
+        [base, 1_000_000, 2_000_000]
+            .into_iter()
+            .find(|&t| used <= t)
+            .unwrap_or(2_000_000),
+    )
 }
 
 impl VitalsPayload {
@@ -87,6 +122,8 @@ impl VitalsPayload {
             in_flight: None,
             idle_secs: u32::MAX,
             is_idle: true,
+            context_tokens: 0,
+            context_pct: None,
         }
     }
 }
@@ -170,6 +207,15 @@ pub(crate) struct VitalsState {
     /// callers can take a delta between two timestamps. Used by the
     /// notch bridge to attach "+N tok" annotations to phase events.
     total_tokens: u64,
+
+    /// Context-window occupancy from the most recent completed call:
+    /// input + cache_creation + cache_read (the prompt that was sent).
+    /// Point-in-time, NOT cumulative — it grows across a conversation and
+    /// drops when the executor compacts. Reflects whatever the last call
+    /// on this session was; for a tab running an executor that's almost
+    /// always the executor, but Covenant's own interleaved calls
+    /// (summariser, etc.) can momentarily move it.
+    last_context_tokens: u32,
 }
 
 impl VitalsState {
@@ -183,6 +229,7 @@ impl VitalsState {
             last_call_unix_ms: None,
             in_flight: None,
             total_tokens: 0,
+            last_context_tokens: 0,
         }
     }
 
@@ -216,6 +263,13 @@ impl VitalsState {
         let last = BUCKET_COUNT - 1;
         self.buckets[last] = self.buckets[last].saturating_add(counted);
         self.total_tokens = self.total_tokens.saturating_add(counted as u64);
+
+        // Context occupancy = the whole prompt that was sent (cache reads
+        // included — they still occupy the window). Overwrites, not adds.
+        self.last_context_tokens = usage
+            .input_tokens
+            .saturating_add(usage.cache_creation_input_tokens)
+            .saturating_add(usage.cache_read_input_tokens);
 
         self.cache_window.push_back(CacheSample {
             unix_ms: now_ms,
@@ -278,6 +332,12 @@ impl VitalsState {
         };
         let is_idle = self.in_flight.is_none() && idle_secs >= IDLE_THRESHOLD_SECS;
 
+        let context_tokens = self.last_context_tokens;
+        let context_pct = self.last_model.as_deref().and_then(|m| {
+            context_window(m, context_tokens)
+                .map(|w| ((context_tokens as u64 * 100) / w as u64).min(100) as u8)
+        });
+
         VitalsPayload {
             tok_per_min,
             spark: self.buckets,
@@ -290,6 +350,8 @@ impl VitalsState {
             }),
             idle_secs,
             is_idle,
+            context_tokens,
+            context_pct,
         }
     }
 }
@@ -605,6 +667,51 @@ mod tests {
         assert_eq!(payload.idle_secs, 0);
         assert!(!payload.is_idle);
         assert!(payload.in_flight.is_some());
+    }
+
+    #[test]
+    fn context_window_claude_base_and_autobump() {
+        // Small occupancy on a claude model → 200k window.
+        assert_eq!(context_window("claude-opus-4-8", 50_000), Some(200_000));
+        // Exceeds 200k → auto-bumps to the 1M tier.
+        assert_eq!(context_window("claude-opus-4-8", 450_000), Some(1_000_000));
+        // Exceeds 1M → 2M tier.
+        assert_eq!(context_window("claude-sonnet-4-6", 1_500_000), Some(2_000_000));
+    }
+
+    #[test]
+    fn context_window_unknown_model_is_none() {
+        assert_eq!(context_window("dynamic/balanced", 14_000), None);
+        assert_eq!(context_window("gpt-5.5", 14_000), None);
+    }
+
+    #[test]
+    fn context_pct_computed_for_known_model() {
+        let mut s = VitalsState::new(0);
+        // input 2 + creation 0 + read 49_998 = 50_000 of 200_000 = 25%.
+        s.record_complete("claude-opus-4-8".into(), mk_usage(2, 100, 0, 49_998), 1, 0);
+        let p = s.snapshot(0);
+        assert_eq!(p.context_tokens, 50_000);
+        assert_eq!(p.context_pct, Some(25));
+    }
+
+    #[test]
+    fn context_pct_none_but_tokens_set_for_unknown_model() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("dynamic/balanced".into(), mk_usage(14_370, 17, 0, 0), 1, 0);
+        let p = s.snapshot(0);
+        assert_eq!(p.context_tokens, 14_370);
+        assert_eq!(p.context_pct, None);
+    }
+
+    #[test]
+    fn context_tokens_overwrite_not_accumulate() {
+        let mut s = VitalsState::new(0);
+        s.record_complete("claude-opus-4-8".into(), mk_usage(2, 50, 0, 100_000), 1, 0);
+        // A compaction drops the next prompt back down — gauge follows it.
+        s.record_complete("claude-opus-4-8".into(), mk_usage(2, 50, 0, 20_000), 1, 1000);
+        let p = s.snapshot(1000);
+        assert_eq!(p.context_tokens, 20_002);
     }
 
     #[test]
