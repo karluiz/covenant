@@ -1,0 +1,5 @@
+# ponytail: incremental cache hit 100GB+ and filled the disk; disable it.
+# Rebuilds are slightly slower, but target/ stops ballooning.
+# Re-enable per-shell with CARGO_INCREMENTAL=1 if a rebuild loop gets painful.
+[build]
+incremental = false
