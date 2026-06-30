@@ -277,6 +277,13 @@ pub async fn spawn_pi_session(
                                     .take()
                                     .map(|t| t.elapsed().as_millis().min(u32::MAX as u128) as u32)
                                     .unwrap_or(50);
+                                // Executor context on its dedicated channel
+                                // (kept off the mixed throughput path).
+                                let ctx = usage
+                                    .input_tokens
+                                    .saturating_add(usage.cache_creation_input_tokens)
+                                    .saturating_add(usage.cache_read_input_tokens);
+                                vitals.record_executor_context(session_id, model.clone(), ctx);
                                 if let Some(call) = vitals_call.take() {
                                     call.complete_with_model(model, usage, latency_ms);
                                 } else {
@@ -293,6 +300,15 @@ pub async fn spawn_pi_session(
                                             t.elapsed().as_millis().min(u32::MAX as u128) as u32
                                         })
                                         .unwrap_or(50);
+                                    let ctx = usage
+                                        .input_tokens
+                                        .saturating_add(usage.cache_creation_input_tokens)
+                                        .saturating_add(usage.cache_read_input_tokens);
+                                    vitals.record_executor_context(
+                                        session_id,
+                                        model.clone(),
+                                        ctx,
+                                    );
                                     call.complete_with_model(model, usage, latency_ms);
                                 } else {
                                     vitals_started = None;
