@@ -169,7 +169,13 @@ __karl_load_autosuggestions
 # the shell's lifetime — new tabs reflect the current theme.
 claude() {
     if [[ -n "${COVENANT_CLAUDE_THEME:-}" && "$*" != *--settings* && "$*" != *--theme* ]]; then
-        command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\"}" "$@"
+        if [[ -n "${COVENANT_TAB:-}" ]]; then
+            # Covenant tab: also install the statusLine bridge so the
+            # status-bar vitals get Claude's structured context/token data.
+            command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\",\"statusLine\":{\"type\":\"command\",\"command\":\"sh ${HOME}/.covenant/covenant-statusline.sh\",\"padding\":0}}" "$@"
+        else
+            command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\"}" "$@"
+        fi
     else
         command claude "$@"
     fi

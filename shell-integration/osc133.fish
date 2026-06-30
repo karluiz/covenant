@@ -45,7 +45,11 @@ end
 # theme. `command claude` avoids recursing into this function.
 function claude
     if set -q COVENANT_CLAUDE_THEME; and not contains -- --settings $argv; and not contains -- --theme $argv
-        command claude --settings "{\"theme\":\"$COVENANT_CLAUDE_THEME\"}" $argv
+        if set -q COVENANT_TAB
+            command claude --settings "{\"theme\":\"$COVENANT_CLAUDE_THEME\",\"statusLine\":{\"type\":\"command\",\"command\":\"sh $HOME/.covenant/covenant-statusline.sh\",\"padding\":0}}" $argv
+        else
+            command claude --settings "{\"theme\":\"$COVENANT_CLAUDE_THEME\"}" $argv
+        end
     else
         command claude $argv
     end

@@ -71,6 +71,11 @@ pub(crate) enum VitalsEvent {
         session: SessionId,
         model: String,
         context_tokens: u32,
+        /// Context-fill % when the executor reports it directly (Claude
+        /// Code's statusLine `used_percentage`, which knows the real 200k
+        /// vs 1M window). `None` when only the raw token count is available
+        /// (OpenCode), and the UI shows absolute tokens.
+        pct: Option<u8>,
     },
 }
 
@@ -218,6 +223,9 @@ pub(crate) struct VitalsState {
     /// own interleaved calls don't touch it, so the gauge stays pinned to
     /// the executor rather than flickering to a summariser's tiny prompt.
     exec_context_tokens: u32,
+    /// Context-fill % when the executor reports it directly (Claude Code
+    /// statusLine). Preferred over the token/window estimate.
+    exec_context_pct: Option<u8>,
     /// Model behind `exec_context_tokens` (drives the window lookup,
     /// independent of `last_model` which tracks any/all calls).
     exec_context_model: Option<String>,
@@ -235,6 +243,7 @@ impl VitalsState {
             in_flight: None,
             total_tokens: 0,
             exec_context_tokens: 0,
+            exec_context_pct: None,
             exec_context_model: None,
         }
     }
@@ -284,8 +293,9 @@ impl VitalsState {
         self.in_flight = None;
     }
 
-    fn set_executor_context(&mut self, model: String, context_tokens: u32) {
+    fn set_executor_context(&mut self, model: String, context_tokens: u32, pct: Option<u8>) {
         self.exec_context_tokens = context_tokens;
+        self.exec_context_pct = pct;
         self.exec_context_model = Some(model);
     }
 
@@ -337,9 +347,14 @@ impl VitalsState {
         let is_idle = self.in_flight.is_none() && idle_secs >= IDLE_THRESHOLD_SECS;
 
         let context_tokens = self.exec_context_tokens;
-        let context_pct = self.exec_context_model.as_deref().and_then(|m| {
-            context_window(m, context_tokens)
-                .map(|w| ((context_tokens as u64 * 100) / w as u64).min(100) as u8)
+        // Prefer the executor's own reported % (Claude Code statusLine —
+        // knows the real 200k/1M window). Fall back to the token/window
+        // estimate (currently None for everything → absolute display).
+        let context_pct = self.exec_context_pct.or_else(|| {
+            self.exec_context_model.as_deref().and_then(|m| {
+                context_window(m, context_tokens)
+                    .map(|w| ((context_tokens as u64 * 100) / w as u64).min(100) as u8)
+            })
         });
 
         VitalsPayload {
@@ -460,6 +475,25 @@ impl VitalsHandle {
             session,
             model,
             context_tokens,
+            pct: None,
+        });
+    }
+
+    /// Like `record_executor_context`, but with the fill % reported by the
+    /// executor itself (Claude Code statusLine `used_percentage`, which
+    /// knows the real 200k/1M window). Preferred over the token estimate.
+    pub fn record_executor_context_pct(
+        &self,
+        session: SessionId,
+        model: String,
+        context_tokens: u32,
+        pct: u8,
+    ) {
+        let _ = self.tx.send(VitalsEvent::ExecutorContext {
+            session,
+            model,
+            context_tokens,
+            pct: Some(pct),
         });
     }
 
@@ -597,9 +631,9 @@ pub fn spawn(app: tauri::AppHandle) -> VitalsHandle {
                                 agg.active = *session;
                                 None
                             }
-                            VitalsEvent::ExecutorContext { session, model, context_tokens } => {
+                            VitalsEvent::ExecutorContext { session, model, context_tokens, pct } => {
                                 let s = agg.touch_session(*session, now);
-                                s.set_executor_context(model.clone(), *context_tokens);
+                                s.set_executor_context(model.clone(), *context_tokens, *pct);
                                 Some(*session)
                             }
                         };
@@ -757,7 +791,7 @@ mod tests {
     #[test]
     fn executor_context_sets_tokens_pct_none_for_now() {
         let mut s = VitalsState::new(0);
-        s.set_executor_context("claude-opus-4-8".into(), 171_280);
+        s.set_executor_context("claude-opus-4-8".into(), 171_280, None);
         let p = s.snapshot(0);
         assert_eq!(p.context_tokens, 171_280);
         // No reliable window → absolute tokens, no (possibly-wrong) %.
@@ -767,7 +801,7 @@ mod tests {
     #[test]
     fn model_pill_prefers_executor_over_internal_calls() {
         let mut s = VitalsState::new(0);
-        s.set_executor_context("claude-opus-4-8".into(), 50_000);
+        s.set_executor_context("claude-opus-4-8".into(), 50_000, None);
         // A background Covenant call on gpt-4o fires last...
         s.record_complete("gpt-4o".into(), mk_usage(200, 69, 0, 0), 1, 10);
         // ...but the pill still names the executor.
@@ -786,7 +820,7 @@ mod tests {
     #[test]
     fn internal_calls_do_not_touch_executor_context() {
         let mut s = VitalsState::new(0);
-        s.set_executor_context("claude-opus-4-8".into(), 171_280);
+        s.set_executor_context("claude-opus-4-8".into(), 171_280, None);
         // An interleaved internal gpt-4o call must NOT overwrite the
         // executor's context number (the bug the screenshot caught).
         s.record_complete("gpt-4o".into(), mk_usage(200, 69, 0, 0), 1, 10);
@@ -797,9 +831,9 @@ mod tests {
     #[test]
     fn executor_context_overwrites_on_compaction() {
         let mut s = VitalsState::new(0);
-        s.set_executor_context("claude-opus-4-8".into(), 171_280);
+        s.set_executor_context("claude-opus-4-8".into(), 171_280, None);
         // Compaction drops the next prompt — gauge follows it down.
-        s.set_executor_context("claude-opus-4-8".into(), 22_000);
+        s.set_executor_context("claude-opus-4-8".into(), 22_000, None);
         let p = s.snapshot(0);
         assert_eq!(p.context_tokens, 22_000);
     }

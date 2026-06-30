@@ -24,6 +24,7 @@ mod cross_session;
 mod drafts;
 pub mod email;
 mod embedder;
+mod claude_statusline;
 mod exec_vitals;
 mod executor_idle;
 mod opencode_vitals;
@@ -215,6 +216,11 @@ pub(crate) struct AppState {
     /// OpenCode counterpart of `exec_vitals` — polls OpenCode's SQLite DB
     /// for the active tab's session and feeds the same `VitalsHandle`.
     pub(crate) opencode_vitals: opencode_vitals::OpenCodeVitals,
+    /// Claude Code statusLine bridge — the real-time, structured source of
+    /// context-fill / model / tokens for interactive Claude sessions (whose
+    /// jsonl isn't tailable under the 2.1 daemon). Maps COVENANT_TAB tokens
+    /// to sessions and feeds the same `VitalsHandle`.
+    pub(crate) claude_statusline: claude_statusline::ClaudeStatusline,
     /// Live on/off switch for the Resources panel sampler loop.
     pub(crate) resources: resources::ResourcesState,
     /// Per-session fuzzy file search cache. Populated on first `search_session_files`
@@ -425,6 +431,17 @@ async fn spawn_session(
             .unwrap_or_else(|_| "dark-daltonized".to_string());
         opts.env.push(("COVENANT_CLAUDE_THEME".to_string(), theme));
     }
+    // Claude Code statusLine bridge env. The `claude` wrapper installs
+    // Covenant's statusLine when COVENANT_TAB is set; the helper writes its
+    // JSON keyed by this token and chains the user's original statusLine.
+    // The token is minted before spawn (the SessionId doesn't exist yet)
+    // and mapped to the session below.
+    let statusline_tab = claude_statusline::ClaudeStatusline::mint_tab_token();
+    opts.env
+        .push(("COVENANT_TAB".to_string(), statusline_tab.clone()));
+    if let Some(orig) = claude_statusline::ClaudeStatusline::user_statusline_command() {
+        opts.env.push(("COVENANT_ORIG_STATUSLINE".to_string(), orig));
+    }
     // Persistence-restored cwd is set HERE (before spawn) instead of
     // injected as `cd <path>\r` after the first prompt. portable-pty
     // launches the shell directly in this directory — no visible
@@ -444,6 +461,7 @@ async fn spawn_session(
     let initial_launch_cwd = opts.cwd.clone();
     let (session, streams) = Session::spawn(opts).map_err(|e| e.to_string())?;
     let id = session.id;
+    state.claude_statusline.register(statusline_tab, id);
     let id_str = id.to_string();
     let bus_tx = session.event_sender();
 
@@ -863,6 +881,7 @@ async fn close_session(
     let id = parse_id(&id)?;
     state.operator.detach(id).await;
     state.operator.forget_tab_title(id).await;
+    state.claude_statusline.unregister(id);
     registry.unpin_session(id);
     let mut sessions = state.sessions.lock().await;
     if let Some(mut managed) = sessions.remove(&id) {
@@ -3804,6 +3823,9 @@ pub fn run() {
             app.manage(vitals.clone());
             let exec_vitals = exec_vitals::ExecVitals::new(vitals.clone());
             let opencode_vitals = opencode_vitals::OpenCodeVitals::new(vitals.clone());
+            let claude_statusline = claude_statusline::ClaudeStatusline::new(vitals.clone());
+            claude_statusline::ClaudeStatusline::install_helper();
+            claude_statusline.spawn_watcher();
 
             let cross = CrossSessionWatcher::spawn(app.handle().clone(), settings_arc.clone(), vitals.clone());
             let mission_store = dir.join("session_missions.json");
@@ -4205,6 +4227,7 @@ pub fn run() {
                 vitals,
                 exec_vitals,
                 opencode_vitals,
+                claude_statusline,
                 resources: resources::ResourcesState::default(),
                 file_search_cache: crate::file_search::FileSearchCache::new(),
                 allow_remote_open: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
