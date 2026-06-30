@@ -60,7 +60,11 @@ esac
 # theme. `command claude` avoids recursing into this function.
 claude() {
     if [[ -n "${COVENANT_CLAUDE_THEME:-}" && "$*" != *--settings* && "$*" != *--theme* ]]; then
-        command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\"}" "$@"
+        if [[ -n "${COVENANT_TAB:-}" ]]; then
+            command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\",\"statusLine\":{\"type\":\"command\",\"command\":\"sh ${HOME}/.covenant/covenant-statusline.sh\",\"padding\":0}}" "$@"
+        else
+            command claude --settings "{\"theme\":\"${COVENANT_CLAUDE_THEME}\"}" "$@"
+        fi
     else
         command claude "$@"
     fi
