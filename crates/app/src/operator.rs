@@ -2410,6 +2410,7 @@ async fn run_tick(
             op.voice,
             op.escalate_threshold,
             task_archetype,
+            task_ident.as_ref(),
         );
 
         // CRITICAL: mark dedup BEFORE the model call. If we marked
@@ -3921,6 +3922,7 @@ fn build_system_prompt(
     voice: crate::operator_registry::VoiceTone,
     escalate_threshold: f32,
     task_archetype: Option<crate::teammate::types::TaskArchetype>,
+    task: Option<&TaskIdent>,
 ) -> String {
     let aom_block = if aom_active {
         format!("# {}\n\n", AOM_DIRECTIVE)
@@ -3975,6 +3977,28 @@ fn build_system_prompt(
     } else {
         String::new()
     };
+    let task_block = match task {
+        Some(t) => format!(
+            "# Active task\n\
+             This terminal tab is executing a task you dispatched:\n\
+             - Title: {title}\n\
+             - Deliverable: {deliverable}\n\
+             \n\
+             When the executor has clearly FINISHED this deliverable (its \
+             screen shows completion and it is idle at a prompt), emit:\n\
+             \n\
+             ACTION: COMPLETE\n\
+             RATIONALE: <one sentence on why it's done>\n\
+             \n\
+             If you are NOT sure it's done, use ACTION: REPLY to ask the \
+             executor directly (e.g. \"Have you finished the task? Reply DONE, \
+             or tell me what's left.\") and decide on the next check — or \
+             ACTION: WAIT. NEVER emit COMPLETE on ambiguity.\n\n",
+            title = t.title,
+            deliverable = t.deliverable,
+        ),
+        None => String::new(),
+    };
     let mut s = format!(
         "You are the Operator for Covenant — the user's coordinator that \
          watches an executor agent (claude code, copilot, opencode, aider, …) \
@@ -3985,6 +4009,7 @@ fn build_system_prompt(
          {learned_block}\
          {project_block}\
          {review_block}\
+         {task_block}\
          # PERSONA (set by user — guides judgment for the routine cases)\n\
          {persona}\n\n\
          # {escalation}\n\n\
@@ -3992,6 +4017,7 @@ fn build_system_prompt(
          # {hard}\n\n\
          # {voice_dir}\n\n\
          # {fmt}",
+        task_block = task_block,
         persona = persona.trim(),
         escalation = crate::operator_registry::escalate_directive(escalate_threshold),
         recommendation = EXECUTOR_RECOMMENDATION_DIRECTIVE,
@@ -5442,6 +5468,7 @@ error[E0382]: borrow of moved value\n";
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             Some(crate::teammate::types::TaskArchetype::Review),
+            None,
         );
         assert!(got.contains("REVIEW TASK CONTRACT"), "got: {got}");
         assert!(got.contains("read-only auditor"));
@@ -5459,6 +5486,7 @@ error[E0382]: borrow of moved value\n";
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             None,
+            None,
         );
         assert!(!got.contains("REVIEW TASK CONTRACT"));
     }
@@ -5475,8 +5503,31 @@ error[E0382]: borrow of moved value\n";
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             Some(crate::teammate::types::TaskArchetype::Do),
+            None,
         );
         assert!(!got.contains("REVIEW TASK CONTRACT"));
+    }
+
+    #[test]
+    fn system_prompt_offers_complete_only_with_task() {
+        let ident = TaskIdent {
+            id: crate::teammate::TaskId::new(),
+            title: "Fix Windows startup".into(),
+            deliverable: "app launches on Windows".into(),
+        };
+        let with = build_system_prompt(
+            "persona", true, None, &[], "", false,
+            crate::operator_registry::VoiceTone::Terse, 0.6, Some(crate::teammate::types::TaskArchetype::Do),
+            Some(&ident),
+        );
+        assert!(with.contains("Fix Windows startup"));
+        assert!(with.contains("ACTION: COMPLETE"));
+
+        let without = build_system_prompt(
+            "persona", true, None, &[], "", false,
+            crate::operator_registry::VoiceTone::Terse, 0.6, None, None,
+        );
+        assert!(!without.contains("ACTION: COMPLETE"));
     }
 
     #[test]
@@ -5491,6 +5542,7 @@ error[E0382]: borrow of moved value\n";
                 false,
                 crate::operator_registry::VoiceTone::Terse,
                 t,
+                None,
                 None,
             )
         };
@@ -6105,6 +6157,7 @@ What would you like to do?
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             None,
+            None,
         );
         let expected = format!(
             "You are the Operator for Covenant — the user's coordinator that \
@@ -6148,6 +6201,7 @@ What would you like to do?
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             None,
+            None,
         );
         assert_eq!(got.matches("## Learned decisions").count(), 1);
         assert!(got.contains("[id=42]"));
@@ -6171,6 +6225,7 @@ What would you like to do?
             false,
             crate::operator_registry::VoiceTone::Terse,
             0.6,
+            None,
             None,
         );
         assert!(
@@ -6197,6 +6252,7 @@ What would you like to do?
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             None,
+            None,
         );
         let baseline = build_system_prompt(
             persona,
@@ -6207,6 +6263,7 @@ What would you like to do?
             false,
             crate::operator_registry::VoiceTone::Terse,
             0.6,
+            None,
             None,
         );
         assert_eq!(with_empty, baseline);
@@ -6235,6 +6292,7 @@ What would you like to do?
             false,
             crate::operator_registry::VoiceTone::Terse,
             0.6,
+            None,
             None,
         );
         assert!(
@@ -6270,6 +6328,7 @@ What would you like to do?
             crate::operator_registry::VoiceTone::Terse,
             0.6,
             None,
+            None,
         );
         assert!(
             out.contains("<mission-spec kind=\"superpowers\""),
@@ -6302,6 +6361,7 @@ What would you like to do?
             false,
             crate::operator_registry::VoiceTone::Terse,
             0.6,
+            None,
             None,
         );
         assert!(out.contains("no plan attached; ESCALATE"), "out was: {out}");
