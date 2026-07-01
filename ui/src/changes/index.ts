@@ -129,13 +129,19 @@ export class ChangesSurface {
     const summarize = document.createElement("button");
     summarize.type = "button";
     summarize.className = "cd-summarize";
-    summarize.textContent = "✨ Summarize";
+    // ponytail: inline SVG (no emoji); inherits currentColor for hover/disabled.
+    summarize.innerHTML =
+      `<svg class="cd-summarize-icon" viewBox="0 0 24 24" width="14" height="14" ` +
+      `fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ` +
+      `stroke-linejoin="round" aria-hidden="true">` +
+      `<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8` +
+      `M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg><span>Summarize</span>`;
     summarize.addEventListener("click", () => void this.summarize());
     this.summarizeBtn = summarize;
     const commit = document.createElement("button");
     commit.type = "button";
     commit.className = "cd-commit-btn";
-    commit.textContent = "Commit";
+    commit.textContent = "Commit & Push";
     commit.addEventListener("click", () => void this.commit());
     this.commitBtn = commit;
     row.append(summarize, commit);
@@ -144,12 +150,13 @@ export class ChangesSurface {
     return bar;
   }
 
-  /// Enable/disable the bar from current staged count + message.
+  /// Enable/disable the bar. Summarize/Commit act on any change: staged if you've
+  /// staged something, otherwise everything (the backend stages-all on commit).
   private syncCommitBar(): void {
-    const hasStaged = this.changes.staged.length > 0;
+    const hasChanges = this.changes.staged.length > 0 || this.changes.unstaged.length > 0;
     const hasMsg = !!this.msgEl?.value.trim();
-    if (this.summarizeBtn) this.summarizeBtn.disabled = !hasStaged;
-    if (this.commitBtn) this.commitBtn.disabled = !hasStaged || !hasMsg;
+    if (this.summarizeBtn) this.summarizeBtn.disabled = !hasChanges;
+    if (this.commitBtn) this.commitBtn.disabled = !hasChanges || !hasMsg;
   }
 
   private setStatus(text: string, err = false): void {
@@ -177,16 +184,17 @@ export class ChangesSurface {
   private async commit(): Promise<void> {
     if (!this.msgEl) return;
     const message = this.msgEl.value.trim();
-    if (!message || this.changes.staged.length === 0) return;
+    const hasChanges = this.changes.staged.length > 0 || this.changes.unstaged.length > 0;
+    if (!message || !hasChanges) return;
     if (this.commitBtn) this.commitBtn.disabled = true;
-    this.setStatus("Committing…");
+    this.setStatus("Committing & pushing…");
     try {
-      this.changes = await gitCommit(this.repoRoot, message);
+      this.changes = await gitCommit(this.repoRoot, message, true);
       this.msgEl.value = "";
       this.selectedPath = null;
       this.renderEmptyDiff();
       this.renderRailInto();
-      this.setStatus("Committed ✓");
+      this.setStatus("Committed & pushed");
     } catch (e) {
       this.setStatus(String(e), true);
     } finally {

@@ -2475,9 +2475,13 @@ async fn git_unstage(cwd: String, path: String) -> Result<git_tools::diff::Chang
 }
 
 #[tauri::command]
-async fn git_commit(cwd: String, message: String) -> Result<git_tools::diff::Changes, String> {
+async fn git_commit(
+    cwd: String,
+    message: String,
+    push: bool,
+) -> Result<git_tools::diff::Changes, String> {
     let cwd = std::path::PathBuf::from(cwd);
-    tokio::task::spawn_blocking(move || git_tools::commit(&cwd, &message))
+    tokio::task::spawn_blocking(move || git_tools::commit(&cwd, &message, push))
         .await
         .map_err(|e| format!("git_commit join: {e}"))?
 }
@@ -2499,7 +2503,7 @@ async fn generate_commit_message(
         .await
         .map_err(|e| format!("staged_diff join: {e}"))??;
     if diff.trim().is_empty() {
-        return Err("nothing staged".into());
+        return Err("no changes to summarize".into());
     }
     // ponytail: cap the diff fed to the model; huge diffs blow the context budget.
     let diff: String = diff.chars().take(24_000).collect();

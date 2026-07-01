@@ -1437,8 +1437,8 @@ export async function gitStage(cwd: string, path: string): Promise<Changes> {
 export async function gitUnstage(cwd: string, path: string): Promise<Changes> {
   return invoke<Changes>("git_unstage", { cwd, path });
 }
-export async function gitCommit(cwd: string, message: string): Promise<Changes> {
-  return invoke<Changes>("git_commit", { cwd, message });
+export async function gitCommit(cwd: string, message: string, push = false): Promise<Changes> {
+  return invoke<Changes>("git_commit", { cwd, message, push });
 }
 export async function generateCommitMessage(cwd: string): Promise<string> {
   return invoke<string>("generate_commit_message", { cwd });

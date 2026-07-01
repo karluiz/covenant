@@ -337,18 +337,35 @@ pub fn unstage(cwd: &Path, path: &str) -> Result<diff::Changes, String> {
     changes(cwd)
 }
 
-pub fn commit(cwd: &Path, message: &str) -> Result<diff::Changes, String> {
+pub fn commit(cwd: &Path, message: &str, push: bool) -> Result<diff::Changes, String> {
     let msg = message.trim();
     if msg.is_empty() {
         return Err("commit message is empty".into());
     }
+    // Nothing staged → "commit all": stage every change (incl. untracked). When the
+    // user has staged specific files, honour that and commit only those.
+    if git(cwd, &["diff", "--cached", "--name-only"])?.trim().is_empty() {
+        git(cwd, &["add", "-A"])?;
+    }
     git(cwd, &["commit", "-m", msg])?;
+    if push {
+        git(cwd, &["push"])?;
+    }
     changes(cwd)
 }
 
-/// Full staged diff (`git diff --cached`) — fed to the LLM for message generation.
+/// Diff fed to the LLM for message generation: staged changes if any are staged,
+/// otherwise the full working diff so Summarize works before manual staging.
 pub fn staged_diff(cwd: &Path) -> Result<String, String> {
-    git(cwd, &["diff", "--cached"])
+    let staged = git(cwd, &["diff", "--cached"])?;
+    if !staged.trim().is_empty() {
+        return Ok(staged);
+    }
+    // Untracked files aren't shown by `git diff`; include them via intent-to-add.
+    git(cwd, &["add", "-AN"])?;
+    let working = git(cwd, &["diff"]);
+    let _ = git(cwd, &["reset", "-q"]); // undo intent-to-add, leave the index as it was
+    working
 }
 
 pub fn file_diff(cwd: &Path, path: &str, staged: bool) -> Result<diff::FileDiff, String> {

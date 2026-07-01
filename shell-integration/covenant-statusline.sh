@@ -16,6 +16,10 @@
 # (i.e. not launched by Covenant), this degrades to a no-op.
 input=$(cat)
 
+# Diagnostic: confirm the helper is actually invoked and whether
+# COVENANT_TAB propagated. Remove once verified.
+printf '%s tab=%s\n' "$(date '+%H:%M:%S')" "${COVENANT_TAB:-UNSET}" >>"$HOME/.covenant/statusline-debug.log" 2>/dev/null
+
 if [ -n "$COVENANT_TAB" ]; then
     dir="${COVENANT_VITALS_DIR:-$HOME/.covenant/vitals}"
     mkdir -p "$dir" 2>/dev/null

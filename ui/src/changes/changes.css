@@ -151,9 +151,14 @@ body.changes-fullscreen .cd-frame {
 }
 .cd-summarize {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: rgba(var(--ink-rgb), 0.04);
   color: var(--text-primary);
 }
+.cd-summarize-icon { flex: 0 0 auto; }
 .cd-summarize:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .cd-commit-btn {
   background: var(--accent);

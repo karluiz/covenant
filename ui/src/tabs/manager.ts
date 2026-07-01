@@ -1425,6 +1425,17 @@ export class TabManager {
           initialCommand: selection,
         });
       });
+      // Save the highlighted text as a reusable prompt. ponytail: title is the
+      // first line truncated — no naming dialog; rename later in the Prompts tab.
+      addItem("Create prompt", () => {
+        const title =
+          (selection.split("\n", 1)[0] ?? "Prompt").trim().slice(0, 60) ||
+          "Prompt";
+        void promptsApi
+          .create(title, selection)
+          .then(() => pushInfoToast({ message: `Saved prompt “${title}”` }))
+          .catch(() => pushInfoToast({ message: "Couldn’t save prompt" }));
+      });
     }
 
     // Start the default agent — only when none is already running in this
@@ -3183,6 +3194,17 @@ export class TabManager {
               recall?.notifyPromptStart();
               promptHint.reset();
               cdPicker.reset();
+              // A TUI that crashed/was killed can leave mouse tracking enabled;
+              // every mouse move then leaks SGR reports (e.g. `65;66;25M`) into
+              // the prompt. Mouse-using TUIs live on the alt buffer, so tracking
+              // still on at a normal-buffer prompt is stuck state — clear it by
+              // writing the DECRSTs to xterm (updates its mode; not sent to PTY).
+              if (
+                term.modes.mouseTrackingMode !== "none" &&
+                term.buffer.active.type === "normal"
+              ) {
+                term.write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+              }
               if (initialCmdPending !== null) {
                 const cmd = initialCmdPending;
                 initialCmdPending = null;

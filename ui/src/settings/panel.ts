@@ -237,6 +237,13 @@ export class SettingsPanel {
   /// open tabs without requiring a restart.
   public onSaved: ((next: Settings) => void) | null = null;
 
+  /// Fired as the user toggles Theme / Window-background radios, before
+  /// saving, so chrome + xterm reflect the choice live. close() re-fires
+  /// it with the persisted values to revert an unsaved preview.
+  public onPreview:
+    | ((p: { theme: ThemeMode; background: WindowBackground }) => void)
+    | null = null;
+
   /// Optional callback fired when the page closes (any reason). Used
   /// by main to refit the active terminal once the workspace becomes
   /// visible again.
@@ -368,6 +375,10 @@ export class SettingsPanel {
       applyPresetTabStyle(this.current.window?.tab_style ?? "classic");
       applyCustomTabStyle(this.current.experimental?.tab_styles ?? null);
       applyIndicatorVisibility(this.current.hidden_indicators ?? []);
+      this.onPreview?.({
+        theme: this.current.window?.theme ?? "system",
+        background: this.current.window?.background ?? "vibrant",
+      });
     }
 
     // Be defensive: Settings.open()/render() does async work, and other
@@ -1356,6 +1367,20 @@ export class SettingsPanel {
     themeRadios.forEach((r) => {
       r.checked = r.value === currentTheme;
     });
+    // Live preview: apply theme + window background the instant a radio is
+    // clicked so the user sees what they're changing. close() reverts to the
+    // persisted values if they bail without saving.
+    const previewAppearance = (): void => {
+      this.onPreview?.({
+        theme: (Array.from(themeRadios).find((r) => r.checked)?.value ??
+          "system") as ThemeMode,
+        background: (Array.from(windowBgRadios).find((r) => r.checked)?.value ??
+          "vibrant") as WindowBackground,
+      });
+    };
+    [...themeRadios, ...windowBgRadios].forEach((r) =>
+      r.addEventListener("change", previewAppearance),
+    );
     statusBarEnabled.checked = this.current.status_bar_enabled ?? true;
     const hidden = new Set(this.current.hidden_indicators ?? []);
     indicatorChecks.forEach((cb) => {

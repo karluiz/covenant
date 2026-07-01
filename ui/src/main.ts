@@ -1136,8 +1136,11 @@ async function boot(): Promise<void> {
         const bytes = new TextEncoder().encode(cmdline);
         await writeToSession(sid, bytes);
         manager.setActiveSpawnId(spec.id);
-        manager.focusActive();
-        void chip.refresh();
+        await chip.refresh();
+        // Focus last, after the chip DOM is rebuilt and a frame has passed —
+        // otherwise the run <button> click + chip refresh race the terminal
+        // focus and it intermittently doesn't stick. ponytail: rAF is enough.
+        requestAnimationFrame(() => manager.focusActive());
       })();
     };
     // Pane context menu → "Start agent": run the default spawn (or first) in
@@ -1635,6 +1638,12 @@ async function boot(): Promise<void> {
   // Live-apply terminal font/size and window background to open tabs
   // whenever settings save. Background mode swaps a body class — pure
   // CSS reflow, no need to re-init xterm.
+  // Live preview while the appearance radios are toggled — no save needed.
+  settings.onPreview = ({ theme, background }) => {
+    applyWindowBackground(background);
+    void applyTheme(theme, manager);
+  };
+
   settings.onSaved = (next) => {
     manager.applyTerminalSettings(next.terminal);
     applyWindowBackground(next.window?.background ?? "vibrant");
@@ -2044,6 +2053,7 @@ async function boot(): Promise<void> {
       if (docsPanel.isOpen()) docsPanel.close();
       if (draftsPanel.isOpen()) draftsPanel.close();
       if (operator.isOpen()) operator.close();
+      if (capabilities.isOpen()) capabilities.close();
       void settings.toggle();
       return;
     }
@@ -2178,6 +2188,12 @@ async function boot(): Promise<void> {
     // by the Shortcuts modal, so the spec's keybinding was relocated to I.
     if (e.metaKey && e.shiftKey && (e.key === "I" || e.key === "i")) {
       e.preventDefault();
+      // Capabilities shares the workspace grid cell with the other full-page
+      // panels — close them first so they don't stack/bleed through.
+      if (settings.isOpen()) settings.close();
+      if (docsPanel.isOpen()) docsPanel.close();
+      if (draftsPanel.isOpen()) draftsPanel.close();
+      if (operator.isOpen()) operator.close();
       void capabilities.toggle(manager.activeCwd());
       return;
     }
