@@ -3243,14 +3243,62 @@ async fn run_tick(
                     Some(rationale),
                     None,
                 ),
-                OperatorAction::Complete { rationale } => (
-                    OperatorAction::Complete { rationale: rationale.clone() },
-                    false,
-                    "complete".to_string(),
-                    None,
-                    Some(rationale),
-                    None,
-                ),
+                OperatorAction::Complete { rationale } => {
+                    let did = if let Some(ident) = task_ident.as_ref() {
+                        let storage_arc = app.try_state::<std::sync::Arc<crate::storage::Storage>>();
+                        let runtime = app
+                            .try_state::<std::sync::Arc<crate::teammate::runtime::TeammateRuntime>>();
+                        match (storage_arc, runtime) {
+                            (Some(s), Some(r)) => {
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_millis() as u64)
+                                    .unwrap_or(0);
+                                match crate::teammate::commands::complete_task_inner(
+                                    s.inner(), r.inner(), ident.id, now_ms,
+                                )
+                                .await
+                                {
+                                    Ok((task, msg)) => {
+                                        use tauri::Emitter;
+                                        let _ = app.emit("teammate-task", &task);
+                                        let _ = app.emit("teammate-message", &msg);
+                                        // Clear the stash so we never re-complete
+                                        // this task on the next 45s re-poll.
+                                        if let Some(att) =
+                                            inner.lock().await.sessions.get_mut(&session_id)
+                                        {
+                                            att.task_ident = None;
+                                        }
+                                        tracing::info!(
+                                            session = %session_id, task = %ident.id.0,
+                                            "operator auto-completed task"
+                                        );
+                                        true
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "auto-complete failed");
+                                        false
+                                    }
+                                }
+                            }
+                            _ => {
+                                tracing::warn!("auto-complete: storage/runtime state missing");
+                                false
+                            }
+                        }
+                    } else {
+                        false
+                    };
+                    (
+                        OperatorAction::Complete { rationale: rationale.clone() },
+                        did,
+                        "complete".to_string(),
+                        None,
+                        Some(rationale),
+                        None,
+                    )
+                }
             }
         } else {
             // Dry-run mode: persist what would have happened, never
