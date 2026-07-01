@@ -6,6 +6,45 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.113 — Per-tab executor context vitals + Changes commit & push
+
+### Added
+
+- **Per-tab executor context-window fill**: the status bar now shows the live
+  context-window fill % for the executor running in the active tab, read from
+  each tool's own state — Claude and Pi (`crates/app/src/vitals.rs`), opencode
+  via a SQLite reader (`crates/app/src/opencode_vitals.rs`), plus the frontend
+  gauge in `ui/src/status/vitals.ts`.
+- **Claude Code statusLine bridge**: a sustainable structured source for vitals
+  that reads Claude Code's own statusLine instead of scraping the PTY. New
+  `crates/app/src/claude_statusline.rs` + `shell-integration/covenant-statusline.sh`.
+- **Commit & Push in Changes**: the Changes surface now commits *and* pushes in
+  one action; when nothing is staged it stages all changes first. Summarize and
+  Commit enable on any change (not just staged), and the AI summary diff falls
+  back to the full working diff (including untracked files) so it works before
+  you stage. `ui/src/changes/index.ts`, `crates/app/src/git_tools.rs`.
+
+### Changed
+
+- **Executor-only vitals**: stats and the model pill now reflect the executor
+  in the tab rather than Covenant's own background worker, with correct per-tab
+  JSONL binding. The status-bar chip shows the executor logo only, dropping the
+  name. `crates/app/src/exec_vitals.rs`, `ui/src/status/bar.ts`.
+- **No emoji in Changes**: the Summarize button's sparkle emoji is now an inline
+  SVG that inherits color. `ui/src/changes/index.ts`, `ui/src/changes/changes.css`.
+- **Incremental compilation disabled**: `.cargo/config.toml` turns off
+  `target/incremental` to stop the debug cache ballooning past 100 GB.
+
+### Fixed
+
+- **Stuck mouse-tracking recovery**: a TUI that crashed with mouse tracking left
+  on would leak SGR mouse reports (e.g. `65;66;25M`) into the shell prompt. On a
+  fresh normal-buffer prompt Covenant now clears the stuck mouse modes.
+  `ui/src/tabs/manager.ts`.
+- **Faked context percentages removed**: vitals no longer fabricate a window fill
+  when the executor doesn't report one; the source is executor-only.
+  `crates/app/src/vitals.rs`.
+
 ## v0.8.112 — Capabilities: executor agents + CDLC projection
 
 ### Added
