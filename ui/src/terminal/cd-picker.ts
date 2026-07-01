@@ -74,9 +74,18 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
   // Anchor to the shell input line (cursor row) and flip above it when the
   // prompt sits too low to fit the list below — so what you type stays visible.
   const position = (): void => {
-    const cellH = host.clientHeight / term.rows;
+    // ponytail: reads xterm's private renderer cell height, same accessor
+    // prompt-detect.ts uses — host.clientHeight/term.rows drifts from the
+    // real row height and misaligns the picker over multiple rows.
+    const core = (term as unknown as {
+      _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } };
+    })._core;
+    const cellH = core?._renderService?.dimensions?.css?.cell?.height ?? host.clientHeight / term.rows;
+    // host has padding, and absolutely-positioned children anchor to the
+    // padding box — so xterm's actual rows start `padTop` below y=0.
+    const padTop = parseFloat(getComputedStyle(host).paddingTop) || 0;
     const cursorY = term.buffer.active.cursorY; // 0-based row within viewport
-    const lineBottom = (cursorY + 1) * cellH;   // px to bottom of the input line
+    const lineBottom = padTop + (cursorY + 1) * cellH; // px to bottom of the input line
     const below = host.clientHeight - lineBottom;
     const maxH = Math.round(host.clientHeight * 0.4);
     if (below >= 140) {
@@ -85,8 +94,8 @@ export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPicker
       el.style.maxHeight = `${Math.min(maxH, below)}px`;
     } else {
       el.style.top = "auto";
-      el.style.bottom = `${host.clientHeight - cursorY * cellH}px`; // above the line
-      el.style.maxHeight = `${Math.min(maxH, cursorY * cellH)}px`;
+      el.style.bottom = `${host.clientHeight - padTop - cursorY * cellH}px`; // above the line
+      el.style.maxHeight = `${Math.min(maxH, padTop + cursorY * cellH)}px`;
     }
   };
 
