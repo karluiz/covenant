@@ -93,6 +93,11 @@ impl SpawnOptions {
             crate::shell::ShellKind::PowerShell { .. } => {
                 vec!["-NoLogo".to_string()]
             }
+            #[cfg(windows)]
+            crate::shell::ShellKind::Cmd { .. } => {
+                // cmd.exe has no PowerShell-style flags; launch bare.
+                vec![]
+            }
         };
         let env = vec![
             ("TERM".to_string(), "xterm-256color".to_string()),

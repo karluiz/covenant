@@ -18,6 +18,8 @@ pub enum ShellKind {
     Bash { program: PathBuf },
     #[cfg(windows)]
     PowerShell { program: PathBuf, pwsh: bool },
+    #[cfg(windows)]
+    Cmd { program: PathBuf },
 }
 
 impl ShellKind {
@@ -29,6 +31,8 @@ impl ShellKind {
             ShellKind::Bash { program } => program,
             #[cfg(windows)]
             ShellKind::PowerShell { program, .. } => program,
+            #[cfg(windows)]
+            ShellKind::Cmd { program } => program,
         }
     }
 
@@ -53,11 +57,24 @@ impl ShellKind {
         }
         #[cfg(windows)]
         {
+            // Prefer PowerShell 7 (best OSC 133 story), fall back to the
+            // Windows PowerShell 5.1 that ships with the OS, then cmd.exe.
+            // A terminal that can't open any shell is broken; block-parsing
+            // fidelity is secondary to actually starting. (CLAUDE.md M8)
             if let Some(p) = which_on_path("pwsh.exe") {
                 return Ok(ShellKind::PowerShell {
                     program: p,
                     pwsh: true,
                 });
+            }
+            if let Some(p) = which_on_path("powershell.exe") {
+                return Ok(ShellKind::PowerShell {
+                    program: p,
+                    pwsh: false,
+                });
+            }
+            if let Some(p) = which_on_path("cmd.exe") {
+                return Ok(ShellKind::Cmd { program: p });
             }
             Err(ShellError::NotFound)
         }
@@ -75,22 +92,26 @@ impl ShellKind {
         #[cfg(windows)]
         {
             let lower = name.to_lowercase();
-            if lower == "cmd.exe" || lower == "cmd" {
-                return Err(ShellError::Unsupported(name.to_string()));
-            }
-            if lower == "powershell.exe" || lower == "powershell" {
-                return Err(ShellError::Unsupported(
-                    "powershell.exe (5.1) is not supported; use pwsh.exe".to_string(),
-                ));
-            }
             if lower == "pwsh.exe" || lower == "pwsh" {
-                if let Some(p) = which_on_path("pwsh.exe") {
-                    return Ok(ShellKind::PowerShell {
+                return which_on_path("pwsh.exe")
+                    .map(|p| ShellKind::PowerShell {
                         program: p,
                         pwsh: true,
-                    });
-                }
-                return Err(ShellError::NotFound);
+                    })
+                    .ok_or(ShellError::NotFound);
+            }
+            if lower == "powershell.exe" || lower == "powershell" {
+                return which_on_path("powershell.exe")
+                    .map(|p| ShellKind::PowerShell {
+                        program: p,
+                        pwsh: false,
+                    })
+                    .ok_or(ShellError::NotFound);
+            }
+            if lower == "cmd.exe" || lower == "cmd" {
+                return which_on_path("cmd.exe")
+                    .map(|p| ShellKind::Cmd { program: p })
+                    .ok_or(ShellError::NotFound);
             }
             Err(ShellError::Unsupported(name.to_string()))
         }
@@ -135,11 +156,13 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn windows_rejects_cmd_exe() {
+    fn windows_resolves_cmd_exe_as_fallback() {
+        // cmd.exe always exists on Windows; it must resolve (not error) so
+        // the terminal can start even without pwsh/powershell on PATH.
         let result = ShellKind::resolve_explicit("cmd.exe");
         assert!(
-            matches!(result, Err(ShellError::Unsupported(_))),
-            "expected Unsupported, got: {result:?}"
+            matches!(result, Ok(ShellKind::Cmd { .. })),
+            "expected Cmd, got: {result:?}"
         );
     }
 }
