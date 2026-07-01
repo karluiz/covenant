@@ -6,6 +6,40 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.114 — Operator auto-completes finished tasks + Windows shell fallback
+
+### Added
+
+- **Operator auto-completes a finished task**: when an executor finishes its
+  work, the operator now marks the assigned task Done on its own via a new
+  `OperatorAction::Complete` variant, parsed and dispatched on the AOM re-poll
+  and reusing `complete_task_inner`. The active task identity is stashed on the
+  session state so the operator knows which task to close
+  (`crates/agent/src/operator*`).
+- **Task-scoped operator prompt**: the operator prompt now carries a
+  task-scoped block with explicit COMPLETE instructions, and the teammate
+  status context includes in-flight tasks so "are you finished?" checks stop
+  spawning duplicate status tasks (`crates/agent/src/teammate*`).
+- **GitHub error messages + CDLC UX**: GitHub failures now surface detailed
+  messages (`crates/app/src/beacon.rs`), and the CDLC header's re-export
+  control became a labeled **Project** pill instead of a refresh-looking icon
+  (`ui/src/cdlc/panel.ts`, `ui/src/cdlc/styles.css`), with commit-summary and
+  terminal cd-picker positioning polish (`ui/src/changes/index.ts`,
+  `ui/src/terminal/cd-picker.ts`).
+
+### Fixed
+
+- **Windows shell resolution**: `default_for_platform` only accepted `pwsh.exe`
+  (PowerShell 7), which isn't on a stock Windows box, so the shell resolved to
+  NotFound and no tab could spawn. Now falls back `pwsh > powershell > cmd`,
+  adds a bare-launched `ShellKind::Cmd`, and stops `resolve_explicit` rejecting
+  the fallbacks (`crates/pty`).
+- **macOS traffic lights centering**: the window controls sat ~2px low on the
+  38px title bar; y is now `(38-12)/2 = 13` (`crates/app/tauri.conf.json`).
+- **Operator task-stash cleanup**: the stashed task identity is now cleared on
+  any Complete attempt, and a redundant format arg was dropped
+  (`crates/agent/src/operator*`).
+
 ## v0.8.113 — Per-tab executor context vitals + Changes commit & push
 
 ### Added
