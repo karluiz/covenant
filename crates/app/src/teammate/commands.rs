@@ -1055,7 +1055,15 @@ pub async fn teammate_attach_session_to_task(
     if let Some(task) = &existing {
         state
             .operator
-            .set_task_archetype(session, task.archetype)
+            .set_task_context(
+                session,
+                task.archetype,
+                crate::operator::TaskIdent {
+                    id: task.id,
+                    title: task.title.clone(),
+                    deliverable: task.deliverable.clone(),
+                },
+            )
             .await;
     }
     // Re-attaching a session to a task that is no longer active — the user

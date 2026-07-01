@@ -431,6 +431,23 @@ struct Inner {
 }
 
 impl Inner {
+    /// Core mutation for `OperatorWatcher::set_task_context`. Pulled out
+    /// analogous to `note_user_input` so unit tests can exercise it
+    /// without standing up the full watcher (which needs an `AppHandle`,
+    /// Storage, etc.).
+    fn set_task_context(
+        &mut self,
+        session_id: SessionId,
+        archetype: crate::teammate::types::TaskArchetype,
+        ident: TaskIdent,
+    ) {
+        if let Some(att) = self.sessions.get_mut(&session_id) {
+            att.task_archetype = Some(archetype);
+            tracing::debug!(session = %session_id, task = %ident.id.0, "task context set");
+            att.task_ident = Some(ident);
+        }
+    }
+
     /// Reset the WAIT/loop counters for a session whose user just
     /// typed into the PTY. Pulled out of `OperatorWatcher` so unit
     /// tests can exercise the mutation without standing up the full
@@ -520,6 +537,16 @@ struct AomStartupPending {
     // expensive (every tool needed a permission round-trip).
 }
 
+/// Identity of the teammate Task a session is executing, when spawned by one.
+/// Stashed at attach time so the tick loop can offer/perform `Complete`
+/// without a session→task storage lookup (which doesn't exist).
+#[derive(Clone, Debug)]
+pub struct TaskIdent {
+    pub id: crate::teammate::TaskId,
+    pub title: String,
+    pub deliverable: String,
+}
+
 struct Attached {
     enabled: bool,
     /// M-OP3: when true, REPLY actions actually inject keystrokes into
@@ -563,6 +590,9 @@ struct Attached {
     /// `Watch` is reserved for predicate-triggered tasks and currently behaves
     /// like None at decision time. None = no archetype context (manual session).
     task_archetype: Option<crate::teammate::types::TaskArchetype>,
+    /// Full task identity for the attached task, when known. Set alongside
+    /// `task_archetype`. Enables the operator's `Complete` action.
+    task_ident: Option<TaskIdent>,
     /// AOM startup actions to fire proactively (one-shot per AOM
     /// cycle). Populated by `queue_aom_startup_actions`, drained by
     /// `run_tick`, cleared by `disable_aom_auto_enabled`.
@@ -840,6 +870,7 @@ impl OperatorWatcher {
                 enabled_by_aom: false,
                 mission: None,
                 task_archetype: None,
+                task_ident: None,
                 aom_startup: AomStartupPending::default(),
                 decision_point_stable_since: None,
                 decision_point_fired: false,
@@ -1119,24 +1150,21 @@ impl OperatorWatcher {
         mission_persistence::forget(&self.mission_store, &cwd);
     }
 
-    /// Set the Task archetype for a session. Called by
+    /// Set the Task archetype + identity for a session. Called by
     /// `teammate_attach_session_to_task` so the operator decision loop
-    /// can apply archetype-specific contracts (e.g. read-only for Review).
+    /// can apply archetype-specific contracts (e.g. read-only for Review)
+    /// and, later, offer/perform `Complete` using the stashed identity.
     /// No-op if the session isn't attached.
-    pub async fn set_task_archetype(
+    pub async fn set_task_context(
         &self,
         session_id: SessionId,
         archetype: crate::teammate::types::TaskArchetype,
+        ident: TaskIdent,
     ) {
-        let mut inner = self.inner.lock().await;
-        if let Some(att) = inner.sessions.get_mut(&session_id) {
-            att.task_archetype = Some(archetype);
-            tracing::debug!(
-                session_id = %session_id,
-                archetype = ?archetype,
-                "operator: task archetype set"
-            );
-        }
+        self.inner
+            .lock()
+            .await
+            .set_task_context(session_id, archetype, ident);
     }
 
     /// Queue an `aom_startup.rename_to` slot on a session. The next
@@ -1926,6 +1954,7 @@ async fn run_tick(
         Option<std::time::SystemTime>,
         Option<u32>,
         Option<crate::teammate::types::TaskArchetype>,
+        Option<TaskIdent>,
     )> = {
         let mut i = inner.lock().await;
         let mut out = Vec::new();
@@ -1991,6 +2020,7 @@ async fn run_tick(
                 att.last_mission_mtime,
                 att.thinking_budget_override,
                 att.task_archetype,
+                att.task_ident.clone(),
             ));
         }
         out
@@ -2047,6 +2077,7 @@ async fn run_tick(
         _prev_mission_mtime,
         budget_override,
         task_archetype,
+        task_ident,
     ) in candidates
     {
         // Race guard (entry side): the candidate snapshot was taken under
@@ -5162,6 +5193,34 @@ fn handle_parse_failure(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn set_task_context_stashes_ident() {
+        let mut inner = Inner {
+            sessions: HashMap::new(),
+        };
+        let sid = SessionId::new();
+        inner.sessions.insert(sid, test_attached());
+
+        let tid = crate::teammate::TaskId::new();
+        inner.set_task_context(
+            sid,
+            crate::teammate::types::TaskArchetype::Do,
+            TaskIdent {
+                id: tid,
+                title: "Fix Windows".into(),
+                deliverable: "app starts".into(),
+            },
+        );
+
+        let att = inner.sessions.get(&sid).expect("attached");
+        let ident = att.task_ident.as_ref().expect("ident set");
+        assert_eq!(ident.title, "Fix Windows");
+        assert_eq!(
+            att.task_archetype,
+            Some(crate::teammate::types::TaskArchetype::Do)
+        );
+    }
+
     #[test]
     fn working_phases_suppress_engage() {
         use karl_session::ExecutorPhase::*;
@@ -5489,6 +5548,7 @@ error[E0382]: borrow of moved value\n";
             enabled_by_aom: false,
             mission: None,
             task_archetype: None,
+            task_ident: None,
             aom_startup: AomStartupPending::default(),
             decision_point_stable_since: None,
             decision_point_fired: false,
