@@ -322,6 +322,11 @@ pub enum OperatorAction {
     Wait {
         rationale: String,
     },
+    /// Mark the active teammate task Done. Only offered to sessions that
+    /// have an attached task; a no-op if none is stashed.
+    Complete {
+        rationale: String,
+    },
 }
 
 impl OperatorAction {
@@ -330,6 +335,7 @@ impl OperatorAction {
             OperatorAction::Reply { .. } => "reply",
             OperatorAction::Escalate { .. } => "escalate",
             OperatorAction::Wait { .. } => "wait",
+            OperatorAction::Complete { .. } => "complete",
         }
     }
 }
@@ -3205,6 +3211,14 @@ async fn run_tick(
                     Some(rationale),
                     None,
                 ),
+                OperatorAction::Complete { rationale } => (
+                    OperatorAction::Complete { rationale: rationale.clone() },
+                    false,
+                    "complete".to_string(),
+                    None,
+                    Some(rationale),
+                    None,
+                ),
             }
         } else {
             // Dry-run mode: persist what would have happened, never
@@ -3241,6 +3255,14 @@ async fn run_tick(
                     },
                     false,
                     "wait".to_string(),
+                    None,
+                    Some(rationale),
+                    None,
+                ),
+                OperatorAction::Complete { rationale } => (
+                    OperatorAction::Complete { rationale: rationale.clone() },
+                    false,
+                    "complete".to_string(),
                     None,
                     Some(rationale),
                     None,
@@ -3494,6 +3516,7 @@ async fn run_tick(
                     }
                 }
                 OperatorAction::Wait { .. } => crate::operator_mind::TurnAction::Ignore,
+                OperatorAction::Complete { .. } => crate::operator_mind::TurnAction::Ignore,
             };
             let thought = ask_response.thinking_summary.clone();
             let mut inner_lock = inner.lock().await;
@@ -4353,6 +4376,7 @@ fn compute_loop_hash(action: &OperatorAction, tail: &[u8]) -> u64 {
         OperatorAction::Reply { rationale, .. } => normalize_for_hash(rationale),
         OperatorAction::Escalate { rationale, .. } => normalize_for_hash(rationale),
         OperatorAction::Wait { rationale } => normalize_for_hash(rationale),
+        OperatorAction::Complete { rationale } => normalize_for_hash(rationale),
     };
     rationale_norm.hash(&mut hasher);
     // Tail signature: ANSI-stripped + spinner / timer churn removed,
@@ -4604,6 +4628,12 @@ fn synth_response_for(action: &OperatorAction) -> String {
             text.replace('\n', "\\n"),
             rationale.replace('\n', " "),
         ),
+        OperatorAction::Complete { rationale } => {
+            format!(
+                "ACTION: COMPLETE\nRATIONALE: {}\n",
+                rationale.replace('\n', " ")
+            )
+        }
     }
 }
 
@@ -4725,6 +4755,9 @@ fn parse_response(
             })
         }
         "WAIT" => Some(OperatorAction::Wait {
+            rationale: rationale.unwrap_or_default(),
+        }),
+        "COMPLETE" => Some(OperatorAction::Complete {
             rationale: rationale.unwrap_or_default(),
         }),
         _ => None,
@@ -5253,6 +5286,22 @@ error[E0382]: borrow of moved value\n";
             OperatorAction::Wait {
                 rationale: "not actually a prompt".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn parse_response_parses_complete() {
+        let resp = "ACTION: COMPLETE\nRATIONALE: executor printed Done and the deliverable exists";
+        let action = parse_response(resp, None).expect("should parse");
+        match action {
+            OperatorAction::Complete { rationale } => {
+                assert!(rationale.contains("deliverable"));
+            }
+            other => panic!("expected Complete, got {:?}", other.kind()),
+        }
+        assert_eq!(
+            OperatorAction::Complete { rationale: "x".into() }.kind(),
+            "complete"
         );
     }
 
