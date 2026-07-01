@@ -159,15 +159,26 @@ export class ChangesSurface {
     if (this.commitBtn) this.commitBtn.disabled = !hasChanges || !hasMsg;
   }
 
-  private setStatus(text: string, err = false): void {
+  private statusTimer: number | null = null;
+
+  private setStatus(text: string, err = false, fade = false): void {
     if (!this.statusEl) return;
+    if (this.statusTimer !== null) { clearTimeout(this.statusTimer); this.statusTimer = null; }
     this.statusEl.textContent = text;
     this.statusEl.classList.toggle("cd-commit-status--err", err);
+    this.statusEl.classList.remove("cd-commit-status--fade");
+    if (!fade || !text) return;
+    // Hold briefly, then fade out (CSS transition) and clear.
+    this.statusTimer = window.setTimeout(() => {
+      this.statusEl?.classList.add("cd-commit-status--fade");
+      this.statusTimer = window.setTimeout(() => this.setStatus(""), 600);
+    }, 1800);
   }
 
   private async summarize(): Promise<void> {
     if (!this.summarizeBtn || !this.msgEl) return;
     this.summarizeBtn.disabled = true;
+    this.summarizeBtn.classList.add("cd-summarize--busy");
     this.setStatus("Summarizing…");
     try {
       this.msgEl.value = await generateCommitMessage(this.repoRoot);
@@ -177,6 +188,7 @@ export class ChangesSurface {
     } catch (e) {
       this.setStatus(String(e), true);
     } finally {
+      this.summarizeBtn.classList.remove("cd-summarize--busy");
       this.syncCommitBar();
     }
   }
@@ -194,7 +206,7 @@ export class ChangesSurface {
       this.selectedPath = null;
       this.renderEmptyDiff();
       this.renderRailInto();
-      this.setStatus("Committed & pushed");
+      this.setStatus("Committed & pushed", false, true);
     } catch (e) {
       this.setStatus(String(e), true);
     } finally {

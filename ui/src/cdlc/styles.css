@@ -136,6 +136,32 @@ body.theme-true-dark .cdlc-panel {
 }
 .cdlc-head .cdlc-icon-btn:disabled { opacity: 0.4; cursor: default; }
 
+/* Project button — labeled pill so it can't read as a reload/refresh */
+.cdlc-project-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text-primary, #f5f6f7);
+  background: var(--cdlc-lift-1);
+  border: 1px solid var(--cdlc-line);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 120ms, background 120ms, border-color 120ms;
+}
+.cdlc-project-btn:hover {
+  opacity: 1;
+  background: var(--cdlc-lift-2, var(--cdlc-lift-1));
+  border-color: color-mix(in srgb, var(--cdlc-accent, var(--accent, #7aa2f7)) 55%, transparent);
+}
+.cdlc-project-btn svg { display: block; color: var(--cdlc-accent, var(--accent, #7aa2f7)); }
+.cdlc-project-btn:disabled { opacity: 0.4; cursor: default; }
+
 .cdlc-export-ok {
   margin: 0 0 8px;
   font-size: 11px;

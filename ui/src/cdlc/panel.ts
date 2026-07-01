@@ -152,13 +152,13 @@ export class CdlcPanel {
     title.textContent = `CDLC — ${opts.groupLabel}`;
     head.appendChild(title);
 
-    // Re-export every CDLC source (agents/skills/context) to executor-native files.
+    // Project every CDLC source (agents/skills/context) to executor-native files.
     if (opts.groupRootDir) {
-      const exportBtn = iconButton(
-        Icons.refresh({ size: 15 }),
-        "Re-export to executors (.claude, AGENTS.md, copilot)",
-        () => void this.exportNow(exportBtn),
-      );
+      const exportBtn = document.createElement("button");
+      exportBtn.className = "cdlc-project-btn";
+      exportBtn.innerHTML = Icons.boxes({ size: 14 }) + "<span>Project</span>";
+      attachTooltip(exportBtn, "Project CDLC to executors (.claude, AGENTS.md, copilot)");
+      exportBtn.addEventListener("click", () => void this.exportNow(exportBtn));
       head.appendChild(exportBtn);
     }
 

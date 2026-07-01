@@ -23,9 +23,7 @@ export interface CdPickerHooks {
   syncRecall: (s: string) => void;
 }
 
-// ponytail: docked at the bottom of the term pane via CSS — no cursor anchoring,
-// so the xterm `term` handle is no longer needed.
-export function mountCdPicker(host: HTMLElement, _term: Terminal, hooks: CdPickerHooks): CdPicker {
+export function mountCdPicker(host: HTMLElement, term: Terminal, hooks: CdPickerHooks): CdPicker {
   const enc = new TextEncoder();
   const el = document.createElement("div");
   el.className = "cd-picker";
@@ -70,6 +68,26 @@ export function mountCdPicker(host: HTMLElement, _term: Terminal, hooks: CdPicke
     });
     el.hidden = false;
     visible = true;
+    position();
+  };
+
+  // Anchor to the shell input line (cursor row) and flip above it when the
+  // prompt sits too low to fit the list below — so what you type stays visible.
+  const position = (): void => {
+    const cellH = host.clientHeight / term.rows;
+    const cursorY = term.buffer.active.cursorY; // 0-based row within viewport
+    const lineBottom = (cursorY + 1) * cellH;   // px to bottom of the input line
+    const below = host.clientHeight - lineBottom;
+    const maxH = Math.round(host.clientHeight * 0.4);
+    if (below >= 140) {
+      el.style.top = `${lineBottom}px`;
+      el.style.bottom = "auto";
+      el.style.maxHeight = `${Math.min(maxH, below)}px`;
+    } else {
+      el.style.top = "auto";
+      el.style.bottom = `${host.clientHeight - cursorY * cellH}px`; // above the line
+      el.style.maxHeight = `${Math.min(maxH, cursorY * cellH)}px`;
+    }
   };
 
   const paint = (): void => {

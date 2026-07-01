@@ -70,11 +70,18 @@ async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serd
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
-        return Err(match status {
-            401 => "github: token invalid or expired — reconnect GitHub in Settings".into(),
-            403 => "github: forbidden — rate-limited or missing repo permission".into(),
-            404 => "github: repo not found — private repos need repo scope".into(),
-            s => format!("github: HTTP {s}"),
+        // GitHub packs the real reason (SSO, OAuth-app restriction, rate-limit,
+        // …) into the JSON `message`; surface it so a 403 isn't a coin-flip.
+        let detail = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string));
+        return Err(match (status, detail) {
+            (401, _) => "github: token invalid or expired — reconnect GitHub in Settings".into(),
+            (403, Some(m)) => format!("github: {m}"),
+            (403, None) => "github: forbidden — rate-limited or missing repo permission".into(),
+            (404, _) => "github: repo not found — private repos need repo scope".into(),
+            (s, Some(m)) => format!("github: HTTP {s} — {m}"),
+            (s, None) => format!("github: HTTP {s}"),
         });
     }
     serde_json::from_str(&text).map_err(|e| format!("github: invalid JSON: {e}"))
