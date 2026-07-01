@@ -207,8 +207,25 @@ pub async fn teammate_send_text_message(
                 now_ms(),
             ));
         }
-        let world_context_str = crate::teammate::world_snapshot::render(&snapshots);
-        let world_context_opt: Option<&str> = if snapshots.is_empty() {
+        let mut world_context_str = if snapshots.is_empty() {
+            String::new()
+        } else {
+            crate::teammate::world_snapshot::render(&snapshots)
+        };
+        // Surface the operator's own in-flight tasks so it can answer "are you
+        // finished?"-style questions and not propose duplicates of running work.
+        let active_tasks = storage_bg
+            .teammate_list_tasks_for_operator(operator_id)
+            .await
+            .unwrap_or_default();
+        let active_tasks_md = crate::teammate::llm::render_active_tasks(&active_tasks);
+        if !active_tasks_md.is_empty() {
+            if !world_context_str.is_empty() {
+                world_context_str.push_str("\n\n");
+            }
+            world_context_str.push_str(&active_tasks_md);
+        }
+        let world_context_opt: Option<&str> = if world_context_str.trim().is_empty() {
             None
         } else {
             Some(world_context_str.as_str())

@@ -680,9 +680,9 @@ mod tests {
         stage(dir, "tracked.txt").unwrap();
 
         assert!(!staged_diff(dir).unwrap().trim().is_empty());
-        assert!(commit(dir, "   ").is_err());
+        assert!(commit(dir, "   ", false).is_err());
 
-        let after = commit(dir, "feat: third line").unwrap();
+        let after = commit(dir, "feat: third line", false).unwrap();
         assert!(after.staged.is_empty());
         assert!(staged_diff(dir).unwrap().trim().is_empty());
     }

@@ -258,6 +258,13 @@ pub fn build_system_prompt(operator: &Operator) -> String {
             \"on this folder\", \"fix it\") → propose, don't ask.\n\
          4. Plain Q&A (\"what does this project do?\", \"explain X\") still \
             gets a plain text answer. Only DO/REVIEW/WATCH triggers a task.\n\
+         5. Status/progress checks about work already underway (\"are you \
+            finished?\", \"how's it going?\", \"what's the status?\", \"done \
+            yet?\", \"any update?\") are Q&A — answer in plain text from the \
+            `# Your in-flight tasks` list in your context. NEVER call \
+            `propose_task` for these. And if a task in that list already \
+            covers what the user is now asking for, do NOT propose a \
+            duplicate — tell them it's already running.\n\
          \n\
          # Executors\n\
          \n\
@@ -315,6 +322,31 @@ pub fn build_system_prompt(operator: &Operator) -> String {
         ));
     }
     prompt
+}
+
+/// Render the operator's own in-flight tasks for the world context, so it can
+/// answer status questions and avoid proposing a duplicate of running work.
+/// Returns an empty string when nothing is in flight.
+pub fn render_active_tasks(tasks: &[crate::teammate::Task]) -> String {
+    use crate::teammate::types::TaskStatus;
+    let mut out = String::new();
+    for t in tasks {
+        if !matches!(t.status, TaskStatus::Active | TaskStatus::Blocked) {
+            continue;
+        }
+        if out.is_empty() {
+            out.push_str(
+                "# Your in-flight tasks\n\n\
+                 These are already running. Answer status/progress questions \
+                 from this list in plain text, and never propose_task for work \
+                 an entry here already covers.\n",
+            );
+        }
+        let status = format!("{:?}", t.status).to_lowercase();
+        let arch = format!("{:?}", t.archetype).to_lowercase();
+        out.push_str(&format!("- [{status}] {} ({arch})\n", t.title));
+    }
+    out
 }
 
 /// Turn the recent thread into the user-side message for the API call.
@@ -1119,6 +1151,43 @@ mod tests {
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
         }
+    }
+
+    fn sample_task(title: &str, status: crate::teammate::types::TaskStatus) -> crate::teammate::Task {
+        use crate::teammate::types::{TaskArchetype, TaskId, TaskScope};
+        crate::teammate::Task {
+            id: TaskId(Ulid::new()),
+            operator_id: OperatorId(Ulid::new()),
+            archetype: TaskArchetype::Do,
+            title: title.into(),
+            body: String::new(),
+            deliverable: String::new(),
+            status,
+            scope: TaskScope::default(),
+            spawned_session: None,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            completed_at_unix_ms: None,
+            cost_usd_cents: 0,
+        }
+    }
+
+    #[test]
+    fn render_active_tasks_lists_only_in_flight() {
+        use crate::teammate::types::TaskStatus;
+        assert_eq!(render_active_tasks(&[]), "");
+        let tasks = vec![
+            sample_task("Fix Windows startup", TaskStatus::Active),
+            sample_task("Old finished job", TaskStatus::Done),
+            sample_task("Cancelled dup", TaskStatus::Cancelled),
+            sample_task("Waiting on CI", TaskStatus::Blocked),
+        ];
+        let md = render_active_tasks(&tasks);
+        assert!(md.contains("Fix Windows startup"));
+        assert!(md.contains("Waiting on CI")); // Blocked counts as in-flight
+        assert!(!md.contains("Old finished job"));
+        assert!(!md.contains("Cancelled dup"));
+        assert!(md.contains("# Your in-flight tasks"));
     }
 
     fn text_msg(role: Role, text: &str) -> TaskMessage {
