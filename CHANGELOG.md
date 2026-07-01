@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.115 — cd-picker overlay positioning fix
+
+### Fixed
+
+- **cd-picker overlay misaligned over the prompt line**: the inline `cd`
+  directory picker positioned itself with `host.clientHeight / term.rows`, a
+  naive average that drifts from xterm's real per-row height as it compounds
+  over the cursor row, and never accounted for the terminal pane's 8px CSS
+  padding (absolutely-positioned overlay children anchor to the padding box,
+  not the content box xterm actually draws into). The picker's active-row
+  highlight could land on top of the real prompt text instead of cleanly
+  below it. Now reads xterm's actual renderer cell height (the same private
+  accessor `mountPromptHint` already used) plus the pane's computed
+  `padding-top` (`ui/src/terminal/cd-picker.ts`).
+
 ## v0.8.114 — Operator auto-completes finished tasks + Windows shell fallback
 
 ### Added
