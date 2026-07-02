@@ -160,12 +160,18 @@ export class CapabilitiesPanel {
     try {
       this.detect = await capabilitiesDetect();
       this.items = await capabilitiesList(this.projectRoot);
-      this.projStatus = this.projectRoot ? await cdlcProjectionStatus(this.projectRoot) : null;
     } catch (err) {
       console.error("capabilities refresh failed", err);
       pushInfoToast({ message: `Capabilities: ${String(err)}` });
       this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false, covenant: false };
       this.items = [];
+    }
+    // Projection status is CDLC-specific: a malformed manifest must not blank
+    // the unrelated per-executor capability lists, so isolate its failure.
+    try {
+      this.projStatus = this.projectRoot ? await cdlcProjectionStatus(this.projectRoot) : null;
+    } catch (err) {
+      console.error("cdlc projection status failed", err);
       this.projStatus = null;
     }
     // Reset selection if it's no longer present.
