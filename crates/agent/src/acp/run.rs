@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
+use tokio::sync::broadcast;
 
 use super::policy::resolve_headless_with_log;
 use super::protocol::{SessionUpdate, ToolCallFields};
@@ -17,6 +18,10 @@ use super::session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver};
 /// Appended to every headless prompt. The policy auto-denies mutating
 /// shell commands, so steer the agent toward its native file tools —
 /// otherwise tasks like "create a file" die on `printf > file`.
+///
+/// This is appended inside [`run_task`] itself, so every caller inherits
+/// it implicitly — including the operator's `dispatch_acp` tool, which
+/// never sees or controls this string directly.
 const HEADLESS_PROMPT_NOTE: &str = "\n\n(Headless session note: shell commands that modify files or state are auto-denied by policy. Use your native file creation/editing tools for any file changes; shell is available for read-only commands only.)";
 
 #[derive(Debug, Clone)]
@@ -72,7 +77,24 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
         let collector = collector.clone();
         let mut events = session.events();
         tokio::spawn(async move {
-            while let Ok(n) = events.recv().await {
+            loop {
+                let n = match events.recv().await {
+                    Ok(n) => n,
+                    // A chatty agent can overflow the 1024-slot broadcast
+                    // buffer for this slow-ish consumer. `Lagged` only
+                    // means we skipped some frames — the stream is still
+                    // live, so keep collecting instead of treating it as
+                    // EOF (which used to silently stop all further
+                    // collection for the rest of the run).
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(skipped, "acp collector lagged; continuing");
+                        continue;
+                    }
+                    // All senders (the session struct's clone and the
+                    // reader task's clone) are gone — nothing left to
+                    // drain. Exit for real.
+                    Err(broadcast::error::RecvError::Closed) => break,
+                };
                 let mut c = match collector.lock() {
                     Ok(c) => c,
                     Err(_) => break,
@@ -133,6 +155,9 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
             .unwrap_or("unknown")
             .to_string(),
         Ok(Err(e)) => {
+            // We're discarding the report on this path (returning an
+            // Err), so an abrupt abort — vs. the deterministic drain used
+            // below — can't lose anything the caller will ever see.
             session.shutdown(Duration::from_secs(3)).await;
             collector_task.abort();
             return Err(e);
@@ -151,7 +176,31 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
     };
 
     session.shutdown(Duration::from_secs(3)).await;
-    collector_task.abort();
+    // `AcpSession::shutdown` bounds its own wait on the reader task at 1s.
+    // In the normal case the reader has already exited by the time we get
+    // here, which drops its clone of `events_tx`; the struct's own clone
+    // (held in `session`) is the last one standing. Dropping `session`
+    // drops that clone too, closing the broadcast channel — the collector
+    // then drains anything still buffered (including a final chunk that
+    // arrived in the same stdout read as the stopReason response) and
+    // exits on its own via `RecvError::Closed`. This is deterministic, not
+    // a race: no event queued before this point is ever discarded by an
+    // abort mid-drain.
+    //
+    // If the reader somehow outlives `shutdown`'s 1s bound (child refused
+    // to die, or a pathological hang) it still holds an `events_tx` clone,
+    // so the channel won't close on `drop(session)` alone. The bounded
+    // timeout below is the backstop for that case: it lets the collector
+    // finish if the reader closes out shortly after, and otherwise
+    // abandons the (still-running, harmless) task rather than hanging
+    // `run_task` forever.
+    drop(session);
+    if tokio::time::timeout(Duration::from_secs(2), collector_task)
+        .await
+        .is_err()
+    {
+        tracing::warn!("acp collector task outlived shutdown+drain window; abandoning it");
+    }
 
     let c = collector.lock().map_err(|_| AcpError::Closed)?;
     let denied = denied.lock().map_err(|_| AcpError::Closed)?.clone();
@@ -253,6 +302,61 @@ printf '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}\n'
         assert!(report.tool_events[0].contains("completed"));
         assert!(report.tool_events[0].contains("exit 0"));
         assert_eq!(report.denied, vec!["sudo reboot".to_string()]);
+    }
+
+    /// Regression: `run_task` used to tear down the collector with
+    /// `collector_task.abort()` right after `session.shutdown()`. Events
+    /// that were already sitting in the broadcast channel but not yet
+    /// *processed* by the collector task (because the tokio scheduler
+    /// hadn't polled it again) could be discarded by that abort — most
+    /// visibly the agent's final text chunk when it arrives in the same
+    /// stdout read as the stopReason response, with no sleep in between
+    /// to let the collector catch up. The fake agent below reproduces
+    /// exactly that: a SINGLE `printf` emits three chunks (including one
+    /// ~2KB) and the stopReason response back-to-back, then the script
+    /// exits immediately — no delay anywhere. The fix (deterministic
+    /// drain via `drop(session)` + bounded join) must collect all of it,
+    /// every time.
+    #[tokio::test]
+    async fn final_burst_before_stop_is_not_lost() {
+        let big = "x".repeat(2000);
+        let script = format!(
+            r#"
+read line
+printf '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":1}}}}\n'
+read line
+printf '{{"jsonrpc":"2.0","id":2,"result":{{"sessionId":"s1"}}}}\n'
+read line
+case "$line" in
+*"Headless session note"*) ;;
+*) printf '{{"jsonrpc":"2.0","id":3,"result":{{"stopReason":"missing_note"}}}}\n'; exit 0 ;;
+esac
+printf '%s\n%s\n%s\n%s\n' \
+  '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"s1","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"chunk1 "}}}}}}}}' \
+  '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"s1","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"chunk2 "}}}}}}}}' \
+  '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"s1","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"{big}"}}}}}}}}' \
+  '{{"jsonrpc":"2.0","id":3,"result":{{"stopReason":"end_turn"}}}}'
+"#
+        );
+
+        let report = super::run_task(super::AcpRunOpts {
+            cwd: std::env::temp_dir(),
+            prompt: "burst".into(),
+            timeout: Duration::from_secs(10),
+            program: Some(PathBuf::from("sh")),
+            extra_args_for_tests: vec!["-c".into(), script],
+        })
+        .await
+        .expect("run ok");
+
+        assert_eq!(report.stop_reason, "end_turn");
+        let expected = format!("chunk1 chunk2 {big}");
+        assert_eq!(
+            report.agent_text.len(),
+            expected.len(),
+            "final burst chunk lost or truncated"
+        );
+        assert_eq!(report.agent_text, expected);
     }
 
     /// A hung agent hits the timeout and still yields a partial report.
