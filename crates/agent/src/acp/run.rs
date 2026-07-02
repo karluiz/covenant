@@ -14,6 +14,11 @@ use super::policy::resolve_headless_with_log;
 use super::protocol::{SessionUpdate, ToolCallFields};
 use super::session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver};
 
+/// Appended to every headless prompt. The policy auto-denies mutating
+/// shell commands, so steer the agent toward its native file tools —
+/// otherwise tasks like "create a file" die on `printf > file`.
+const HEADLESS_PROMPT_NOTE: &str = "\n\n(Headless session note: shell commands that modify files or state are auto-denied by policy. Use your native file creation/editing tools for any file changes; shell is available for read-only commands only.)";
+
 #[derive(Debug, Clone)]
 pub struct AcpRunOpts {
     pub cwd: PathBuf,
@@ -117,7 +122,7 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
         "session/prompt",
         serde_json::json!({
             "sessionId": session_id,
-            "prompt": [{ "type": "text", "text": opts.prompt }]
+            "prompt": [{ "type": "text", "text": format!("{}{}", opts.prompt, HEADLESS_PROMPT_NOTE) }]
         }),
     );
 
@@ -217,6 +222,10 @@ printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
 read line
 printf '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s1"}}\n'
 read line
+case "$line" in
+*"Headless session note"*) ;;
+*) printf '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"missing_note"}}\n'; exit 0 ;;
+esac
 printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"working on it. "}}}}\n'
 printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Run ls","kind":"execute","status":"pending","rawInput":{"command":"ls"}}}}\n'
 printf '{"jsonrpc":"2.0","id":50,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"allow_once","kind":"allow_once"},{"optionId":"reject_once","kind":"reject_once"}]}}\n'
