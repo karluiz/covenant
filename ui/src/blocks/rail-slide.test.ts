@@ -6,7 +6,7 @@
 // slide early, and a re-toggle mid-slide force-finishes the pending
 // snap instead of dropping it.
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { slideRail } from "./rail-slide";
+import { slideRail, slideTabbar } from "./rail-slide";
 
 function mountPanel(): HTMLElement {
   document.body.innerHTML = `
@@ -26,6 +26,7 @@ function animEnd(target: HTMLElement, animationName: string): void {
 
 beforeEach(() => {
   document.body.innerHTML = "";
+  document.body.className = "";
 });
 
 describe("slideRail", () => {
@@ -82,5 +83,55 @@ describe("slideRail", () => {
     const snap = vi.fn();
     slideRail(true, snap);
     expect(snap).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("slideTabbar", () => {
+  function mountTabbar(): HTMLElement {
+    document.body.className = "tabbar-left";
+    document.body.innerHTML = `<div id="tabbar-host"></div>`;
+    const host = document.getElementById("tabbar-host")!;
+    Object.defineProperty(host, "offsetWidth", { value: 232 });
+    return host;
+  }
+
+  it("collapse slides out first, snaps on animationend", () => {
+    const host = mountTabbar();
+    const snap = vi.fn();
+    slideTabbar(true, snap);
+
+    expect(host.classList.contains("tabbar-slide-exit")).toBe(true);
+    expect(snap).not.toHaveBeenCalled();
+
+    animEnd(host, "tabbar-slide-out");
+    expect(host.classList.contains("tabbar-slide-exit")).toBe(false);
+    expect(snap).toHaveBeenCalledTimes(1);
+  });
+
+  it("snaps directly in top-tabs mode", () => {
+    mountTabbar();
+    document.body.className = "";
+    const snap = vi.fn();
+    slideTabbar(true, snap);
+    expect(snap).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps pending state independent from slideRail", () => {
+    const tabbar = mountTabbar();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div class="tab-pane"><div class="tab-blocks"></div></div>`,
+    );
+    const rail = document.querySelector<HTMLElement>(".tab-blocks")!;
+    Object.defineProperty(rail, "offsetWidth", { value: 240 });
+
+    const railSnap = vi.fn();
+    const tabbarSnap = vi.fn();
+    slideRail(true, railSnap);
+    slideTabbar(true, tabbarSnap); // must NOT force-finish the rail slide
+
+    expect(railSnap).not.toHaveBeenCalled();
+    expect(rail.classList.contains("rail-slide-exit")).toBe(true);
+    expect(tabbar.classList.contains("tabbar-slide-exit")).toBe(true);
   });
 });

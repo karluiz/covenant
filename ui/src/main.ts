@@ -20,7 +20,7 @@ import { EditorView } from "@codemirror/view";
 import { selectAll as cmSelectAll } from "@codemirror/commands";
 
 import { dismissBootSplash } from "./boot-splash";
-import { slideRail } from "./blocks/rail-slide";
+import { slideRail, slideTabbar } from "./blocks/rail-slide";
 import { attachTooltip } from "./tooltip/tooltip";
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
@@ -300,8 +300,12 @@ function installSidebarResizers(layout: HTMLElement, manager: TabManager): void 
 /// Toggle the collapsed state of the vertical tabbar. Only meaningful
 /// when `body.tabbar-left` is active; in top mode the fold chevron is
 /// hidden by CSS so the body class is harmless.
-function applyTabbarCollapsed(collapsed: boolean): void {
-  document.body.classList.toggle("tabbar-left-collapsed", collapsed);
+function applyTabbarCollapsed(collapsed: boolean, animate = false): void {
+  const snap = (): void => {
+    document.body.classList.toggle("tabbar-left-collapsed", collapsed);
+  };
+  if (animate) slideTabbar(collapsed, snap);
+  else snap();
   const btn = document.getElementById("tabbar-fold");
   if (btn) {
     const t = collapsed ? "Expand sidebar" : "Collapse sidebar";
@@ -498,7 +502,7 @@ async function boot(): Promise<void> {
 
   tabbarFoldBtn.addEventListener("click", () => {
     const next = !document.body.classList.contains("tabbar-left-collapsed");
-    applyTabbarCollapsed(next);
+    applyTabbarCollapsed(next, true);
     localStorage.setItem(TABBAR_LEFT_COLLAPSED_KEY, next ? "1" : "0");
     // xterm needs to remeasure cells after the column width animation.
     setTimeout(() => manager.refitActive(), 320);

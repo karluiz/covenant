@@ -9911,8 +9911,28 @@ body.tabbar-left #tabbar-fold svg {
     height: 16px;
 }
 
-body.tabbar-left #layout {
-    transition: grid-template-columns 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+/* No grid-template-columns transition on #layout — same reasoning as
+   .tab-pane: track tweens run layout+paint every frame and refit xterm
+   each frame. The fold snaps the grid once and slides #tabbar-host with
+   a transform keyframe on the compositor (blocks/rail-slide.ts). */
+@keyframes tabbar-slide-out {
+    to { transform: translateX(-100%); }
+}
+@keyframes tabbar-slide-in {
+    from { transform: translateX(-100%); }
+}
+#tabbar-host.tabbar-slide-exit {
+    animation: tabbar-slide-out 220ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+#tabbar-host.tabbar-slide-enter {
+    animation: tabbar-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+    #tabbar-host.tabbar-slide-exit,
+    #tabbar-host.tabbar-slide-enter {
+        /* 1ms, not none — animationend must still fire the snap. */
+        animation-duration: 1ms;
+    }
 }
 
 body.tabbar-left.tabbar-left-collapsed {
