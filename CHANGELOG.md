@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.117 — Left sidebar fold vibrancy-flash fix
+
+### Fixed
+
+- **Blue flash behind the left tabbar during fold**: the fold animation slides
+  `#tabbar-host` on the compositor before the grid snaps, but `body` and
+  `#layout` are transparent for the NSVisualEffectView — the exposed strip
+  flashed the blurred desktop wallpaper (typically blue). The host's grid cell
+  is now occluded with `var(--sidebar-bg)` + matching right border for the
+  slide's duration only (`ui/src/styles.css`).
+
 ## v0.8.116 — Folded rail styles + GPU-composited fold/crossfade animations
 
 ### Added
