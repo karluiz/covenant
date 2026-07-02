@@ -1383,6 +1383,19 @@ export async function cdlcExport(cwd: string): Promise<void> {
   return invoke<void>("cdlc_export", { cwd });
 }
 
+export type ProjState = "synced" | "stale" | "not_projected";
+export interface ExecutorStatus {
+  tool: string;
+  state: ProjState;
+}
+export interface ProjectionStatus {
+  executors: ExecutorStatus[];
+  source_edited_unix: number | null;
+}
+export async function cdlcProjectionStatus(cwd: string): Promise<ProjectionStatus> {
+  return invoke<ProjectionStatus>("cdlc_projection_status", { cwd });
+}
+
 export interface ScoreSummary {
   total_prompts: number;
   total_commits: number;
@@ -2009,7 +2022,7 @@ export async function telegramStatus(): Promise<TelegramStatus> {
 
 export interface CapabilityListItem {
   id: string;
-  tool: "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared";
+  tool: "claude" | "copilot" | "opencode" | "codex" | "pi" | "shared" | "covenant";
   kind:
     | "skill"
     | "command"

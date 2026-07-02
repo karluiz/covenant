@@ -19,6 +19,9 @@ import {
   capabilitiesScaffold,
   capabilitiesWrite,
   cdlcExport,
+  cdlcProjectionStatus,
+  type ProjectionStatus,
+  type ProjState,
 } from "../api";
 import { pushInfoToast } from "../notifications/toast";
 import { CustomSelect } from "../ui/select";
@@ -82,8 +85,8 @@ export class CapabilitiesPanel {
   private isOpenState = false;
   private items: CapabilityListItem[] = [];
   private detect: CapabilitiesDetect | null = null;
-  private activeTool: ToolKey = "claude";
-  private activeSection: SectionKey = "skills";
+  private activeTool: ToolKey = "covenant";
+  private activeSection: SectionKey = "config";
   private showUser = true;
   private showProject = true;
   private search = "";
@@ -92,6 +95,7 @@ export class CapabilitiesPanel {
   private viewMode: "source" | "preview" = "source";
   private newFormOpen = false;
   private projectRoot: string | null = null;
+  private projStatus: ProjectionStatus | null = null;
 
   public onClosed: (() => void) | null = null;
 
@@ -161,6 +165,14 @@ export class CapabilitiesPanel {
       pushInfoToast({ message: `Capabilities: ${String(err)}` });
       this.detect = { claude: false, copilot: false, opencode: false, codex: false, pi: false, shared: false, covenant: false };
       this.items = [];
+    }
+    // Projection status is CDLC-specific: a malformed manifest must not blank
+    // the unrelated per-executor capability lists, so isolate its failure.
+    try {
+      this.projStatus = this.projectRoot ? await cdlcProjectionStatus(this.projectRoot) : null;
+    } catch (err) {
+      console.error("cdlc projection status failed", err);
+      this.projStatus = null;
     }
     // Reset selection if it's no longer present.
     if (this.selectedId && !this.items.find((c) => c.id === this.selectedId)) {
@@ -233,30 +245,56 @@ export class CapabilitiesPanel {
     const nav = document.createElement("nav");
     nav.className = "capabilities-nav";
 
-    nav.appendChild(navGroupTitle("Tool"));
-    const tools: { key: ToolKey; label: string }[] = [
-      { key: "claude", label: "Claude" },
-      { key: "copilot", label: "Copilot" },
-      { key: "opencode", label: "opencode" },
-      { key: "codex", label: "Codex" },
-      { key: "pi", label: "Pi" },
-      { key: "shared", label: "Shared" },
-      { key: "covenant", label: "Covenant" },
-    ];
-    for (const t of tools) {
-      const installed = this.detect ? this.detect[t.key] : true;
+    // Reusable tool-link builder (preserves existing click behaviour).
+    const toolLink = (key: ToolKey, label: string, badge?: HTMLElement, meta?: string): HTMLElement => {
+      const installed = this.detect ? this.detect[key] : true;
       const a = document.createElement("a");
       a.className = "cap-nav-item";
-      if (this.activeTool === t.key) a.classList.add("active");
+      if (this.activeTool === key) a.classList.add("active");
       if (!installed) a.classList.add("disabled");
-      a.textContent = installed ? t.label : `${t.label} (not installed)`;
+      const name = document.createElement("span");
+      name.className = "cap-nav-item-name";
+      name.textContent = installed ? label : `${label} (not installed)`;
+      a.appendChild(name);
+      if (meta) {
+        const m = document.createElement("span");
+        m.className = "cap-nav-item-meta";
+        m.textContent = meta;
+        a.appendChild(m);
+      }
+      if (badge) a.appendChild(badge);
       a.onclick = () => {
-        this.activeTool = t.key;
-        this.activeSection = SECTIONS_BY_TOOL[t.key][0].key;
+        this.activeTool = key;
+        this.activeSection = SECTIONS_BY_TOOL[key][0].key;
         this.selectedId = null;
         this.render();
       };
-      nav.appendChild(a);
+      return a;
+    };
+
+    // SOURCE — Covenant is the source of truth.
+    nav.appendChild(navGroupTitle("Source"));
+    const edited =
+      this.projStatus?.source_edited_unix != null
+        ? `edited ${relTime(this.projStatus.source_edited_unix)}`
+        : "";
+    nav.appendChild(toolLink("covenant", "Covenant", undefined, edited));
+
+    // PROJECTIONS — executors receive projected files; badge shows sync state.
+    nav.appendChild(navGroupTitle("Projections"));
+    const projTools: { key: ToolKey; label: string }[] = [
+      { key: "claude", label: "Claude" },
+      { key: "codex", label: "Codex" },
+      { key: "pi", label: "Pi" },
+      { key: "copilot", label: "Copilot" },
+      { key: "opencode", label: "opencode" },
+      { key: "shared", label: "Shared" },
+    ];
+    for (const t of projTools) {
+      const st = this.projStatus?.executors.find((e) => e.tool === t.key);
+      // Shared is not a projection target → no badge.
+      const badge = st && t.key !== "shared" ? projBadge(st.state) : undefined;
+      nav.appendChild(toolLink(t.key, t.label, badge));
     }
 
     nav.appendChild(navGroupTitle("Section"));
@@ -348,9 +386,17 @@ export class CapabilitiesPanel {
     const bar = document.createElement("div");
     bar.className = "cap-covenant-bar";
     const hasRoot = !!this.projectRoot;
+    const ex = this.projStatus?.executors ?? [];
+    const synced = ex.filter((e) => e.state === "synced").length;
+    const stale = ex.filter((e) => e.state === "stale").length;
+    const never = ex.filter((e) => e.state === "not_projected").length;
+    const pending = stale + never;
+    const summary = ex.length
+      ? `${synced} synced · ${stale} stale · ${never} never`
+      : "";
     bar.innerHTML = `
-      <span class="cap-covenant-msg">CDLC is the source of truth — projects to Claude · opencode · Pi · Codex · Copilot · Hermes.</span>
-      <button type="button" class="cap-btn cap-btn-primary" data-act="project" ${hasRoot ? "" : "disabled"}>Project to executors →</button>
+      <span class="cap-covenant-msg">CDLC is the source of truth.${summary ? ` <span class="cap-proj-summary">${summary}</span>` : ""}</span>
+      <button type="button" class="cap-btn ${pending > 0 ? "cap-btn-primary" : ""}" data-act="project" ${hasRoot ? "" : "disabled"}>Project →</button>
     `;
     const btn = bar.querySelector<HTMLButtonElement>('[data-act="project"]')!;
     if (!hasRoot) btn.title = "Set a project root first";
@@ -365,7 +411,7 @@ export class CapabilitiesPanel {
         pushInfoToast({ message: `Projection failed: ${String(e)}` });
       } finally {
         btn.disabled = false;
-        btn.textContent = "Project to executors →";
+        btn.textContent = "Project →";
         await this.refresh();
       }
     };
@@ -701,6 +747,21 @@ function navGroupTitle(text: string): HTMLElement {
   el.className = "cap-nav-group-title";
   el.textContent = text;
   return el;
+}
+
+function projBadge(state: ProjState): HTMLElement {
+  const b = document.createElement("span");
+  b.className = `cap-proj-badge cap-proj-${state}`;
+  b.textContent = state === "synced" ? "✓ synced" : state === "stale" ? "⚠ stale" : "— not projected";
+  return b;
+}
+
+function relTime(unixSecs: number): string {
+  const diff = Math.max(0, Math.floor(Date.now() / 1000 - unixSecs));
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function escapeHtml(s: string): string {

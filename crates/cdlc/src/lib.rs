@@ -8,7 +8,9 @@ pub mod eval;
 
 pub use install::{install_from_dir, install_local, read_skill_package, status, CdlcStatus};
 pub use manifest::{cdlc_dir, read_manifest, write_manifest};
-pub use project::{project, project_with_active};
+pub use project::{
+    project, project_with_active, projection_status, ExecutorStatus, ProjState, ProjectionStatus,
+};
 pub use types::{CdlcManifest, InstalledRef, SkillManifest};
 pub use eval::{pass_rate, read_evals, read_results, write_result, Eval, EvalResult};
 
