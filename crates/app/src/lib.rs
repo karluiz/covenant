@@ -2398,6 +2398,17 @@ async fn cdlc_export(cwd: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Read-only projection status per executor (synced / stale / not_projected)
+/// plus the newest CDLC source mtime. Used by the Capabilities panel badges.
+#[tauri::command]
+async fn cdlc_projection_status(cwd: String) -> Result<karl_cdlc::ProjectionStatus, String> {
+    let repo = std::path::PathBuf::from(cwd);
+    tokio::task::spawn_blocking(move || karl_cdlc::projection_status(&repo))
+        .await
+        .map_err(|e| format!("cdlc_projection_status join: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn cdlc_publish(cwd: String, org: String, name: String) -> Result<serde_json::Value, String> {
     let repo = std::path::PathBuf::from(cwd);
@@ -4426,6 +4437,7 @@ pub fn run() {
             cdlc_preview,
             cdlc_read_local,
             cdlc_export,
+            cdlc_projection_status,
             cdlc_publish,
             cdlc_install_registry,
             git_file_diff,
