@@ -17603,7 +17603,7 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 /* Rows — single line */
 .tp-act-row {
   display: grid;
-  grid-template-columns: 32px 14px 64px 1fr auto;
+  grid-template-columns: 32px 14px 64px 1fr auto auto;
   column-gap: 6px;
   align-items: baseline;
   padding: 4px 12px;
@@ -17649,15 +17649,6 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
   border: 1px solid transparent; cursor: pointer; flex: 0 0 auto;
 }
 .tp-act-tab:hover { border-color: var(--accent, #7aa2ff); }
-.tp-act-tab--closed {
-  background: rgba(255,255,255,0.05); color: var(--text-dim, #5e6068);
-  cursor: default; display: inline-flex; align-items: center; gap: 4px;
-}
-.tp-act-tab--closed:hover { border-color: transparent; }
-.tp-act-tab-closed {
-  font-size: 8px; text-transform: uppercase; letter-spacing: 0.04em;
-  opacity: 0.7; border: 1px solid currentColor; border-radius: 3px; padding: 0 2px;
-}
 .tp-act-chip--toggle { margin-left: auto; }
 .tp-act-incident-head .tp-act-tab { margin-left: 4px; }
 
@@ -17790,7 +17781,7 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 }
 .tp-act-expand:hover { color: var(--text-primary, #e6e8ea); }
 .tp-act-run-detail {
-  grid-column: 4 / span 2;
+  grid-column: 4 / span 3;
   display: none;
   padding: 4px 0 4px 0;
   color: var(--text-dim, #8b8d94);
@@ -17802,7 +17793,7 @@ body.theme-light .task-pill--clickable:hover { background: #f8fafc; }
 
 /* Full decision detail (in-flight command + escalation + output tail). */
 .tp-act-detail {
-  grid-column: 4 / span 2;
+  grid-column: 4 / span 3;
   display: none;
   padding: 6px 0 4px 0;
   margin-top: 2px;
@@ -18325,46 +18316,81 @@ body.theme-light .teammate-panel-input[contenteditable][data-placeholder].is-emp
 .pane-context-menu {
   z-index: 10000;
   background: var(--bg-overlay, #0d1117);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border, #1f2937);
-  border-radius: 6px;
-  padding: 4px;
-  min-width: 160px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border-radius: 10px;
+  padding: 6px;
+  min-width: 190px;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
   font-family: ui-sans-serif, system-ui;
-  font-size: 12px;
+  font-size: 12.5px;
+  animation: ctx-pop 0.08s ease-out;
 }
 .pane-context-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
   text-align: left;
   background: transparent;
   border: none;
   color: var(--fg, #cbd5e1);
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: 7px 12px;
+  border-radius: 6px;
   cursor: pointer;
   font-family: inherit;
   font-size: inherit;
+  transition:
+    background 0.14s cubic-bezier(0.2, 0.7, 0.3, 1),
+    color 0.14s cubic-bezier(0.2, 0.7, 0.3, 1),
+    transform 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 .pane-context-menu-item:hover {
-  background: rgba(var(--ink-rgb), 0.08);
+  background: var(--accent);
+  color: var(--bg, #0d1117);
+  transform: translateX(1px);
+}
+.pane-context-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.pane-context-menu-item:hover .pane-context-menu-item-icon {
+  color: var(--bg, #0d1117);
+}
+.pane-context-menu-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pane-context-menu-separator {
   height: 1px;
-  margin: 4px 8px;
+  margin: 6px 8px;
   background: var(--border, #1f2937);
 }
 .pane-context-menu-section {
-  padding: 6px 12px 4px;
+  padding: 8px 12px 4px;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted, #8a8aa8);
 }
 .pane-context-menu-hint {
   padding: 4px 12px 6px;
   font-size: 11px;
+  font-style: italic;
   color: var(--muted, #8a8aa8);
 }
 

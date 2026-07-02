@@ -10,6 +10,8 @@ use serde::Serialize;
 /// The latest run of one Actions workflow, as the UI consumes it.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkflowRun {
+    /// Run id — used to rerun/cancel this specific run.
+    pub id: u64,
     /// Workflow name, e.g. "Release macOS".
     pub name: String,
     /// Collapsed state token (see `run_state`): success | failure |
@@ -85,6 +87,62 @@ async fn gh_get(client: &reqwest::Client, token: &str, url: &str) -> Result<serd
         });
     }
     serde_json::from_str(&text).map_err(|e| format!("github: invalid JSON: {e}"))
+}
+
+/// POST with no body (rerun/cancel). Same error shaping as `gh_get`, minus
+/// the JSON body — those endpoints return 201/202 with a run summary we
+/// don't need.
+async fn gh_post(client: &reqwest::Client, token: &str, url: &str) -> Result<(), String> {
+    let resp = client
+        .post(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "covenant-client")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("github request failed: {e}"))?;
+    let status = resp.status().as_u16();
+    if (200..300).contains(&status) {
+        return Ok(());
+    }
+    let text = resp.text().await.unwrap_or_default();
+    let detail = serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string));
+    Err(match (status, detail) {
+        (401, _) => "github: token invalid or expired — reconnect GitHub in Settings".into(),
+        (403, Some(m)) => format!("github: {m}"),
+        (403, None) => "github: forbidden — missing repo permission".into(),
+        (404, _) => "github: run not found".into(),
+        (s, Some(m)) => format!("github: HTTP {s} — {m}"),
+        (s, None) => format!("github: HTTP {s}"),
+    })
+}
+
+async fn owner_repo_token(cwd: &str) -> Result<(String, String, String), String> {
+    let (owner, repo) = resolve_owner_repo(cwd)
+        .await
+        .ok_or_else(|| "github: no GitHub remote in this folder".to_string())?;
+    let token = karl_score::auth::load_token_from_keychain()
+        .map_err(|e| format!("keychain: {e}"))?
+        .ok_or_else(|| "github: not signed in — reconnect GitHub in Settings".to_string())?;
+    Ok((owner, repo, token))
+}
+
+/// Re-run a completed workflow run (all jobs).
+pub async fn rerun_workflow_run(cwd: String, run_id: u64) -> Result<(), String> {
+    let (owner, repo, token) = owner_repo_token(&cwd).await?;
+    let client = reqwest::Client::new();
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/rerun");
+    gh_post(&client, &token, &url).await
+}
+
+/// Cancel an in-progress or queued workflow run.
+pub async fn cancel_workflow_run(cwd: String, run_id: u64) -> Result<(), String> {
+    let (owner, repo, token) = owner_repo_token(&cwd).await?;
+    let client = reqwest::Client::new();
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
+    gh_post(&client, &token, &url).await
 }
 
 fn short_sha(sha: &str) -> String {
@@ -202,6 +260,7 @@ pub async fn load_workflow_runs(cwd: String) -> BeaconState {
         let status = r.get("status").and_then(|x| x.as_str()).unwrap_or("");
         let conclusion = r.get("conclusion").and_then(|x| x.as_str());
         runs.push(WorkflowRun {
+            id: r.get("id").and_then(|x| x.as_u64()).unwrap_or(0),
             name,
             state: run_state(status, conclusion),
             run_number: r.get("run_number").and_then(|x| x.as_u64()).unwrap_or(0),

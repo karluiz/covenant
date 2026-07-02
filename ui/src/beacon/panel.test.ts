@@ -55,6 +55,7 @@ describe("stateDotColor", () => {
 type Run = Extract<BeaconState, { kind: "ok" }>["runs"][number];
 function run(over: Partial<Run> = {}): Run {
   return {
+    id: 1,
     name: "Release macOS",
     state: "success",
     run_number: 42,

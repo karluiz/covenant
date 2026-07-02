@@ -776,15 +776,17 @@ export class ActivityView {
 /* ── row renderers (module-scope, no class state needed) ─────────── */
 
 /// Origin-tab chip: the tab a decision came from. Live tabs are clickable
-/// (data-session-short drives focus); closed tabs render muted + non-clickable
-/// with a "closed" marker so the user can tell stale ledger from live work.
+/// (data-session-short drives focus); closed tabs render no chip at all —
+/// the origin is still shown in the click-to-open drawer.
 /// No native `title=` (project rule) — liveness is conveyed visually.
 export function tabChipHtml(origin: OriginTab): string {
   if (!origin) return "";
   if (origin.open) {
     return `<span class="tp-act-tab" role="button" tabindex="0" data-session-short="${escapeHtml(origin.short)}">${escapeHtml(origin.name)}</span>`;
   }
-  return `<span class="tp-act-tab tp-act-tab--closed">${escapeHtml(origin.name)}<span class="tp-act-tab-closed">closed</span></span>`;
+  // Closed tabs: no chip. It isn't clickable, repeats on every row, and
+  // steals body width — origin still lives in the click-to-open drawer.
+  return "";
 }
 
 function renderSingle(e: ActEvent, now: number, outlierThreshold: number, origin: OriginTab, idx: number): string {

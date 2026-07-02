@@ -1285,6 +1285,7 @@ export async function gitChanges(cwd: string): Promise<Changes> {
 // Beacon — GitHub Actions workflow status sidebar ----------------------
 
 export type BeaconRun = {
+  id: number;
   name: string; // workflow name, e.g. "Release macOS"
   state: string; // success | failure | in_progress | queued | cancelled | ...
   run_number: number;
@@ -1306,6 +1307,14 @@ export type BeaconState =
 
 export async function beaconWorkflowRuns(cwd: string): Promise<BeaconState> {
   return invoke<BeaconState>("beacon_workflow_runs", { cwd });
+}
+
+export async function beaconRerunWorkflow(cwd: string, runId: number): Promise<void> {
+  return invoke<void>("beacon_rerun_workflow", { cwd, runId });
+}
+
+export async function beaconCancelWorkflow(cwd: string, runId: number): Promise<void> {
+  return invoke<void>("beacon_cancel_workflow", { cwd, runId });
 }
 
 // CDLC — local Covenant Dependency Lifecycle Catalog ------------------

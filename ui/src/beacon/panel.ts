@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { beaconWorkflowRuns, type BeaconState } from "../api";
+import { beaconWorkflowRuns, beaconRerunWorkflow, beaconCancelWorkflow, type BeaconState } from "../api";
 import { Icons } from "../icons";
 import { attachTooltip } from "../tooltip/tooltip";
 
@@ -138,6 +138,7 @@ export function renderBeacon(
   state: BeaconState,
   onPick?: (path: string) => void,
   errorActions?: { onRetry?: () => void; onReconnect?: () => void },
+  runActions?: { onRerun?: (runId: number) => void; onCancel?: (runId: number) => void },
 ): void {
   root.replaceChildren();
   switch (state.kind) {
@@ -234,8 +235,33 @@ export function renderBeacon(
           run.actor,
         ].filter(Boolean) as string[];
         meta.textContent = bits.join(" · ");
-
         row.append(line, meta);
+
+        if (runActions && run.id) {
+          const busy = stateDotColor(run.state) === "busy";
+          const action = document.createElement("button");
+          action.type = "button";
+          action.className = "rail-row-action";
+          if (busy) {
+            action.setAttribute("aria-label", "Cancel run");
+            action.innerHTML = Icons.ban({ size: 13 });
+            attachTooltip(action, "Cancel run");
+            action.addEventListener("click", (e) => {
+              e.stopPropagation();
+              runActions.onCancel?.(run.id);
+            });
+          } else {
+            action.setAttribute("aria-label", "Re-run workflow");
+            action.innerHTML = Icons.refresh({ size: 13 });
+            attachTooltip(action, "Re-run workflow");
+            action.addEventListener("click", (e) => {
+              e.stopPropagation();
+              runActions.onRerun?.(run.id);
+            });
+          }
+          row.appendChild(action);
+        }
+
         root.appendChild(row);
       }
       return;
@@ -333,6 +359,13 @@ export class BeaconPanel {
           void this.fetch();
         },
         { onRetry: () => this.render(), onReconnect: this.opts.onReconnect },
+        {
+          onRerun: (runId) => void this.runAction(() => beaconRerunWorkflow(cwd, runId)),
+          onCancel: (runId) => {
+            if (!confirm("Cancel this workflow run?")) return;
+            void this.runAction(() => beaconCancelWorkflow(cwd, runId));
+          },
+        },
       );
       if (this.selectedPath) this.prependBack();
     } catch (e) {
@@ -342,6 +375,20 @@ export class BeaconPanel {
         onReconnect: this.opts.onReconnect,
       });
       if (this.selectedPath) this.prependBack();
+    }
+  }
+
+  /// Rerun/cancel a run, then refresh the list. On failure, surface the
+  /// error inline instead of leaving the button silently dead.
+  private async runAction(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+      void this.fetch();
+    } catch (e) {
+      renderBeacon(this.body, { kind: "error", message: String(e) }, undefined, {
+        onRetry: () => this.render(),
+        onReconnect: this.opts.onReconnect,
+      });
     }
   }
 

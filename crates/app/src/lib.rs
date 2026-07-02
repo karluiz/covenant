@@ -2324,6 +2324,16 @@ async fn beacon_workflow_runs(cwd: String) -> Result<beacon::BeaconState, String
 }
 
 #[tauri::command]
+async fn beacon_rerun_workflow(cwd: String, run_id: u64) -> Result<(), String> {
+    beacon::rerun_workflow_run(cwd, run_id).await
+}
+
+#[tauri::command]
+async fn beacon_cancel_workflow(cwd: String, run_id: u64) -> Result<(), String> {
+    beacon::cancel_workflow_run(cwd, run_id).await
+}
+
+#[tauri::command]
 async fn cdlc_local_status(cwd: String) -> Result<karl_cdlc::CdlcStatus, String> {
     let repo = std::path::PathBuf::from(cwd);
     tokio::task::spawn_blocking(move || karl_cdlc::status(&repo))
@@ -4417,6 +4427,8 @@ pub fn run() {
             git_switch_branch,
             git_changes,
             beacon_workflow_runs,
+            beacon_rerun_workflow,
+            beacon_cancel_workflow,
             cdlc_eval::cdlc_run_evals,
             cdlc_eval::cdlc_eval_summary,
             cdlc_local_status,

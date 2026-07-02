@@ -51,12 +51,9 @@ describe("origin-tab chip", () => {
     expect(html).not.toContain("closed");
   });
 
-  it("renders a muted, non-clickable chip with a closed marker for a dead tab", () => {
+  it("renders no chip for a dead tab (origin lives in the drawer)", () => {
     const html = tabChipHtml({ short: "WE6JN9", name: "old tab", open: false });
-    expect(html).toContain("old tab");
-    expect(html).toContain("tp-act-tab--closed");
-    expect(html).toContain("closed");
-    expect(html).not.toContain("data-session-short");
+    expect(html).toBe("");
   });
 
   it("renders nothing when origin is unknown", () => {

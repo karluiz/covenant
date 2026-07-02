@@ -1377,11 +1377,20 @@ export class TabManager {
       document.removeEventListener("keydown", onKey);
     };
 
-    const addItem = (label: string, action: () => void): void => {
+    const addItem = (label: string, action: () => void, icon?: string): void => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "pane-context-menu-item";
-      btn.textContent = label;
+      if (icon) {
+        const iconEl = document.createElement("span");
+        iconEl.className = "pane-context-menu-item-icon";
+        iconEl.innerHTML = icon;
+        btn.appendChild(iconEl);
+      }
+      const labelEl = document.createElement("span");
+      labelEl.className = "pane-context-menu-item-label";
+      labelEl.textContent = label;
+      btn.appendChild(labelEl);
       btn.addEventListener("click", () => {
         dismiss();
         action();
@@ -1416,46 +1425,54 @@ export class TabManager {
     // panes have no xterm → getSelection() is unavailable → item absent.
     const selection = pane?.xterm?.getSelection()?.trim() ?? "";
     if (selection.length > 0) {
-      addItem("Copy", () => void navigator.clipboard.writeText(selection));
-      addItem("Run selection in new tab", () => {
-        void this.createTab({
-          cwd: pane?.cwd ?? null,
-          groupId,
-          color: tab.color,
-          initialCommand: selection,
-        });
-      });
+      addItem("Copy", () => void navigator.clipboard.writeText(selection), Icons.copy());
+      addItem(
+        "Run selection in new tab",
+        () => {
+          void this.createTab({
+            cwd: pane?.cwd ?? null,
+            groupId,
+            color: tab.color,
+            initialCommand: selection,
+          });
+        },
+        Icons.play(),
+      );
       // Save the highlighted text as a reusable prompt. ponytail: title is the
       // first line truncated — no naming dialog; rename later in the Prompts tab.
-      addItem("Create prompt", () => {
-        const title =
-          (selection.split("\n", 1)[0] ?? "Prompt").trim().slice(0, 60) ||
-          "Prompt";
-        void promptsApi
-          .create(title, selection)
-          .then(() => pushInfoToast({ message: `Saved prompt “${title}”` }))
-          .catch(() => pushInfoToast({ message: "Couldn’t save prompt" }));
-      });
+      addItem(
+        "Create prompt",
+        () => {
+          const title =
+            (selection.split("\n", 1)[0] ?? "Prompt").trim().slice(0, 60) ||
+            "Prompt";
+          void promptsApi
+            .create(title, selection)
+            .then(() => pushInfoToast({ message: `Saved prompt “${title}”` }))
+            .catch(() => pushInfoToast({ message: "Couldn’t save prompt" }));
+        },
+        Icons.sparkles(),
+      );
     }
 
     // Start the default agent — only when none is already running in this
     // pane (pane.executor is the detected foreground executor, null if idle).
     if (sessionId && !pane?.executor && this.runDefaultAgent) {
       const run = this.runDefaultAgent;
-      addItem("Start agent", () => run(sessionId));
+      addItem("Start agent", () => run(sessionId), Icons.headphones());
     }
 
     // Split actions (only when the feature is on / a split exists).
     if (flag && isSingle) {
-      addItem("Split right", () => void this.splitActivePane("horizontal"));
-      addItem("Split down", () => void this.splitActivePane("vertical"));
+      addItem("Split right", () => void this.splitActivePane("horizontal"), Icons.splitRight());
+      addItem("Split down", () => void this.splitActivePane("vertical"), Icons.splitDown());
     }
     if (flag && isSplit) {
-      addItem("Swap panes", () => void this.swapActivePanes());
+      addItem("Swap panes", () => void this.swapActivePanes(), Icons.refresh());
     }
     // Close pane only when there's actually a pane to close (not the tab).
     if (isSplit) {
-      addItem("Close pane", () => void this.closePaneByIdx(tab, paneIdx));
+      addItem("Close pane", () => void this.closePaneByIdx(tab, paneIdx), Icons.x());
     }
 
     const encoder = new TextEncoder();
@@ -1467,18 +1484,26 @@ export class TabManager {
       if (commands.length > 0) {
         addSection("Commands");
         addCapped(commands, (c) =>
-          addItem(c.title, () => {
-            void writeToSession(sessionId, encoder.encode(c.command));
-          }),
+          addItem(
+            c.title,
+            () => {
+              void writeToSession(sessionId, encoder.encode(c.command));
+            },
+            Icons.terminal(),
+          ),
         );
       }
       // Prompts send AND submit (bracketed paste + carriage return).
       if (prompts.length > 0) {
         addSection("Prompts");
         addCapped(prompts, (p) =>
-          addItem(p.title, () => {
-            void sendPromptToSession(sessionId, p.body);
-          }),
+          addItem(
+            p.title,
+            () => {
+              void sendPromptToSession(sessionId, p.body);
+            },
+            Icons.noteText(),
+          ),
         );
       }
       // Skills: same send+submit path as Prompts, just a curated slash-command
@@ -1487,7 +1512,7 @@ export class TabManager {
       // list needs to be user-editable.
       addSection("Skills");
       for (const s of TabManager.PANE_MENU_SKILLS) {
-        addItem(s.title, () => void sendPromptToSession(sessionId, s.body));
+        addItem(s.title, () => void sendPromptToSession(sessionId, s.body), Icons.zap());
       }
     }
 

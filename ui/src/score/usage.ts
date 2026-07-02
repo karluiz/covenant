@@ -68,8 +68,8 @@ export function renderModelsCard(
   `).join("");
   host.innerHTML = `
     <div class="cov-toggle">
-      <button data-src="internal" class="${!isExternal ? "active" : ""}">Covenant</button>
-      <button data-src="external" class="${isExternal ? "active" : ""}">External</button>
+      <button type="button" data-src="internal" class="${!isExternal ? "active" : ""}">Covenant</button>
+      <button type="button" data-src="external" class="${isExternal ? "active" : ""}">External</button>
     </div>
     <table class="cov-model-table">
       <thead><tr>

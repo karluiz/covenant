@@ -441,6 +441,7 @@ export class SettingsPanel {
       <a href="#sec-notifications" data-target="sec-notifications">Notifications</a>
       <a href="#sec-telegram" data-target="sec-telegram">Telegram</a>
       <a href="#sec-covenant" data-target="sec-covenant">Metrics</a>
+      <a href="#sec-onboarding" data-target="sec-onboarding">Onboarding</a>
       <a href="#sec-workspace" data-target="sec-workspace">Workspace</a>
       <a href="#sec-cloud" data-target="sec-cloud">Covenant Cloud</a>
       <a href="#sec-experimental" data-target="sec-experimental">Experimental</a>
@@ -1098,7 +1099,7 @@ export class SettingsPanel {
           </label>
         </section>
         <section class="settings-section" id="sec-telegram"></section>
-        <section class="settings-section" id="sec-covenant">
+        <section class="settings-section" id="sec-onboarding">
           <h3 class="settings-section-title">Onboarding</h3>
           <p class="settings-section-desc">Re-run the first-run tour at any time. Useful if you skipped it on install or want a refresher on the keyboard shortcuts and the super-agent.</p>
           <div class="settings-field">
@@ -1113,6 +1114,8 @@ export class SettingsPanel {
               <strong>Preview</strong> opens the wizard without touching persisted state, for QA and demos.
             </small>
           </div>
+        </section>
+        <section class="settings-section" id="sec-covenant">
           <h3 class="settings-section-title">Metrics</h3>
           <p class="settings-section-desc">Track prompts and commits across your repos.</p>
           <div id="covenant-page-root"></div>
@@ -1175,15 +1178,6 @@ export class SettingsPanel {
               tuned, so expect occasional redraw glitches when resizing panes.
             </small>
           </label>
-          <div class="settings-field settings-field-row">
-            <span class="settings-label">Onboarding wizard</span>
-            <div class="settings-input-row">
-              <button type="button" class="settings-toggle" data-action="start-onboarding">${Icons.play({ size: 14 })}<span>Start onboarding</span></button>
-            </div>
-            <small class="settings-hint">
-              Pops the 10-step welcome wizard in preview mode — your completion flag is preserved so you can replay this as many times as you want without re-sealing. For QA + leave-feedback workflow.
-            </small>
-          </div>
         </section>
         <div class="settings-actions">
           <span class="settings-status" aria-live="polite"></span>
@@ -1788,19 +1782,6 @@ export class SettingsPanel {
       this.close();
       void this.onShowTour({ preview: true });
     });
-    // "Start onboarding" — Experimental entry point. Same preview
-    // behavior as the Covenant tab's Preview button. Surfaced here so
-    // QA + leave-feedback can find it in one click without scrolling
-    // through the rest of the settings tree.
-    const startOnboardingBtn = form.querySelector<HTMLButtonElement>('button[data-action="start-onboarding"]');
-    startOnboardingBtn?.addEventListener("click", () => {
-      if (!this.onShowTour) {
-        pushInfoToast({ message: "Tour not available." });
-        return;
-      }
-      this.close();
-      void this.onShowTour({ preview: true });
-    });
     wsExportBtn?.addEventListener("click", async () => {
       if (!this.onExportWorkspace) {
         pushInfoToast({ message: "Export not available." });
@@ -1876,6 +1857,7 @@ export class SettingsPanel {
       "sec-notifications": "email sendgrid notify alert sound",
       "sec-telegram": "telegram bot token chat message",
       "sec-covenant": "metrics score commits prompts tokens repo",
+      "sec-onboarding": "onboarding tour wizard first-run welcome tutorial",
       "sec-workspace": "workspace directory folder repo path",
       "sec-cloud": "cloud sync backup restore operators specs preferences",
       "sec-experimental": "experimental beta flags browser",

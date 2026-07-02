@@ -246,6 +246,20 @@ export const Icons = {
       o,
     ),
 
+  /** Split right — two side-by-side panes. */
+  splitRight: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/>`,
+      o,
+    ),
+
+  /** Split down — two stacked panes. */
+  splitDown: (o?: IconOptions): string =>
+    svg(
+      `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 12h18"/>`,
+      o,
+    ),
+
   /** Chevron right — disclosure triangle. Rotated 90° via CSS for
    * "expanded" state (no separate `chevronDown` icon needed). */
   chevronRight: (o?: IconOptions): string =>
