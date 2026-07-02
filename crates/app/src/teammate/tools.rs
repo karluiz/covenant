@@ -30,6 +30,8 @@ pub enum ToolError {
     Io(String),
     #[error("command failed: {0}")]
     CommandFailed(String),
+    #[error("acp: {0}")]
+    Acp(String),
 }
 
 /// Sandbox + budget for tool calls inside a single DM dispatch.
@@ -862,6 +864,119 @@ pub fn run_command_tool_def() -> Value {
     })
 }
 
+pub fn dispatch_acp_tool_def() -> Value {
+    serde_json::json!({
+        "name": "dispatch_acp",
+        "description": "Dispatch a self-contained coding task to a background GitHub Copilot session (no terminal tab). File edits are confined to the workspace; shell commands are auto-approved only when read-only-safe and denied otherwise. Blocks until done (default 240s, max 600s) and returns a report: the agent's final message, tool activity, and any denied commands. Use for delegable subtasks — write a script, draft a fix, run an analysis — not for interactive work.",
+        "input_schema": {
+            "type": "object",
+            "required": ["prompt"],
+            "additionalProperties": false,
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Complete, self-contained instructions for the Copilot agent. Include all context it needs; it cannot ask follow-ups."
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Optional working directory, relative to the workspace root."
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Max seconds to wait before returning a partial report (default 240, max 600)."
+                }
+            }
+        }
+    })
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DispatchAcpArgs {
+    prompt: String,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+}
+
+/// Dispatch a self-contained coding task to a background headless Copilot
+/// session via ACP. Thin wrapper around [`karl_agent::acp::run_task`]: the
+/// only work done here is arg parsing, `cwd` sandboxing, and formatting the
+/// report into bounded plain text for the LLM turn.
+pub async fn dispatch_acp(env: &ToolEnv, args: &Value) -> Result<String, ToolError> {
+    let parsed: DispatchAcpArgs =
+        serde_json::from_value(args.clone()).map_err(|e| ToolError::InvalidArgs(e.to_string()))?;
+    let root = env
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| env.root.clone());
+    let cwd = match parsed.cwd.as_deref() {
+        None | Some("") | Some(".") => root.clone(),
+        Some(rel) => {
+            let canon = root
+                .join(rel)
+                .canonicalize()
+                .map_err(|e| ToolError::InvalidArgs(format!("cwd: {e}")))?;
+            if !canon.starts_with(&root) {
+                return Err(ToolError::InvalidArgs(
+                    "cwd escapes the workspace root".into(),
+                ));
+            }
+            canon
+        }
+    };
+    let timeout_secs = parsed.timeout_secs.unwrap_or(240).min(600);
+    let report = karl_agent::acp::run_task(karl_agent::acp::AcpRunOpts {
+        cwd,
+        prompt: parsed.prompt,
+        timeout: std::time::Duration::from_secs(timeout_secs),
+        program: None,
+        extra_args_for_tests: vec![],
+    })
+    .await
+    .map_err(|e| ToolError::Acp(e.to_string()))?;
+    Ok(format_acp_report(&report))
+}
+
+/// Bounded plain-text report for the LLM turn.
+pub(crate) fn format_acp_report(report: &karl_agent::acp::AcpRunReport) -> String {
+    // ponytail: 4000-char cap on agent text; raise if operators start
+    // asking the agent to summarize its own truncated output.
+    const TEXT_CAP: usize = 4000;
+    let mut out = format!("stop_reason: {}\n", report.stop_reason);
+    if !report.tool_events.is_empty() {
+        out.push_str("tool activity:\n");
+        for line in &report.tool_events {
+            out.push_str("  - ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if !report.denied.is_empty() {
+        out.push_str("denied by policy (not executed):\n");
+        for cmd in &report.denied {
+            out.push_str("  - ");
+            out.push_str(cmd);
+            out.push('\n');
+        }
+    }
+    out.push_str("agent message:\n");
+    if report.agent_text.len() > TEXT_CAP {
+        let cut = report
+            .agent_text
+            .char_indices()
+            .take_while(|(i, _)| *i < TEXT_CAP)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(TEXT_CAP.min(report.agent_text.len()));
+        out.push_str(&report.agent_text[..cut]);
+        out.push_str("\n[truncated]");
+    } else {
+        out.push_str(&report.agent_text);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1016,5 +1131,54 @@ mod tests {
             .expect("archetype enum");
         let values: Vec<&str> = archetype_enum.iter().filter_map(|v| v.as_str()).collect();
         assert_eq!(values, vec!["do", "review", "watch"]);
+    }
+
+    #[tokio::test]
+    async fn dispatch_acp_rejects_cwd_escape() {
+        let (_dir, root) = tmp_root();
+        let env = ToolEnv::new(root, 1024);
+        // `..` always exists (it's root's parent, which necessarily exists
+        // since root was created inside it), so this deterministically
+        // exercises the `starts_with(&root)` rejection rather than
+        // depending on a fixed relative path like `../../etc` happening to
+        // resolve to something on the host (brief's original sketch used
+        // `../../etc`, which is not guaranteed to exist under every tmp
+        // layout — e.g. macOS CI runners nest tempdirs differently).
+        let err = dispatch_acp(&env, &serde_json::json!({ "prompt": "x", "cwd": ".." }))
+            .await
+            .expect_err("must reject");
+        assert!(err.to_string().contains("escapes"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn dispatch_acp_requires_prompt() {
+        let (_dir, root) = tmp_root();
+        let env = ToolEnv::new(root, 1024);
+        let err = dispatch_acp(&env, &serde_json::json!({}))
+            .await
+            .expect_err("must reject");
+        assert!(matches!(err, ToolError::InvalidArgs(_)));
+    }
+
+    #[test]
+    fn dispatch_acp_def_shape() {
+        let def = dispatch_acp_tool_def();
+        assert_eq!(def["name"], "dispatch_acp");
+        assert_eq!(def["input_schema"]["required"][0], "prompt");
+    }
+
+    #[test]
+    fn format_acp_report_is_bounded_and_complete() {
+        let report = karl_agent::acp::AcpRunReport {
+            stop_reason: "end_turn".into(),
+            agent_text: "x".repeat(10_000),
+            tool_events: vec!["execute `ls` — completed (exit 0)".into()],
+            denied: vec!["sudo reboot".into()],
+        };
+        let s = format_acp_report(&report);
+        assert!(s.contains("end_turn"));
+        assert!(s.contains("execute `ls`"));
+        assert!(s.contains("sudo reboot"));
+        assert!(s.len() < 6_000, "report must be truncated, got {}", s.len());
     }
 }
