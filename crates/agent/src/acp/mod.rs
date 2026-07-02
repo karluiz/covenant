@@ -13,8 +13,8 @@
 
 pub mod protocol;
 pub mod session;
+pub mod policy;    // Task 3
 // Uncommented by their own tasks — an empty stub can't back a `pub use`:
-// pub mod policy;   // Task 3
 // pub mod run;      // Task 4
 
 pub use protocol::{
