@@ -10241,6 +10241,238 @@ body.theme-light .tabbar-rail-peek-list li.active,
 body.theme-light .tabbar-rail-cell-peek {
     color: var(--text-primary);
 }
+
+/* ---- Folded-rail styles (Settings → Appearance → Folded sidebar) ----
+   The rail component branches its DOM on body.tabbar-rail-<style>;
+   legacy is the no-class baseline above. Each style also widens the
+   collapsed column via --tabbar-w — the fold slide is transform-based
+   and width-agnostic, so no animation changes. */
+
+body.tabbar-left.tabbar-left-collapsed.tabbar-rail-glyph {
+    --tabbar-w: 56px;
+}
+body.tabbar-left.tabbar-left-collapsed.tabbar-rail-labels {
+    --tabbar-w: 96px;
+}
+
+body.tabbar-rail-glyph #tabbar-rail,
+body.tabbar-rail-spine #tabbar-rail {
+    align-items: center;
+    gap: 10px;
+}
+
+/* ---- Glyph: monogram tiles + group badge ---- */
+
+.tabbar-rail-glyph-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.tabbar-rail-glyph-badge {
+    width: 34px;
+    height: 16px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--rail-color) 28%, transparent);
+    border: 1px solid color-mix(in srgb, var(--rail-color) 55%, transparent);
+    color: var(--rail-color);
+    font-family: var(--ui-font);
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0;
+    margin-bottom: 2px;
+    cursor: pointer;
+    outline: none;
+}
+
+.tabbar-rail-glyph-tile {
+    position: relative;
+    width: 34px;
+    height: 26px;
+    border-radius: 7px;
+    background: rgb(var(--ink-rgb) / 0.04);
+    border: 1px solid transparent;
+    color: var(--muted);
+    font-family: var(--ui-font);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 0;
+    cursor: pointer;
+    outline: none;
+    transition:
+        background 0.12s ease-out,
+        color 0.12s ease-out,
+        border-color 0.12s ease-out;
+}
+
+.tabbar-rail-glyph-tile::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 7px;
+    bottom: 7px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--rail-color);
+    opacity: 0.7;
+}
+
+.tabbar-rail-glyph-tile:hover {
+    background: rgb(var(--ink-rgb) / 0.08);
+    color: var(--fg);
+}
+
+.tabbar-rail-glyph-tile.active {
+    background: color-mix(in srgb, var(--rail-color) 26%, transparent);
+    border-color: color-mix(in srgb, var(--rail-color) 70%, transparent);
+    color: var(--fg);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--rail-color) 35%, transparent);
+}
+
+.tabbar-rail-glyph-browser {
+    font-size: 12px;
+}
+
+.tabbar-rail-glyph-browser::before {
+    display: none;
+}
+
+/* ---- Labels: truncated names under group heads ---- */
+
+body.tabbar-rail-labels #tabbar-rail {
+    gap: 10px;
+    padding: 6px 5px;
+}
+
+.tabbar-rail-labels-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.tabbar-rail-labels-group .tabbar-rail-cell-wrap {
+    width: 100%;
+}
+
+.tabbar-rail-labels-head {
+    font-family: var(--ui-font);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--rail-color);
+    background: none;
+    border: none;
+    border-left: 2px solid var(--rail-color);
+    border-radius: 0;
+    padding: 2px 6px 3px;
+    margin-bottom: 2px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    outline: none;
+}
+
+.tabbar-rail-labels-row {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: var(--ui-font);
+    font-size: 10.5px;
+    color: var(--muted);
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 3px 6px 3px 10px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    outline: none;
+    transition:
+        background 0.12s ease-out,
+        color 0.12s ease-out;
+}
+
+.tabbar-rail-labels-row:hover {
+    background: rgb(var(--ink-rgb) / 0.06);
+    color: var(--fg);
+}
+
+.tabbar-rail-labels-row.active {
+    background: color-mix(in srgb, var(--rail-color) 22%, transparent);
+    color: var(--fg);
+}
+
+/* ---- Spine: segmented bar per group ---- */
+
+.tabbar-rail-spine-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+}
+
+.tabbar-rail-spine-mono {
+    font-family: var(--ui-font);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--rail-color);
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    outline: none;
+}
+
+.tabbar-rail-spine-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5px;
+}
+
+/* Segments get their own radius instead of an overflow-hidden bar —
+   clipping the bar would also clip the hover peeks. */
+.tabbar-rail-spine-seg {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--rail-color) 35%, transparent);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+
+.tabbar-rail-spine-seg:hover {
+    background: color-mix(in srgb, var(--rail-color) 65%, transparent);
+}
+
+.tabbar-rail-spine-seg.active {
+    background: var(--rail-color);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--rail-color) 60%, transparent);
+}
+
+/* Keyboard-only focus ring, mirroring the legacy cell treatment. */
+.tabbar-rail-glyph-badge:focus-visible,
+.tabbar-rail-glyph-tile:focus-visible,
+.tabbar-rail-labels-head:focus-visible,
+.tabbar-rail-labels-row:focus-visible,
+.tabbar-rail-spine-mono:focus-visible,
+.tabbar-rail-spine-seg:focus-visible {
+    outline: 2px solid var(--rail-color);
+    outline-offset: 2px;
+}
+
 /* ---- Drafts page ---- */
 #drafts-page {
   display: grid;

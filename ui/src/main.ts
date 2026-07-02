@@ -66,7 +66,7 @@ import { CapabilitiesPanel } from "./capabilities/panel";
 import { StatusBar } from "./status/bar";
 import { TabManager, type TabManifestV1 } from "./tabs/manager";
 import { activePane } from "./tabs/pane";
-import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "./tabs/custom-style";
+import { applyCustomTabStyle, applyFoldedRailStyle, applyPresetTabStyle, applyTabbarPosition } from "./tabs/custom-style";
 import { applyIndicatorVisibility } from "./indicators";
 import { WorkspaceManager } from "./workspaces/manager";
 import { WorkspaceSwitcher } from "./workspaces/switcher";
@@ -465,12 +465,14 @@ async function boot(): Promise<void> {
     initialSettings = await invoke<Settings>("get_settings");
     applyWindowBackground(initialSettings.window?.background ?? "vibrant");
     applyTabbarPosition(initialSettings.tabbar_position ?? "top");
+    applyFoldedRailStyle(initialSettings.folded_rail_style ?? "legacy");
     applyPresetTabStyle(initialSettings.window?.tab_style ?? "classic");
     applyCustomTabStyle(initialSettings.experimental?.tab_styles);
     applyUiFont(initialSettings.ui_font_family);
   } catch {
     applyWindowBackground("vibrant");
     applyTabbarPosition("top");
+    applyFoldedRailStyle("legacy");
     applyPresetTabStyle("classic");
     applyCustomTabStyle(null);
     applyUiFont(null);
@@ -1660,6 +1662,7 @@ async function boot(): Promise<void> {
     applyWindowBackground(next.window?.background ?? "vibrant");
     void applyTheme((next.window?.theme ?? "system") as ThemeMode, manager);
     applyTabbarPosition(next.tabbar_position ?? "top");
+    applyFoldedRailStyle(next.folded_rail_style ?? "legacy");
     applyPresetTabStyle(next.window?.tab_style ?? "classic");
     applyCustomTabStyle(next.experimental?.tab_styles);
     applyUiFont(next.ui_font_family);

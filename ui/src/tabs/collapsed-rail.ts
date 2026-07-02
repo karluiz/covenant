@@ -1,4 +1,10 @@
-// Collapsed sidebar rail (variant 6).
+// Collapsed sidebar rail.
+//
+// Renders one of four user-selectable styles (Settings → Appearance →
+// Folded sidebar): "legacy" (the original variant-6 pills, documented
+// below), "glyph" (monogram tiles + group badges), "labels" (truncated
+// names) and "spine" (segmented bars). The active style is read off the
+// body class set by applyFoldedRailStyle().
 //
 // Active only in vertical-tabbar mode (`body.tabbar-left`) when the
 // user has folded the sidebar (`body.tabbar-left-collapsed`). Visibility
@@ -21,8 +27,18 @@ import type {
   RailGroupView,
   RailTabView,
 } from "./manager";
+import { currentFoldedRailStyle } from "./custom-style";
 
 const NEUTRAL_COLOR = "rgba(255,255,255,0.35)";
+
+/// First two alphanumeric characters of a name — the tile/badge
+/// monogram. Falls back to a middot for names with no usable chars
+/// (emoji-only, whitespace). Case is left alone; CSS decides.
+export function monogram(name: string): string {
+  const chars = name.match(/[\p{L}\p{N}]/gu);
+  if (!chars || chars.length === 0) return "·";
+  return chars.slice(0, 2).join("");
+}
 
 export interface CollapsedRailDeps {
   /// Snapshot accessor — called on every rebuild.
@@ -37,30 +53,219 @@ export interface CollapsedRailDeps {
 export class CollapsedRail {
   private readonly host: HTMLElement;
   private readonly deps: CollapsedRailDeps;
+  /// Bound once so destroy() can unhook the style-change listener.
+  private readonly onStyleChange = (): void => this.render();
 
   constructor(host: HTMLElement, deps: CollapsedRailDeps) {
     this.host = host;
     this.deps = deps;
     this.host.classList.add("tabbar-rail");
     this.deps.setOnAfterRender(() => this.render());
+    // applyFoldedRailStyle announces style flips (settings live-preview,
+    // boot) — the DOM shape differs per style, so rebuild.
+    window.addEventListener("covenant:folded-rail-style", this.onStyleChange);
     this.render();
   }
 
   destroy(): void {
     this.deps.setOnAfterRender(null);
+    window.removeEventListener("covenant:folded-rail-style", this.onStyleChange);
     this.host.innerHTML = "";
   }
 
   private render(): void {
     const snap = this.deps.snapshot();
+    const style = currentFoldedRailStyle();
     this.host.innerHTML = "";
     for (const item of snap.items) {
       if (item.kind === "group") {
-        this.host.appendChild(this.renderGroup(item.group));
+        this.host.appendChild(
+          style === "glyph"
+            ? this.renderGlyphGroup(item.group)
+            : style === "labels"
+              ? this.renderLabelsGroup(item.group)
+              : style === "spine"
+                ? this.renderSpineGroup(item.group)
+                : this.renderGroup(item.group),
+        );
       } else {
-        this.host.appendChild(this.renderLooseTab(item.tab));
+        this.host.appendChild(
+          style === "glyph"
+            ? this.renderGlyphLoose(item.tab)
+            : style === "labels"
+              ? this.renderLabelsLoose(item.tab)
+              : style === "spine"
+                ? this.renderSpineLoose(item.tab)
+                : this.renderLooseTab(item.tab),
+        );
       }
     }
+  }
+
+  // ─── Shared bits ──────────────────────────────────────
+
+  /// Wraps an interactive element with the hover peek bubble the legacy
+  /// rail already ships (`.tabbar-rail-cell-wrap` positioning + delayed
+  /// `.tabbar-rail-cell-peek`) — every style reuses it for tab names.
+  private wrapWithPeek(
+    inner: HTMLElement,
+    label: string,
+    color: string,
+  ): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "tabbar-rail-cell-wrap";
+    const peek = document.createElement("div");
+    peek.className = "tabbar-rail-cell-peek";
+    peek.style.setProperty("--rail-color", color);
+    peek.textContent = label;
+    wrap.appendChild(inner);
+    wrap.appendChild(peek);
+    return wrap;
+  }
+
+  private tabButton(tab: RailTabView, cls: string, color: string): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    if (tab.active) btn.classList.add("active");
+    btn.style.setProperty("--rail-color", color);
+    btn.setAttribute("aria-label", tab.name);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.deps.selectTab(tab.id);
+    });
+    return btn;
+  }
+
+  /// Group header (badge / head / mono) — clicking activates the first
+  /// tab of the group, same contract as the legacy stripe.
+  private groupButton(group: RailGroupView, cls: string, color: string): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = cls;
+    btn.style.setProperty("--rail-color", color);
+    btn.setAttribute("aria-label", group.name);
+    btn.addEventListener("click", () => {
+      if (group.tabs.length > 0) this.deps.selectTab(group.tabs[0].id);
+    });
+    return btn;
+  }
+
+  // ─── Glyph rail (monogram tiles + group badge) ────────
+
+  private renderGlyphGroup(group: RailGroupView): HTMLElement {
+    const color = group.color ?? NEUTRAL_COLOR;
+    const wrap = document.createElement("div");
+    wrap.className = "tabbar-rail-glyph-group";
+    wrap.style.setProperty("--rail-color", color);
+
+    const badge = this.groupButton(group, "tabbar-rail-glyph-badge", color);
+    badge.textContent = monogram(group.name);
+    wrap.appendChild(this.wrapWithPeek(badge, group.name, color));
+
+    for (const t of group.tabs) {
+      wrap.appendChild(this.renderGlyphTile(t, color));
+    }
+    return wrap;
+  }
+
+  private renderGlyphLoose(tab: RailTabView): HTMLElement {
+    return this.renderGlyphTile(tab, tab.color ?? NEUTRAL_COLOR);
+  }
+
+  private renderGlyphTile(tab: RailTabView, color: string): HTMLElement {
+    const tile = this.tabButton(tab, "tabbar-rail-glyph-tile", color);
+    if (tab.kind === "browser") {
+      tile.classList.add("tabbar-rail-glyph-browser");
+      tile.textContent = "🌐";
+    } else {
+      tile.textContent = monogram(tab.name);
+    }
+    return this.wrapWithPeek(tile, tab.name, color);
+  }
+
+  // ─── Labels rail (truncated names under group heads) ──
+
+  private renderLabelsGroup(group: RailGroupView): HTMLElement {
+    const color = group.color ?? NEUTRAL_COLOR;
+    const wrap = document.createElement("div");
+    wrap.className = "tabbar-rail-labels-group";
+    wrap.style.setProperty("--rail-color", color);
+
+    const head = this.groupButton(group, "tabbar-rail-labels-head", color);
+    head.textContent = group.name;
+    wrap.appendChild(head);
+
+    for (const t of group.tabs) {
+      wrap.appendChild(this.renderLabelsRow(t, color));
+    }
+    return wrap;
+  }
+
+  private renderLabelsLoose(tab: RailTabView): HTMLElement {
+    const color = tab.color ?? NEUTRAL_COLOR;
+    const wrap = document.createElement("div");
+    wrap.className = "tabbar-rail-labels-group";
+    wrap.style.setProperty("--rail-color", color);
+    wrap.appendChild(this.renderLabelsRow(tab, color));
+    return wrap;
+  }
+
+  private renderLabelsRow(tab: RailTabView, color: string): HTMLElement {
+    const row = this.tabButton(tab, "tabbar-rail-labels-row", color);
+    row.textContent = tab.kind === "browser" ? `🌐 ${tab.name}` : tab.name;
+    return this.wrapWithPeek(row, tab.name, color);
+  }
+
+  // ─── Spine rail (segmented bar per group) ─────────────
+
+  private renderSpineGroup(group: RailGroupView): HTMLElement {
+    const color = group.color ?? NEUTRAL_COLOR;
+    const wrap = document.createElement("div");
+    wrap.className = "tabbar-rail-spine-group";
+    wrap.style.setProperty("--rail-color", color);
+
+    const mono = this.groupButton(group, "tabbar-rail-spine-mono", color);
+    mono.textContent = monogram(group.name);
+    wrap.appendChild(this.wrapWithPeek(mono, group.name, color));
+
+    const bar = document.createElement("div");
+    bar.className = "tabbar-rail-spine-bar";
+    for (const t of group.tabs) {
+      bar.appendChild(
+        this.wrapWithPeek(
+          this.tabButton(t, "tabbar-rail-spine-seg", color),
+          t.name,
+          color,
+        ),
+      );
+    }
+    wrap.appendChild(bar);
+    return wrap;
+  }
+
+  private renderSpineLoose(tab: RailTabView): HTMLElement {
+    const color = tab.color ?? NEUTRAL_COLOR;
+    const wrap = document.createElement("div");
+    wrap.className = "tabbar-rail-spine-group";
+    wrap.style.setProperty("--rail-color", color);
+
+    const mono = document.createElement("div");
+    mono.className = "tabbar-rail-spine-mono";
+    mono.textContent = tab.kind === "browser" ? "🌐" : "·";
+    wrap.appendChild(mono);
+
+    const bar = document.createElement("div");
+    bar.className = "tabbar-rail-spine-bar";
+    bar.appendChild(
+      this.wrapWithPeek(
+        this.tabButton(tab, "tabbar-rail-spine-seg", color),
+        tab.name,
+        color,
+      ),
+    );
+    wrap.appendChild(bar);
+    return wrap;
   }
 
   private renderGroup(group: RailGroupView): HTMLElement {

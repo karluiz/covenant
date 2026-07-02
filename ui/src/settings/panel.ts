@@ -23,7 +23,8 @@ import { renderModelsTab } from "./model_routes";
 import { renderSpawnsTab } from "./spawns";
 import { activateTab, type SettingsTab } from "./tabs";
 import { CustomSelect } from "../ui/select";
-import { applyCustomTabStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
+import { applyCustomTabStyle, applyFoldedRailStyle, applyPresetTabStyle, applyTabbarPosition } from "../tabs/custom-style";
+import type { FoldedRailStyle } from "../tabs/custom-style";
 import { renderPublicProfileCard } from "../score/profile";
 import { scheduleCloudPush } from "./cloud_push";
 import { INDICATORS, applyIndicatorVisibility } from "../indicators";
@@ -165,6 +166,7 @@ interface Settings {
   notch_corner?: "bottom-right" | "bottom-left" | "top-right" | "top-left";
   notch_sound_on_done?: boolean;
   tabbar_position: TabbarPosition;
+  folded_rail_style?: FoldedRailStyle;
   ui_font_family: string | null;
   familiars_enabled: boolean;
   is_premium: boolean;
@@ -372,6 +374,7 @@ export class SettingsPanel {
     // making this a visual no-op.
     if (this.current) {
       applyTabbarPosition(this.current.tabbar_position ?? "top");
+      applyFoldedRailStyle(this.current.folded_rail_style ?? "legacy");
       applyPresetTabStyle(this.current.window?.tab_style ?? "classic");
       applyCustomTabStyle(this.current.experimental?.tab_styles ?? null);
       applyIndicatorVisibility(this.current.hidden_indicators ?? []);
@@ -598,6 +601,38 @@ export class SettingsPanel {
                 <span class="settings-radio-hint">Vertical column on the left — better for long tab names and many tabs (Wave-style).</span>
               </span>
             </label>
+          </fieldset>
+          <fieldset class="settings-field settings-radio-group">
+            <span class="settings-label">Folded sidebar</span>
+            <label class="settings-radio">
+              <input type="radio" name="folded_rail_style" value="legacy" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Legacy pills <span class="settings-badge">default</span></span>
+                <span class="settings-radio-hint">Anonymous color pills with a group stripe — names on hover only.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="folded_rail_style" value="glyph" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Glyph tiles</span>
+                <span class="settings-radio-hint">Monogram tiles with a color group badge — identifiable without hovering.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="folded_rail_style" value="labels" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Mini labels</span>
+                <span class="settings-radio-hint">Truncated tab names under tiny group headers. Widest fold, most information.</span>
+              </span>
+            </label>
+            <label class="settings-radio">
+              <input type="radio" name="folded_rail_style" value="spine" />
+              <span class="settings-radio-body">
+                <span class="settings-radio-title">Segmented spine</span>
+                <span class="settings-radio-hint">One segmented bar per group with its monogram on top. Densest.</span>
+              </span>
+            </label>
+            <small class="settings-hint">Only applies when the tabbar is a left sidebar and you fold it with the chevron.</small>
           </fieldset>
           <fieldset class="settings-field settings-radio-group">
             <span class="settings-label">Tab style</span>
@@ -1274,6 +1309,9 @@ export class SettingsPanel {
     const tabbarPosRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tabbar_position"]',
     );
+    const foldedRailRadios = form.querySelectorAll<HTMLInputElement>(
+      'input[name="folded_rail_style"]',
+    );
     const tabStyleRadios = form.querySelectorAll<HTMLInputElement>(
       'input[name="tab_style"]',
     );
@@ -1400,6 +1438,10 @@ export class SettingsPanel {
     const currentTabbarPos = this.current.tabbar_position ?? "top";
     tabbarPosRadios.forEach((r) => {
       r.checked = r.value === currentTabbarPos;
+    });
+    const currentFoldedRail = this.current.folded_rail_style ?? "legacy";
+    foldedRailRadios.forEach((r) => {
+      r.checked = r.value === currentFoldedRail;
     });
     const currentTabStyle = ts?.enabled
       ? "custom"
@@ -1556,6 +1598,17 @@ export class SettingsPanel {
         applyTabbarPosition(
           (Array.from(tabbarPosRadios).find((x) => x.checked)
             ?.value as TabbarPosition) ?? "top",
+        );
+      });
+    });
+
+    // Folded-rail style previews instantly too — body class + rail
+    // rebuild, no layout work beyond the collapsed column width.
+    foldedRailRadios.forEach((r) => {
+      r.addEventListener("change", () => {
+        applyFoldedRailStyle(
+          (Array.from(foldedRailRadios).find((x) => x.checked)
+            ?.value as FoldedRailStyle) ?? "legacy",
         );
       });
     });
@@ -1849,7 +1902,7 @@ export class SettingsPanel {
     const SEARCH_KEYWORDS: Record<string, string> = {
       "sec-providers": "api key anthropic openai azure ollama lm studio endpoint llm credentials",
       "sec-models": "model routing default fallback",
-      "sec-appearance": "theme dark light color font opacity accent",
+      "sec-appearance": "theme dark light color font opacity accent sidebar folded rail collapsed",
       "sec-terminal": "shell font cursor scrollback keybindings shortcut hotkey",
       "sec-operators": "operator agent soul persona achievements skills",
       "sec-spawns": "spawn preset launch quick action",
@@ -1976,6 +2029,9 @@ export class SettingsPanel {
         tabbar_position:
           (Array.from(tabbarPosRadios).find((r) => r.checked)
             ?.value as TabbarPosition) || "top",
+        folded_rail_style:
+          (Array.from(foldedRailRadios).find((r) => r.checked)
+            ?.value as FoldedRailStyle) || "legacy",
         ui_font_family: uiFont.value.trim() === "" ? null : uiFont.value.trim(),
         familiars_enabled: this.current!.familiars_enabled,
         is_premium: this.current!.is_premium,

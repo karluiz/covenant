@@ -1171,6 +1171,10 @@ export interface Settings {
   /// Tabbar layout: "top" (default, horizontal across the top) or
   /// "left" (fixed vertical sidebar à la Wave Terminal).
   tabbar_position: TabbarPosition;
+  /// Visual style of the folded left sidebar (collapsed rail). The
+  /// frontend flips `body.tabbar-rail-<style>`; "legacy" (default) is
+  /// the original pill rail.
+  folded_rail_style?: FoldedRailStyle;
   /// CSS font stack for UI chrome (panels, settings, modals, group
   /// labels). `null` = built-in system sans default. Terminal and
   /// editor fonts are configured separately.
@@ -1204,6 +1208,8 @@ export async function validateSendGridKey(apiKey: string): Promise<boolean> {
 }
 
 export type TabbarPosition = "top" | "left";
+
+export type FoldedRailStyle = "legacy" | "glyph" | "labels" | "spine";
 
 /// 3.7 — directory-context probe for the status bar. Both segments are
 /// optional; null means "not applicable / not detected" and the bar

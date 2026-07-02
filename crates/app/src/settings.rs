@@ -287,6 +287,13 @@ pub struct Settings {
     #[serde(default)]
     pub tabbar_position: TabbarPosition,
 
+    /// Visual style of the folded left sidebar (the collapsed rail).
+    /// Purely cosmetic — the frontend toggles `body.tabbar-rail-<style>`
+    /// and the rail component branches its DOM on it. `Legacy` is the
+    /// shipped anonymous-pills look.
+    #[serde(default)]
+    pub folded_rail_style: FoldedRailStyle,
+
     /// Optional CSS font stack for the UI chrome (panels, settings,
     /// modals, group chip labels). `None` = use the built-in
     /// system-sans default. The terminal/editor have their own font
@@ -423,6 +430,18 @@ pub enum TabbarPosition {
     #[default]
     Top,
     Left,
+}
+
+/// Style of the folded left-sidebar rail. Cosmetic only — see the
+/// `folded_rail_style` field on [`Settings`].
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FoldedRailStyle {
+    #[default]
+    Legacy,
+    Glyph,
+    Labels,
+    Spine,
 }
 
 /// Visual style of the tab pills + group chips. Purely cosmetic — the
@@ -663,6 +682,7 @@ impl Default for Settings {
             notch_sound_on_done: default_notch_sound_on_done(),
             hidden_indicators: Vec::new(),
             tabbar_position: TabbarPosition::default(),
+            folded_rail_style: FoldedRailStyle::default(),
             ui_font_family: None,
             zsh_history_imported_at_unix_ms: None,
             familiars_enabled: false,

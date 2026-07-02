@@ -1,4 +1,4 @@
-import type { TabStylesConfig } from "../api";
+import type { FoldedRailStyle, TabStylesConfig } from "../api";
 
 /// Maps shape variants to CSS `border-radius` values.
 const SHAPE_RADII: Record<string, string> = {
@@ -49,6 +49,28 @@ export function applyPresetTabStyle(style: string | undefined): void {
 /// Exported so the settings panel can live-preview position changes.
 export function applyTabbarPosition(pos: "top" | "left" | undefined): void {
   document.body.classList.toggle("tabbar-left", pos === "left");
+}
+
+export type { FoldedRailStyle } from "../api";
+
+/// Style of the folded left-sidebar rail. `legacy` carries no class so
+/// the shipped pill look is the no-class baseline; the other styles flip
+/// `body.tabbar-rail-<style>` (width + skin are CSS) and the rail
+/// component re-renders its DOM on the dispatched event.
+export function applyFoldedRailStyle(style: FoldedRailStyle | undefined): void {
+  for (const s of ["glyph", "labels", "spine"] as const) {
+    document.body.classList.toggle(`tabbar-rail-${s}`, style === s);
+  }
+  window.dispatchEvent(new CustomEvent("covenant:folded-rail-style"));
+}
+
+/// Reads the active folded-rail style back off the body class — the
+/// single source of truth the rail renders from.
+export function currentFoldedRailStyle(): FoldedRailStyle {
+  for (const s of ["glyph", "labels", "spine"] as const) {
+    if (document.body.classList.contains(`tabbar-rail-${s}`)) return s;
+  }
+  return "legacy";
 }
 
 /// Apply custom tab style CSS variables from the given config.
