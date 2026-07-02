@@ -364,6 +364,10 @@ The Windows workflow runs in parallel and emits the `.msi`. The aggregate `lates
 | `APPLE_API_ISSUER` | Same page | UUID at top of page |
 | `APPLE_API_KEY_CONTENT` | Contents of the `.p8` file | Includes `-----BEGIN PRIVATE KEY-----` lines |
 | `HOMEBREW_TAP_TOKEN` | GitHub PAT (fine-grained) | Needs `Contents: read+write` on `karluiz/homebrew-covenant` only |
+| `SSLCOM_USERNAME` | SSL.com account email | Windows Authenticode via eSigner |
+| `SSLCOM_PASSWORD` | SSL.com account password | Avoid cmd metacharacters (`& % ^ "`) — passed through a `.bat` |
+| `SSLCOM_CREDENTIAL_ID` | eSigner portal → Signing Credentials | |
+| `SSLCOM_TOTP_SECRET` | eSigner portal → shown once when enabling automated signing | Enables headless OTP |
 
 ### Setting up `HOMEBREW_TAP_TOKEN` (one-time)
 
@@ -374,6 +378,15 @@ The Windows workflow runs in parallel and emits the `.msi`. The aggregate `lates
 5. `gh secret set HOMEBREW_TAP_TOKEN --repo karluiz/covenant` and paste
 
 If this secret is missing, the cask-update step in `release-macos.yml` is skipped (`continue-on-error: true`) and you'll need to manually update `Casks/covenant.rb` in the tap repo with the new version + sha256 from that release.
+
+### Windows code signing (SSL.com eSigner)
+
+The Windows job injects `bundle.windows.signCommand` at build time (`sign-config.json` step in `release-windows.yml`) pointing at `scripts/ci/sign-windows.ps1`, which signs every Windows artifact (app exe, NSIS, MSI) with SSL.com CodeSignTool **during** `tauri build` — before the updater `.sig` is computed, so the auto-updater signature stays valid. Never re-sign the MSI after the build.
+
+- If the `SSLCOM_*` secrets are unset, the script no-ops and releases ship unsigned (current state until the cert is purchased).
+- Azure Trusted Signing is NOT an option: Public Trust certs are restricted to orgs in USA/Canada/EU/UK and individuals in USA/Canada — Karluiz (Chile) and Cleverit (Chile) don't qualify.
+- Quota: each artifact = 1 eSigner signature, ~3 per release (`targets: "all"` builds MSI + NSIS). Size the eSigner tier to release cadence, or trim Windows bundle targets to `msi` only.
+- If signing fails with a malware-scan error, pre-scan with CodeSignTool `scan_code` or disable Malware Blocker in the eSigner portal.
 
 ### Install command for users
 

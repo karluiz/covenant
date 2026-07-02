@@ -41,11 +41,30 @@ jobs:
       - name: Run blocks parser tests
         run: cargo test -p karl-blocks
 
+      # Injects bundle.windows.signCommand with an absolute script path (Tauri hook cwd
+      # is crates/app, so a relative path in tauri.conf.json would not resolve).
+      # The script itself no-ops when SSLCOM_* secrets are unset.
+      - name: Prepare Authenticode sign config
+        shell: pwsh
+        run: |
+          $script = Join-Path $env:GITHUB_WORKSPACE 'scripts/ci/sign-windows.ps1'
+          $conf = @{ bundle = @{ windows = @{ signCommand = @{
+            cmd  = 'powershell'
+            args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script, '%1')
+          } } } } | ConvertTo-Json -Depth 6
+          Set-Content -Path sign-config.json -Value $conf
+
       - name: Build Tauri MSI (signed for updater)
-        run: npm run tauri build
+        run: npm run tauri build -- --config sign-config.json
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # SSL.com eSigner Authenticode signing — scripts/ci/sign-windows.ps1 skips
+          # when these are unset, so releases stay unsigned-but-green until the cert exists.
+          SSLCOM_USERNAME: ${{ secrets.SSLCOM_USERNAME }}
+          SSLCOM_PASSWORD: ${{ secrets.SSLCOM_PASSWORD }}
+          SSLCOM_CREDENTIAL_ID: ${{ secrets.SSLCOM_CREDENTIAL_ID }}
+          SSLCOM_TOTP_SECRET: ${{ secrets.SSLCOM_TOTP_SECRET }}
           RUST_BACKTRACE: 1
 
       - name: Locate MSI
