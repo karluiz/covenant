@@ -1615,14 +1615,50 @@ body:not(.tabbar-left) #new-group {
     position: absolute;
     inset: 0;
     display: grid;
-    /* 4 columns ALWAYS — even when the editor is closed. This is what
-       lets `grid-template-columns` animate smoothly when a file opens:
-       CSS transitions on grid-template-columns only interpolate when
-       the track count matches between states. When the editor is
-       hidden, the splitter and editor-host columns collapse to 0px
-       and their flex children carry [hidden] so they don't render. */
+    /* 4 columns ALWAYS — even when the editor is closed. When the editor
+       is hidden, the splitter and editor-host columns collapse to 0px
+       and their flex children carry [hidden] so they don't render.
+       Track sizes SNAP — no grid-template-columns transition. Animating
+       grid tracks runs layout+paint every frame on the main thread and
+       refits xterm each frame. Instead, sidebar collapse/expand snaps
+       the grid once and slides .tab-blocks with a transform keyframe
+       (compositor-only) — see .rail-slide-* below. */
     grid-template-columns: 1fr 0 0 var(--right-sidebar-w);
-    transition: grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* GPU-composited sidebar slide (Warp/VSCode style). The grid track
+   snaps to its final width (one xterm refit), then the panel itself
+   animates transform — which never touches layout. Collapse plays
+   rail-slide-out BEFORE the snap (blocks/rail-slide.ts flips
+   body.blocks-globally-collapsed on animationend); expand snaps
+   first, then plays rail-slide-in. */
+@keyframes rail-slide-out {
+    to { transform: translateX(100%); }
+}
+@keyframes rail-slide-in {
+    from { transform: translateX(100%); }
+}
+.tab-blocks.rail-slide-exit {
+    animation: rail-slide-out 220ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.tab-blocks.rail-slide-enter {
+    animation: rail-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Reduced motion: keep the 1ms animation (not none) so animationend
+   still fires and rail-slide.ts's snap-on-end choreography completes. */
+@media (prefers-reduced-motion: reduce) {
+    .tab-blocks.rail-slide-exit,
+    .tab-blocks.rail-slide-enter {
+        animation-duration: 1ms;
+    }
+}
+/* Clip the translated panel to the pane only while sliding — a
+   permanent overflow clip could bite unknown in-pane overlays, and
+   without it the panel would paint over whatever sits right of the
+   pane (activity sidebar, project notes). */
+.tab-pane:has(> .tab-blocks.rail-slide-exit),
+.tab-pane:has(> .tab-blocks.rail-slide-enter) {
+    overflow: clip;
 }
 
 /* Pin each pane child to its grid column explicitly. Auto-flow can't
@@ -7810,14 +7846,6 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
 }
 .tab-pane:has(.editor-host:not([hidden])):has(.blocks-host.recall-active) > .editor-host {
     right: var(--right-sidebar-w);
-}
-
-/* While the user is actively dragging the splitter, suppress the
-   grid-template-columns transition — otherwise every rAF-batched
-   inline-style update would re-trigger a 220ms tween and the drag
-   would feel laggy / floaty. Snap during drag, animate otherwise. */
-.tab-pane.editor-splitter-dragging {
-    transition: none;
 }
 
 /* Splitter handle. 4px native width keeps the line thin; an inline

@@ -20,6 +20,7 @@ import { EditorView } from "@codemirror/view";
 import { selectAll as cmSelectAll } from "@codemirror/commands";
 
 import { dismissBootSplash } from "./boot-splash";
+import { slideRail } from "./blocks/rail-slide";
 import { attachTooltip } from "./tooltip/tooltip";
 import { runUpdateCheck } from "./updater/check";
 import { showUpdateBanner } from "./updater/banner";
@@ -312,8 +313,14 @@ function applyTabbarCollapsed(collapsed: boolean): void {
   }
 }
 
-function applyBlocksCollapsed(collapsed: boolean): void {
-  document.body.classList.toggle("blocks-globally-collapsed", collapsed);
+/// `animate: true` plays the compositor slide (user toggles); boot-time
+/// restores snap directly so a persisted fold doesn't replay on launch.
+function applyBlocksCollapsed(collapsed: boolean, animate = false): void {
+  const snap = (): void => {
+    document.body.classList.toggle("blocks-globally-collapsed", collapsed);
+  };
+  if (animate) slideRail(collapsed, snap);
+  else snap();
   const btn = document.getElementById("tabbar-fold-right");
   if (btn) {
     const t = collapsed ? "Expand right sidebar" : "Collapse right sidebar";
@@ -618,7 +625,7 @@ async function boot(): Promise<void> {
   };
 
   const setRailFolded = (folded: boolean): void => {
-    applyBlocksCollapsed(folded);
+    applyBlocksCollapsed(folded, true);
     if (folded) localStorage.setItem(BLOCKS_GLOBAL_KEY, "1");
     else localStorage.removeItem(BLOCKS_GLOBAL_KEY);
     setTimeout(() => manager.refitActive(), 320);
