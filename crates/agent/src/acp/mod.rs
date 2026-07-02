@@ -12,14 +12,14 @@
 //! captured from copilot 1.0.68 and win over the spec on any conflict.
 
 pub mod protocol;
+pub mod session;
 // Uncommented by their own tasks — an empty stub can't back a `pub use`:
 // pub mod policy;   // Task 3
 // pub mod run;      // Task 4
-// pub mod session;  // Task 2
 
 pub use protocol::{
     ContentBlock, FrameKind, InboundFrame, PermissionOption, PermissionRequest,
     PermissionToolCall, RpcError, SessionNotification, SessionUpdate, ToolCallFields,
 };
+pub use session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver};
 // pub use run::{run_task, AcpRunOpts, AcpRunReport};                     // Task 4
-// pub use session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver}; // Task 2
