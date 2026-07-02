@@ -583,7 +583,7 @@ async fn execute_tool(
     }
 }
 
-/// Full tool-definition roster for this dispatch: the 8 base tools plus
+/// Full tool-definition roster for this dispatch: the base tools plus
 /// whatever GitHub access the ToolEnv carries.
 fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
     let mut defs = vec![

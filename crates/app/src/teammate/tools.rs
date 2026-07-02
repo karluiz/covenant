@@ -943,22 +943,29 @@ pub(crate) fn format_acp_report(report: &karl_agent::acp::AcpRunReport) -> Strin
     // ponytail: 4000-char cap on agent text; raise if operators start
     // asking the agent to summarize its own truncated output.
     const TEXT_CAP: usize = 4000;
-    let mut out = format!("stop_reason: {}\n", report.stop_reason);
-    if !report.tool_events.is_empty() {
-        out.push_str("tool activity:\n");
-        for line in &report.tool_events {
+    // A long session can rack up hundreds of tool calls / denials; keep
+    // the head of each list and summarize the rest so the LLM turn stays
+    // bounded no matter how busy the agent was.
+    const TOOL_EVENTS_CAP: usize = 40;
+    const DENIED_CAP: usize = 20;
+    fn push_capped(out: &mut String, items: &[String], cap: usize) {
+        for line in items.iter().take(cap) {
             out.push_str("  - ");
             out.push_str(line);
             out.push('\n');
         }
+        if items.len() > cap {
+            out.push_str(&format!("  … (+{} more)\n", items.len() - cap));
+        }
+    }
+    let mut out = format!("stop_reason: {}\n", report.stop_reason);
+    if !report.tool_events.is_empty() {
+        out.push_str("tool activity:\n");
+        push_capped(&mut out, &report.tool_events, TOOL_EVENTS_CAP);
     }
     if !report.denied.is_empty() {
         out.push_str("denied by policy (not executed):\n");
-        for cmd in &report.denied {
-            out.push_str("  - ");
-            out.push_str(cmd);
-            out.push('\n');
-        }
+        push_capped(&mut out, &report.denied, DENIED_CAP);
     }
     out.push_str("agent message:\n");
     if report.agent_text.len() > TEXT_CAP {
@@ -1180,5 +1187,27 @@ mod tests {
         assert!(s.contains("execute `ls`"));
         assert!(s.contains("sudo reboot"));
         assert!(s.len() < 6_000, "report must be truncated, got {}", s.len());
+    }
+
+    #[test]
+    fn format_acp_report_bounds_tool_and_denied_lists() {
+        let report = karl_agent::acp::AcpRunReport {
+            stop_reason: "end_turn".into(),
+            agent_text: "done".into(),
+            tool_events: (0..500)
+                .map(|i| format!("execute `cmd-{i:04}` — completed (exit 0) {}", "x".repeat(40)))
+                .collect(),
+            denied: (0..200)
+                .map(|i| format!("sudo dangerous-{i:03} {}", "y".repeat(60)))
+                .collect(),
+        };
+        let s = format_acp_report(&report);
+        assert!(s.len() < 12_000, "report must stay bounded, got {}", s.len());
+        // Truncated lists must end with a "… (+N more)" marker.
+        assert!(s.contains("… (+460 more)"), "tool_events marker missing");
+        assert!(s.contains("… (+180 more)"), "denied marker missing");
+        // Head of each list survives.
+        assert!(s.contains("cmd-0000"));
+        assert!(s.contains("dangerous-000"));
     }
 }
