@@ -117,7 +117,7 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
         })
     };
 
-    let init = session
+    let init = match session
         .request(
             "initialize",
             serde_json::json!({
@@ -125,7 +125,34 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
                 "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false } }
             }),
         )
-        .await?;
+        .await
+    {
+        Ok(v) => v,
+        // `Closed`/`ResponseCancelled` here mean the child died (or its
+        // stdout closed) before ever answering our first request — almost
+        // always an old copilot binary that doesn't understand `--acp` and
+        // exited after printing an error to stderr. Any later request
+        // failing this way means the handshake itself succeeded, so only
+        // wrap the very first one.
+        Err(e @ (AcpError::Closed | AcpError::ResponseCancelled)) => {
+            session.shutdown(Duration::from_secs(3)).await;
+            collector_task.abort();
+            let tail = session.stderr_tail();
+            let tail = if tail.is_empty() {
+                "(empty)".to_string()
+            } else {
+                tail
+            };
+            return Err(AcpError::Rpc(format!(
+                "copilot ACP handshake failed ({e}). stderr: {tail}. Hint: requires GitHub Copilot CLI >= 1.0.68 with ACP support (`copilot --acp`)."
+            )));
+        }
+        // Any other failure (e.g. an `Rpc` error result from the agent)
+        // means the process is alive and talking JSON-RPC — nothing to
+        // add, propagate as before and let `Drop` (kill_on_drop) clean up
+        // the child.
+        Err(e) => return Err(e),
+    };
     tracing::debug!(agent = ?init.get("agentInfo"), "acp initialize ok");
 
     let new_sess = session
@@ -382,6 +409,36 @@ sleep 30
         .expect("timeout is not an Err");
         assert_eq!(report.stop_reason, "timeout");
         assert_eq!(report.agent_text, "stalling");
+    }
+
+    /// A copilot binary too old to understand `--acp` prints its usage
+    /// error to stderr and exits before ever answering `initialize`. The
+    /// bare `Closed`/`ResponseCancelled` error from that used to be the
+    /// only thing surfaced — useless to whoever is staring at it. The
+    /// wrapped error must carry the actual stderr text plus a version
+    /// hint.
+    #[tokio::test]
+    async fn handshake_failure_surfaces_stderr() {
+        let script = r#"printf "unknown option: --acp\n" >&2; exit 2"#;
+        let err = super::run_task(super::AcpRunOpts {
+            cwd: std::env::temp_dir(),
+            prompt: "hello".into(),
+            timeout: Duration::from_secs(10),
+            program: Some(PathBuf::from("sh")),
+            extra_args_for_tests: vec!["-c".into(), script.into()],
+        })
+        .await
+        .expect_err("an old copilot binary must not silently succeed");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown option: --acp"),
+            "error must surface the child's actual stderr, got: {msg}"
+        );
+        assert!(
+            msg.contains("1.0.68"),
+            "error must hint the minimum supported copilot version, got: {msg}"
+        );
     }
 
     /// Real copilot end-to-end. Ignored by default: needs an installed,

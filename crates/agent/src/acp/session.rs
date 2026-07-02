@@ -8,12 +8,13 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
 use serde_json::Value;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{Child, ChildStdout, Command};
+use tokio::process::{Child, ChildStderr, ChildStdout, Command};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
@@ -28,6 +29,10 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 /// stdin write queue depth.
 const STDIN_CHANNEL_CAPACITY: usize = 128;
+
+/// Bytes of stderr tail kept for handshake-failure diagnostics. Bounded so
+/// a chatty or looping child can't grow this unboundedly.
+const STDERR_TAIL_CAP: usize = 2048;
 
 fn default_copilot_program() -> PathBuf {
     let path = augmented_path(std::env::var_os("PATH"));
@@ -79,6 +84,12 @@ pub struct AcpSession {
     child: Mutex<Option<Child>>,
     reader: Mutex<Option<JoinHandle<()>>>,
     writer: Mutex<Option<JoinHandle<()>>>,
+    /// Bounded tail of the child's stderr, kept for surfacing in handshake
+    /// failure messages (see [`AcpSession::stderr_tail`]). Filled by a
+    /// dedicated reader task that exits on stderr EOF; never blocks
+    /// shutdown.
+    stderr_buf: Arc<StdMutex<Vec<u8>>>,
+    stderr_reader: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AcpSession {
@@ -108,7 +119,7 @@ impl AcpSession {
         cmd.current_dir(&opts.cwd);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
 
         let mut child = cmd.spawn().map_err(|e| AcpError::Spawn {
@@ -123,12 +134,17 @@ impl AcpSession {
             .stdout
             .take()
             .ok_or(AcpError::MissingStream { stream: "stdout" })?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or(AcpError::MissingStream { stream: "stderr" })?;
 
         let (events_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(STDIN_CHANNEL_CAPACITY);
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
+        let stderr_buf: Arc<StdMutex<Vec<u8>>> = Arc::new(StdMutex::new(Vec::new()));
 
         let session = Arc::new(Self {
             events_tx: events_tx.clone(),
@@ -139,6 +155,8 @@ impl AcpSession {
             child: Mutex::new(Some(child)),
             reader: Mutex::new(None),
             writer: Mutex::new(None),
+            stderr_buf: stderr_buf.clone(),
+            stderr_reader: Mutex::new(None),
         });
 
         let writer_handle = tokio::spawn(write_loop(stdin, stdin_rx, alive.clone()));
@@ -150,10 +168,22 @@ impl AcpSession {
             resolver,
             alive,
         ));
+        let stderr_handle = tokio::spawn(stderr_loop(stderr, stderr_buf));
         *session.writer.lock().await = Some(writer_handle);
         *session.reader.lock().await = Some(reader_handle);
+        *session.stderr_reader.lock().await = Some(stderr_handle);
 
         Ok(session)
+    }
+
+    /// Lossy-UTF8 tail of the child's stderr (last [`STDERR_TAIL_CAP`]
+    /// bytes), trimmed. Empty string if the child never wrote to stderr
+    /// (or the reader hasn't observed anything yet).
+    pub fn stderr_tail(&self) -> String {
+        match self.stderr_buf.lock() {
+            Ok(buf) => String::from_utf8_lossy(&buf).trim().to_string(),
+            Err(_) => String::new(),
+        }
     }
 
     /// Subscribe to the broadcast `session/update` stream. Each subscriber
@@ -252,6 +282,15 @@ impl AcpSession {
         if let Some(handle) = self.reader.lock().await.take() {
             let _ = tokio::time::timeout(Duration::from_secs(1), handle).await;
         }
+
+        // Stderr reader will exit naturally once stderr closes (the child
+        // is dead or being killed above, so this should be near-instant).
+        // Bounded so a pathological stderr writer can never stall
+        // shutdown; if it's still running past the bound, the child kill
+        // above closes the pipe and it exits shortly after on its own.
+        if let Some(handle) = self.stderr_reader.lock().await.take() {
+            let _ = tokio::time::timeout(Duration::from_secs(1), handle).await;
+        }
     }
 }
 
@@ -277,6 +316,33 @@ async fn write_loop(
     alive.store(false, Ordering::Release);
     // Closing stdin signals end-of-input to the agent.
     drop(stdin);
+}
+
+/// Drains the child's stderr into a bounded tail buffer, purely for
+/// diagnostics (e.g. surfacing "unknown option: --acp" when the installed
+/// copilot binary is too old for `--acp`). Never applies backpressure to
+/// the child — a full read into a growing-then-truncated `Vec` is cheap
+/// for the KB-scale output we expect here. Exits on EOF.
+async fn stderr_loop(mut stderr: ChildStderr, buf: Arc<StdMutex<Vec<u8>>>) {
+    let mut chunk = vec![0u8; 4 * 1024];
+    loop {
+        let n = match stderr.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                tracing::debug!(?e, "acp stderr read failed");
+                break;
+            }
+        };
+        if let Ok(mut b) = buf.lock() {
+            b.extend_from_slice(&chunk[..n]);
+            let len = b.len();
+            if len > STDERR_TAIL_CAP {
+                let drop_n = len - STDERR_TAIL_CAP;
+                b.drain(0..drop_n);
+            }
+        }
+    }
 }
 
 async fn read_loop(

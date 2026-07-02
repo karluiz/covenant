@@ -925,7 +925,7 @@ pub async fn dispatch_acp(env: &ToolEnv, args: &Value) -> Result<String, ToolErr
             canon
         }
     };
-    let timeout_secs = parsed.timeout_secs.unwrap_or(240).min(600);
+    let timeout_secs = parsed.timeout_secs.unwrap_or(240).clamp(1, 600);
     let report = karl_agent::acp::run_task(karl_agent::acp::AcpRunOpts {
         cwd,
         prompt: parsed.prompt,
