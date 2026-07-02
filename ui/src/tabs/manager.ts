@@ -4462,6 +4462,23 @@ export class TabManager {
     }
   }
 
+  /// Arm solo AOM on the tab owning `sessionId` (idempotent). Task dispatch
+  /// and handoff call this after binding an operator: without AOM posture
+  /// the watcher's 45s idle re-poll (and auto-Complete) never runs, so a
+  /// delegated tab goes permanently dormant once the executor stops
+  /// emitting bytes.
+  public async armOperatorSoloForSession(sessionId: SessionId): Promise<void> {
+    const tab = this.tabs.find((t) => activePane(t).sessionId === sessionId);
+    if (!tab) return;
+    const pane = activePane(tab);
+    if (pane.operatorSolo || !pane.operator) return;
+    await operatorSoloStart(sessionId);
+    pane.operatorEnabled = true;
+    pane.operatorSolo = true;
+    this.renderTabbar();
+    if (tab.id === this.activeId) this.emitActiveOperator();
+  }
+
   public async toggleOperatorSolo(tabId: string): Promise<void> {
     const tab = this.tabs.find((t) => t.id === tabId);
     if (!tab) return;
@@ -4514,6 +4531,13 @@ export class TabManager {
       // below sees `pane.operatorEnabled === true` and refuses to stop
       // AOM — leaving single-tab AOM running against an orphaned tab.
       if (operatorId === null) {
+        // Solo AOM has nothing to drive without an operator — disarm it
+        // too, or the backend keeps the session in autonomous posture
+        // (and the budget pot open) against an operator-less tab.
+        if (pane.operatorSolo) {
+          await operatorSoloStop(sessionId as SessionId).catch(() => undefined);
+          pane.operatorSolo = false;
+        }
         await setOperatorLive(sessionId as SessionId, false).catch(() => undefined);
         await setOperatorEnabled(sessionId as SessionId, false).catch(() => undefined);
         pane.operatorLive = false;

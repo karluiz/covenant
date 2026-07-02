@@ -721,6 +721,13 @@ async function boot(): Promise<void> {
     if (pane.sessionId) {
       await setOperatorEnabled(pane.sessionId as SessionId, true);
       await setOperatorLive(pane.sessionId as SessionId, true);
+      // Delegated tabs need full AOM posture: the watcher's 45s idle
+      // re-poll (and task auto-Complete) is gated on AOM, and without it
+      // the operator goes dormant once the executor stops emitting bytes.
+      // Non-fatal — enabled+live still gives new-bytes engagement.
+      await manager
+        .armOperatorSoloForSession(pane.sessionId as SessionId)
+        .catch((e) => console.error("armOperatorSoloForSession failed", e));
     }
     // Re-read backend state into the tab + repaint ring/status bar.
     await manager.refreshAllOperatorState();
