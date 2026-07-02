@@ -380,9 +380,17 @@ export class CapabilitiesPanel {
     const bar = document.createElement("div");
     bar.className = "cap-covenant-bar";
     const hasRoot = !!this.projectRoot;
+    const ex = this.projStatus?.executors ?? [];
+    const synced = ex.filter((e) => e.state === "synced").length;
+    const stale = ex.filter((e) => e.state === "stale").length;
+    const never = ex.filter((e) => e.state === "not_projected").length;
+    const pending = stale + never;
+    const summary = ex.length
+      ? `${synced} synced · ${stale} stale · ${never} never`
+      : "";
     bar.innerHTML = `
-      <span class="cap-covenant-msg">CDLC is the source of truth — projects to Claude · opencode · Pi · Codex · Copilot · Hermes.</span>
-      <button type="button" class="cap-btn cap-btn-primary" data-act="project" ${hasRoot ? "" : "disabled"}>Project to executors →</button>
+      <span class="cap-covenant-msg">CDLC is the source of truth.${summary ? ` <span class="cap-proj-summary">${summary}</span>` : ""}</span>
+      <button type="button" class="cap-btn ${pending > 0 ? "cap-btn-primary" : ""}" data-act="project" ${hasRoot ? "" : "disabled"}>Project →</button>
     `;
     const btn = bar.querySelector<HTMLButtonElement>('[data-act="project"]')!;
     if (!hasRoot) btn.title = "Set a project root first";
@@ -397,7 +405,7 @@ export class CapabilitiesPanel {
         pushInfoToast({ message: `Projection failed: ${String(e)}` });
       } finally {
         btn.disabled = false;
-        btn.textContent = "Project to executors →";
+        btn.textContent = "Project →";
         await this.refresh();
       }
     };
