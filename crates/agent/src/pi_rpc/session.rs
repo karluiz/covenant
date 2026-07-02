@@ -60,7 +60,7 @@ fn default_pi_program() -> PathBuf {
     find_program_on_path("pi", path.as_deref()).unwrap_or_else(|| PathBuf::from("pi"))
 }
 
-fn augmented_path(existing: Option<OsString>) -> Option<OsString> {
+pub(crate) fn augmented_path(existing: Option<OsString>) -> Option<OsString> {
     let mut paths: Vec<PathBuf> = existing
         .as_deref()
         .map(env::split_paths)
@@ -77,7 +77,7 @@ fn augmented_path(existing: Option<OsString>) -> Option<OsString> {
     env::join_paths(paths).ok()
 }
 
-fn find_program_on_path(program: &str, path: Option<&OsStr>) -> Option<PathBuf> {
+pub(crate) fn find_program_on_path(program: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let program_path = Path::new(program);
     if program_path.components().count() > 1 {
         return program_path.is_file().then(|| program_path.to_path_buf());

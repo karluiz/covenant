@@ -547,6 +547,7 @@ async fn execute_tool(
         "git_diff" => tools::git_diff(tool_env, input),
         "run_command" => tools::run_command(tool_env, input),
         "read_terminal_screen" => tools::read_terminal_screen(tool_env, input),
+        "dispatch_acp" => tools::dispatch_acp(tool_env, input).await,
         "propose_task" => {
             // Unreachable in practice because both loops fast-path
             // propose_task before executing tools. Defensive guard if
@@ -582,7 +583,7 @@ async fn execute_tool(
     }
 }
 
-/// Full tool-definition roster for this dispatch: the 8 base tools plus
+/// Full tool-definition roster for this dispatch: the base tools plus
 /// whatever GitHub access the ToolEnv carries.
 fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
     let mut defs = vec![
@@ -594,6 +595,7 @@ fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
         tools::run_command_tool_def(),
         tools::read_terminal_screen_tool_def(),
         tools::propose_task_tool_def(),
+        tools::dispatch_acp_tool_def(),
     ];
     // Skill-routed handoff is only offered when the team actually has skills
     // to route on (otherwise the enum would be empty and unusable).
