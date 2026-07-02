@@ -16,6 +16,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getSettings, type Settings } from "../api";
 import { Icons } from "../icons";
+import logoUrl from "../../assets/logo-app.svg";
 import { detectOllama, adoptOllama } from "./ollama";
 import { adoptFreeKey, GEMINI_KEY_URL, START_GUIDE_URL } from "./freekey";
 
@@ -195,7 +196,7 @@ export class OnboardingPanel {
         <button type="button" class="onboarding-skip" aria-label="Dismiss">Skip</button>
       </header>
       <div class="onboarding-body">
-        <div class="onboarding-hero">${Icons.covenant({ size: 28 })}</div>
+        <div class="onboarding-hero"><img src="${logoUrl}" alt="" draggable="false" /></div>
         <h2 class="onboarding-title">Meet Covenant</h2>
         <p class="onboarding-copy">An AI-native terminal that watches every command across your tabs and — on your terms — can act on them. A few keys to know:</p>
         <ul class="onboarding-keys">${rows}</ul>

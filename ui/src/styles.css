@@ -15410,7 +15410,15 @@ body.theme-light .release-close:hover .settings-esc {
     flex: none;
 }
 
-.onboarding-hero svg {
+/* Real app mark (logo-app.svg) ships its own dark backdrop — fill the
+   tile and let the border-radius clip it into the dock-icon shape. */
+.onboarding-hero {
+    overflow: hidden;
+}
+
+.onboarding-hero img {
+    width: 100%;
+    height: 100%;
     display: block;
 }
 
@@ -15473,6 +15481,12 @@ body.theme-light .release-close:hover .settings-esc {
 /* Ollama auto-detect banner — only shown on a fresh install when a
    local Ollama is reachable. A faint accent-tinted card with a one-click
    "Use Ollama" CTA so the agent works with zero setup. */
+/* display:flex below beats the UA [hidden] rule — re-hide explicitly,
+   or a configured-provider install shows an empty accent pill. */
+.onboarding-provider[hidden] {
+    display: none;
+}
+
 .onboarding-provider {
     width: 100%;
     max-width: 320px;
@@ -16614,7 +16628,7 @@ body.theme-light .teammate-panel-avatar .op-avatar {
 .teammate-panel-header:hover .teammate-panel-header-chevron {
   color: var(--fg);
 }
-.teammate-panel.switcher-open .teammate-panel-header-chevron {
+.teammate-panel.switcher-open .teammate-panel-header .teammate-panel-header-chevron {
   transform: rotate(180deg);
 }
 

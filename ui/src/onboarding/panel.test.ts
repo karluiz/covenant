@@ -185,8 +185,8 @@ describe("OnboardingPanel", () => {
     expect(card?.textContent).toContain("Meet Covenant");
     expect(card?.querySelector(".onboarding-primary")).not.toBeNull();
     expect(card?.querySelector(".onboarding-skip")).not.toBeNull();
-    // Hero icon rendered as inline SVG inside the hero container.
-    expect(card?.querySelector(".onboarding-hero svg")).not.toBeNull();
+    // Hero renders the real app mark (logo-app.svg) as an <img>.
+    expect(card?.querySelector(".onboarding-hero img")).not.toBeNull();
     // The four keys are listed as <kbd> rows — no panel-opening choreography.
     expect(card?.querySelectorAll(".onboarding-key").length).toBe(4);
     expect(card?.textContent).toContain("⌘K");

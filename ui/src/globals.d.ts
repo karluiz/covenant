@@ -13,3 +13,9 @@ declare const __APP_CHANGELOG__: string;
 /// mammoth ships no TS types. We only use the browser entry's
 /// `convertToHtml({ arrayBuffer })` from the docx preview.
 declare module "mammoth/mammoth.browser.js";
+
+/// Vite resolves svg imports to their served URL.
+declare module "*.svg" {
+  const url: string;
+  export default url;
+}
