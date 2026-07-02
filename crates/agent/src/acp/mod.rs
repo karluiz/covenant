@@ -14,12 +14,11 @@
 pub mod protocol;
 pub mod session;
 pub mod policy;    // Task 3
-// Uncommented by their own tasks — an empty stub can't back a `pub use`:
-// pub mod run;      // Task 4
+pub mod run;       // Task 4
 
 pub use protocol::{
     ContentBlock, FrameKind, InboundFrame, PermissionOption, PermissionRequest,
     PermissionToolCall, RpcError, SessionNotification, SessionUpdate, ToolCallFields,
 };
 pub use session::{AcpError, AcpSession, AcpSpawnOpts, PermissionResolver};
-// pub use run::{run_task, AcpRunOpts, AcpRunReport};                     // Task 4
+pub use run::{run_task, AcpRunOpts, AcpRunReport};                     // Task 4
