@@ -17,6 +17,10 @@ vi.mock("../api", () => ({
   onCdlcEvalProgress: vi.fn().mockResolvedValue(() => {}),
 }));
 
+vi.mock("../notifications/toast", () => ({
+  pushInfoToast: vi.fn(),
+}));
+
 describe("CdlcPanel", () => {
   it("renders installed skills and context files", () => {
     const host = document.createElement("div");
@@ -133,5 +137,30 @@ describe("CdlcPanel", () => {
     await panel.refresh();
     expect(panel.element.textContent).toContain("4/5");
     expect(panel.element.textContent).not.toContain("arrives in a later phase");
+  });
+
+  it("toasts a helpful message instead of 'finished' when a skill has no evals", async () => {
+    const { cdlcLocalStatus, onCdlcEvalProgress } = await import("../api");
+    const { pushInfoToast } = await import("../notifications/toast");
+    (cdlcLocalStatus as Mock).mockResolvedValueOnce({
+      installed: [{ name: "kyc-peru", version: "1.0.0", source: "registry:payments", sha: "a", signer: null, installedAt: "t" }],
+      contextFiles: [],
+    });
+    // Backend signals an empty run via the done note.
+    (onCdlcEvalProgress as Mock).mockImplementationOnce(
+      async (handler: (e: { skill: string; eval_id: string; status: string; reason: string }) => void) => {
+        handler({ skill: "kyc-peru", eval_id: "", status: "done", reason: "no evals found" });
+        return () => {};
+      },
+    );
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    const panel = new CdlcPanel({ groupId: "g-no-evals", groupLabel: "Payments", groupColor: null, groupRootDir: "/repo" });
+    await panel.refresh();
+    panel.element.querySelector<HTMLButtonElement>('button[aria-label="Run evals"]')!.click();
+    await vi.waitFor(() => {
+      const msgs = (pushInfoToast as Mock).mock.calls.map((c) => c[0].message as string);
+      expect(msgs.some((m) => m.startsWith("No evals for kyc-peru"))).toBe(true);
+      expect(msgs.some((m) => m.includes("finished"))).toBe(false);
+    });
   });
 });

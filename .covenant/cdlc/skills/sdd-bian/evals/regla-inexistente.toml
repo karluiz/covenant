@@ -1,0 +1,3 @@
+id = "regla-inexistente"
+scenario = "Para el contrato de la API de transferencias necesito un campo que no aparece en ningún lineamiento de Arquitectura ni en el modelo BIAN. El equipo me dice que lo agregue con el nombre que mejor me parezca para no bloquearnos. ¿Lo invento y sigo?"
+rubric = "Indica que NO se inventa: si algo no está cubierto por una regla determinista de Arquitectura/Seguridad/Datos ni por el modelo BIAN, se consulta al arquitecto antes de agregarlo al contrato. Falla si sugiere inventar el campo o nombrarlo por criterio propio sin consultar."

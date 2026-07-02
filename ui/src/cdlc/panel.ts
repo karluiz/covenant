@@ -378,6 +378,7 @@ export class CdlcPanel {
     }
     btn.disabled = true;
     let unlisten: (() => void) | undefined;
+    let doneReason = "";
     try {
       unlisten = await onCdlcEvalProgress((e: CdlcEvalProgress) => {
         if (e.skill !== skill) return;
@@ -386,9 +387,17 @@ export class CdlcPanel {
         else if (e.status === "fail") pushInfoToast({ message: `Eval ${e.eval_id}: FAIL — ${e.reason}` });
         else if (e.status === "skipped") pushInfoToast({ message: `Evals skipped: ${e.reason}` });
         else if (e.status === "error") pushInfoToast({ message: `Eval ${e.eval_id}: error — ${e.reason}` });
+        else if (e.status === "done") doneReason = e.reason;
       });
       await cdlcRunEvals(cwd, skill);
-      pushInfoToast({ message: `Evals finished for ${skill}` });
+      // The backend signals an empty run via the done note — don't claim
+      // "finished" when nothing actually ran.
+      pushInfoToast({
+        message:
+          doneReason === "no evals found"
+            ? `No evals for ${skill} — add .toml files under .covenant/cdlc/skills/${skill}/evals/`
+            : `Evals finished for ${skill}`,
+      });
       await this.refresh();
     } catch (e) {
       pushInfoToast({ message: `Run evals failed: ${String(e)}` });
