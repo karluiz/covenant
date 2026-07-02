@@ -6,7 +6,7 @@
 // slide early, and a re-toggle mid-slide force-finishes the pending
 // snap instead of dropping it.
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { slideRail, slideTabbar } from "./rail-slide";
+import { playAnimation, slideRail, slideTabbar } from "./rail-slide";
 
 function mountPanel(): HTMLElement {
   document.body.innerHTML = `
@@ -27,6 +27,48 @@ function animEnd(target: HTMLElement, animationName: string): void {
 beforeEach(() => {
   document.body.innerHTML = "";
   document.body.className = "";
+});
+
+describe("playAnimation", () => {
+  it("runs onDone exactly once even if force-finished then animationend fires", () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const onDone = vi.fn();
+    const finish = playAnimation(el, "pane-crosscut", "pane-crosscut", onDone);
+
+    finish(); // force-finish (e.g. next activate())
+    animEnd(el, "pane-crosscut"); // stale event lands afterwards
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(el.classList.contains("pane-crosscut")).toBe(false);
+  });
+
+  it("ignores animationend for other animation names", () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const onDone = vi.fn();
+    playAnimation(el, "pane-crosscut", "pane-crosscut", onDone);
+
+    animEnd(el, "unrelated");
+    expect(onDone).not.toHaveBeenCalled();
+
+    animEnd(el, "pane-crosscut");
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes on animationcancel (element hidden mid-animation)", () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const onDone = vi.fn();
+    playAnimation(el, "pane-crosscut", "pane-crosscut", onDone);
+
+    el.dispatchEvent(
+      Object.assign(new Event("animationcancel", { bubbles: true }), {
+        animationName: "pane-crosscut",
+      }),
+    );
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("slideRail", () => {

@@ -22,6 +22,7 @@ import {
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { TerminalFinder } from "../terminal/finder";
+import { playCrossfade } from "./crossfade";
 import { mountWelcomeHint, dismissWelcomeHint } from "../terminal/welcome-hint";
 import { mountPromptHint, shouldHint } from "../terminal/prompt-detect";
 import { mountCdPicker } from "../terminal/cd-picker";
@@ -5498,8 +5499,12 @@ export class TabManager {
     // screen as the visual frame, the incoming pane is laid out
     // invisibly (visibility:hidden keeps real dimensions so fit() and
     // the WebGL renderer both work, unlike display:none), all geometry
-    // work happens before it ever paints, and the swap is one clean
-    // cross-cut on the next frame.
+    // work happens before it ever paints, and the swap is a compositor
+    // crossfade on the next frame (see crossfadePanes).
+    //
+    // A crossfade still in flight has TWO painted panes — force-finish
+    // it so pickPaintedPaneId's single-painted-pane invariant holds.
+    this.pendingCrosscut?.();
     const paintedId = pickPaintedPaneId(
       this.tabs.map((t) => ({
         id: t.id,
@@ -5612,12 +5617,44 @@ export class TabManager {
       if (deferSwap) {
         tab.pane.style.removeProperty("visibility");
         if (prevPainted && prevPainted !== tab) {
-          prevPainted.pane.hidden = true;
-          prevPainted.pane.style.removeProperty("visibility");
-          if (prevPainted.kind === "browser") prevPainted.browser?.hide();
+          // Hard cut instead of crossfade when: (a) outgoing is a
+          // browser tab — the native webview floats ABOVE the DOM and
+          // would cover the fade entirely, then vanish at the end,
+          // reading as lag; (b) the pane isn't actually rendered
+          // (full-page routes hide the ANCESTOR #workspace, so the
+          // pane.hidden guard above passes) — a CSS animation in a
+          // display:none subtree never starts and never fires
+          // animationend, which would leave the outgoing pane
+          // un-hidden and break the wroteWhileHidden bookkeeping.
+          if (prevPainted.kind === "browser" || tab.pane.offsetParent === null) {
+            prevPainted.pane.hidden = true;
+            prevPainted.pane.style.removeProperty("visibility");
+            if (prevPainted.kind === "browser") prevPainted.browser?.hide();
+          } else {
+            this.crossfadePanes(tab, prevPainted);
+          }
         }
       }
       term.focus();
+    });
+  }
+
+  /// Force-finisher for an in-flight tab-switch crossfade. Invoked at
+  /// the top of activate() so rapid switching degrades to hard cuts
+  /// instead of stacking fades.
+  private pendingCrosscut: (() => void) | null = null;
+
+  /// Turns the activation cross-cut into a GPU crossfade: the incoming
+  /// pane (already fitted and rendered while visibility:hidden) fades
+  /// in ON TOP of the still-painted outgoing pane — opacity only, no
+  /// layout, no xterm refit — and the outgoing pane is hidden once the
+  /// fade ends (or is cancelled / force-finished).
+  private crossfadePanes(incoming: Tab, outgoing: Tab): void {
+    this.pendingCrosscut?.();
+    this.pendingCrosscut = playCrossfade(incoming.pane, outgoing.pane, () => {
+      this.pendingCrosscut = null;
+      outgoing.pane.hidden = true;
+      outgoing.pane.style.removeProperty("visibility");
     });
   }
 

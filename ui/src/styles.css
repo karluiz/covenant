@@ -1661,6 +1661,45 @@ body:not(.tabbar-left) #new-group {
     overflow: clip;
 }
 
+/* Tab-switch crossfade. Activation's cross-cut (tabs/manager.ts
+   crossfadePanes / tabs/crossfade.ts) fades the incoming pane in over
+   the still-painted outgoing pane — opacity only, composited on the
+   GPU; the outgoing pane is hidden on animationend. z-index lifts the
+   incoming pane above its sibling pane for the fade's duration (DOM
+   order between panes follows creation order, so it can't be relied
+   on). */
+@keyframes pane-crosscut {
+    from { opacity: 0; }
+}
+.tab-pane.pane-crosscut {
+    animation: pane-crosscut 140ms ease-out;
+    z-index: 5;
+    /* The panes themselves are transparent — xterm's theme background
+       is rgba(0,0,0,0) and the surface tint lives on #workspace, an
+       ancestor of BOTH panes — so without a backdrop the fade
+       double-exposes both terminals' text instead of crossfading.
+       Carry the surface tint for the fade's duration; the relative-
+       color override strips --surface-alpha so occlusion is total on
+       vibrancy themes too. Class removal restores transparency. */
+    background: var(--bg);
+    background: rgb(from var(--bg) r g b);
+}
+/* Demote the outgoing pane into its own stacking context below the
+   fade — without this its positioned overlays (finder z:30, editor
+   z:10, cd-picker z:7, prompt-hint z:6) compete in the SAME stacking
+   context as the incoming pane's z:5, paint above the fade, and pop
+   off at animationend. Also the marker the sidebar sliders use to
+   exclude the not-yet-hidden outgoing pane from panel lookup. */
+.tab-pane.pane-crosscut-out {
+    z-index: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+    .tab-pane.pane-crosscut {
+        /* 1ms, not none — animationend must still fire the cleanup. */
+        animation-duration: 1ms;
+    }
+}
+
 /* Pin each pane child to its grid column explicitly. Auto-flow can't
    be trusted here: `[hidden]` removes the splitter / editor-host from
    layout (display: none), and without explicit `grid-column` the

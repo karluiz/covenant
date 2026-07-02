@@ -5,6 +5,35 @@
 // slides the panel out and snaps on animationend; expand snaps first,
 // then slides the panel in.
 
+/// Plays one keyframe animation on `el`: adds `cls`, and calls `onDone`
+/// exactly once when the named animation ends or is cancelled (or when
+/// the returned force-finisher is invoked — store it and call it before
+/// starting a conflicting animation, so a rapid re-toggle never leaves
+/// the follow-up work dangling behind a `forwards` transform). Guards
+/// on animationName because animationend bubbles — a child animation
+/// finishing inside the panel must not end this one early.
+export function playAnimation(
+  el: HTMLElement,
+  cls: string,
+  animationName: string,
+  onDone: () => void,
+): () => void {
+  let done = false;
+  const finish = (e?: Event): void => {
+    if (done) return;
+    if (e && (e as AnimationEvent).animationName !== animationName) return;
+    done = true;
+    el.classList.remove(cls);
+    el.removeEventListener("animationend", finish);
+    el.removeEventListener("animationcancel", finish);
+    onDone();
+  };
+  el.classList.add(cls);
+  el.addEventListener("animationend", finish);
+  el.addEventListener("animationcancel", finish);
+  return finish;
+}
+
 interface SliderCfg {
   exitCls: string;
   exitName: string;
@@ -16,37 +45,11 @@ interface SliderCfg {
   panel: () => HTMLElement | null;
 }
 
-/// Builds a slide function with its own pending-finish state, so a
-/// rapid re-toggle (or an animation cancelled by display:none) never
-/// leaves the snap dangling behind a `forwards` transform. Each slider
-/// tracks its own pending — a left fold mustn't force-finish a right
-/// fold in flight.
+/// Builds a slide function with its own pending-finish state. Each
+/// slider tracks its own pending — a left fold mustn't force-finish a
+/// right fold in flight.
 function makeSlider(cfg: SliderCfg): (collapse: boolean, snap: () => void) => void {
   let pending: (() => void) | null = null;
-
-  // Plays one slide on `panel`, calling `onDone` exactly once when the
-  // named keyframe ends or is cancelled. Guards on animationName because
-  // animationend bubbles — a child animation finishing inside the panel
-  // must not end the slide early.
-  const play = (
-    panel: HTMLElement,
-    cls: string,
-    animationName: string,
-    onDone: () => void,
-  ): void => {
-    const finish = (e?: Event): void => {
-      if (e && (e as AnimationEvent).animationName !== animationName) return;
-      pending = null;
-      panel.classList.remove(cls);
-      panel.removeEventListener("animationend", finish);
-      panel.removeEventListener("animationcancel", finish);
-      onDone();
-    };
-    pending = finish;
-    panel.classList.add(cls);
-    panel.addEventListener("animationend", finish);
-    panel.addEventListener("animationcancel", finish);
-  };
 
   // `snap` applies the actual layout change (a body class) and is called
   // exactly once per invocation — after the slide-out on collapse,
@@ -59,11 +62,18 @@ function makeSlider(cfg: SliderCfg): (collapse: boolean, snap: () => void) => vo
         snap();
         return;
       }
-      play(panel, cfg.exitCls, cfg.exitName, snap);
+      pending = playAnimation(panel, cfg.exitCls, cfg.exitName, () => {
+        pending = null;
+        snap();
+      });
     } else {
       snap();
       const panel = cfg.panel();
-      if (panel) play(panel, cfg.enterCls, cfg.enterName, () => {});
+      if (panel) {
+        pending = playAnimation(panel, cfg.enterCls, cfg.enterName, () => {
+          pending = null;
+        });
+      }
     }
   };
 }
@@ -77,8 +87,12 @@ export const slideRail = makeSlider({
   enterCls: "rail-slide-enter",
   enterName: "rail-slide-in",
   panel: () => {
+    // :not(.pane-crosscut-out) — during a tab-switch crossfade the
+    // OUTGOING pane stays un-hidden for ~140ms (tabs/crossfade.ts);
+    // without the exclusion this could resolve the wrong (about-to-be-
+    // hidden) pane's rail and animate a panel the user never sees.
     const el = document.querySelector<HTMLElement>(
-      ".tab-pane:not([hidden]) > .tab-blocks",
+      ".tab-pane:not([hidden]):not(.pane-crosscut-out) > .tab-blocks",
     );
     return el && el.offsetWidth > 0 ? el : null;
   },
