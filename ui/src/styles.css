@@ -13454,6 +13454,45 @@ button.status-segment.status-tg:focus-visible {
   color: #0b0d10;
 }
 
+/* Covenant-first nav: SOURCE row + PROJECTIONS badges */
+.cap-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cap-nav-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cap-nav-item-meta {
+  font-size: 10px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.cap-proj-badge {
+  font-size: 10px;
+  font-weight: 600;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.cap-proj-synced {
+  color: var(--ok);
+}
+.cap-proj-stale {
+  color: var(--running);
+}
+.cap-proj-not_projected {
+  color: var(--muted);
+}
+.cap-proj-summary {
+  color: var(--muted);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
 /* Detail column inside split */
 .capabilities-detail {
   display: flex;
