@@ -6,6 +6,53 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.116 — Folded rail styles + GPU-composited fold/crossfade animations
+
+### Added
+
+- **Selectable folded sidebar rail styles**: the collapsed left tabbar rail now
+  offers four styles — Legacy, Glyph, Labels, and Spine — selectable from
+  Settings → Appearance, with the choice persisted in backend settings
+  (`ui/src/tabs/collapsed-rail.ts`, `ui/src/settings/panel.ts`,
+  `crates/app/src/settings.rs`).
+- **Covenant-first Capabilities panel**: the Capabilities panel is reframed
+  around Covenant as the SOURCE (default landing) with executors listed under
+  PROJECTIONS, each carrying a synced/stale/not-projected status badge fed by a
+  new read-only `cdlc_projection_status` command; a status header and
+  pending-aware Project button round it out (`crates/cdlc`,
+  `ui/src/capabilities/`).
+- **Beacon rerun/cancel actions**: workflow runs in the Beacon panel can now be
+  re-run or cancelled directly via new GitHub Actions API calls
+  (`crates/app/src/beacon.rs`, `ui/src/beacon/`).
+- **PowerShell one-line installer**: `irm https://www.covenant.uno/install.ps1 | iex`
+  installs the Windows build, bypassing the SmartScreen download wall while
+  releases are unsigned (`landing/public/install.ps1`).
+- **Windows Authenticode signing scaffold**: the Windows release workflow signs
+  artifacts during `tauri build` via SSL.com eSigner CodeSignTool when the
+  `SSLCOM_*` secrets are set; no-ops until the cert is purchased
+  (`scripts/ci/sign-windows.ps1`, `.github/workflows/release-windows.yml`).
+- **CDLC demo evals**: bundled demo evals for the kyc-peru and sdd-bian skills,
+  plus an honest "no evals" toast instead of a silent no-op (`crates/cdlc`).
+
+### Changed
+
+- **GPU-composited fold and tab-switch animations**: the right-rail and left
+  tabbar folds no longer tween `grid-template-columns` (layout + xterm refit
+  every frame) — the grid snaps once and the panel slides with a compositor
+  transform keyframe; tab switching gets a 140ms opacity crossfade of the
+  incoming pane over the still-painted outgoing one, degrading to hard cuts on
+  rapid switching or hidden workspaces (`ui/src/tabs/rail-slide.ts`,
+  `ui/src/tabs/crossfade.ts`).
+
+### Fixed
+
+- **Bad CDLC manifest blanked the Capabilities panel**: the projection-status
+  fetch is now isolated so a malformed `cdlc.toml` degrades to missing badges
+  instead of an empty panel (`ui/src/capabilities/`).
+- **macOS traffic-light buttons off-center**: nudged `trafficLightPosition.y`
+  so the native window controls align with the titlebar icon row
+  (`crates/app/tauri.conf.json`).
+
 ## v0.8.115 — cd-picker overlay positioning fix
 
 ### Fixed
