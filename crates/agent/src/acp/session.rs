@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -70,6 +70,11 @@ pub struct AcpSession {
     events_tx: broadcast::Sender<SessionNotification>,
     stdin_tx: mpsc::Sender<Vec<u8>>,
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>>,
+    /// Flipped to `false` by whichever of read_loop/write_loop exits
+    /// first, or by [`AcpSession::shutdown`]. `request()` consults this
+    /// (under the same `pending` lock used to tear it down) so it can
+    /// never insert a waiter into a map nobody will ever drain again.
+    alive: Arc<AtomicBool>,
     next_id: AtomicI64,
     child: Mutex<Option<Child>>,
     reader: Mutex<Option<JoinHandle<()>>>,
@@ -123,24 +128,27 @@ impl AcpSession {
         let (stdin_tx, stdin_rx) = mpsc::channel::<Vec<u8>>(STDIN_CHANNEL_CAPACITY);
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let alive = Arc::new(AtomicBool::new(true));
 
         let session = Arc::new(Self {
             events_tx: events_tx.clone(),
             stdin_tx: stdin_tx.clone(),
             pending: pending.clone(),
+            alive: alive.clone(),
             next_id: AtomicI64::new(1),
             child: Mutex::new(Some(child)),
             reader: Mutex::new(None),
             writer: Mutex::new(None),
         });
 
-        let writer_handle = tokio::spawn(write_loop(stdin, stdin_rx));
+        let writer_handle = tokio::spawn(write_loop(stdin, stdin_rx, alive.clone()));
         let reader_handle = tokio::spawn(read_loop(
             stdout,
             events_tx,
             pending,
             stdin_tx,
             resolver,
+            alive,
         ));
         *session.writer.lock().await = Some(writer_handle);
         *session.reader.lock().await = Some(reader_handle);
@@ -162,6 +170,16 @@ impl AcpSession {
         let (tx, rx) = oneshot::channel();
         {
             let mut p = self.pending.lock().await;
+            // Checked under the same lock read_loop/shutdown hold when
+            // they flip `alive` and drain `pending`, so this can never
+            // race: either we observe `alive == false` and bail before
+            // inserting, or we insert before the teardown runs and our
+            // waiter gets swept up (and resolved to `ResponseCancelled`)
+            // by that same teardown. Either way, no waiter is ever left
+            // orphaned in the map.
+            if !self.alive.load(Ordering::Acquire) {
+                return Err(AcpError::Closed);
+            }
             p.insert(id, tx);
         }
 
@@ -204,6 +222,18 @@ impl AcpSession {
     /// Graceful shutdown: close stdin, wait for the child up to `timeout`,
     /// then SIGKILL if it hasn't exited. There is no abort command in ACP.
     pub async fn shutdown(&self, timeout: Duration) {
+        // Flip dead and drain `pending` under lock, same pattern as
+        // read_loop's exit. Dropping the oneshot senders resolves any
+        // in-flight `request()` callers to `ResponseCancelled` instead of
+        // hanging; any `request()` racing us either observes `alive ==
+        // false` and bails, or slips its insert in first and gets swept
+        // up by this clear.
+        {
+            let mut p = self.pending.lock().await;
+            self.alive.store(false, Ordering::Release);
+            p.clear();
+        }
+
         if let Some(handle) = self.writer.lock().await.take() {
             handle.abort();
             let _ = handle.await;
@@ -225,7 +255,11 @@ impl AcpSession {
     }
 }
 
-async fn write_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Receiver<Vec<u8>>) {
+async fn write_loop(
+    mut stdin: tokio::process::ChildStdin,
+    mut rx: mpsc::Receiver<Vec<u8>>,
+    alive: Arc<AtomicBool>,
+) {
     while let Some(line) = rx.recv().await {
         if let Err(e) = stdin.write_all(&line).await {
             tracing::warn!(?e, "acp stdin write failed; closing writer");
@@ -236,6 +270,11 @@ async fn write_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Receive
             break;
         }
     }
+    // Best-effort signal; the authoritative teardown (flip + drain
+    // `pending` atomically) happens in read_loop/shutdown. A writer that
+    // dies while the reader is still alive is already handled because
+    // `stdin_tx.send()` fails once this task drops `rx`.
+    alive.store(false, Ordering::Release);
     // Closing stdin signals end-of-input to the agent.
     drop(stdin);
 }
@@ -246,6 +285,7 @@ async fn read_loop(
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>>,
     stdin_tx: mpsc::Sender<Vec<u8>>,
     resolver: PermissionResolver,
+    alive: Arc<AtomicBool>,
 ) {
     let mut framer = LineFramer::new();
     let mut chunk = vec![0u8; 8 * 1024];
@@ -263,10 +303,16 @@ async fn read_loop(
             handle_line(line, &events_tx, &pending, &stdin_tx, &resolver).await;
         }
     }
-    // Stdout is gone — no reply can ever arrive. Drop outstanding waiters
-    // so in-flight `request()` calls resolve to `ResponseCancelled`
-    // instead of hanging forever.
-    pending.lock().await.clear();
+    // Stdout is gone — no reply can ever arrive. Flip `alive` and drop
+    // outstanding waiters atomically (same lock `request()` checks under)
+    // so in-flight `request()` calls resolve to `ResponseCancelled`, and
+    // any `request()` that hasn't inserted yet observes `alive == false`
+    // and bails with `Closed` instead of hanging forever.
+    {
+        let mut p = pending.lock().await;
+        alive.store(false, Ordering::Release);
+        p.clear();
+    }
     tracing::debug!("acp reader exiting");
 }
 
@@ -378,8 +424,27 @@ async fn handle_agent_request(
         return;
     };
     bytes.push(b'\n');
-    if stdin_tx.send(bytes).await.is_err() {
-        tracing::warn!("acp: failed to send reply — stdin closed");
+
+    // `try_send` so a saturated stdin queue can never stall the reader —
+    // the reader must keep draining stdout regardless of stdin
+    // backpressure, or ALL inbound frames (not just this reply) stop
+    // being processed. Reply ordering across distinct agent→client
+    // requests is not guaranteed by the ACP protocol, so deferring this
+    // send to a detached task when the queue is full is safe.
+    match stdin_tx.try_send(bytes) {
+        Ok(()) => {}
+        Err(mpsc::error::TrySendError::Full(bytes)) => {
+            tracing::warn!(?id, method, "acp: stdin queue full, deferring reply send");
+            let tx = stdin_tx.clone();
+            tokio::spawn(async move {
+                if tx.send(bytes).await.is_err() {
+                    tracing::warn!("acp: failed to send deferred reply — stdin closed");
+                }
+            });
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            tracing::warn!("acp: failed to send reply — stdin closed");
+        }
     }
 }
 
@@ -452,6 +517,38 @@ case "$answer" in *'"id":77'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"s
             other => panic!("wrong variant: {other:?}"),
         }
         assert_eq!(seen.lock().expect("lock").as_slice(), ["ls"]);
+        session.shutdown(Duration::from_secs(2)).await;
+    }
+
+    /// Regression for the hang where `request()` issued after `read_loop`
+    /// has already exited (child dead, stdout EOF observed, `pending`
+    /// cleared) inserted a fresh waiter nobody would ever resolve. The
+    /// fake agent exits immediately, so by the time we call `request()`
+    /// the reader has long since torn down; the call must fail fast
+    /// instead of hanging forever.
+    #[tokio::test]
+    async fn request_after_reader_exit_does_not_hang() {
+        let resolver: PermissionResolver = Arc::new(|_| "reject_once".into());
+        let session = AcpSession::spawn(spawn_opts("exit 0"), resolver)
+            .await
+            .expect("spawn");
+
+        // Give the reader task a beat to observe stdout EOF and tear down
+        // (flip `alive`, clear `pending`) before we race it.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            session.request("initialize", serde_json::json!({})),
+        )
+        .await
+        .expect("request() must not hang once the session is dead");
+
+        assert!(
+            matches!(result, Err(AcpError::Closed) | Err(AcpError::ResponseCancelled)),
+            "unexpected result: {result:?}"
+        );
+
         session.shutdown(Duration::from_secs(2)).await;
     }
 
