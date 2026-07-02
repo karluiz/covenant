@@ -6,6 +6,7 @@
 //! `covenant`. This separation keeps the agent reusable (CLI tool,
 //! tests, etc.) and the API surface deliberately small.
 
+pub mod acp;
 pub mod pi_rpc;
 pub mod provider;
 pub mod respond_tool;
