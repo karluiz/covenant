@@ -4,6 +4,28 @@ use std::path::Path;
 const START: &str = "<!-- cdlc:start -->";
 const END: &str = "<!-- cdlc:end -->";
 
+/// Sync state of one executor's projected files versus the current CDLC sources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjState {
+    Synced,
+    Stale,
+    NotProjected,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExecutorStatus {
+    pub tool: String,
+    pub state: ProjState,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProjectionStatus {
+    pub executors: Vec<ExecutorStatus>,
+    /// Newest mtime (unix secs) under `.covenant/cdlc/`, or `None` if no sources.
+    pub source_edited_unix: Option<u64>,
+}
+
 /// Remove the top-level `covenant:` mapping from a doc's leading `---`…`---`
 /// frontmatter. The key line and every following indented (or blank) line up to
 /// the next top-level key (or the closing fence) is dropped. Body is untouched.
@@ -198,6 +220,191 @@ fn strip_block(existing: &str) -> String {
     }
 }
 
+/// Build the concatenated managed-block body shared by codex/copilot/hermes.
+/// Returns `None` when there is nothing to project (block should be absent).
+/// Extracted from `project_with_active` so `projection_status` reuses the exact
+/// same generator (ponytail: one source of truth for the block string).
+fn managed_body(
+    active_agent: Option<&str>,
+    agents: &[(String, String)],
+    skills: &[(String, String, String)],
+    contexts: &[(String, String)],
+) -> Option<String> {
+    let mut sections: Vec<String> = Vec::new();
+    if let Some(name) = active_agent {
+        if let Some((stem, raw)) = agents.iter().find(|(s, _)| s == name) {
+            sections.push(format!(
+                "## {stem} (operator)\n\n{}",
+                body_after_frontmatter(raw).trim()
+            ));
+        }
+    }
+    for (name, v, body) in skills {
+        sections.push(format!("## {name} v{v}\n\n{}", body.trim()));
+    }
+    for (stem, raw) in contexts {
+        if let Some(sum) = parse_summary(raw) {
+            sections.push(format!("## {stem} (context)\n\n{sum}"));
+        }
+    }
+    if sections.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "# CDLC context (auto-generated — do not edit inside this block)\n\n{}",
+        sections.join("\n\n")
+    ))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Check {
+    Missing,
+    Match,
+    Differ,
+}
+
+fn check_file(path: &Path, expected: &str) -> Check {
+    match std::fs::read_to_string(path) {
+        Ok(actual) if actual == expected => Check::Match,
+        Ok(_) => Check::Differ,
+        Err(_) => Check::Missing,
+    }
+}
+
+/// A managed-block file is synced iff re-upserting the current body is a no-op.
+/// `body == None` means the block should be absent.
+fn check_managed(path: &Path, body: Option<&str>) -> Check {
+    let existing = std::fs::read_to_string(path);
+    match (body, existing) {
+        (Some(b), Ok(cur)) => {
+            if !cur.contains(START) {
+                Check::Missing
+            } else if upsert_block(&cur, b) == cur {
+                Check::Match
+            } else {
+                Check::Differ
+            }
+        }
+        (Some(_), Err(_)) => Check::Missing,
+        (None, Ok(cur)) => {
+            if cur.contains(START) {
+                Check::Differ
+            } else {
+                Check::Match
+            }
+        }
+        (None, Err(_)) => Check::Match,
+    }
+}
+
+fn aggregate(checks: &[Check]) -> ProjState {
+    if checks.is_empty() || checks.iter().all(|c| *c == Check::Missing) {
+        return ProjState::NotProjected;
+    }
+    if checks.iter().all(|c| *c == Check::Match) {
+        return ProjState::Synced;
+    }
+    ProjState::Stale
+}
+
+/// Newest mtime (unix secs) of any file under `.covenant/cdlc/`.
+fn newest_source_mtime(repo_root: &Path) -> Option<u64> {
+    fn walk(dir: &Path, newest: &mut u64) {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, newest);
+                } else if let Ok(m) = e.metadata() {
+                    if let Ok(mt) = m.modified() {
+                        if let Ok(d) = mt.duration_since(std::time::UNIX_EPOCH) {
+                            *newest = (*newest).max(d.as_secs());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let dir = cdlc_dir(repo_root);
+    if !dir.exists() {
+        return None;
+    }
+    let mut newest = 0u64;
+    walk(&dir, &mut newest);
+    (newest > 0).then_some(newest)
+}
+
+/// Read-only: compare each executor's projected files against what `project()`
+/// would currently write, without touching disk. Reuses the same content
+/// helpers as projection, so "synced" means byte-identical to a fresh project.
+pub fn projection_status(repo_root: &Path) -> Result<ProjectionStatus, CdlcError> {
+    const TOOLS: [&str; 5] = ["claude", "opencode", "pi", "codex", "copilot"];
+
+    let manifest = read_manifest(repo_root)?;
+    let skills_dir = cdlc_dir(repo_root).join("skills");
+    let agents = read_dir_md(&cdlc_dir(repo_root).join("agents"))?;
+    let contexts = read_dir_md(&cdlc_dir(repo_root).join("context"))?;
+    let mut skills: Vec<(String, String, String)> = Vec::new();
+    for i in &manifest.installed {
+        let md = skills_dir.join(&i.name).join("SKILL.md");
+        skills.push((i.name.clone(), i.version.clone(), std::fs::read_to_string(&md)?));
+    }
+
+    // No sources at all → nothing is projected anywhere.
+    if agents.is_empty() && skills.is_empty() && contexts.is_empty() {
+        return Ok(ProjectionStatus {
+            executors: TOOLS
+                .iter()
+                .map(|t| ExecutorStatus { tool: t.to_string(), state: ProjState::NotProjected })
+                .collect(),
+            source_edited_unix: None,
+        });
+    }
+
+    // Expected file-per-item content: (tool, absolute path, expected bytes).
+    let mut files: Vec<(&str, std::path::PathBuf, String)> = Vec::new();
+    for (stem, raw) in &agents {
+        let content = strip_covenant_block(raw);
+        files.push(("claude", repo_root.join(".claude/agents").join(format!("{stem}.md")), content.clone()));
+        files.push(("opencode", repo_root.join(".opencode/agent").join(format!("{stem}.md")), content));
+    }
+    for (name, _v, body) in &skills {
+        let content = ensure_frontmatter(name, body);
+        files.push(("claude", repo_root.join(".claude/skills").join(format!("cdlc-{name}")).join("SKILL.md"), content.clone()));
+        files.push(("pi", repo_root.join(".pi/skills").join(format!("cdlc-{name}")).join("SKILL.md"), content));
+    }
+    for (stem, raw) in &contexts {
+        let content = ensure_frontmatter(stem, body_after_frontmatter(raw));
+        files.push(("claude", repo_root.join(".claude/skills").join(format!("cdlc-{stem}")).join("SKILL.md"), content.clone()));
+        files.push(("pi", repo_root.join(".pi/skills").join(format!("cdlc-{stem}")).join("SKILL.md"), content));
+    }
+
+    let body = managed_body(None, &agents, &skills, &contexts);
+
+    let mut checks: std::collections::BTreeMap<&str, Vec<Check>> = std::collections::BTreeMap::new();
+    for (tool, path, expected) in &files {
+        checks.entry(tool).or_default().push(check_file(path, expected));
+    }
+    // Managed-block executors. codex + opencode both read AGENTS.md.
+    let agents_md = repo_root.join("AGENTS.md");
+    checks.entry("codex").or_default().push(check_managed(&agents_md, body.as_deref()));
+    checks.entry("opencode").or_default().push(check_managed(&agents_md, body.as_deref()));
+    checks
+        .entry("copilot")
+        .or_default()
+        .push(check_managed(&repo_root.join(".github/copilot-instructions.md"), body.as_deref()));
+
+    let executors = TOOLS
+        .iter()
+        .map(|t| ExecutorStatus {
+            tool: t.to_string(),
+            state: aggregate(checks.get(t).map(|v| v.as_slice()).unwrap_or(&[])),
+        })
+        .collect();
+
+    Ok(ProjectionStatus { executors, source_edited_unix: newest_source_mtime(repo_root) })
+}
+
 /// Generate every executor's native files from the repo's CDLC sources.
 pub fn project(repo_root: &Path) -> Result<(), CdlcError> {
     project_with_active(repo_root, None)
@@ -230,51 +437,28 @@ pub fn project_with_active(repo_root: &Path, active_agent: Option<&str>) -> Resu
     }
 
     // Managed-block executors (codex, copilot): one concatenated block.
-    let mut sections: Vec<String> = Vec::new();
-    if let Some(name) = active_agent {
-        if let Some((stem, raw)) = agents.iter().find(|(s, _)| s == name) {
-            sections.push(format!(
-                "## {stem} (operator)\n\n{}",
-                body_after_frontmatter(raw).trim()
-            ));
-        }
-    }
-    for (name, v, body) in &skills {
-        sections.push(format!("## {name} v{v}\n\n{}", body.trim()));
-    }
-    for (stem, raw) in &contexts {
-        if let Some(sum) = parse_summary(raw) {
-            sections.push(format!("## {stem} (context)\n\n{sum}"));
-        }
-    }
-
-    if sections.is_empty() {
-        // `.hermes.md` is stripped only if present (the loop guards on exists).
-        for rel in ["AGENTS.md", ".github/copilot-instructions.md", ".hermes.md"] {
-            let path = repo_root.join(rel);
-            if path.exists() {
-                let existing = std::fs::read_to_string(&path)?;
-                std::fs::write(&path, strip_block(&existing))?;
+    match managed_body(active_agent, &agents, &skills, &contexts) {
+        None => {
+            // `.hermes.md` is stripped only if present (the loop guards on exists).
+            for rel in ["AGENTS.md", ".github/copilot-instructions.md", ".hermes.md"] {
+                let path = repo_root.join(rel);
+                if path.exists() {
+                    let existing = std::fs::read_to_string(&path)?;
+                    std::fs::write(&path, strip_block(&existing))?;
+                }
             }
         }
-        return Ok(());
-    }
-
-    let body = format!(
-        "# CDLC context (auto-generated — do not edit inside this block)\n\n{}",
-        sections.join("\n\n")
-    );
-    // codex + opencode read AGENTS.md; copilot reads its own file. Both are
-    // standard, so create-or-update them.
-    for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
-        upsert_file(repo_root, rel, &body)?;
-    }
-    // Hermes also reads AGENTS.md, BUT a project-local `.hermes.md` shadows it
-    // (higher priority — only one context file loads). Mirror the block into
-    // `.hermes.md` only when it already exists; creating one would hide the
-    // user's AGENTS.md from Hermes.
-    if repo_root.join(".hermes.md").exists() {
-        upsert_file(repo_root, ".hermes.md", &body)?;
+        Some(body) => {
+            // codex + opencode read AGENTS.md; copilot reads its own file.
+            for rel in ["AGENTS.md", ".github/copilot-instructions.md"] {
+                upsert_file(repo_root, rel, &body)?;
+            }
+            // Hermes reads AGENTS.md, but a project-local `.hermes.md` shadows it.
+            // Mirror the block into `.hermes.md` only when it already exists.
+            if repo_root.join(".hermes.md").exists() {
+                upsert_file(repo_root, ".hermes.md", &body)?;
+            }
+        }
     }
     Ok(())
 }
@@ -742,6 +926,69 @@ mod tests {
             content.contains("hand-written"),
             "surrounding content preserved"
         );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn projection_status_reports_synced_stale_and_not_projected() {
+        let base = std::env::temp_dir().join(format!("cdlc-status-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+
+        // One agent source + one context source, empty skills manifest.
+        let adir = crate::cdlc_dir(&repo).join("agents");
+        std::fs::create_dir_all(&adir).unwrap();
+        std::fs::write(
+            adir.join("kyc-reviewer.md"),
+            "---\nname: kyc-reviewer\ncovenant:\n  voice: formal\n---\nReview KYC.\n",
+        )
+        .unwrap();
+        let cdir = crate::cdlc_dir(&repo).join("context");
+        std::fs::create_dir_all(&cdir).unwrap();
+        std::fs::write(cdir.join("sbs.md"), "---\nsummary: Cite SBS.\n---\n# SBS\nfull\n").unwrap();
+        write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+
+        // Before projecting: everything is not_projected.
+        let st = projection_status(&repo).unwrap();
+        let state = |tool: &str| st.executors.iter().find(|e| e.tool == tool).unwrap().state.clone();
+        assert_eq!(state("claude"), ProjState::NotProjected);
+        assert_eq!(state("codex"), ProjState::NotProjected);
+        assert!(st.source_edited_unix.is_some(), "sources exist → mtime present");
+
+        // After projecting: everything the sources touch is synced.
+        project(&repo).unwrap();
+        let st = projection_status(&repo).unwrap();
+        let state = |tool: &str| st.executors.iter().find(|e| e.tool == tool).unwrap().state.clone();
+        assert_eq!(state("claude"), ProjState::Synced);
+        assert_eq!(state("opencode"), ProjState::Synced);
+        assert_eq!(state("codex"), ProjState::Synced);
+        assert_eq!(state("copilot"), ProjState::Synced);
+        // pi has no marketplace skills (empty manifest), but the context source is
+        // also projected into `.pi/skills` (project_context_skills writes both
+        // SKILL_DIRS), so pi is synced too.
+        assert_eq!(state("pi"), ProjState::Synced);
+
+        // Hand-edit Claude's projected agent file → claude goes stale, others stay synced.
+        std::fs::write(repo.join(".claude/agents/kyc-reviewer.md"), "tampered\n").unwrap();
+        let st = projection_status(&repo).unwrap();
+        let state = |tool: &str| st.executors.iter().find(|e| e.tool == tool).unwrap().state.clone();
+        assert_eq!(state("claude"), ProjState::Stale);
+        assert_eq!(state("codex"), ProjState::Synced);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn projection_status_empty_repo_all_not_projected() {
+        let base = std::env::temp_dir().join(format!("cdlc-status-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let repo = base.clone();
+        write_manifest(&repo, &CdlcManifest { version: 1, installed: vec![] }).unwrap();
+
+        let st = projection_status(&repo).unwrap();
+        assert!(st.executors.iter().all(|e| e.state == ProjState::NotProjected));
+        assert_eq!(st.source_edited_unix, None);
 
         let _ = std::fs::remove_dir_all(&base);
     }
