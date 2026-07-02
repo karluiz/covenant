@@ -38,12 +38,14 @@ pub fn resolve_headless_with_log(req: &PermissionRequest, denied: &Mutex<Vec<Str
 
 fn pick_option(req: &PermissionRequest, allow: bool) -> String {
     let wanted = if allow { "allow_once" } else { "reject_once" };
-    if let Some(o) = req.options.iter().find(|o| o.kind == wanted) {
+    if let Some(o) = req.options.iter().find(|o| o.kind.eq_ignore_ascii_case(wanted)) {
         return o.option_id.clone();
     }
     // Deny-biased floor: neither branch may fall through to
     // `options.first()` unconditionally, because an arbitrary first
     // option can be allow-ish (deny path) or persistent (allow path).
+    // All kind comparisons are case-insensitive so casing variants
+    // ("AllowOnce", "allowAlways") cannot defeat the floor.
     // Both branches degrade to an empty optionId as the last resort —
     // the session layer replies with an optionId the agent won't
     // recognize, which is the conservative failure mode (an
@@ -55,7 +57,7 @@ fn pick_option(req: &PermissionRequest, allow: bool) -> String {
         // persists a grant beyond this headless session.
         req.options
             .iter()
-            .find(|o| !o.kind.contains("always"))
+            .find(|o| !o.kind.to_ascii_lowercase().contains("always"))
             .map(|o| o.option_id.clone())
             .unwrap_or_default()
     } else {
@@ -65,8 +67,12 @@ fn pick_option(req: &PermissionRequest, allow: bool) -> String {
         // guessing, so widen slightly to "reject"-ish before giving up.
         req.options
             .iter()
-            .find(|o| o.kind.contains("reject"))
-            .or_else(|| req.options.iter().find(|o| !o.kind.contains("allow")))
+            .find(|o| o.kind.to_ascii_lowercase().contains("reject"))
+            .or_else(|| {
+                req.options
+                    .iter()
+                    .find(|o| !o.kind.to_ascii_lowercase().contains("allow"))
+            })
             .map(|o| o.option_id.clone())
             .unwrap_or_default()
     }
@@ -175,6 +181,27 @@ mod tests {
         .expect("fixture parses");
         let picked = resolve_headless(&r);
         assert_ne!(picked, "aa");
+    }
+
+    #[test]
+    fn casing_variants_do_not_defeat_the_floor() {
+        // Kind matching must be case-insensitive: "AllowOnce" must not
+        // slip past the deny path's `!contains("allow")` filter, and
+        // "allowAlways" must not slip past the allow path's
+        // `!contains("always")` filter.
+        let mut deny = req("execute", Some("sudo ls"));
+        deny.options = serde_json::from_value(serde_json::json!([
+            { "optionId": "x1", "kind": "AllowOnce", "name": "Allow once" }
+        ]))
+        .expect("fixture parses");
+        assert_eq!(resolve_headless(&deny), "");
+
+        let mut allow = req("edit", None);
+        allow.options = serde_json::from_value(serde_json::json!([
+            { "optionId": "x2", "kind": "allowAlways", "name": "Always allow" }
+        ]))
+        .expect("fixture parses");
+        assert_eq!(resolve_headless(&allow), "");
     }
 
     #[test]
