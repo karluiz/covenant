@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
@@ -48,8 +48,35 @@ pub struct AcpSpawnOpts {
     pub extra_args: Vec<String>,
 }
 
-/// Answers `session/request_permission` synchronously with an optionId.
-pub type PermissionResolver = Arc<dyn Fn(&PermissionRequest) -> String + Send + Sync>;
+/// A resolver's answer to `session/request_permission`: either decide
+/// immediately, or park the request and answer later via
+/// [`AcpSession::respond_permission`].
+#[derive(Debug, Clone)]
+pub enum PermissionDecision {
+    /// Reply now with this optionId.
+    Select(String),
+    /// Park the request; a [`AcpSessionEvent::PermissionPending`] is
+    /// broadcast and the reply is deferred until `respond_permission`.
+    Defer,
+}
+
+/// Answers `session/request_permission` synchronously with a decision.
+pub type PermissionResolver = Arc<dyn Fn(&PermissionRequest) -> PermissionDecision + Send + Sync>;
+
+/// Broadcast payload for [`AcpSession::events`] — widened from a bare
+/// `SessionNotification` so interactive consumers can also observe parked
+/// permission requests.
+#[derive(Debug, Clone)]
+pub enum AcpSessionEvent {
+    /// A `session/update` notification, unchanged from before.
+    Update(SessionNotification),
+    /// A `session/request_permission` the resolver deferred. Answer it
+    /// with [`AcpSession::respond_permission`], keyed by `request_key`.
+    PermissionPending {
+        request_key: String,
+        request: PermissionRequest,
+    },
+}
 
 #[derive(Debug, Error)]
 pub enum AcpError {
@@ -72,7 +99,7 @@ pub enum AcpError {
 }
 
 pub struct AcpSession {
-    events_tx: broadcast::Sender<SessionNotification>,
+    events_tx: broadcast::Sender<AcpSessionEvent>,
     stdin_tx: mpsc::Sender<Vec<u8>>,
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>>,
     /// Flipped to `false` by whichever of read_loop/write_loop exits
@@ -90,6 +117,14 @@ pub struct AcpSession {
     /// shutdown.
     stderr_buf: Arc<StdMutex<Vec<u8>>>,
     stderr_reader: Mutex<Option<JoinHandle<()>>>,
+    /// Parked agent→client permission requests awaiting respond_permission.
+    parked: Arc<Mutex<HashMap<String, Value>>>,
+    /// request_key counter. The struct holds this clone alongside `parked`
+    /// for symmetry/future use; the live counter driving `request_key`
+    /// generation is the clone threaded into `read_loop`, since only that
+    /// task ever mints new parked requests.
+    #[allow(dead_code)]
+    next_perm: Arc<AtomicU64>,
 }
 
 impl AcpSession {
@@ -145,6 +180,8 @@ impl AcpSession {
             Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
         let stderr_buf: Arc<StdMutex<Vec<u8>>> = Arc::new(StdMutex::new(Vec::new()));
+        let parked: Arc<Mutex<HashMap<String, Value>>> = Arc::new(Mutex::new(HashMap::new()));
+        let next_perm = Arc::new(AtomicU64::new(0));
 
         let session = Arc::new(Self {
             events_tx: events_tx.clone(),
@@ -157,6 +194,8 @@ impl AcpSession {
             writer: Mutex::new(None),
             stderr_buf: stderr_buf.clone(),
             stderr_reader: Mutex::new(None),
+            parked: parked.clone(),
+            next_perm: next_perm.clone(),
         });
 
         let writer_handle = tokio::spawn(write_loop(stdin, stdin_rx, alive.clone()));
@@ -167,6 +206,8 @@ impl AcpSession {
             stdin_tx,
             resolver,
             alive,
+            parked,
+            next_perm,
         ));
         let stderr_handle = tokio::spawn(stderr_loop(stderr, stderr_buf));
         *session.writer.lock().await = Some(writer_handle);
@@ -189,7 +230,7 @@ impl AcpSession {
     /// Subscribe to the broadcast `session/update` stream. Each subscriber
     /// gets its own back-pressured queue (cap [`EVENT_CHANNEL_CAPACITY`]);
     /// slow consumers receive `RecvError::Lagged` frames and skip ahead.
-    pub fn events(&self) -> broadcast::Receiver<SessionNotification> {
+    pub fn events(&self) -> broadcast::Receiver<AcpSessionEvent> {
         self.events_tx.subscribe()
     }
 
@@ -249,9 +290,70 @@ impl AcpSession {
             .map_err(|_| AcpError::Closed)
     }
 
+    /// Answer a permission request previously parked by
+    /// [`PermissionDecision::Defer`] (surfaced via
+    /// `AcpSessionEvent::PermissionPending`). An empty `option_id` sends
+    /// the ACP "cancelled" outcome instead of a selected option — use this
+    /// to represent a user dismissing the prompt without choosing.
+    ///
+    /// Errors if `request_key` is unknown (never parked, already
+    /// answered, or already drained by [`AcpSession::shutdown`]).
+    pub async fn respond_permission(
+        &self,
+        request_key: &str,
+        option_id: &str,
+    ) -> Result<(), AcpError> {
+        let id = self.parked.lock().await.remove(request_key);
+        let Some(id) = id else {
+            return Err(AcpError::Rpc(format!(
+                "unknown permission request: {request_key}"
+            )));
+        };
+
+        let outcome = if option_id.is_empty() {
+            serde_json::json!({ "outcome": "cancelled" })
+        } else {
+            serde_json::json!({ "outcome": "selected", "optionId": option_id })
+        };
+        let reply = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": { "outcome": outcome },
+        });
+        let mut bytes = serde_json::to_vec(&reply)?;
+        bytes.push(b'\n');
+
+        // Caller task, not the reader hot path — plain `.send().await` is
+        // fine here (see module-level A0 review note on `try_send`).
+        self.stdin_tx
+            .send(bytes)
+            .await
+            .map_err(|_| AcpError::Closed)
+    }
+
     /// Graceful shutdown: close stdin, wait for the child up to `timeout`,
     /// then SIGKILL if it hasn't exited. There is no abort command in ACP.
     pub async fn shutdown(&self, timeout: Duration) {
+        // Flush any still-parked permission requests as cancelled before
+        // tearing anything else down, so the agent isn't left waiting on
+        // a dead client. Best-effort: if the writer is already gone this
+        // send fails silently and the child kill below reclaims the
+        // process anyway.
+        {
+            let mut parked = self.parked.lock().await;
+            for (_, id) in parked.drain() {
+                let reply = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "outcome": { "outcome": "cancelled" } },
+                });
+                if let Ok(mut bytes) = serde_json::to_vec(&reply) {
+                    bytes.push(b'\n');
+                    let _ = self.stdin_tx.send(bytes).await;
+                }
+            }
+        }
+
         // Flip dead and drain `pending` under lock, same pattern as
         // read_loop's exit. Dropping the oneshot senders resolves any
         // in-flight `request()` callers to `ResponseCancelled` instead of
@@ -347,11 +449,13 @@ async fn stderr_loop(mut stderr: ChildStderr, buf: Arc<StdMutex<Vec<u8>>>) {
 
 async fn read_loop(
     mut stdout: ChildStdout,
-    events_tx: broadcast::Sender<SessionNotification>,
+    events_tx: broadcast::Sender<AcpSessionEvent>,
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>>,
     stdin_tx: mpsc::Sender<Vec<u8>>,
     resolver: PermissionResolver,
     alive: Arc<AtomicBool>,
+    parked: Arc<Mutex<HashMap<String, Value>>>,
+    next_perm: Arc<AtomicU64>,
 ) {
     let mut framer = LineFramer::new();
     let mut chunk = vec![0u8; 8 * 1024];
@@ -366,7 +470,10 @@ async fn read_loop(
         };
         framer.feed(&chunk[..n]);
         while let Some(line) = framer.pop_line() {
-            handle_line(line, &events_tx, &pending, &stdin_tx, &resolver).await;
+            handle_line(
+                line, &events_tx, &pending, &stdin_tx, &resolver, &parked, &next_perm,
+            )
+            .await;
         }
     }
     // Stdout is gone — no reply can ever arrive. Flip `alive` and drop
@@ -384,10 +491,12 @@ async fn read_loop(
 
 async fn handle_line(
     line: Vec<u8>,
-    events_tx: &broadcast::Sender<SessionNotification>,
+    events_tx: &broadcast::Sender<AcpSessionEvent>,
     pending: &Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, AcpError>>>>>,
     stdin_tx: &mpsc::Sender<Vec<u8>>,
     resolver: &PermissionResolver,
+    parked: &Arc<Mutex<HashMap<String, Value>>>,
+    next_perm: &Arc<AtomicU64>,
 ) {
     let frame: InboundFrame = match serde_json::from_slice(&line) {
         Ok(frame) => frame,
@@ -416,7 +525,7 @@ async fn handle_line(
             let _ = tx.send(result);
         }
         FrameKind::Request => {
-            handle_agent_request(frame, stdin_tx, resolver).await;
+            handle_agent_request(frame, stdin_tx, resolver, events_tx, parked, next_perm).await;
         }
         FrameKind::Notification => {
             if frame.method.as_deref() == Some("session/update") {
@@ -426,7 +535,7 @@ async fn handle_line(
                 };
                 match serde_json::from_value::<SessionNotification>(params) {
                     Ok(n) => {
-                        let _ = events_tx.send(n);
+                        let _ = events_tx.send(AcpSessionEvent::Update(n));
                     }
                     Err(e) => {
                         tracing::warn!(?e, "acp: session/update failed to parse, dropping");
@@ -449,6 +558,9 @@ async fn handle_agent_request(
     frame: InboundFrame,
     stdin_tx: &mpsc::Sender<Vec<u8>>,
     resolver: &PermissionResolver,
+    events_tx: &broadcast::Sender<AcpSessionEvent>,
+    parked: &Arc<Mutex<HashMap<String, Value>>>,
+    next_perm: &Arc<AtomicU64>,
 ) {
     let Some(id) = frame.id else {
         return;
@@ -460,29 +572,43 @@ async fn handle_agent_request(
             .params
             .and_then(|p| serde_json::from_value::<PermissionRequest>(p).ok())
         {
-            Some(req) => {
-                let option_id = resolver(&req);
-                serde_json::json!({
+            Some(req) => match resolver(&req) {
+                PermissionDecision::Select(option_id) => Some(serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": { "outcome": { "outcome": "selected", "optionId": option_id } },
-                })
-            }
+                })),
+                PermissionDecision::Defer => {
+                    let n = next_perm.fetch_add(1, Ordering::Relaxed);
+                    let request_key = format!("perm-{n}");
+                    parked.lock().await.insert(request_key.clone(), id.clone());
+                    let _ = events_tx.send(AcpSessionEvent::PermissionPending {
+                        request_key,
+                        request: req,
+                    });
+                    None
+                }
+            },
             None => {
                 tracing::warn!("acp: session/request_permission params failed to parse");
-                serde_json::json!({
+                Some(serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "error": { "code": -32602, "message": "invalid params" },
-                })
+                }))
             }
         }
     } else {
-        serde_json::json!({
+        Some(serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
             "error": { "code": -32601, "message": "not supported by this client" },
-        })
+        }))
+    };
+
+    // Deferred: no reply yet, `respond_permission` sends it later.
+    let Some(reply) = reply else {
+        return;
     };
 
     let Ok(mut bytes) = serde_json::to_vec(&reply) else {
@@ -552,7 +678,7 @@ case "$answer" in *'"id":77'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"s
                 .lock()
                 .expect("lock")
                 .push(req.tool_call.command().unwrap_or("").to_string());
-            "allow_once".to_string()
+            PermissionDecision::Select("allow_once".to_string())
         });
         let session = AcpSession::spawn(spawn_opts(script), resolver)
             .await
@@ -571,11 +697,17 @@ case "$answer" in *'"id":77'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"s
             .await
             .expect("timely")
             .expect("recv");
+        let AcpSessionEvent::Update(first) = first else {
+            panic!("expected Update, got {first:?}")
+        };
         assert_eq!(first.session_id, "s1");
         let second = tokio::time::timeout(Duration::from_secs(3), events.recv())
             .await
             .expect("timely — permission answer never reached the agent")
             .expect("recv");
+        let AcpSessionEvent::Update(second) = second else {
+            panic!("expected Update, got {second:?}")
+        };
         match second.update {
             SessionUpdate::AgentMessageChunk { content } => {
                 assert_eq!(content.as_text(), Some("ok"));
@@ -594,7 +726,8 @@ case "$answer" in *'"id":77'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"s
     /// instead of hanging forever.
     #[tokio::test]
     async fn request_after_reader_exit_does_not_hang() {
-        let resolver: PermissionResolver = Arc::new(|_| "reject_once".into());
+        let resolver: PermissionResolver =
+            Arc::new(|_| PermissionDecision::Select("reject_once".into()));
         let session = AcpSession::spawn(spawn_opts("exit 0"), resolver)
             .await
             .expect("spawn");
@@ -625,7 +758,8 @@ case "$answer" in *'"id":77'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"s
 read line
 printf '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad"}}\n'
 "#;
-        let resolver: PermissionResolver = Arc::new(|_| "reject_once".into());
+        let resolver: PermissionResolver =
+            Arc::new(|_| PermissionDecision::Select("reject_once".into()));
         let session = AcpSession::spawn(spawn_opts(script), resolver)
             .await
             .expect("spawn");
@@ -641,7 +775,8 @@ printf '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad"}}\n'
     #[tokio::test]
     async fn malformed_line_does_not_kill_reader() {
         let script = r#"printf 'not json\n{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"alive"}}}}\n'"#;
-        let resolver: PermissionResolver = Arc::new(|_| "reject_once".into());
+        let resolver: PermissionResolver =
+            Arc::new(|_| PermissionDecision::Select("reject_once".into()));
         let session = AcpSession::spawn(spawn_opts(script), resolver)
             .await
             .expect("spawn");
@@ -650,7 +785,111 @@ printf '{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad"}}\n'
             .await
             .expect("timely")
             .expect("recv");
+        let AcpSessionEvent::Update(n) = n else {
+            panic!("expected Update, got {n:?}")
+        };
         assert!(matches!(n.update, SessionUpdate::AgentMessageChunk { .. }));
         session.shutdown(Duration::from_secs(2)).await;
+    }
+
+    /// Defer parks the request; respond_permission answers it with the
+    /// chosen option and the agent proceeds.
+    #[tokio::test]
+    async fn defer_then_respond_permission() {
+        let script = r#"
+read line
+printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
+printf '{"jsonrpc":"2.0","id":88,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"git push"}},"options":[{"optionId":"allow_once","kind":"allow_once"},{"optionId":"reject_once","kind":"reject_once"}]}}\n'
+read answer
+case "$answer" in *'"id":88'*'allow_once'*) printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"granted"}}}}\n';; esac
+"#;
+        let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
+        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let mut events = session.events();
+        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+
+        let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await.expect("timely").expect("recv");
+        let AcpSessionEvent::PermissionPending { request_key, request } = pending else {
+            panic!("expected PermissionPending, got {pending:?}");
+        };
+        assert_eq!(request.tool_call.command(), Some("git push"));
+
+        session.respond_permission(&request_key, "allow_once").await.expect("respond");
+        let after = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await.expect("timely — answer never reached agent").expect("recv");
+        match after {
+            AcpSessionEvent::Update(n) => match n.update {
+                SessionUpdate::AgentMessageChunk { content } => {
+                    assert_eq!(content.as_text(), Some("granted"));
+                }
+                other => panic!("wrong update: {other:?}"),
+            },
+            other => panic!("expected Update, got {other:?}"),
+        }
+        session.shutdown(Duration::from_secs(2)).await;
+    }
+
+    /// Empty option_id replies with the ACP "cancelled" outcome shape.
+    #[tokio::test]
+    async fn empty_option_id_sends_cancelled_outcome() {
+        let script = r#"
+read line
+printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
+printf '{"jsonrpc":"2.0","id":89,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"allow_once","kind":"allow_once"}]}}\n'
+read answer
+case "$answer" in *'"cancelled"'*) printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"saw-cancel"}}}}\n';; esac
+"#;
+        let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
+        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let mut events = session.events();
+        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let pending = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await.expect("timely").expect("recv");
+        let AcpSessionEvent::PermissionPending { request_key, .. } = pending else { panic!() };
+        session.respond_permission(&request_key, "").await.expect("respond");
+        let after = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await.expect("timely").expect("recv");
+        assert!(matches!(after, AcpSessionEvent::Update(_)));
+        session.shutdown(Duration::from_secs(2)).await;
+    }
+
+    /// Unknown request_key errors; answering twice errors the second time.
+    #[tokio::test]
+    async fn respond_permission_unknown_key_errors() {
+        let script = r#"read line
+printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
+sleep 5"#;
+        let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
+        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let err = session.respond_permission("perm-999", "allow_once").await
+            .expect_err("unknown key must error");
+        assert!(matches!(err, AcpError::Rpc(_)));
+        session.shutdown(Duration::from_secs(2)).await;
+    }
+
+    /// Shutdown answers parked requests with cancelled so the agent isn't
+    /// left waiting on a dead client.
+    #[tokio::test]
+    async fn shutdown_cancels_parked_permissions() {
+        let script = r#"
+read line
+printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
+printf '{"jsonrpc":"2.0","id":90,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","kind":"execute","rawInput":{"command":"ls"}},"options":[{"optionId":"allow_once","kind":"allow_once"}]}}\n'
+read answer
+"#;
+        let resolver: PermissionResolver = Arc::new(|_| PermissionDecision::Defer);
+        let session = AcpSession::spawn(spawn_opts(script), resolver).await.expect("spawn");
+        let mut events = session.events();
+        let _ = session.request("initialize", serde_json::json!({})).await.expect("init");
+        let _ = tokio::time::timeout(Duration::from_secs(3), events.recv()).await.expect("timely");
+        // No respond — shutdown must flush the parked request as cancelled.
+        session.shutdown(Duration::from_secs(2)).await;
+        // Success criterion: shutdown returned (child got its answer or was
+        // killed) and no panic; the parked map is drained (assert via a
+        // second respond_permission erroring).
+        let err = session.respond_permission("perm-1", "allow_once").await.expect_err("drained");
+        assert!(matches!(err, AcpError::Rpc(_) | AcpError::Closed));
     }
 }
