@@ -4249,13 +4249,12 @@ export class TabManager {
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
 
-    const pane = document.createElement("div");
-    pane.className = "tab-pane tab-pane-pi";
-    pane.dataset.tabId = id;
-    pane.hidden = true;
-    this.hideAllPanes();
-    this.workspace.appendChild(pane);
-
+    // Spawn FIRST, before any DOM mutation. The old order ran
+    // hideAllPanes() + appendChild before the await; on spawn failure
+    // the catch removed the new pane but the previously-active tab's
+    // pane stayed hidden and activeId never changed, so re-clicking its
+    // pill hit activate()'s skipIfSame early-return — a fully blank
+    // workspace only ⌘T could recover from.
     let sessionId: SessionId;
     try {
       sessionId = await spawnPiSession({
@@ -4264,13 +4263,19 @@ export class TabManager {
         model: opts?.model,
       });
     } catch (err) {
-      // Spawn failed — surface in-place and drop the pane so we don't
-      // leave dangling DOM. Caller gets null; the tabbar stays clean.
-      pane.remove();
+      // Spawn failed — the workspace is untouched; caller gets null and
+      // the tabbar stays clean.
       console.error("spawnPiSession failed", err);
-      alert(`Could not start Pi: ${String(err)}`);
+      pushInfoToast({ message: `Could not start Pi: ${String(err)}` });
       return null;
     }
+
+    const pane = document.createElement("div");
+    pane.className = "tab-pane tab-pane-pi";
+    pane.dataset.tabId = id;
+    pane.hidden = true;
+    this.hideAllPanes();
+    this.workspace.appendChild(pane);
 
     const piTerminalBlock = document.createElement("div");
     piTerminalBlock.className = "terminal-block";
@@ -4379,27 +4384,31 @@ export class TabManager {
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
 
+    // Spawn FIRST, before any DOM mutation (same fix as createPiTab):
+    // mutating the workspace pre-await meant a spawn failure left every
+    // pane hidden with no way to re-show the previous tab (activeId
+    // unchanged → activate()'s skipIfSame early-return). With spawn
+    // first, a failure leaves the workspace exactly as it was.
+    let sessionId: SessionId;
+    try {
+      sessionId = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
+    } catch (err) {
+      // Spawn failed — surface via the app's non-blocking toast (never
+      // alert()). The backend's error string already carries the
+      // actionable hint (missing/old `copilot` CLI). Caller gets null;
+      // restore's Promise.all skips this slot instead of crashing the
+      // loop, and the workspace DOM is untouched.
+      console.warn("spawnAcpSession failed", err);
+      pushInfoToast({ message: `Could not start Copilot: ${String(err)}` });
+      return null;
+    }
+
     const pane = document.createElement("div");
     pane.className = "tab-pane tab-pane-acp";
     pane.dataset.tabId = id;
     pane.hidden = true;
     this.hideAllPanes();
     this.workspace.appendChild(pane);
-
-    let sessionId: SessionId;
-    try {
-      sessionId = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
-    } catch (err) {
-      // Spawn failed — surface via the app's non-blocking toast (never
-      // alert()) and drop the pane so we don't leave dangling DOM. The
-      // backend's error string already carries the actionable hint
-      // (missing/old `copilot` CLI). Caller gets null; restore's
-      // Promise.all skips this slot instead of crashing the loop.
-      pane.remove();
-      console.warn("spawnAcpSession failed", err);
-      pushInfoToast({ message: `Could not start Copilot: ${String(err)}` });
-      return null;
-    }
 
     const acpTerminalBlock = document.createElement("div");
     acpTerminalBlock.className = "terminal-block";
