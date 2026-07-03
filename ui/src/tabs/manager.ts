@@ -1540,6 +1540,10 @@ export class TabManager {
     const margin = 8;
     const vw = document.documentElement.clientWidth;
     const vh = document.documentElement.clientHeight;
+    // Cap height BEFORE measuring so a long menu scrolls internally instead
+    // of overflowing past the clamp below.
+    menu.style.maxHeight = `${vh - 2 * margin}px`;
+    menu.style.overflowY = "auto";
     const w = menu.offsetWidth;
     const h = menu.offsetHeight;
     const top = Math.max(margin, Math.min(y / z, vh - margin - h));
