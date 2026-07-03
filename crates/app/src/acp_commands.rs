@@ -565,6 +565,54 @@ mod tests {
         ));
     }
 
+    /// Pins the frontend contract (`ui/src/api.ts` `AcpTabEvent`): exact
+    /// JSON shape for every variant — snake_case `type` tag, camelCase
+    /// field names. If this test needs to change, `ui/src/api.ts` needs a
+    /// matching change.
+    #[test]
+    fn acp_tab_event_wire_shape() {
+        let prompt_done = AcpTabEvent::PromptDone {
+            stop_reason: "end_turn".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(&prompt_done).expect("serialize"),
+            json!({ "type": "prompt_done", "stopReason": "end_turn" })
+        );
+
+        let session_dead = AcpTabEvent::SessionDead;
+        assert_eq!(
+            serde_json::to_value(&session_dead).expect("serialize"),
+            json!({ "type": "session_dead" })
+        );
+
+        let update = AcpTabEvent::Update {
+            update: notification(
+                r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}"#,
+            ),
+        };
+        let update_value = serde_json::to_value(&update).expect("serialize");
+        assert_eq!(update_value["type"], "update");
+        assert_eq!(update_value["update"]["sessionId"], "s1");
+        assert_eq!(
+            update_value["update"]["update"]["sessionUpdate"],
+            "agent_message_chunk"
+        );
+
+        let permission_pending = AcpTabEvent::PermissionPending {
+            request_key: "perm-0".to_string(),
+            request: serde_json::from_value(json!({
+                "sessionId": "s1",
+                "toolCall": { "toolCallId": "t1", "kind": "execute", "rawInput": { "command": "ls" } },
+                "options": [{ "optionId": "allow_once", "kind": "allow_once" }]
+            }))
+            .expect("permission fixture parses"),
+        };
+        let permission_value = serde_json::to_value(&permission_pending).expect("serialize");
+        assert_eq!(permission_value["type"], "permission_pending");
+        assert_eq!(permission_value["requestKey"], "perm-0");
+        assert_eq!(permission_value["request"]["sessionId"], "s1");
+    }
+
     /// `SessionUpdate` must survive Serialize → Deserialize with its
     /// internal tag intact, proving the `Serialize` derives added
     /// alongside the existing `Deserialize` ones in `protocol.rs` don't
