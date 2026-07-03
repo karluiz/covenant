@@ -262,7 +262,8 @@ pub async fn teammate_send_text_message(
                 });
             let tool_env = crate::teammate::tools::ToolEnv::new(root, 200 * 1024)
                 .with_screen(active_screen)
-                .with_skills(crate::teammate::handoff::skill_union(&registry_bg.list()));
+                .with_skills(crate::teammate::handoff::skill_union(&registry_bg.list()))
+                .with_acp(operator.acp_enabled);
             // GitHub access: attach the stored token only when this operator
             // is allowed to use it. Keychain reads are sync — keep them off
             // the async thread.
@@ -1154,6 +1155,7 @@ mod task_lifecycle_tests {
                 soul_path: None,
                 soul_mtime_unix_ms: 0,
                 github_access: crate::operator_registry::GithubAccess::Off,
+                acp_enabled: false,
             })
             .await
             .unwrap();
@@ -1348,6 +1350,7 @@ mod task_lifecycle_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
+            acp_enabled: false,
         };
         let zeta = mk("Zeta");
         let kiro = mk("Kiro");

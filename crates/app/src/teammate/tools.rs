@@ -52,6 +52,9 @@ pub struct ToolEnv {
     /// build the `handoff_task` `required_skills` enum. Empty → the
     /// `handoff_task` tool is omitted (nothing to route on).
     pub available_skills: Vec<String>,
+    /// Whether the operator may use `dispatch_acp`. False → the tool is
+    /// never registered and execution is refused (mirrors `github`).
+    pub acp_enabled: bool,
 }
 
 /// Token + access level + API base for the `gh_*` tools. `api_base` is
@@ -81,6 +84,7 @@ impl ToolEnv {
             active_screen: None,
             github: None,
             available_skills: Vec::new(),
+            acp_enabled: false,
         }
     }
 
@@ -99,6 +103,12 @@ impl ToolEnv {
     /// Attach the team's skill vocabulary (builder style).
     pub fn with_skills(mut self, skills: Vec<String>) -> Self {
         self.available_skills = skills;
+        self
+    }
+
+    /// Allow `dispatch_acp` (builder style).
+    pub fn with_acp(mut self, enabled: bool) -> Self {
+        self.acp_enabled = enabled;
         self
     }
 }

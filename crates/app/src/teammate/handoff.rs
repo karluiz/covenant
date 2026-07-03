@@ -259,6 +259,7 @@ mod tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
+            acp_enabled: false,
         }
     }
 

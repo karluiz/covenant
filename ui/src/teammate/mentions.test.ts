@@ -15,6 +15,7 @@ function fakeOp(name = "claude"): Operator {
     voice: "Terse", is_default: true,
     created_at_unix_ms: 0, updated_at_unix_ms: 0, xp: 0,
     github_access: "Off",
+    acp_enabled: false,
   };
 }
 

@@ -58,6 +58,12 @@ pub struct Operator {
     /// GitHub access level for the `gh_*` tools. Defaults Off.
     #[serde(default)]
     pub github_access: GithubAccess,
+    /// Whether this operator may delegate subtasks to background Copilot
+    /// sessions via `dispatch_acp`. Defaults off (deny-biased, like
+    /// `github_access`) — the tool is never registered for gated operators.
+    /// Registry-only (NOT SOUL frontmatter).
+    #[serde(default)]
+    pub acp_enabled: bool,
 }
 
 /// What the operator may do with the user's GitHub account. Gates which
@@ -269,6 +275,7 @@ impl OperatorRegistry {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         by_id.insert(op.id, op);
         std::sync::Arc::new(Self {
@@ -452,6 +459,7 @@ impl OperatorRegistry {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         crate::soul::hydrate_operator(&mut op, &soul);
         self.create(storage, op).await
@@ -582,6 +590,24 @@ impl OperatorRegistry {
         Ok(())
     }
 
+    pub async fn set_acp_enabled(
+        &self,
+        storage: &Storage,
+        id: OperatorId,
+        enabled: bool,
+    ) -> Result<(), RegistryError> {
+        if !self.by_id.read().unwrap().contains_key(&id) {
+            return Err(RegistryError::NotFound(id));
+        }
+        storage
+            .operator_set_acp_enabled(id.to_string(), enabled)
+            .await?;
+        if let Some(op) = self.by_id.write().unwrap().get_mut(&id) {
+            op.acp_enabled = enabled;
+        }
+        Ok(())
+    }
+
     pub fn pin_session(&self, session_id: SessionId, id: OperatorId) {
         self.pins.write().unwrap().insert(session_id, id);
     }
@@ -660,6 +686,7 @@ impl OperatorRegistry {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         let id = op.id;
         let name = op.name.clone();
@@ -881,6 +908,7 @@ pub mod commands {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         registry.create(&storage, op).await.map_err(map_err)
     }
@@ -914,6 +942,7 @@ pub mod commands {
             soul_path: existing.soul_path.clone(),
             soul_mtime_unix_ms: existing.soul_mtime_unix_ms,
             github_access: existing.github_access,
+            acp_enabled: existing.acp_enabled,
         };
         registry.update(&storage, updated).await.map_err(map_err)
     }
@@ -948,6 +977,20 @@ pub mod commands {
         let id: OperatorId = id.parse().map_err(map_err)?;
         registry
             .set_github_access(&storage, id, access)
+            .await
+            .map_err(map_err)
+    }
+
+    #[tauri::command]
+    pub async fn operator_set_acp_enabled(
+        id: String,
+        enabled: bool,
+        registry: State<'_, Arc<OperatorRegistry>>,
+        storage: State<'_, Arc<Storage>>,
+    ) -> Result<(), String> {
+        let id: OperatorId = id.parse().map_err(map_err)?;
+        registry
+            .set_acp_enabled(&storage, id, enabled)
             .await
             .map_err(map_err)
     }
@@ -1003,6 +1046,7 @@ mod voice_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         assert!(matches!(op.voice, VoiceTone::Terse));
     }
@@ -1090,6 +1134,7 @@ mod soul_io_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.clone().expect("soul_path set");
@@ -1132,6 +1177,7 @@ mod soul_io_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         storage.operator_insert(op.clone()).await.unwrap();
 
@@ -1176,6 +1222,7 @@ mod soul_io_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         reg.create(&storage, existing_op.clone()).await.unwrap();
         let existing = reg.list();
@@ -1199,6 +1246,7 @@ mod soul_io_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         let id = op.id;
 
@@ -1252,6 +1300,7 @@ mod soul_io_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::default(),
+            acp_enabled: false,
         };
         let created = reg.create(&storage, op).await.unwrap();
         let path = created.soul_path.unwrap();

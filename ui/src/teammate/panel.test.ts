@@ -118,6 +118,7 @@ function makeOp(overrides: Partial<Operator> = {}): Operator {
     updated_at_unix_ms: 0,
     xp: 0,
     github_access: "Off",
+    acp_enabled: false,
     ...overrides,
   };
 }

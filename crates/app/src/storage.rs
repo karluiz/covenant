@@ -716,6 +716,11 @@ impl Storage {
             "ALTER TABLE operators ADD COLUMN github_access TEXT NOT NULL DEFAULT 'Off'",
             [],
         );
+        // dispatch_acp gate. Existing operators default off (deny-biased).
+        let _ = conn.execute(
+            "ALTER TABLE operators ADD COLUMN acp_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // Teammate phase 1: rolling summary per operator for prompt
         // caching when DMing. Empty for existing rows.
         let _ = conn.execute(
@@ -1810,8 +1815,9 @@ impl Storage {
             c.execute(
                 "INSERT INTO operators (id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                 created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
+                 acp_enabled) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1831,6 +1837,7 @@ impl Storage {
                         .as_ref()
                         .map(|p| p.to_string_lossy().into_owned()),
                     github_access_to_str(op.github_access),
+                    if op.acp_enabled { 1_i64 } else { 0_i64 },
                 ],
             )?;
             Ok(())
@@ -1851,7 +1858,8 @@ impl Storage {
             c.execute(
                 "UPDATE operators SET name=?2, emoji=?3, color=?4, tags_json=?5, \
                  persona=?6, escalate_threshold=?7, model=?8, hard_constraints=?9, \
-                 updated_at_unix_ms=?10, voice=?11, soul_path=?12, github_access=?13 WHERE id=?1",
+                 updated_at_unix_ms=?10, voice=?11, soul_path=?12, github_access=?13, \
+                 acp_enabled=?14 WHERE id=?1",
                 params![
                     op.id.to_string(),
                     op.name,
@@ -1868,6 +1876,7 @@ impl Storage {
                         .as_ref()
                         .map(|p| p.to_string_lossy().into_owned()),
                     github_access_to_str(op.github_access),
+                    if op.acp_enabled { 1_i64 } else { 0_i64 },
                 ],
             )?;
             Ok(())
@@ -1950,6 +1959,27 @@ impl Storage {
         .map_err(|e| StorageError::Join(e.to_string()))?
     }
 
+    pub async fn operator_set_acp_enabled(
+        &self,
+        id: String,
+        enabled: bool,
+    ) -> Result<(), StorageError> {
+        let conn = self.inner.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), StorageError> {
+            let c = conn.blocking_lock();
+            let n = c.execute(
+                "UPDATE operators SET acp_enabled=?2 WHERE id=?1",
+                params![id, if enabled { 1_i64 } else { 0_i64 }],
+            )?;
+            if n == 0 {
+                return Err(StorageError::Other(format!("operator id {id} not found")));
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| StorageError::Join(e.to_string()))?
+    }
+
     pub async fn operator_list(
         &self,
     ) -> Result<Vec<crate::operator_registry::Operator>, StorageError> {
@@ -1959,7 +1989,8 @@ impl Storage {
             let mut stmt = c.prepare(
                 "SELECT id, name, emoji, color, tags_json, persona, \
                  escalate_threshold, model, hard_constraints, is_default, \
-                 created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access \
+                 created_at_unix_ms, updated_at_unix_ms, xp, voice, soul_path, github_access, \
+                 acp_enabled \
                  FROM operators ORDER BY is_default DESC, LOWER(name) ASC",
             )?;
             let rows = stmt
@@ -2001,6 +2032,7 @@ impl Storage {
                             .get::<_, String>(15)
                             .map(|s| github_access_from_str(&s))
                             .unwrap_or_default(),
+                        acp_enabled: row.get::<_, i64>(16).unwrap_or(0) != 0,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -4518,6 +4550,7 @@ mod tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::Off,
+            acp_enabled: false,
         };
         let warm_id = warm.id;
         s.operator_insert(warm).await.unwrap();
@@ -4541,6 +4574,7 @@ mod tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::Off,
+            acp_enabled: false,
         };
         let terse_id = terse.id;
         s.operator_insert(terse).await.unwrap();
@@ -4616,6 +4650,7 @@ mod tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::ReadOnly,
+            acp_enabled: false,
         };
         let op_id = op.id;
 
@@ -4632,6 +4667,14 @@ mod tests {
         let list2 = s.operator_list().await.unwrap();
         let got2 = list2.iter().find(|o| o.id == op_id).unwrap();
         assert_eq!(got2.github_access, GithubAccess::ReadWrite);
+
+        // acp_enabled defaults off, flips via the dedicated setter.
+        assert!(!got2.acp_enabled);
+        s.operator_set_acp_enabled(op_id.to_string(), true)
+            .await
+            .unwrap();
+        let list3 = s.operator_list().await.unwrap();
+        assert!(list3.iter().find(|o| o.id == op_id).unwrap().acp_enabled);
     }
 }
 
@@ -4703,6 +4746,7 @@ mod task_card_storage_tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
+            acp_enabled: false,
         })
         .await
         .unwrap();

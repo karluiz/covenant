@@ -547,6 +547,11 @@ async fn execute_tool(
         "git_diff" => tools::git_diff(tool_env, input),
         "run_command" => tools::run_command(tool_env, input),
         "read_terminal_screen" => tools::read_terminal_screen(tool_env, input),
+        // Defense in depth: gated operators never see the tool def, but if
+        // the LLM invents the call anyway, refuse instead of executing.
+        "dispatch_acp" if !tool_env.acp_enabled => Err(ToolError::InvalidArgs(
+            "dispatch_acp is not enabled for this operator".into(),
+        )),
         "dispatch_acp" => tools::dispatch_acp(tool_env, input).await,
         "propose_task" => {
             // Unreachable in practice because both loops fast-path
@@ -595,8 +600,10 @@ fn all_tool_defs(tool_env: &ToolEnv) -> Vec<serde_json::Value> {
         tools::run_command_tool_def(),
         tools::read_terminal_screen_tool_def(),
         tools::propose_task_tool_def(),
-        tools::dispatch_acp_tool_def(),
     ];
+    if tool_env.acp_enabled {
+        defs.push(tools::dispatch_acp_tool_def());
+    }
     // Skill-routed handoff is only offered when the team actually has skills
     // to route on (otherwise the enum would be empty and unusable).
     if !tool_env.available_skills.is_empty() {
@@ -1152,6 +1159,7 @@ mod tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: crate::operator_registry::GithubAccess::Off,
+            acp_enabled: false,
         }
     }
 
@@ -1476,6 +1484,32 @@ mod tests {
             .collect();
         assert_eq!(names.len(), 9 + 9);
         assert!(names.contains(&"gh_create_issue"));
+    }
+
+    #[test]
+    fn dispatch_acp_registered_only_when_enabled() {
+        use crate::teammate::tools::ToolEnv;
+        let names = |env: &ToolEnv| -> Vec<String> {
+            all_tool_defs(env)
+                .iter()
+                .map(|d| d["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let off = ToolEnv::new(std::env::temp_dir(), 1024);
+        assert!(!names(&off).contains(&"dispatch_acp".to_string()));
+        let on = ToolEnv::new(std::env::temp_dir(), 1024).with_acp(true);
+        assert!(names(&on).contains(&"dispatch_acp".to_string()));
+    }
+
+    #[tokio::test]
+    async fn execute_tool_refuses_dispatch_acp_when_gated() {
+        use crate::teammate::tools::ToolEnv;
+        let env = ToolEnv::new(std::env::temp_dir(), 1024); // acp off
+        let (text, ok, err) =
+            execute_tool(&env, "dispatch_acp", &serde_json::json!({ "prompt": "x" })).await;
+        assert!(!ok);
+        assert!(text.contains("not enabled"), "got: {text}");
+        assert!(err.is_some());
     }
 
     #[test]

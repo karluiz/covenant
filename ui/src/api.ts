@@ -312,6 +312,9 @@ export interface Operator {
   /// 3.12 — accumulated XP. Level = floor(xp / 100) + 1.
   xp: number;
   github_access: GithubAccess;
+  /// Whether the operator may delegate subtasks to background Copilot
+  /// sessions via dispatch_acp. Default off.
+  acp_enabled: boolean;
   soul_path?: string | null;
 }
 
@@ -369,6 +372,13 @@ export async function operatorSetGithubAccess(
   access: GithubAccess,
 ): Promise<void> {
   return invoke<void>("operator_set_github_access", { id, access });
+}
+
+export async function operatorSetAcpEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<void> {
+  return invoke<void>("operator_set_acp_enabled", { id, enabled });
 }
 
 export interface ArchetypeView {

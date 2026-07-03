@@ -234,6 +234,7 @@ mod tests {
             soul_path: None,
             soul_mtime_unix_ms: 0,
             github_access: GithubAccess::Off,
+            acp_enabled: false,
         };
         let soul = soul_from_operator(&op);
         assert_eq!(soul.frontmatter.name, "Atlas");

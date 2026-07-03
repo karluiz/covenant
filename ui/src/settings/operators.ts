@@ -8,6 +8,7 @@ import {
   operatorList,
   operatorSetDefault,
   operatorSetGithubAccess,
+  operatorSetAcpEnabled,
   operatorUpdate,
   operatorListArchetypes,
   operatorSoulRead,
@@ -210,6 +211,15 @@ export class OperatorsPane {
             if (saved.id && handle.state.githubAccess !== prevAccess) {
               try { await operatorSetGithubAccess(saved.id, handle.state.githubAccess); } catch (e) {
                 console.warn("operator_set_github_access failed", e);
+              }
+            }
+            // Same registry-side pattern for the dispatch_acp gate.
+            const prevAcp = handle.state.mode === "edit"
+              ? (handle.state.existing?.acp_enabled ?? false)
+              : false;
+            if (saved.id && handle.state.acpEnabled !== prevAcp) {
+              try { await operatorSetAcpEnabled(saved.id, handle.state.acpEnabled); } catch (e) {
+                console.warn("operator_set_acp_enabled failed", e);
               }
             }
             closeCreator(handle.el);
@@ -758,6 +768,9 @@ export interface ModalState {
   /// dedicated operator_set_github_access command after save, same
   /// pattern as setAsDefault.
   githubAccess: GithubAccess;
+  /// dispatch_acp gate (background Copilot subtasks). Registry-side, same
+  /// save pattern as githubAccess.
+  acpEnabled: boolean;
   /// Active section in the immersive shell UI.
   activeSection: SectionKey;
   /// Raw SOUL.md text bound to the split-editor textarea. Authoritative
@@ -781,6 +794,7 @@ export interface ModalHandle {
   setHardConstraints(s: string): void;
   setAsDefault(b: boolean): void;
   setGithubAccess(a: GithubAccess): void;
+  setAcpEnabled(b: boolean): void;
   applyPreset(key: PresetKey): void;
   setSection(s: SectionKey): void;
 }
@@ -846,6 +860,7 @@ export function openOperatorModal(opts: {
     setAsDefault: isDefault,
     existing: opts.existing,
     githubAccess: opts.existing?.github_access ?? "Off",
+    acpEnabled: opts.existing?.acp_enabled ?? false,
     activeSection: opts.mode === "create" ? "start" : "identity",
     // SOUL.md is the authoritative source for the new split editor.
     // Edit mode loads it asynchronously below; create starts blank
@@ -892,6 +907,7 @@ export function openOperatorModal(opts: {
     // Native checkbox self-displays; no full render needed (would flash the modal).
     setAsDefault(b) { state.setAsDefault = b; },
     setGithubAccess(a) { state.githubAccess = a; render(); },
+    setAcpEnabled(b) { state.acpEnabled = b; render(); },
     setSection(s) {
       if (state.activeSection === s) return;
       state.activeSection = s;
@@ -1523,6 +1539,33 @@ function buildSoulEditor(h: ModalHandle): SoulEditor {
       "Read lets this operator list and read issues and PRs; read & write can also create issues, comment, and open PRs as you.";
     ghField.append(ghLbl, ghSeg, ghHint);
     behaviour.append(ghField);
+
+    // ── Copilot delegation (dispatch_acp gate — registry-side) ────────
+    const acpSeg = document.createElement("div");
+    acpSeg.className = "op-soul-seg";
+    for (const opt of [
+      { value: false, label: "Off" },
+      { value: true, label: "On" },
+    ]) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "op-soul-seg-btn";
+      if (h.state.acpEnabled === opt.value) btn.classList.add("is-selected");
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => h.setAcpEnabled(opt.value));
+      acpSeg.append(btn);
+    }
+    const acpField = document.createElement("div");
+    acpField.className = "op-modal-field";
+    const acpLbl = document.createElement("span");
+    acpLbl.className = "op-modal-label";
+    acpLbl.textContent = "Copilot delegation";
+    const acpHint = document.createElement("small");
+    acpHint.className = "op-modal-hint";
+    acpHint.textContent =
+      "Lets this operator dispatch self-contained subtasks to background GitHub Copilot sessions. File edits stay inside the workspace; risky commands are denied by policy.";
+    acpField.append(acpLbl, acpSeg, acpHint);
+    behaviour.append(acpField);
     controls.append(behaviour);
 
     // ── Hard constraints (safety — extra deny rules) ──────────────────
