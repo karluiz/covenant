@@ -3,6 +3,7 @@
 @import "./score/styles.css";
 @import "./project-notes/styles.css";
 @import "./executors/pi/pi.css";
+@import "./executors/acp/acp.css";
 @import "./changes/changes.css";
 
 /* Global scrollbar reset: WKWebView on macOS with the system setting
