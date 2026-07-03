@@ -7159,6 +7159,20 @@ export class TabManager {
           })();
         },
       },
+      {
+        // Copilot only for now — the sole executor with a stable ACP
+        // server. Grows into an executor picker when claude/codex land.
+        label: "Start agent in ACP mode",
+        icon: Icons.sparkles(),
+        onClick: () => {
+          if (group.collapsed) this.toggleGroupCollapsed(group.id);
+          void this.createAcpTab({
+            groupId: group.id,
+            color: group.color,
+            cwd: group.rootDir ?? this.activeCwd(),
+          });
+        },
+      },
       { divider: true },
       {
         label: "Open notes (⌘⇧J)",
