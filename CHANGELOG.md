@@ -6,6 +6,62 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 Each version section may include any of: **Added**, **Changed**, **Fixed**,
 **Removed**.
 
+## v0.8.119 — Interactive ACP Copilot tab + editable CSV preview
+
+### Added
+
+- **Interactive ACP tab (⌘⌥⇧C)**: a new `kind:"acp"` tab hosts a live
+  Copilot CLI conversation over ACP — structured agent stream with
+  interactive permission cards (`ui/src/executors/acp/`), a session
+  registry + event forwarder on the backend
+  (`crates/app/src/acp_commands.rs`), serialize/restore across app
+  restarts, and graceful teardown. Also reachable via "Start agent in
+  ACP mode" in the group context menu.
+- **ACP tab composer affordances**: slash-command autocomplete fed by
+  `available_commands_update`, `@file` mentions that attach cwd files as
+  ACP resource blocks, a native model picker anchored to the header chip
+  (`/model` can't ride a text prompt), and an instant boot state so the
+  tab opens without a blank flash.
+- **Per-operator gating of `dispatch_acp`**: Copilot delegation is now
+  OFF by default and enabled per-operator via a "Copilot delegation"
+  toggle; ungated operators no longer see the tool at all.
+- **Editable CSV/TSV table preview**: `.csv`/`.tsv` files in the
+  Structure editor get a Source/Preview toggle where Preview is a
+  spreadsheet-style table with editable cells — commits re-serialize the
+  full file via a raw-string RFC 4180 parser (no value re-formatting)
+  and flow through dirty tracking + ⌘S, which now works in preview mode
+  (`ui/src/structure/preview.ts`, `ui/src/structure/editor.ts`).
+- **CDLC empty-state CTA**: a group without a project folder now shows a
+  proper empty state with a "Choose folder…" button that opens the
+  folder picker and remounts the panel (`ui/src/cdlc/panel.ts`,
+  `ui/src/main.ts`).
+- **Menu badge pills**: menu items support a trailing badge pill; the
+  ACP mode entry ships with a NEW badge (`ui/src/menu/`).
+
+### Fixed
+
+- **ACP session lifecycle**: stdin now closes via a writer sentinel
+  before child wait (graceful shutdown restored), shutdown permission
+  flush is bounded, parked requests drain on reader exit, and reader
+  exit broadcasts `Closed` so `SessionDead` is reachable and the
+  registry cleans up (`crates/agent/src/acp/session.rs`,
+  `crates/app/src/acp_commands.rs`).
+- **Chat-tab spawn failures blanked the workspace**: a failed ACP spawn
+  no longer leaves an empty pane behind (`ui/src/tabs/`).
+- **Chat view races**: closed the subscribe/destroy race in chat views
+  and ignore replayed permission requests; the slash roster no longer
+  gets lost to startup races.
+- **⌘⌥⇧C on non-US layouts**: the shortcut matches on `e.code` — with
+  ⌥⇧ held, `e.key` is a layout glyph and never matched.
+- **Pane context menu overflow**: the menu is capped to the viewport
+  height with internal scroll instead of running off-screen
+  (`ui/src/tabs/manager.ts`).
+
+### Changed
+
+- **ACP tab design docs**: A2 design + implementation plan committed
+  under `docs/superpowers/` (spec-first, subagent-driven).
+
 ## v0.8.118 — Operator task auto-complete fix + ACP Copilot dispatch
 
 ### Added
