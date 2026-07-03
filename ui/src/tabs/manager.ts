@@ -99,7 +99,7 @@ import { detectExecutor } from "../executor";
 import { PiChatView } from "../executors/pi/view";
 import { spawnPiSession, piSetSessionName } from "../api";
 import { AcpChatView } from "../executors/acp/view";
-import { spawnAcpSession } from "../api";
+import { closeAcpSession, spawnAcpSession } from "../api";
 import type { AomBanner } from "../aom/banner";
 import { mountSpecBadge, type SpecBadgeHandle } from "../aom/spec-badge";
 import { getSpecPromptState } from "../aom/spec-prompt";
@@ -4389,25 +4389,12 @@ export class TabManager {
     const replayKey = id.replace(/-/g, "").slice(0, 26);
     const seq = this.nextSeq++;
 
-    // Spawn FIRST, before any DOM mutation (same fix as createPiTab):
-    // mutating the workspace pre-await meant a spawn failure left every
-    // pane hidden with no way to re-show the previous tab (activeId
-    // unchanged → activate()'s skipIfSame early-return). With spawn
-    // first, a failure leaves the workspace exactly as it was.
-    let sessionId: SessionId;
-    try {
-      sessionId = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
-    } catch (err) {
-      // Spawn failed — surface via the app's non-blocking toast (never
-      // alert()). The backend's error string already carries the
-      // actionable hint (missing/old `copilot` CLI). Caller gets null;
-      // restore's Promise.all skips this slot instead of crashing the
-      // loop, and the workspace DOM is untouched.
-      console.warn("spawnAcpSession failed", err);
-      pushInfoToast({ message: `Could not start Copilot: ${String(err)}` });
-      return null;
-    }
-
+    // The tab appears IMMEDIATELY with a boot placeholder; copilot's ACP
+    // handshake takes seconds and blocking ⌘⌥⇧C on it read as "nothing
+    // happened". The chat view mounts when the spawn resolves. A spawn
+    // failure renders in-pane (tab stays visible and closable), which
+    // also covers the old blank-workspace-on-failure hazard: the tab is
+    // in this.tabs and active, so the workspace is never left hidden.
     const pane = document.createElement("div");
     pane.className = "tab-pane tab-pane-acp";
     pane.dataset.tabId = id;
@@ -4424,7 +4411,10 @@ export class TabManager {
     acpTerminalBlock.appendChild(acpPaneHost0);
     pane.appendChild(acpTerminalBlock);
 
-    const view = new AcpChatView({ sessionId, host: acpPaneHost0, cwd: opts?.cwd ?? null });
+    const boot = document.createElement("div");
+    boot.className = "acp-boot";
+    boot.textContent = "Starting Copilot…";
+    acpPaneHost0.appendChild(boot);
 
     const tab: Tab = {
       id,
@@ -4434,7 +4424,7 @@ export class TabManager {
       color: opts?.color ?? null,
       groupId: opts?.groupId ?? null,
       pane,
-      acpView: view,
+      acpView: undefined, // mounted async once the ACP handshake resolves
       sidebarView: "blocks",
       disposers: [],
       specBadge: null,
@@ -4444,16 +4434,16 @@ export class TabManager {
     };
 
     const pane0Acp: Pane = {
-      id: `p-${sessionId}`,
+      id: `p-${replayKey}`,
       kind: "acp",
-      sessionId,
+      sessionId: null, // set once the ACP handshake resolves
       cwd: opts?.cwd ?? "",
       mission: null,
       operator: null,
       blocks: [],
       xterm: null,
       piView: null,
-      acpView: view,
+      acpView: null, // mounted async once the ACP handshake resolves
       executor: "copilot",
       operatorEnabled: false,
       operatorLive: false,
@@ -4500,9 +4490,37 @@ export class TabManager {
         this.tabs.splice(lastGroupIdx + 1, 0, moved);
       }
     }
-    this.rememberSessionName(sessionId, tabDisplayName(tab));
     if (!opts?.skipActivate) this.activate(id, { skipIfSame: false });
     this.scheduleSave();
+
+    // Async boot: spawn copilot --acp + handshake, then swap the boot
+    // placeholder for the live chat view. Failures render in-pane so
+    // the tab stays visible, inspectable, and closable.
+    void (async () => {
+      let sessionId: SessionId;
+      try {
+        sessionId = await spawnAcpSession({ cwd: opts?.cwd ?? undefined });
+      } catch (err) {
+        console.warn("spawnAcpSession failed", err);
+        boot.classList.add("acp-boot-error");
+        boot.textContent = `Could not start Copilot: ${String(err)}`;
+        return;
+      }
+      // Tab closed while the handshake was in flight — reap the fresh
+      // session; nothing to mount.
+      if (!this.tabs.some((t) => t.id === id)) {
+        void closeAcpSession(sessionId).catch(() => {});
+        return;
+      }
+      boot.remove();
+      const view = new AcpChatView({ sessionId, host: acpPaneHost0, cwd: opts?.cwd ?? null });
+      tab.acpView = view;
+      pane0Acp.acpView = view;
+      pane0Acp.sessionId = sessionId;
+      this.rememberSessionName(sessionId, tabDisplayName(tab));
+      if (this.activeId === id) view.focusComposer();
+    })();
+
     return tab;
   }
 

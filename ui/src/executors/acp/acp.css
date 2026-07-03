@@ -1,5 +1,22 @@
 /* AcpChatView — scoped styles. Imported once from ui/src/styles.css. */
 
+/* Boot / spawn-failure state shown in the pane before the view mounts. */
+.acp-boot {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-family: var(--ui-font, system-ui, sans-serif);
+  font-size: 13px;
+}
+.acp-boot-error {
+  color: var(--fail, #e0655f);
+}
+
 .acp-chat-view {
   display: flex;
   flex-direction: column;

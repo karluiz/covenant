@@ -1743,6 +1743,31 @@ body:not(.tabbar-left) #new-group {
     display: none;
 }
 
+/* ACP tabs: same escape hatch as Pi above — the chat view fills the
+   whole pane, so the 4-column terminal grid must not apply (its col 4
+   reserves --right-sidebar-w for a Blocks sidebar that ACP tabs never
+   create, which read as a phantom sidebar eating ~240px). The view
+   mounts on .pane-host inside .terminal-block, so stretch that chain. */
+.tab-pane.tab-pane-acp {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+}
+.tab-pane.tab-pane-acp[hidden] {
+    display: none;
+}
+.tab-pane.tab-pane-acp > .terminal-block {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+}
+.tab-pane.tab-pane-acp .pane-host {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+}
+
 .tab-terminal {
     height: 100%;
     padding: 8px;
