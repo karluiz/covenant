@@ -582,7 +582,10 @@ export class AcpChatView {
     const { request } = item;
     const kind = request.toolCall.kind ?? "tool";
     const command = commandOf(request.toolCall.rawInput);
-    const title = request.toolCall.title ?? command ?? request.toolCall.toolCallId;
+    // Edit/read-kind tool calls carry no `command` — surface the file
+    // target instead so the card isn't blank about what's being touched.
+    const target = command ?? fileNameOf(request.toolCall.rawInput);
+    const title = request.toolCall.title ?? target ?? request.toolCall.toolCallId;
 
     const root = document.createElement("div");
     root.className = "acp-perm";
@@ -591,7 +594,7 @@ export class AcpChatView {
         <span class="acp-chip" data-kind="${escapeHtml(kind)}">${escapeHtml(kind)}</span>
         <span class="acp-perm-title">${escapeHtml(title)}</span>
       </div>
-      ${command !== null ? `<div class="acp-perm-cmd"><code>${escapeHtml(command)}</code></div>` : ""}
+      ${target !== null ? `<div class="acp-perm-cmd"><code>${escapeHtml(target)}</code></div>` : ""}
       <div class="acp-perm-waiting">Waiting for your decision…</div>
       <div class="acp-perm-record" hidden></div>
       <div class="acp-perm-options"></div>
@@ -797,6 +800,15 @@ function commandOf(rawInput: unknown): string | null {
   if (!rawInput || typeof rawInput !== "object") return null;
   const cmd = (rawInput as { command?: unknown }).command;
   return typeof cmd === "string" ? cmd : null;
+}
+
+/// `rawInput.fileName` — edit/read-kind tool calls carry this instead of
+/// `command`; mirrors `tool_call_target`'s `rawInput.fileName` fallback in
+/// `crates/app/src/acp_commands.rs`.
+function fileNameOf(rawInput: unknown): string | null {
+  if (!rawInput || typeof rawInput !== "object") return null;
+  const name = (rawInput as { fileName?: unknown }).fileName;
+  return typeof name === "string" ? name : null;
 }
 
 /// `rawOutput.contents[].exitCode` where `type === "shell_exit"` — mirrors

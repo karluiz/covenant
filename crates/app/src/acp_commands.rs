@@ -58,6 +58,11 @@ pub(crate) fn acp_event_to_phase(ev: &AcpSessionEvent) -> Option<ExecutorPhase> 
         AcpSessionEvent::PermissionPending { .. } => Some(ExecutorPhase::Waiting {
             reason: "permission".to_string(),
         }),
+        // Terminal — the forwarder handles this before it ever reaches
+        // `acp_event_to_phase` (see the loop in `spawn_acp_session`), but
+        // stay exhaustive rather than wildcard so a future variant can't
+        // silently fall through un-mapped.
+        AcpSessionEvent::Closed => None,
     }
 }
 
@@ -115,9 +120,16 @@ struct AcpTabSession {
 }
 
 /// Shared registry of live interactive ACP sessions. Held on [`AppState`].
-#[derive(Default)]
+///
+/// `inner` is `Arc`-wrapped (unlike a bare `Mutex<HashMap<..>>>`) so a
+/// cheap [`Clone`] of the whole registry can be moved into the forwarder
+/// task spawned by [`spawn_acp_session`] — the same shape as
+/// `state.notch_hub: Arc<NotchHub>` — letting that task remove its own
+/// entry on session death without borrowing from a short-lived
+/// `State<'_, AppState>`.
+#[derive(Default, Clone)]
 pub struct AcpRegistry {
-    inner: Mutex<HashMap<SessionId, Arc<AcpTabSession>>>,
+    inner: Arc<Mutex<HashMap<SessionId, Arc<AcpTabSession>>>>,
 }
 
 impl AcpRegistry {
@@ -293,40 +305,79 @@ pub async fn spawn_acp_session(
     let mut rx = session.events();
     let app_for_task = app.clone();
     let notch_hub_task = notch_hub.clone();
+    let registry_task = state.acp_sessions.clone();
     let topic = format!("session://{session_id}/acp");
     let topic_for_task = topic.clone();
     tokio::spawn(async move {
+        // Shared teardown for both liveness signals below: the explicit
+        // `AcpSessionEvent::Closed` broadcast by `read_loop` on a real
+        // child exit (the reachable path — see the doc on that variant),
+        // and `RecvError::Closed` (only reachable once this task's `Arc<
+        // AcpSession>` clone — held indirectly via the registry entry —
+        // is also dropped, e.g. by a `close_acp_session` race). Either
+        // way: tell the frontend, drop the notch entry, and remove
+        // ourselves from the registry so a later `close_acp_session` on
+        // this id is a no-op instead of double-shutting-down a dead
+        // session.
+        async fn on_dead(
+            app: &AppHandle,
+            topic: &str,
+            notch_hub: &Arc<crate::notch::NotchHub>,
+            registry: &AcpRegistry,
+            session_id: SessionId,
+        ) {
+            if let Err(e) = app.emit(topic, &AcpTabEvent::SessionDead) {
+                tracing::warn!(?e, topic, "acp session-dead emit failed");
+            }
+            notch_hub.drop_session(&session_id).await;
+            registry.remove(&session_id).await;
+        }
+
         loop {
-            match rx.recv().await {
-                Ok(ev) => {
-                    if let Some(phase) = acp_event_to_phase(&ev) {
-                        notch_hub_task.set_phase(session_id, phase).await;
-                    }
-                    let payload = match ev {
-                        AcpSessionEvent::Update(n) => AcpTabEvent::Update { update: n },
-                        AcpSessionEvent::PermissionPending {
-                            request_key,
-                            request,
-                        } => AcpTabEvent::PermissionPending {
-                            request_key,
-                            request,
-                        },
-                    };
-                    if let Err(e) = app_for_task.emit(&topic_for_task, &payload) {
-                        tracing::warn!(?e, topic = %topic_for_task, "acp event emit failed");
-                    }
-                }
+            let ev = match rx.recv().await {
+                Ok(ev) => ev,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!(skipped = n, topic = %topic_for_task, "acp event lag");
                     continue;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    if let Err(e) = app_for_task.emit(&topic_for_task, &AcpTabEvent::SessionDead) {
-                        tracing::warn!(?e, topic = %topic_for_task, "acp session-dead emit failed");
-                    }
-                    notch_hub_task.drop_session(&session_id).await;
+                    on_dead(
+                        &app_for_task,
+                        &topic_for_task,
+                        &notch_hub_task,
+                        &registry_task,
+                        session_id,
+                    )
+                    .await;
                     break;
                 }
+            };
+            if let Some(phase) = acp_event_to_phase(&ev) {
+                notch_hub_task.set_phase(session_id, phase).await;
+            }
+            let payload = match ev {
+                AcpSessionEvent::Update(n) => AcpTabEvent::Update { update: n },
+                AcpSessionEvent::PermissionPending {
+                    request_key,
+                    request,
+                } => AcpTabEvent::PermissionPending {
+                    request_key,
+                    request,
+                },
+                AcpSessionEvent::Closed => {
+                    on_dead(
+                        &app_for_task,
+                        &topic_for_task,
+                        &notch_hub_task,
+                        &registry_task,
+                        session_id,
+                    )
+                    .await;
+                    break;
+                }
+            };
+            if let Err(e) = app_for_task.emit(&topic_for_task, &payload) {
+                tracing::warn!(?e, topic = %topic_for_task, "acp event emit failed");
             }
         }
     });
@@ -337,6 +388,16 @@ pub async fn spawn_acp_session(
     })
 }
 
+/// Idempotent by construction: `remove` on an id the forwarder task
+/// already reaped (child died → `AcpSessionEvent::Closed` →
+/// `on_dead`'s `registry.remove`, see `spawn_acp_session`) returns `None`
+/// and we just skip the shutdown — no error. This matters for
+/// `AcpChatView.restart()` on the frontend: by the time the user sees the
+/// "Restart session" control the old session is already dead (that's why
+/// the notice showed up), so the forwarder has typically already removed
+/// it from the registry before `restart()` ever gets a chance to call
+/// `close_acp_session` on the old id — and even if it raced ahead of the
+/// forwarder, this being a silent no-op keeps that race harmless.
 #[tauri::command]
 pub async fn close_acp_session(
     state: State<'_, AppState>,

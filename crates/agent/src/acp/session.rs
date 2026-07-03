@@ -76,6 +76,17 @@ pub enum AcpSessionEvent {
         request_key: String,
         request: PermissionRequest,
     },
+    /// reader exited — child stdout gone; no further events will arrive.
+    ///
+    /// Explicit liveness signal: `AcpSession` itself holds a clone of the
+    /// broadcast `Sender` for its whole lifetime (kept alive by whatever
+    /// registry owns the `Arc<AcpSession>`), so `RecvError::Closed` — which
+    /// only fires once *every* `Sender` clone is dropped — is unreachable
+    /// on a real child crash; only `read_loop`'s clone would drop. Consumers
+    /// that need to detect "the child died" (e.g. the Tauri forwarder in
+    /// `acp_commands.rs`) must match on this variant instead of relying on
+    /// `RecvError::Closed`.
+    Closed,
 }
 
 #[derive(Debug, Error)]
@@ -559,6 +570,11 @@ async fn read_loop(
     // entries behind would let a later `respond_permission` find a stale
     // id and try to write into a stdin whose writer has already exited.
     parked.lock().await.clear();
+    // Broadcast the explicit liveness signal (see `AcpSessionEvent::Closed`
+    // doc) so subscribers can detect death deterministically instead of
+    // relying on `RecvError::Closed`, which never fires while the struct's
+    // own `events_tx` clone is alive. Best-effort: no subscribers is fine.
+    let _ = events_tx.send(AcpSessionEvent::Closed);
     tracing::debug!("acp reader exiting");
 }
 
@@ -1070,6 +1086,55 @@ printf '{"jsonrpc":"2.0","id":91,"method":"session/request_permission","params":
             .await
             .expect_err("parked entry must be dropped on reader exit, not left answerable");
         assert!(matches!(err, AcpError::Rpc(_) | AcpError::Closed));
+
+        session.shutdown(Duration::from_secs(2)).await;
+    }
+
+    /// Regression for the unreachable-`SessionDead` finding: `AcpSession`
+    /// retains its own `events_tx` clone for its whole lifetime, so
+    /// `RecvError::Closed` never fires on a real child crash — a consumer
+    /// waiting on it (like the Tauri forwarder) would block forever. The
+    /// reader's exit path must instead broadcast an explicit
+    /// `AcpSessionEvent::Closed` that every live subscriber actually
+    /// receives, in-order, after any updates the child managed to emit.
+    #[tokio::test]
+    async fn reader_exit_broadcasts_closed() {
+        let script = r#"
+read line
+printf '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}\n'
+printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"bye"}}}}\n'
+"#;
+        let resolver: PermissionResolver =
+            Arc::new(|_| PermissionDecision::Select("reject_once".into()));
+        let session = AcpSession::spawn(spawn_opts(script), resolver)
+            .await
+            .expect("spawn");
+        let mut events = session.events();
+        let _ = session
+            .request("initialize", serde_json::json!({}))
+            .await
+            .expect("init");
+
+        let first = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await
+            .expect("timely")
+            .expect("recv");
+        let AcpSessionEvent::Update(first) = first else {
+            panic!("expected Update, got {first:?}")
+        };
+        assert_eq!(first.session_id, "s1");
+
+        // The fake agent exits right after emitting the one update
+        // (no trailing `read`), closing stdout — simulating a crash.
+        // `read_loop`'s exit path must broadcast `Closed` next.
+        let closed = tokio::time::timeout(Duration::from_secs(3), events.recv())
+            .await
+            .expect("timely — reader exit never broadcast Closed")
+            .expect("recv");
+        assert!(
+            matches!(closed, AcpSessionEvent::Closed),
+            "expected Closed, got {closed:?}"
+        );
 
         session.shutdown(Duration::from_secs(2)).await;
     }

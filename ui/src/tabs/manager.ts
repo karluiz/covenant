@@ -2449,6 +2449,11 @@ export class TabManager {
       ta?.focus();
       return;
     }
+    if (tab.kind === "acp") {
+      // ACP tabs have no xterm either; hand focus to the chat composer.
+      tab.acpView?.focusComposer();
+      return;
+    }
     try {
       tab.term?.focus();
     } catch {

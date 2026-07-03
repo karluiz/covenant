@@ -105,6 +105,13 @@ pub async fn run_task(opts: AcpRunOpts) -> Result<AcpRunReport, AcpError> {
                     // this is unreachable in practice — ignore it rather
                     // than special-case something that can't happen here.
                     AcpSessionEvent::PermissionPending { .. } => continue,
+                    // Reader exited — mirrors the `RecvError::Closed` arm
+                    // above (nothing left to drain), but reachable in
+                    // practice: `AcpSession` retains its own `events_tx`
+                    // clone for the run's lifetime, so `RecvError::Closed`
+                    // itself never fires here before `drop(session)` at the
+                    // bottom of `run_task`.
+                    AcpSessionEvent::Closed => break,
                 };
                 let mut c = match collector.lock() {
                     Ok(c) => c,
