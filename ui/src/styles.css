@@ -3184,6 +3184,24 @@ body:not(.tabbar-left) #new-group {
     /* defensive — second child gets the rest of the row */
 }
 
+.ctx-item-badge {
+    margin-left: 12px;
+    padding: 1px 7px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    border-radius: 999px;
+    color: var(--bg, #0f1013);
+    background: var(--accent);
+    flex-shrink: 0;
+}
+
+/* Hover paints the row with the accent — invert the badge so it stays legible. */
+.ctx-item:hover:not(:disabled) .ctx-item-badge {
+    color: var(--accent);
+    background: var(--bg, #0f1013);
+}
+
 .ctx-item-shortcut {
     margin-left: 12px;
     padding: 1px 6px;

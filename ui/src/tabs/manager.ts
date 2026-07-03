@@ -7163,6 +7163,7 @@ export class TabManager {
         // Copilot only for now — the sole executor with a stable ACP
         // server. Grows into an executor picker when claude/codex land.
         label: "Start agent in ACP mode",
+        badge: "NEW",
         icon: Icons.sparkles(),
         onClick: () => {
           if (group.collapsed) this.toggleGroupCollapsed(group.id);

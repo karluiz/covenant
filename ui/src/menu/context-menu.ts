@@ -33,6 +33,9 @@ export interface MenuItem {
   disabled?: boolean;
   /// Optional keyboard-shortcut hint shown right-aligned (e.g. "⌘T").
   shortcut?: string;
+  /// Optional trailing pill (e.g. "NEW") shown right-aligned after the
+  /// label, before any shortcut hint.
+  badge?: string;
   /// When set, clicking re-opens the menu populated with these items.
   /// Indicated to the user with a trailing chevron. `onClick` is ignored
   /// when `submenu` is provided.
@@ -272,6 +275,13 @@ export class ContextMenu {
     labelEl.className = "ctx-item-label";
     labelEl.textContent = item.label ?? "";
     btn.appendChild(labelEl);
+
+    if (item.badge) {
+      const badge = document.createElement("span");
+      badge.className = "ctx-item-badge";
+      badge.textContent = item.badge;
+      btn.appendChild(badge);
+    }
 
     if (item.shortcut) {
       const kbd = document.createElement("span");
