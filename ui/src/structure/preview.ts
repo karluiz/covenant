@@ -19,6 +19,7 @@ export type PreviewKind =
   | "svg"
   | "png"
   | "html"
+  | "csv"
   | "xlsx"
   | "docx"
   | "pdf";
@@ -27,8 +28,11 @@ export type PreviewKind =
 /// HtmlPreview uses `path` to detect superpowers brainstorm fragments
 /// (body-only screens) and wrap them in the brainstorm frame template so
 /// their design renders, rather than painting a bare unstyled fragment.
+/// CsvPreview uses `onEdit` to push cell edits back into the editor's
+/// dirty-tracking (the preview itself never touches disk).
 export interface PreviewCtx {
   path?: string | null;
+  onEdit?: (text: string) => void;
 }
 
 export interface Preview {
@@ -55,6 +59,7 @@ export function previewKindForPath(path: string): PreviewKind | null {
   if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "webp") {
     return "png";
   }
+  if (ext === "csv" || ext === "tsv") return "csv";
   if (ext === "xlsx" || ext === "xls" || ext === "xlsm" || ext === "ods") {
     return "xlsx";
   }
@@ -250,6 +255,195 @@ export class PngPreview implements Preview {
       URL.revokeObjectURL(this.currentUrl);
       this.currentUrl = null;
     }
+  }
+}
+
+// ─── CSV / TSV ─────────────────────────────────────────
+
+// NOT SheetJS on purpose: an *editable* view must round-trip untouched
+// cells byte-faithfully, and SheetJS parses to typed values ("3e-06"
+// becomes 0.000003, big ints lose precision). Cells stay raw strings.
+
+/// RFC 4180-ish parser: quoted fields, escaped quotes (""), embedded
+/// delimiters/newlines inside quotes, LF / CRLF / bare-CR row breaks.
+/// A trailing newline does not produce a phantom empty row.
+export function parseCsv(text: string, delim = ","): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+  let i = 0;
+  const endCell = () => {
+    row.push(cell);
+    cell = "";
+  };
+  const endRow = () => {
+    endCell();
+    rows.push(row);
+    row = [];
+  };
+  while (i < text.length) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cell += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i++;
+        continue;
+      }
+      cell += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"' && cell === "") {
+      inQuotes = true;
+      i++;
+      continue;
+    }
+    if (ch === delim) {
+      endCell();
+      i++;
+      continue;
+    }
+    if (ch === "\r") {
+      if (text[i + 1] === "\n") i++;
+      endRow();
+      i++;
+      continue;
+    }
+    if (ch === "\n") {
+      endRow();
+      i++;
+      continue;
+    }
+    cell += ch;
+    i++;
+  }
+  if (cell !== "" || row.length > 0) endRow();
+  return rows;
+}
+
+/// Minimal-quoting serializer: a cell is quoted only when it contains
+/// the delimiter, a quote, or a newline. Unnecessary quotes present in
+/// the original file are normalized away — values are preserved exactly.
+export function serializeCsv(
+  rows: string[][],
+  opts: { delim?: string; eol?: string } = {},
+): string {
+  const delim = opts.delim ?? ",";
+  const eol = opts.eol ?? "\n";
+  const esc = (s: string) =>
+    s.includes(delim) || s.includes('"') || s.includes("\n") || s.includes("\r")
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  return rows.map((r) => r.map(esc).join(delim)).join(eol);
+}
+
+const CSV_MAX_RENDER_ROWS = 500;
+
+/// Editable spreadsheet-style view over a CSV/TSV file. Renders the
+/// same table chrome as XlsxPreview; every cell is contentEditable.
+/// A committed cell edit (blur / Enter) re-serializes the FULL matrix
+/// — including rows beyond the render cap — and reports the new text
+/// via `ctx.onEdit`; the StructureEditor owns dirty state and ⌘S.
+export class CsvPreview implements Preview {
+  private rows: string[][] = [];
+  private delim = ",";
+  private eol = "\n";
+  private trailingEol = false;
+  private onEdit: ((text: string) => void) | null = null;
+
+  mount(host: HTMLElement, content: string, ctx?: PreviewCtx): void {
+    this.onEdit = ctx?.onEdit ?? null;
+    this.delim = (ctx?.path ?? "").toLowerCase().endsWith(".tsv") ? "\t" : ",";
+    this.eol = content.includes("\r\n") ? "\r\n" : "\n";
+    this.trailingEol = /\r?\n$/.test(content);
+    this.rows = parseCsv(content, this.delim);
+
+    host.innerHTML = "";
+    const root = document.createElement("div");
+    root.className = "structure-preview-csv structure-preview-xlsx";
+    const grid = document.createElement("div");
+    grid.className = "structure-preview-xlsx-grid";
+    const table = document.createElement("table");
+    table.className = "structure-preview-xlsx-table structure-preview-csv-table";
+    const tbody = document.createElement("tbody");
+
+    const maxCols = this.rows.reduce((m, r) => Math.max(m, r.length), 0);
+    const limit = Math.min(this.rows.length, CSV_MAX_RENDER_ROWS);
+    for (let r = 0; r < limit; r++) {
+      const tr = document.createElement("tr");
+      for (let c = 0; c < maxCols; c++) {
+        const cell = document.createElement(r === 0 ? "th" : "td");
+        // plaintext-only is a WebKit original — rich paste degrades to text.
+        cell.setAttribute("contenteditable", "plaintext-only");
+        cell.dataset.r = String(r);
+        cell.dataset.c = String(c);
+        cell.textContent = this.rows[r][c] ?? "";
+        tr.appendChild(cell);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    grid.appendChild(table);
+    root.appendChild(grid);
+    if (this.rows.length > limit) {
+      const more = document.createElement("div");
+      more.className = "structure-preview-xlsx-more";
+      more.textContent = `… ${this.rows.length - limit} more rows not shown (edits still save the full file)`;
+      grid.appendChild(more);
+    }
+    host.appendChild(root);
+
+    table.addEventListener("focusout", (e) => {
+      const cell = e.target as HTMLElement;
+      if (cell.dataset?.r !== undefined) this.commit(cell);
+    });
+    table.addEventListener("keydown", (e) => {
+      const cell = e.target as HTMLElement;
+      if (cell.dataset?.r === undefined) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        cell.blur(); // focusout commits
+      } else if (e.key === "Escape") {
+        const r = Number(cell.dataset.r);
+        const c = Number(cell.dataset.c);
+        cell.textContent = this.rows[r]?.[c] ?? "";
+        cell.blur();
+        e.stopPropagation(); // don't let Esc also close the editor
+      }
+    });
+  }
+
+  update(host: HTMLElement, content: string, ctx?: PreviewCtx): void {
+    this.mount(host, content, ctx);
+  }
+
+  dispose(): void {
+    this.onEdit = null;
+    this.rows = [];
+  }
+
+  private commit(cell: HTMLElement): void {
+    const r = Number(cell.dataset.r);
+    const c = Number(cell.dataset.c);
+    const row = this.rows[r];
+    if (!row) return;
+    // innerText maps <br> → \n; a trailing one is contentEditable noise.
+    // (jsdom has no innerText — fall back to textContent there.)
+    const val = (cell.innerText ?? cell.textContent ?? "").replace(/\n$/, "");
+    const old = row[c] ?? "";
+    if (old === val) return; // ragged-row padding cells stay virtual until edited
+    while (row.length <= c) row.push("");
+    row[c] = val;
+    const text =
+      serializeCsv(this.rows, { delim: this.delim, eol: this.eol }) +
+      (this.trailingEol ? this.eol : "");
+    this.onEdit?.(text);
   }
 }
 

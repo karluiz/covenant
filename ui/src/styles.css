@@ -8477,6 +8477,20 @@ body.theme-true-dark .tab-pane:has(.editor-host:not([hidden])) > .editor-host .s
     opacity: 0.7;
 }
 
+/* CSV preview reuses the xlsx table chrome; cells are contentEditable. */
+.structure-preview-csv-table th,
+.structure-preview-csv-table td {
+    cursor: text;
+    min-width: 3ch;
+}
+
+.structure-preview-csv-table th:focus,
+.structure-preview-csv-table td:focus {
+    outline: 1.5px solid var(--accent, #7aa2f7);
+    outline-offset: -1px;
+    background: rgba(var(--ink-rgb), 0.05);
+}
+
 /* DOCX preview — mammoth renders semantic HTML (p, h1..h6, ul/ol, table,
    img). Keep typography close to the markdown preview so the editor
    feels coherent across document kinds. */

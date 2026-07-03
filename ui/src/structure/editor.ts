@@ -73,6 +73,7 @@ import {
   type PreviewKind,
   previewKindForPath,
   SvgPreview,
+  CsvPreview,
   XlsxPreview,
   DocxPreview,
   PdfPreview,
@@ -379,6 +380,21 @@ export class StructureEditor {
           this.openFind();
         }
       }
+      // ⌘S normally lives in the CM6 keymap, which doesn't exist in
+      // preview mode — editable previews (CSV) need it here.
+      if (meta && (e.key === "s" || e.key === "S") && !e.shiftKey) {
+        if (this.viewMode === "preview") {
+          e.preventDefault();
+          e.stopPropagation();
+          // Commit the in-flight cell edit (blur fires focusout → commit
+          // synchronously) before snapshotting liveContent.
+          const active = document.activeElement;
+          if (active instanceof HTMLElement && this.previewHostEl.contains(active)) {
+            active.blur();
+          }
+          void this.save();
+        }
+      }
     });
 
     this.host.appendChild(this.root);
@@ -634,6 +650,18 @@ export class StructureEditor {
       }
     }
     this.callbacks.toast?.(`Component not found: ${name}`, "error");
+  }
+
+  /// Edits coming from an editable preview (CSV grid). The preview
+  /// hands us the full re-serialized text; dirty tracking + ⌘S save
+  /// work exactly like source-mode edits.
+  private onPreviewEdit(text: string): void {
+    this.liveContent = text;
+    const next = text !== (this.originalContent ?? "");
+    if (next !== this.dirty) {
+      this.dirty = next;
+      this.renderStatus();
+    }
   }
 
   private onDocChanged(): void {
@@ -907,7 +935,10 @@ export class StructureEditor {
       this.view = null;
     }
     this.currentPreview = makePreview(this.previewKind);
-    this.currentPreview.mount(this.previewHostEl, text, { path: this.currentPath });
+    this.currentPreview.mount(this.previewHostEl, text, {
+      path: this.currentPath,
+      onEdit: (t) => this.onPreviewEdit(t),
+    });
     if (this.findOpen) this.recomputeMatches();
     if (opts.focus) {
       // Preview is read-only but should be focusable for ⌘⇧P / Esc.
@@ -980,6 +1011,14 @@ export class StructureEditor {
     )
       return;
     if (!this.previewKind || !this.currentPath) return;
+
+    // Commit any in-flight editable-preview cell edit before snapshotting.
+    if (this.viewMode === "preview") {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && this.previewHostEl.contains(active)) {
+        active.blur();
+      }
+    }
 
     // Snapshot the latest text before swapping. In source mode we read
     // from CM6's doc (could be dirty); in preview mode liveContent
@@ -1221,6 +1260,8 @@ function makePreview(kind: PreviewKind): Preview {
       return new SvgPreview();
     case "png":
       return new PngPreview();
+    case "csv":
+      return new CsvPreview();
     case "xlsx":
       return new XlsxPreview();
     case "docx":
