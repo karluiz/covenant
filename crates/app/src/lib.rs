@@ -4585,6 +4585,7 @@ pub fn run() {
             acp_commands::acp_send_prompt,
             acp_commands::acp_respond_permission,
             acp_commands::acp_cancel,
+            acp_commands::acp_get_commands,
             acp_commands::close_acp_session,
             score_auth_commands::score_signin_start,
             score_auth_commands::score_signin_poll,

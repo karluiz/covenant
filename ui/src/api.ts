@@ -2546,6 +2546,12 @@ export async function spawnAcpSession(opts: { cwd?: string | null } = {}): Promi
   return invoke<SpawnAcpResult>("spawn_acp_session", { opts });
 }
 
+/// Latest slash-command roster for a live ACP session. Called once after
+/// subscribing — the roster's initial broadcast races the listener setup.
+export async function acpGetCommands(sessionId: SessionId): Promise<AcpAvailableCommand[]> {
+  return invoke<AcpAvailableCommand[]>("acp_get_commands", { sessionId });
+}
+
 export async function closeAcpSession(sessionId: SessionId): Promise<void> {
   return invoke<void>("close_acp_session", { sessionId });
 }

@@ -27,6 +27,7 @@ import type {
 } from "../../api";
 import {
   acpCancel,
+  acpGetCommands,
   acpRespondPermission,
   acpSendPrompt,
   closeAcpSession,
@@ -551,6 +552,17 @@ export class AcpChatView {
         return;
       }
       this.unlisten = unlisten;
+      // Seed the slash roster: its initial broadcast raced this listener's
+      // registration, so pull the backend's cached copy. Live updates keep
+      // flowing through the event stream and replace it.
+      try {
+        const commands = await acpGetCommands(this.sessionId);
+        if (!this.destroyed && this.state.commands.length === 0) {
+          this.state.commands = commands;
+        }
+      } catch {
+        /* roster is a nicety — the composer still works without it */
+      }
     } catch (err) {
       if (!this.destroyed) this.appendNotice(`subscribe failed: ${String(err)}`, "error");
     }

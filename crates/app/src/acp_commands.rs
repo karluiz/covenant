@@ -24,7 +24,8 @@ use std::time::Duration;
 use karl_agent::acp::{
     policy::resolve_headless,
     protocol::{
-        ContentBlock, PermissionRequest, SessionNotification, SessionUpdate, ToolCallFields,
+        AvailableCommand, ContentBlock, PermissionRequest, SessionNotification, SessionUpdate,
+        ToolCallFields,
     },
     AcpError, AcpSession, AcpSessionEvent, AcpSpawnOpts, PermissionDecision, PermissionResolver,
 };
@@ -118,6 +119,11 @@ struct AcpTabSession {
     /// Guards against overlapping `session/prompt` calls on the same
     /// session (ACP has no queueing of its own).
     in_flight: AtomicBool,
+    /// Latest slash-command roster from `available_commands_update`,
+    /// cached because the frontend's Tauri listener races the forwarder's
+    /// first emits — the view fetches this via `acp_get_commands` after
+    /// subscribing. std Mutex: held for a clone, never across an await.
+    commands: std::sync::Mutex<Vec<AvailableCommand>>,
 }
 
 /// Shared registry of live interactive ACP sessions. Held on [`AppState`].
@@ -235,6 +241,13 @@ pub async fn spawn_acp_session(
     .await
     .map_err(|e| e.to_string())?;
 
+    // Subscribe BEFORE the handshake: copilot broadcasts
+    // `available_commands_update` right after `initialize`, and a tokio
+    // broadcast send with zero receivers is dropped on the floor. This
+    // receiver buffers those early frames until the forwarder (spawned
+    // post-handshake, after notch registration) drains them.
+    let rx = session.events();
+
     match session
         .request(
             "initialize",
@@ -300,7 +313,9 @@ pub async fn spawn_acp_session(
         session: session.clone(),
         acp_session_id,
         in_flight: AtomicBool::new(false),
+        commands: std::sync::Mutex::new(Vec::new()),
     });
+    let tab_for_task = tab_session.clone();
 
     // Registration must happen before the forwarder starts, or the first
     // events racing the forwarder's spawn can arrive at a hub with no
@@ -311,7 +326,7 @@ pub async fn spawn_acp_session(
         .register_external(session_id, "copilot".to_string())
         .await;
 
-    let mut rx = session.events();
+    let mut rx = rx; // subscribed pre-handshake (see above) — buffered frames intact
     let app_for_task = app.clone();
     let notch_hub_task = notch_hub.clone();
     let registry_task = state.acp_sessions.clone();
@@ -363,6 +378,17 @@ pub async fn spawn_acp_session(
             };
             if let Some(phase) = acp_event_to_phase(&ev) {
                 notch_hub_task.set_phase(session_id, phase).await;
+            }
+            // Cache the slash roster: the frontend's Tauri listener races
+            // these first emits, so the view re-fetches via
+            // `acp_get_commands` after subscribing.
+            if let AcpSessionEvent::Update(n) = &ev {
+                if let SessionUpdate::AvailableCommandsUpdate { available_commands } = &n.update {
+                    match tab_for_task.commands.lock() {
+                        Ok(mut c) => *c = available_commands.clone(),
+                        Err(poisoned) => *poisoned.into_inner() = available_commands.clone(),
+                    }
+                }
             }
             let payload = match ev {
                 AcpSessionEvent::Update(n) => AcpTabEvent::Update { update: n },
@@ -490,6 +516,23 @@ pub async fn acp_respond_permission(
         .respond_permission(&request_key, &option_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Latest slash-command roster for a session. The frontend calls this
+/// once after subscribing to the event topic — the roster's initial
+/// broadcast races the webview's `listen` registration, so a pull-based
+/// read is the only race-free way to seed the autocomplete.
+#[tauri::command]
+pub async fn acp_get_commands(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<Vec<AvailableCommand>, String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    let commands = match tab.commands.lock() {
+        Ok(c) => c.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    Ok(commands)
 }
 
 #[tauri::command]
