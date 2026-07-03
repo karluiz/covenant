@@ -126,6 +126,52 @@ struct AcpTabSession {
     commands: std::sync::Mutex<Vec<AvailableCommand>>,
     /// Session working directory — the jail root for prompt attachments.
     cwd: PathBuf,
+    /// Model roster + current selection from `session/new`, kept in sync
+    /// by `acp_set_model`. Same pull-based pattern as `commands`.
+    models: std::sync::Mutex<AcpModels>,
+}
+
+/// Model roster for the tab's picker. `available` comes from
+/// `session/new`'s `models.availableModels` (id + display name; pricing
+/// meta is passed through verbatim under `meta`).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpModels {
+    pub available: Vec<AcpModelInfo>,
+    pub current: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpModelInfo {
+    pub model_id: String,
+    pub name: Option<String>,
+    /// Wire extras (e.g. `_meta.copilotUsage` = "1x") — untyped passthrough.
+    pub meta: Option<Value>,
+}
+
+fn parse_models(new_sess: &Value) -> AcpModels {
+    let models = new_sess.get("models");
+    let available = models
+        .and_then(|m| m.get("availableModels"))
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    Some(AcpModelInfo {
+                        model_id: m.get("modelId")?.as_str()?.to_string(),
+                        name: m.get("name").and_then(Value::as_str).map(str::to_string),
+                        meta: m.get("_meta").cloned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let current = models
+        .and_then(|m| m.get("currentModelId"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    AcpModels { available, current }
 }
 
 /// Shared registry of live interactive ACP sessions. Held on [`AppState`].
@@ -305,11 +351,8 @@ pub async fn spawn_acp_session(
         session.shutdown(Duration::from_secs(3)).await;
         return Err("acp: session/new did not return a sessionId".to_string());
     }
-    let model = new_sess
-        .get("models")
-        .and_then(|m| m.get("currentModelId"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    let models = parse_models(&new_sess);
+    let model = models.current.clone();
 
     let tab_session = Arc::new(AcpTabSession {
         session: session.clone(),
@@ -317,6 +360,7 @@ pub async fn spawn_acp_session(
         in_flight: AtomicBool::new(false),
         commands: std::sync::Mutex::new(Vec::new()),
         cwd: cwd.clone(),
+        models: std::sync::Mutex::new(models),
     });
     let tab_for_task = tab_session.clone();
 
@@ -557,6 +601,42 @@ pub async fn acp_respond_permission(
         .respond_permission(&request_key, &option_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Model roster + current selection for the tab's model picker.
+#[tauri::command]
+pub async fn acp_get_models(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<AcpModels, String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    let models = match tab.models.lock() {
+        Ok(m) => m.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    Ok(models)
+}
+
+/// Switch the session's model via ACP `session/set_model`.
+#[tauri::command]
+pub async fn acp_set_model(
+    state: State<'_, AppState>,
+    session_id: String,
+    model_id: String,
+) -> Result<(), String> {
+    let (_, tab) = require(&state, &session_id).await?;
+    tab.session
+        .request(
+            "session/set_model",
+            json!({ "sessionId": tab.acp_session_id, "modelId": model_id }),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    match tab.models.lock() {
+        Ok(mut m) => m.current = Some(model_id),
+        Err(poisoned) => poisoned.into_inner().current = Some(model_id),
+    }
+    Ok(())
 }
 
 /// Latest slash-command roster for a session. The frontend calls this

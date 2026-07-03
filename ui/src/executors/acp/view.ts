@@ -28,14 +28,16 @@ import type {
 import {
   acpCancel,
   acpGetCommands,
+  acpGetModels,
   acpRespondPermission,
   acpSendPrompt,
+  acpSetModel,
   closeAcpSession,
   spawnAcpSession,
   structureListDir,
   subscribeAcpEvents,
 } from "../../api";
-import type { DirEntry } from "../../api";
+import type { AcpModelInfo, DirEntry } from "../../api";
 import { brandIconSvg } from "../../icons/brands";
 
 const COPILOT_LOGO = brandIconSvg("copilot", 16) ?? "◈";
@@ -315,6 +317,14 @@ export class AcpChatView {
   private readonly cwd: string | null;
   private model: string | null;
   private metaEl!: HTMLElement;
+  private modelChipEl!: HTMLButtonElement;
+  private modelMenuEl!: HTMLElement;
+  private models: AcpModelInfo[] = [];
+  private readonly closeModelMenuOnOutsideClick = (e: MouseEvent): void => {
+    if (e.target instanceof Node && this.modelMenuEl.contains(e.target)) return;
+    if (e.target instanceof Node && this.modelChipEl.contains(e.target)) return;
+    this.closeModelMenu();
+  };
 
   private readonly state: AcpStreamState = createAcpStreamState();
   private unlisten: (() => void) | null = null;
@@ -365,6 +375,7 @@ export class AcpChatView {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    document.removeEventListener("mousedown", this.closeModelMenuOnOutsideClick);
     if (this.unlisten) {
       try {
         this.unlisten();
@@ -405,8 +416,10 @@ export class AcpChatView {
       <div class="acp-chat-header">
         <span class="acp-chat-logo" aria-hidden="true">${COPILOT_LOGO}</span>
         <span class="acp-chat-title">Copilot</span>
+        <button type="button" class="acp-model-chip" hidden></button>
         <span class="acp-chat-meta"></span>
         <span class="acp-chat-status" data-state="idle" aria-live="polite">idle</span>
+        <div class="acp-model-menu" role="listbox" hidden></div>
       </div>
       <div class="acp-chat-messages" role="log" aria-live="polite">
         <div class="acp-chat-empty" role="note">
@@ -436,6 +449,12 @@ export class AcpChatView {
     `;
     this.statusEl = requireChild(this.host, ".acp-chat-status");
     this.metaEl = requireChild(this.host, ".acp-chat-meta");
+    this.modelChipEl = requireChild(this.host, ".acp-model-chip") as HTMLButtonElement;
+    this.modelMenuEl = requireChild(this.host, ".acp-model-menu");
+    this.modelChipEl.addEventListener("click", () => {
+      if (this.modelMenuEl.hidden) this.openModelMenu();
+      else this.closeModelMenu();
+    });
     this.renderMeta();
     this.messagesEl = requireChild(this.host, ".acp-chat-messages");
     this.messagesEl.addEventListener(
@@ -568,9 +587,16 @@ export class AcpChatView {
 
   private pickSlashCommand(cmd: AcpAvailableCommand | undefined): void {
     if (!cmd) return;
+    this.hideSlashMenu();
+    // Commands with interactive sub-selection in the copilot TUI can't
+    // ride a text prompt — route them to our native pickers instead.
+    if (cmd.name === "model") {
+      this.inputEl.value = "";
+      this.openModelMenu();
+      return;
+    }
     this.inputEl.value = `/${cmd.name} `;
     this.inputEl.focus();
-    this.hideSlashMenu();
   }
 
   private hideSlashMenu(): void {
@@ -674,12 +700,77 @@ export class AcpChatView {
     this.mentionFrag = null;
   }
 
-  /// Header meta: "model · ~/short/cwd" — plain textContent, both values
-  /// can be wire/user controlled and must never hit innerHTML.
+  /// Header meta — plain textContent, wire/user strings never hit
+  /// innerHTML. The model lives in its own clickable chip; meta is cwd.
   private renderMeta(): void {
     const home = /^\/Users\/[^/]+/;
-    const cwd = this.cwd ? this.cwd.replace(home, "~") : null;
-    this.metaEl.textContent = [this.model, cwd].filter(Boolean).join(" · ");
+    this.metaEl.textContent = this.cwd ? this.cwd.replace(home, "~") : "";
+    this.modelChipEl.textContent = this.model ?? "model";
+    this.modelChipEl.hidden = this.model === null && this.models.length === 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // Model picker — roster from session/new (cached backend-side); switching
+  // goes through ACP `session/set_model`. Also opened by the /model slash
+  // command, whose TUI behavior (an interactive picker) can't ride a text
+  // prompt.
+  // -------------------------------------------------------------------------
+
+  private openModelMenu(): void {
+    if (this.models.length === 0) return;
+    this.modelMenuEl.hidden = false;
+    this.renderModelMenu();
+    document.addEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+  }
+
+  private closeModelMenu(): void {
+    this.modelMenuEl.hidden = true;
+    this.modelMenuEl.textContent = "";
+    document.removeEventListener("mousedown", this.closeModelMenuOnOutsideClick);
+  }
+
+  private renderModelMenu(): void {
+    this.modelMenuEl.textContent = "";
+    for (const m of this.models) {
+      const row = document.createElement("div");
+      row.className = "acp-slash-row";
+      row.setAttribute("role", "option");
+      if (m.modelId === this.model) row.classList.add("acp-slash-selected");
+      const name = document.createElement("span");
+      name.className = "acp-slash-name";
+      name.textContent = m.name ?? m.modelId;
+      row.appendChild(name);
+      const usage = m.meta?.copilotUsage;
+      if (typeof usage === "string") {
+        const hint = document.createElement("span");
+        hint.className = "acp-slash-hint";
+        hint.textContent = usage;
+        row.appendChild(hint);
+      }
+      if (m.modelId === this.model) {
+        const mark = document.createElement("span");
+        mark.className = "acp-slash-desc";
+        mark.textContent = "current";
+        row.appendChild(mark);
+      }
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        void this.pickModel(m.modelId);
+      });
+      this.modelMenuEl.appendChild(row);
+    }
+  }
+
+  private async pickModel(modelId: string): Promise<void> {
+    this.closeModelMenu();
+    try {
+      await acpSetModel(this.sessionId, modelId);
+      this.model = modelId;
+      this.renderMeta();
+      this.appendNotice(`Model switched to ${modelId}.`, "info");
+    } catch (err) {
+      this.appendNotice(`model switch failed: ${String(err)}`, "error");
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -700,9 +791,9 @@ export class AcpChatView {
         return;
       }
       this.unlisten = unlisten;
-      // Seed the slash roster: its initial broadcast raced this listener's
-      // registration, so pull the backend's cached copy. Live updates keep
-      // flowing through the event stream and replace it.
+      // Seed the slash + model rosters: their initial broadcasts raced this
+      // listener's registration, so pull the backend's cached copies. Live
+      // updates keep flowing through the event stream and replace them.
       try {
         const commands = await acpGetCommands(this.sessionId);
         if (!this.destroyed && this.state.commands.length === 0) {
@@ -710,6 +801,16 @@ export class AcpChatView {
         }
       } catch {
         /* roster is a nicety — the composer still works without it */
+      }
+      try {
+        const models = await acpGetModels(this.sessionId);
+        if (!this.destroyed) {
+          this.models = models.available;
+          if (models.current) this.model = models.current;
+          this.renderMeta();
+        }
+      } catch {
+        /* model picker is a nicety */
       }
     } catch (err) {
       if (!this.destroyed) this.appendNotice(`subscribe failed: ${String(err)}`, "error");

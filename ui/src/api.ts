@@ -2552,6 +2552,26 @@ export async function acpGetCommands(sessionId: SessionId): Promise<AcpAvailable
   return invoke<AcpAvailableCommand[]>("acp_get_commands", { sessionId });
 }
 
+export interface AcpModelInfo {
+  modelId: string;
+  name?: string | null;
+  /// Wire extras, e.g. `{ copilotUsage: "1x" }`.
+  meta?: Record<string, unknown> | null;
+}
+
+export interface AcpModels {
+  available: AcpModelInfo[];
+  current?: string | null;
+}
+
+export async function acpGetModels(sessionId: SessionId): Promise<AcpModels> {
+  return invoke<AcpModels>("acp_get_models", { sessionId });
+}
+
+export async function acpSetModel(sessionId: SessionId, modelId: string): Promise<void> {
+  return invoke<void>("acp_set_model", { sessionId, modelId });
+}
+
 export async function closeAcpSession(sessionId: SessionId): Promise<void> {
   return invoke<void>("close_acp_session", { sessionId });
 }
