@@ -43,6 +43,7 @@ export const SHORTCUTS: ShortcutEntry[] = [
   { category: "Panels", keys: ["⌘", "⇧", "P"], label: "Workspace picker", description: "Toggle the workspace switcher popover: pick, rename, duplicate, recolor, delete." },
   { category: "Panels", keys: ["⌘", "⇧", "V"], label: "Release log", description: "Open version history / release notes." },
   { category: "Tabs", keys: ["⌘", "⌥", "⇧", "P"], label: "New Pi tab", description: "Create a permanent Pi RPC tab in the tabbar." },
+  { category: "Tabs", keys: ["⌘", "⌥", "⇧", "C"], label: "New Copilot (ACP) tab", description: "Create a structured Copilot chat tab wired to a copilot --acp session." },
   { category: "Tabs", keys: ["⌘", "⌥", "N"], label: "New workspace", description: "Create a new workspace and switch to it. The outgoing workspace's PTYs are killed and respawned from manifest on next switch." },
   { category: "Tabs", keys: ["⌘", "D"], label: "Split right", description: "Add a second pane to the right of the active pane. Requires experimental.split_panes." },
   { category: "Tabs", keys: ["⌘", "\\"], label: "Split down", description: "Add a second pane below the active pane. Requires experimental.split_panes." },

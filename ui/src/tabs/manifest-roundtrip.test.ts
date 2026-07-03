@@ -29,7 +29,7 @@ const makeTab = (
   id: string,
   panes: Pane[],
   layout: TabLayout,
-  opts: { customName?: string | null; color?: string | null; groupId?: string | null; kind?: "shell" | "pi" } = {},
+  opts: { customName?: string | null; color?: string | null; groupId?: string | null; kind?: "shell" | "pi" | "acp" } = {},
 ) => ({
   id,
   kind: opts.kind ?? ("shell" as const),
@@ -189,5 +189,33 @@ describe("serializeTab → liftLegacyTab roundtrip for split tabs", () => {
     const s = serializeTab(tab);
     expect(s.kind).toBe("pi");
     expect(s.panes![0].kind).toBe("pi");
+  });
+
+  it("ACP pane kind round-trip — first pane kind: acp serializes top-level kind: acp", () => {
+    const acpPane: Pane = { ...pane("p0", "/notes"), kind: "acp" };
+    const tab = makeTab(
+      "t1",
+      [acpPane],
+      { kind: "single", activePaneIdx: 0 },
+      { kind: "acp" },
+    );
+    const s = serializeTab(tab);
+    expect(s.kind).toBe("acp");
+    expect(s.panes![0].kind).toBe("acp");
+  });
+
+  it("ACP pane kind survives liftLegacyTab (panes[] present)", () => {
+    const acpPane: Pane = { ...pane("p0", "/notes"), kind: "acp" };
+    const tab = makeTab(
+      "t1",
+      [acpPane],
+      { kind: "single", activePaneIdx: 0 },
+      { kind: "acp" },
+    );
+    const s = serializeTab(tab);
+    const lifted = liftLegacyTab(s);
+    expect(lifted.kind).toBe("acp");
+    expect(lifted.panes![0].kind).toBe("acp");
+    expect(lifted.cwd).toBe("/notes");
   });
 });

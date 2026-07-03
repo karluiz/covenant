@@ -2217,6 +2217,14 @@ async function boot(): Promise<void> {
       void manager.createPiTab({ cwd: manager.activeCwd() ?? null });
       return;
     }
+    // ⌘⌥⇧C — create an ACP (Copilot chat) tab in the tabbar. Verified
+    // unbound: no other handler in this file combines metaKey+altKey+
+    // shiftKey with "c"/"C" (⌘⇧C without alt is the Changes surface).
+    if (e.metaKey && e.altKey && e.shiftKey && (e.key === "C" || e.key === "c" || e.key === "ç")) {
+      e.preventDefault();
+      void manager.createAcpTab({ cwd: manager.activeCwd() });
+      return;
+    }
     // ⌘⇧A — pure AOM toggle: off ↔ on.
     //
     // Earlier this shortcut layered AFK in between (off→on→AFK→off),

@@ -1,9 +1,10 @@
 import type { Terminal } from "@xterm/xterm";
 import type { MissionInfo } from "../api";
 import type { PiChatView } from "../executors/pi/view";
+import type { AcpChatView } from "../executors/acp/view";
 
 export type PaneId = string;
-export type PaneKind = "terminal" | "pi";
+export type PaneKind = "terminal" | "pi" | "acp";
 export type SplitOrientation = "horizontal" | "vertical";
 
 export type IdleAgentState = {
@@ -31,6 +32,9 @@ export interface Pane {
   blocks: Block[];
   xterm: Terminal | null;
   piView: PiChatView | null;
+  /// ACP-specific — set when `kind === "acp"`. Renders the structured
+  /// Copilot chat panel in this pane's host element instead of xterm.
+  acpView?: AcpChatView | null;
   executor: string | null;
   operatorEnabled: boolean;
   operatorLive: boolean;
