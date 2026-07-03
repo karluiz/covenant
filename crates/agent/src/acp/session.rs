@@ -262,6 +262,9 @@ impl AcpSession {
         });
         let mut line = serde_json::to_vec(&frame)?;
         line.push(b'\n');
+        // Empty Vec is write_loop's close sentinel — JSON + '\n' can never
+        // be empty, but keep the invariant explicit.
+        debug_assert!(!line.is_empty());
 
         if self.stdin_tx.send(line).await.is_err() {
             // Best-effort cleanup so we don't leak a slot.
@@ -284,6 +287,7 @@ impl AcpSession {
         });
         let mut line = serde_json::to_vec(&frame)?;
         line.push(b'\n');
+        debug_assert!(!line.is_empty()); // empty = write_loop close sentinel
         self.stdin_tx
             .send(line)
             .await
@@ -322,6 +326,7 @@ impl AcpSession {
         });
         let mut bytes = serde_json::to_vec(&reply)?;
         bytes.push(b'\n');
+        debug_assert!(!bytes.is_empty()); // empty = write_loop close sentinel
 
         // Caller task, not the reader hot path — plain `.send().await` is
         // fine here (see module-level A0 review note on `try_send`).
@@ -331,8 +336,12 @@ impl AcpSession {
             .map_err(|_| AcpError::Closed)
     }
 
-    /// Graceful shutdown: close stdin, wait for the child up to `timeout`,
-    /// then SIGKILL if it hasn't exited. There is no abort command in ACP.
+    /// Graceful shutdown, in order: flush parked permission requests as
+    /// cancelled (bounded), close stdin via the writer's in-band close
+    /// sentinel (so the cancelled replies hit the pipe first, then the
+    /// child sees EOF), wait for the child up to `timeout`, SIGKILL if it
+    /// hasn't exited, then join the reader tasks. There is no abort
+    /// command in ACP — stdin EOF is the graceful-exit signal.
     pub async fn shutdown(&self, timeout: Duration) {
         // Flush any still-parked permission requests as cancelled before
         // tearing anything else down, so the agent isn't left waiting on
@@ -376,15 +385,44 @@ impl AcpSession {
             p.clear();
         }
 
-        // Writer abort is deliberately *after* the child wait/kill below,
-        // not before: `stdin_tx.send()` above only enqueues onto the mpsc
-        // channel, it doesn't wait for `write_loop` to actually dequeue
-        // and write the bytes. Aborting immediately here raced the writer
-        // task and could cancel it before it ever got scheduled to drain
-        // the parked-flush replies, silently dropping them. Waiting for
-        // the child gives that task real wall-clock time (and await
-        // points to be polled at) to flush everything queued for it
-        // before we cut it off.
+        // Close stdin BEFORE waiting on the child, or an EOF-exiting child
+        // (real copilot's contract) never sees EOF and burns the whole
+        // `timeout` below only to be SIGKILLed. But `stdin_tx.send()` only
+        // enqueues — aborting the writer here would race it and could drop
+        // the parked-flush replies still sitting in the queue. So instead:
+        // send the in-band close sentinel (empty Vec) AFTER the flush
+        // entries; write_loop processes the queue in order, so every
+        // cancelled reply hits the pipe first, then the sentinel breaks the
+        // loop and drops stdin → EOF to the child. Bounded, best-effort:
+        // if the queue is wedged or the writer is already gone, fall
+        // through — the abort fallback (and ultimately the child kill)
+        // still closes stdin.
+        let sentinel = tokio::time::timeout(
+            Duration::from_millis(500),
+            self.stdin_tx.send(Vec::new()),
+        )
+        .await;
+        if !matches!(sentinel, Ok(Ok(()))) {
+            tracing::warn!(
+                timeout_ms = 500,
+                "acp: stdin close sentinel not enqueued during shutdown; falling back to writer abort"
+            );
+        }
+        if let Some(handle) = self.writer.lock().await.take() {
+            let abort = handle.abort_handle();
+            if tokio::time::timeout(Duration::from_secs(1), handle)
+                .await
+                .is_err()
+            {
+                tracing::warn!(
+                    timeout_ms = 1000,
+                    "acp: writer did not exit on close sentinel; aborting"
+                );
+                // Abort also closes stdin: cancelling the task drops it.
+                abort.abort();
+            }
+        }
+
         let mut child_lock = self.child.lock().await;
         if let Some(mut child) = child_lock.take() {
             let wait = tokio::time::timeout(timeout, child.wait()).await;
@@ -394,11 +432,6 @@ impl AcpSession {
             }
         }
         drop(child_lock);
-
-        if let Some(handle) = self.writer.lock().await.take() {
-            handle.abort();
-            let _ = handle.await;
-        }
 
         // Reader will exit naturally once stdout closes.
         if let Some(handle) = self.reader.lock().await.take() {
@@ -422,6 +455,15 @@ async fn write_loop(
     alive: Arc<AtomicBool>,
 ) {
     while let Some(line) = rx.recv().await {
+        // In-band close sentinel from `shutdown()`: an empty message means
+        // "everything queued before me has been written — now close stdin
+        // so an EOF-exiting child can terminate gracefully". Normal frames
+        // are always serialized JSON + '\n' (≥ 2 bytes), so an empty Vec
+        // can never occur on any other path (see debug_asserts at the
+        // enqueue sites).
+        if line.is_empty() {
+            break;
+        }
         if let Err(e) = stdin.write_all(&line).await {
             tracing::warn!(?e, "acp stdin write failed; closing writer");
             break;
@@ -647,6 +689,7 @@ async fn handle_agent_request(
         return;
     };
     bytes.push(b'\n');
+    debug_assert!(!bytes.is_empty()); // empty = write_loop close sentinel
 
     // `try_send` so a saturated stdin queue can never stall the reader —
     // the reader must keep draining stdout regardless of stdin
@@ -953,6 +996,30 @@ case "$answer" in *cancelled*) : > "__MARKER__";; esac
             .await
             .expect_err("drained");
         assert!(matches!(err, AcpError::Rpc(_) | AcpError::Closed));
+    }
+
+    /// Graceful teardown must be fast for a well-behaved child that exits
+    /// on stdin EOF (real copilot's contract): shutdown closes stdin
+    /// (writer sentinel → drop) BEFORE waiting on the child, so the child
+    /// sees EOF and exits immediately instead of burning the full wait
+    /// timeout and getting SIGKILLed.
+    #[tokio::test]
+    async fn graceful_shutdown_is_fast_for_eof_exiting_child() {
+        let script = "while read x; do :; done";
+        let resolver: PermissionResolver =
+            Arc::new(|_| PermissionDecision::Select("reject_once".into()));
+        let session = AcpSession::spawn(spawn_opts(script), resolver)
+            .await
+            .expect("spawn");
+
+        let start = std::time::Instant::now();
+        session.shutdown(Duration::from_secs(5)).await;
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "graceful shutdown of an EOF-exiting child took {elapsed:?}; \
+             stdin was not closed before child.wait()"
+        );
     }
 
     /// If the agent dies (stdout closes) without ever answering a parked
