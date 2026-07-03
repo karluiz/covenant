@@ -2,7 +2,7 @@
 //! notification payloads are internally tagged on `sessionUpdate`.
 //! Everything tolerates unknown variants — the protocol is public preview.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Any single JSONL frame read from the agent's stdout.
@@ -48,7 +48,7 @@ pub struct RpcError {
 }
 
 /// Params of a `session/update` notification.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionNotification {
     pub session_id: String,
@@ -58,7 +58,16 @@ pub struct SessionNotification {
 /// One streamed update. `#[serde(other)] Unknown` swallows kinds we don't
 /// model yet (plan, config_option_update, …) so preview-protocol drift
 /// never kills a session.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// `Serialize` is derived so the app layer can re-emit a typed
+/// `SessionUpdate` to the frontend verbatim (see `acp_commands::AcpTabEvent`)
+/// instead of round-tripping through a lossy re-serialization of a parsed
+/// struct. `#[serde(other)]` only affects `Deserialize` codegen — on the
+/// `Serialize` side `Unknown` just serializes as its own tagged variant,
+/// which is never produced by the app (it's a deserialize-only catch-all),
+/// so this asymmetry is inert in practice; covered by the round-trip test
+/// below.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "sessionUpdate", rename_all = "snake_case")]
 pub enum SessionUpdate {
     AgentMessageChunk { content: ContentBlock },
@@ -71,7 +80,7 @@ pub enum SessionUpdate {
 
 /// Shared field bag for `tool_call` and `tool_call_update` — the wire
 /// sends the same camelCase keys on both, all optional on updates.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolCallFields {
     pub tool_call_id: String,
@@ -110,7 +119,7 @@ impl ToolCallFields {
 
 /// Content blocks appear inside chunks and tool results. Untagged with a
 /// Value fallback: order matters — most-specific first.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ContentBlock {
     Diff {
@@ -139,7 +148,7 @@ impl ContentBlock {
 }
 
 /// Params of an agent→client `session/request_permission` request.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionRequest {
     pub session_id: String,
@@ -147,7 +156,7 @@ pub struct PermissionRequest {
     pub options: Vec<PermissionOption>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionToolCall {
     pub tool_call_id: String,
@@ -159,7 +168,7 @@ pub struct PermissionToolCall {
     pub raw_input: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionOption {
     pub option_id: String,

@@ -9,6 +9,7 @@
 //! watcher, and (M-OP) the Operator that answers executor agents on
 //! the user's behalf.
 
+mod acp_commands;
 mod aom;
 mod archetypes;
 mod browser;
@@ -198,6 +199,9 @@ pub(crate) struct AppState {
     /// because Pi tabs don't go through portable-pty. Lives on AppState
     /// so every `pi_*` Tauri command can address sessions by id.
     pub(crate) pi_sessions: pi_commands::PiRegistry,
+    /// Interactive ACP (`copilot --acp`) tab sessions. Mirrors
+    /// `pi_sessions`'s role for the Pi RPC executor.
+    pub(crate) acp_sessions: acp_commands::AcpRegistry,
     /// Notch overlay: per-session executor phase detector, bridged to each
     /// session's broadcast bus as ExecutorStateChanged events. `pub(crate)`
     /// so the operator tick loop can read the live phase via `phase_snapshot`
@@ -4248,6 +4252,7 @@ pub fn run() {
                 telegram_inbound_handle: tg_inbound_handle,
                 telegram_inbound_tx: tg_inbound_tx,
                 pi_sessions: pi_commands::PiRegistry::new(),
+                acp_sessions: acp_commands::AcpRegistry::new(),
                 notch_hub,
                 vitals,
                 exec_vitals,
@@ -4576,6 +4581,11 @@ pub fn run() {
             pi_commands::pi_compact,
             pi_commands::pi_get_session_stats,
             pi_commands::pi_extension_ui_response,
+            acp_commands::spawn_acp_session,
+            acp_commands::acp_send_prompt,
+            acp_commands::acp_respond_permission,
+            acp_commands::acp_cancel,
+            acp_commands::close_acp_session,
             score_auth_commands::score_signin_start,
             score_auth_commands::score_signin_poll,
             score_auth_commands::score_current_user,
